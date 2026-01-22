@@ -1162,29 +1162,16 @@ class ClientRegistryService:
             return event_type.lower()
 
     async def _emit_event(self, event_type: str, data: Dict[str, Any]) -> None:
-        """
-        Emit event to all subscribers and broadcast via WebSocket.
-
-        Broadcasts in the new standardized "multiroom" category format
-        while maintaining backward compatibility with "registry" category
-        during the transition period (Story 6.1 → 6.2).
-        """
+        """Emit event to all subscribers and broadcast via WebSocket."""
         # Broadcast via state machine (WebSocket to frontend)
         if self._state_machine:
-            # New format (architecture spec) - category "multiroom"
             mapped_type = self._map_event_type(event_type)
             await self._state_machine.broadcast_event("multiroom", mapped_type, data)
 
-            # Old format (backward compatibility - remove in Story 6.2)
-            await self._state_machine.broadcast_event("registry", event_type, data)
-
-        # Emit via EventBus (both old and new patterns)
+        # Emit via EventBus
         if self.event_bus:
-            # New pattern for internal services
             mapped_type = self._map_event_type(event_type)
             await self.event_bus.emit(f"multiroom.{mapped_type}", data)
-            # Old pattern for backward compatibility
-            await self.event_bus.emit(f"registry.{event_type}", data)
 
         # Notify local subscribers
         for callback in self._subscribers:

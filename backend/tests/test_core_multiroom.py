@@ -1625,7 +1625,7 @@ class TestZoneDspSync:
                 "enabled": True,
                 "filters": [{"id": "eq_3", "frequency": 3000, "gain": 1.5, "q": 1.41, "filter_type": "Peaking", "enabled": True}],
                 "compressor": {"enabled": True, "threshold": -20, "ratio": 4.0, "attack": 10.0, "release": 100.0, "makeup_gain": 0.0},
-                "loudness": {"enabled": True, "high_boost": 70, "high_boost": 5.0, "low_boost": 8.0}
+                "loudness": {"enabled": True, "high_boost": 5.0, "low_boost": 8.0}
             }
         }
 
@@ -1635,7 +1635,7 @@ class TestZoneDspSync:
         assert len(zone.client_ids) == 2
         assert zone.dsp_settings.filters[0].frequency == 3000
         assert zone.dsp_settings.compressor.enabled is True
-        assert zone.dsp_settings.loudness.high_boost == 70
+        assert zone.dsp_settings.loudness.high_boost == 5.0
 
 
 # =============================================================================
@@ -2426,10 +2426,10 @@ class TestSnapcastClientDetection:
         calls = mock_state_machine.broadcast_event.call_args_list
         assert len(calls) > 0
 
-        # Check event structure (category, type, data)
+        # Check event structure (category, type, data) - now uses multiroom category
         category, event_type, data = calls[-1][0]
-        assert category == "registry"
-        assert event_type in ["client_connected", "client_updated"]
+        assert category == "multiroom"
+        assert event_type == "client_state_changed"  # Mapped from client_connected/client_updated
         assert "mac_id" in data
         assert "client" in data
 
@@ -2444,13 +2444,13 @@ class TestSnapcastClientDetection:
 
         await registry.set_client_online("test-client", True)
 
-        # Verify event format
+        # Verify event format - now uses multiroom category with mapped event type
         calls = mock_state_machine.broadcast_event.call_args_list
         assert len(calls) > 0
 
         category, event_type, data = calls[-1][0]
-        assert category == "registry"
-        assert event_type == "client_connected"
+        assert category == "multiroom"
+        assert event_type == "client_state_changed"  # Mapped from client_connected
         assert data["mac_id"] == "test-client"
         assert "client" in data
 
@@ -2466,13 +2466,13 @@ class TestSnapcastClientDetection:
 
         await registry.set_client_online("test-client", False)
 
-        # Verify event format
+        # Verify event format - now uses multiroom category with mapped event type
         calls = mock_state_machine.broadcast_event.call_args_list
         assert len(calls) > 0
 
         category, event_type, data = calls[-1][0]
-        assert category == "registry"
-        assert event_type == "client_disconnected"
+        assert category == "multiroom"
+        assert event_type == "client_state_changed"  # Mapped from client_disconnected
         assert data["mac_id"] == "test-client"
 
     # === compute_mac_id Tests for Snapcast Integration ===
@@ -2905,7 +2905,7 @@ class TestSyncZoneDspToClient:
             EqFilter(id="eq_band_01", frequency=1000, gain=-2.0, q=1.0, filter_type=FilterType.LOWSHELF),
         ]
         compressor = CompressorSettings(enabled=True, threshold=-15.0, ratio=4.0, attack=10.0, release=100.0)
-        loudness = LoudnessSettings(enabled=True, high_boost=85, high_boost=5.0, low_boost=8.0)
+        loudness = LoudnessSettings(enabled=True, high_boost=5.0, low_boost=8.0)
 
         zone.dsp_settings = DspSettings(
             enabled=True,
@@ -2994,7 +2994,7 @@ class TestSyncZoneDspToClient:
         loudness_data = loudness_calls[0][0][3]
         assert isinstance(loudness_data, dict)
         assert loudness_data["enabled"] is True
-        assert loudness_data["high_boost"] == 85
+        assert loudness_data["high_boost"] == 5.0
 
     @pytest.mark.asyncio
     async def test_failed_filter_queued_as_dict(self, mock_state_machine, mock_registry, mock_zone_with_dsp):
@@ -3117,11 +3117,11 @@ class TestSyncStandaloneDspToClient:
         """Test that saved settings are applied via proxy service for remote clients."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
-        # Setup saved settings
+        # Setup saved settings - filters as dict (filter_id -> settings)
         saved_settings = {
-            "filters": [
-                {"id": "eq_band_00", "freq": 100, "gain": 2.0, "q": 1.41, "type": "Peaking"}
-            ],
+            "filters": {
+                "eq_band_00": {"freq": 100, "gain": 2.0, "q": 1.41, "type": "Peaking"}
+            },
             "compressor": {"enabled": True, "threshold": -20},
             "loudness": {"enabled": False}
         }
@@ -3153,9 +3153,9 @@ class TestSyncStandaloneDspToClient:
         local_client.mac_id = "local"
         mock_registry.get_client = MagicMock(return_value=local_client)
 
-        # Setup saved settings
+        # Setup saved settings - filters as dict (filter_id -> settings)
         saved_settings = {
-            "filters": [{"id": "eq_band_00", "freq": 100, "gain": 2.0, "q": 1.41, "type": "Peaking"}],
+            "filters": {"eq_band_00": {"freq": 100, "gain": 2.0, "q": 1.41, "type": "Peaking"}},
             "compressor": {"enabled": True, "threshold": -20},
             "loudness": {"enabled": False}
         }
@@ -3203,12 +3203,12 @@ class TestSyncStandaloneDspToClient:
         """Test that failed filter settings are queued via queue_pending_settings() (AC6)."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
-        # Setup saved settings with filters
+        # Setup saved settings with filters as dict (filter_id -> settings)
         saved_settings = {
-            "filters": [
-                {"id": "eq_band_00", "freq": 100, "gain": 2.0, "q": 1.41, "type": "Peaking"},
-                {"id": "eq_band_01", "freq": 1000, "gain": -1.5, "q": 1.41, "type": "Peaking"}
-            ]
+            "filters": {
+                "eq_band_00": {"freq": 100, "gain": 2.0, "q": 1.41, "type": "Peaking"},
+                "eq_band_01": {"freq": 1000, "gain": -1.5, "q": 1.41, "type": "Peaking"}
+            }
         }
         mock_state_machine.dsp_settings_sync_service.get_client_settings = AsyncMock(
             return_value=saved_settings

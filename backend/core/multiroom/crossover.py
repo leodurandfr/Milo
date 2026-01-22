@@ -650,25 +650,12 @@ class CrossoverService:
     # === Event Broadcasting ===
 
     async def _broadcast_event(self, event_type: str, data: Dict[str, Any]) -> None:
-        """
-        Broadcast crossover event via state machine and EventBus.
-
-        Uses standardized "multiroom" category with "crossover_changed" event type
-        per architecture spec. Maintains backward compatibility with old "crossover"
-        category during transition period (Story 6.1 → 6.2).
-        """
+        """Broadcast crossover event via state machine and EventBus."""
         if self.state_machine:
-            # New format (architecture spec) - category "multiroom", type "crossover_changed"
             await self.state_machine.broadcast_event("multiroom", "crossover_changed", data)
 
-            # Old format (backward compatibility - remove in Story 6.2)
-            await self.state_machine.broadcast_event("crossover", event_type, data)
-
         if self.event_bus:
-            # New pattern for internal services
             await self.event_bus.emit("multiroom.crossover_changed", data)
-            # Old pattern for backward compatibility
-            await self.event_bus.emit(f"multiroom.crossover.{event_type}", data)
 
     # === Pending Settings Queue for Offline Clients ===
 

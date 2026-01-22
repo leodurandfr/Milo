@@ -436,40 +436,52 @@ class TestPendingSettingsQueue:
         assert settings["lowpass"]["enabled"] is True
 
     @pytest.mark.asyncio
-    async def test_apply_pending_crossover_on_reconnect(self, crossover_service, mock_dsp_service):
+    async def test_apply_pending_crossover_on_reconnect(self, crossover_service_with_registry, mock_dsp_service):
         """Test pending crossover settings applied on reconnect."""
+        service, registry = crossover_service_with_registry
+        # Register local client
+        local_client = Client(mac_id="local", name="Local", ip="127.0.0.1", online=True)
+        registry._clients["local"] = local_client
         # Queue settings for local client
-        crossover_service._pending_settings["local"] = {
+        service._pending_settings["local"] = {
             "crossover": {"enabled": True, "frequency": 100}
         }
 
-        result = await crossover_service.apply_pending_settings("local")
+        result = await service.apply_pending_settings("local")
 
         assert result is True
         mock_dsp_service.set_crossover_filter.assert_called_once()
-        assert crossover_service.has_pending_settings("local") is False
+        assert service.has_pending_settings("local") is False
 
     @pytest.mark.asyncio
-    async def test_apply_pending_lowpass_on_reconnect(self, crossover_service, mock_dsp_service):
+    async def test_apply_pending_lowpass_on_reconnect(self, crossover_service_with_registry, mock_dsp_service):
         """Test pending lowpass settings applied on reconnect."""
-        crossover_service._pending_settings["local"] = {
+        service, registry = crossover_service_with_registry
+        # Register local client
+        local_client = Client(mac_id="local", name="Local", ip="127.0.0.1", online=True)
+        registry._clients["local"] = local_client
+        service._pending_settings["local"] = {
             "lowpass": {"enabled": True, "frequency": 80}
         }
 
-        result = await crossover_service.apply_pending_settings("local")
+        result = await service.apply_pending_settings("local")
 
         assert result is True
         mock_dsp_service.set_lowpass_filter.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_apply_multiple_pending_settings(self, crossover_service, mock_dsp_service):
+    async def test_apply_multiple_pending_settings(self, crossover_service_with_registry, mock_dsp_service):
         """Test applying multiple pending settings types."""
-        crossover_service._pending_settings["local"] = {
+        service, registry = crossover_service_with_registry
+        # Register local client
+        local_client = Client(mac_id="local", name="Local", ip="127.0.0.1", online=True)
+        registry._clients["local"] = local_client
+        service._pending_settings["local"] = {
             "crossover": {"enabled": True, "frequency": 80},
             "lowpass": {"enabled": False, "frequency": 80}
         }
 
-        result = await crossover_service.apply_pending_settings("local")
+        result = await service.apply_pending_settings("local")
 
         assert result is True
         mock_dsp_service.set_crossover_filter.assert_called_once()
@@ -1086,13 +1098,13 @@ class TestCrossoverEventBroadcasting:
             "crossover_frequency": 80
         })
 
-        # Verify both were called
+        # Verify both were called with new multiroom format
         mock_state_machine.broadcast_event.assert_called_once_with(
-            "crossover", "zone_crossover_changed",
+            "multiroom", "crossover_changed",
             {"zone_id": "zone-1", "crossover_enabled": True, "crossover_frequency": 80}
         )
         mock_event_bus.emit.assert_called_once_with(
-            "multiroom.crossover.zone_crossover_changed",
+            "multiroom.crossover_changed",
             {"zone_id": "zone-1", "crossover_enabled": True, "crossover_frequency": 80}
         )
 
@@ -1227,10 +1239,19 @@ class TestCrossoverPerformance:
 class TestFilterApplicationMethods:
     """Tests for filter application methods (Story 5.6 AC#1, AC#2, AC#5)."""
 
+    @pytest.fixture
+    def service_with_local_client(self, crossover_service_with_registry):
+        """Setup service with local client registered at 127.0.0.1."""
+        service, registry = crossover_service_with_registry
+        local_client = Client(mac_id="local", name="Local", ip="127.0.0.1", online=True)
+        registry._clients["local"] = local_client
+        return service, registry
+
     @pytest.mark.asyncio
-    async def test_set_client_crossover_local_calls_dsp_service(self, crossover_service, mock_dsp_service):
+    async def test_set_client_crossover_local_calls_dsp_service(self, service_with_local_client, mock_dsp_service):
         """Test _set_client_crossover for local client calls DspService (AC#5, 1.1)."""
-        result = await crossover_service._set_client_crossover("local", True, 80)
+        service, registry = service_with_local_client
+        result = await service._set_client_crossover("local", True, 80)
 
         assert result is True
         mock_dsp_service.set_crossover_filter.assert_called_once_with(
@@ -1240,9 +1261,10 @@ class TestFilterApplicationMethods:
         )
 
     @pytest.mark.asyncio
-    async def test_set_client_crossover_local_disable(self, crossover_service, mock_dsp_service):
+    async def test_set_client_crossover_local_disable(self, service_with_local_client, mock_dsp_service):
         """Test _set_client_crossover disables filter for local client."""
-        result = await crossover_service._set_client_crossover("local", False, 80)
+        service, registry = service_with_local_client
+        result = await service._set_client_crossover("local", False, 80)
 
         assert result is True
         mock_dsp_service.set_crossover_filter.assert_called_once_with(
@@ -1252,16 +1274,23 @@ class TestFilterApplicationMethods:
         )
 
     @pytest.mark.asyncio
-    async def test_set_client_crossover_uses_correct_q_factor(self, crossover_service, mock_dsp_service):
+    async def test_set_client_crossover_uses_correct_q_factor(self, service_with_local_client, mock_dsp_service):
         """Test _set_client_crossover uses DEFAULT_Q = 0.707 (Butterworth) (1.4)."""
-        await crossover_service._set_client_crossover("local", True, 120)
+        service, registry = service_with_local_client
+        await service._set_client_crossover("local", True, 120)
 
         call_args = mock_dsp_service.set_crossover_filter.call_args
+        assert call_args is not None, "Expected set_crossover_filter to be called"
         assert call_args.kwargs.get('q') == 0.707 or call_args[1].get('q') == 0.707
 
     @pytest.mark.asyncio
-    async def test_set_client_crossover_remote_sends_http(self, crossover_service):
+    async def test_set_client_crossover_remote_sends_http(self, crossover_service_with_registry):
         """Test _set_client_crossover for remote client sends HTTP request (1.2)."""
+        service, registry = crossover_service_with_registry
+        # Register a remote client
+        remote_client = Client(mac_id="remote-1", name="Remote", ip="192.168.1.100", online=True)
+        registry._clients["remote-1"] = remote_client
+
         with patch('aiohttp.ClientSession') as mock_session_class:
             mock_response = AsyncMock()
             mock_response.status = 200
@@ -1279,7 +1308,7 @@ class TestFilterApplicationMethods:
 
             mock_session_class.return_value = mock_session
 
-            result = await crossover_service._set_client_crossover("192.168.1.100", True, 80)
+            result = await service._set_client_crossover("remote-1", True, 80)
 
             assert result is True
             # Verify PUT was called with correct URL and payload
@@ -1288,9 +1317,10 @@ class TestFilterApplicationMethods:
             assert "/dsp/crossover" in str(call_args)
 
     @pytest.mark.asyncio
-    async def test_set_client_lowpass_local_calls_dsp_service(self, crossover_service, mock_dsp_service):
+    async def test_set_client_lowpass_local_calls_dsp_service(self, service_with_local_client, mock_dsp_service):
         """Test _set_client_lowpass for local client calls DspService (2.1)."""
-        result = await crossover_service._set_client_lowpass("local", True, 80)
+        service, registry = service_with_local_client
+        result = await service._set_client_lowpass("local", True, 80)
 
         assert result is True
         mock_dsp_service.set_lowpass_filter.assert_called_once_with(
@@ -1300,9 +1330,10 @@ class TestFilterApplicationMethods:
         )
 
     @pytest.mark.asyncio
-    async def test_set_client_lowpass_local_disable(self, crossover_service, mock_dsp_service):
+    async def test_set_client_lowpass_local_disable(self, service_with_local_client, mock_dsp_service):
         """Test _set_client_lowpass disables filter for local client."""
-        result = await crossover_service._set_client_lowpass("local", False, 80)
+        service, registry = service_with_local_client
+        result = await service._set_client_lowpass("local", False, 80)
 
         assert result is True
         mock_dsp_service.set_lowpass_filter.assert_called_once_with(
@@ -1312,8 +1343,13 @@ class TestFilterApplicationMethods:
         )
 
     @pytest.mark.asyncio
-    async def test_set_client_lowpass_remote_sends_http(self, crossover_service):
+    async def test_set_client_lowpass_remote_sends_http(self, crossover_service_with_registry):
         """Test _set_client_lowpass for remote client sends HTTP request (2.2)."""
+        service, registry = crossover_service_with_registry
+        # Register a remote client
+        remote_client = Client(mac_id="remote-1", name="Remote", ip="192.168.1.100", online=True)
+        registry._clients["remote-1"] = remote_client
+
         with patch('aiohttp.ClientSession') as mock_session_class:
             mock_response = AsyncMock()
             mock_response.status = 200
@@ -1331,7 +1367,7 @@ class TestFilterApplicationMethods:
 
             mock_session_class.return_value = mock_session
 
-            result = await crossover_service._set_client_lowpass("192.168.1.100", True, 80)
+            result = await service._set_client_lowpass("remote-1", True, 80)
 
             assert result is True
             mock_session.put.assert_called()
@@ -1339,13 +1375,17 @@ class TestFilterApplicationMethods:
             assert "/dsp/lowpass" in str(call_args)
 
     @pytest.mark.asyncio
-    async def test_set_client_lowpass_without_dsp_service_returns_false(self, mock_settings_service, mock_event_bus):
+    async def test_set_client_lowpass_without_dsp_service_returns_false(self, mock_settings_service, mock_event_bus, mock_registry):
         """Test _set_client_lowpass returns False when no dsp_service for local."""
         service = CrossoverService(
             settings_service=mock_settings_service,
             dsp_service=None,  # No DSP service
             event_bus=mock_event_bus
         )
+        service.set_registry(mock_registry)
+        # Register local client
+        local_client = Client(mac_id="local", name="Local", ip="127.0.0.1", online=True)
+        mock_registry._clients["local"] = local_client
 
         result = await service._set_client_lowpass("local", True, 80)
 
@@ -1608,45 +1648,59 @@ class TestCrossoverOnReconnection:
         mock_dsp_service.set_crossover_filter.assert_called()
 
     @pytest.mark.asyncio
-    async def test_pending_settings_queued_for_offline_client(self, crossover_service):
+    async def test_pending_settings_queued_for_offline_client(self, crossover_service_with_registry):
         """Test crossover settings are queued for offline clients (4.3)."""
+        service, registry = crossover_service_with_registry
+        # Register a remote client
+        remote_client = Client(mac_id="remote-1", name="Remote", ip="192.168.1.100", online=True)
+        registry._clients["remote-1"] = remote_client
+
         with patch('aiohttp.ClientSession') as mock_session_class:
             mock_session_class.side_effect = aiohttp.ClientError("Connection refused")
 
             # Attempt to apply crossover to unreachable client
-            result = await crossover_service._set_client_crossover("192.168.1.100", True, 80)
+            result = await service._set_client_crossover("remote-1", True, 80)
 
             assert result is False
             # Settings should be queued
-            assert crossover_service.has_pending_settings("192.168.1.100") is True
-            settings = crossover_service.get_pending_settings("192.168.1.100")
+            assert service.has_pending_settings("remote-1") is True
+            settings = service.get_pending_settings("remote-1")
             assert "crossover" in settings
             assert settings["crossover"]["enabled"] is True
             assert settings["crossover"]["frequency"] == 80
 
     @pytest.mark.asyncio
-    async def test_pending_lowpass_queued_for_offline_subwoofer(self, crossover_service):
+    async def test_pending_lowpass_queued_for_offline_subwoofer(self, crossover_service_with_registry):
         """Test lowpass settings are queued for offline subwoofer (4.3)."""
+        service, registry = crossover_service_with_registry
+        # Register a remote client
+        remote_client = Client(mac_id="remote-1", name="Remote", ip="192.168.1.100", online=True)
+        registry._clients["remote-1"] = remote_client
+
         with patch('aiohttp.ClientSession') as mock_session_class:
             mock_session_class.side_effect = aiohttp.ClientError("Connection refused")
 
-            result = await crossover_service._set_client_lowpass("192.168.1.100", True, 80)
+            result = await service._set_client_lowpass("remote-1", True, 80)
 
             assert result is False
-            assert crossover_service.has_pending_settings("192.168.1.100") is True
-            settings = crossover_service.get_pending_settings("192.168.1.100")
+            assert service.has_pending_settings("remote-1") is True
+            settings = service.get_pending_settings("remote-1")
             assert "lowpass" in settings
 
     @pytest.mark.asyncio
-    async def test_pending_crossover_applied_on_reconnect(self, crossover_service, mock_dsp_service):
+    async def test_pending_crossover_applied_on_reconnect(self, crossover_service_with_registry, mock_dsp_service):
         """Test pending crossover is applied when client reconnects (4.4)."""
+        service, registry = crossover_service_with_registry
+        # Register local client
+        local_client = Client(mac_id="local", name="Local", ip="127.0.0.1", online=True)
+        registry._clients["local"] = local_client
         # Queue settings
-        crossover_service._pending_settings["local"] = {
+        service._pending_settings["local"] = {
             "crossover": {"enabled": True, "frequency": 100}
         }
 
         # Apply pending settings
-        result = await crossover_service.apply_pending_settings("local")
+        result = await service.apply_pending_settings("local")
 
         assert result is True
         mock_dsp_service.set_crossover_filter.assert_called_once()
@@ -1655,16 +1709,20 @@ class TestCrossoverOnReconnection:
         assert call_args.kwargs.get('frequency') == 100 or call_args[1].get('frequency') == 100
 
         # Settings should be cleared
-        assert crossover_service.has_pending_settings("local") is False
+        assert service.has_pending_settings("local") is False
 
     @pytest.mark.asyncio
-    async def test_pending_lowpass_applied_on_reconnect(self, crossover_service, mock_dsp_service):
+    async def test_pending_lowpass_applied_on_reconnect(self, crossover_service_with_registry, mock_dsp_service):
         """Test pending lowpass is applied when subwoofer reconnects (4.4)."""
-        crossover_service._pending_settings["local"] = {
+        service, registry = crossover_service_with_registry
+        # Register local client
+        local_client = Client(mac_id="local", name="Local", ip="127.0.0.1", online=True)
+        registry._clients["local"] = local_client
+        service._pending_settings["local"] = {
             "lowpass": {"enabled": True, "frequency": 80}
         }
 
-        result = await crossover_service.apply_pending_settings("local")
+        result = await service.apply_pending_settings("local")
 
         assert result is True
         mock_dsp_service.set_lowpass_filter.assert_called_once()
@@ -1737,10 +1795,14 @@ class TestCrossoverIndependenceFromDspBypass:
             "All crossover filters should contain 'crossover' in their name"
 
     @pytest.mark.asyncio
-    async def test_crossover_independent_of_eq_compressor_loudness(self, crossover_service, mock_dsp_service):
+    async def test_crossover_independent_of_eq_compressor_loudness(self, crossover_service_with_registry, mock_dsp_service):
         """Test crossover can be enabled/disabled independently (5.3)."""
+        service, registry = crossover_service_with_registry
+        # Register local client
+        local_client = Client(mac_id="local", name="Local", ip="127.0.0.1", online=True)
+        registry._clients["local"] = local_client
         # Enable crossover
-        await crossover_service._set_client_crossover("local", True, 80)
+        await service._set_client_crossover("local", True, 80)
         mock_dsp_service.set_crossover_filter.assert_called_with(
             enabled=True, frequency=80, q=0.707
         )
@@ -1748,14 +1810,14 @@ class TestCrossoverIndependenceFromDspBypass:
         mock_dsp_service.reset_mock()
 
         # Disable crossover - should work independently of other DSP state
-        await crossover_service._set_client_crossover("local", False, 80)
+        await service._set_client_crossover("local", False, 80)
         mock_dsp_service.set_crossover_filter.assert_called_with(
             enabled=False, frequency=80, q=0.707
         )
 
         # Lowpass is also independent
         mock_dsp_service.reset_mock()
-        await crossover_service._set_client_lowpass("local", True, 80)
+        await service._set_client_lowpass("local", True, 80)
         mock_dsp_service.set_lowpass_filter.assert_called_with(
             enabled=True, frequency=80, q=0.707
         )

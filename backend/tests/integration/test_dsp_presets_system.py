@@ -56,6 +56,15 @@ def mock_state_machine():
 
 
 @pytest.fixture
+def mock_dsp_router_service():
+    """Create mock DSP router service for local/remote client checks"""
+    service = Mock()
+    # Local client returns True, remote clients return False
+    service.is_local_client = Mock(side_effect=lambda mac_id: mac_id == "local")
+    return service
+
+
+@pytest.fixture
 def connected_dsp_service(mock_settings_service, mock_event_bus, mock_state_machine):
     """Create connected DSP service"""
     service = CamillaDSPService(
@@ -263,11 +272,14 @@ class TestAC3ZonePropagation:
         mock_dsp = Mock()
         mock_sm = Mock()
         mock_registry = Mock()
+        mock_dsp_router = Mock()
+        mock_dsp_router.is_local_client = Mock(side_effect=lambda mac_id: mac_id == "local")
 
         router = create_dsp_router(
             dsp_service=mock_dsp,
             state_machine=mock_sm,
-            client_registry_service=mock_registry
+            client_registry_service=mock_registry,
+            dsp_router_service=mock_dsp_router
         )
 
         routes = [r.path for r in router.routes]
@@ -282,11 +294,14 @@ class TestAC3ZonePropagation:
         mock_dsp = Mock()
         mock_sm = Mock()
         mock_registry = Mock()
+        mock_dsp_router = Mock()
+        mock_dsp_router.is_local_client = Mock(side_effect=lambda mac_id: mac_id == "local")
 
         router = create_dsp_router(
             dsp_service=mock_dsp,
             state_machine=mock_sm,
-            client_registry_service=mock_registry
+            client_registry_service=mock_registry,
+            dsp_router_service=mock_dsp_router
         )
 
         routes = [r.path for r in router.routes]
@@ -301,11 +316,14 @@ class TestAC3ZonePropagation:
         mock_dsp = Mock()
         mock_sm = Mock()
         mock_proxy = Mock()
+        mock_dsp_router = Mock()
+        mock_dsp_router.is_local_client = Mock(side_effect=lambda mac_id: mac_id == "local")
 
         router = create_dsp_router(
             dsp_service=mock_dsp,
             state_machine=mock_sm,
-            proxy_service=mock_proxy
+            proxy_service=mock_proxy,
+            dsp_router_service=mock_dsp_router
         )
 
         routes = [r.path for r in router.routes]
@@ -313,7 +331,7 @@ class TestAC3ZonePropagation:
             "Proxy preset route should exist"
 
     @pytest.mark.asyncio
-    async def test_zone_preset_applies_to_local_client(self, connected_dsp_service, mock_state_machine):
+    async def test_zone_preset_applies_to_local_client(self, connected_dsp_service, mock_state_machine, mock_dsp_router_service):
         """Zone preset should apply to local client via dsp_service.load_preset()"""
         from backend.api.dsp import create_dsp_router
         from backend.api.models import DspPresetRequest
@@ -327,7 +345,8 @@ class TestAC3ZonePropagation:
         router = create_dsp_router(
             dsp_service=connected_dsp_service,
             state_machine=mock_state_machine,
-            client_registry_service=mock_registry
+            client_registry_service=mock_registry,
+            dsp_router_service=mock_dsp_router_service
         )
 
         # Find and call the zone preset endpoint
@@ -349,7 +368,7 @@ class TestAC3ZonePropagation:
                 assert result["preset_id"] == "jazz"
 
     @pytest.mark.asyncio
-    async def test_zone_preset_broadcasts_zone_preset_loaded_event(self, connected_dsp_service, mock_state_machine):
+    async def test_zone_preset_broadcasts_zone_preset_loaded_event(self, connected_dsp_service, mock_state_machine, mock_dsp_router_service):
         """Zone preset should broadcast zone_preset_loaded WebSocket event"""
         from backend.api.dsp import create_dsp_router
         from backend.api.models import DspPresetRequest
@@ -362,7 +381,8 @@ class TestAC3ZonePropagation:
         router = create_dsp_router(
             dsp_service=connected_dsp_service,
             state_machine=mock_state_machine,
-            client_registry_service=mock_registry
+            client_registry_service=mock_registry,
+            dsp_router_service=mock_dsp_router_service
         )
 
         mock_config = {"filters": {}, "pipeline": []}
@@ -385,7 +405,7 @@ class TestAC3ZonePropagation:
                 assert event_data["preset_id"] == "rock"
 
     @pytest.mark.asyncio
-    async def test_zone_preset_skips_offline_clients(self, connected_dsp_service, mock_state_machine):
+    async def test_zone_preset_skips_offline_clients(self, connected_dsp_service, mock_state_machine, mock_dsp_router_service):
         """Zone preset should skip OFFLINE clients gracefully without error"""
         from backend.api.dsp import create_dsp_router
         from backend.api.models import DspPresetRequest
@@ -410,7 +430,8 @@ class TestAC3ZonePropagation:
             dsp_service=connected_dsp_service,
             state_machine=mock_state_machine,
             client_registry_service=mock_registry,
-            proxy_service=mock_proxy
+            proxy_service=mock_proxy,
+            dsp_router_service=mock_dsp_router_service
         )
 
         mock_config = {"filters": {}, "pipeline": []}
@@ -433,7 +454,7 @@ class TestAC3ZonePropagation:
                 mock_proxy.request.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_zone_preset_proxies_to_online_remote_clients(self, connected_dsp_service, mock_state_machine):
+    async def test_zone_preset_proxies_to_online_remote_clients(self, connected_dsp_service, mock_state_machine, mock_dsp_router_service):
         """Zone preset should proxy to ONLINE remote clients"""
         from backend.api.dsp import create_dsp_router
         from backend.api.models import DspPresetRequest
@@ -457,7 +478,8 @@ class TestAC3ZonePropagation:
             dsp_service=connected_dsp_service,
             state_machine=mock_state_machine,
             client_registry_service=mock_registry,
-            proxy_service=mock_proxy
+            proxy_service=mock_proxy,
+            dsp_router_service=mock_dsp_router_service
         )
 
         mock_config = {"filters": {}, "pipeline": []}
@@ -478,12 +500,13 @@ class TestAC3ZonePropagation:
                 # Proxy SHOULD have been called for online remote client
                 mock_proxy.request.assert_called_once()
                 call_args = mock_proxy.request.call_args
-                assert call_args[0][0] == "milo-client-01"  # hostname
+                # Code uses client.ip, not client.host
+                assert call_args[0][0] == "192.168.1.100"  # IP address
                 assert call_args[0][1] == "PUT"
                 assert "/dsp/preset/electronic" in call_args[0][2]
 
     @pytest.mark.asyncio
-    async def test_zone_preset_returns_404_for_unknown_zone(self, connected_dsp_service, mock_state_machine):
+    async def test_zone_preset_returns_404_for_unknown_zone(self, connected_dsp_service, mock_state_machine, mock_dsp_router_service):
         """Zone preset should return 404 for unknown zone ID"""
         from backend.api.dsp import create_dsp_router
         from backend.api.models import DspPresetRequest
@@ -495,7 +518,8 @@ class TestAC3ZonePropagation:
         router = create_dsp_router(
             dsp_service=connected_dsp_service,
             state_machine=mock_state_machine,
-            client_registry_service=mock_registry
+            client_registry_service=mock_registry,
+            dsp_router_service=mock_dsp_router_service
         )
 
         for route in router.routes:
@@ -516,14 +540,15 @@ class TestAC3ClientPresetEndpoint:
     """AC3: Client preset endpoint tests (POST /api/dsp/client/{mac_id}/preset)"""
 
     @pytest.mark.asyncio
-    async def test_client_preset_applies_to_local_client(self, connected_dsp_service, mock_state_machine):
+    async def test_client_preset_applies_to_local_client(self, connected_dsp_service, mock_state_machine, mock_dsp_router_service):
         """Client preset for 'local' should apply directly via dsp_service"""
         from backend.api.dsp import create_dsp_router
         from backend.api.models import DspPresetRequest
 
         router = create_dsp_router(
             dsp_service=connected_dsp_service,
-            state_machine=mock_state_machine
+            state_machine=mock_state_machine,
+            dsp_router_service=mock_dsp_router_service
         )
 
         mock_config = {"filters": {}, "pipeline": []}
@@ -542,7 +567,7 @@ class TestAC3ClientPresetEndpoint:
                 assert result["preset_id"] == "pop"
 
     @pytest.mark.asyncio
-    async def test_client_preset_returns_skipped_for_offline_remote(self, connected_dsp_service, mock_state_machine):
+    async def test_client_preset_returns_skipped_for_offline_remote(self, connected_dsp_service, mock_state_machine, mock_dsp_router_service):
         """Client preset for offline remote should return 'skipped' status"""
         from backend.api.dsp import create_dsp_router
         from backend.api.models import DspPresetRequest
@@ -561,7 +586,8 @@ class TestAC3ClientPresetEndpoint:
             dsp_service=connected_dsp_service,
             state_machine=mock_state_machine,
             client_registry_service=mock_registry,
-            proxy_service=mock_proxy
+            proxy_service=mock_proxy,
+            dsp_router_service=mock_dsp_router_service
         )
 
         for route in router.routes:
@@ -578,7 +604,7 @@ class TestAC3ClientPresetEndpoint:
         mock_proxy.request.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_client_preset_proxies_to_online_remote(self, connected_dsp_service, mock_state_machine):
+    async def test_client_preset_proxies_to_online_remote(self, connected_dsp_service, mock_state_machine, mock_dsp_router_service):
         """Client preset for online remote should proxy the request"""
         from backend.api.dsp import create_dsp_router
         from backend.api.models import DspPresetRequest
@@ -597,7 +623,8 @@ class TestAC3ClientPresetEndpoint:
             dsp_service=connected_dsp_service,
             state_machine=mock_state_machine,
             client_registry_service=mock_registry,
-            proxy_service=mock_proxy
+            proxy_service=mock_proxy,
+            dsp_router_service=mock_dsp_router_service
         )
 
         for route in router.routes:
@@ -612,12 +639,13 @@ class TestAC3ClientPresetEndpoint:
         # Proxy SHOULD have been called
         mock_proxy.request.assert_called_once()
         call_args = mock_proxy.request.call_args
-        assert call_args[0][0] == "milo-client-01"
+        # Code uses client.ip, not client.host
+        assert call_args[0][0] == "192.168.1.100"  # IP address
         assert call_args[0][1] == "PUT"
         assert "/dsp/preset/dance" in call_args[0][2]
 
     @pytest.mark.asyncio
-    async def test_client_preset_returns_404_for_unknown_client(self, connected_dsp_service, mock_state_machine):
+    async def test_client_preset_returns_404_for_unknown_client(self, connected_dsp_service, mock_state_machine, mock_dsp_router_service):
         """Client preset for unknown client should return 404"""
         from backend.api.dsp import create_dsp_router
         from backend.api.models import DspPresetRequest
@@ -629,7 +657,8 @@ class TestAC3ClientPresetEndpoint:
         router = create_dsp_router(
             dsp_service=connected_dsp_service,
             state_machine=mock_state_machine,
-            client_registry_service=mock_registry
+            client_registry_service=mock_registry,
+            dsp_router_service=mock_dsp_router_service
         )
 
         for route in router.routes:

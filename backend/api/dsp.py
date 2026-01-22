@@ -97,11 +97,7 @@ def create_dsp_router(
         """Get DSP effects enabled state from settings (EQ, compressor, loudness)"""
         try:
             if settings_service:
-                # Support both new and legacy setting key
                 enabled = await settings_service.get_setting("dsp.effects_enabled")
-                if enabled is None:
-                    enabled = await settings_service.get_setting("dsp.enabled")
-                # Default to True if not set
                 return {"enabled": enabled if enabled is not None else True}
             return {"enabled": True}
         except Exception as e:
@@ -121,23 +117,16 @@ def create_dsp_router(
                 async with state_machine._state_lock:
                     active_source = state_machine.system_state.active_source
 
-            # Use routing_service to properly toggle DSP effects
-            if routing_service:
-                success = await routing_service.set_dsp_effects_enabled(enabled, active_source)
-                if success:
-                    logger.info(f"DSP effects enabled state set to: {enabled}")
-                    return {"status": "success", "enabled": enabled}
-                else:
-                    return {"status": "error", "message": "Failed to change DSP effects state"}
+            # Use routing_service to toggle DSP effects
+            if not routing_service:
+                return {"status": "error", "message": "Routing service not available"}
 
-            # Fallback: just save setting if no routing_service (should not happen)
-            if settings_service:
-                await settings_service.set_setting("dsp.effects_enabled", enabled)
-                logger.info(f"DSP effects enabled state set to: {enabled} (fallback, no routing_service)")
-                await state_machine.broadcast_event("dsp", "enabled_changed", {"enabled": enabled})
+            success = await routing_service.set_dsp_effects_enabled(enabled, active_source)
+            if success:
+                logger.info(f"DSP effects enabled state set to: {enabled}")
                 return {"status": "success", "enabled": enabled}
-
-            return {"status": "error", "message": "Settings service not available"}
+            else:
+                return {"status": "error", "message": "Failed to change DSP effects state"}
         except Exception as e:
             logger.error(f"Error setting DSP effects enabled state: {e}")
             raise HTTPException(status_code=500, detail=str(e))

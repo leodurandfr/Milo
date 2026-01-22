@@ -207,10 +207,7 @@ class AudioRoutingService:
             # Load state from SettingsService
             if self.settings_service:
                 multiroom = await self.settings_service.get_setting('routing.multiroom_enabled')
-                # Support both new and legacy setting key
                 dsp_effects = await self.settings_service.get_setting('dsp.effects_enabled')
-                if dsp_effects is None:
-                    dsp_effects = await self.settings_service.get_setting('dsp.enabled')
                 # Explicit bool conversion for defensive programming
                 await self._set_multiroom_state(self._to_bool(multiroom))
                 await self._set_dsp_effects_state(self._to_bool(dsp_effects))

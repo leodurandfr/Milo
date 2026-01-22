@@ -78,6 +78,20 @@ def mock_proxy_service():
 
 
 @pytest.fixture
+def mock_dsp_router_service():
+    """Create mock DSP router service for local/remote client checks"""
+    service = Mock()
+    # Local client returns True, remote clients return False
+    service.is_local_client = Mock(side_effect=lambda mac_id: mac_id == "local")
+    # Add async methods used by client proxy routes
+    service.update_filter = AsyncMock(return_value={"status": "success"})
+    service.set_compressor = AsyncMock(return_value={"status": "success"})
+    service.set_loudness = AsyncMock(return_value={"status": "success"})
+    service.set_enabled = AsyncMock(return_value={"status": "success"})
+    return service
+
+
+@pytest.fixture
 def mock_client_registry_service():
     """Create mock client registry service with zone and clients"""
     registry = Mock()
@@ -121,14 +135,15 @@ def mock_client_registry_service():
 
 @pytest.fixture
 def dsp_router(mock_dsp_service, mock_state_machine, mock_routing_service,
-               mock_proxy_service, mock_client_registry_service):
+               mock_proxy_service, mock_client_registry_service, mock_dsp_router_service):
     """Create DSP router with all mocked dependencies"""
     return create_dsp_router(
         dsp_service=mock_dsp_service,
         state_machine=mock_state_machine,
         routing_service=mock_routing_service,
         proxy_service=mock_proxy_service,
-        client_registry_service=mock_client_registry_service
+        client_registry_service=mock_client_registry_service,
+        dsp_router_service=mock_dsp_router_service
     )
 
 
@@ -142,14 +157,15 @@ class TestAC1ZoneFilterUpdate:
     @pytest.mark.asyncio
     async def test_zone_filter_update_propagates_to_online_clients(
         self, mock_dsp_service, mock_state_machine, mock_proxy_service,
-        mock_client_registry_service
+        mock_client_registry_service, mock_dsp_router_service
     ):
         """Should update filter on local and online remote clients"""
         router = create_dsp_router(
             dsp_service=mock_dsp_service,
             state_machine=mock_state_machine,
             proxy_service=mock_proxy_service,
-            client_registry_service=mock_client_registry_service
+            client_registry_service=mock_client_registry_service,
+            dsp_router_service=mock_dsp_router_service
         )
 
         # Get the route function directly
@@ -183,14 +199,15 @@ class TestAC1ZoneFilterUpdate:
     @pytest.mark.asyncio
     async def test_zone_filter_update_skips_offline_clients(
         self, mock_dsp_service, mock_state_machine, mock_proxy_service,
-        mock_client_registry_service
+        mock_client_registry_service, mock_dsp_router_service
     ):
         """Should skip offline clients gracefully"""
         router = create_dsp_router(
             dsp_service=mock_dsp_service,
             state_machine=mock_state_machine,
             proxy_service=mock_proxy_service,
-            client_registry_service=mock_client_registry_service
+            client_registry_service=mock_client_registry_service,
+            dsp_router_service=mock_dsp_router_service
         )
 
         route_fn = None
@@ -213,7 +230,7 @@ class TestAC1ZoneFilterUpdate:
 
     @pytest.mark.asyncio
     async def test_zone_filter_update_returns_404_for_unknown_zone(
-        self, mock_dsp_service, mock_state_machine, mock_client_registry_service
+        self, mock_dsp_service, mock_state_machine, mock_client_registry_service, mock_dsp_router_service
     ):
         """Should return 404 for unknown zone"""
         mock_client_registry_service.get_zone = Mock(return_value=None)
@@ -221,7 +238,8 @@ class TestAC1ZoneFilterUpdate:
         router = create_dsp_router(
             dsp_service=mock_dsp_service,
             state_machine=mock_state_machine,
-            client_registry_service=mock_client_registry_service
+            client_registry_service=mock_client_registry_service,
+            dsp_router_service=mock_dsp_router_service
         )
 
         route_fn = None
@@ -249,14 +267,15 @@ class TestAC2ZoneCompressorControl:
     @pytest.mark.asyncio
     async def test_zone_compressor_update_propagates_correctly(
         self, mock_dsp_service, mock_state_machine, mock_proxy_service,
-        mock_client_registry_service
+        mock_client_registry_service, mock_dsp_router_service
     ):
         """Should update compressor on all online clients"""
         router = create_dsp_router(
             dsp_service=mock_dsp_service,
             state_machine=mock_state_machine,
             proxy_service=mock_proxy_service,
-            client_registry_service=mock_client_registry_service
+            client_registry_service=mock_client_registry_service,
+            dsp_router_service=mock_dsp_router_service
         )
 
         route_fn = None
@@ -295,14 +314,15 @@ class TestAC3ZoneLoudnessControl:
     @pytest.mark.asyncio
     async def test_zone_loudness_update_propagates_correctly(
         self, mock_dsp_service, mock_state_machine, mock_proxy_service,
-        mock_client_registry_service
+        mock_client_registry_service, mock_dsp_router_service
     ):
         """Should update loudness on all online clients"""
         router = create_dsp_router(
             dsp_service=mock_dsp_service,
             state_machine=mock_state_machine,
             proxy_service=mock_proxy_service,
-            client_registry_service=mock_client_registry_service
+            client_registry_service=mock_client_registry_service,
+            dsp_router_service=mock_dsp_router_service
         )
 
         route_fn = None
@@ -340,7 +360,7 @@ class TestAC4ZoneDspBypass:
     @pytest.mark.asyncio
     async def test_zone_dsp_enabled_update_propagates_correctly(
         self, mock_dsp_service, mock_state_machine, mock_routing_service,
-        mock_proxy_service, mock_client_registry_service
+        mock_proxy_service, mock_client_registry_service, mock_dsp_router_service
     ):
         """Should update DSP enabled state on all online clients"""
         router = create_dsp_router(
@@ -348,7 +368,8 @@ class TestAC4ZoneDspBypass:
             state_machine=mock_state_machine,
             routing_service=mock_routing_service,
             proxy_service=mock_proxy_service,
-            client_registry_service=mock_client_registry_service
+            client_registry_service=mock_client_registry_service,
+            dsp_router_service=mock_dsp_router_service
         )
 
         route_fn = None
@@ -388,13 +409,14 @@ class TestAC6ClientProxyRoutes:
 
     @pytest.mark.asyncio
     async def test_client_filter_proxy_works(
-        self, mock_dsp_service, mock_state_machine, mock_proxy_service
+        self, mock_dsp_service, mock_state_machine, mock_proxy_service, mock_dsp_router_service
     ):
         """Should proxy filter update to remote client"""
         router = create_dsp_router(
             dsp_service=mock_dsp_service,
             state_machine=mock_state_machine,
-            proxy_service=mock_proxy_service
+            proxy_service=mock_proxy_service,
+            dsp_router_service=mock_dsp_router_service
         )
 
         # Find client filter route
@@ -418,7 +440,7 @@ class TestAC6ClientProxyRoutes:
 
     @pytest.mark.asyncio
     async def test_client_proxy_skips_unavailable_client(
-        self, mock_dsp_service, mock_state_machine, mock_proxy_service
+        self, mock_dsp_service, mock_state_machine, mock_proxy_service, mock_dsp_router_service
     ):
         """Should skip unavailable client gracefully"""
         mock_proxy_service.check_available = AsyncMock(return_value=False)
@@ -426,7 +448,8 @@ class TestAC6ClientProxyRoutes:
         router = create_dsp_router(
             dsp_service=mock_dsp_service,
             state_machine=mock_state_machine,
-            proxy_service=mock_proxy_service
+            proxy_service=mock_proxy_service,
+            dsp_router_service=mock_dsp_router_service
         )
 
         # Find client compressor route
@@ -458,7 +481,7 @@ class TestAC7PresetsList:
 
     @pytest.mark.asyncio
     async def test_presets_endpoint_returns_all_presets(
-        self, mock_dsp_service, mock_state_machine
+        self, mock_dsp_service, mock_state_machine, mock_dsp_router_service
     ):
         """Should return all builtin presets with manual gains and active preset"""
         # Set up mock with all 21 presets + manual gains
@@ -467,7 +490,8 @@ class TestAC7PresetsList:
 
         router = create_dsp_router(
             dsp_service=mock_dsp_service,
-            state_machine=mock_state_machine
+            state_machine=mock_state_machine,
+            dsp_router_service=mock_dsp_router_service
         )
 
         # Find presets GET route
@@ -498,13 +522,14 @@ class TestErrorHandling:
 
     @pytest.mark.asyncio
     async def test_zone_endpoint_returns_500_without_registry(
-        self, mock_dsp_service, mock_state_machine
+        self, mock_dsp_service, mock_state_machine, mock_dsp_router_service
     ):
         """Should return 500 if registry service not available"""
         router = create_dsp_router(
             dsp_service=mock_dsp_service,
             state_machine=mock_state_machine,
-            client_registry_service=None
+            client_registry_service=None,
+            dsp_router_service=mock_dsp_router_service
         )
 
         route_fn = None
@@ -524,7 +549,7 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_partial_success_when_some_clients_fail(
         self, mock_dsp_service, mock_state_machine, mock_proxy_service,
-        mock_client_registry_service
+        mock_client_registry_service, mock_dsp_router_service
     ):
         """Should return partial status when some clients fail"""
         # Make proxy fail for remote client
@@ -534,7 +559,8 @@ class TestErrorHandling:
             dsp_service=mock_dsp_service,
             state_machine=mock_state_machine,
             proxy_service=mock_proxy_service,
-            client_registry_service=mock_client_registry_service
+            client_registry_service=mock_client_registry_service,
+            dsp_router_service=mock_dsp_router_service
         )
 
         route_fn = None
