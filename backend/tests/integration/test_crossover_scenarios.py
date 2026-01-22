@@ -24,7 +24,7 @@ from backend.core.multiroom.models import (
     DEFAULT_CROSSOVER_FREQUENCIES,
 )
 from backend.config.constants import DEFAULT_VOLUME_DB
-from backend.core.multiroom.registry import ClientRegistryService
+from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.crossover import CrossoverService
 
 

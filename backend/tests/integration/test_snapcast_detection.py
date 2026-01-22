@@ -15,7 +15,7 @@ import asyncio
 import time
 from unittest.mock import AsyncMock, MagicMock
 
-from backend.core.multiroom.registry import ClientRegistryService
+from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.websocket import SnapcastWebSocketService
 from backend.core.multiroom.models import (
     RegistryEventType,

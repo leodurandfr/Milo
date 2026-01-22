@@ -546,7 +546,7 @@ class TestReconnectionContextDetectionIntegration:
         2. local reconnects
         3. Context should be IN_ZONE_OTHERS_ONLINE (FR7)
         """
-        from backend.core.multiroom.registry import ClientRegistryService
+        from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         # Setup registry with zone
@@ -587,7 +587,7 @@ class TestReconnectionContextDetectionIntegration:
         2. local reconnects first
         3. Context should be IN_ZONE_ALL_OFFLINE (FR8)
         """
-        from backend.core.multiroom.registry import ClientRegistryService
+        from backend.core.multiroom.client_registry import ClientRegistryService
 
         registry = ClientRegistryService(
             settings_service=mock_settings_service,
@@ -627,7 +627,7 @@ class TestReconnectionContextDetectionIntegration:
         3. local reconnects
         4. Context should be STANDALONE_OTHERS_ONLINE (FR9)
         """
-        from backend.core.multiroom.registry import ClientRegistryService
+        from backend.core.multiroom.client_registry import ClientRegistryService
 
         registry = ClientRegistryService(
             settings_service=mock_settings_service,
@@ -665,7 +665,7 @@ class TestReconnectionContextDetectionIntegration:
         2. local reconnects first
         3. Context should be STANDALONE_ALONE (FR10)
         """
-        from backend.core.multiroom.registry import ClientRegistryService
+        from backend.core.multiroom.client_registry import ClientRegistryService
 
         registry = ClientRegistryService(
             settings_service=mock_settings_service,
@@ -700,7 +700,7 @@ class TestReconnectionContextDetectionIntegration:
 
         Validates AC5: Context dispatches to correct sync strategy.
         """
-        from backend.core.multiroom.registry import ClientRegistryService
+        from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         registry = ClientRegistryService(
@@ -759,7 +759,7 @@ class TestReconnectionContextDetectionIntegration:
 
         Validates that context detection is dynamic based on current state.
         """
-        from backend.core.multiroom.registry import ClientRegistryService
+        from backend.core.multiroom.client_registry import ClientRegistryService
 
         registry = ClientRegistryService(
             settings_service=mock_settings_service,
@@ -868,7 +868,7 @@ class TestInZoneReconnectionSyncIntegration:
         3. client-1 reconnects
         4. client-1 should receive zone average: (-30 + -40) / 2 = -35
         """
-        from backend.core.multiroom.registry import ClientRegistryService
+        from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         # Setup registry
@@ -932,7 +932,7 @@ class TestInZoneReconnectionSyncIntegration:
         2. client-1 reconnects first
         3. client-1 should receive startup_volume_db (-45.0)
         """
-        from backend.core.multiroom.registry import ClientRegistryService
+        from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         # Setup registry
@@ -983,7 +983,7 @@ class TestInZoneReconnectionSyncIntegration:
         Validates that the reconnecting client's old volume doesn't influence
         the average they receive on reconnection.
         """
-        from backend.core.multiroom.registry import ClientRegistryService
+        from backend.core.multiroom.client_registry import ClientRegistryService
 
         registry = ClientRegistryService(
             settings_service=mock_settings_service,
@@ -1026,7 +1026,7 @@ class TestInZoneReconnectionSyncIntegration:
         """
         E2E: WebSocket broadcast is sent after volume sync completes (AC4).
         """
-        from backend.core.multiroom.registry import ClientRegistryService
+        from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         # Setup registry
@@ -1080,7 +1080,7 @@ class TestInZoneReconnectionSyncIntegration:
         """
         E2E: DSP sync uses zone.dsp_settings for IN_ZONE contexts (AC3).
         """
-        from backend.core.multiroom.registry import ClientRegistryService
+        from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.models import DspSettings, EqFilter, FilterType
 
         registry = ClientRegistryService(
@@ -1175,7 +1175,7 @@ class TestAC4SyncTimeCompliance:
         to ensure it meets the performance requirement.
         """
         import time
-        from backend.core.multiroom.registry import ClientRegistryService
+        from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         # Setup registry
@@ -1233,7 +1233,7 @@ class TestAC4SyncTimeCompliance:
         Tests a more realistic scenario with mocked DSP operations.
         """
         import time
-        from backend.core.multiroom.registry import ClientRegistryService
+        from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
         from backend.core.multiroom.models import DspSettings, EqFilter, FilterType
 
@@ -1351,7 +1351,7 @@ class TestAC6PendingSettingsQueue:
         """
         AC6: Failed compressor settings are queued via queue_pending_settings().
         """
-        from backend.core.multiroom.registry import ClientRegistryService
+        from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
         from backend.core.multiroom.models import DspSettings, CompressorSettings
 
@@ -1406,7 +1406,7 @@ class TestAC6PendingSettingsQueue:
         """
         AC6: Failed loudness settings are queued via queue_pending_settings().
         """
-        from backend.core.multiroom.registry import ClientRegistryService
+        from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
         from backend.core.multiroom.models import DspSettings, LoudnessSettings
 
@@ -1458,7 +1458,7 @@ class TestAC6PendingSettingsQueue:
         """
         AC6: Failed filter settings are queued via queue_pending_settings().
         """
-        from backend.core.multiroom.registry import ClientRegistryService
+        from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
         from backend.core.multiroom.models import DspSettings, EqFilter, FilterType
 
@@ -1513,7 +1513,7 @@ class TestAC6PendingSettingsQueue:
         """
         AC6: Successful DSP sync does NOT queue any pending settings.
         """
-        from backend.core.multiroom.registry import ClientRegistryService
+        from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
         from backend.core.multiroom.models import DspSettings, EqFilter, FilterType
 
@@ -1632,7 +1632,7 @@ class TestStandaloneReconnectionSyncIntegration:
         3. client-1 reconnects
         4. client-1 should receive global average: (-30 + -40) / 2 = -35
         """
-        from backend.core.multiroom.registry import ClientRegistryService
+        from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         # Setup registry
@@ -1695,7 +1695,7 @@ class TestStandaloneReconnectionSyncIntegration:
         2. client-1 reconnects first
         3. client-1 should receive startup_volume_db (-45.0)
         """
-        from backend.core.multiroom.registry import ClientRegistryService
+        from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         # Setup registry
@@ -1743,7 +1743,7 @@ class TestStandaloneReconnectionSyncIntegration:
         Validates that the reconnecting client's old volume doesn't influence
         the average they receive on reconnection.
         """
-        from backend.core.multiroom.registry import ClientRegistryService
+        from backend.core.multiroom.client_registry import ClientRegistryService
 
         registry = ClientRegistryService(
             settings_service=mock_settings_service,
@@ -1786,7 +1786,7 @@ class TestStandaloneReconnectionSyncIntegration:
         Validates FR9 requirement that global average considers all online
         clients regardless of zone membership.
         """
-        from backend.core.multiroom.registry import ClientRegistryService
+        from backend.core.multiroom.client_registry import ClientRegistryService
 
         registry = ClientRegistryService(
             settings_service=mock_settings_service,
@@ -1828,7 +1828,7 @@ class TestStandaloneReconnectionSyncIntegration:
         """
         E2E: DSP sync for STANDALONE uses client-specific DSP settings (AC3).
         """
-        from backend.core.multiroom.registry import ClientRegistryService
+        from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
         from backend.core.dsp.sync import DspSettingsSyncService
 
@@ -1871,7 +1871,7 @@ class TestStandaloneReconnectionSyncIntegration:
         """
         E2E: WebSocket broadcast includes sync_context after sync (AC5).
         """
-        from backend.core.multiroom.registry import ClientRegistryService
+        from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         # Setup registry
@@ -1939,7 +1939,7 @@ class TestStandaloneReconnectionSyncIntegration:
         E2E/NFR4: STANDALONE sync completes within 1 second.
         """
         import time
-        from backend.core.multiroom.registry import ClientRegistryService
+        from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         # Setup registry
