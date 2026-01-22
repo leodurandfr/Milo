@@ -332,6 +332,10 @@ def initialize_services() -> None:
     # 2.13 - multiroom_dsp_service → state_machine (for event broadcasting)
     multiroom_dsp_service.set_state_machine(state_machine)
 
+    # 2.14 - multiroom_dsp_service → proxy_service + routing_service (for remote client control)
+    multiroom_dsp_service.set_proxy_service(dsp_client_proxy_service)
+    multiroom_dsp_service.set_routing_service(routing_service)
+
     # =========================================================================
     # STEP 3: Register sources (MUST be done BEFORE init_async)
     # =========================================================================

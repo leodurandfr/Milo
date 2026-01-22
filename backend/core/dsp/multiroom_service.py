@@ -52,6 +52,8 @@ class MultiroomDspService:
         self,
         client_registry_service=None,
         camilladsp_service=None,
+        proxy_service=None,
+        routing_service=None,
     ):
         """
         Initialize MultiroomDspService.
@@ -62,12 +64,16 @@ class MultiroomDspService:
         Args:
             client_registry_service: ClientRegistryService for state management
             camilladsp_service: CamillaDSPService for local DSP control
+            proxy_service: DspClientProxyService for remote client communication
+            routing_service: AudioRoutingService for DSP effects toggle
         """
         self.logger = logging.getLogger(__name__)
 
         # Dependencies (can be set lazily via setters)
         self._registry = client_registry_service
         self._dsp_service = camilladsp_service
+        self._proxy_service = proxy_service
+        self._routing_service = routing_service
 
         # State machine for event broadcasting (set via setter)
         self._state_machine = None
@@ -92,6 +98,14 @@ class MultiroomDspService:
     def set_state_machine(self, state_machine) -> None:
         """Set state machine for event broadcasting."""
         self._state_machine = state_machine
+
+    def set_proxy_service(self, proxy_service) -> None:
+        """Set DspClientProxyService dependency."""
+        self._proxy_service = proxy_service
+
+    def set_routing_service(self, routing_service) -> None:
+        """Set AudioRoutingService dependency."""
+        self._routing_service = routing_service
 
     # =========================================================================
     # Zone DSP Methods (AC2, AC5)
@@ -175,6 +189,65 @@ class MultiroomDspService:
         if zone:
             return zone.dsp_settings
         return None
+
+    async def load_zone_preset(self, zone_id: str, preset_id: str) -> bool:
+        """
+        Load an EQ preset for a zone.
+
+        Converts the preset gains to EqFilter objects, preserves existing
+        compressor/loudness settings, and applies to all zone clients.
+
+        Args:
+            zone_id: The zone ID
+            preset_id: The preset ID (e.g., "rock", "classical", "manual")
+
+        Returns:
+            True if successful
+
+        Raises:
+            ValueError: If zone or preset not found
+        """
+        from backend.core.dsp.presets import get_preset_by_id, DEFAULT_MANUAL_GAINS
+
+        # Standard 10-band frequencies
+        frequencies = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
+
+        # Get preset gains
+        if preset_id == "manual":
+            # Manual preset: use saved manual gains or defaults
+            if self._dsp_service and hasattr(self._dsp_service, 'get_manual_gains'):
+                gains = await self._dsp_service.get_manual_gains()
+            else:
+                gains = DEFAULT_MANUAL_GAINS
+        else:
+            preset = get_preset_by_id(preset_id)
+            if not preset:
+                raise ValueError(f"Preset not found: {preset_id}")
+            gains = preset["gains"]
+
+        # Get current zone settings to preserve compressor/loudness
+        current = await self.get_zone_dsp(zone_id)
+        if not current:
+            raise ValueError(f"Zone not found: {zone_id}")
+
+        # Build new filters from preset gains
+        new_filters = [
+            EqFilter(
+                id=f"eq_band_{i:02d}",
+                frequency=frequencies[i],
+                gain=gains[i],
+                q=1.41,
+                filter_type=FilterType.PEAKING,
+                enabled=True
+            )
+            for i in range(10)
+        ]
+
+        # Update settings with new filters, preserve compressor/loudness
+        current.filters = new_filters
+
+        # Apply to zone
+        return await self.apply_zone_dsp(zone_id, current)
 
     # =========================================================================
     # Standalone Client DSP Methods (AC3)
@@ -303,13 +376,27 @@ class MultiroomDspService:
     # CamillaDSP Application with Error Handling (AC4)
     # =========================================================================
 
+    def _is_local_client(self, mac_id: str) -> bool:
+        """Check if a client is the local device."""
+        if mac_id == "local":
+            return True
+        if self._registry:
+            client = self._registry.get_client(mac_id)
+            if client and client.ip in ("127.0.0.1", "localhost"):
+                return True
+        return False
+
     async def _apply_to_camilladsp(
         self, mac_id: str, settings: DspSettings
     ) -> bool:
         """
         Apply DSP settings to a client's CamillaDSP instance.
 
-        Handles CamillaDSP failures gracefully:
+        Handles both local and remote clients:
+        - Local: Apply via CamillaDSPService
+        - Remote: Apply via proxy service (batch filters + compressor + loudness)
+
+        Handles failures gracefully:
         - If disconnected, logs warning and returns False
         - Settings are already saved in ClientRegistryService (source of truth)
         - No exception raised to caller
@@ -321,20 +408,19 @@ class MultiroomDspService:
         Returns:
             True if applied successfully, False on failure
         """
-        # For now, only support "local" client (main device)
-        # Remote clients will be supported in Epic 5+
-        if mac_id != "local":
-            self.logger.debug(f"Skipping DSP application for remote client {mac_id}")
-            return True  # Success (remote clients will sync on reconnection)
+        if self._is_local_client(mac_id):
+            return await self._apply_to_local(settings)
+        else:
+            return await self._apply_to_remote(mac_id, settings)
 
+    async def _apply_to_local(self, settings: DspSettings) -> bool:
+        """Apply DSP settings to local CamillaDSP instance."""
         if not self._dsp_service:
             self.logger.warning("CamillaDSPService not available")
             return False
 
         if not self._dsp_service.connected:
-            self.logger.warning(
-                f"CamillaDSP not connected, DSP settings saved but not applied for {mac_id}"
-            )
+            self.logger.warning("CamillaDSP not connected, settings saved but not applied")
             return False
 
         try:
@@ -374,7 +460,76 @@ class MultiroomDspService:
                 persist=False,  # Don't persist to dsp.* keys
             )
 
-            self.logger.debug(f"DSP settings applied to {mac_id}")
+            self.logger.debug("DSP settings applied to local")
+            return True
+
+        except Exception as e:
+            self.logger.warning(f"Failed to apply DSP settings to local: {e}")
+            return False
+
+    async def _apply_to_remote(self, mac_id: str, settings: DspSettings) -> bool:
+        """Apply DSP settings to a remote client via proxy."""
+        if not self._proxy_service:
+            self.logger.debug(f"Proxy service not available, skipping remote client {mac_id} (will sync on reconnection)")
+            return True  # Not a failure - settings are persisted and will sync later
+
+        if not self._registry:
+            self.logger.warning(f"Registry not available for remote client {mac_id}")
+            return False
+
+        client = self._registry.get_client(mac_id)
+        if not client or not client.online:
+            self.logger.debug(f"Client {mac_id} offline, will sync on reconnection")
+            return True  # Not a failure - will sync later
+
+        client_ip = client.ip
+        if not client_ip:
+            self.logger.warning(f"Client {mac_id} has no IP")
+            return False
+
+        try:
+            # Apply filters as batch for efficiency
+            filters_batch = [
+                {
+                    "id": f.id,
+                    "gain": f.gain,
+                    "freq": f.frequency,
+                    "q": f.q,
+                    "filter_type": f.filter_type.value,
+                    "enabled": f.enabled
+                }
+                for f in settings.filters
+            ]
+            await self._proxy_service.request(
+                client_ip, "PUT", "/dsp/filters", {"filters": filters_batch}
+            )
+
+            # Apply compressor
+            comp = settings.compressor
+            await self._proxy_service.request(
+                client_ip, "PUT", "/dsp/compressor",
+                {
+                    "enabled": comp.enabled,
+                    "threshold": comp.threshold,
+                    "ratio": comp.ratio,
+                    "attack": comp.attack,
+                    "release": comp.release,
+                    "makeup_gain": comp.makeup_gain
+                }
+            )
+
+            # Apply loudness
+            loud = settings.loudness
+            await self._proxy_service.request(
+                client_ip, "PUT", "/dsp/loudness",
+                {
+                    "enabled": loud.enabled,
+                    "high_boost": loud.high_boost,
+                    "low_boost": loud.low_boost
+                }
+            )
+
+            self.logger.debug(f"DSP settings applied to remote client {mac_id}")
             return True
 
         except Exception as e:
@@ -557,6 +712,73 @@ class MultiroomDspService:
 
         # Apply updated settings
         return await self.apply_dsp(target_type, target_id, current)
+
+    async def set_zone_dsp_effects_enabled(self, zone_id: str, enabled: bool) -> bool:
+        """
+        Enable/disable DSP effects for all clients in a zone.
+
+        This method uses routing_service for local clients (which properly
+        bypasses/restores DSP effects in the audio chain) and proxies to
+        remote clients.
+
+        Args:
+            zone_id: The zone ID
+            enabled: Whether DSP effects should be enabled
+
+        Returns:
+            True if at least one client was updated successfully
+
+        Raises:
+            ValueError: If zone not found
+        """
+        if not self._registry:
+            self.logger.error("ClientRegistryService not available")
+            return False
+
+        zone = self._registry.get_zone(zone_id)
+        if not zone:
+            raise ValueError(f"Zone not found: {zone_id}")
+
+        success_count = 0
+
+        for client_id in zone.client_ids:
+            if self._is_local_client(client_id):
+                # Local client: use routing_service
+                if self._routing_service:
+                    try:
+                        if await self._routing_service.set_dsp_effects_enabled(enabled):
+                            success_count += 1
+                    except Exception as e:
+                        self.logger.warning(f"Failed to set DSP enabled for local: {e}")
+            else:
+                # Remote client: proxy
+                if not self._proxy_service or not self._registry:
+                    continue
+
+                client = self._registry.get_client(client_id)
+                if not client or not client.online:
+                    continue  # Offline clients will sync on reconnection
+
+                if not client.ip:
+                    continue
+
+                try:
+                    result = await self._proxy_service.request(
+                        client.ip, "PUT", "/dsp/enabled", {"enabled": enabled}
+                    )
+                    if result.get("status") == "success":
+                        success_count += 1
+                except Exception as e:
+                    self.logger.warning(f"Failed to set DSP enabled for {client_id}: {e}")
+
+        # Broadcast WebSocket event
+        if self._state_machine:
+            await self._state_machine.broadcast_event(
+                "dsp", "zone_enabled_changed",
+                {"zone_id": zone_id, "enabled": enabled}
+            )
+
+        return success_count > 0
 
     # =========================================================================
     # Event Broadcasting

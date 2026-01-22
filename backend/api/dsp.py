@@ -34,7 +34,8 @@ def create_dsp_router(
     proxy_service=None,
     sync_service=None,
     client_registry_service=None,
-    dsp_router_service=None
+    dsp_router_service=None,
+    multiroom_dsp_service=None
 ):
     """Creates DSP router with injected dependencies"""
     router = APIRouter(prefix="/api/dsp", tags=["dsp"])
@@ -381,103 +382,14 @@ def create_dsp_router(
         receive settings on reconnection via sync service.
         """
         try:
-            _require_registry()
-            zone = client_registry_service.get_zone(zone_id)
-            if not zone:
-                raise HTTPException(status_code=404, detail=f"Zone '{zone_id}' not found")
-
-            preset_id = payload.preset_id
-            applied_to = []
-            errors = []
-
-            # Apply to all clients in the zone
-            for client_id in zone.client_ids:
-                if dsp_router_service.is_local_client(client_id):
-                    # Local client: apply directly
-                    try:
-                        success = await dsp_service.load_preset(preset_id)
-                        if success:
-                            applied_to.append(client_id)
-                        else:
-                            errors.append({"client_id": client_id, "error": "Failed to load preset"})
-                    except Exception as e:
-                        errors.append({"client_id": client_id, "error": str(e)})
-                else:
-                    # Remote client: expand preset into individual filter updates
-                    if not proxy_service:
-                        errors.append({"client_id": client_id, "error": "Proxy service not available"})
-                        continue
-
-                    # Check if client is online
-                    client = client_registry_service.get_client(client_id)
-                    if not client or not client.online:
-                        logger.debug(f"Skipping offline client {client_id} for preset {preset_id}")
-                        continue
-
-                    try:
-                        # Get IP for proxy
-                        client_ip = client.ip
-                        if not client_ip:
-                            errors.append({"client_id": client_id, "error": "No IP available"})
-                            continue
-
-                        # Get preset gains from backend definitions
-                        from backend.core.dsp.presets import get_preset_by_id, DEFAULT_MANUAL_GAINS
-                        if preset_id == "manual":
-                            if dsp_service and hasattr(dsp_service, 'get_manual_gains'):
-                                gains = await dsp_service.get_manual_gains()
-                            else:
-                                gains = DEFAULT_MANUAL_GAINS
-                        else:
-                            preset = get_preset_by_id(preset_id)
-                            if not preset:
-                                errors.append({"client_id": client_id, "error": f"Preset '{preset_id}' not found"})
-                                continue
-                            gains = preset["gains"]
-
-                        # Standard 10-band frequencies
-                        frequencies = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
-
-                        # Build batch payload for all filters
-                        filters_batch = [
-                            {"id": f"eq_band_{i:02d}", "gain": gain, "freq": frequencies[i], "q": 1.41}
-                            for i, gain in enumerate(gains[:10])
-                        ]
-
-                        # Single batch request
-                        try:
-                            result = await proxy_service.request(
-                                client_ip, "PUT", "/dsp/filters", {"filters": filters_batch}
-                            )
-                            if result.get("status") == "success":
-                                applied_to.append(client_id)
-                                logger.info(f"Applied {result.get('applied', 10)} filters for preset {preset_id} to {client_id}")
-                            else:
-                                errors.append({"client_id": client_id, "error": result.get("detail", "Batch failed")})
-                        except Exception as batch_err:
-                            logger.debug(f"Failed to apply filters batch to {client_id}: {batch_err}")
-                            errors.append({"client_id": client_id, "error": str(batch_err)})
-
-                    except Exception as e:
-                        errors.append({"client_id": client_id, "error": str(e)})
-
-            # Broadcast zone preset change
-            await state_machine.broadcast_event("dsp", "zone_preset_loaded", {
-                "zone_id": zone_id,
-                "preset_id": preset_id,
-                "applied_to": applied_to
-            })
-
+            success = await multiroom_dsp_service.load_zone_preset(zone_id, payload.preset_id)
             return {
-                "status": "success" if not errors else "partial",
+                "status": "success" if success else "error",
                 "zone_id": zone_id,
-                "preset_id": preset_id,
-                "applied_to": applied_to,
-                "errors": errors if errors else None
+                "preset_id": payload.preset_id
             }
-
-        except HTTPException:
-            raise
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
         except Exception as e:
             logger.error(f"Error loading preset for zone {zone_id}: {e}")
             raise HTTPException(status_code=500, detail=str(e))
@@ -491,103 +403,23 @@ def create_dsp_router(
         receive settings on reconnection via sync service.
         """
         try:
-            _require_registry()
-            zone = client_registry_service.get_zone(zone_id)
-            if not zone:
-                raise HTTPException(status_code=404, detail=f"Zone '{zone_id}' not found")
-
-            applied_to = []
-            offline_clients = []
-            errors = []
-
-            for client_id in zone.client_ids:
-                if dsp_router_service.is_local_client(client_id):
-                    # Local client: apply directly via dsp_service
-                    try:
-                        # Get current filter to merge with updates
-                        filters = await dsp_service.get_filters()
-                        current_filter = next((f for f in filters if f["id"] == filter_id), None)
-
-                        if not current_filter:
-                            errors.append({"client_id": client_id, "error": f"Filter {filter_id} not found"})
-                            continue
-
-                        # Merge current values with updates
-                        freq = payload.freq if payload.freq is not None else current_filter["freq"]
-                        gain = payload.gain if payload.gain is not None else current_filter["gain"]
-                        q = payload.q if payload.q is not None else current_filter.get("q", 1.0)
-                        filter_type = payload.filter_type if payload.filter_type is not None else current_filter.get("type", "Peaking")
-                        enabled = payload.enabled if payload.enabled is not None else current_filter.get("enabled", True)
-
-                        success = await dsp_service.set_filter(
-                            filter_id=filter_id,
-                            freq=freq,
-                            gain=gain,
-                            q=q,
-                            filter_type=filter_type,
-                            enabled=enabled
-                        )
-                        if success:
-                            applied_to.append(client_id)
-                        else:
-                            errors.append({"client_id": client_id, "error": "Failed to update filter"})
-                    except Exception as e:
-                        errors.append({"client_id": client_id, "error": str(e)})
-                else:
-                    # Remote client: check online status, then proxy
-                    client = client_registry_service.get_client(client_id)
-                    if not client or not client.online:
-                        logger.debug(f"Skipping offline client {client_id} for filter update")
-                        offline_clients.append(client_id)
-                        continue
-
-                    try:
-                        hostname = client.ip
-                        if not hostname:
-                            errors.append({"client_id": client_id, "error": "No hostname or IP"})
-                            continue
-
-                        _require_proxy()
-                        result = await proxy_service.request(
-                            hostname, "PUT", f"/dsp/filter/{filter_id}",
-                            payload.model_dump(exclude_none=True)
-                        )
-                        if result.get("status") == "success":
-                            applied_to.append(client_id)
-                        else:
-                            errors.append({"client_id": client_id, "error": result.get("message", "Unknown error")})
-                    except Exception as e:
-                        errors.append({"client_id": client_id, "error": str(e)})
-
-            # Update zone.dsp_settings to persist filter changes for offline client sync
-            # Source of truth: get current filters from local DSP
-            try:
-                from backend.core.multiroom.models import EqFilter
-                current_filters = await dsp_service.get_filters()
-                zone.dsp_settings.filters = [
-                    EqFilter.from_dict(f) for f in current_filters
-                ]
-                await client_registry_service.set_zone_dsp(zone_id, zone.dsp_settings)
-            except Exception as e:
-                logger.warning(f"Failed to persist zone DSP settings: {e}")
-
-            # Broadcast zone filter change
-            await state_machine.broadcast_event("dsp", "zone_filter_changed", {
-                "zone_id": zone_id,
-                "filter_id": filter_id,
-                "applied_to": applied_to
-            })
-
+            success = await multiroom_dsp_service.update_filter(
+                target_type="zone",
+                target_id=zone_id,
+                filter_id=filter_id,
+                frequency=payload.freq,
+                gain=payload.gain,
+                q=payload.q,
+                filter_type=payload.filter_type,
+                enabled=payload.enabled
+            )
             return {
-                "status": "success" if not errors else "partial",
+                "status": "success" if success else "error",
                 "zone_id": zone_id,
-                "filter_id": filter_id,
-                "applied_to": applied_to,
-                "offline_clients": offline_clients if offline_clients else None,
-                "errors": errors if errors else None
+                "filter_id": filter_id
             }
-        except HTTPException:
-            raise
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
         except Exception as e:
             logger.error(f"Error updating filter for zone {zone_id}: {e}")
             raise HTTPException(status_code=500, detail=str(e))
@@ -601,117 +433,19 @@ def create_dsp_router(
         receive settings on reconnection via sync service.
         """
         try:
-            _require_registry()
-            zone = client_registry_service.get_zone(zone_id)
-            if not zone:
-                raise HTTPException(status_code=404, detail=f"Zone '{zone_id}' not found")
-
-            # Merge payload with existing zone compressor settings
-            current = zone.dsp_settings.compressor
-            merged_enabled = payload.enabled if payload.enabled is not None else current.enabled
-            merged_threshold = payload.threshold if payload.threshold is not None else current.threshold
-            merged_ratio = payload.ratio if payload.ratio is not None else current.ratio
-            merged_attack = payload.attack if payload.attack is not None else current.attack
-            merged_release = payload.release if payload.release is not None else current.release
-            merged_makeup_gain = payload.makeup_gain if payload.makeup_gain is not None else current.makeup_gain
-
-            applied_to = []
-            offline_clients = []
-            errors = []
-
-            for client_id in zone.client_ids:
-                if dsp_router_service.is_local_client(client_id):
-                    # Local client: apply directly via dsp_service
-                    try:
-                        success = await dsp_service.set_compressor(
-                            enabled=merged_enabled,
-                            threshold=merged_threshold,
-                            ratio=merged_ratio,
-                            attack=merged_attack,
-                            release=merged_release,
-                            makeup_gain=merged_makeup_gain
-                        )
-                        if success:
-                            applied_to.append(client_id)
-                        else:
-                            errors.append({"client_id": client_id, "error": "Failed to update compressor"})
-                    except Exception as e:
-                        errors.append({"client_id": client_id, "error": str(e)})
-                else:
-                    # Remote client: check online status, then proxy
-                    client = client_registry_service.get_client(client_id)
-                    if not client or not client.online:
-                        logger.debug(f"Skipping offline client {client_id} for compressor update")
-                        offline_clients.append(client_id)
-                        continue
-
-                    try:
-                        hostname = client.ip
-                        if not hostname:
-                            errors.append({"client_id": client_id, "error": "No hostname or IP"})
-                            continue
-
-                        _require_proxy()
-                        # Send merged values to remote client
-                        result = await proxy_service.request(
-                            hostname, "PUT", "/dsp/compressor",
-                            {
-                                "enabled": merged_enabled,
-                                "threshold": merged_threshold,
-                                "ratio": merged_ratio,
-                                "attack": merged_attack,
-                                "release": merged_release,
-                                "makeup_gain": merged_makeup_gain
-                            }
-                        )
-                        if result.get("status") == "success":
-                            applied_to.append(client_id)
-                        else:
-                            errors.append({"client_id": client_id, "error": result.get("message", "Unknown error")})
-                    except Exception as e:
-                        errors.append({"client_id": client_id, "error": str(e)})
-
-            # Update zone.dsp_settings to persist compressor changes for offline client sync
-            try:
-                from backend.core.multiroom.models import CompressorSettings, EqFilter
-                # Sync filters from current DSP state to avoid overwriting with stale data
-                current_filters = await dsp_service.get_filters()
-                zone.dsp_settings.filters = [
-                    EqFilter.from_dict(f) for f in current_filters
-                ]
-                zone.dsp_settings.compressor = CompressorSettings(
-                    enabled=merged_enabled,
-                    threshold=merged_threshold,
-                    ratio=merged_ratio,
-                    attack=merged_attack,
-                    release=merged_release,
-                    makeup_gain=merged_makeup_gain
-                )
-                await client_registry_service.set_zone_dsp(zone_id, zone.dsp_settings)
-            except Exception as e:
-                logger.warning(f"Failed to persist zone DSP settings: {e}")
-
-            # Broadcast zone compressor change with merged values
-            await state_machine.broadcast_event("dsp", "zone_compressor_changed", {
-                "zone_id": zone_id,
-                "enabled": merged_enabled,
-                "threshold": merged_threshold,
-                "ratio": merged_ratio,
-                "attack": merged_attack,
-                "release": merged_release,
-                "makeup_gain": merged_makeup_gain,
-                "applied_to": applied_to
-            })
-
-            return {
-                "status": "success" if not errors else "partial",
-                "zone_id": zone_id,
-                "applied_to": applied_to,
-                "offline_clients": offline_clients if offline_clients else None,
-                "errors": errors if errors else None
-            }
-        except HTTPException:
-            raise
+            success = await multiroom_dsp_service.update_compressor(
+                target_type="zone",
+                target_id=zone_id,
+                enabled=payload.enabled,
+                threshold=payload.threshold,
+                ratio=payload.ratio,
+                attack=payload.attack,
+                release=payload.release,
+                makeup_gain=payload.makeup_gain
+            )
+            return {"status": "success" if success else "error", "zone_id": zone_id}
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
         except Exception as e:
             logger.error(f"Error updating compressor for zone {zone_id}: {e}")
             raise HTTPException(status_code=500, detail=str(e))
@@ -725,102 +459,16 @@ def create_dsp_router(
         receive settings on reconnection via sync service.
         """
         try:
-            _require_registry()
-            zone = client_registry_service.get_zone(zone_id)
-            if not zone:
-                raise HTTPException(status_code=404, detail=f"Zone '{zone_id}' not found")
-
-            # Merge payload with existing zone loudness settings
-            current = zone.dsp_settings.loudness
-            merged_enabled = payload.enabled if payload.enabled is not None else current.enabled
-            merged_high_boost = payload.high_boost if payload.high_boost is not None else current.high_boost
-            merged_low_boost = payload.low_boost if payload.low_boost is not None else current.low_boost
-
-            applied_to = []
-            offline_clients = []
-            errors = []
-
-            for client_id in zone.client_ids:
-                if dsp_router_service.is_local_client(client_id):
-                    # Local client: apply directly via dsp_service
-                    try:
-                        success = await dsp_service.set_loudness(
-                            enabled=merged_enabled,
-                            high_boost=merged_high_boost,
-                            low_boost=merged_low_boost
-                        )
-                        if success:
-                            applied_to.append(client_id)
-                        else:
-                            errors.append({"client_id": client_id, "error": "Failed to update loudness"})
-                    except Exception as e:
-                        errors.append({"client_id": client_id, "error": str(e)})
-                else:
-                    # Remote client: check online status, then proxy
-                    client = client_registry_service.get_client(client_id)
-                    if not client or not client.online:
-                        logger.debug(f"Skipping offline client {client_id} for loudness update")
-                        offline_clients.append(client_id)
-                        continue
-
-                    try:
-                        hostname = client.ip
-                        if not hostname:
-                            errors.append({"client_id": client_id, "error": "No hostname or IP"})
-                            continue
-
-                        _require_proxy()
-                        # Send merged values to remote client
-                        result = await proxy_service.request(
-                            hostname, "PUT", "/dsp/loudness",
-                            {
-                                "enabled": merged_enabled,
-                                "high_boost": merged_high_boost,
-                                "low_boost": merged_low_boost
-                            }
-                        )
-                        if result.get("status") == "success":
-                            applied_to.append(client_id)
-                        else:
-                            errors.append({"client_id": client_id, "error": result.get("message", "Unknown error")})
-                    except Exception as e:
-                        errors.append({"client_id": client_id, "error": str(e)})
-
-            # Update zone.dsp_settings to persist loudness changes for offline client sync
-            try:
-                from backend.core.multiroom.models import LoudnessSettings, EqFilter
-                # Sync filters from current DSP state to avoid overwriting with stale data
-                current_filters = await dsp_service.get_filters()
-                zone.dsp_settings.filters = [
-                    EqFilter.from_dict(f) for f in current_filters
-                ]
-                zone.dsp_settings.loudness = LoudnessSettings(
-                    enabled=merged_enabled,
-                    high_boost=merged_high_boost,
-                    low_boost=merged_low_boost
-                )
-                await client_registry_service.set_zone_dsp(zone_id, zone.dsp_settings)
-            except Exception as e:
-                logger.warning(f"Failed to persist zone DSP settings: {e}")
-
-            # Broadcast zone loudness change with merged values
-            await state_machine.broadcast_event("dsp", "zone_loudness_changed", {
-                "zone_id": zone_id,
-                "enabled": merged_enabled,
-                "high_boost": merged_high_boost,
-                "low_boost": merged_low_boost,
-                "applied_to": applied_to
-            })
-
-            return {
-                "status": "success" if not errors else "partial",
-                "zone_id": zone_id,
-                "applied_to": applied_to,
-                "offline_clients": offline_clients if offline_clients else None,
-                "errors": errors if errors else None
-            }
-        except HTTPException:
-            raise
+            success = await multiroom_dsp_service.update_loudness(
+                target_type="zone",
+                target_id=zone_id,
+                enabled=payload.enabled,
+                high_boost=payload.high_boost,
+                low_boost=payload.low_boost
+            )
+            return {"status": "success" if success else "error", "zone_id": zone_id}
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
         except Exception as e:
             logger.error(f"Error updating loudness for zone {zone_id}: {e}")
             raise HTTPException(status_code=500, detail=str(e))
@@ -835,78 +483,22 @@ def create_dsp_router(
         OFFLINE clients will receive settings on reconnection via sync service.
         """
         try:
-            _require_registry()
             body = await request.json()
             enabled = body.get("enabled")
 
             if enabled is None:
                 raise HTTPException(status_code=400, detail="'enabled' field is required")
 
-            zone = client_registry_service.get_zone(zone_id)
-            if not zone:
-                raise HTTPException(status_code=404, detail=f"Zone '{zone_id}' not found")
-
-            applied_to = []
-            offline_clients = []
-            errors = []
-
-            for client_id in zone.client_ids:
-                if dsp_router_service.is_local_client(client_id):
-                    # Local client: use routing_service
-                    try:
-                        if routing_service:
-                            success = await routing_service.set_dsp_effects_enabled(enabled)
-                            if success:
-                                applied_to.append(client_id)
-                            else:
-                                errors.append({"client_id": client_id, "error": "Failed to update DSP enabled state"})
-                        else:
-                            errors.append({"client_id": client_id, "error": "Routing service not available"})
-                    except Exception as e:
-                        errors.append({"client_id": client_id, "error": str(e)})
-                else:
-                    # Remote client: check online status, then proxy
-                    client = client_registry_service.get_client(client_id)
-                    if not client or not client.online:
-                        logger.debug(f"Skipping offline client {client_id} for DSP enabled update")
-                        offline_clients.append(client_id)
-                        continue
-
-                    try:
-                        hostname = client.ip
-                        if not hostname:
-                            errors.append({"client_id": client_id, "error": "No hostname or IP"})
-                            continue
-
-                        _require_proxy()
-                        result = await proxy_service.request(
-                            hostname, "PUT", "/dsp/enabled",
-                            {"enabled": enabled}
-                        )
-                        if result.get("status") == "success":
-                            applied_to.append(client_id)
-                        else:
-                            errors.append({"client_id": client_id, "error": result.get("message", "Unknown error")})
-                    except Exception as e:
-                        errors.append({"client_id": client_id, "error": str(e)})
-
-            # Broadcast zone DSP enabled change
-            await state_machine.broadcast_event("dsp", "zone_enabled_changed", {
-                "zone_id": zone_id,
-                "enabled": enabled,
-                "applied_to": applied_to
-            })
-
+            success = await multiroom_dsp_service.set_zone_dsp_effects_enabled(zone_id, enabled)
             return {
-                "status": "success" if not errors else "partial",
+                "status": "success" if success else "error",
                 "zone_id": zone_id,
-                "enabled": enabled,
-                "applied_to": applied_to,
-                "offline_clients": offline_clients if offline_clients else None,
-                "errors": errors if errors else None
+                "enabled": enabled
             }
         except HTTPException:
             raise
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
         except Exception as e:
             logger.error(f"Error updating DSP enabled for zone {zone_id}: {e}")
             raise HTTPException(status_code=500, detail=str(e))

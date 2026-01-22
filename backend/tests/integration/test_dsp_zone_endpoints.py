@@ -12,9 +12,7 @@ Tests cover:
 - AC7: Presets list endpoint (GET /api/dsp/presets)
 
 These tests verify:
-- Zone endpoints propagate to all ONLINE clients
-- OFFLINE clients are gracefully skipped
-- WebSocket events are broadcast with correct data
+- Zone endpoints call multiroom_dsp_service methods
 - Error handling for zone not found, client errors, etc.
 """
 import pytest
@@ -92,6 +90,18 @@ def mock_dsp_router_service():
 
 
 @pytest.fixture
+def mock_multiroom_dsp_service():
+    """Create mock multiroom DSP service for zone operations"""
+    service = Mock()
+    service.load_zone_preset = AsyncMock(return_value=True)
+    service.update_filter = AsyncMock(return_value=True)
+    service.update_compressor = AsyncMock(return_value=True)
+    service.update_loudness = AsyncMock(return_value=True)
+    service.set_zone_dsp_effects_enabled = AsyncMock(return_value=True)
+    return service
+
+
+@pytest.fixture
 def mock_client_registry_service():
     """Create mock client registry service with zone and clients"""
     registry = Mock()
@@ -135,7 +145,8 @@ def mock_client_registry_service():
 
 @pytest.fixture
 def dsp_router(mock_dsp_service, mock_state_machine, mock_routing_service,
-               mock_proxy_service, mock_client_registry_service, mock_dsp_router_service):
+               mock_proxy_service, mock_client_registry_service, mock_dsp_router_service,
+               mock_multiroom_dsp_service):
     """Create DSP router with all mocked dependencies"""
     return create_dsp_router(
         dsp_service=mock_dsp_service,
@@ -143,7 +154,8 @@ def dsp_router(mock_dsp_service, mock_state_machine, mock_routing_service,
         routing_service=mock_routing_service,
         proxy_service=mock_proxy_service,
         client_registry_service=mock_client_registry_service,
-        dsp_router_service=mock_dsp_router_service
+        dsp_router_service=mock_dsp_router_service,
+        multiroom_dsp_service=mock_multiroom_dsp_service
     )
 
 
@@ -152,20 +164,18 @@ def dsp_router(mock_dsp_service, mock_state_machine, mock_routing_service,
 # =============================================================================
 
 class TestAC1ZoneFilterUpdate:
-    """AC1: Zone filter update propagates to ONLINE clients"""
+    """AC1: Zone filter update delegates to multiroom_dsp_service"""
 
     @pytest.mark.asyncio
-    async def test_zone_filter_update_propagates_to_online_clients(
-        self, mock_dsp_service, mock_state_machine, mock_proxy_service,
-        mock_client_registry_service, mock_dsp_router_service
+    async def test_zone_filter_update_calls_multiroom_service(
+        self, mock_dsp_service, mock_state_machine, mock_multiroom_dsp_service, mock_dsp_router_service
     ):
-        """Should update filter on local and online remote clients"""
+        """Should delegate filter update to multiroom_dsp_service"""
         router = create_dsp_router(
             dsp_service=mock_dsp_service,
             state_machine=mock_state_machine,
-            proxy_service=mock_proxy_service,
-            client_registry_service=mock_client_registry_service,
-            dsp_router_service=mock_dsp_router_service
+            dsp_router_service=mock_dsp_router_service,
+            multiroom_dsp_service=mock_multiroom_dsp_service
         )
 
         # Get the route function directly
@@ -179,67 +189,40 @@ class TestAC1ZoneFilterUpdate:
         assert route_fn is not None, "Zone filter route not found"
 
         # Call the endpoint
-        payload = DspFilterUpdateRequest(gain=3.0)
+        payload = DspFilterUpdateRequest(gain=3.0, freq=125)
         result = await route_fn("zone_test123", "eq_band_00", payload)
 
-        # Verify local DSP service was called
-        mock_dsp_service.set_filter.assert_called_once()
-
-        # Verify proxy was called for online remote client
-        mock_proxy_service.request.assert_called()
-        proxy_call = mock_proxy_service.request.call_args
-        assert "milo-client-kitchen" in str(proxy_call) or "192.168.1.100" in str(proxy_call)
-
-        # Verify WebSocket event was broadcast
-        mock_state_machine.broadcast_event.assert_called()
-        event_call = mock_state_machine.broadcast_event.call_args
-        assert event_call[0][0] == "dsp"
-        assert event_call[0][1] == "zone_filter_changed"
-
-    @pytest.mark.asyncio
-    async def test_zone_filter_update_skips_offline_clients(
-        self, mock_dsp_service, mock_state_machine, mock_proxy_service,
-        mock_client_registry_service, mock_dsp_router_service
-    ):
-        """Should skip offline clients gracefully"""
-        router = create_dsp_router(
-            dsp_service=mock_dsp_service,
-            state_machine=mock_state_machine,
-            proxy_service=mock_proxy_service,
-            client_registry_service=mock_client_registry_service,
-            dsp_router_service=mock_dsp_router_service
+        # Verify multiroom_dsp_service was called
+        mock_multiroom_dsp_service.update_filter.assert_called_once_with(
+            target_type="zone",
+            target_id="zone_test123",
+            filter_id="eq_band_00",
+            frequency=125,
+            gain=3.0,
+            q=None,
+            filter_type=None,
+            enabled=None
         )
 
-        route_fn = None
-        for route in router.routes:
-            if hasattr(route, 'path') and 'zone' in route.path and 'filter' in route.path:
-                if route.methods == {'PATCH'}:
-                    route_fn = route.endpoint
-                    break
-
-        payload = DspFilterUpdateRequest(gain=3.0)
-        result = await route_fn("zone_test123", "eq_band_00", payload)
-
-        # Verify offline client was not called via proxy
-        for call in mock_proxy_service.request.call_args_list:
-            assert "milo-client-bedroom" not in str(call)
-            assert "192.168.1.101" not in str(call)
-
-        # Verify offline_clients in response
-        assert result.get("offline_clients") == ["112233445566"]
+        # Verify response format
+        assert result["status"] == "success"
+        assert result["zone_id"] == "zone_test123"
 
     @pytest.mark.asyncio
     async def test_zone_filter_update_returns_404_for_unknown_zone(
-        self, mock_dsp_service, mock_state_machine, mock_client_registry_service, mock_dsp_router_service
+        self, mock_dsp_service, mock_state_machine, mock_multiroom_dsp_service, mock_dsp_router_service
     ):
         """Should return 404 for unknown zone"""
-        mock_client_registry_service.get_zone = Mock(return_value=None)
+        # Configure multiroom_dsp_service to raise ValueError for unknown zone
+        mock_multiroom_dsp_service.update_filter = AsyncMock(
+            side_effect=ValueError("Zone not found: unknown_zone")
+        )
 
         router = create_dsp_router(
             dsp_service=mock_dsp_service,
             state_machine=mock_state_machine,
-            client_registry_service=mock_client_registry_service,
-            dsp_router_service=mock_dsp_router_service
+            dsp_router_service=mock_dsp_router_service,
+            multiroom_dsp_service=mock_multiroom_dsp_service
         )
 
         route_fn = None
@@ -262,20 +245,18 @@ class TestAC1ZoneFilterUpdate:
 # =============================================================================
 
 class TestAC2ZoneCompressorControl:
-    """AC2: Zone compressor control propagates to ONLINE clients"""
+    """AC2: Zone compressor control delegates to multiroom_dsp_service"""
 
     @pytest.mark.asyncio
-    async def test_zone_compressor_update_propagates_correctly(
-        self, mock_dsp_service, mock_state_machine, mock_proxy_service,
-        mock_client_registry_service, mock_dsp_router_service
+    async def test_zone_compressor_update_calls_multiroom_service(
+        self, mock_dsp_service, mock_state_machine, mock_multiroom_dsp_service, mock_dsp_router_service
     ):
-        """Should update compressor on all online clients"""
+        """Should delegate compressor update to multiroom_dsp_service"""
         router = create_dsp_router(
             dsp_service=mock_dsp_service,
             state_machine=mock_state_machine,
-            proxy_service=mock_proxy_service,
-            client_registry_service=mock_client_registry_service,
-            dsp_router_service=mock_dsp_router_service
+            dsp_router_service=mock_dsp_router_service,
+            multiroom_dsp_service=mock_multiroom_dsp_service
         )
 
         route_fn = None
@@ -290,18 +271,21 @@ class TestAC2ZoneCompressorControl:
         payload = DspCompressorRequest(enabled=True, threshold=-20)
         result = await route_fn("zone_test123", payload)
 
-        # Verify local DSP service was called
-        mock_dsp_service.set_compressor.assert_called_once()
-
-        # Verify WebSocket event
-        mock_state_machine.broadcast_event.assert_called()
-        event_call = mock_state_machine.broadcast_event.call_args
-        assert event_call[0][1] == "zone_compressor_changed"
+        # Verify multiroom_dsp_service was called
+        mock_multiroom_dsp_service.update_compressor.assert_called_once_with(
+            target_type="zone",
+            target_id="zone_test123",
+            enabled=True,
+            threshold=-20,
+            ratio=None,
+            attack=None,
+            release=None,
+            makeup_gain=None
+        )
 
         # Verify response format
-        assert result["status"] in ["success", "partial"]
+        assert result["status"] == "success"
         assert result["zone_id"] == "zone_test123"
-        assert "applied_to" in result
 
 
 # =============================================================================
@@ -309,20 +293,18 @@ class TestAC2ZoneCompressorControl:
 # =============================================================================
 
 class TestAC3ZoneLoudnessControl:
-    """AC3: Zone loudness control propagates to ONLINE clients"""
+    """AC3: Zone loudness control delegates to multiroom_dsp_service"""
 
     @pytest.mark.asyncio
-    async def test_zone_loudness_update_propagates_correctly(
-        self, mock_dsp_service, mock_state_machine, mock_proxy_service,
-        mock_client_registry_service, mock_dsp_router_service
+    async def test_zone_loudness_update_calls_multiroom_service(
+        self, mock_dsp_service, mock_state_machine, mock_multiroom_dsp_service, mock_dsp_router_service
     ):
-        """Should update loudness on all online clients"""
+        """Should delegate loudness update to multiroom_dsp_service"""
         router = create_dsp_router(
             dsp_service=mock_dsp_service,
             state_machine=mock_state_machine,
-            proxy_service=mock_proxy_service,
-            client_registry_service=mock_client_registry_service,
-            dsp_router_service=mock_dsp_router_service
+            dsp_router_service=mock_dsp_router_service,
+            multiroom_dsp_service=mock_multiroom_dsp_service
         )
 
         route_fn = None
@@ -334,19 +316,20 @@ class TestAC3ZoneLoudnessControl:
 
         assert route_fn is not None, "Zone loudness route not found"
 
-        payload = DspLoudnessRequest(enabled=True)
+        payload = DspLoudnessRequest(enabled=True, high_boost=3.0)
         result = await route_fn("zone_test123", payload)
 
-        # Verify local DSP service was called
-        mock_dsp_service.set_loudness.assert_called_once()
-
-        # Verify WebSocket event
-        mock_state_machine.broadcast_event.assert_called()
-        event_call = mock_state_machine.broadcast_event.call_args
-        assert event_call[0][1] == "zone_loudness_changed"
+        # Verify multiroom_dsp_service was called
+        mock_multiroom_dsp_service.update_loudness.assert_called_once_with(
+            target_type="zone",
+            target_id="zone_test123",
+            enabled=True,
+            high_boost=3.0,
+            low_boost=None
+        )
 
         # Verify response format
-        assert result["status"] in ["success", "partial"]
+        assert result["status"] == "success"
         assert result["zone_id"] == "zone_test123"
 
 
@@ -355,21 +338,18 @@ class TestAC3ZoneLoudnessControl:
 # =============================================================================
 
 class TestAC4ZoneDspBypass:
-    """AC4: Zone DSP bypass propagates to ONLINE clients"""
+    """AC4: Zone DSP bypass delegates to multiroom_dsp_service"""
 
     @pytest.mark.asyncio
-    async def test_zone_dsp_enabled_update_propagates_correctly(
-        self, mock_dsp_service, mock_state_machine, mock_routing_service,
-        mock_proxy_service, mock_client_registry_service, mock_dsp_router_service
+    async def test_zone_dsp_enabled_update_calls_multiroom_service(
+        self, mock_dsp_service, mock_state_machine, mock_multiroom_dsp_service, mock_dsp_router_service
     ):
-        """Should update DSP enabled state on all online clients"""
+        """Should delegate DSP enabled update to multiroom_dsp_service"""
         router = create_dsp_router(
             dsp_service=mock_dsp_service,
             state_machine=mock_state_machine,
-            routing_service=mock_routing_service,
-            proxy_service=mock_proxy_service,
-            client_registry_service=mock_client_registry_service,
-            dsp_router_service=mock_dsp_router_service
+            dsp_router_service=mock_dsp_router_service,
+            multiroom_dsp_service=mock_multiroom_dsp_service
         )
 
         route_fn = None
@@ -387,17 +367,41 @@ class TestAC4ZoneDspBypass:
 
         result = await route_fn("zone_test123", mock_request)
 
-        # Verify routing service was called for local
-        mock_routing_service.set_dsp_effects_enabled.assert_called_with(False)
-
-        # Verify WebSocket event
-        mock_state_machine.broadcast_event.assert_called()
-        event_call = mock_state_machine.broadcast_event.call_args
-        assert event_call[0][1] == "zone_enabled_changed"
+        # Verify multiroom_dsp_service was called
+        mock_multiroom_dsp_service.set_zone_dsp_effects_enabled.assert_called_once_with(
+            "zone_test123", False
+        )
 
         # Verify response format
-        assert result["status"] in ["success", "partial"]
+        assert result["status"] == "success"
         assert result["enabled"] is False
+
+    @pytest.mark.asyncio
+    async def test_zone_dsp_enabled_requires_enabled_field(
+        self, mock_dsp_service, mock_state_machine, mock_multiroom_dsp_service, mock_dsp_router_service
+    ):
+        """Should return 400 if enabled field is missing"""
+        router = create_dsp_router(
+            dsp_service=mock_dsp_service,
+            state_machine=mock_state_machine,
+            dsp_router_service=mock_dsp_router_service,
+            multiroom_dsp_service=mock_multiroom_dsp_service
+        )
+
+        route_fn = None
+        for route in router.routes:
+            if hasattr(route, 'path') and 'zone' in route.path and 'enabled' in route.path:
+                if route.methods == {'PATCH'}:
+                    route_fn = route.endpoint
+                    break
+
+        mock_request = AsyncMock()
+        mock_request.json = AsyncMock(return_value={})  # Missing 'enabled'
+
+        with pytest.raises(HTTPException) as exc:
+            await route_fn("zone_test123", mock_request)
+
+        assert exc.value.status_code == 400
 
 
 # =============================================================================
@@ -409,14 +413,16 @@ class TestAC6ClientProxyRoutes:
 
     @pytest.mark.asyncio
     async def test_client_filter_proxy_works(
-        self, mock_dsp_service, mock_state_machine, mock_proxy_service, mock_dsp_router_service
+        self, mock_dsp_service, mock_state_machine, mock_proxy_service,
+        mock_dsp_router_service, mock_multiroom_dsp_service
     ):
         """Should proxy filter update to remote client"""
         router = create_dsp_router(
             dsp_service=mock_dsp_service,
             state_machine=mock_state_machine,
             proxy_service=mock_proxy_service,
-            dsp_router_service=mock_dsp_router_service
+            dsp_router_service=mock_dsp_router_service,
+            multiroom_dsp_service=mock_multiroom_dsp_service
         )
 
         # Find client filter route
@@ -433,23 +439,26 @@ class TestAC6ClientProxyRoutes:
         mock_request = AsyncMock()
         mock_request.json = AsyncMock(return_value={"gain": 3.0})
 
+        # Configure dsp_router_service to handle the call
+        mock_dsp_router_service.update_filter = AsyncMock(return_value={"status": "success"})
+
         result = await route_fn("milo-client-01", "eq_band_00", mock_request)
 
-        # Verify proxy was called
-        mock_proxy_service.request.assert_called()
+        # Verify dsp_router_service was called
+        mock_dsp_router_service.update_filter.assert_called()
 
     @pytest.mark.asyncio
-    async def test_client_proxy_skips_unavailable_client(
-        self, mock_dsp_service, mock_state_machine, mock_proxy_service, mock_dsp_router_service
+    async def test_client_compressor_proxy_works(
+        self, mock_dsp_service, mock_state_machine, mock_proxy_service,
+        mock_dsp_router_service, mock_multiroom_dsp_service
     ):
-        """Should skip unavailable client gracefully"""
-        mock_proxy_service.check_available = AsyncMock(return_value=False)
-
+        """Should proxy compressor update to remote client"""
         router = create_dsp_router(
             dsp_service=mock_dsp_service,
             state_machine=mock_state_machine,
             proxy_service=mock_proxy_service,
-            dsp_router_service=mock_dsp_router_service
+            dsp_router_service=mock_dsp_router_service,
+            multiroom_dsp_service=mock_multiroom_dsp_service
         )
 
         # Find client compressor route
@@ -465,11 +474,10 @@ class TestAC6ClientProxyRoutes:
         mock_request = AsyncMock()
         mock_request.json = AsyncMock(return_value={"enabled": True})
 
-        result = await route_fn("milo-client-offline", mock_request)
+        result = await route_fn("milo-client-01", mock_request)
 
-        # Verify skipped response
-        assert result["status"] == "skipped"
-        assert result["reason"] == "client_unavailable"
+        # Verify dsp_router_service was called
+        mock_dsp_router_service.set_compressor.assert_called()
 
 
 # =============================================================================
@@ -481,7 +489,7 @@ class TestAC7PresetsList:
 
     @pytest.mark.asyncio
     async def test_presets_endpoint_returns_all_presets(
-        self, mock_dsp_service, mock_state_machine, mock_dsp_router_service
+        self, mock_dsp_service, mock_state_machine, mock_dsp_router_service, mock_multiroom_dsp_service
     ):
         """Should return all builtin presets with manual gains and active preset"""
         # Set up mock with all 21 presets + manual gains
@@ -491,7 +499,8 @@ class TestAC7PresetsList:
         router = create_dsp_router(
             dsp_service=mock_dsp_service,
             state_machine=mock_state_machine,
-            dsp_router_service=mock_dsp_router_service
+            dsp_router_service=mock_dsp_router_service,
+            multiroom_dsp_service=mock_multiroom_dsp_service
         )
 
         # Find presets GET route
@@ -521,15 +530,17 @@ class TestErrorHandling:
     """Test error handling scenarios"""
 
     @pytest.mark.asyncio
-    async def test_zone_endpoint_returns_500_without_registry(
-        self, mock_dsp_service, mock_state_machine, mock_dsp_router_service
+    async def test_zone_endpoint_returns_error_when_service_fails(
+        self, mock_dsp_service, mock_state_machine, mock_multiroom_dsp_service, mock_dsp_router_service
     ):
-        """Should return 500 if registry service not available"""
+        """Should return error status when multiroom_dsp_service fails"""
+        mock_multiroom_dsp_service.update_compressor = AsyncMock(return_value=False)
+
         router = create_dsp_router(
             dsp_service=mock_dsp_service,
             state_machine=mock_state_machine,
-            client_registry_service=None,
-            dsp_router_service=mock_dsp_router_service
+            dsp_router_service=mock_dsp_router_service,
+            multiroom_dsp_service=mock_multiroom_dsp_service
         )
 
         route_fn = None
@@ -540,39 +551,44 @@ class TestErrorHandling:
                     break
 
         payload = DspCompressorRequest(enabled=True)
+        result = await route_fn("zone_test123", payload)
 
-        with pytest.raises(HTTPException) as exc:
-            await route_fn("zone_test123", payload)
-
-        assert exc.value.status_code == 500
+        # Should return error status
+        assert result["status"] == "error"
 
     @pytest.mark.asyncio
-    async def test_partial_success_when_some_clients_fail(
-        self, mock_dsp_service, mock_state_machine, mock_proxy_service,
-        mock_client_registry_service, mock_dsp_router_service
+    async def test_zone_preset_calls_multiroom_service(
+        self, mock_dsp_service, mock_state_machine, mock_multiroom_dsp_service, mock_dsp_router_service
     ):
-        """Should return partial status when some clients fail"""
-        # Make proxy fail for remote client
-        mock_proxy_service.request = AsyncMock(return_value={"status": "error", "message": "Connection refused"})
-
+        """Should delegate preset loading to multiroom_dsp_service"""
         router = create_dsp_router(
             dsp_service=mock_dsp_service,
             state_machine=mock_state_machine,
-            proxy_service=mock_proxy_service,
-            client_registry_service=mock_client_registry_service,
-            dsp_router_service=mock_dsp_router_service
+            dsp_router_service=mock_dsp_router_service,
+            multiroom_dsp_service=mock_multiroom_dsp_service
         )
 
         route_fn = None
         for route in router.routes:
-            if hasattr(route, 'path') and 'zone' in route.path and 'loudness' in route.path:
-                if route.methods == {'PATCH'}:
+            if hasattr(route, 'path') and 'zone' in route.path and 'preset' in route.path:
+                if route.methods == {'POST'}:
                     route_fn = route.endpoint
                     break
 
-        payload = DspLoudnessRequest(enabled=True)
+        assert route_fn is not None, "Zone preset route not found"
+
+        # Create mock payload
+        from backend.api.models import DspPresetRequest
+        payload = DspPresetRequest(preset_id="jazz")
+
         result = await route_fn("zone_test123", payload)
 
-        # Should return partial status
-        assert result["status"] == "partial"
-        assert "errors" in result
+        # Verify multiroom_dsp_service was called
+        mock_multiroom_dsp_service.load_zone_preset.assert_called_once_with(
+            "zone_test123", "jazz"
+        )
+
+        # Verify response format
+        assert result["status"] == "success"
+        assert result["zone_id"] == "zone_test123"
+        assert result["preset_id"] == "jazz"
