@@ -27,7 +27,6 @@ class CompressorUpdate(BaseModel):
 class LoudnessUpdate(BaseModel):
     """Model for loudness update request."""
     enabled: Optional[bool] = None
-    reference_level: Optional[int] = None
     high_boost: Optional[float] = None
     low_boost: Optional[float] = None
 

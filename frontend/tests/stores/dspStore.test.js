@@ -1320,7 +1320,7 @@ describe('dspStore - WebSocket Event Handlers (Story 4.8)', () => {
       setActivePinia(createPinia());
       const store = useDspStore();
 
-      store.loudness = { enabled: false, reference_level: 80, low_boost: 5, high_boost: 5 };
+      store.loudness = { enabled: false, low_boost: 5, high_boost: 5 };
 
       store.handleLoudnessChanged({
         data: { enabled: true, low_boost: 8 }
@@ -1395,7 +1395,7 @@ describe('dspStore - handleDspChanged (Story 6.2)', () => {
       const store = useDspStore();
 
       store.selectedTarget = 'local'; // local is in zone-living
-      store.loudness = { enabled: false, reference_level: 80 };
+      store.loudness = { enabled: false, low_boost: 5, high_boost: 5 };
 
       store.handleDspChanged({
         data: {

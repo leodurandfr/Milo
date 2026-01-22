@@ -84,8 +84,7 @@ def connected_dsp_with_effects(mock_settings_service, mock_event_bus, mock_state
     # Enable loudness
     service._loudness = {
         "enabled": True,
-        "reference_level": 75,
-        "low_boost": 10,
+                "low_boost": 10,
         "high_boost": 8
     }
 
@@ -220,7 +219,7 @@ class TestAC2RestoreEffects:
         mock_settings_service.get_setting = AsyncMock(side_effect=lambda key: {
             "dsp.filters": saved_filters,
             "dsp.compressor": {"enabled": True, "threshold": -25, "ratio": 6},
-            "dsp.loudness": {"enabled": True, "reference_level": 75}
+            "dsp.loudness": {"enabled": True, "high_boost": 8}
         }.get(key))
 
         mock_config = {"filters": {}, "processors": {}, "pipeline": []}
@@ -271,8 +270,7 @@ class TestAC2RestoreEffects:
         """Should restore loudness settings from dsp.loudness"""
         saved_loudness = {
             "enabled": True,
-            "reference_level": 75,
-            "low_boost": 10,
+                        "low_boost": 10,
             "high_boost": 8
         }
 

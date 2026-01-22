@@ -6,7 +6,7 @@ Tests cover:
 - AC1: Compressor enable/disable with WebSocket broadcast
 - AC2: Compressor parameter validation and application
 - AC3: Loudness enable/disable with shelf filters
-- AC4: Loudness reference_level adjustment with WebSocket broadcast
+- AC4: Loudness boost adjustment with WebSocket broadcast
 - AC5: Zone propagation for compressor/loudness (tested at API level)
 - AC6: Preset auto-switch on manual modification (investigation)
 
@@ -366,24 +366,7 @@ class TestAC3LoudnessEnableDisable:
 # =============================================================================
 
 class TestAC4LoudnessParameterAdjustment:
-    """AC4: Loudness reference_level adjustment with WebSocket broadcast"""
-
-    @pytest.mark.asyncio
-    async def test_loudness_reference_level_range(self, connected_dsp_service):
-        """Should accept reference_level in range 60 to 100 SPL"""
-        mock_config = {"filters": {}, "pipeline": []}
-
-        with patch.object(connected_dsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_dsp_service, '_set_config', new_callable=AsyncMock):
-                # Test minimum
-                result = await connected_dsp_service.set_loudness(reference_level=60)
-                assert result is True
-                assert connected_dsp_service._loudness["reference_level"] == 60
-
-                # Test maximum
-                result = await connected_dsp_service.set_loudness(reference_level=100)
-                assert result is True
-                assert connected_dsp_service._loudness["reference_level"] == 100
+    """AC4: Loudness boost adjustment with WebSocket broadcast"""
 
     @pytest.mark.asyncio
     async def test_loudness_boost_range(self, connected_dsp_service):
@@ -427,20 +410,18 @@ class TestAC4LoudnessParameterAdjustment:
         # Initialize
         connected_dsp_service._loudness = {
             "enabled": True,
-            "reference_level": 80,
             "low_boost": 5,
             "high_boost": 5
         }
 
         with patch.object(connected_dsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
             with patch.object(connected_dsp_service, '_set_config', new_callable=AsyncMock):
-                # Only update reference_level
-                result = await connected_dsp_service.set_loudness(reference_level=75)
+                # Only update low_boost
+                result = await connected_dsp_service.set_loudness(low_boost=10)
 
                 assert result is True
-                assert connected_dsp_service._loudness["reference_level"] == 75
+                assert connected_dsp_service._loudness["low_boost"] == 10
                 # Others unchanged
-                assert connected_dsp_service._loudness["low_boost"] == 5
                 assert connected_dsp_service._loudness["high_boost"] == 5
 
 
@@ -682,24 +663,6 @@ class TestAPILoudnessValidation:
         req = DspLoudnessRequest()
         assert req.enabled is None
 
-    def test_loudness_reference_level_bounds(self):
-        """Reference level should accept 60 to 100 SPL"""
-        req = DspLoudnessRequest(reference_level=60)
-        assert req.reference_level == 60
-
-        req = DspLoudnessRequest(reference_level=100)
-        assert req.reference_level == 100
-
-    def test_loudness_reference_level_out_of_bounds_rejected(self):
-        """Reference level outside 60 to 100 should be rejected"""
-        from pydantic import ValidationError
-
-        with pytest.raises(ValidationError):
-            DspLoudnessRequest(reference_level=59)
-
-        with pytest.raises(ValidationError):
-            DspLoudnessRequest(reference_level=101)
-
     def test_loudness_boost_bounds(self):
         """High/low boost should accept 0 to 15 dB"""
         req = DspLoudnessRequest(high_boost=0)
@@ -756,7 +719,6 @@ class TestEffectsBypassRestore:
         }
         service._loudness = {
             "enabled": True,
-            "reference_level": 75,
             "low_boost": 10,
             "high_boost": 8
         }
@@ -829,7 +791,7 @@ class TestEffectsBypassRestore:
         mock_settings_service.get_setting = AsyncMock(side_effect=lambda key: {
             "dsp.filters": [],
             "dsp.compressor": {"enabled": True, "threshold": -25, "ratio": 6, "attack": 15, "release": 150, "makeup_gain": 5},
-            "dsp.loudness": {"enabled": False, "reference_level": 80, "low_boost": 5, "high_boost": 5}
+            "dsp.loudness": {"enabled": False, "low_boost": 5, "high_boost": 5}
         }.get(key))
 
         # Start with compressor disabled (as if bypassed)
@@ -852,7 +814,7 @@ class TestEffectsBypassRestore:
         mock_settings_service.get_setting = AsyncMock(side_effect=lambda key: {
             "dsp.filters": [],
             "dsp.compressor": {"enabled": False, "threshold": -20, "ratio": 4, "attack": 10, "release": 100, "makeup_gain": 0},
-            "dsp.loudness": {"enabled": True, "reference_level": 75, "low_boost": 10, "high_boost": 8}
+            "dsp.loudness": {"enabled": True, "low_boost": 10, "high_boost": 8}
         }.get(key))
 
         # Start with loudness disabled (as if bypassed)

@@ -369,7 +369,6 @@ class MultiroomDspService:
             loud = settings.loudness
             await self._dsp_service.set_loudness(
                 enabled=loud.enabled,
-                reference_level=loud.reference_level,
                 high_boost=loud.high_boost,
                 low_boost=loud.low_boost,
                 persist=False,  # Don't persist to dsp.* keys
@@ -496,7 +495,6 @@ class MultiroomDspService:
         target_type: str,
         target_id: str,
         enabled: Optional[bool] = None,
-        reference_level: Optional[int] = None,
         high_boost: Optional[float] = None,
         low_boost: Optional[float] = None,
     ) -> bool:
@@ -507,7 +505,6 @@ class MultiroomDspService:
             target_type: "zone" or "client"
             target_id: Zone ID or client MAC ID
             enabled: New enabled state (optional)
-            reference_level: New reference level (optional)
             high_boost: New high boost in dB (optional)
             low_boost: New low boost in dB (optional)
 
@@ -523,8 +520,6 @@ class MultiroomDspService:
         loud = current.loudness
         if enabled is not None:
             loud.enabled = enabled
-        if reference_level is not None:
-            loud.reference_level = reference_level
         if high_boost is not None:
             loud.high_boost = high_boost
         if low_boost is not None:

@@ -37,7 +37,7 @@ class DspSettingsSyncService:
     DEFAULT_DSP_SETTINGS = {
         "filters": {},
         "compressor": {"enabled": False, "threshold": -20, "ratio": 4, "attack": 10, "release": 100},
-        "loudness": {"enabled": False, "reference_level": -25},
+        "loudness": {"enabled": False, "high_boost": 5.0, "low_boost": 8.0},
     }
 
     def __init__(

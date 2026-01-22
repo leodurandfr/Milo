@@ -105,7 +105,6 @@ def sample_dsp_settings():
         ),
         loudness=LoudnessSettings(
             enabled=True,
-            reference_level=80,
             high_boost=5.0,
             low_boost=8.0,
         ),

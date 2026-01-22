@@ -173,7 +173,6 @@ def create_dsp_router(dsp_service: DSPService) -> APIRouter:
         try:
             success = await dsp_service.set_loudness(
                 enabled=update.enabled,
-                reference_level=update.reference_level,
                 high_boost=update.high_boost,
                 low_boost=update.low_boost
             )

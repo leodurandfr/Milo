@@ -1426,7 +1426,7 @@ class TestAC6PendingSettingsQueue:
         # Create zone with loudness settings
         dsp_settings = DspSettings(
             enabled=True,
-            loudness=LoudnessSettings(enabled=True, reference_level=-25.0)
+            loudness=LoudnessSettings(enabled=True, high_boost=10.0)
         )
         await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2"], dsp_settings=dsp_settings)
 

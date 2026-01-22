@@ -166,7 +166,6 @@ export const DspCompressorSchema = z.object({
 
 export const DspLoudnessSchema = z.object({
   enabled: z.boolean(),
-  reference_level: z.number(),
   high_boost: z.number(),
   low_boost: z.number()
 });

@@ -63,7 +63,6 @@ class DSPService:
         }
         self._loudness = {
             "enabled": False,
-            "reference_level": 80,
             "high_boost": 5.0,
             "low_boost": 8.0
         }
@@ -418,13 +417,11 @@ class DSPService:
             self.logger.error(f"Error setting compressor: {e}")
             return False
 
-    async def set_loudness(self, enabled: bool = None, reference_level: int = None,
+    async def set_loudness(self, enabled: bool = None,
                            high_boost: float = None, low_boost: float = None) -> bool:
         """Update loudness settings."""
         if enabled is not None:
             self._loudness["enabled"] = enabled
-        if reference_level is not None:
-            self._loudness["reference_level"] = reference_level
         if high_boost is not None:
             self._loudness["high_boost"] = high_boost
         if low_boost is not None:

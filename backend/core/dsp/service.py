@@ -86,7 +86,6 @@ class CamillaDSPService:
         }
         self._loudness: Dict[str, Any] = {
             "enabled": False,
-            "reference_level": 80,
             "high_boost": 5.0,
             "low_boost": 8.0
         }
@@ -692,7 +691,6 @@ class CamillaDSPService:
     async def set_loudness(
         self,
         enabled: bool = None,
-        reference_level: int = None,
         high_boost: float = None,
         low_boost: float = None,
         persist: bool = True
@@ -701,8 +699,6 @@ class CamillaDSPService:
         # Update local cache
         if enabled is not None:
             self._loudness["enabled"] = enabled
-        if reference_level is not None:
-            self._loudness["reference_level"] = reference_level
         if high_boost is not None:
             self._loudness["high_boost"] = high_boost
         if low_boost is not None:
