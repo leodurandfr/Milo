@@ -2,7 +2,7 @@
 Pydantic models for API request validation.
 """
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 
 
 class FilterUpdate(BaseModel):
@@ -60,3 +60,8 @@ class LowpassUpdate(BaseModel):
     enabled: bool
     frequency: Optional[float] = 80.0
     q: Optional[float] = 0.707
+
+
+class FiltersBatchUpdate(BaseModel):
+    """Model for batch filter update request."""
+    filters: List[dict]  # [{id: "eq_band_00", gain: 5.0, freq: 31, q: 1.41}, ...]
