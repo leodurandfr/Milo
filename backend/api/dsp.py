@@ -506,171 +506,21 @@ def create_dsp_router(
     @router.post("/client/{mac_id}/preset")
     async def load_preset_for_client(mac_id: str, payload: DspPresetRequest):
         """
-        Load a preset for a specific client by MAC ID.
+        Load a preset for a standalone client by MAC ID.
 
-        For local client, applies directly. For remote clients, uses proxy.
+        Applies the preset to the client. For zone clients, use the zone preset endpoint.
         """
         try:
-            preset_id = payload.preset_id
-
-            if dsp_router_service.is_local_client(mac_id):
-                # Local client: apply directly
-                success = await dsp_service.load_preset(preset_id)
-                if success:
-                    return {"status": "success", "client_id": mac_id, "preset_id": preset_id}
-                raise HTTPException(status_code=404, detail=f"Preset '{preset_id}' not found")
-
-            # Remote client: check registry and use proxy
-            _require_registry()
-            client = client_registry_service.get_client(mac_id)
-            if not client:
-                raise HTTPException(status_code=404, detail=f"Client '{mac_id}' not found")
-
-            if not client.online:
-                return {
-                    "status": "skipped",
-                    "client_id": mac_id,
-                    "preset_id": preset_id,
-                    "reason": "client_offline"
-                }
-
-            _require_proxy()
-            client_ip = client.ip
-            if not client_ip:
-                raise HTTPException(status_code=500, detail="Client has no IP")
-
-            # Remote client: expand preset into individual filter updates
-            from backend.core.dsp.presets import get_preset_by_id, DEFAULT_MANUAL_GAINS
-            if preset_id == "manual":
-                if dsp_service and hasattr(dsp_service, 'get_manual_gains'):
-                    gains = await dsp_service.get_manual_gains()
-                else:
-                    gains = DEFAULT_MANUAL_GAINS
-            else:
-                preset = get_preset_by_id(preset_id)
-                if not preset:
-                    raise HTTPException(status_code=404, detail=f"Preset '{preset_id}' not found")
-                gains = preset["gains"]
-
-            # Standard 10-band frequencies
-            frequencies = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
-
-            # Build batch payload for all filters
-            filters_batch = [
-                {"id": f"eq_band_{i:02d}", "gain": gain, "freq": frequencies[i], "q": 1.41}
-                for i, gain in enumerate(gains[:10])
-            ]
-
-            # Single batch request
-            try:
-                result = await proxy_service.request(
-                    client_ip, "PUT", "/dsp/filters", {"filters": filters_batch}
-                )
-                if result.get("status") == "success":
-                    return {
-                        "status": "success",
-                        "client_id": mac_id,
-                        "preset_id": preset_id,
-                        "applied": result.get("applied", 10)
-                    }
-                raise HTTPException(status_code=500, detail=result.get("detail", "Batch failed"))
-            except HTTPException:
-                raise
-            except Exception as e:
-                logger.debug(f"Failed to apply filters batch to {mac_id}: {e}")
-                raise HTTPException(status_code=500, detail=f"Failed to apply filters: {e}")
-
-        except HTTPException:
-            raise
+            success = await multiroom_dsp_service.load_client_preset(mac_id, payload.preset_id)
+            return {
+                "status": "success" if success else "error",
+                "client_id": mac_id,
+                "preset_id": payload.preset_id
+            }
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
         except Exception as e:
             logger.error(f"Error loading preset for client {mac_id}: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    @router.put("/client/{hostname}/preset/{preset_id}")
-    async def proxy_load_preset(hostname: str, preset_id: str):
-        """
-        Load a preset on a remote client.
-
-        Since milo-clients don't have a preset endpoint, this expands the preset
-        into individual filter updates. Uses the backend's preset definitions
-        and applies each EQ band gain to the remote client.
-        """
-        try:
-            if dsp_router_service.is_local_client(hostname):
-                # Local client: apply directly
-                success = await dsp_service.load_preset(preset_id)
-                if success:
-                    return {"status": "success", "preset_id": preset_id}
-                raise HTTPException(status_code=404, detail=f"Preset '{preset_id}' not found")
-
-            # Remote client: expand preset into individual filter updates
-            _require_proxy()
-            client_ip = _require_client_ip(hostname)
-
-            # Check if client is available
-            skip = await _check_client_or_skip(client_ip, "preset load")
-            if skip:
-                return {**skip, "preset_id": preset_id}
-
-            # Get preset gains from backend definitions
-            from backend.core.dsp.presets import get_preset_by_id, DEFAULT_MANUAL_GAINS
-            if preset_id == "manual":
-                # Manual preset: use saved manual gains or defaults
-                if dsp_service and hasattr(dsp_service, 'get_manual_gains'):
-                    gains = await dsp_service.get_manual_gains()
-                else:
-                    gains = DEFAULT_MANUAL_GAINS
-            else:
-                preset = get_preset_by_id(preset_id)
-                if not preset:
-                    raise HTTPException(status_code=404, detail=f"Preset '{preset_id}' not found")
-                gains = preset["gains"]
-
-            # Standard 10-band frequencies
-            frequencies = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
-
-            # Build batch payload for all filters
-            filters_batch = [
-                {"id": f"eq_band_{i:02d}", "gain": gain, "freq": frequencies[i], "q": 1.41}
-                for i, gain in enumerate(gains[:10])
-            ]
-
-            # Single batch request
-            try:
-                result = await proxy_service.request(
-                    client_ip, "PUT", "/dsp/filters", {"filters": filters_batch}
-                )
-                if result.get("status") == "success":
-                    applied_count = result.get("applied", 10)
-                    # Save all filters to sync service
-                    if sync_service:
-                        for f in filters_batch:
-                            await sync_service.update_client_settings(
-                                hostname, "filters",
-                                {f["id"]: {"freq": f["freq"], "gain": f["gain"], "q": f["q"], "filter_type": "Peaking"}}
-                            )
-                    return {
-                        "status": "success",
-                        "preset_id": preset_id,
-                        "applied": applied_count
-                    }
-                else:
-                    return {
-                        "status": "error",
-                        "preset_id": preset_id,
-                        "error": result.get("detail", "Batch failed")
-                    }
-            except Exception as e:
-                return {
-                    "status": "error",
-                    "preset_id": preset_id,
-                    "error": str(e)
-                }
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error loading preset on {hostname}: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     # === Mute Control ===
