@@ -66,9 +66,10 @@ def mock_dsp_router_service():
 
 @pytest.fixture
 def mock_multiroom_dsp_service():
-    """Create mock multiroom DSP service for zone operations"""
+    """Create mock multiroom DSP service for zone and client operations"""
     service = Mock()
     service.load_zone_preset = AsyncMock(return_value=True)
+    service.load_client_preset = AsyncMock(return_value=True)
     service.update_filter = AsyncMock(return_value=True)
     service.update_compressor = AsyncMock(return_value=True)
     service.update_loudness = AsyncMock(return_value=True)
@@ -321,28 +322,6 @@ class TestAC3ZonePropagation:
             "Client preset route should exist"
 
     @pytest.mark.asyncio
-    async def test_proxy_preset_endpoint_exists(self):
-        """Verify PUT /api/dsp/client/{hostname}/preset/{preset_id} proxy route exists"""
-        from backend.api.dsp import create_dsp_router
-
-        mock_dsp = Mock()
-        mock_sm = Mock()
-        mock_proxy = Mock()
-        mock_dsp_router = Mock()
-        mock_dsp_router.is_local_client = Mock(side_effect=lambda mac_id: mac_id == "local")
-
-        router = create_dsp_router(
-            dsp_service=mock_dsp,
-            state_machine=mock_sm,
-            proxy_service=mock_proxy,
-            dsp_router_service=mock_dsp_router
-        )
-
-        routes = [r.path for r in router.routes]
-        assert "/api/dsp/client/{hostname}/preset/{preset_id}" in routes, \
-            "Proxy preset route should exist"
-
-    @pytest.mark.asyncio
     async def test_zone_preset_calls_multiroom_dsp_service(self, connected_dsp_service, mock_state_machine, mock_dsp_router_service, mock_multiroom_dsp_service):
         """Zone preset should delegate to multiroom_dsp_service.load_zone_preset()"""
         from backend.api.dsp import create_dsp_router
@@ -405,57 +384,22 @@ class TestAC3ZonePropagation:
 
 
 class TestAC3ClientPresetEndpoint:
-    """AC3: Client preset endpoint tests (POST /api/dsp/client/{mac_id}/preset)"""
+    """AC3: Client preset endpoint tests (POST /api/dsp/client/{mac_id}/preset)
+
+    These tests verify the endpoint delegates to multiroom_dsp_service.load_client_preset()
+    """
 
     @pytest.mark.asyncio
-    async def test_client_preset_applies_to_local_client(self, connected_dsp_service, mock_state_machine, mock_dsp_router_service):
-        """Client preset for 'local' should apply directly via dsp_service"""
+    async def test_client_preset_calls_multiroom_dsp_service(self, connected_dsp_service, mock_state_machine, mock_dsp_router_service, mock_multiroom_dsp_service):
+        """Client preset should delegate to multiroom_dsp_service.load_client_preset()"""
         from backend.api.dsp import create_dsp_router
         from backend.api.models import DspPresetRequest
 
         router = create_dsp_router(
             dsp_service=connected_dsp_service,
             state_machine=mock_state_machine,
-            dsp_router_service=mock_dsp_router_service
-        )
-
-        mock_config = {"filters": {}, "pipeline": []}
-        with patch.object(connected_dsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_dsp_service, '_set_config', new_callable=AsyncMock):
-                for route in router.routes:
-                    if route.path == "/api/dsp/client/{mac_id}/preset":
-                        endpoint = route.endpoint
-                        break
-
-                payload = DspPresetRequest(preset_id="pop")
-                result = await endpoint("local", payload)
-
-                assert result["status"] == "success"
-                assert result["client_id"] == "local"
-                assert result["preset_id"] == "pop"
-
-    @pytest.mark.asyncio
-    async def test_client_preset_returns_skipped_for_offline_remote(self, connected_dsp_service, mock_state_machine, mock_dsp_router_service):
-        """Client preset for offline remote should return 'skipped' status"""
-        from backend.api.dsp import create_dsp_router
-        from backend.api.models import DspPresetRequest
-
-        mock_registry = Mock()
-        offline_client = Mock()
-        offline_client.online = False
-        offline_client.host = "milo-client-01"
-        offline_client.ip = "192.168.1.100"
-        mock_registry.get_client = Mock(return_value=offline_client)
-
-        mock_proxy = Mock()
-        mock_proxy.request = AsyncMock(return_value={"status": "success"})
-
-        router = create_dsp_router(
-            dsp_service=connected_dsp_service,
-            state_machine=mock_state_machine,
-            client_registry_service=mock_registry,
-            proxy_service=mock_proxy,
-            dsp_router_service=mock_dsp_router_service
+            dsp_router_service=mock_dsp_router_service,
+            multiroom_dsp_service=mock_multiroom_dsp_service
         )
 
         for route in router.routes:
@@ -463,73 +407,32 @@ class TestAC3ClientPresetEndpoint:
                 endpoint = route.endpoint
                 break
 
-        payload = DspPresetRequest(preset_id="jazz")
-        result = await endpoint("aa:bb:cc:dd:ee:ff", payload)
+        payload = DspPresetRequest(preset_id="pop")
+        result = await endpoint("local", payload)
 
-        assert result["status"] == "skipped"
-        assert result["reason"] == "client_offline"
-        # Proxy should NOT have been called
-        mock_proxy.request.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_client_preset_proxies_to_online_remote(self, connected_dsp_service, mock_state_machine, mock_dsp_router_service):
-        """Client preset for online remote should proxy batch filters request"""
-        from backend.api.dsp import create_dsp_router
-        from backend.api.models import DspPresetRequest
-
-        mock_registry = Mock()
-        online_client = Mock()
-        online_client.online = True
-        online_client.host = "milo-client-01"
-        online_client.ip = "192.168.1.100"
-        mock_registry.get_client = Mock(return_value=online_client)
-
-        mock_proxy = Mock()
-        mock_proxy.request = AsyncMock(return_value={"status": "success"})
-
-        router = create_dsp_router(
-            dsp_service=connected_dsp_service,
-            state_machine=mock_state_machine,
-            client_registry_service=mock_registry,
-            proxy_service=mock_proxy,
-            dsp_router_service=mock_dsp_router_service
-        )
-
-        for route in router.routes:
-            if route.path == "/api/dsp/client/{mac_id}/preset":
-                endpoint = route.endpoint
-                break
-
-        payload = DspPresetRequest(preset_id="dance")
-        result = await endpoint("aa:bb:cc:dd:ee:ff", payload)
-
+        # Verify multiroom_dsp_service was called
+        mock_multiroom_dsp_service.load_client_preset.assert_called_once_with("local", "pop")
         assert result["status"] == "success"
-        # Proxy SHOULD have been called with batch filters endpoint
-        mock_proxy.request.assert_called_once()
-        call_args = mock_proxy.request.call_args
-        # Code uses client.ip, not client.host
-        assert call_args[0][0] == "192.168.1.100"  # IP address
-        assert call_args[0][1] == "PUT"
-        assert call_args[0][2] == "/dsp/filters"  # Uses batch filters endpoint
-        # Verify payload contains filters array
-        assert "filters" in call_args[0][3]
-        assert len(call_args[0][3]["filters"]) == 10  # 10-band EQ
+        assert result["client_id"] == "local"
+        assert result["preset_id"] == "pop"
 
     @pytest.mark.asyncio
-    async def test_client_preset_returns_404_for_unknown_client(self, connected_dsp_service, mock_state_machine, mock_dsp_router_service):
+    async def test_client_preset_returns_404_for_unknown_client(self, connected_dsp_service, mock_state_machine, mock_dsp_router_service, mock_multiroom_dsp_service):
         """Client preset for unknown client should return 404"""
         from backend.api.dsp import create_dsp_router
         from backend.api.models import DspPresetRequest
         from fastapi import HTTPException
 
-        mock_registry = Mock()
-        mock_registry.get_client = Mock(return_value=None)  # Client not found
+        # Configure multiroom_dsp_service to raise ValueError for unknown client
+        mock_multiroom_dsp_service.load_client_preset = AsyncMock(
+            side_effect=ValueError("Client not found: unknown:mac:address")
+        )
 
         router = create_dsp_router(
             dsp_service=connected_dsp_service,
             state_machine=mock_state_machine,
-            client_registry_service=mock_registry,
-            dsp_router_service=mock_dsp_router_service
+            dsp_router_service=mock_dsp_router_service,
+            multiroom_dsp_service=mock_multiroom_dsp_service
         )
 
         for route in router.routes:
@@ -544,6 +447,38 @@ class TestAC3ClientPresetEndpoint:
 
         assert exc_info.value.status_code == 404
         assert "not found" in str(exc_info.value.detail).lower()
+
+    @pytest.mark.asyncio
+    async def test_client_preset_returns_404_for_zone_client(self, connected_dsp_service, mock_state_machine, mock_dsp_router_service, mock_multiroom_dsp_service):
+        """Client preset for a client in a zone should return 404 with guidance"""
+        from backend.api.dsp import create_dsp_router
+        from backend.api.models import DspPresetRequest
+        from fastapi import HTTPException
+
+        # Configure multiroom_dsp_service to raise ValueError for zone client
+        mock_multiroom_dsp_service.load_client_preset = AsyncMock(
+            side_effect=ValueError("Client aa:bb:cc:dd:ee:ff is in a zone. Use load_zone_preset() instead.")
+        )
+
+        router = create_dsp_router(
+            dsp_service=connected_dsp_service,
+            state_machine=mock_state_machine,
+            dsp_router_service=mock_dsp_router_service,
+            multiroom_dsp_service=mock_multiroom_dsp_service
+        )
+
+        for route in router.routes:
+            if route.path == "/api/dsp/client/{mac_id}/preset":
+                endpoint = route.endpoint
+                break
+
+        payload = DspPresetRequest(preset_id="jazz")
+
+        with pytest.raises(HTTPException) as exc_info:
+            await endpoint("aa:bb:cc:dd:ee:ff", payload)
+
+        assert exc_info.value.status_code == 404
+        assert "zone" in str(exc_info.value.detail).lower()
 
 
 # =============================================================================

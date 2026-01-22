@@ -249,6 +249,69 @@ class MultiroomDspService:
         # Apply to zone
         return await self.apply_zone_dsp(zone_id, current)
 
+    async def load_client_preset(self, mac_id: str, preset_id: str) -> bool:
+        """
+        Load an EQ preset for a standalone client.
+
+        Converts the preset gains to EqFilter objects, preserves existing
+        compressor/loudness settings, and applies to the client.
+
+        Args:
+            mac_id: The client's MAC ID
+            preset_id: The preset ID (e.g., "rock", "classical", "manual")
+
+        Returns:
+            True if successful
+
+        Raises:
+            ValueError: If client not found, client is in a zone, or preset not found
+        """
+        from backend.core.dsp.presets import get_preset_by_id, DEFAULT_MANUAL_GAINS
+
+        # Standard 10-band frequencies
+        frequencies = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
+
+        # Get preset gains
+        if preset_id == "manual":
+            if self._dsp_service and hasattr(self._dsp_service, 'get_manual_gains'):
+                gains = await self._dsp_service.get_manual_gains()
+            else:
+                gains = DEFAULT_MANUAL_GAINS
+        else:
+            preset = get_preset_by_id(preset_id)
+            if not preset:
+                raise ValueError(f"Preset not found: {preset_id}")
+            gains = preset["gains"]
+
+        # Get current client settings to preserve compressor/loudness
+        current = await self.get_client_dsp(mac_id)
+        if not current:
+            # Client not found or in a zone - check which case
+            if self._registry:
+                client = self._registry.get_client(mac_id)
+                if client and client.zone_id:
+                    raise ValueError(f"Client {mac_id} is in a zone. Use load_zone_preset() instead.")
+            raise ValueError(f"Client not found: {mac_id}")
+
+        # Build new filters from preset gains
+        new_filters = [
+            EqFilter(
+                id=f"eq_band_{i:02d}",
+                frequency=frequencies[i],
+                gain=gains[i],
+                q=1.41,
+                filter_type=FilterType.PEAKING,
+                enabled=True
+            )
+            for i in range(10)
+        ]
+
+        # Update settings with new filters, preserve compressor/loudness
+        current.filters = new_filters
+
+        # Apply to client
+        return await self.apply_client_dsp(mac_id, current)
+
     # =========================================================================
     # Standalone Client DSP Methods (AC3)
     # =========================================================================
