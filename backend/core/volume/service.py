@@ -216,12 +216,13 @@ class VolumeService:
             # Set local volume to the previous global
             self._state_store.set_local_volume(current_global)
 
-            # Apply to DSP
+            # Apply to DSP (volume + unmute to ensure sound works after multiroom)
             try:
                 await self._dsp_service.set_volume(current_global)
-                self.logger.info(f"Applied volume {current_global:.1f} dB to DSP")
+                await self._dsp_service.set_mute(False)
+                self.logger.info(f"Applied volume {current_global:.1f} dB to DSP (unmuted)")
             except Exception as e:
-                self.logger.warning(f"Failed to apply volume to DSP: {e}")
+                self.logger.warning(f"Failed to apply volume/mute to DSP: {e}")
 
             return current_global
 
