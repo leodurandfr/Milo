@@ -311,6 +311,50 @@ class DSPService:
             self.logger.error(f"Error setting filter {filter_id}: {e}")
             return False
 
+    async def set_filters_batch(self, filters: List[dict]) -> dict:
+        """
+        Update multiple filters in one operation with a single disk save.
+
+        Args:
+            filters: List of filter dicts with keys: id, gain, freq (optional), q (optional)
+
+        Returns:
+            dict with success status and number of filters applied
+        """
+        if not self._connected:
+            return {"success": False, "applied": 0}
+
+        try:
+            config = await self._get_config()
+            if not config or "filters" not in config:
+                return {"success": False, "applied": 0}
+
+            applied = 0
+            for f in filters:
+                filter_id = f.get("id")
+                if filter_id and filter_id in config["filters"]:
+                    params = config["filters"][filter_id]["parameters"]
+                    if "gain" in f:
+                        params["gain"] = f["gain"]
+                    if "freq" in f:
+                        params["freq"] = f["freq"]
+                    if "q" in f:
+                        params["q"] = f["q"]
+                    applied += 1
+
+            # Apply to CamillaDSP
+            await asyncio.get_event_loop().run_in_executor(
+                None, lambda c=config: self._client.config.set_active(c)
+            )
+
+            # Single disk save
+            await self._save_config_to_file(config)
+
+            return {"success": True, "applied": applied}
+        except Exception as e:
+            self.logger.error(f"Error in batch filter update: {e}")
+            return {"success": False, "applied": 0, "error": str(e)}
+
     async def set_compressor(self, enabled: bool = None, threshold: float = None,
                              ratio: float = None, attack: float = None,
                              release: float = None, makeup_gain: float = None) -> bool:

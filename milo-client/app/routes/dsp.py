@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 
 from services.dsp import DSPService
 from models import (
-    FilterUpdate, CompressorUpdate, LoudnessUpdate,
+    FilterUpdate, FiltersBatchUpdate, CompressorUpdate, LoudnessUpdate,
     DelayUpdate, VolumeUpdate, MuteUpdate,
     CrossoverUpdate, LowpassUpdate
 )
@@ -65,6 +65,21 @@ def create_dsp_router(dsp_service: DSPService) -> APIRouter:
             raise
         except Exception as e:
             logger.error(f"Error updating filter: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.put("/filters")
+    async def update_dsp_filters_batch(update: FiltersBatchUpdate):
+        """Update multiple EQ filter bands in one request (single disk save)."""
+        try:
+            result = await dsp_service.set_filters_batch(update.filters)
+            if result.get("success"):
+                return {"status": "success", "applied": result["applied"]}
+            else:
+                raise HTTPException(status_code=400, detail=result.get("error", "Failed"))
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error in batch filter update: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     @router.post("/reset")
