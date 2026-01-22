@@ -811,8 +811,49 @@ class CamillaDSPService:
         return await self._set_passband_filter("crossover_highpass", "Highpass", enabled, frequency, q, "crossover_changed")
 
     async def set_lowpass_filter(self, enabled: bool, frequency: float = 80.0, q: float = 0.707) -> bool:
-        """Apply lowpass filter to send only bass to subwoofer"""
-        return await self._set_passband_filter("crossover_lowpass", "Lowpass", enabled, frequency, q, "lowpass_changed")
+        """
+        Apply lowpass filter to send only bass to subwoofer.
+
+        Also enables/disables dither to prevent amp settling during quiet passages.
+        """
+        if not self._connected:
+            return False
+        try:
+            config = await self._get_config() or {"filters": {}, "pipeline": []}
+            if "filters" not in config:
+                config["filters"] = {}
+
+            if enabled:
+                # Add lowpass filter
+                config["filters"]["crossover_lowpass"] = {
+                    "type": "Biquad",
+                    "parameters": {"type": "Lowpass", "freq": frequency, "q": q}
+                }
+                self._add_filter_to_pipeline(config, "crossover_lowpass")
+
+                # Add dither to prevent subwoofer amp settling (ploc fix)
+                config["filters"]["subsonic_dither"] = {
+                    "type": "Dither",
+                    "parameters": {"type": "Lipshitz441", "bits": 16}
+                }
+                self._add_filter_to_pipeline(config, "subsonic_dither")
+            else:
+                # Remove lowpass filter
+                if "crossover_lowpass" in config["filters"]:
+                    del config["filters"]["crossover_lowpass"]
+                self._remove_filter_from_pipeline(config, "crossover_lowpass")
+
+                # Remove dither filter
+                if "subsonic_dither" in config["filters"]:
+                    del config["filters"]["subsonic_dither"]
+                self._remove_filter_from_pipeline(config, "subsonic_dither")
+
+            await self._set_config(config)
+            await self._broadcast_event("lowpass_changed", {"enabled": enabled, "frequency": frequency, "q": q})
+            return True
+        except Exception as e:
+            self.logger.error(f"Error setting lowpass: {e}")
+            return False
 
     # === Level Monitoring ===
 
