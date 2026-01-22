@@ -19,7 +19,7 @@ import time
 from typing import Dict, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from backend.core.multiroom.registry import ClientRegistryService
+    from backend.core.multiroom.client_registry import ClientRegistryService
 
 
 class DSPController:

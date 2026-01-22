@@ -79,7 +79,7 @@ def _create_service(name: str) -> Any:
     from backend.core.multiroom import AudioRoutingService
     from backend.core.multiroom.snapcast import SnapcastService
     from backend.core.multiroom.websocket import SnapcastWebSocketService
-    from backend.core.multiroom.registry import ClientRegistryService
+    from backend.core.multiroom.client_registry import ClientRegistryService
     from backend.core.multiroom.crossover import CrossoverService
     from backend.core.dsp import CamillaDSPService, DspClientProxyService, DspSettingsSyncService, MultiroomDspService
     from backend.core.volume import VolumeService

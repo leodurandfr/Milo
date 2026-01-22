@@ -1,4 +1,4 @@
-# backend/core/multiroom/registry.py
+# backend/core/multiroom/client_registry.py
 """
 ClientRegistryService - Single Source of Truth for client/zone/DSP management.
 

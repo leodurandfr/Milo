@@ -9,7 +9,7 @@ import pytest
 import asyncio
 from unittest.mock import Mock, AsyncMock
 
-from backend.core.multiroom.registry import ClientRegistryService
+from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.volume.state import VolumeStateStore
 from backend.core.multiroom.models import Client, Zone, DspSettings, RegistryEventType
 from backend.core.models.volume_state import VolumeState

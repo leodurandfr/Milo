@@ -22,7 +22,7 @@ from backend.core.multiroom.models import (
     DEFAULT_CROSSOVER_FREQUENCIES,
     DEFAULT_VOLUME_DB,
 )
-from backend.core.multiroom.registry import ClientRegistryService
+from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.snapcast import (
     SnapcastService,
     get_online_clients,

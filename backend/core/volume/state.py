@@ -32,7 +32,7 @@ from backend.core.models.volume_state import VolumeState, ClientVolume, ZoneVolu
 from backend.config.constants import DEFAULT_VOLUME_DB, MIN_VOLUME_DB, MAX_VOLUME_DB
 
 if TYPE_CHECKING:
-    from backend.core.multiroom.registry import ClientRegistryService
+    from backend.core.multiroom.client_registry import ClientRegistryService
 
 
 @dataclass

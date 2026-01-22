@@ -31,7 +31,7 @@ from backend.core.multiroom.models import (
     FilterType,
 )
 from backend.config.constants import DEFAULT_VOLUME_DB
-from backend.core.multiroom.registry import ClientRegistryService
+from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.snapcast import (
     SnapcastService,
     get_online_clients,
@@ -1866,7 +1866,7 @@ class TestStandaloneDspSync:
 
     def test_compute_mac_id_localhost_returns_mac(self):
         """AC4: Local client (127.0.0.1) reads MAC from system interface."""
-        from backend.core.multiroom.registry import ClientRegistryService
+        from backend.core.multiroom.client_registry import ClientRegistryService
 
         # localhost IP reads MAC from system interface (eth0 or wlan0)
         mac_id = ClientRegistryService.compute_mac_id("milo", "127.0.0.1")
@@ -1875,7 +1875,7 @@ class TestStandaloneDspSync:
 
     def test_compute_mac_id_remote_client(self):
         """Test remote client mac_id computation requires MAC from Snapcast."""
-        from backend.core.multiroom.registry import ClientRegistryService
+        from backend.core.multiroom.client_registry import ClientRegistryService
 
         # Remote client with MAC provided returns that MAC
         mac_id = ClientRegistryService.compute_mac_id("milo-client-01", "192.168.1.100", mac="aa:bb:cc:dd:ee:ff")

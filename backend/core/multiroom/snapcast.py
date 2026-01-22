@@ -15,7 +15,7 @@ import aiohttp
 import aiofiles
 
 from backend.core.events import EventBus, get_event_bus
-from backend.core.multiroom.registry import ClientRegistryService
+from backend.core.multiroom.client_registry import ClientRegistryService
 
 
 class SnapcastService:
