@@ -490,13 +490,17 @@ class SnapcastWebSocketService:
             self.logger.info(f"  - Name: {client_name}, Host: {client_host}, IP: {client_ip}")
             self.logger.info(f"  - Snapcast volume: {snapcast_volume}% (passthrough)")
 
-            # Register client using new API
+            # Register client using new API (but don't set online yet - wait for volume sync)
             if self.registry:
                 await self.registry.register_client(mac_id, client_name, client_ip)
-                await self.registry.set_client_online(mac_id, True)
 
             self.logger.info(f"[{time.time():.3f}] CLIENT_CONNECT: Calling volume sync for {client_id}")
             sync_status = await self._notify_volume_service_client_connected(client_id, client)
+
+            # Set client online AFTER volume is synced to prevent UI flicker
+            # (otherwise frontend briefly shows stale volume before sync completes)
+            if self.registry:
+                await self.registry.set_client_online(mac_id, True)
 
             # Recalculate crossover for zones containing this client
             if self.registry and hasattr(self.state_machine, 'crossover_service'):
@@ -704,12 +708,6 @@ class SnapcastWebSocketService:
                         f"{target_volume:.1f} dB for {mac_id} (context: {context.value})"
                     )
                     volume_synced = await self._apply_target_volume_to_client(mac_id, target_volume)
-                else:
-                    self.logger.warning(
-                        f"[{time.time():.3f}] SYNC_VOLUME: Could not determine target volume for {mac_id}"
-                    )
-                    # Fallback to existing sync
-                    volume_synced = await self._sync_client_volume_and_broadcast(mac_id)
             else:
                 # STANDALONE contexts (FR9, FR10) - use context-aware volume calculation
                 target_volume = self._get_standalone_target_volume(mac_id, context)
@@ -719,12 +717,6 @@ class SnapcastWebSocketService:
                         f"{target_volume:.1f} dB for {mac_id} (context: {context.value})"
                     )
                     volume_synced = await self._apply_target_volume_to_client(mac_id, target_volume)
-                else:
-                    self.logger.warning(
-                        f"[{time.time():.3f}] SYNC_VOLUME: Could not determine target volume for {mac_id}"
-                    )
-                    # Fallback to existing sync
-                    volume_synced = await self._sync_client_volume_and_broadcast(mac_id)
             sync_status["volume_synced"] = volume_synced
 
             # 5. Sync DSP settings based on context
@@ -902,6 +894,13 @@ class SnapcastWebSocketService:
             # Update client volume in state and apply to DSP
             await volume_service.update_client_volume_db(mac_id, target_volume_db, broadcast=False)
 
+            # Unmute DSP (CamillaDSP starts muted with -m flag)
+            # Use persisted mute state (defaults to False = unmuted)
+            client_state = volume_service._state_store._clients.get(mac_id)
+            persisted_mute = client_state.mute if client_state else False
+            await volume_service._dsp_controller.set_dsp_mute(mac_id, persisted_mute)
+            self.logger.info(f"[{time.time():.3f}] MUTE_APPLY: Set {mac_id} mute={persisted_mute}")
+
             # Update registry if available
             if self.registry:
                 await self.registry.update_volume(mac_id, volume_db=target_volume_db)
@@ -913,28 +912,6 @@ class SnapcastWebSocketService:
 
         except Exception as e:
             self.logger.error(f"Error applying volume to {mac_id}: {e}", exc_info=True)
-            return False
-
-    async def _sync_client_volume_and_broadcast(self, mac_id: str) -> bool:
-        """
-        Apply correct volume to client DSP and broadcast state to frontend.
-
-        Returns:
-            True if volume sync succeeded, False otherwise
-        """
-        try:
-            volume_service = getattr(self.state_machine, 'volume_service', None)
-            if not volume_service:
-                self.logger.warning(f"No volume_service available to sync volume for {mac_id}")
-                return False
-
-            self.logger.info(f"[{time.time():.3f}] DSP_BROADCAST: Calling sync_existing_client_from_snapcast for {mac_id}")
-            result = await volume_service.sync_existing_client_from_snapcast(mac_id)
-            self.logger.info(f"[{time.time():.3f}] DSP_BROADCAST: sync complete for {mac_id}")
-            return result if isinstance(result, bool) else True
-
-        except Exception as e:
-            self.logger.error(f"Error syncing client volume for {mac_id}: {e}", exc_info=True)
             return False
 
     async def _sync_zone_dsp_to_client(self, mac_id: str, zone) -> bool:
