@@ -57,9 +57,6 @@
           }"
         >
           <span class="item-name">{{ client.name }}</span>
-          <span v-if="!client.online && !isZone" class="offline-badge text-mono">
-            {{ t('multiroom.offline') }}
-          </span>
         </div>
       </div>
 
@@ -71,8 +68,18 @@
           :class="{ 'visible': isLoading }"
         ></div>
 
-        <!-- Real content -->
+        <!-- Offline indicator (standalone offline clients) -->
         <div
+          v-if="!client.online && !isZone"
+          class="client-offline text-mono"
+          :class="{ 'visible': !isLoading }"
+        >
+          {{ t('multiroom.offline') }}
+        </div>
+
+        <!-- Real content (online clients or zones) -->
+        <div
+          v-else
           class="volume-control"
           :class="{
             'visible': !isLoading,
@@ -84,7 +91,7 @@
             :min="sliderMin"
             :max="sliderMax"
             :step="1"
-            :disabled="isLoading || (!client.online && !isZone)"
+            :disabled="isLoading"
             :muted="client.dspMuted"
             show-value
             value-unit=" dB"
@@ -528,11 +535,6 @@ function handleClientMuteToggle(clientMacId, muted) {
   gap: 0;
 }
 
-.offline-badge {
-  color: var(--color-text-secondary);
-  text-transform: uppercase;
-}
-
 .item-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -717,6 +719,18 @@ function handleClientMuteToggle(clientMacId, muted) {
   color: var(--color-text-secondary);
   padding-left: var(--space-04);
   text-transform: uppercase;
+}
+
+/* In volume-wrapper context: absolute positioning for skeleton transition */
+.volume-wrapper .client-offline {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 300ms ease 0ms;
+}
+
+.volume-wrapper .client-offline.visible {
+  opacity: 1;
 }
 
 /* Staggered fade-in animation for client rows */
