@@ -81,7 +81,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
 
   async function setDspEnabled(enabled) {
     try {
-      const response = await axios.post(`/api/routing/dsp/${enabled}`);
+      const response = await axios.put('/api/dsp/enabled', { enabled });
       return response.data.status === 'success';
     } catch (err) {
       logger.error('store', 'Set DSP failed', { enabled, error: err.message });

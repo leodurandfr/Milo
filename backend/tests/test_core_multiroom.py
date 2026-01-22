@@ -34,8 +34,8 @@ from backend.config.constants import DEFAULT_VOLUME_DB
 from backend.core.multiroom.registry import ClientRegistryService
 from backend.core.multiroom.snapcast import (
     SnapcastService,
-    get_available_clients,
-    get_available_client_ids,
+    get_online_clients,
+    get_online_client_ids,
 )
 from backend.core.multiroom.crossover import CrossoverService
 from backend.core.dsp.client_proxy import is_ip_address
@@ -2014,7 +2014,7 @@ class TestAutoCrossover:
         registry.get_zone.return_value = zone
         registry.get_zone_for_client.return_value = zone
         registry.get_client.side_effect = get_client
-        registry.is_client_available.side_effect = lambda cid: True
+        registry.is_client_online.side_effect = lambda cid: True
         registry.subscribe = MagicMock()
         registry._emit_event = AsyncMock()
         registry.zone_to_enriched_dict.return_value = {"id": "zone-1"}
@@ -2059,7 +2059,7 @@ class TestAutoCrossover:
         registry.get_zone.return_value = zone
         registry.get_zone_for_client.return_value = zone
         registry.get_client.side_effect = get_client
-        registry.is_client_available.side_effect = lambda cid: True
+        registry.is_client_online.side_effect = lambda cid: True
         registry.subscribe = MagicMock()
         registry._emit_event = AsyncMock()
         registry.zone_to_enriched_dict.return_value = {"id": "zone-1"}

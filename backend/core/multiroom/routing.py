@@ -319,9 +319,9 @@ class AudioRoutingService:
                 await self._update_systemd_environment()
 
                 if enabled:
-                    # NEW: Send event BEFORE starting services
+                    # Send event BEFORE starting services
                     if self.state_machine:
-                        self.logger.info("📢 Broadcasting multiroom_enabling event")
+                        self.logger.info("Broadcasting multiroom_enabling event")
                         await self.state_machine.broadcast_event("routing", "multiroom_enabling", {
                             "reason": "user_action"
                         })
@@ -329,13 +329,13 @@ class AudioRoutingService:
                         # Small delay to let frontend react
                         await asyncio.sleep(0.1)
                     else:
-                        self.logger.warning("⚠️ state_machine not available, cannot broadcast event")
+                        self.logger.warning("state_machine not available, cannot broadcast event")
 
                     success = await self._transition_to_multiroom(active_source)
                 else:
                     # Send event BEFORE stopping services
                     if self.state_machine:
-                        self.logger.info("📢 Broadcasting multiroom_disabling event")
+                        self.logger.info("Broadcasting multiroom_disabling event")
                         await self.state_machine.broadcast_event("routing", "multiroom_disabling", {
                             "reason": "user_action"
                         })
@@ -343,7 +343,7 @@ class AudioRoutingService:
                         # Small delay to let frontend react
                         await asyncio.sleep(0.1)
                     else:
-                        self.logger.warning("⚠️ state_machine not available, cannot broadcast event")
+                        self.logger.warning("state_machine not available, cannot broadcast event")
 
                     success = await self._transition_to_direct(active_source)
 
@@ -369,12 +369,12 @@ class AudioRoutingService:
 
                 # Wait for WebSocket to actually connect and initialize
                 if enabled and self.snapcast_websocket_service:
-                    self.logger.info("⏳ Waiting for Snapcast WebSocket to be ready...")
+                    self.logger.info("Waiting for Snapcast WebSocket to be ready...")
                     ws_ready = await self.snapcast_websocket_service.wait_for_ready(timeout=15.0)
                     if ws_ready:
-                        self.logger.info("✅ Snapcast WebSocket is ready")
+                        self.logger.info("Snapcast WebSocket is ready")
                     else:
-                        self.logger.warning("⚠️ Snapcast WebSocket not ready after timeout, proceeding anyway")
+                        self.logger.warning("Snapcast WebSocket not ready after timeout, proceeding anyway")
 
                 # Post-transition operations
                 if self.state_machine:
@@ -388,10 +388,10 @@ class AudioRoutingService:
                     # Multiroom-specific: push volume and broadcast ready event
                     if enabled:
                         if volume_service and target_volume is not None:
-                            self.logger.info(f"📊 Pushing volume ({target_volume:.1f}dB) to all clients...")
+                            self.logger.info(f"Pushing volume ({target_volume:.1f}dB) to all clients...")
                             await volume_service.push_volume_to_all_clients(target_volume)
 
-                        self.logger.info("📢 Broadcasting multiroom_ready event")
+                        self.logger.info("Broadcasting multiroom_ready event")
                         await self.state_machine.broadcast_event("routing", "multiroom_ready", {})
 
                 # Save state via SettingsService
@@ -419,14 +419,14 @@ class AudioRoutingService:
             for _ in range(10):
                 if await self.snapcast_service.is_available():
                     await self.snapcast_service.set_all_groups_to_multiroom()
-                    self.logger.info("✅ Groups automatically configured to Multiroom")
+                    self.logger.info("Groups automatically configured to Multiroom")
                     return
                 await asyncio.sleep(1)
-            
-            self.logger.warning("⚠️ Snapserver not available after 10 seconds")
-            
+
+            self.logger.warning("Snapserver not available after 10 seconds")
+
         except Exception as e:
-            self.logger.error(f"❌ Auto-configure multiroom failed: {e}")
+            self.logger.error(f"Auto-configure multiroom failed: {e}")
 
     async def set_dsp_effects_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
         """

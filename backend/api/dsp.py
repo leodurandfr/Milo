@@ -15,8 +15,6 @@ from backend.api.models import (
     DspMuteRequest,
     DspCompressorRequest,
     DspLoudnessRequest,
-    DspLinkedClientsRequest,
-    ClientSpeakerTypeRequest,
     ZoneCrossoverRequest,
     CrossoverFilterRequest,
     DspPresetRequest
@@ -52,11 +50,6 @@ def create_dsp_router(
             return client.ip
         return None
 
-    def _require_registry():
-        """Raise 500 if client_registry_service unavailable."""
-        if not client_registry_service:
-            raise HTTPException(status_code=500, detail="Registry service not available")
-
     def _get_volume_service():
         """Get volume_service from state_machine or raise 500."""
         if state_machine:
@@ -64,13 +57,6 @@ def create_dsp_router(
             if vs:
                 return vs
         raise HTTPException(status_code=500, detail="Volume service not available")
-
-    async def _broadcast_links():
-        """Broadcast links_changed event with current zones."""
-        zones = client_registry_service.get_all_zones()
-        linked_groups = [z.to_dict() for z in zones.values()]
-        await state_machine.broadcast_event("dsp", "links_changed", {"linked_groups": linked_groups})
-        return linked_groups
 
     # === DSP Enable/Disable ===
 
@@ -662,131 +648,8 @@ def create_dsp_router(
             logger.error(f"Error getting DSP targets: {e}")
             return {"targets": [{"id": "local", "name": "Milo", "host": "local", "available": True}]}
 
-    # === Linked Clients Management ===
-
-    @router.get("/links")
-    async def get_linked_clients():
-        """Get all linked client groups (zones) from registry"""
-        try:
-            if client_registry_service:
-                zones = client_registry_service.get_all_zones()
-                return {"linked_groups": [z.to_dict() for z in zones.values()]}
-            return {"linked_groups": []}
-        except Exception as e:
-            logger.error(f"Error getting linked clients: {e}")
-            return {"linked_groups": []}
-
-    @router.post("/links")
-    async def create_link_group(payload: DspLinkedClientsRequest):
-        """Create or update a linked client group (zone) via registry"""
-        try:
-            _require_registry()
-            source_client = payload.source_client or payload.client_ids[0]
-            all_clients = payload.client_ids
-            new_client_ids = set(payload.client_ids)
-
-            # Helper to sync settings
-            async def do_sync(target_clients):
-                if not sync_service:
-                    return {"synced": [], "errors": ["Sync service not available"]}
-                if client_registry_service.get_client(source_client):
-                    return await sync_service.sync_settings(source_client, target_clients)
-                return {"synced": [], "errors": [f"Source client '{source_client}' not available"]}
-
-            # Check for overlap with existing zones
-            for zone in client_registry_service.get_all_zones().values():
-                if new_client_ids & set(zone.client_ids):
-                    # Merge with existing zone
-                    for cid in new_client_ids - set(zone.client_ids):
-                        await client_registry_service.add_client_to_zone(zone.id, cid)
-                    if payload.name:
-                        await client_registry_service.update_zone(zone.id, name=payload.name)
-                    updated = client_registry_service.get_zone(zone.id)
-                    all_clients = updated.client_ids if updated else list(set(zone.client_ids) | new_client_ids)
-                    linked_groups = await _broadcast_links()
-                    return {"status": "success", "message": "Merged with existing group",
-                            "linked_groups": linked_groups, "sync": await do_sync(all_clients)}
-
-            # Create new zone
-            import uuid
-            await client_registry_service.create_zone(
-                zone_id=f"zone_{uuid.uuid4().hex[:8]}",
-                name=payload.name or "",
-                client_ids=payload.client_ids
-            )
-            linked_groups = await _broadcast_links()
-            return {"status": "success", "linked_groups": linked_groups, "sync": await do_sync(all_clients)}
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error creating link group: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    @router.delete("/links/{client_id}")
-    async def unlink_client(client_id: str):
-        """Remove a client from its linked group (zone) via registry"""
-        try:
-            _require_registry()
-            zone = client_registry_service.get_zone_for_client(client_id)
-            if not zone:
-                raise HTTPException(status_code=404, detail=f"Client {client_id} not found in any linked group")
-
-            await client_registry_service.remove_client_from_zone(zone.id, client_id)
-            # Delete zone if fewer than 2 clients remain (zone.client_ids already updated in-place)
-            if len(zone.client_ids) < 2:
-                await client_registry_service.delete_zone(zone.id)
-
-            return {"status": "success", "linked_groups": await _broadcast_links()}
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error unlinking client: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    @router.delete("/links")
-    async def clear_all_links():
-        """Remove all linked client groups (zones) via registry"""
-        try:
-            _require_registry()
-            for zone_id in list(client_registry_service.get_all_zones().keys()):
-                await client_registry_service.delete_zone(zone_id)
-            await state_machine.broadcast_event("dsp", "links_changed", {"linked_groups": []})
-            return {"status": "success", "linked_groups": []}
-        except Exception as e:
-            logger.error(f"Error clearing links: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    @router.delete("/links/group/{group_id}")
-    async def delete_link_group(group_id: str):
-        """Delete an entire linked client group (zone) via registry"""
-        try:
-            _require_registry()
-            if not client_registry_service.get_zone(group_id):
-                raise HTTPException(status_code=404, detail=f"Group {group_id} not found")
-            await client_registry_service.delete_zone(group_id)
-            return {"status": "success", "linked_groups": await _broadcast_links()}
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error deleting link group: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    @router.put("/links/{group_id}/name")
-    async def update_link_group_name(group_id: str, request: Request):
-        """Update the name of a linked client group (zone) via registry"""
-        try:
-            _require_registry()
-            body = await request.json()
-            if not await client_registry_service.update_zone(group_id, name=body.get("name", "")):
-                raise HTTPException(status_code=404, detail=f"Group {group_id} not found")
-            return {"status": "success", "linked_groups": await _broadcast_links()}
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error updating link group name: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
     # === Speaker Type / Crossover Management ===
+    # Note: Zone CRUD moved to /api/multiroom/zones, speaker-type to /api/multiroom/clients
 
     def _get_crossover_svc():
         from backend.dependencies import get_service
@@ -801,21 +664,7 @@ def create_dsp_router(
             logger.error(f"Error getting client type: {e}")
             return {"client_id": client_id, "speaker_type": "bookshelf"}
 
-    @router.put("/client/{client_id}/speaker-type")
-    async def set_client_speaker_type(client_id: str, payload: ClientSpeakerTypeRequest):
-        """Set client speaker type (satellite, bookshelf, tower, subwoofer)"""
-        try:
-            cs = _get_crossover_svc()
-            if not await cs.set_client_speaker_type(client_id, payload.speaker_type):
-                raise HTTPException(status_code=500, detail="Failed to update client speaker type")
-            ct = await cs.get_client_type(client_id)
-            return {"status": "success", "client_id": client_id, "speaker_type": payload.speaker_type,
-                    "crossover_frequency": ct.get("crossover_frequency")}
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error setting client speaker type: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+    # Note: PUT /client/{client_id}/speaker-type moved to PATCH /api/multiroom/clients/{mac_id}
 
     @router.put("/client/{client_id}/crossover-frequency")
     async def set_client_crossover_frequency(client_id: str, payload: dict):
@@ -845,45 +694,45 @@ def create_dsp_router(
             logger.error(f"Error getting client types: {e}")
             return {"client_types": {}}
 
-    @router.get("/links/{group_id}/crossover")
-    async def get_zone_crossover(group_id: str):
+    @router.get("/links/{zone_id}/crossover")
+    async def get_zone_crossover(zone_id: str):
         """Get crossover settings for a zone"""
         try:
-            return {"zone_id": group_id, **await _get_crossover_svc().get_zone_crossover(group_id)}
+            return {"zone_id": zone_id, **await _get_crossover_svc().get_zone_crossover(zone_id)}
         except Exception as e:
             logger.error(f"Error getting zone crossover: {e}")
-            return {"zone_id": group_id, "frequency": 80, "enabled": False, "has_subwoofer": False}
+            return {"zone_id": zone_id, "frequency": 80, "enabled": False, "has_subwoofer": False}
 
-    @router.get("/links/{group_id}/auto-crossover")
-    async def get_zone_auto_crossover(group_id: str):
+    @router.get("/links/{zone_id}/auto-crossover")
+    async def get_zone_auto_crossover(zone_id: str):
         """Get automatic crossover frequency for a zone (MIN of speaker frequencies)"""
         try:
-            return {"zone_id": group_id, "frequency": await _get_crossover_svc().get_zone_auto_crossover(group_id)}
+            return {"zone_id": zone_id, "frequency": await _get_crossover_svc().get_zone_auto_crossover(zone_id)}
         except Exception as e:
             logger.error(f"Error getting zone auto crossover: {e}")
-            return {"zone_id": group_id, "frequency": 80}
+            return {"zone_id": zone_id, "frequency": 80}
 
-    @router.put("/links/{group_id}/crossover")
-    async def set_zone_crossover(group_id: str, payload: ZoneCrossoverRequest):
+    @router.put("/links/{zone_id}/crossover")
+    async def set_zone_crossover(zone_id: str, payload: ZoneCrossoverRequest):
         """Set crossover frequency for a zone"""
         try:
             cs = _get_crossover_svc()
-            if not await cs.set_zone_crossover_frequency(group_id, payload.frequency):
+            if not await cs.set_zone_crossover_frequency(zone_id, payload.frequency):
                 raise HTTPException(status_code=500, detail="Failed to update zone crossover")
-            return {"status": "success", "zone_id": group_id, **await cs.get_zone_crossover(group_id)}
+            return {"status": "success", "zone_id": zone_id, **await cs.get_zone_crossover(zone_id)}
         except HTTPException:
             raise
         except Exception as e:
             logger.error(f"Error setting zone crossover: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    @router.post("/links/{group_id}/crossover/apply")
-    async def apply_zone_crossover(group_id: str):
+    @router.post("/links/{zone_id}/crossover/apply")
+    async def apply_zone_crossover(zone_id: str):
         """Manually apply crossover settings to all clients in a zone"""
         try:
-            if not await _get_crossover_svc().apply_zone_crossover(group_id):
+            if not await _get_crossover_svc().apply_zone_crossover(zone_id):
                 raise HTTPException(status_code=500, detail="Failed to apply crossover")
-            return {"status": "success", "message": f"Crossover applied to zone {group_id}"}
+            return {"status": "success", "message": f"Crossover applied to zone {zone_id}"}
         except HTTPException:
             raise
         except Exception as e:

@@ -123,7 +123,7 @@ class RoutingTransitions:
             if plugin:
                 await self._restart_plugin(plugin, active_source, target_mode)
 
-            # Step 5: Resume playback if it was active
+            # Step 6: Resume playback if it was active
             if was_playing and plugin and playback_metadata:
                 await asyncio.sleep(2.0)  # Wait for plugin to be ready
                 await self._resume_playback(active_source, plugin, playback_metadata)
