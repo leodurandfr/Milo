@@ -11,7 +11,7 @@ Event Naming Convention:
     - volume.changed, volume.muted
     - routing.mode_changed
     - dsp.config_changed
-    - registry.client_registered, registry.zone_created
+    - multiroom.client_state_changed, multiroom.zone_changed
 
 Usage:
     # Create bus (typically a singleton)
@@ -35,9 +35,9 @@ Standard Events:
     volume.muted        {mute: bool}
     routing.mode_changed {multiroom_enabled: bool, dsp_effects_enabled: bool}
     dsp.config_changed  {config: dict}
-    registry.client_registered {client: dict}
-    registry.zone_created {zone: dict}
-    registry.zone_deleted {zone_id: str}
+    multiroom.client_state_changed {client: dict}
+    multiroom.zone_changed {zone: dict}
+    multiroom.crossover_changed {zone_id: str, enabled: bool, frequency: int}
 """
 from typing import Any, Callable, Dict, List, Optional
 import asyncio
@@ -161,12 +161,12 @@ class Events:
     # DSP events
     DSP_CONFIG_CHANGED = "dsp.config_changed"
 
-    # Registry events
-    CLIENT_REGISTERED = "registry.client_registered"
-    CLIENT_UNREGISTERED = "registry.client_unregistered"
-    ZONE_CREATED = "registry.zone_created"
-    ZONE_DELETED = "registry.zone_deleted"
-    ZONE_UPDATED = "registry.zone_updated"
+    # Multiroom events (formerly registry.*)
+    CLIENT_REGISTERED = "multiroom.client_state_changed"
+    CLIENT_UNREGISTERED = "multiroom.client_state_changed"
+    ZONE_CREATED = "multiroom.zone_changed"
+    ZONE_DELETED = "multiroom.zone_changed"
+    ZONE_UPDATED = "multiroom.zone_changed"
 
     # Radio events
     RADIO_FAVORITE_ADDED = "radio.favorite_added"
