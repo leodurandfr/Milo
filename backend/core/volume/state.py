@@ -567,12 +567,12 @@ class VolumeStateStore:
             else:
                 self.logger.warning(f"Cannot mute unknown client: {hostname}")
 
-    async def set_client_volume(self, hostname: str, volume_db: float) -> float:
+    async def set_client_volume(self, mac_id: str, volume_db: float) -> float:
         """
         Set individual client volume.
 
         Args:
-            hostname: Client hostname
+            mac_id: Client MAC address identifier
             volume_db: New volume in dB
 
         Returns:
@@ -581,15 +581,19 @@ class VolumeStateStore:
         async with self._lock:
             volume_db = self._clamp_db(volume_db)
 
-            if hostname in self._clients:
-                self._clients[hostname].volume_db = volume_db
+            if mac_id in self._clients:
+                self._clients[mac_id].volume_db = volume_db
                 await self._persist_state()
-                self.logger.debug(f"Client volume: {hostname} -> {volume_db:.1f}dB")
+                self.logger.debug(f"Client volume: {mac_id} -> {volume_db:.1f}dB")
             else:
                 # Auto-register client if not exists
-                await self.register_client(hostname, volume_db=volume_db, available=True)
+                await self.register_client(mac_id, volume_db=volume_db, available=True)
 
-            return volume_db
+        # Sync to ClientRegistry for reconnection context (FR7)
+        if self._registry:
+            await self._registry.update_volume(mac_id, volume_db=volume_db)
+
+        return volume_db
 
     def get_client_volume(self, hostname: str) -> Optional[float]:
         """Get persisted volume for a client, or None if not registered."""
@@ -611,7 +615,7 @@ class VolumeStateStore:
             delta_db: Volume change in dB
 
         Returns:
-            Dict mapping hostname -> new_volume_db for all available clients
+            Dict mapping mac_id -> new_volume_db for all available clients
 
         Raises:
             ValueError: If zone not found
@@ -640,15 +644,20 @@ class VolumeStateStore:
         Apply volume updates after hardware changes succeed.
 
         Args:
-            updates: Dict mapping hostname -> volume_db
+            updates: Dict mapping mac_id -> volume_db
         """
         async with self._lock:
-            for hostname, volume_db in updates.items():
-                if hostname in self._clients:
-                    self._clients[hostname].volume_db = volume_db
+            for mac_id, volume_db in updates.items():
+                if mac_id in self._clients:
+                    self._clients[mac_id].volume_db = volume_db
 
             await self._persist_state()
             self.logger.debug(f"Applied {len(updates)} volume updates")
+
+        # Sync to ClientRegistry for reconnection context (FR7)
+        if self._registry:
+            for mac_id, volume_db in updates.items():
+                await self._registry.update_volume(mac_id, volume_db=volume_db)
 
     def compute_zone_average(self, zone_id: str) -> float:
         """
