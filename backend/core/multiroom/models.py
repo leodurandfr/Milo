@@ -245,11 +245,13 @@ class DspSettings:
         filters: List of EQ filter configurations (typed EqFilter objects)
         compressor: Compressor settings
         loudness: Loudness compensation settings
+        active_preset: Currently active EQ preset ID ("manual" or preset name)
     """
     enabled: bool = True
     filters: List[EqFilter] = field(default_factory=list)
     compressor: CompressorSettings = field(default_factory=CompressorSettings)
     loudness: LoudnessSettings = field(default_factory=LoudnessSettings)
+    active_preset: Optional[str] = "manual"
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -257,7 +259,8 @@ class DspSettings:
             "enabled": self.enabled,
             "filters": [f.to_dict() for f in self.filters],
             "compressor": self.compressor.to_dict(),
-            "loudness": self.loudness.to_dict()
+            "loudness": self.loudness.to_dict(),
+            "active_preset": self.active_preset
         }
 
     @classmethod
@@ -290,7 +293,8 @@ class DspSettings:
             enabled=data.get("enabled", True),
             filters=filters,
             compressor=compressor,
-            loudness=loudness
+            loudness=loudness,
+            active_preset=data.get("active_preset", "manual")
         )
 
     @classmethod
@@ -321,7 +325,8 @@ class DspSettings:
             enabled=True,
             filters=filters,
             compressor=CompressorSettings(),  # disabled by default
-            loudness=LoudnessSettings()       # disabled by default
+            loudness=LoudnessSettings(),      # disabled by default
+            active_preset="manual"            # manual preset by default
         )
 
 

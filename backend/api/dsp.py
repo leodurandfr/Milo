@@ -50,6 +50,15 @@ def create_dsp_router(
             return client.ip
         return None
 
+    def _get_local_client_mac():
+        """Get the MAC address of the local client from registry."""
+        if not client_registry_service:
+            return None
+        for client in client_registry_service.get_all_clients().values():
+            if client.is_local:
+                return client.mac_id
+        return None
+
     def _get_volume_service():
         """Get volume_service from state_machine or raise 500."""
         if state_machine:
@@ -125,7 +134,7 @@ def create_dsp_router(
 
     @router.get("/levels/zone/{client_ids}")
     async def get_zone_levels(client_ids: str):
-        """Get aggregated (MAX) audio levels for multiple clients in a zone."""
+        """Get aggregated (AVERAGE) audio levels for multiple clients in a zone."""
         ids = client_ids.split(",")
 
         async def get_client_levels(client_id: str):
@@ -140,18 +149,30 @@ def create_dsp_router(
         # Poll all clients in parallel
         results = await asyncio.gather(*[get_client_levels(cid) for cid in ids])
 
-        # Aggregate: MAX of all available readings
-        input_peak = [-80.0, -80.0]
-        output_peak = [-80.0, -80.0]
-        available = False
+        # Collect available readings
+        input_peaks = []
+        output_peaks = []
 
         for r in results:
             if r and r.get("available"):
-                available = True
-                inp = r.get("input_peak", [-80.0, -80.0])
-                out = r.get("output_peak", [-80.0, -80.0])
-                input_peak = [max(input_peak[0], inp[0]), max(input_peak[1], inp[1])]
-                output_peak = [max(output_peak[0], out[0]), max(output_peak[1], out[1])]
+                input_peaks.append(r.get("input_peak", [-80.0, -80.0]))
+                output_peaks.append(r.get("output_peak", [-80.0, -80.0]))
+
+        # Aggregate: AVERAGE of all available readings
+        if input_peaks:
+            input_peak = [
+                sum(p[0] for p in input_peaks) / len(input_peaks),
+                sum(p[1] for p in input_peaks) / len(input_peaks)
+            ]
+            output_peak = [
+                sum(p[0] for p in output_peaks) / len(output_peaks),
+                sum(p[1] for p in output_peaks) / len(output_peaks)
+            ]
+            available = True
+        else:
+            input_peak = [-80.0, -80.0]
+            output_peak = [-80.0, -80.0]
+            available = False
 
         return {"available": available, "input_peak": input_peak, "output_peak": output_peak}
 
@@ -246,13 +267,8 @@ def create_dsp_router(
             )
 
             if success:
-                await state_machine.broadcast_event("dsp", "filter_changed", {
-                    "id": filter_id,
-                    "freq": freq,
-                    "gain": gain,
-                    "q": q,
-                    "type": filter_type
-                })
+                # Note: dsp_service.set_filter() already broadcasts filter_changed event
+                # No need to broadcast again here (was causing duplicate events)
                 return {
                     "status": "success",
                     "id": filter_id,
@@ -505,8 +521,9 @@ def create_dsp_router(
         # Update volume state store
         if state_machine:
             volume_service = getattr(state_machine, 'volume_service', None)
-            if volume_service:
-                await volume_service.set_client_mute('local', payload.muted, broadcast=True)
+            local_mac = _get_local_client_mac()
+            if volume_service and local_mac:
+                await volume_service.set_client_mute(local_mac, payload.muted, broadcast=True)
 
         return {"status": "success", "mute": payload.muted}
 
@@ -595,53 +612,41 @@ def create_dsp_router(
 
     @router.get("/targets")
     async def get_dsp_targets():
-        """Get available DSP targets (local Milo + remote clients)"""
+        """
+        Get available DSP targets.
+
+        DEPRECATED: Frontend should use /api/multiroom/state for client list.
+        This endpoint is kept for backwards compatibility.
+
+        Returns clients with MAC address as ID (not 'local' string).
+        """
         try:
             targets = []
 
-            # Get all clients from Snapcast (includes local Milo with custom name)
-            try:
-                from backend.dependencies import get_service
-                snapcast_svc = get_service("snapcast_service")
-                clients = await snapcast_svc.get_clients()
-
-                for client in clients:
-                    hostname = client.get("host", "")
-                    ip = client.get("ip", "")
-                    dsp_id = client.get("dsp_id", ip)
-                    client_name = client.get("name", hostname)
-
-                    # Local Milo (main device)
-                    if hostname == "milo":
-                        targets.insert(0, {  # Insert first
-                            "id": "local",
-                            "name": client_name,  # Use custom name from Snapcast
-                            "host": "local",
-                            "available": True
-                        })
-                    else:
-                        # Remote client - check if DSP available via proxy
-                        proxy_target = hostname if hostname.startswith("milo-client") else ip
-                        available = await proxy_service.check_available(proxy_target) if proxy_service else False
-
-                        targets.append({
-                            "id": dsp_id,
-                            "name": client_name,
-                            "host": hostname,
-                            "ip": ip,
-                            "available": available
-                        })
-            except Exception as e:
-                logger.warning(f"Error getting multiroom clients for DSP: {e}")
-                # Fallback to hardcoded local if Snapcast fails
-                if not targets:
-                    targets = [{"id": "local", "name": "Milo", "host": "local", "available": True}]
+            if client_registry_service:
+                # Use client registry (source of truth)
+                for client in client_registry_service.get_all_clients().values():
+                    targets.append({
+                        "id": client.mac_id,
+                        "name": client.name,
+                        "host": client.host,
+                        "ip": client.ip,
+                        "available": client.online,
+                        "is_local": client.is_local
+                    })
+                # Sort: local first, then by name
+                targets.sort(key=lambda t: (not t.get("is_local", False), t.get("name", "")))
+            else:
+                # Fallback if registry not available
+                local_mac = _get_local_client_mac()
+                if local_mac:
+                    targets = [{"id": local_mac, "name": "Milo", "available": True, "is_local": True}]
 
             return {"targets": targets}
 
         except Exception as e:
             logger.error(f"Error getting DSP targets: {e}")
-            return {"targets": [{"id": "local", "name": "Milo", "host": "local", "available": True}]}
+            return {"targets": []}
 
     # === Speaker Type / Crossover Management ===
     # Note: Zone CRUD moved to /api/multiroom/zones, speaker-type to /api/multiroom/clients

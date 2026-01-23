@@ -336,6 +336,9 @@ def initialize_services() -> None:
     multiroom_dsp_service.set_proxy_service(dsp_client_proxy_service)
     multiroom_dsp_service.set_routing_service(routing_service)
 
+    # 2.15 - multiroom_dsp_service → dsp_router (for targeted filter updates)
+    multiroom_dsp_service.set_dsp_router(get_service("dsp_router"))
+
     # =========================================================================
     # STEP 3: Register sources (MUST be done BEFORE init_async)
     # =========================================================================

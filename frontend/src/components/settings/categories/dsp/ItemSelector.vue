@@ -56,11 +56,11 @@ const zoneTabs = computed(() => {
 
   // When multiroom is disabled, only show local Milo
   if (!multiroomEnabled) {
-    const localTarget = targets.value.find(t => t.id === 'local');
+    const localTarget = targets.value.find(t => t.is_local);
     if (localTarget) {
       return [{
         label: localTarget.name,
-        value: 'local',
+        value: localTarget.id,  // Use MAC address, not 'local'
         disabled: !localTarget.online
       }];
     }
@@ -114,7 +114,7 @@ const zoneTabs = computed(() => {
 
 // Check if current selection is a zone (multiple linked clients)
 const isZoneSelected = computed(() => {
-  return selectedTargetLocal.value.startsWith('zone:');
+  return selectedTargetLocal.value?.startsWith('zone:') ?? false;
 });
 
 // Selected zone/client name for display in other sections
@@ -125,6 +125,9 @@ const selectedZoneName = computed(() => {
 
 // Selected client IDs (for level meters aggregation)
 const selectedClientIds = computed(() => {
+  if (!selectedTargetLocal.value) {
+    return [];  // No target selected yet
+  }
   if (isZoneSelected.value) {
     return selectedTargetLocal.value.replace('zone:', '').split(',');
   }

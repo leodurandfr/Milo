@@ -108,7 +108,7 @@ const selectedZoneName = computed(() => {
 
 // Selected client IDs for level meters aggregation
 const selectedClientIds = computed(() => {
-  return zoneTabsRef.value?.selectedClientIds ?? ['local'];
+  return zoneTabsRef.value?.selectedClientIds ?? [];
 });
 
 let unsubscribeFunctions = [];
