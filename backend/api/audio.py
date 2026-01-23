@@ -15,7 +15,8 @@ def create_router(state_machine):
 
     @router.get("/state")
     async def get_current_state():
-        """Gets current audio system state"""
+        """Gets current audio system state with refreshed metadata"""
+        await state_machine.refresh_active_metadata()
         return await state_machine.get_current_state()
 
     @router.post("/source/{source_name}")
