@@ -736,30 +736,13 @@ class DSPService:
                     }
                 }
                 self._add_filter_to_pipeline(config, "crossover_lowpass")
-
-                # Add dither to prevent subwoofer amp settling (ploc fix)
-                config["filters"]["subsonic_dither"] = {
-                    "type": "Dither",
-                    "parameters": {
-                        "type": "Lipshitz441",
-                        "bits": 16
-                    }
-                }
-                self._add_filter_to_pipeline(config, "subsonic_dither")
-
-                self.logger.info(f"Lowpass filter enabled at {frequency} Hz (Q={q}) with dither")
+                self.logger.info(f"Lowpass filter enabled at {frequency} Hz (Q={q})")
             else:
                 # Remove lowpass filter
                 if "crossover_lowpass" in config.get("filters", {}):
                     del config["filters"]["crossover_lowpass"]
                 self._remove_filter_from_pipeline(config, "crossover_lowpass")
-
-                # Remove dither filter
-                if "subsonic_dither" in config.get("filters", {}):
-                    del config["filters"]["subsonic_dither"]
-                self._remove_filter_from_pipeline(config, "subsonic_dither")
-
-                self.logger.info("Lowpass filter disabled (dither removed)")
+                self.logger.info("Lowpass filter disabled")
 
             await asyncio.get_event_loop().run_in_executor(
                 None, lambda c=config: self._client.config.set_active(c)
