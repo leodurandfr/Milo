@@ -239,8 +239,20 @@ export const useDspStore = defineStore('dsp', () => {
 
   async function sendFilterUpdate(filterId, filterData) {
     try {
-      const response = await axios.put(`${getApiBase()}/filter/${filterId}`, filterData);
-      return response.data.status === 'success';
+      // Check if we should use zone endpoint
+      const audioStore = useUnifiedAudioStore();
+      const multiroomEnabled = audioStore.systemState.multiroom_enabled;
+      const zoneId = multiroomEnabled ? getSelectedZoneId() : null;
+
+      if (zoneId) {
+        // Zone: use zone endpoint
+        const response = await axios.patch(`/api/dsp/zone/${zoneId}/filter/${filterId}`, filterData);
+        return response.data.status === 'success' || response.data.status === 'partial';
+      } else {
+        // Direct mode or standalone: use local endpoint
+        const response = await axios.put(`${getApiBase()}/filter/${filterId}`, filterData);
+        return response.data.status === 'success';
+      }
     } catch (error) {
       console.error('Error updating filter:', error);
       return false;
@@ -739,18 +751,8 @@ export const useDspStore = defineStore('dsp', () => {
         filter_type: filter.type
       };
 
-      // Only use zone endpoint if multiroom is enabled AND target is in a zone
-      const audioStore = useUnifiedAudioStore();
-      const multiroomEnabled = audioStore.systemState.multiroom_enabled;
-      const zoneId = multiroomEnabled ? getSelectedZoneId() : null;
-
-      if (zoneId) {
-        // Zone: use zone endpoint (backend handles propagation)
-        await axios.patch(`/api/dsp/zone/${zoneId}/filter/${filterId}`, filterData);
-      } else {
-        // Direct mode or standalone client: use local endpoint
-        await sendFilterUpdate(filterId, filterData);
-      }
+      // sendFilterUpdate handles zone vs direct mode routing
+      await sendFilterUpdate(filterId, filterData);
       clearThrottleForFilter(filterId);
     }
   }

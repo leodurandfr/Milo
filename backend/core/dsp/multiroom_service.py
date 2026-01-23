@@ -667,18 +667,17 @@ class MultiroomDspService:
         if not updated_filter:
             raise ValueError(f"Filter not found: {filter_id}")
 
+        # ALWAYS save manual gains on ANY filter modification
+        gains = [f.gain for f in current.filters[:10]]
+
+        if self._dsp_service and self._dsp_service.settings_service:
+            await self._dsp_service.settings_service.set_setting("dsp.manual_gains", gains)
+
         # Handle preset auto-switch when user manually modifies a filter
         preset_changed = False
         if current.active_preset and current.active_preset != "manual":
             current.active_preset = "manual"
             preset_changed = True
-            self.logger.debug(f"Auto-switched {target_type} {target_id} to manual preset")
-
-            # Save all 10 gains to dsp.manual_gains for persistence
-            if self._dsp_service and self._dsp_service.settings_service:
-                gains = [f.gain for f in current.filters[:10]]
-                await self._dsp_service.settings_service.set_setting("dsp.manual_gains", gains)
-                self.logger.debug(f"Saved manual gains: {gains}")
 
         # Save to registry (source of truth)
         if target_type == "zone":

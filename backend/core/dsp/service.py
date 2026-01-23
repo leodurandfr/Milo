@@ -416,12 +416,15 @@ class CamillaDSPService:
             if persist:
                 await self._save_filters()
 
-                # If user manually modified a filter while on a predefined preset,
-                # save current gains as manual and switch to manual mode
+                # ALWAYS save manual gains on ANY user modification
                 if not from_preset and self.settings_service:
                     current_preset = await self.get_active_preset()
+
+                    # Save current gains to manual preset
+                    await self._save_manual_gains()
+
+                    # If user was on a predefined preset, switch to manual mode
                     if current_preset and current_preset != "manual":
-                        await self._save_manual_gains()
                         await self.settings_service.set_setting("dsp.active_preset", "manual")
                         await self._broadcast_event("preset_loaded", {"id": "manual"})
 
