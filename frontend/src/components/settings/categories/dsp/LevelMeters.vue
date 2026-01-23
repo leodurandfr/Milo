@@ -34,6 +34,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useDspStore } from '@/stores/dspStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import LevelMeter from './LevelMeter.vue';
 import axios from 'axios';
 
@@ -46,6 +47,7 @@ const props = defineProps({
 
 const dspStore = useDspStore();
 const settingsStore = useSettingsStore();
+const audioStore = useUnifiedAudioStore();
 
 // Dynamic min/max from settings
 const meterMin = computed(() => settingsStore.volumeLimits.min_db);
@@ -64,21 +66,38 @@ const outputRight = computed(() => {
   return Array.isArray(levels) && levels.length > 1 ? levels[1] : outputLeft.value;
 });
 
+// Filter out muted clients - only get levels from clients that can produce audio
+const activeClientIds = computed(() => {
+  return props.clientIds.filter(id => {
+    const clientState = audioStore.volumeState.clients[id];
+    // Include client if we don't have state yet (assume not muted) or if not muted
+    return !clientState || !clientState.mute;
+  });
+});
+
 // Poll levels from API
 async function pollLevels() {
-  if (!dspStore.isConnected) return;
+  const ids = activeClientIds.value;
+
+  // All clients muted - show no levels
+  if (ids.length === 0) {
+    dspStore.inputPeak = [meterMin.value, meterMin.value];
+    dspStore.outputPeak = [meterMin.value, meterMin.value];
+    return;
+  }
 
   try {
-    // Use zone endpoint for multiple clients, local endpoint for single client
-    const ids = props.clientIds;
-    const endpoint = ids.length > 1
-      ? `/api/dsp/levels/zone/${ids.join(',')}`
-      : '/api/dsp/levels';
+    // Always use zone endpoint - it handles both local and remote clients correctly
+    const endpoint = `/api/dsp/levels/zone/${ids.join(',')}`;
 
     const response = await axios.get(endpoint);
     if (response.data.available) {
       dspStore.inputPeak = response.data.input_peak || [meterMin.value, meterMin.value];
       dspStore.outputPeak = response.data.output_peak || [meterMin.value, meterMin.value];
+    } else {
+      // No clients available - reset to minimum
+      dspStore.inputPeak = [meterMin.value, meterMin.value];
+      dspStore.outputPeak = [meterMin.value, meterMin.value];
     }
   } catch (error) {
     // Silently fail - levels are optional
@@ -98,7 +117,7 @@ function stopPolling() {
   }
 }
 
-// Start polling when component mounts (always visible now)
+// Start polling when component mounts
 onMounted(() => {
   startPolling();
 });
@@ -107,20 +126,9 @@ onUnmounted(() => {
   stopPolling();
 });
 
-// Watch connection state
-watch(() => dspStore.isConnected, (isConnected) => {
-  if (isConnected) {
-    startPolling();
-  } else {
-    stopPolling();
-  }
-});
-
-// Re-poll immediately when clientIds change (zone selection changed)
-watch(() => props.clientIds, () => {
-  if (dspStore.isConnected) {
-    pollLevels();
-  }
+// Re-poll immediately when clientIds or mute states change
+watch([() => props.clientIds, activeClientIds], () => {
+  pollLevels();
 }, { deep: true });
 </script>
 

@@ -129,17 +129,12 @@ def create_dsp_router(
         ids = client_ids.split(",")
 
         async def get_client_levels(client_id: str):
-            """Get levels from a single client."""
-            if dsp_router_service.is_local_client(client_id):
-                try:
-                    return await dsp_service.get_levels()
-                except Exception as e:
-                    logger.debug(f"Failed to get local DSP levels: {e}")
-                    return None
-            else:
-                # Proxy to remote client using proxy_service
-                if proxy_service:
-                    return await proxy_service.get_dsp_levels(client_id)
+            """Get levels from a single client using dsp_router_service."""
+            try:
+                # dsp_router_service.get_levels handles MAC → IP routing automatically
+                return await dsp_router_service.get_levels(client_id)
+            except Exception as e:
+                logger.debug(f"Failed to get DSP levels for {client_id}: {e}")
                 return None
 
         # Poll all clients in parallel
