@@ -54,6 +54,7 @@ class MultiroomDspService:
         camilladsp_service=None,
         proxy_service=None,
         routing_service=None,
+        dsp_router=None,
     ):
         """
         Initialize MultiroomDspService.
@@ -66,6 +67,7 @@ class MultiroomDspService:
             camilladsp_service: CamillaDSPService for local DSP control
             proxy_service: DspClientProxyService for remote client communication
             routing_service: AudioRoutingService for DSP effects toggle
+            dsp_router: DspRouter for routing filter updates to local/remote clients
         """
         self.logger = logging.getLogger(__name__)
 
@@ -74,6 +76,7 @@ class MultiroomDspService:
         self._dsp_service = camilladsp_service
         self._proxy_service = proxy_service
         self._routing_service = routing_service
+        self._dsp_router = dsp_router
 
         # State machine for event broadcasting (set via setter)
         self._state_machine = None
@@ -106,6 +109,10 @@ class MultiroomDspService:
     def set_routing_service(self, routing_service) -> None:
         """Set AudioRoutingService dependency."""
         self._routing_service = routing_service
+
+    def set_dsp_router(self, dsp_router) -> None:
+        """Set DspRouter dependency."""
+        self._dsp_router = dsp_router
 
     # =========================================================================
     # Zone DSP Methods (AC2, AC5)
@@ -245,6 +252,7 @@ class MultiroomDspService:
 
         # Update settings with new filters, preserve compressor/loudness
         current.filters = new_filters
+        current.active_preset = preset_id  # Track which preset was loaded
 
         # Apply to zone
         return await self.apply_zone_dsp(zone_id, current)
@@ -308,6 +316,7 @@ class MultiroomDspService:
 
         # Update settings with new filters, preserve compressor/loudness
         current.filters = new_filters
+        current.active_preset = preset_id  # Track which preset was loaded
 
         # Apply to client
         return await self.apply_client_dsp(mac_id, current)
@@ -440,14 +449,11 @@ class MultiroomDspService:
     # =========================================================================
 
     def _is_local_client(self, mac_id: str) -> bool:
-        """Check if a client is the local device."""
-        if mac_id == "local":
-            return True
-        if self._registry:
-            client = self._registry.get_client(mac_id)
-            if client and client.ip in ("127.0.0.1", "localhost"):
-                return True
-        return False
+        """Check if a client is the local device via registry."""
+        if not self._registry:
+            return False
+        client = self._registry.get_client(mac_id)
+        return client.is_local if client else False
 
     async def _apply_to_camilladsp(
         self, mac_id: str, settings: DspSettings
@@ -487,7 +493,7 @@ class MultiroomDspService:
             return False
 
         try:
-            # Apply EQ filters
+            # Apply EQ filters (suppress individual broadcasts - zone will broadcast complete state)
             for eq_filter in settings.filters:
                 success = await self._dsp_service.set_filter(
                     filter_id=eq_filter.id,
@@ -498,11 +504,12 @@ class MultiroomDspService:
                     enabled=eq_filter.enabled,
                     persist=False,  # Don't persist to dsp.* keys (multiroom uses registry)
                     from_preset=True,  # Don't switch to manual preset
+                    broadcast=False,  # Don't broadcast per-filter (zone broadcasts complete state)
                 )
                 if not success:
                     self.logger.warning(f"Failed to apply filter {eq_filter.id}")
 
-            # Apply compressor
+            # Apply compressor (suppress broadcast - zone broadcasts complete state)
             comp = settings.compressor
             await self._dsp_service.set_compressor(
                 enabled=comp.enabled,
@@ -512,15 +519,17 @@ class MultiroomDspService:
                 release=comp.release,
                 makeup_gain=comp.makeup_gain,
                 persist=False,  # Don't persist to dsp.* keys
+                broadcast=False,  # Don't broadcast (zone broadcasts complete state)
             )
 
-            # Apply loudness
+            # Apply loudness (suppress broadcast - zone broadcasts complete state)
             loud = settings.loudness
             await self._dsp_service.set_loudness(
                 enabled=loud.enabled,
                 high_boost=loud.high_boost,
                 low_boost=loud.low_boost,
                 persist=False,  # Don't persist to dsp.* keys
+                broadcast=False,  # Don't broadcast (zone broadcasts complete state)
             )
 
             self.logger.debug("DSP settings applied to local")
@@ -615,7 +624,10 @@ class MultiroomDspService:
         enabled: Optional[bool] = None,
     ) -> bool:
         """
-        Update a single EQ filter, preserving other settings.
+        Update a single EQ filter using targeted routing (no compressor/loudness reapplication).
+
+        This method updates ONLY the specified filter without touching compressor or loudness,
+        eliminating spurious compressor_changed/loudness_changed events.
 
         Args:
             target_type: "zone" or "client"
@@ -635,8 +647,8 @@ class MultiroomDspService:
         if not current:
             raise ValueError(f"{target_type} not found: {target_id}")
 
-        # Find and update the filter
-        filter_found = False
+        # Find and update the filter in settings
+        updated_filter = None
         for f in current.filters:
             if f.id == filter_id:
                 if frequency is not None:
@@ -649,14 +661,75 @@ class MultiroomDspService:
                     f.filter_type = FilterType(filter_type)
                 if enabled is not None:
                     f.enabled = enabled
-                filter_found = True
+                updated_filter = f
                 break
 
-        if not filter_found:
+        if not updated_filter:
             raise ValueError(f"Filter not found: {filter_id}")
 
-        # Apply updated settings
-        return await self.apply_dsp(target_type, target_id, current)
+        # Handle preset auto-switch when user manually modifies a filter
+        preset_changed = False
+        if current.active_preset and current.active_preset != "manual":
+            current.active_preset = "manual"
+            preset_changed = True
+            self.logger.debug(f"Auto-switched {target_type} {target_id} to manual preset")
+
+            # Save all 10 gains to dsp.manual_gains for persistence
+            if self._dsp_service and self._dsp_service.settings_service:
+                gains = [f.gain for f in current.filters[:10]]
+                await self._dsp_service.settings_service.set_setting("dsp.manual_gains", gains)
+                self.logger.debug(f"Saved manual gains: {gains}")
+
+        # Save to registry (source of truth)
+        if target_type == "zone":
+            await self._registry.set_zone_dsp(target_id, current)
+        else:
+            await self._registry.set_standalone_dsp(target_id, current)
+
+        # Build filter data dict for router
+        filter_data = {
+            "freq": updated_filter.frequency,
+            "gain": updated_filter.gain,
+            "q": updated_filter.q,
+            "filter_type": updated_filter.filter_type.value,
+            "enabled": updated_filter.enabled
+        }
+
+        # Apply to clients via DspRouter (handles local/remote routing)
+        if self._dsp_router:
+            if target_type == "zone":
+                online_clients = self._registry.get_online_zone_clients(target_id)
+                for client in online_clients:
+                    await self._dsp_router.update_filter(
+                        mac_id=client.mac_id,
+                        filter_id=filter_id,
+                        filter_data=filter_data,
+                        persist=False,      # Don't persist (registry is source of truth)
+                        from_preset=True,   # Don't switch to manual preset
+                        broadcast=False     # Don't broadcast per-filter
+                    )
+            else:
+                await self._dsp_router.update_filter(
+                    mac_id=target_id,
+                    filter_id=filter_id,
+                    filter_data=filter_data,
+                    persist=False,
+                    from_preset=True,
+                    broadcast=False
+                )
+        else:
+            self.logger.warning("DspRouter not available, filter update not applied to clients")
+
+        # Broadcast zone event ONCE (includes active_preset in dsp_settings)
+        await self._broadcast_dsp_event(target_type, target_id, current)
+
+        # Also emit preset_loaded event if preset changed to manual
+        if preset_changed and self._state_machine:
+            await self._state_machine.broadcast_event(
+                "dsp", "preset_loaded", {"id": "manual"}
+            )
+
+        return True
 
     async def update_compressor(
         self,

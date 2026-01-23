@@ -72,12 +72,21 @@ class DspSettingsSyncService:
         """Set the client registry (for dependency injection after init)."""
         self._registry = registry
 
+    def _is_local_client(self, client_id: str) -> bool:
+        """Check if client is the local device via registry."""
+        if not self._registry:
+            return False
+        client = self._registry.get_client(client_id)
+        return client.is_local if client else False
+
     def _get_client_ip(self, client_id: str) -> Optional[str]:
-        """Get IP address for a client from registry."""
-        if client_id == "local" or not self._registry:
+        """Get IP address for a remote client from registry."""
+        if not self._registry:
             return None
         client = self._registry.get_client(client_id)
-        return client.ip if client and client.ip and client.ip != "127.0.0.1" else None
+        if not client or client.is_local:
+            return None
+        return client.ip if client.ip else None
 
     # =========================================================================
     # Settings Persistence
@@ -191,8 +200,8 @@ class DspSettingsSyncService:
         # Find and remove stale entries
         stale_keys = []
         for key in settings.keys():
-            # Keep 'local' always
-            if key == "local":
+            # Keep local client always (check via registry)
+            if self._is_local_client(key):
                 continue
             # Keep if it matches a valid identifier
             if key in valid_ids:
@@ -221,12 +230,12 @@ class DspSettingsSyncService:
         Get all DSP settings from a source client.
 
         Args:
-            source_client: 'local' for main Milo, or mac_id for remote client
+            source_client: MAC address of source client
 
         Returns:
             Dictionary of settings by category
         """
-        if source_client == 'local':
+        if self._is_local_client(source_client):
             if not self.dsp_service:
                 raise ValueError("DSP service not available for local settings")
             return {
@@ -272,7 +281,7 @@ class DspSettingsSyncService:
         Push a single setting category to a target client.
 
         Args:
-            target: 'local' or mac_id for remote client
+            target: MAC address of target client
             category: Setting category
             data: Setting data
 
@@ -280,7 +289,7 @@ class DspSettingsSyncService:
             True if successful, False otherwise
         """
         try:
-            if target == 'local':
+            if self._is_local_client(target):
                 if not self.dsp_service:
                     return False
                 if category == 'compressor':
@@ -310,8 +319,8 @@ class DspSettingsSyncService:
         and pushes to all targets.
 
         Args:
-            source_client: 'local' or mac_id of source
-            target_clients: List of target mac_ids (can include 'local')
+            source_client: MAC address of source client
+            target_clients: List of target MAC addresses
 
         Returns:
             Dictionary with 'synced' list and 'errors' list
@@ -326,15 +335,19 @@ class DspSettingsSyncService:
             self.logger.error(f"Error getting settings from source {source_client}: {e}")
             return {"synced": [], "errors": [f"Failed to get source settings: {e}"]}
 
+        is_source_local = self._is_local_client(source_client)
+
         # Push settings to each target client
         for target in target_clients:
             if target == source_client:
                 continue
 
+            is_target_local = self._is_local_client(target)
+
             # Look up IP for remote targets
-            target_ip = self._get_client_ip(target) if target != 'local' else None
-            if target != 'local' and not target_ip:
-                continue  # Skip clients without IP
+            target_ip = self._get_client_ip(target) if not is_target_local else None
+            if not is_target_local and not target_ip:
+                continue  # Skip remote clients without IP
 
             target_synced = []
 
@@ -365,7 +378,7 @@ class DspSettingsSyncService:
                         'filter_type': flt.get('type')
                     }
                     try:
-                        if target == 'local':
+                        if is_target_local:
                             if self.dsp_service:
                                 await self.dsp_service.set_filter(filter_id, **filter_data)
                                 target_synced.append(f"filter:{filter_id}")
@@ -382,7 +395,7 @@ class DspSettingsSyncService:
             vol = source_settings.get('volume', {})
             if vol.get('main') is not None:
                 try:
-                    if target == 'local':
+                    if is_target_local:
                         if self.dsp_service:
                             await self.dsp_service.set_volume(vol['main'])
                             target_synced.append("volume")
@@ -399,7 +412,7 @@ class DspSettingsSyncService:
 
             if vol.get('mute') is not None:
                 try:
-                    if target == 'local':
+                    if is_target_local:
                         if self.dsp_service:
                             await self.dsp_service.set_mute(vol['mute'])
                             target_synced.append("mute")
@@ -514,7 +527,7 @@ class DspSettingsSyncService:
         Push a single filter setting to a client.
 
         Args:
-            client_id: The client identifier (mac_id or 'local')
+            client_id: The client MAC address
             filter_id: The filter ID
             filter_data: Filter settings
 
@@ -522,7 +535,7 @@ class DspSettingsSyncService:
             True if successful, False otherwise
         """
         try:
-            if client_id == "local":
+            if self._is_local_client(client_id):
                 if self.dsp_service:
                     await self.dsp_service.set_filter(filter_id, **filter_data)
                     return True

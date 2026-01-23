@@ -165,9 +165,22 @@ class DspRouter:
         self,
         mac_id: str,
         filter_id: str,
-        filter_data: Dict[str, Any]
+        filter_data: Dict[str, Any],
+        persist: bool = True,
+        from_preset: bool = False,
+        broadcast: bool = True
     ) -> Dict[str, Any]:
-        """Update a filter for a client."""
+        """
+        Update a filter for a client.
+
+        Args:
+            mac_id: Client MAC address
+            filter_id: Filter ID to update
+            filter_data: Dict with freq, gain, q, filter_type, enabled
+            persist: Save to settings (False for zone updates using registry)
+            from_preset: Don't switch to manual preset
+            broadcast: Emit WebSocket event (False for batch updates)
+        """
         async def local():
             if self._dsp_service:
                 success = await self._dsp_service.set_filter(
@@ -176,7 +189,10 @@ class DspRouter:
                     gain=filter_data.get("gain"),
                     q=filter_data.get("q"),
                     filter_type=filter_data.get("filter_type"),
-                    enabled=filter_data.get("enabled", True)
+                    enabled=filter_data.get("enabled", True),
+                    persist=persist,
+                    from_preset=from_preset,
+                    broadcast=broadcast
                 )
                 return {"status": "success" if success else "error", "filter_id": filter_id}
             return {"status": "error", "message": "DSP service not available"}

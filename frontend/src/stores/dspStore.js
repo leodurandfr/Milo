@@ -67,8 +67,9 @@ export const useDspStore = defineStore('dsp', () => {
   });
 
   // Multi-client DSP support
-  // 'local' = main Milo, or client hostname like 'milo-client-01'
-  const selectedTarget = ref('local');
+  // selectedTarget is the MAC address of the target client (e.g., "dc:a6:32:7e:d3:43")
+  // Initialized to null - will be auto-selected to local client when registry loads
+  const selectedTarget = ref(null);
 
   // Client registry store - single source of truth for clients and zones
   const registryStore = useMultiroomStore();
@@ -80,12 +81,13 @@ export const useDspStore = defineStore('dsp', () => {
       name: client.name,
       host: client.host,
       ip: client.ip,
-      online: client.online
+      online: client.online,
+      is_local: client.is_local
     }));
   });
 
   // Linked clients - delegates to multiroomStore.zoneList
-  // Structure: [{ id: 'group_1', client_ids: ['local', 'milo-client-01'], name: 'Zone 1' }]
+  // Structure: [{ id: 'group_1', client_ids: ['dc:a6:32:xx:xx:xx', 'dc:a6:32:yy:yy:yy'], name: 'Zone 1' }]
   const linkedGroups = computed(() => registryStore.zoneList);
 
   // Client types - builds from multiroomStore.clients
@@ -132,33 +134,10 @@ export const useDspStore = defineStore('dsp', () => {
   const isConnected = computed(() => state.value !== 'disconnected');
   const isRunning = computed(() => state.value === 'running');
 
-  // Manual mode: active when preset is 'manual' or gains differ from active preset
+  // Manual mode: active when preset is 'manual' or no preset selected
+  // Backend handles switching to manual when gains change via WebSocket events
   const isManualMode = computed(() => {
-    // Don't show manual during preset loading (prevents flicker)
-    if (isLoadingPreset.value) return false;
-
-    // Explicit manual preset
-    if (activePreset.value === 'manual') return true;
-
-    // No preset selected
-    if (!activePreset.value) return true;
-
-    // Check if current gains match the active preset
-    if (!builtinPresets.value.length || !filters.value.length) return false;
-
-    const preset = builtinPresets.value.find(p => p.id === activePreset.value);
-    if (!preset) return true;
-
-    // Compare current gains with the active preset's gains (by filter ID, not index)
-    for (let i = 0; i < preset.gains.length; i++) {
-      const filterId = `eq_band_${i.toString().padStart(2, '0')}`;
-      const filter = filters.value.find(f => f.id === filterId);
-      // If filter not found or gain differs by more than 0.1, consider as manual
-      if (!filter || Math.abs(filter.gain - preset.gains[i]) > 0.1) {
-        return true;
-      }
-    }
-    return false;
+    return activePreset.value === 'manual' || !activePreset.value;
   });
 
   // Format frequency for display
@@ -194,7 +173,7 @@ export const useDspStore = defineStore('dsp', () => {
       return '/api/dsp';
     }
     // If targeting a standalone remote client, use proxy endpoint
-    if (targetId && targetId !== 'local') {
+    if (targetId && !isLocalClient(targetId)) {
       return `/api/dsp/client/${targetId}`;
     }
     return '/api/dsp';
@@ -719,7 +698,12 @@ export const useDspStore = defineStore('dsp', () => {
     if (throttleState) {
       if (throttleState.throttleTimeout) clearTimeout(throttleState.throttleTimeout);
       if (throttleState.finalTimeout) clearTimeout(throttleState.finalTimeout);
-      filterThrottleMap.delete(filterId);
+
+      // Delay removal from throttle map to allow stale WebSocket events to be ignored
+      // This prevents race conditions where old events arrive after finalization
+      setTimeout(() => {
+        filterThrottleMap.delete(filterId);
+      }, 300);
     }
   }
 
@@ -755,23 +739,19 @@ export const useDspStore = defineStore('dsp', () => {
         filter_type: filter.type
       };
 
-      // If target is in a zone, use zone endpoint (backend handles propagation)
-      const zoneId = getSelectedZoneId();
+      // Only use zone endpoint if multiroom is enabled AND target is in a zone
+      const audioStore = useUnifiedAudioStore();
+      const multiroomEnabled = audioStore.systemState.multiroom_enabled;
+      const zoneId = multiroomEnabled ? getSelectedZoneId() : null;
+
       if (zoneId) {
-        try {
-          await axios.patch(`/api/dsp/zone/${zoneId}/filter/${filterId}`, filterData);
-          clearThrottleForFilter(filterId);
-        } catch (error) {
-          console.error('Error updating zone filter:', error);
-          // Fall back to direct update on error
-          await sendFilterUpdate(filterId, filterData);
-          clearThrottleForFilter(filterId);
-        }
+        // Zone: use zone endpoint (backend handles propagation)
+        await axios.patch(`/api/dsp/zone/${zoneId}/filter/${filterId}`, filterData);
       } else {
-        // Standalone client: update directly
+        // Direct mode or standalone client: use local endpoint
         await sendFilterUpdate(filterId, filterData);
-        clearThrottleForFilter(filterId);
       }
+      clearThrottleForFilter(filterId);
     }
   }
 
@@ -938,7 +918,7 @@ export const useDspStore = defineStore('dsp', () => {
     selectedTarget.value = targetId;
 
     // For remote clients, restore saved settings from Milo first
-    if (targetId && targetId !== 'local') {
+    if (targetId && !isLocalClient(targetId)) {
       await restoreClientSettings(targetId);
     }
 
@@ -1217,6 +1197,16 @@ export const useDspStore = defineStore('dsp', () => {
     const { target_type, target_id, dsp_settings } = event.data;
     if (!dsp_settings) return;
 
+    // ALWAYS update activePreset for zone events if we have a client in that zone
+    // This must happen BEFORE the relevance check for filter updates, because
+    // the relevance check may fail while the preset change is still valid
+    if (target_type === 'zone' && dsp_settings.active_preset !== undefined) {
+      const zone = registryStore.getZoneForClient(selectedTarget.value);
+      if (zone && zone.id === target_id) {
+        activePreset.value = dsp_settings.active_preset;
+      }
+    }
+
     // Check if this DSP change applies to the currently selected target
     let isRelevant = false;
 
@@ -1233,19 +1223,19 @@ export const useDspStore = defineStore('dsp', () => {
 
     // Update local DSP state from received settings
     if (dsp_settings.filters && Array.isArray(dsp_settings.filters)) {
-      // Update filters if not currently being edited (throttle map empty)
-      if (filterThrottleMap.size === 0) {
-        for (const filterData of dsp_settings.filters) {
-          const filter = filters.value.find(f => f.id === filterData.id);
-          if (filter) {
-            if (filterData.freq !== undefined) {
-              filter.freq = filterData.freq;
-              filter.displayName = formatFrequency(filterData.freq);
-            }
-            if (filterData.gain !== undefined) filter.gain = filterData.gain;
-            if (filterData.q !== undefined) filter.q = filterData.q;
-            if (filterData.type !== undefined) filter.type = filterData.type;
+      for (const filterData of dsp_settings.filters) {
+        // Skip if this specific filter is being actively edited (avoids echo conflicts)
+        if (filterThrottleMap.has(filterData.id)) continue;
+
+        const filter = filters.value.find(f => f.id === filterData.id);
+        if (filter) {
+          if (filterData.freq !== undefined) {
+            filter.freq = filterData.freq;
+            filter.displayName = formatFrequency(filterData.freq);
           }
+          if (filterData.gain !== undefined) filter.gain = filterData.gain;
+          if (filterData.q !== undefined) filter.q = filterData.q;
+          if (filterData.type !== undefined) filter.type = filterData.type;
         }
       }
     }
@@ -1257,6 +1247,11 @@ export const useDspStore = defineStore('dsp', () => {
     if (dsp_settings.loudness) {
       Object.assign(loudness.value, dsp_settings.loudness);
     }
+
+    // Update active preset if present in the event
+    if (dsp_settings.active_preset !== undefined) {
+      activePreset.value = dsp_settings.active_preset;
+    }
   }
 
   function handleFilterChanged(event) {
@@ -1264,8 +1259,9 @@ export const useDspStore = defineStore('dsp', () => {
     const { id, freq, gain, q, type } = event.data;
     const filter = filters.value.find(f => f.id === id);
 
-    // Don't update if throttling is in progress (avoids conflicts)
-    if (filter && filterThrottleMap.size === 0) {
+    // Skip if this specific filter is being actively edited (avoids echo conflicts)
+    // This is more precise than checking filterThrottleMap.size === 0
+    if (filter && !filterThrottleMap.has(id)) {
       if (freq !== undefined) {
         filter.freq = freq;
         filter.displayName = formatFrequency(freq);
@@ -1290,7 +1286,29 @@ export const useDspStore = defineStore('dsp', () => {
   }
 
   function handlePresetLoaded(event) {
-    activePreset.value = event.data.id || event.data.name; // Support both formats
+    const presetId = event.data.id || event.data.name;
+    activePreset.value = presetId;
+
+    // Apply preset gains to filters (since individual filter_changed events are suppressed)
+    let gains = null;
+    if (presetId === 'manual') {
+      gains = manualGains.value;
+    } else {
+      const preset = builtinPresets.value.find(p => p.id === presetId);
+      if (preset) {
+        gains = preset.gains;
+      }
+    }
+
+    if (gains && filters.value.length > 0) {
+      for (let i = 0; i < gains.length && i < filters.value.length; i++) {
+        const filterId = `eq_band_${i.toString().padStart(2, '0')}`;
+        const filter = filters.value.find(f => f.id === filterId);
+        if (filter) {
+          filter.gain = gains[i];
+        }
+      }
+    }
   }
 
   function handleLevels(event) {

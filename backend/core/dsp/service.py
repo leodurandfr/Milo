@@ -355,13 +355,15 @@ class CamillaDSPService:
     async def set_filter(self, filter_id: str, freq: float, gain: float,
                          q: float, filter_type: str = "Peaking",
                          enabled: bool = True, persist: bool = True,
-                         from_preset: bool = False) -> bool:
+                         from_preset: bool = False,
+                         broadcast: bool = True) -> bool:
         """
         Update a single filter band.
 
         Args:
             persist: Set to False during bypass operations
             from_preset: Set to True when loading a preset (don't switch to manual)
+            broadcast: Set to False to suppress WebSocket broadcast (useful for batch updates)
         """
         if not self._connected:
             self.logger.warning("Cannot set filter: not connected")
@@ -400,14 +402,15 @@ class CamillaDSPService:
                     })
                     break
 
-            # Broadcast update
-            await self._broadcast_event("filter_changed", {
-                "id": filter_id,
-                "freq": freq,
-                "gain": gain,
-                "q": q,
-                "type": filter_type
-            })
+            # Broadcast update (can be suppressed for batch updates)
+            if broadcast:
+                await self._broadcast_event("filter_changed", {
+                    "id": filter_id,
+                    "freq": freq,
+                    "gain": gain,
+                    "q": q,
+                    "type": filter_type
+                })
 
             # Persist filters to settings (skip during bypass operations)
             if persist:
@@ -506,13 +509,15 @@ class CamillaDSPService:
             return False
 
         try:
+            # Suppress per-filter broadcasts during reset (filters_reset event handles it)
             for f in self._filters:
                 await self.set_filter(
                     filter_id=f["id"],
                     freq=f["freq"],
                     gain=0,
                     q=f.get("q", 1.0),
-                    filter_type=f.get("type", "Peaking")
+                    filter_type=f.get("type", "Peaking"),
+                    broadcast=False
                 )
 
             await self._broadcast_event("filters_reset", {})
@@ -601,9 +606,16 @@ class CamillaDSPService:
         attack: float = None,
         release: float = None,
         makeup_gain: float = None,
-        persist: bool = True
+        persist: bool = True,
+        broadcast: bool = True
     ) -> bool:
-        """Update compressor settings. Set persist=False during bypass operations."""
+        """
+        Update compressor settings.
+
+        Args:
+            persist: Set to False during bypass operations
+            broadcast: Set to False to suppress WebSocket event (for batch zone updates)
+        """
         if not self._connected:
             # Update local cache even when not connected
             if enabled is not None:
@@ -671,7 +683,9 @@ class CamillaDSPService:
 
             await self._set_config(config)
 
-            await self._broadcast_event("compressor_changed", self._compressor)
+            # Broadcast change event (can be suppressed for batch zone updates)
+            if broadcast:
+                await self._broadcast_event("compressor_changed", self._compressor)
 
             # Persist compressor settings (skip during bypass operations)
             if persist and self.settings_service:
@@ -693,9 +707,16 @@ class CamillaDSPService:
         enabled: bool = None,
         high_boost: float = None,
         low_boost: float = None,
-        persist: bool = True
+        persist: bool = True,
+        broadcast: bool = True
     ) -> bool:
-        """Update loudness compensation settings. Set persist=False during bypass operations."""
+        """
+        Update loudness compensation settings.
+
+        Args:
+            persist: Set to False during bypass operations
+            broadcast: Set to False to suppress WebSocket event (for batch zone updates)
+        """
         # Update local cache
         if enabled is not None:
             self._loudness["enabled"] = enabled
@@ -752,7 +773,9 @@ class CamillaDSPService:
 
             await self._set_config(config)
 
-            await self._broadcast_event("loudness_changed", self._loudness)
+            # Broadcast change event (can be suppressed for batch zone updates)
+            if broadcast:
+                await self._broadcast_event("loudness_changed", self._loudness)
 
             # Persist loudness settings (skip during bypass operations)
             if persist and self.settings_service:
@@ -888,14 +911,16 @@ class CamillaDSPService:
             filter_id = f"eq_band_{i:02d}"
             existing = next((f for f in self._filters if f["id"] == filter_id), None)
             if existing:
+                # Suppress per-filter broadcasts during preset load (preset_loaded event handles it)
                 await self.set_filter(filter_id, existing["freq"], gain,
                                        existing.get("q", 1.41), existing.get("type", "Peaking"),
-                                       from_preset=True)
+                                       from_preset=True, broadcast=False)
             else:
                 # Filter doesn't exist in cache - use default frequency
                 freq = DEFAULT_EQ_FREQS[i] if i < len(DEFAULT_EQ_FREQS) else 1000
                 self.logger.warning(f"Filter {filter_id} not in cache, creating with freq={freq}")
-                await self.set_filter(filter_id, freq, gain, 1.41, "Peaking", from_preset=True)
+                await self.set_filter(filter_id, freq, gain, 1.41, "Peaking",
+                                       from_preset=True, broadcast=False)
 
     async def _get_preset_gains(self, preset_id: str) -> Optional[List[float]]:
         """Get gains for a preset ID (builtin or manual)"""
@@ -985,7 +1010,8 @@ class CamillaDSPService:
                     gain=0,  # Bypass = 0 dB gain
                     q=f.get("q", 1.0),
                     filter_type=f.get("type", "Peaking"),
-                    persist=False  # Don't overwrite saved settings
+                    persist=False,  # Don't overwrite saved settings
+                    broadcast=False  # Suppress per-filter broadcasts (effects_bypassed handles it)
                 )
 
             # 2. Disable compressor (persist=False to keep settings for restore)
@@ -1026,7 +1052,8 @@ class CamillaDSPService:
                             freq=f["freq"],
                             gain=f.get("gain", 0),
                             q=f.get("q", 1.0),
-                            filter_type=f.get("type", "Peaking")
+                            filter_type=f.get("type", "Peaking"),
+                            broadcast=False  # Suppress per-filter broadcasts (effects_restored handles it)
                         )
                     self._filters = saved_filters
 

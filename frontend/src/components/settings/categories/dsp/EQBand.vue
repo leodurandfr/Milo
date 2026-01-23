@@ -104,12 +104,14 @@ function handleGainInput(value) {
 }
 
 function handleGainChange(value) {
+  // Only emit update:gain, not 'change' - handleDragEnd will emit 'change' once on release
+  // This prevents duplicate 'change' events when RangeSlider fires both @change and @drag-end
   emit('update:gain', value);
-  emit('change', { field: 'gain', value });
 }
 
 function handleDragEnd() {
   isDragging.value = false;
+  // Emit 'change' only once on drag end to trigger final API call
   emit('change', { field: 'gain', value: gainValue.value });
 }
 

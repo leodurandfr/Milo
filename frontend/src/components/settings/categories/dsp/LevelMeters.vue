@@ -41,7 +41,7 @@ import axios from 'axios';
 const props = defineProps({
   clientIds: {
     type: Array,
-    default: () => ['local']
+    default: () => []  // Empty until registry loads and auto-selects
   }
 });
 
