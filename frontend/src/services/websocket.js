@@ -181,12 +181,47 @@ class WebSocketSingleton {
   setupVisibilityListener() {
     if (this.visibilityHandler) return;
 
-    this.visibilityHandler = () => {
-      // When tab becomes visible, request fresh state (no disconnect/reconnect needed)
-      if (!document.hidden && this.socket?.readyState === WebSocket.OPEN) {
-        this.socket.send(JSON.stringify({ type: "ready" }));
-        logger.debug('websocket', 'Tab visible - state refresh requested');
-        this.notifyVisibilityChange();
+    this.visibilityHandler = async () => {
+      if (!document.hidden) {
+        if (this.socket?.readyState === WebSocket.OPEN) {
+          // Socket is open - fetch fresh state via HTTP
+          logger.debug('websocket', 'Tab visible - fetching fresh state');
+          try {
+            const [audioRes, volumeRes] = await Promise.all([
+              fetch('/api/audio/state'),
+              fetch('/api/volume/state')
+            ]);
+
+            if (audioRes.ok) {
+              const audioState = await audioRes.json();
+              this.handleMessage({
+                category: 'system',
+                type: 'state_changed',
+                source: 'system',
+                data: { full_state: audioState }
+              });
+            }
+
+            if (volumeRes.ok) {
+              const volumeData = await volumeRes.json();
+              if (volumeData.status === 'success') {
+                this.handleMessage({
+                  category: 'volume',
+                  type: 'volume_changed',
+                  source: 'volume',
+                  data: { show_bar: false, state: volumeData.data }
+                });
+              }
+            }
+          } catch (error) {
+            logger.warn('websocket', 'Failed to fetch state on visibility change', { error: error.message });
+          }
+          this.notifyVisibilityChange();
+        } else if (this.subscribers.size > 0) {
+          // Socket is closed - trigger reconnection
+          logger.info('websocket', 'Tab visible - socket closed, reconnecting');
+          this.createConnection();
+        }
       }
     };
 
