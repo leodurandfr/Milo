@@ -1,6 +1,6 @@
-# backend/features/programs/update.py
+# backend/core/updates/update.py
 """
-Program update service - Phase 2A (go-librespot + snapcast)
+Update service - Phase 2A (go-librespot + snapcast)
 """
 import asyncio
 import aiohttp
@@ -11,10 +11,10 @@ import logging
 import os
 from pathlib import Path
 from typing import Dict, Any, Optional, Callable, Awaitable
-from backend.features.programs.version import ProgramVersionService
+from backend.core.updates.version import VersionService
 
-class ProgramUpdateService(ProgramVersionService):
-    """Program update service - Extends ProgramVersionService"""
+class UpdateService(VersionService):
+    """Update service - Extends VersionService"""
 
     def __init__(self):
         super().__init__()

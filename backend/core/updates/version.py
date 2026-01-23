@@ -1,6 +1,6 @@
-# backend/features/programs/version.py
+# backend/core/updates/version.py
 """
-Program version management service - Version with GitHub token support
+Version management service - Version with GitHub token support
 """
 import asyncio
 import aiohttp
@@ -10,7 +10,7 @@ import os
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 
-class ProgramVersionService:
+class VersionService:
     """Simplified service to manage Milo program versions"""
 
     def __init__(self):
