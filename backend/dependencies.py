@@ -83,7 +83,7 @@ def _create_service(name: str) -> Any:
     from backend.core.multiroom.crossover import CrossoverService
     from backend.core.dsp import CamillaDSPService, DspClientProxyService, DspSettingsSyncService, MultiroomDspService
     from backend.core.volume import VolumeService
-    from backend.features.programs import ProgramVersionService, ProgramUpdateService, SatelliteProgramUpdateService
+    from backend.core.updates import VersionService, UpdateService, SatelliteUpdateService
     from backend.hardware import HardwareService, RotaryVolumeController, ScreenController
     from backend.ws import WebSocketManager, WebSocketEventHandler
     from backend.features.spotify import SpotifySource
@@ -160,10 +160,10 @@ def _create_service(name: str) -> Any:
         ),
         "dsp_router": lambda: _create_dsp_router(),
 
-        # Program services
-        "program_version_service": lambda: ProgramVersionService(),
-        "program_update_service": lambda: ProgramUpdateService(),
-        "satellite_program_update_service": lambda: SatelliteProgramUpdateService(
+        # Update services
+        "version_service": lambda: VersionService(),
+        "update_service": lambda: UpdateService(),
+        "satellite_update_service": lambda: SatelliteUpdateService(
             snapcast_service=get_service("snapcast_service")
         ),
 

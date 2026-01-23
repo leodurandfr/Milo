@@ -5,21 +5,20 @@ API routes for program management — Full version with satellites
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from typing import Dict, Any
 
-def create_programs_router(ws_manager, program_version_service, program_update_service, satellite_program_update_service):
+def create_programs_router(ws_manager, version_service, update_service, satellite_update_service):
     """Router for local and satellite programs
 
     Args:
         ws_manager: WebSocket manager for broadcasting updates
-        program_version_service: Singleton service for version checks
-        program_update_service: Singleton service for updates
-        satellite_program_update_service: Singleton service for satellite updates
+        version_service: Singleton service for version checks
+        update_service: Singleton service for updates
+        satellite_update_service: Singleton service for satellite updates
     """
     router = APIRouter(prefix="/api/programs", tags=["programs"])
 
     # Use injected services (Singletons from container)
-    program_service = program_version_service
-    update_service = program_update_service
-    satellite_service = satellite_program_update_service
+    program_service = version_service
+    satellite_service = satellite_update_service
 
     # Store to track ongoing updates
     active_updates = {}

@@ -1,6 +1,6 @@
-# backend/features/programs/satellite.py
+# backend/core/updates/satellite.py
 """
-Satellite program update service - Version with GitHub token support
+Satellite update service - Version with GitHub token support
 """
 import asyncio
 import aiohttp
@@ -11,7 +11,7 @@ from typing import Dict, Any, List, Optional
 from backend.config.constants import CLIENT_API_PORT
 
 
-class SatelliteProgramUpdateService:
+class SatelliteUpdateService:
     """Service to manage satellites and their updates"""
 
     def __init__(self, snapcast_service):
