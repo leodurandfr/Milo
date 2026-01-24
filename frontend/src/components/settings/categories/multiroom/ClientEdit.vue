@@ -6,9 +6,9 @@
     <MessageContent
       v-if="isOffline"
       icon="multiroom"
-      :title="$t('multiroom.speakerOffline', 'Speaker offline')"
-      :subtitle="$t('multiroom.speakerOfflineDescription', 'This speaker is not connected. You can delete it if it is no longer in use.')"
-      :cta-label="deleting ? $t('common.deleting', 'Deleting...') : $t('multiroom.deleteSpeaker', 'Delete speaker')"
+      :title="$t('multiroom.speakerOffline', { name: clientDisplayName })"
+      :subtitle="$t('multiroom.speakerOfflineDescription', { ip: client?.ip || 'Unknown' })"
+      :cta-label="deleting ? $t('common.deleting') : $t('multiroom.deleteSpeaker')"
       cta-variant="important"
       :cta-click="handleDelete"
     />
@@ -133,6 +133,11 @@ const client = computed(() =>
 const isOffline = computed(() => {
   return client.value ? !client.value.online : true;
 });
+
+// Display name for offline message
+const clientDisplayName = computed(() =>
+  client.value?.name || client.value?.host || 'Unknown'
+);
 
 // Check if client is in a zone
 const clientZone = computed(() => {

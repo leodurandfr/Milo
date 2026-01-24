@@ -73,6 +73,9 @@
       "badgeInactive": "Crossover inactive",
       "subwooferOffline": "Subwoofer offline"
     },
+    "speakerOffline": "\"{name}\" is offline",
+    "speakerOfflineDescription": "This audio system is not currently connected to Milō.<br>IP: {ip}",
+    "deleteSpeaker": "Delete this audio system",
     "offline": "Offline",
     "syncing": "Syncing...",
     "syncError": "Sync error",
@@ -377,6 +380,7 @@
     "confirm": "Confirm",
     "restore": "Restore",
     "delete": "Delete",
+    "deleting": "Deleting...",
     "modify": "Modify"
   },
   "radio": {

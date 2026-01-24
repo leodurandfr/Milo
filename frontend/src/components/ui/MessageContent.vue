@@ -7,7 +7,7 @@
 
     <!-- Contenu toujours visible (même en loading) -->
     <p v-if="title" class="heading-2">{{ title }}</p>
-    <p v-if="subtitle" class="text-mono">{{ subtitle }}</p>
+    <p v-if="subtitle" class="text-mono" v-html="subtitle"></p>
     <Button v-if="ctaLabel" :variant="ctaVariant" @click="ctaClick">
       {{ ctaLabel }}
     </Button>
@@ -91,7 +91,7 @@ onUnmounted(() => {
   justify-content: center;
   align-items: center;
   gap: var(--space-04);
-  padding: var(--space-05);
+  padding: var(--space-07) var(--space-06) var(--space-08) var(--space-06);
   text-align: center;
   background: var(--color-background-neutral);
   border-radius: var(--radius-06);
@@ -105,6 +105,10 @@ onUnmounted(() => {
 
 .message-content :deep(.loading-spinner) {
   color: var(--color-text-secondary);
+}
+
+.message-content :deep(.btn) {
+  margin-top: var(--space-02);
 }
 
 .message-content.is-delayed {
