@@ -1338,6 +1338,15 @@ export const useDspStore = defineStore('dsp', () => {
     }
     clearAllThrottles();
     filtersLoaded.value = false;
+
+    // Reset DSP state to defaults to prevent showing stale data while loading
+    // This ensures users see flat/disabled state instead of previous zone's settings
+    for (const filter of filters.value) {
+      filter.gain = 0;
+    }
+    loudness.value = { enabled: false, low_boost: 5, high_boost: 5 };
+    compressor.value = { enabled: false, threshold: -20, ratio: 4, attack: 10, release: 100, makeup_gain: 0 };
+    activePreset.value = 'manual';
   }
 
   // === DSP EFFECTS ENABLE/DISABLE ===

@@ -49,7 +49,7 @@ class ClientUpdateRequest(BaseModel):
         return v
 
 
-def create_multiroom_router(registry_service):
+def create_multiroom_router(registry_service, multiroom_dsp_service=None):
     """
     Creates multiroom router with dependency injection.
 
@@ -302,6 +302,16 @@ def create_multiroom_router(registry_service):
                 name=request.name,
                 client_ids=request.client_ids
             )
+
+            # Apply zone's default DSP settings to CamillaDSP
+            # This ensures CamillaDSP has flat EQ when a new zone is created,
+            # preventing stale settings from previous zone from being displayed
+            if multiroom_dsp_service:
+                try:
+                    await multiroom_dsp_service.apply_zone_dsp(zone_id, zone.dsp_settings)
+                except Exception as e:
+                    logger.warning(f"Failed to apply initial zone DSP: {e}")
+
             return {
                 "status": "success",
                 "zone": registry_service.zone_to_enriched_dict(zone)
