@@ -24,7 +24,7 @@
     <!-- Right-side action -->
     <div v-if="action !== 'none'" class="list-item-button__action">
       <SvgIcon v-if="action === 'caret'" name="caretRight" :size="24" class="caret-icon" />
-      <Toggle v-else-if="action === 'toggle'" :model-value="modelValue" size="compact" :disabled="disabled" />
+      <Toggle v-else-if="action === 'toggle'" :model-value="modelValue" size="compact" :variant="toggleVariant" :disabled="disabled" />
       <Radio v-else-if="action === 'radio'" :model-value="modelValue" :disabled="disabled" />
     </div>
   </button>
@@ -63,6 +63,11 @@ const props = defineProps({
     type: String,
     default: 'full',
     validator: (value) => ['full', 'standard'].includes(value)
+  },
+  toggleVariant: {
+    type: String,
+    default: 'primary',
+    validator: (value) => ['primary', 'secondary'].includes(value)
   }
 });
 
