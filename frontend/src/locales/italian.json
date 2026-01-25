@@ -1,4 +1,8 @@
 {
+  "app": {
+    "connecting": "Tentativo di connessione...",
+    "connectionUnavailable": "Connessione non disponibile"
+  },
   "settings": {
     "title": "Impostazioni Milō",
     "languages": "Lingue",

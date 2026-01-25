@@ -1,4 +1,8 @@
 {
+  "app": {
+    "connecting": "正在尝试连接...",
+    "connectionUnavailable": "连接不可用"
+  },
   "settings": {
     "title": "Milō 配置",
     "languages": "语言",

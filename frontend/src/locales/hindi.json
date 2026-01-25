@@ -1,4 +1,8 @@
 {
+  "app": {
+    "connecting": "कनेक्ट करने का प्रयास...",
+    "connectionUnavailable": "कनेक्शन उपलब्ध नहीं"
+  },
   "settings": {
     "title": "Milō कॉन्फ़िगरेशन",
     "languages": "भाषाएं",

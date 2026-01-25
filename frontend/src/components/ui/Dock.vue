@@ -92,7 +92,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch, nextTick, getCurrentInstance } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick, getCurrentInstance, inject } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
@@ -103,6 +103,7 @@ const { t } = useI18n();
 const instance = getCurrentInstance();
 const $t = instance.appContext.config.globalProperties.$t;
 const { on } = useWebSocket();
+const registerDockControl = inject('registerDockControl', null);
 
 // === STATIC CONFIGURATION ===
 const ALL_AUDIO_SOURCES = ['spotify', 'bluetooth', 'mac', 'radio', 'podcast'];
@@ -244,6 +245,8 @@ const clearAllTimers = () => {
 
 const startHideTimer = () => {
   clearTimeout(hideTimeout);
+  // Don't auto-hide when no source is active (user needs to select one)
+  if (unifiedStore.systemState.active_source === 'none') return;
   hideTimeout = setTimeout(hideDock, 10000);
 };
 
@@ -685,12 +688,26 @@ const removeDragEvents = () => {
 };
 
 // === LIFECYCLE ===
-watch(() => unifiedStore.systemState.active_source, updateActiveIndicator);
+watch(() => unifiedStore.systemState.active_source, (newSource) => {
+  updateActiveIndicator();
+  if (newSource === 'none') {
+    // Keep dock visible when no source is active
+    clearTimeout(hideTimeout);
+  } else if (isVisible.value) {
+    // Start auto-hide when a source becomes active
+    startHideTimer();
+  }
+});
 
 onMounted(async () => {
   setupDragEvents();
 
   await loadDockConfig();
+
+  // Register showDock for parent control (auto-show on boot)
+  if (registerDockControl) {
+    registerDockControl(showDock);
+  }
 
   // WebSocket listeners
   on('settings', 'dock_apps_changed', (message) => {

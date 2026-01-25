@@ -1,6 +1,7 @@
 {
   "app": {
-    "connectionLost": "Connexion perdue. Reconnexion..."
+    "connecting": "Tentative de connexion...",
+    "connectionUnavailable": "Connexion non disponible"
   },
   "settings": {
     "title": "Paramètres de Milō",
