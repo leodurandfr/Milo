@@ -278,31 +278,27 @@ class SnapcastWebSocketService:
                     ip = host.get("ip", "").replace("::ffff:", "")
                     mac = host.get("mac", "")
                     mac_id = ClientRegistryService.compute_mac_id(hostname, ip, mac)
-                    client_name = client.get("config", {}).get("name", hostname or mac_id)
+                    client_name = client.get("config", {}).get("name") or hostname or mac_id
 
                     # Check if client is already in registry
-                    existing_client = self.registry.get_client(mac_id) if self.registry else None
+                    is_new_client = self.registry.get_client(mac_id) is None if self.registry else True
 
-                    if not existing_client:
+                    if is_new_client:
                         is_local = (ip == "127.0.0.1")
                         local_marker = " LOCAL CLIENT" if is_local else ""
                         self.logger.info(f"[{time.time():.3f}] INIT_CLIENTS: New client {client_id} (mac_id: {mac_id}){local_marker}")
 
-                        # Register client in registry using new API
-                        if self.registry:
-                            await self.registry.register_client(mac_id, client_name, ip)
-                            await self.registry.set_client_online(mac_id, True)
-                        self.logger.info(f"[{time.time():.3f}] INIT_CLIENTS: Registered {mac_id}")
+                    # Register/update client in registry
+                    if self.registry:
+                        await self.registry.register_client(mac_id, client_name, ip, host=hostname)
+                        await self.registry.set_client_online(mac_id, True)
 
-                        # Sync volume from snapserver
+                    if is_new_client:
+                        self.logger.info(f"[{time.time():.3f}] INIT_CLIENTS: Registered {mac_id}")
+                        # Sync volume from snapserver for new clients
                         snapcast_volume = client.get("config", {}).get("volume", {}).get("percent", 0)
                         self.logger.info(f"[{time.time():.3f}] INIT_CLIENTS: Syncing volume from snapserver: {snapcast_volume}%")
                         await self._sync_existing_client_volume(client_id, client)
-                    else:
-                        # Client already known - just update online status
-                        self.logger.debug(f"Client {mac_id} already known, updating online status")
-                        if self.registry:
-                            await self.registry.set_client_online(mac_id, True)
 
             client_count = len(self.registry.get_all_clients()) if self.registry else 0
             has_local = any(c.is_local for c in self.registry.get_all_clients().values()) if self.registry else False
@@ -399,7 +395,7 @@ class SnapcastWebSocketService:
                     try:
                         # Register client using new API
                         if self.registry:
-                            await self.registry.register_client(mac_id, client["name"], client["ip"])
+                            await self.registry.register_client(mac_id, client["name"], client["ip"], host=client["host"])
                             await self.registry.set_client_online(mac_id, client["online"])
 
                         await self._broadcast_snapcast_event("client_connected", {
@@ -475,14 +471,14 @@ class SnapcastWebSocketService:
         self._processing_client_ids.add(client_id)
 
         try:
-            client_name = client.get("config", {}).get("name", "Unknown")
-            client_host = client.get("host", {}).get("name", "Unknown")
+            client_host = client.get("host", {}).get("name") or "Unknown"
             client_ip = client.get("host", {}).get("ip", "").replace("::ffff:", "")
             client_mac = client.get("host", {}).get("mac", "")
             snapcast_volume = client.get("config", {}).get("volume", {}).get("percent", 100)
 
             # Compute mac_id using canonical method
             mac_id = ClientRegistryService.compute_mac_id(client_host, client_ip, client_mac)
+            client_name = client.get("config", {}).get("name") or client_host or mac_id
 
             is_local = (client_ip == "127.0.0.1")
             local_marker = " LOCAL CLIENT" if is_local else ""
@@ -492,7 +488,7 @@ class SnapcastWebSocketService:
 
             # Register client using new API (but don't set online yet - wait for volume sync)
             if self.registry:
-                await self.registry.register_client(mac_id, client_name, client_ip)
+                await self.registry.register_client(mac_id, client_name, client_ip, host=client_host)
 
             self.logger.info(f"[{time.time():.3f}] CLIENT_CONNECT: Calling volume sync for {client_id}")
             sync_status = await self._notify_volume_service_client_connected(client_id, client)

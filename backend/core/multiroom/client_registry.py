@@ -86,6 +86,7 @@ class ClientRegistryService:
         mac_id: str,
         name: str,
         ip: str,
+        host: str = "",
         speaker_type: SpeakerType = DEFAULT_SPEAKER_TYPE
     ) -> Client:
         """
@@ -95,6 +96,7 @@ class ClientRegistryService:
             mac_id: Primary identifier (MAC address, format xx:xx:xx:xx:xx:xx)
             name: Display name
             ip: IP address (127.0.0.1 for local client)
+            host: Hostname from Snapcast
             speaker_type: Speaker type for crossover (default: bookshelf)
 
         Returns:
@@ -104,10 +106,11 @@ class ClientRegistryService:
             existing = self._clients.get(mac_id)
 
             if existing:
-                # Update existing client (keep online status and zone)
-                existing.name = name
+                # Update connection info only - preserve user-set name and speaker_type
+                if not existing.name:
+                    existing.name = name
                 existing.ip = ip
-                # Don't overwrite speaker_type if already set (persisted preference)
+                existing.host = host
                 client = existing
                 event_type = RegistryEventType.CLIENT_UPDATED
             else:
@@ -116,6 +119,7 @@ class ClientRegistryService:
                     mac_id=mac_id,
                     name=name,
                     ip=ip,
+                    host=host,
                     online=False,
                     zone_id=None,
                     volume_db=DEFAULT_VOLUME_DB,
