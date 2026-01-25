@@ -950,11 +950,11 @@ sampleformat = 48000:16:2
 
 source = meta:///Bluetooth/ROC/Spotify/Radio/Podcast?name=Multiroom
 
-source = alsa:///?name=Bluetooth&device=hw:1,1,0
-source = alsa:///?name=ROC&device=hw:1,1,1
-source = alsa:///?name=Spotify&device=hw:1,1,2
-source = alsa:///?name=Radio&device=hw:1,1,3
-source = alsa:///?name=Podcast&device=hw:1,1,4
+source = alsa:///?name=Bluetooth&device=hw:1,1,0&idle_threshold=5000&send_silence=true
+source = alsa:///?name=ROC&device=hw:1,1,1&idle_threshold=5000&send_silence=true
+source = alsa:///?name=Spotify&device=hw:1,1,2&idle_threshold=5000&send_silence=true
+source = alsa:///?name=Radio&device=hw:1,1,3&idle_threshold=5000&send_silence=true
+source = alsa:///?name=Podcast&device=hw:1,1,4&idle_threshold=5000&send_silence=true
 
 [http]
 enabled = true
