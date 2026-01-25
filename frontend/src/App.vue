@@ -80,6 +80,7 @@ const isBootComplete = ref(false);
 let bootScreenEl = null;
 let bootTimeoutId = null;
 let bootFailedTimeoutId = null;
+let reconnectionTimeout = null;
 
 // === Boot timeout handling ===
 function startBootTimeout() {
@@ -172,12 +173,20 @@ watch(isReady, (ready) => {
   }
 });
 
-// Watch connection lost AFTER boot complete
+// Watch connection lost AFTER boot (iOS: delayed, Desktop: immediate)
 watch(isConnected, (connected) => {
   if (!isBootComplete.value) return;
-
+  clearTimeout(reconnectionTimeout);
   if (!connected) {
-    showReconnectionScreen();
+    if (document.documentElement.classList.contains('ios-app')) {
+      // iOS app: delay to avoid flash during quick background/foreground transitions
+      reconnectionTimeout = setTimeout(() => {
+        if (!isConnected.value) showReconnectionScreen();
+      }, 1200);
+    } else {
+      // Desktop browser: show immediately
+      showReconnectionScreen();
+    }
   } else {
     hideReconnectionScreen();
   }
@@ -298,6 +307,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   clearBootTimeout();
+  clearTimeout(reconnectionTimeout);
   cleanupFunctions.forEach(cleanup => cleanup());
 });
 </script>
