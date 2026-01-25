@@ -352,6 +352,7 @@ class Client:
     mac_id: str
     name: str
     ip: str
+    host: str = ""  # Hostname from Snapcast
     online: bool = False
     zone_id: Optional[str] = None
     volume_db: float = DEFAULT_VOLUME_DB
@@ -375,6 +376,7 @@ class Client:
             "mac_id": self.mac_id,
             "name": self.name,
             "ip": self.ip,
+            "host": self.host,
             "zone_id": self.zone_id,
             "volume_db": self.volume_db,
             "mute": self.mute,
@@ -393,6 +395,7 @@ class Client:
             mac_id=data["mac_id"],
             name=data.get("name", data["mac_id"]),
             ip=data.get("ip", ""),
+            host=data.get("host", ""),
             online=data.get("online", False),
             zone_id=data.get("zone_id"),
             volume_db=data.get("volume_db", DEFAULT_VOLUME_DB),
