@@ -165,9 +165,11 @@ watch(isReady, (ready) => {
         if (bootScreenEl) bootScreenEl.style.display = 'none';
       }, DOM_REMOVE_DELAY);
 
-      // Auto-show dock after boot complete
+      // Auto-show dock after boot complete, only if no audio source is active
       setTimeout(() => {
-        if (showDockFn) showDockFn();
+        if (showDockFn && unifiedStore.systemState.active_source === 'none') {
+          showDockFn();
+        }
       }, DOCK_AUTO_SHOW_DELAY);
     }, SCREEN_FADE_DELAY);
   }
@@ -178,7 +180,7 @@ watch(isConnected, (connected) => {
   if (!isBootComplete.value) return;
   clearTimeout(reconnectionTimeout);
   if (!connected) {
-    if (document.documentElement.classList.contains('ios-app')) {
+    if (document.body.classList.contains('ios-app')) {
       // iOS app: delay to avoid flash during quick background/foreground transitions
       reconnectionTimeout = setTimeout(() => {
         if (!isConnected.value) showReconnectionScreen();
@@ -241,6 +243,12 @@ onMounted(async () => {
       const fullState = event.data?.full_state;
       if (fullState?.active_source === 'podcast' && fullState?.metadata) {
         podcastStore.handleStateUpdate(fullState.metadata);
+      }
+
+      // Auto-show dock on reconnection if no audio source active
+      // (isBootComplete check avoids doubling with initial boot animation logic)
+      if (isBootComplete.value && showDockFn && unifiedStore.systemState.active_source === 'none') {
+        showDockFn();
       }
 
       isReady.value = true;
