@@ -190,7 +190,7 @@ app.include_router(programs_router)
 health_router = create_health_router(state_machine, routing_service, snapcast_service)
 app.include_router(health_router)
 
-multiroom_router = create_multiroom_router(client_registry_service)
+multiroom_router = create_multiroom_router(client_registry_service, multiroom_dsp_service)
 app.include_router(multiroom_router)
 
 app.add_websocket_route("/ws", websocket_server.websocket_endpoint)
