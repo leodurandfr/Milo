@@ -4,171 +4,139 @@
     <div class="content-wrapper">
       <Transition name="fade-slide" mode="out-in">
         <!-- MESSAGE: Enabling or Disabled -->
-        <MessageContent
-          v-if="showMessage"
-          :key="transitionState"
-          :loading="isLoading"
-          :loading-delay="0"
-          :icon="isLoading ? null : 'multiroom'"
-          :title="messageTitle"
-        />
+        <MessageContent v-if="showMessage" :key="transitionState" :loading="isLoading" :loading-delay="0"
+          :icon="isLoading ? null : 'multiroom'" :title="messageTitle" />
         <!-- SETTINGS: Active and ready -->
         <div v-else key="settings" class="settings-container">
-            <!-- Zones & Speakers Section -->
-            <section class="settings-section">
-              <div class="multiroom-group" :class="{ 'multiroom-group--compact': ungroupedClients.length >= 2 }">
-                <!-- Header: Title + Create Zone Button -->
-                <div class="section-header">
-                  <h2 class="heading-2">{{ t('multiroom.zonesAndSpeakers') }}</h2>
-                  <Button
-                    v-if="ungroupedClients.length >= 2"
-                    variant="brand"
-                    size="small"
-                    @click="handleCreateZone"
-                  >
-                    {{ t('dsp.zones.createZone', 'Create Zone') }}
-                  </Button>
-                </div>
+          <!-- Zones & Speakers Section -->
+          <section class="settings-section">
+            <div class="multiroom-group" :class="{ 'multiroom-group--compact': ungroupedClients.length >= 2 }">
+              <!-- Header: Title + Create Zone Button -->
+              <div class="section-header">
+                <h2 class="heading-2">{{ t('multiroom.zonesAndSpeakers') }}</h2>
+                <Button v-if="ungroupedClients.length >= 2" variant="brand" size="small" @click="handleCreateZone">
+                  {{ t('dsp.zones.createZone', 'Create Zone') }}
+                </Button>
+              </div>
 
-                <div v-if="snapcastStore.isLoading" class="loading-state">
-                  <p class="text-mono">{{ t('multiroom.loadingSpeakers') }}</p>
-                </div>
+              <div v-if="snapcastStore.isLoading" class="loading-state">
+                <p class="text-mono">{{ t('multiroom.loadingSpeakers') }}</p>
+              </div>
 
-                <div v-else-if="sortedMultiroomClients.length === 0" class="no-clients-state">
-                  <p class="text-mono">{{ t('multiroom.noSpeakers') }}</p>
-                </div>
+              <div v-else-if="sortedMultiroomClients.length === 0" class="no-clients-state">
+                <p class="text-mono">{{ t('multiroom.noSpeakers') }}</p>
+              </div>
 
-                <div v-else class="speakers-list">
-                  <!-- Zones -->
-                  <div v-for="zone in zones" :key="zone.id" class="zone-group">
-                    <!-- Zone header (clickable) -->
-                    <button
-                      type="button"
-                      class="zone-header"
-                      @click="handleEditZone(zone.id)"
-                    >
-                      <span class="zone-header__name heading-3">{{ zone.displayName }}</span>
-                      <!-- Crossover badge -->
-                      <span
-                        v-if="zone.crossover_enabled"
-                        class="crossover-badge crossover-badge--active"
-                        :title="t('multiroom.crossover.badgeActive')"
-                      >
-                        {{ zone.crossover_frequency || 80 }} Hz
-                      </span>
-                      <span
-                        v-else-if="zone.has_subwoofer"
-                        class="crossover-badge crossover-badge--inactive"
-                        :title="t('multiroom.crossover.subwooferOffline')"
-                      >
-                        {{ t('multiroom.crossover.badgeInactive') }}
-                      </span>
-                      <span class="zone-header__count text-mono-small">{{ zone.onlineCount }}/{{ zone.clientCount }}</span>
-                      <SvgIcon name="caretRight" :size="20" class="zone-header__caret" />
-                    </button>
-                    <!-- Zone clients -->
-                    <div class="zone-clients">
-                      <ListItemButton
-                        v-for="client in zone.clients"
-                        :key="client.id"
-                        variant="background"
-                        icon-variant="standard"
-                        action="caret"
-                        @click="handleEditClient(client.mac_id)"
-                      >
-                        <template #icon>
-                          <div class="client-icon" :class="{ 'is-offline': !client.online }">
-                            <SvgIcon :name="getSpeakerIcon(client.mac_id)" :size="28" />
-                          </div>
-                        </template>
-                        <template #title>
-                          <div class="client-title">
-                            <span>{{ client.name }}</span>
-                            <span class="text-mono-small client-title__type">{{ getSpeakerTypeLabel(client.mac_id) }}</span>
-                          </div>
-                        </template>
-                      </ListItemButton>
-                    </div>
+              <div v-else class="speakers-list">
+                <!-- Zones -->
+                <div v-for="zone in zones" :key="zone.id" class="zone-group">
+                  <!-- Zone header (clickable) -->
+                  <button type="button" class="zone-header" @click="handleEditZone(zone.id)">
+                    <span class="zone-header__name heading-3">{{ zone.displayName }}</span>
+                    <SvgIcon name="caretRight" :size="20" class="zone-header__caret" />
+                    <!-- Crossover badge -->
+                    <span v-if="zone.crossover_enabled" class="crossover-badge crossover-badge--active text-mono"
+                      :title="t('multiroom.crossover.badgeActive')">
+                      {{ zone.crossover_frequency}} Hz
+                    </span>
+                    <span v-else-if="zone.has_subwoofer" class="crossover-badge crossover-badge--inactive text-mono"
+                      :title="t('multiroom.crossover.subwooferOffline')">
+                      {{ t('multiroom.crossover.badgeInactive') }}
+                    </span>
+                  </button>
+                  <!-- Zone clients -->
+                  <div class="zone-clients">
+                    <ListItemButton v-for="client in zone.clients" :key="client.id" variant="background"
+                      icon-variant="standard" action="caret" @click="handleEditClient(client.mac_id)">
+                      <template #icon>
+                        <div class="client-icon" :class="{ 'is-offline': !client.online }">
+                          <SvgIcon :name="getSpeakerIcon(client.mac_id)" :size="28" />
+                        </div>
+                      </template>
+                      <template #title>
+                        <div class="client-title">
+                          <span :class="{ 'text-secondary': !client.online }">{{ client.name }}</span>
+                          <span v-if="!client.online" class="text-mono-small client-title__status">
+                            {{ t('multiroom.offline') }}
+                          </span>
+                          <span v-else class="text-mono-small client-title__type">
+                            {{ getSpeakerTypeLabel(client.mac_id) }}
+                          </span>
+                        </div>
+                      </template>
+                    </ListItemButton>
                   </div>
-
-                  <!-- Individual speakers section -->
-                  <template v-if="ungroupedClients.length > 0">
-                    <h3 v-if="zones.length > 0" class="heading-3 section-subtitle">{{ t('multiroom.individualSpeakers') }}</h3>
-                    <div class="ungrouped-clients">
-                      <ListItemButton
-                        v-for="client in ungroupedClients"
-                        :key="client.id"
-                        variant="background"
-                        icon-variant="standard"
-                        action="caret"
-                        @click="handleEditClient(client.mac_id)"
-                      >
-                        <template #icon>
-                          <div class="client-icon" :class="{ 'is-offline': !client.online }">
-                            <SvgIcon :name="getSpeakerIcon(client.mac_id)" :size="28" />
-                          </div>
-                        </template>
-                        <template #title>
-                          <div class="client-title">
-                            <span>{{ client.name }}</span>
-                            <span class="text-mono-small client-title__type">{{ getSpeakerTypeLabel(client.mac_id) }}</span>
-                          </div>
-                        </template>
-                      </ListItemButton>
-                    </div>
-                  </template>
                 </div>
+
+                <!-- Individual speakers section -->
+                <template v-if="ungroupedClients.length > 0">
+                  <h3 v-if="zones.length > 0" class="heading-3 section-subtitle">{{ t('multiroom.individualSpeakers') }}
+                  </h3>
+                  <div class="ungrouped-clients">
+                    <ListItemButton v-for="client in ungroupedClients" :key="client.id" variant="background"
+                      icon-variant="standard" action="caret" @click="handleEditClient(client.mac_id)">
+                      <template #icon>
+                        <div class="client-icon" :class="{ 'is-offline': !client.online }">
+                          <SvgIcon :name="getSpeakerIcon(client.mac_id)" :size="28" />
+                        </div>
+                      </template>
+                      <template #title>
+                        <div class="client-title">
+                          <span :class="{ 'text-secondary': !client.online }">{{ client.name }}</span>
+                          <span v-if="!client.online" class="text-mono-small client-title__status">
+                            {{ t('multiroom.offline') }}
+                          </span>
+                          <span v-else class="text-mono-small client-title__type">
+                            {{ getSpeakerTypeLabel(client.mac_id) }}
+                          </span>
+                        </div>
+                      </template>
+                    </ListItemButton>
+                  </div>
+                </template>
               </div>
-            </section>
+            </div>
+          </section>
 
-            <!-- Advanced settings (includes presets) -->
-            <section class="settings-section">
-              <div class="multiroom-group">
-                <!-- Presets -->
-                <h2 class="heading-2">{{ t('multiroomSettings.presets') }}</h2>
-                <ButtonGroup
-                  :model-value="activePresetId"
-                  :options="presetOptions"
-                  :disabled="snapcastStore.isApplyingServerConfig"
-                  mobile-layout="column"
-                  @change="handlePresetChange"
-                />
+          <!-- Advanced settings (includes presets) -->
+          <section class="settings-section">
+            <div class="multiroom-group">
+              <!-- Presets -->
+              <h2 class="heading-2">{{ t('multiroomSettings.presets') }}</h2>
+              <ButtonGroup :model-value="activePresetId" :options="presetOptions"
+                :disabled="snapcastStore.isApplyingServerConfig" mobile-layout="column" @change="handlePresetChange" />
 
-                <div class="section-divider"></div>
+              <div class="section-divider"></div>
 
-                <!-- Advanced controls -->
-                <h2 class="heading-2">{{ t('multiroomSettings.advanced') }}</h2>
+              <!-- Advanced controls -->
+              <h2 class="heading-2">{{ t('multiroomSettings.advanced') }}</h2>
 
-                <div class="form-group">
-                  <label class="text-mono">{{ t('multiroomSettings.globalBuffer') }}</label>
-                  <RangeSlider v-model="snapcastStore.serverConfig.buffer" :min="100" :max="2000" :step="50"
-                    value-unit="ms" />
-                </div>
-
-                <div class="form-group">
-                  <label class="text-mono">{{ t('multiroomSettings.chunkSize') }}</label>
-                  <RangeSlider v-model="snapcastStore.serverConfig.chunk_ms" :min="10" :max="100" :step="5"
-                    value-unit="ms" />
-                </div>
-
-                <div class="form-group">
-                  <label class="text-mono">{{ t('multiroomSettings.codec') }}</label>
-                  <ButtonGroup
-                    :model-value="snapcastStore.serverConfig.codec"
-                    :options="codecOptions"
-                    mobile-layout="column"
-                    @change="selectCodec"
-                  />
-                </div>
+              <div class="form-group">
+                <label class="text-mono">{{ t('multiroomSettings.globalBuffer') }}</label>
+                <RangeSlider v-model="snapcastStore.serverConfig.buffer" :min="100" :max="2000" :step="50"
+                  value-unit="ms" />
               </div>
-            </section>
 
-            <Button v-if="snapcastStore.hasServerConfigChanges" variant="brand" size="medium" class="apply-button-sticky"
-              :disabled="snapcastStore.isApplyingServerConfig" @click="applyServerConfig">
-              {{ snapcastStore.isApplyingServerConfig ? t('multiroom.restarting') : t('multiroomSettings.apply') }}
-           </Button>
-          </div>
-        </Transition>
+              <div class="form-group">
+                <label class="text-mono">{{ t('multiroomSettings.chunkSize') }}</label>
+                <RangeSlider v-model="snapcastStore.serverConfig.chunk_ms" :min="10" :max="100" :step="5"
+                  value-unit="ms" />
+              </div>
+
+              <div class="form-group">
+                <label class="text-mono">{{ t('multiroomSettings.codec') }}</label>
+                <ButtonGroup :model-value="snapcastStore.serverConfig.codec" :options="codecOptions"
+                  mobile-layout="column" @change="selectCodec" />
+              </div>
+            </div>
+          </section>
+
+          <Button v-if="snapcastStore.hasServerConfigChanges" variant="brand" size="medium" class="apply-button-sticky"
+            :disabled="snapcastStore.isApplyingServerConfig" @click="applyServerConfig">
+            {{ snapcastStore.isApplyingServerConfig ? t('multiroom.restarting') : t('multiroomSettings.apply') }}
+          </Button>
+        </div>
+      </Transition>
     </div>
   </div>
 </template>
@@ -229,13 +197,9 @@ const zones = computed(() => {
         online: client.online
       }));
 
-    const onlineCount = clients.filter(c => c.online).length;
-
     return {
       id: zone.id,
       displayName: zone.name || `Zone ${index + 1}`,
-      clientCount: clients.length,
-      onlineCount,
       clients,
       crossover_enabled: zone.crossover_enabled,
       crossover_frequency: zone.crossover_frequency,
@@ -508,7 +472,12 @@ onMounted(async () => {
   flex-direction: column;
 }
 
-.client-title__type {
+.client-title__type,
+.client-title__status {
+  color: var(--color-text-secondary);
+}
+
+.text-secondary {
   color: var(--color-text-secondary);
 }
 
@@ -536,14 +505,7 @@ onMounted(async () => {
   color: var(--color-brand);
 }
 
-.zone-header__count {
-  color: var(--color-text-secondary);
-  margin-left: auto;
-  margin-right: var(--space-01);
-}
-
 .zone-header__caret {
-  flex-shrink: 0;
   color: var(--color-brand);
 }
 
@@ -551,16 +513,15 @@ onMounted(async () => {
 .crossover-badge {
   display: inline-flex;
   align-items: center;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: var(--font-size-small);
-  font-family: var(--font-family-mono);
+  margin-left: auto;
+  padding: var(--space-01) var(--space-02);
+  border-radius: var(--radius-02);
   white-space: nowrap;
 }
 
 .crossover-badge--active {
-  background: var(--color-success-subtle, rgba(34, 197, 94, 0.15));
-  color: var(--color-success, #22c55e);
+  background: var(--color-background);
+  color: var(--color-text-secondary);
 }
 
 .crossover-badge--inactive {

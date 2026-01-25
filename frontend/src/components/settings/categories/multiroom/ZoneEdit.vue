@@ -30,30 +30,23 @@
             variant="background"
             action="toggle"
             icon-variant="standard"
+            :toggle-variant="target.online ? 'primary' : 'secondary'"
             :model-value="selectedClients.includes(target.id)"
-            :disabled="!target.online"
             @click="toggleClient(target.id)"
           >
             <template #icon>
-              <div class="client-icon-wrapper">
+              <div class="client-icon" :class="{ 'is-offline': !target.online }">
                 <SvgIcon :name="getSpeakerIcon(target.id)" :size="28" />
-                <span class="online-indicator" :class="{
-                  'online-indicator--online': target.online && !hasSyncError(target.id),
-                  'online-indicator--error': target.online && hasSyncError(target.id)
-                }" />
               </div>
             </template>
             <template #title>
-              <div class="client-title-wrapper">
-                <span>{{ target.name }}</span>
-                <span v-if="isSyncing(target.id)" class="sync-status sync-status--syncing">
-                  {{ $t('multiroom.syncing') }}
+              <div class="client-title">
+                <span :class="{ 'text-secondary': !target.online }">{{ target.name }}</span>
+                <span v-if="!target.online" class="text-mono-small client-title__status">
+                  {{ $t('multiroom.offline') }}
                 </span>
-                <span v-else-if="hasSyncError(target.id)" class="sync-status sync-status--error">
-                  {{ $t('multiroom.syncError') }}
-                  <button type="button" class="retry-btn" @click.stop="handleRetrySync(target.id)">
-                    {{ $t('multiroom.retrySync') }}
-                  </button>
+                <span v-else class="text-mono-small client-title__type">
+                  {{ getSpeakerTypeLabel(target.id) }}
                 </span>
               </div>
             </template>
@@ -92,6 +85,7 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { useDspStore } from '@/stores/dspStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
+import { useI18n } from '@/services/i18n';
 import Button from '@/components/ui/Button.vue';
 import InputText from '@/components/ui/InputText.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
@@ -107,6 +101,7 @@ const props = defineProps({
 
 const emit = defineEmits(['back', 'saved']);
 
+const { t } = useI18n();
 const dspStore = useDspStore();
 const multiroomStore = useMultiroomStore();
 const saving = ref(false);
@@ -144,18 +139,10 @@ function getSpeakerIcon(macId) {
   return iconMap[speakerType] || 'speakerShelf';
 }
 
-// Sync status helpers
-function hasSyncError(macId) {
-  return multiroomStore.hasSyncError(macId);
-}
-
-function isSyncing(macId) {
-  return multiroomStore.isSyncing(macId);
-}
-
-async function handleRetrySync(macId) {
-  // Sync retry not yet implemented - will auto-sync on reconnect
-  console.warn(`Retry sync for ${macId} - feature not yet implemented`);
+// Get speaker type label for display
+function getSpeakerTypeLabel(macId) {
+  const speakerType = dspStore.getClientSpeakerType(macId);
+  return t(`multiroom.speakerTypes.${speakerType}`);
 }
 
 // Toggle client selection
@@ -302,67 +289,30 @@ async function handleDelete() {
   gap: var(--space-01);
 }
 
-/* Client icon with online indicator */
-.client-icon-wrapper {
-  position: relative;
+/* Client icon */
+.client-icon {
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.online-indicator {
-  position: absolute;
-  bottom: 0;
-  right: 0;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--color-text-secondary);
-  border: 2px solid var(--color-background-neutral);
+.client-icon.is-offline {
+  opacity: 0.4;
 }
 
-.online-indicator--online {
-  background: var(--color-success, #22c55e);
-}
-
-.online-indicator--error {
-  background: var(--color-error, #ef4444);
-}
-
-/* Client title with sync status */
-.client-title-wrapper {
+/* Client title with type/status */
+.client-title {
   display: flex;
   flex-direction: column;
-  gap: 2px;
 }
 
-.sync-status {
-  font-size: var(--font-size-small);
-  display: flex;
-  align-items: center;
-  gap: var(--space-02);
-}
-
-.sync-status--syncing {
+.client-title__type,
+.client-title__status {
   color: var(--color-text-secondary);
 }
 
-.sync-status--error {
-  color: var(--color-error, #ef4444);
-}
-
-.retry-btn {
-  font-size: var(--font-size-small);
-  color: var(--color-brand);
-  background: none;
-  border: none;
-  cursor: pointer;
-  text-decoration: underline;
-  padding: 0;
-}
-
-.retry-btn:hover {
-  opacity: 0.8;
+.text-secondary {
+  color: var(--color-text-secondary);
 }
 
 /* Mobile adjustments */
