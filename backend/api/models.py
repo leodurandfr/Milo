@@ -322,10 +322,8 @@ class ZoneCreate(BaseModel):
     @classmethod
     def validate_name(cls, v: str) -> str:
         stripped = v.strip()
-        # Allow only alphanumeric characters, spaces, hyphens, and common accented letters
-        import re
-        if not re.match(r'^[\w\s\-àâäéèêëïîôùûüç]+$', stripped, re.IGNORECASE | re.UNICODE):
-            raise ValueError('Zone name can only contain letters, numbers, spaces, and hyphens')
+        if not stripped:
+            raise ValueError('Zone name cannot be empty')
         return stripped
 
     @field_validator('client_ids')
@@ -353,10 +351,8 @@ class ZoneUpdate(BaseModel):
         if v is None:
             return v
         stripped = v.strip()
-        # Allow only alphanumeric characters, spaces, hyphens, and common accented letters
-        import re
-        if not re.match(r'^[\w\s\-àâäéèêëïîôùûüç]+$', stripped, re.IGNORECASE | re.UNICODE):
-            raise ValueError('Zone name can only contain letters, numbers, spaces, and hyphens')
+        if not stripped:
+            raise ValueError('Zone name cannot be empty')
         return stripped
 
 

@@ -369,22 +369,13 @@ class TestZoneCreate:
         )
         assert zone.client_ids == ["c1", "c2"]
 
-    def test_zone_create_name_rejects_special_chars(self):
-        """Name with special characters (XSS prevention) is rejected."""
-        with pytest.raises(ValidationError) as exc_info:
-            ZoneCreate(
-                name="<script>alert",
-                client_ids=["c1", "c2"]
-            )
-        assert "letters" in str(exc_info.value).lower() or "name" in str(exc_info.value).lower()
-
-    def test_zone_create_name_accepts_accented_chars(self):
-        """Name with accented characters (French) is accepted."""
+    def test_zone_create_name_accepts_any_chars(self):
+        """Name accepts any characters (accents, special chars, emojis)."""
         zone = ZoneCreate(
-            name="Séjour élégant",
+            name="Milō 2.1 🎵",
             client_ids=["c1", "c2"]
         )
-        assert zone.name == "Séjour élégant"
+        assert zone.name == "Milō 2.1 🎵"
 
     def test_zone_create_name_accepts_hyphens(self):
         """Name with hyphens is accepted."""
@@ -428,15 +419,10 @@ class TestZoneUpdate:
         update = ZoneUpdate(name=None)
         assert update.name is None
 
-    def test_zone_update_name_rejects_special_chars(self):
-        """Name with special characters (XSS prevention) is rejected."""
-        with pytest.raises(ValidationError):
-            ZoneUpdate(name="<script>")
-
-    def test_zone_update_name_accepts_accented_chars(self):
-        """Name with accented characters (French) is accepted."""
-        update = ZoneUpdate(name="Château")
-        assert update.name == "Château"
+    def test_zone_update_name_accepts_any_chars(self):
+        """Name accepts any characters (accents, special chars, emojis)."""
+        update = ZoneUpdate(name="Milō 2.1 🎵")
+        assert update.name == "Milō 2.1 🎵"
 
 
 class TestZoneResponse:
