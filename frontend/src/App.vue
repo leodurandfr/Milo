@@ -22,13 +22,6 @@
     <!-- Global Virtual Keyboard -->
     <VirtualKeyboard />
 
-    <!-- Connection status indicator (AC2: UI indicates connection status) -->
-    <Transition name="slide-up">
-      <div v-if="isBootComplete && !isConnected" class="connection-status">
-        {{ $t('app.connectionLost') }}
-      </div>
-    </Transition>
-
   </div>
 </template>
 
@@ -54,11 +47,20 @@ import { usePodcastStore } from '@/stores/podcastStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useDspStore } from '@/stores/dspStore';
-import { i18n } from '@/services/i18n';
+import { i18n, useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useScreenActivity } from '@/composables/useScreenActivity';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
 
+// === Constants ===
+const BOOT_TIMEOUT_MS = 2000;        // Show "connecting" after 2s (roughly when attempt 2 starts)
+const BOOT_FAILED_MS = 12000;        // Show "unavailable" after 12s total
+const LOGO_FADE_DELAY = 700;
+const SCREEN_FADE_DELAY = 800;
+const DOM_REMOVE_DELAY = 400;
+const DOCK_AUTO_SHOW_DELAY = 500; // Show dock after
+
+const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
 const podcastStore = usePodcastStore();
 const settingsStore = useSettingsStore();
@@ -70,27 +72,114 @@ const { loadHardwareInfo } = useHardwareConfig();
 // Enable screen activity detection (touch, mouse, keyboard)
 useScreenActivity();
 
-// Track if initial state received from WebSocket (hides boot screen)
+// === State ===
 const isReady = ref(false);
 const isBootComplete = ref(false);
 
-// Fade out boot screen after WebSocket connects + delay
-watch(isReady, (ready) => {
-  if (ready) {
-    const bootScreen = document.getElementById('boot-screen');
-    if (bootScreen) {
-      // Start logo animation 0.1s before boot-screen ends
-      setTimeout(() => {
-        bootScreen.classList.add('logo-exit');
-      }, 700);
+// === Boot screen reference ===
+let bootScreenEl = null;
+let bootTimeoutId = null;
+let bootFailedTimeoutId = null;
 
-      // Fade out boot-screen and mount app
-      setTimeout(() => {
-        bootScreen.classList.add('fade-out');
-        isBootComplete.value = true;
-        setTimeout(() => bootScreen.remove(), 400);
-      }, 800);
+// === Boot timeout handling ===
+function startBootTimeout() {
+  clearBootTimeout();
+  // Stage 1: Show "connecting" after first timeout
+  bootTimeoutId = setTimeout(() => {
+    if (!isReady.value) {
+      showBootMessage(t('app.connecting'));
+      // Stage 2: Show "unavailable" after more time
+      bootFailedTimeoutId = setTimeout(() => {
+        if (!isReady.value) {
+          showBootMessage(t('app.connectionUnavailable'));
+        }
+      }, BOOT_FAILED_MS - BOOT_TIMEOUT_MS);
     }
+  }, BOOT_TIMEOUT_MS);
+}
+
+function clearBootTimeout() {
+  if (bootTimeoutId) {
+    clearTimeout(bootTimeoutId);
+    bootTimeoutId = null;
+  }
+  if (bootFailedTimeoutId) {
+    clearTimeout(bootFailedTimeoutId);
+    bootFailedTimeoutId = null;
+  }
+}
+
+// === Boot message helpers ===
+function showBootMessage(message) {
+  if (!bootScreenEl) return;
+
+  const textEl = bootScreenEl.querySelector('.boot-message-text');
+  if (textEl) textEl.textContent = message;
+
+  bootScreenEl.classList.add('show-message');
+}
+
+function hideBootMessage() {
+  if (!bootScreenEl) return;
+  bootScreenEl.classList.remove('show-message');
+}
+
+// === Reconnection screen (reuse boot screen) ===
+function showReconnectionScreen() {
+  if (!bootScreenEl) return;
+
+  bootScreenEl.style.display = 'flex';
+  bootScreenEl.classList.remove('fade-out', 'logo-exit');
+  showBootMessage(t('app.connectionUnavailable'));
+}
+
+function hideReconnectionScreen() {
+  if (!bootScreenEl) return;
+
+  hideBootMessage();
+
+  setTimeout(() => {
+    bootScreenEl.classList.add('fade-out');
+    setTimeout(() => {
+      if (bootScreenEl) bootScreenEl.style.display = 'none';
+    }, DOM_REMOVE_DELAY);
+  }, 200);
+}
+
+// Watch isReady → trigger boot screen fade and dock auto-show
+watch(isReady, (ready) => {
+  if (ready && bootScreenEl) {
+    clearBootTimeout();
+    hideBootMessage();
+
+    setTimeout(() => {
+      bootScreenEl.classList.add('logo-exit');
+    }, LOGO_FADE_DELAY);
+
+    setTimeout(() => {
+      bootScreenEl.classList.add('fade-out');
+      isBootComplete.value = true;
+
+      setTimeout(() => {
+        if (bootScreenEl) bootScreenEl.style.display = 'none';
+      }, DOM_REMOVE_DELAY);
+
+      // Auto-show dock after boot complete
+      setTimeout(() => {
+        if (showDockFn) showDockFn();
+      }, DOCK_AUTO_SHOW_DELAY);
+    }, SCREEN_FADE_DELAY);
+  }
+});
+
+// Watch connection lost AFTER boot complete
+watch(isConnected, (connected) => {
+  if (!isBootComplete.value) return;
+
+  if (!connected) {
+    showReconnectionScreen();
+  } else {
+    hideReconnectionScreen();
   }
 });
 
@@ -110,6 +199,12 @@ function closeSettings() {
   settingsInitialView.value = 'home'; // Reset for next open
 }
 
+// Dock control registration (for auto-show on boot)
+let showDockFn = null;
+function registerDockControl(showFn) {
+  showDockFn = showFn;
+}
+
 // Provide for child components
 provide('openMultiroom', () => isMultiroomOpen.value = true);
 provide('openSettings', openSettings);
@@ -117,14 +212,20 @@ provide('closeModals', () => {
   isMultiroomOpen.value = false;
   closeSettings();
 });
+provide('registerDockControl', registerDockControl);
 
 const cleanupFunctions = [];
 
 onMounted(async () => {
+  // Initialize boot screen reference and start timeout
+  bootScreenEl = document.getElementById('boot-screen');
+  startBootTimeout();
+
   // Register WebSocket event listeners FIRST (before any async operations)
   // This prevents race condition where initial_state arrives before listeners are ready
   cleanupFunctions.push(
     on('system', 'initial_state', (event) => {
+      clearBootTimeout();
       unifiedStore.updateState(event);
 
       // Populate podcastStore if active source is podcast
@@ -196,6 +297,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  clearBootTimeout();
   cleanupFunctions.forEach(cleanup => cleanup());
 });
 </script>
@@ -203,33 +305,5 @@ onUnmounted(() => {
 <style>
 .app-container {
   height: 100%;
-}
-
-/* Connection status indicator */
-.connection-status {
-  position: fixed;
-  bottom: 80px;
-  left: 50%;
-  transform: translateX(-50%);
-  background-color: rgba(220, 53, 69, 0.95);
-  color: white;
-  padding: 8px 16px;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 500;
-  z-index: 9999;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-}
-
-/* Slide-up transition */
-.slide-up-enter-active,
-.slide-up-leave-active {
-  transition: all 0.3s ease;
-}
-
-.slide-up-enter-from,
-.slide-up-leave-to {
-  opacity: 0;
-  transform: translateX(-50%) translateY(20px);
 }
 </style>

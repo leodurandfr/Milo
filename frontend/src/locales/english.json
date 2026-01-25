@@ -1,6 +1,7 @@
 {
   "app": {
-    "connectionLost": "Connection lost. Reconnecting..."
+    "connecting": "Attempting to connect...",
+    "connectionUnavailable": "Connection unavailable"
   },
   "settings": {
     "title": "Milō Settings",

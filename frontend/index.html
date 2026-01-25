@@ -11,29 +11,62 @@
   <title>Milō</title>
 
   <!-- Boot screen styles - visible immediately, fades out after WebSocket connects + delay -->
+  <!-- Values aligned with design-system.css (inline because CSS not loaded at boot) -->
   <style>
     #boot-screen {
       position: fixed;
       inset: 0;
       display: flex;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
-      background: #f7f7f7;
+      background: #f7f7f7; /* --color-background */
       z-index: 99999;
       opacity: 1;
-      transition: opacity 0.2s cubic-bezier(0.65, 0, 0.35, 1);
+      transition: opacity 200ms ease; /* --transition-fast */
     }
+
     #boot-screen.fade-out {
       opacity: 0;
       pointer-events: none;
     }
+
     #boot-screen.logo-exit .boot-logo {
       opacity: 0;
     }
+
     .boot-logo {
       height: 48px;
       width: auto;
-      transition: all 0.2s cubic-bezier(0.65, 0, 0.35, 1);
+      transition: opacity 200ms ease;
+    }
+
+    /* Reconnection message - positioned at bottom */
+    .boot-message {
+      position: absolute;
+      bottom: 48px; /* --space-09 */
+      left: 50%;
+      transform: translateX(-50%);
+      opacity: 0;
+      transition: opacity 200ms ease;
+    }
+
+    #boot-screen.show-message .boot-message {
+      opacity: 1;
+    }
+
+    .boot-message-text {
+      /* text-mono style */
+      font-family: 'Space Mono Regular', 'SF Mono', 'Menlo', 'Monaco', monospace;
+      font-size: 16px;
+      line-height: 20px;
+      letter-spacing: -0.02em; /* -2% */
+      color: #767b76; /* --color-text-secondary */
+      background: #f2f2f2; /* --color-background-strong */
+      padding: 8px 16px; /* --space-02 --space-04 */
+      border-radius: 4px; /* --radius-01 */
+      margin: 0;
+      white-space: nowrap;
     }
   </style>
 </head>
@@ -49,6 +82,11 @@
         <path d="M21.542 9.59403L13.482 26H11.4019L3.31595 9.59403V26H0.897949V7.33203H4.77195L12.4679 23.036L20.19 7.33203H23.9599V26H21.542V9.59403Z"/>
       </g>
     </svg>
+
+    <!-- Reconnection message (hidden by default, shown on error/disconnect) -->
+    <div class="boot-message">
+      <p class="boot-message-text"></p>
+    </div>
   </div>
 
   <div id="app"></div>
