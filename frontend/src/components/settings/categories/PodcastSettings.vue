@@ -98,13 +98,19 @@ const localeMap = {
   hindi: 'hi'
 };
 
-// Calculate API reset date (1 month after validation)
+// Calculate next API reset date (monthly cycle from validation date)
 const resetDateText = computed(() => {
   if (!credentialsValidatedAt.value) return null;
 
   const validatedDate = new Date(credentialsValidatedAt.value * 1000);
   const resetDate = new Date(validatedDate);
   resetDate.setMonth(resetDate.getMonth() + 1);
+
+  // If the reset date is in the past, find the next future reset date
+  const now = new Date();
+  while (resetDate <= now) {
+    resetDate.setMonth(resetDate.getMonth() + 1);
+  }
 
   const locale = localeMap[settingsStore.language] || 'en';
   const day = resetDate.getDate();
