@@ -42,7 +42,8 @@ class BluetoothSource(BaseAudioSource):
         self,
         event_bus: EventBus,
         config: Optional[Dict[str, Any]] = None,
-        state_machine=None
+        state_machine=None,
+        systemd_manager=None
     ):
         """
         Initialize Bluetooth source.
@@ -55,13 +56,15 @@ class BluetoothSource(BaseAudioSource):
                 - bluealsa_aplay_service: Playback service (default "milo-bluealsa-aplay.service")
                 - stop_bluetooth_on_exit: Stop services on stop (default True)
                 - auto_agent: Enable auto-pairing agent (default True)
-            state_machine: Optional state machine for backward compatibility
+            state_machine: Optional state machine for state synchronization
+            systemd_manager: Optional SystemdServiceManager (injected via DI)
         """
         super().__init__(
             source_id="bluetooth",
             service_name="milo-bluealsa.service",
             event_bus=event_bus,
-            state_machine=state_machine
+            state_machine=state_machine,
+            systemd_manager=systemd_manager
         )
 
         config = config or {}

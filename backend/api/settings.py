@@ -4,7 +4,6 @@ Settings Routes – Version with app deactivation and process stopping
 """
 from fastapi import APIRouter, HTTPException
 from typing import Any, Callable, Dict, Optional
-from backend.core.settings import SettingsService
 from backend.core.models.audio_state import AudioSource
 from backend.features.podcast.taddy_api import TaddyAPI
 from backend.config.constants import DEFAULT_VOLUME_DB
@@ -32,11 +31,12 @@ def create_settings_router(
     screen_controller,
     systemd_manager,
     routing_service,
-    hardware_service
+    hardware_service,
+    settings_service
 ):
     """Settings router with proper app deactivation"""
     router = APIRouter()
-    settings = SettingsService()
+    settings = settings_service
     
     async def _handle_setting_update(
         payload: Dict[str, Any],

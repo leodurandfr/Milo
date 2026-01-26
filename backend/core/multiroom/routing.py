@@ -88,9 +88,9 @@ class AudioRoutingService:
     and dsp_effects_enabled. This eliminates desynchronization risks.
     """
 
-    def __init__(self, get_plugin_callback: Optional[Callable] = None, settings_service=None):
+    def __init__(self, get_plugin_callback: Optional[Callable] = None, settings_service=None, systemd_manager=None):
         self.logger = logging.getLogger(__name__)
-        self.service_manager = SystemdServiceManager()
+        self.service_manager = systemd_manager
         self.get_plugin = get_plugin_callback
         self.settings_service = settings_service
         self._initial_detection_done = False
