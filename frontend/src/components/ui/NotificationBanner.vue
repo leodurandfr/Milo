@@ -109,4 +109,26 @@ defineEmits(['dismiss']);
   transform: translateX(-50%) translateY(-100%);
   opacity: 0;
 }
+
+
+@media (max-aspect-ratio: 4/3) {
+  .notification-banner {
+    top: 16px;
+    left: 16px;
+    width: calc(100% - 32px);
+    transform: none;
+    max-width: none;
+  }
+
+  .notification-slide-enter-from,
+  .notification-slide-leave-to {
+    transform: translateY(-100%);
+  }
+}
+</style>
+
+<style>
+.ios-app .notification-banner {
+  top: 40px;
+}
 </style>
