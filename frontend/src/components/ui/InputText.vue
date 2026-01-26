@@ -204,11 +204,6 @@ defineExpose({
   box-shadow: none;
 }
 
-.input-container--background-neutral:focus-within,
-.input-container--background-neutral.keyboard-active {
-  box-shadow: none;
-}
-
 input {
   width: 100%;
   flex: 1;
