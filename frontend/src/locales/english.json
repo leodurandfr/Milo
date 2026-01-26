@@ -40,7 +40,8 @@
       "noFavorites": "No favorite radios",
       "stationNoImage": "Station without image",
       "playRadio": "Listen",
-      "stopRadio": "Stop"
+      "stopRadio": "Stop",
+      "loadingMore": "Loading more..."
     }
   },
   "multiroom": {

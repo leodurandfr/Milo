@@ -29,7 +29,7 @@
     <div class="results">
       <Transition name="fade-slide" mode="out-in">
         <!-- Loading state -->
-        <MessageContent v-if="isLoading" key="loading" loading :title="t('audioSources.radioSource.loadingStations')" />
+        <MessageContent v-if="isLoading" key="loading" loading :loading-delay="0" :title="t('audioSources.radioSource.loadingStations')" />
 
         <!-- Error state -->
         <MessageContent
@@ -58,11 +58,18 @@
             variant="card"
             :is-playing="currentStation?.id === station.id && isPlaying"
             :is-loading="bufferingStationId === station.id"
-            :show-controls="true"
-            :show-country="true"
             @click="$emit('play-station', station.id)"
             @play="$emit('play-station', station.id)"
           />
+
+          <!-- Sentinel for infinite scroll -->
+          <div
+            v-if="hasMoreStations"
+            ref="scrollSentinel"
+            class="scroll-sentinel"
+          >
+            <span class="loading-more">{{ t('audioSources.radioSource.loadingMore') }}</span>
+          </div>
         </div>
       </Transition>
     </div>
@@ -70,7 +77,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRadioStore } from '@/stores/radioStore'
 import { useI18n } from '@/services/i18n'
 import StationCard from './StationCard.vue'
@@ -150,6 +157,12 @@ const showMinCharMessage = ref(false)
 // Debounce timer for search input
 const searchDebounceTimer = ref(null)
 
+// Sentinel element ref for IntersectionObserver
+const scrollSentinel = ref(null)
+
+// IntersectionObserver instance
+let observer = null
+
 // Check if any filter (country or genre) is active
 function hasActiveFilters() {
   return radioStore.countryFilter !== '' || radioStore.genreFilter !== ''
@@ -214,9 +227,63 @@ const genreFilter = computed({
   set: (value) => { radioStore.genreFilter = value }
 })
 
-// Search results (already sorted by clickcount from backend)
-const searchResults = computed(() => {
-  return radioStore.displayedStations || []
+// Search results from store
+const searchResults = computed(() => radioStore.displayedStations || [])
+
+// Has more stations to load
+const hasMoreStations = computed(() => radioStore.hasMoreStations)
+
+// Setup IntersectionObserver for infinite scroll
+function setupIntersectionObserver() {
+  if (observer) {
+    observer.disconnect()
+  }
+
+  observer = new IntersectionObserver(
+    (entries) => {
+      const [entry] = entries
+      if (entry.isIntersecting && radioStore.hasMoreStations && !radioStore.loading) {
+        console.log('📻 Sentinel visible, loading more...')
+        radioStore.loadMore()
+      }
+    },
+    {
+      rootMargin: '100px', // Start loading 100px before sentinel is visible
+      threshold: 0
+    }
+  )
+
+  if (scrollSentinel.value) {
+    observer.observe(scrollSentinel.value)
+  }
+}
+
+// Watch for sentinel ref changes (when results appear/disappear)
+watch(scrollSentinel, (newRef) => {
+  if (newRef && observer) {
+    observer.observe(newRef)
+  }
+})
+
+// Watch for hasMoreStations changes to reconnect observer
+watch(hasMoreStations, (hasMore) => {
+  if (hasMore && scrollSentinel.value && observer) {
+    observer.observe(scrollSentinel.value)
+  }
+})
+
+onMounted(() => {
+  setupIntersectionObserver()
+})
+
+onBeforeUnmount(() => {
+  if (observer) {
+    observer.disconnect()
+    observer = null
+  }
+  if (searchDebounceTimer.value) {
+    clearTimeout(searchDebounceTimer.value)
+  }
 })
 </script>
 
@@ -254,6 +321,20 @@ const searchResults = computed(() => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-01);
+}
+
+/* Scroll sentinel for infinite scroll */
+.scroll-sentinel {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: var(--space-04);
+  color: var(--color-text-tertiary);
+}
+
+.loading-more {
+  font-size: var(--text-sm);
 }
 
 /* Mobile */
