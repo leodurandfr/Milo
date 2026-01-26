@@ -285,10 +285,6 @@ onBeforeUnmount(() => {
   box-shadow: none;
 }
 
-.dropdown-trigger--background-neutral.is-open {
-  box-shadow: none;
-}
-
 .dropdown-trigger--background-neutral.has-selection .dropdown-label {
   color: var(--color-text);
 }
