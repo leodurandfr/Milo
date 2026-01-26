@@ -4,7 +4,7 @@
     <div v-press class="input-container" :class="{ 'keyboard-active': isKeyboardActiveForThis }" @click="handleContainerClick">
       <input ref="inputRef" :type="type" :value="modelValue" :placeholder="placeholder" :disabled="disabled"
         :maxlength="maxlength" class="heading-3" @input="handleInput" @focus="handleFocus"
-        @blur="handleBlur" />
+        @blur="handleBlur" @keydown.enter="handleSubmit" />
       <SvgIcon v-if="icon" :name="icon" :size="iconSize" class="input-icon" />
     </div>
   </div>
@@ -47,7 +47,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['update:modelValue', 'focus', 'blur']);
+const emit = defineEmits(['update:modelValue', 'focus', 'blur', 'submit']);
 
 const inputRef = ref(null);
 const keyboard = useVirtualKeyboard();
@@ -119,6 +119,7 @@ function openKeyboard() {
     },
     onSubmit: (newValue) => {
       emit('update:modelValue', newValue);
+      emit('submit', newValue);
       emit('blur');
       isKeyboardActiveForThis.value = false;
     },
@@ -141,6 +142,10 @@ function handleFocus(event) {
 
 function handleBlur(event) {
   emit('blur', event);
+}
+
+function handleSubmit() {
+  emit('submit', props.modelValue);
 }
 
 // Cleanup on unmount - close keyboard if it was opened by this input

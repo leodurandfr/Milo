@@ -32,6 +32,7 @@
       "cannotLoadStations": "Sender können nicht geladen werden",
       "retry": "Wiederholen",
       "noStationsFound": "Keine Sender gefunden",
+      "minCharactersRequired": "Geben Sie mindestens 3 Zeichen ein, um zu suchen",
       "noFavorites": "Keine Lieblings-Radios",
       "stationNoImage": "Sender ohne Bild",
       "playRadio": "Anhören",

@@ -163,13 +163,5 @@ watch([() => props.clientIds, activeClientIds], () => {
 
 /* Mobile adjustments */
 @media (max-aspect-ratio: 4/3) {
-  .level-meters {
-    padding: var(--space-02);
-    gap: var(--space-01);
-  }
-
-  .meters-content {
-    gap: var(--space-02);
-  }
 }
 </style>
