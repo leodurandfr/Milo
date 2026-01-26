@@ -76,7 +76,6 @@ const { t } = useI18n()
 
 // === STATE ===
 const isSearchMode = ref(false)
-const searchDebounceTimer = ref(null)
 const availableCountries = ref([]) // Dynamic list of available countries
 const shouldShowNowPlayingLayout = ref(false) // Controls now-playing visibility, layout and animation
 const stopTimer = ref(null) // Timer for hiding now-playing after stop
@@ -199,14 +198,8 @@ function closeSearch() {
 }
 
 // === SEARCH ===
-function handleSearch() {
-  if (searchDebounceTimer.value) {
-    clearTimeout(searchDebounceTimer.value)
-  }
-
-  searchDebounceTimer.value = setTimeout(async () => {
-    await radioStore.loadStations(false)
-  }, 300)
+async function handleSearch() {
+  await radioStore.loadStations(false)
 }
 
 function retrySearch() {

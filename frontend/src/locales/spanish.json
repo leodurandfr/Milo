@@ -32,6 +32,7 @@
       "cannotLoadStations": "No se pueden cargar las estaciones",
       "retry": "Reintentar",
       "noStationsFound": "No se encontraron estaciones",
+      "minCharactersRequired": "Ingrese al menos 3 caracteres para buscar",
       "noFavorites": "No hay radios favoritas",
       "stationNoImage": "Estación sin imagen",
       "playRadio": "Escuchar",

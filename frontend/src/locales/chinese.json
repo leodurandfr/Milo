@@ -32,6 +32,7 @@
       "cannotLoadStations": "无法加载电台",
       "retry": "重试",
       "noStationsFound": "未找到电台",
+      "minCharactersRequired": "请输入至少3个字符进行搜索",
       "noFavorites": "没有喜爱的广播",
       "stationNoImage": "无图片的电台",
       "playRadio": "收听",

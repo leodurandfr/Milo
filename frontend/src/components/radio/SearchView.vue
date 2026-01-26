@@ -9,6 +9,7 @@
         icon="search"
         :icon-size="24"
         @update:modelValue="onSearchInput"
+        @submit="onSearchSubmit"
       />
       <Dropdown
         v-model="countryFilter"
@@ -41,6 +42,9 @@
           cta-variant="background-strong"
           :cta-click="() => $emit('retry')"
         />
+
+        <!-- Minimum characters message -->
+        <MessageContent v-else-if="showMinCharMessage" key="min-chars" icon="search" :title="t('audioSources.radioSource.minCharactersRequired')" />
 
         <!-- Empty state -->
         <MessageContent v-else-if="searchResults.length === 0" key="empty" icon="radio" :title="t('audioSources.radioSource.noStationsFound')" />
@@ -77,7 +81,7 @@ import MessageContent from '@/components/ui/MessageContent.vue'
 const { t } = useI18n()
 const radioStore = useRadioStore()
 
-const props = defineProps({
+defineProps({
   /**
    * Available country options for filter
    */
@@ -137,16 +141,61 @@ const props = defineProps({
 
 const emit = defineEmits(['search', 'retry', 'play-station'])
 
+// Minimum characters required for text search
+const MIN_SEARCH_CHARS = 3
+
+// State for showing minimum characters message
+const showMinCharMessage = ref(false)
+
 // Debounce timer for search input
 const searchDebounceTimer = ref(null)
+
+// Check if any filter (country or genre) is active
+function hasActiveFilters() {
+  return radioStore.countryFilter !== '' || radioStore.genreFilter !== ''
+}
 
 function onSearchInput() {
   if (searchDebounceTimer.value) {
     clearTimeout(searchDebounceTimer.value)
   }
-  searchDebounceTimer.value = setTimeout(() => {
-    emit('search')
-  }, 400)
+
+  const query = radioStore.searchQuery.trim()
+
+  // Hide message only when returning to top stations (empty field)
+  if (query.length === 0) {
+    showMinCharMessage.value = false
+    searchDebounceTimer.value = setTimeout(() => {
+      emit('search')
+    }, 400)
+  } else if (query.length >= MIN_SEARCH_CHARS) {
+    // For 3+ chars: trigger search
+    searchDebounceTimer.value = setTimeout(() => {
+      showMinCharMessage.value = false
+      emit('search')
+    }, 400)
+  }
+  // For 1-2 chars: do nothing (wait for more input or Enter key)
+}
+
+function onSearchSubmit() {
+  // Clear any pending debounce
+  if (searchDebounceTimer.value) {
+    clearTimeout(searchDebounceTimer.value)
+    searchDebounceTimer.value = null
+  }
+
+  const query = radioStore.searchQuery.trim()
+
+  // If query has 1-2 chars and no filters are active, show message
+  if (query.length > 0 && query.length < MIN_SEARCH_CHARS && !hasActiveFilters()) {
+    showMinCharMessage.value = true
+    return
+  }
+
+  // Valid search: emit immediately
+  showMinCharMessage.value = false
+  emit('search')
 }
 
 // Two-way binding for filters (v-model on store properties)

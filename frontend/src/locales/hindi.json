@@ -32,6 +32,7 @@
       "cannotLoadStations": "स्टेशन लोड करने में असमर्थ",
       "retry": "पुनः प्रयास करें",
       "noStationsFound": "कोई स्टेशन नहीं मिला",
+      "minCharactersRequired": "खोजने के लिए कम से कम 3 अक्षर दर्ज करें",
       "noFavorites": "कोई पसंदीदा रेडियो नहीं",
       "stationNoImage": "बिना छवि के स्टेशन",
       "playRadio": "सुनें",
