@@ -69,7 +69,8 @@ class MacSource(BaseAudioSource):
         self,
         event_bus: EventBus,
         config: Optional[Dict[str, Any]] = None,
-        state_machine=None
+        state_machine=None,
+        systemd_manager=None
     ):
         """
         Initialize Mac source.
@@ -82,13 +83,15 @@ class MacSource(BaseAudioSource):
                 - rtcp_port: RTCP port (default 10003)
                 - audio_output: ALSA device (default "hw:1,0")
                 - network_interface: Interface for mDNS (optional)
-            state_machine: Optional state machine for backward compatibility
+            state_machine: Optional state machine for state synchronization
+            systemd_manager: Optional SystemdServiceManager (injected via DI)
         """
         super().__init__(
             source_id="mac",
             service_name="milo-mac",
             event_bus=event_bus,
-            state_machine=state_machine
+            state_machine=state_machine,
+            systemd_manager=systemd_manager
         )
 
         config = config or {}

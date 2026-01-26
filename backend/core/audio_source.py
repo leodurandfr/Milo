@@ -212,7 +212,8 @@ class BaseAudioSource:
         source_id: str,
         service_name: str,
         event_bus: EventBus,
-        state_machine=None
+        state_machine=None,
+        systemd_manager=None
     ):
         """
         Initialize the audio source.
@@ -221,19 +222,20 @@ class BaseAudioSource:
             source_id: Unique identifier (e.g., "radio", "spotify")
             service_name: Systemd service name (e.g., "milo-radio")
             event_bus: EventBus for state notifications
-            state_machine: Optional state machine for backward compatibility
+            state_machine: Optional state machine for state synchronization
+            systemd_manager: Optional SystemdServiceManager (injected via DI)
         """
         self.source_id = source_id
         self.service_name = service_name
         self.event_bus = event_bus
-        self.state_machine = state_machine  # Backward compatibility
+        self.state_machine = state_machine
 
         self._state = SourceState.READY
         self._metadata: Dict[str, Any] = {}
         self._error: Optional[str] = None
         self._initialized = False
 
-        self._service_manager = SystemdServiceManager()
+        self._service_manager = systemd_manager
         self._logger = logging.getLogger(f"source.{source_id}")
 
     @property
@@ -546,27 +548,27 @@ class BaseAudioSource:
             "error": error
         })
 
-    # === Backward compatibility methods ===
-    # These methods provide compatibility with the old AudioSourcePlugin interface
+    # === Public API methods ===
+    # These methods are called by API routes and the state machine
 
     async def initialize(self) -> bool:
         """
-        Backward compatibility: initialize() is a no-op.
+        Initialize the audio source.
 
-        In the new architecture, initialization happens in __init__.
-        This method exists for compatibility with code that calls plugin.initialize().
+        Called during application startup by main.py for sources that need
+        early initialization (e.g., loading station data for API access).
 
         Returns:
-            True always
+            True on success
         """
         self._initialized = True
         return True
 
     async def get_status(self) -> Dict[str, Any]:
         """
-        Backward compatibility: alias for status().
+        Get current status of the audio source.
 
-        Old code calls plugin.get_status(), new code calls plugin.status().
+        Alias for status() - used by API routes throughout the application.
 
         Returns:
             Status dict from status()
@@ -575,9 +577,9 @@ class BaseAudioSource:
 
     async def handle_command(self, command: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Backward compatibility: alias for command().
+        Handle a command for this audio source.
 
-        Old code calls plugin.handle_command(), new code calls plugin.command().
+        Used by API routes and routing service for playback control.
 
         Args:
             command: Command name
@@ -607,18 +609,6 @@ class BaseAudioSource:
             except Exception:
                 pass
         return False
-
-    async def _emit_state_changed(self, new_state: str) -> None:
-        """Emit state changed event."""
-        old_state = self._state
-        self._state = new_state
-
-        await self.event_bus.emit(Events.SOURCE_STATE_CHANGED, {
-            "source": self.source_id,
-            "old_state": old_state,
-            "new_state": new_state,
-            "metadata": self._metadata
-        })
 
     def set_state(self, state: str, metadata: Optional[Dict[str, Any]] = None) -> None:
         """

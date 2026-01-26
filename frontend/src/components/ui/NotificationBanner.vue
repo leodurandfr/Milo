@@ -113,8 +113,8 @@ defineEmits(['dismiss']);
 
 @media (max-aspect-ratio: 4/3) {
   .notification-banner {
-    top: 16px;
-    left: 16px;
+    top: var(--space-05);
+    left: var(--space-05);
     width: calc(100% - 32px);
     transform: none;
     max-width: none;
@@ -125,9 +125,8 @@ defineEmits(['dismiss']);
     transform: translateY(-100%);
   }
 }
-</style>
 
-<style>
+/* IOS FIX */
 .ios-app .notification-banner {
   top: 40px;
 }

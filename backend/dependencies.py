@@ -115,7 +115,8 @@ def _create_service(name: str) -> Any:
             ws_manager=get_service("websocket_manager")
         ),
         "audio_routing_service": lambda: AudioRoutingService(
-            settings_service=get_service("settings_service")
+            settings_service=get_service("settings_service"),
+            systemd_manager=get_service("systemd_manager")
         ),
         "snapcast_websocket_service": lambda: SnapcastWebSocketService(
             state_machine=get_service("audio_state_machine"),
@@ -173,7 +174,8 @@ def _create_service(name: str) -> Any:
             event_bus=get_service("event_bus"),
             config={"config_path": "/var/lib/milo/go-librespot/config.yml"},
             state_machine=get_service("audio_state_machine"),
-            settings_service=get_service("settings_service")
+            settings_service=get_service("settings_service"),
+            systemd_manager=get_service("systemd_manager")
         ),
         "mac_source": lambda: MacSource(
             event_bus=get_service("event_bus"),
@@ -183,7 +185,8 @@ def _create_service(name: str) -> Any:
                 "rtcp_port": 10003,
                 "audio_output": "hw:1,0"
             },
-            state_machine=get_service("audio_state_machine")
+            state_machine=get_service("audio_state_machine"),
+            systemd_manager=get_service("systemd_manager")
         ),
         "bluetooth_source": lambda: BluetoothSource(
             event_bus=get_service("event_bus"),
@@ -193,13 +196,15 @@ def _create_service(name: str) -> Any:
                 "stop_bluetooth_on_exit": True,
                 "auto_agent": True
             },
-            state_machine=get_service("audio_state_machine")
+            state_machine=get_service("audio_state_machine"),
+            systemd_manager=get_service("systemd_manager")
         ),
         "radio_source": lambda: RadioSource(
             event_bus=get_service("event_bus"),
             config={"ipc_socket": "/run/milo/radio-ipc.sock"},
             state_machine=get_service("audio_state_machine"),
-            settings_service=get_service("settings_service")
+            settings_service=get_service("settings_service"),
+            systemd_manager=get_service("systemd_manager")
         ),
         "podcast_source": lambda: _create_podcast_source(),
     }
@@ -223,7 +228,8 @@ def _create_podcast_source():
             "taddy_api_key": creds["taddy_api_key"]
         },
         state_machine=get_service("audio_state_machine"),
-        settings_service=get_service("settings_service")
+        settings_service=get_service("settings_service"),
+        systemd_manager=get_service("systemd_manager")
     )
 
 

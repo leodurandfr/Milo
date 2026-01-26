@@ -47,7 +47,8 @@ class SpotifySource(BaseAudioSource):
         event_bus: EventBus,
         config: Optional[Dict[str, Any]] = None,
         state_machine=None,
-        settings_service=None
+        settings_service=None,
+        systemd_manager=None
     ):
         """
         Initialize Spotify source.
@@ -58,14 +59,16 @@ class SpotifySource(BaseAudioSource):
                 - config_path: Path to go-librespot config
                 - api_host: API host (default from config)
                 - api_port: API port (default from config)
-            state_machine: Optional state machine for backward compatibility
+            state_machine: Optional state machine for state synchronization
             settings_service: Optional settings service for auto-disconnect config
+            systemd_manager: Optional SystemdServiceManager (injected via DI)
         """
         super().__init__(
             source_id="spotify",
             service_name="milo-spotify.service",
             event_bus=event_bus,
-            state_machine=state_machine
+            state_machine=state_machine,
+            systemd_manager=systemd_manager
         )
 
         config = config or {}

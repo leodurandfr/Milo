@@ -175,7 +175,8 @@ settings_router = create_settings_router(
     screen_controller,
     systemd_manager,
     routing_service,
-    hardware_service
+    hardware_service,
+    settings_service
 )
 app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
 

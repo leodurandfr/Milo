@@ -608,46 +608,6 @@ def create_dsp_router(
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
-    # === Multi-client DSP Support ===
-
-    @router.get("/targets")
-    async def get_dsp_targets():
-        """
-        Get available DSP targets.
-
-        DEPRECATED: Frontend should use /api/multiroom/state for client list.
-        This endpoint is kept for backwards compatibility.
-
-        Returns clients with MAC address as ID (not 'local' string).
-        """
-        try:
-            targets = []
-
-            if client_registry_service:
-                # Use client registry (source of truth)
-                for client in client_registry_service.get_all_clients().values():
-                    targets.append({
-                        "id": client.mac_id,
-                        "name": client.name,
-                        "host": client.host,
-                        "ip": client.ip,
-                        "available": client.online,
-                        "is_local": client.is_local
-                    })
-                # Sort: local first, then by name
-                targets.sort(key=lambda t: (not t.get("is_local", False), t.get("name", "")))
-            else:
-                # Fallback if registry not available
-                local_mac = _get_local_client_mac()
-                if local_mac:
-                    targets = [{"id": local_mac, "name": "Milo", "available": True, "is_local": True}]
-
-            return {"targets": targets}
-
-        except Exception as e:
-            logger.error(f"Error getting DSP targets: {e}")
-            return {"targets": []}
-
     # === Speaker Type / Crossover Management ===
     # Note: Zone CRUD moved to /api/multiroom/zones, speaker-type to /api/multiroom/clients
 

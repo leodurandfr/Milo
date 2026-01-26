@@ -184,16 +184,6 @@ def create_multiroom_router(registry_service, multiroom_dsp_service=None):
             logger.error(f"Error updating client {mac_id}: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    @router.put("/clients/{mac_id}")
-    async def update_client_put(mac_id: str, request: ClientUpdateRequest):
-        """
-        Update client properties (PUT alias for PATCH).
-
-        Provides backward compatibility with PUT method.
-        Behaves identically to PATCH endpoint.
-        """
-        return await update_client(mac_id, request)
-
     @router.delete("/clients/{mac_id}")
     async def delete_client(mac_id: str):
         """

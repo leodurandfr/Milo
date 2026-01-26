@@ -47,7 +47,8 @@ class RadioSource(BaseAudioSource):
         event_bus: EventBus,
         config: Optional[Dict[str, Any]] = None,
         state_machine=None,
-        settings_service=None
+        settings_service=None,
+        systemd_manager=None
     ):
         """
         Initialize Radio source.
@@ -56,14 +57,16 @@ class RadioSource(BaseAudioSource):
             event_bus: EventBus for state notifications
             config: Optional configuration dict with:
                 - mpv_socket: Path to MPV IPC socket
-            state_machine: Optional state machine for backward compatibility
+            state_machine: Optional state machine for state synchronization
             settings_service: Optional settings service
+            systemd_manager: Optional SystemdServiceManager (injected via DI)
         """
         super().__init__(
             source_id="radio",
             service_name="milo-radio.service",
             event_bus=event_bus,
-            state_machine=state_machine
+            state_machine=state_machine,
+            systemd_manager=systemd_manager
         )
 
         config = config or {}
