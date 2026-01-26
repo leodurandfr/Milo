@@ -67,7 +67,7 @@ const BOOT_FAILED_MS = 12000;        // Show "unavailable" after 12s total
 const LOGO_FADE_DELAY = 700;
 const SCREEN_FADE_DELAY = 800;
 const DOM_REMOVE_DELAY = 400;
-const DOCK_AUTO_SHOW_DELAY = 500; // Show dock after
+const DOCK_AUTO_SHOW_DELAY = 1000; // Show dock after
 
 const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
