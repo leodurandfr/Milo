@@ -85,6 +85,11 @@ useScreenActivity();
 const isReady = ref(false);
 const isBootComplete = ref(false);
 const currentError = ref(null);
+const showConnectionLost = ref(false);
+let connectionLostTimeout = null;
+
+// iOS delay constant for connection lost notification
+const IOS_CONNECTION_LOST_DELAY_MS = 1200;
 
 // === Boot screen reference ===
 let bootScreenEl = null;
@@ -137,9 +142,36 @@ function hideBootMessage() {
 // === Notification banner (connection issues and errors after boot) ===
 const capitalize = (s) => s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
 
+// Watch connection state with iOS-specific delay to avoid flash on quick reconnects
+watch(isConnected, (connected) => {
+  if (!isBootComplete.value) return;
+
+  if (connectionLostTimeout) {
+    clearTimeout(connectionLostTimeout);
+    connectionLostTimeout = null;
+  }
+
+  if (!connected) {
+    const isIosApp = document.body.classList.contains('ios-app');
+    if (isIosApp) {
+      // iOS app: delay to avoid flash during quick background/foreground transitions
+      connectionLostTimeout = setTimeout(() => {
+        if (!isConnected.value) {
+          showConnectionLost.value = true;
+        }
+      }, IOS_CONNECTION_LOST_DELAY_MS);
+    } else {
+      // Desktop browser: show immediately
+      showConnectionLost.value = true;
+    }
+  } else {
+    showConnectionLost.value = false;
+  }
+});
+
 const notificationTitle = computed(() => {
   // Priority 1: Connection lost (highest priority)
-  if (!isConnected.value && isBootComplete.value) {
+  if (showConnectionLost.value) {
     return t('notification.connectionLostTitle');
   }
   // Priority 2: System/plugin errors
@@ -148,7 +180,7 @@ const notificationTitle = computed(() => {
 
 const notificationDetail = computed(() => {
   // Priority 1: Connection lost description
-  if (!isConnected.value && isBootComplete.value) {
+  if (showConnectionLost.value) {
     return t('notification.connectionLostDescription');
   }
   // Priority 2: System/plugin error detail
@@ -158,7 +190,7 @@ const notificationDetail = computed(() => {
 // Connection lost is not dismissable (auto-clears on reconnect)
 // System/plugin errors are dismissable
 const isNotificationDismissable = computed(() => {
-  return isConnected.value && currentError.value !== null;
+  return !showConnectionLost.value && currentError.value !== null;
 });
 
 function dismissNotification() {
@@ -329,6 +361,10 @@ onMounted(async () => {
 
 onUnmounted(() => {
   clearBootTimeout();
+  if (connectionLostTimeout) {
+    clearTimeout(connectionLostTimeout);
+    connectionLostTimeout = null;
+  }
   cleanupFunctions.forEach(cleanup => cleanup());
 });
 </script>
