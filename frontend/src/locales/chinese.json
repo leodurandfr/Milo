@@ -414,7 +414,7 @@
       "add": "添加",
       "adding": "正在添加...",
       "confirmRestore": "确认恢复",
-      "confirmDelete": "确认删除",
+      "confirmDelete": "确认",
       "loading": "正在加载...",
       "invalidImageFormat": "不支持的图片格式。请使用JPG、PNG、WEBP或GIF。",
       "imageTooLarge": "图片太大。最大5MB。",
