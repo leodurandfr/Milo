@@ -267,14 +267,13 @@ const onVolumeHoldStart = (delta, event) => {
   gestureStartPosition.value = { x: getEventX(event), y: getEventY(event) };
   gestureHasMoved.value = false;
   currentVolumeDelta.value = delta;
+  volumeActionTaken.value = false;
 
-  // Execute volume action IMMEDIATELY
-  unifiedStore.adjustVolume(delta);
-  volumeActionTaken.value = true;
-
-  // Start repeat timer after 400ms hold
+  // Start hold-to-repeat after 400ms (executes first action + starts repeat)
   volumeStartTimer.value = setTimeout(() => {
     if (!gestureHasMoved.value && volumePointerType.value === event.pointerType) {
+      unifiedStore.adjustVolume(delta);
+      volumeActionTaken.value = true;
       isVolumeHolding.value = true;
 
       volumeRepeatTimer.value = setInterval(() => {
@@ -295,7 +294,11 @@ const onVolumeHoldEnd = (event) => {
     return;
   }
 
-  // Action already executed on pointerdown, just cleanup
+  // Execute action on release if it was a tap (no movement, no hold action taken)
+  if (!gestureHasMoved.value && !volumeActionTaken.value && currentVolumeDelta.value !== 0) {
+    unifiedStore.adjustVolume(currentVolumeDelta.value);
+  }
+
   isVolumeHolding.value = false;
   volumePointerType.value = null;
 
@@ -305,7 +308,6 @@ const onVolumeHoldEnd = (event) => {
   }
 
   if (volumeRepeatTimer.value) {
-    clearTimeout(volumeRepeatTimer.value);
     clearInterval(volumeRepeatTimer.value);
     volumeRepeatTimer.value = null;
   }
@@ -356,7 +358,10 @@ const onDragStart = (e) => {
     dragGraceTimeout = null;
   }
 
-  resetGestureState();
+  // Only reset gesture state if not tracking a volume gesture
+  if (!volumePointerType.value) {
+    resetGestureState();
+  }
 };
 
 const onDragMove = (e) => {
