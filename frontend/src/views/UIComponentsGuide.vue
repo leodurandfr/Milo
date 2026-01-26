@@ -166,9 +166,16 @@
       <!-- InputText -->
       <div class="component-block">
         <h3 class="heading-2">InputText</h3>
-        <p class="text-mono text-secondary">Types: text, password, email, number | Props: icon, maxlength</p>
+        <p class="text-mono text-secondary">Variants: outline, background-neutral | Types: text, password, email, number | Props: icon, maxlength</p>
 
         <div class="controls-panel">
+          <label class="control-item">
+            <span class="text-mono">variant</span>
+            <select v-model="inputState.variant">
+              <option value="outline">outline</option>
+              <option value="background-neutral">background-neutral</option>
+            </select>
+          </label>
           <label class="control-item">
             <span class="text-mono">type</span>
             <select v-model="inputState.type">
@@ -192,6 +199,7 @@
           <div class="preview-wrapper input-width">
             <InputText
               v-model="inputState.value"
+              :variant="inputState.variant"
               :type="inputState.type"
               :disabled="inputState.disabled"
               :icon="inputState.hasIcon ? 'search' : ''"
@@ -204,14 +212,15 @@
       <!-- Dropdown -->
       <div class="component-block">
         <h3 class="heading-2">Dropdown</h3>
-        <p class="text-mono text-secondary">Variants: default, minimal</p>
+        <p class="text-mono text-secondary">Variants: outline, minimal, background-neutral</p>
 
         <div class="controls-panel">
           <label class="control-item">
             <span class="text-mono">variant</span>
             <select v-model="dropdownState.variant">
-              <option value="default">default</option>
+              <option value="outline">outline</option>
               <option value="minimal">minimal</option>
+              <option value="background-neutral">background-neutral</option>
             </select>
           </label>
           <label class="control-item">
@@ -766,6 +775,7 @@ const iconButtonState = ref({
 // InputText state
 const inputState = ref({
   value: '',
+  variant: 'outline',
   type: 'text',
   disabled: false,
   hasIcon: false
@@ -774,7 +784,7 @@ const inputState = ref({
 // Dropdown state
 const dropdownState = ref({
   value: '',
-  variant: 'default',
+  variant: 'outline',
   disabled: false
 })
 

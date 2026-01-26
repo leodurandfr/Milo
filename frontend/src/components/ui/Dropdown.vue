@@ -6,7 +6,7 @@
       :disabled="disabled"
       @click="toggleDropdown">
       <span class="dropdown-label" :class="variant === 'minimal' ? 'text-mono' : 'heading-3'">{{ selectedLabel }}</span>
-      <SvgIcon v-if="variant === 'default'" name="caretDown" :size="24" class="dropdown-icon" />
+      <SvgIcon v-if="variant !== 'minimal'" name="caretDown" :size="24" class="dropdown-icon" />
     </button>
 
     <Teleport to="body">
@@ -48,8 +48,8 @@ const props = defineProps({
   },
   variant: {
     type: String,
-    default: 'default',
-    validator: (value) => ['default', 'minimal'].includes(value)
+    default: 'outline',
+    validator: (value) => ['outline', 'minimal', 'background-neutral'].includes(value)
   }
 });
 
@@ -276,7 +276,22 @@ onBeforeUnmount(() => {
   transition: color var(--transition-fast);
 }
 
+.dropdown-trigger--outline.has-selection .dropdown-label {
+  color: var(--color-text);
+}
 
+/* Background-neutral variant */
+.dropdown-trigger--background-neutral {
+  box-shadow: none;
+}
+
+.dropdown-trigger--background-neutral.is-open {
+  box-shadow: none;
+}
+
+.dropdown-trigger--background-neutral.has-selection .dropdown-label {
+  color: var(--color-text);
+}
 
 .dropdown-icon {
   flex-shrink: 0;

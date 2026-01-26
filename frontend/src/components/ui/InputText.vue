@@ -1,7 +1,7 @@
 <!-- frontend/src/components/ui/InputText.vue -->
 <template>
   <div class="input-wrapper">
-    <div v-press class="input-container" :class="{ 'keyboard-active': isKeyboardActiveForThis }" @click="handleContainerClick">
+    <div v-press class="input-container" :class="[`input-container--${variant}`, { 'keyboard-active': isKeyboardActiveForThis }]" @click="handleContainerClick">
       <input ref="inputRef" :type="type" :value="modelValue" :placeholder="placeholder" :disabled="disabled"
         :maxlength="maxlength" class="heading-3" @input="handleInput" @focus="handleFocus"
         @blur="handleBlur" @keydown.enter="handleSubmit" />
@@ -44,6 +44,11 @@ const props = defineProps({
   iconSize: {
     type: Number,
     default: 24
+  },
+  variant: {
+    type: String,
+    default: 'outline',
+    validator: (value) => ['outline', 'background-neutral'].includes(value)
   }
 });
 
@@ -192,6 +197,16 @@ defineExpose({
   -webkit-box-shadow: inset 0px 0px 0px 2px var(--color-brand);
   -moz-box-shadow: inset 0px 0px 0px 2px var(--color-brand);
   box-shadow: inset 0px 0px 0px 2px var(--color-brand);
+}
+
+/* Background-neutral variant */
+.input-container--background-neutral {
+  box-shadow: none;
+}
+
+.input-container--background-neutral:focus-within,
+.input-container--background-neutral.keyboard-active {
+  box-shadow: none;
 }
 
 input {

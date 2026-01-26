@@ -2,11 +2,11 @@
   <div class="search-view">
     <!-- Filters -->
     <div class="filters-bar">
-      <InputText v-model="searchTerm" :placeholder="t('podcasts.searchPlaceholder')" icon="search"
+      <InputText v-model="searchTerm" :placeholder="t('podcasts.searchPlaceholder')" variant="background-neutral" icon="search"
         @update:modelValue="onSearchInput" />
-      <Dropdown v-model="searchFilters.language" :options="languageOptions" />
-      <Dropdown v-model="searchFilters.genre" :options="genreOptions" />
-      <Dropdown v-model="searchFilters.duration" :options="durationOptions" />
+      <Dropdown v-model="searchFilters.language" :options="languageOptions" variant="background-neutral" />
+      <Dropdown v-model="searchFilters.genre" :options="genreOptions" variant="background-neutral" />
+      <Dropdown v-model="searchFilters.duration" :options="durationOptions" variant="background-neutral" />
     </div>
 
     <!-- Results with transitions -->
