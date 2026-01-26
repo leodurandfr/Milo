@@ -425,7 +425,7 @@
       "add": "Ajouter",
       "adding": "Ajout en cours...",
       "confirmRestore": "Confirmer la restauration",
-      "confirmDelete": "Confirmer la suppression",
+      "confirmDelete": "Confirmer",
       "loading": "Chargement...",
       "invalidImageFormat": "Format d'image non supporté. Utilisez JPG, PNG, WEBP ou GIF.",
       "imageTooLarge": "Image trop volumineuse. Maximum 5MB.",

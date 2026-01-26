@@ -426,7 +426,7 @@
       "add": "Add",
       "adding": "Adding...",
       "confirmRestore": "Confirm restore",
-      "confirmDelete": "Confirm delete",
+      "confirmDelete": "Confirm",
       "loading": "Loading...",
       "invalidImageFormat": "Unsupported image format. Use JPG, PNG, WEBP or GIF.",
       "imageTooLarge": "Image too large. Maximum 5MB.",
