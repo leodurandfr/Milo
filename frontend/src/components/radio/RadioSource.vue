@@ -4,7 +4,7 @@
     :header-title="isSearchMode ? t('audioSources.radioSource.discoverTitle') : t('audioSources.radioSource.favoritesTitle')"
     :header-show-back="isSearchMode" :header-actions-key="isSearchMode ? 'search' : 'favorites'"
     :content-key="isSearchMode ? 'search' : 'favorites'" header-variant="background-neutral" header-icon="radio"
-    :player-mobile-height="144" @header-back="closeSearch">
+    :player-mobile-height="144" gradient="radio" @header-back="closeSearch">
     <!-- Header actions -->
     <template v-if="!isSearchMode" #header-actions="{ iconVariant }">
       <IconButton icon="search" :variant="iconVariant" @click="openSearch" />

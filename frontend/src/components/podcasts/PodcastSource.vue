@@ -9,6 +9,7 @@
     :header-actions-key="currentView"
     :content-key="hasCredentialsError ? 'credentials' : currentView"
     :player-mobile-height="184"
+    gradient="podcast"
     @header-back="goBack"
   >
     <!-- Header actions (only when not in credentials error and on home view) -->

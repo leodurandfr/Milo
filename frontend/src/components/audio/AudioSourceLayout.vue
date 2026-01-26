@@ -1,5 +1,12 @@
 <template>
   <div class="audio-source-layout" ref="layoutRef">
+    <!-- Background gradient (Radio/Podcast only) -->
+    <div
+      v-if="gradient"
+      class="background-gradient"
+      :class="`gradient-${gradient}`"
+    />
+
     <!-- Content area: scrollable views -->
     <div
       class="content-container"
@@ -57,6 +64,14 @@ const props = defineProps({
   showPlayer: {
     type: Boolean,
     default: false
+  },
+  /**
+   * Background gradient variant ('radio' or 'podcast')
+   */
+  gradient: {
+    type: String,
+    default: null,
+    validator: (value) => [null, 'radio', 'podcast'].includes(value)
   },
   /**
    * Header title
@@ -175,6 +190,7 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
 /* Layout wrapper */
 .audio-source-layout {
   --audio-player-wrapper-width: 310px;
+  position: relative;
   display: flex;
   justify-content: center;
   align-items: flex-start;
@@ -185,9 +201,29 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   overflow-y: auto;
 }
 
+/* Background gradient (Radio/Podcast) */
+.background-gradient {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 66%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.gradient-radio {
+  background: linear-gradient(180deg, #F6EDCD 0%, rgba(246, 237, 205, 0) 100%);
+}
+
+.gradient-podcast {
+  background: linear-gradient(180deg, rgba(66, 24, 112, 0.08) 0%, rgba(126, 46, 214, 0) 100%);
+}
+
 /* Content container: animates width to make space for player */
 .content-container {
   position: relative;
+  z-index: 1;
   width: 84%;
   height: auto;
   min-height: 100%;
@@ -222,6 +258,7 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
 /* Player wrapper: animates width to create space for player */
 .player-wrapper {
   box-sizing: border-box;
+  z-index: 1;
   width: 0;
   height: 100%;
   max-width: var(--audio-player-wrapper-width);
