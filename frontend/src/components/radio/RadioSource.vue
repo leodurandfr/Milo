@@ -12,7 +12,7 @@
 
     <!-- Content slot: scrollable views -->
     <template #content>
-      <div ref="radioContainer" class="radio-content">
+      <div class="radio-content">
         <!-- Favorites View -->
         <FavoritesView v-if="!isSearchMode" key="favorites" :is-loading="radioStore.loading"
           :current-station="radioStore.currentStation" :is-playing="isCurrentlyPlaying"
@@ -79,9 +79,6 @@ const isSearchMode = ref(false)
 const availableCountries = ref([]) // Dynamic list of available countries
 const shouldShowNowPlayingLayout = ref(false) // Controls now-playing visibility, layout and animation
 const stopTimer = ref(null) // Timer for hiding now-playing after stop
-
-// Reference for animations and scroll
-const radioContainer = ref(null)
 
 // === COMPUTED ===
 
@@ -203,20 +200,7 @@ async function handleSearch() {
 }
 
 function retrySearch() {
-  radioStore.loadStations(false, true)
-}
-
-// === INFINITE SCROLL ===
-function handleScroll() {
-  if (!radioContainer.value || !isSearchMode.value) return
-
-  const { scrollTop, scrollHeight, clientHeight } = radioContainer.value
-  const scrollPercentage = (scrollTop + clientHeight) / scrollHeight
-
-  if (scrollPercentage > 0.8 && radioStore.hasMoreStations && !radioStore.loading) {
-    console.log('📻 Scroll threshold reached, loading more...')
-    radioStore.loadMore()
-  }
+  radioStore.loadStations(false)
 }
 
 // === PLAYBACK CONTROLS ===
@@ -330,11 +314,6 @@ onMounted(async () => {
     console.log('📻 Syncing currentStation from existing state on mount')
     radioStore.updateFromWebSocket(unifiedStore.systemState.metadata)
   }
-
-  // Add scroll listener for infinite scroll
-  if (radioContainer.value) {
-    radioContainer.value.addEventListener('scroll', handleScroll, { passive: true })
-  }
 })
 
 onBeforeUnmount(() => {
@@ -346,10 +325,6 @@ onBeforeUnmount(() => {
 
   // Clear current station
   radioStore.clearCurrentStation()
-
-  if (radioContainer.value) {
-    radioContainer.value.removeEventListener('scroll', handleScroll)
-  }
 })
 </script>
 

@@ -2,7 +2,7 @@
   <div class="favorites-view">
     <Transition name="fade-slide" mode="out-in">
       <!-- Loading state: shown when loading OR favorites not yet initialized -->
-      <MessageContent v-if="isLoading || !radioStore.favoritesInitialized" key="loading" loading :title="t('audioSources.radioSource.loadingStations')" />
+      <MessageContent v-if="isLoading || !radioStore.favoritesInitialized" key="loading" loading :loading-delay="0" :title="t('audioSources.radioSource.loadingStations')" />
 
       <!-- Empty state: only after initialization confirms no favorites -->
       <MessageContent v-else-if="favoriteStations.length === 0" key="empty" icon="radio" :title="t('audioSources.radioSource.noFavorites')" />
@@ -69,15 +69,8 @@ const props = defineProps({
 
 defineEmits(['play-station'])
 
-// Favorite stations sorted alphabetically
-const favoriteStations = computed(() => {
-  const stations = radioStore.favoriteStations || []
-  return [...stations].sort((a, b) => {
-    const nameA = (a.name || '').toLowerCase()
-    const nameB = (b.name || '').toLowerCase()
-    return nameA.localeCompare(nameB)
-  })
-})
+// Favorite stations (already sorted by store)
+const favoriteStations = computed(() => radioStore.favoriteStations || [])
 </script>
 
 <style scoped>

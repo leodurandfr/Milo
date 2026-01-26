@@ -176,7 +176,7 @@ async def search_stations(
     query: str = Query("", description="Search term"),
     country: str = Query("", description="Country filter"),
     genre: str = Query("", description="Genre filter"),
-    limit: int = Query(10000, ge=1, le=10000, description="Max results"),
+    limit: int = Query(300, ge=1, le=1000, description="Max results"),
     favorites_only: bool = Query(False, description="Favorites only"),
     source: RadioSource = Depends(get_source)
 ) -> Dict[str, Any]:

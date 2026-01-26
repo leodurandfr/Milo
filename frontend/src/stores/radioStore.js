@@ -4,12 +4,19 @@ import { ref, computed } from 'vue';
 import axios from 'axios';
 
 export const useRadioStore = defineStore('radio', () => {
-  // === STATE (NORMALIZED) ===
-  // Single source of truth: Map of all stations by ID
-  const stations = ref(new Map());
+  // === STATE ===
 
-  // Favorite stations Map (dedicated storage, never evicted)
-  const favoriteStationsMap = ref(new Map());
+  // Search results (simple array from API)
+  const searchResults = ref([]);
+
+  // How many stations to display (progressive rendering)
+  const displayedCount = ref(40);
+
+  // Total available from last search
+  const totalResults = ref(0);
+
+  // Favorite stations (dedicated storage, loaded from backend)
+  const favoriteStations = ref([]);
 
   // Currently playing station ID
   const currentStationId = ref(null);
@@ -24,182 +31,104 @@ export const useRadioStore = defineStore('radio', () => {
   const countryFilter = ref('');
   const genreFilter = ref('');
 
-  // Search result IDs (ordered by API response)
-  const searchResultIds = ref([]);
-  const currentTotal = ref(0);
-
-  // Visible station IDs (for progressive rendering)
-  const visibleStationIds = ref([]);
-
-  // Top stations cache (for instant display when no filters are applied)
+  // Top stations cache (3 minutes, memory only)
   const topStationsCache = ref(null);
   const topStationsCacheTimestamp = ref(null);
-  const CACHE_DURATION_MS = 10 * 60 * 1000; // 10 minutes
-  const BACKGROUND_REFRESH_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
-  const MAX_CACHED_STATIONS = 500; // Maximum stations in memory to prevent unbounded growth
-  const LOCALSTORAGE_KEY = 'milo_radio_top_stations';
-  const LOCALSTORAGE_TIMESTAMP_KEY = 'milo_radio_top_stations_timestamp';
-
-  // === LOCALSTORAGE HELPERS ===
-
-  /**
-   * Load top stations from localStorage
-   * Returns { stations, timestamp } or null if not found/invalid
-   */
-  function loadFromLocalStorage() {
-    try {
-      const stationsJson = localStorage.getItem(LOCALSTORAGE_KEY);
-      const timestampStr = localStorage.getItem(LOCALSTORAGE_TIMESTAMP_KEY);
-
-      if (!stationsJson || !timestampStr) {
-        return null;
-      }
-
-      const stations = JSON.parse(stationsJson);
-      const timestamp = parseInt(timestampStr, 10);
-
-      if (!Array.isArray(stations) || isNaN(timestamp)) {
-        return null;
-      }
-
-      return { stations, timestamp };
-    } catch (error) {
-      console.warn('⚠️ Failed to load from localStorage:', error.message);
-      return null;
-    }
-  }
-
-  /**
-   * Save top stations to localStorage
-   */
-  function saveToLocalStorage(stations, timestamp) {
-    try {
-      localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(stations));
-      localStorage.setItem(LOCALSTORAGE_TIMESTAMP_KEY, timestamp.toString());
-    } catch (error) {
-      // Quota exceeded or localStorage unavailable
-      console.warn('⚠️ Failed to save to localStorage:', error.message);
-    }
-  }
+  const CACHE_DURATION_MS = 3 * 60 * 1000; // 3 minutes
 
   // AbortController to cancel ongoing requests
   let currentAbortController = null;
 
-  // === HELPER FUNCTIONS ===
-
-  /**
-   * Add or update station in the map (with cache size limit)
-   */
-  function upsertStation(station) {
-    const enrichedStation = {
-      ...station,
-      is_favorite: favoriteStationsMap.value.has(station.id)
-    };
-
-    // Enforce cache limit: remove oldest non-current entries if needed
-    // (favorites are stored separately, so we can evict freely here)
-    if (!stations.value.has(station.id) && stations.value.size >= MAX_CACHED_STATIONS) {
-      // Find and remove oldest non-current station
-      for (const [id] of stations.value) {
-        if (id !== currentStationId.value) {
-          stations.value.delete(id);
-          break;
-        }
-      }
-    }
-
-    stations.value.set(station.id, enrichedStation);
-  }
-
-  /**
-   * Add multiple stations to the map
-   */
-  function upsertStations(stationList) {
-    stationList.forEach(station => upsertStation(station));
-  }
-
-  /**
-   * Get station by ID with is_favorite enrichment
-   */
-  function getStation(stationId) {
-    let station = stations.value.get(stationId);
-    // Fallback to favorites map if not in search cache
-    if (!station) {
-      station = favoriteStationsMap.value.get(stationId);
-    }
-    if (!station) return null;
-    return {
-      ...station,
-      is_favorite: favoriteStationsMap.value.has(stationId)
-    };
-  }
-
   // === COMPUTED PROPERTIES ===
 
-  // Currently playing station
+  // Currently playing station (lookup in search results or favorites)
   const currentStation = computed(() => {
     if (!currentStationId.value) return null;
-    return getStation(currentStationId.value);
+
+    // Try search results first
+    let station = searchResults.value.find(s => s.id === currentStationId.value);
+
+    // Fallback to favorites
+    if (!station) {
+      station = favoriteStations.value.find(s => s.id === currentStationId.value);
+    }
+
+    if (!station) return null;
+
+    return {
+      ...station,
+      is_favorite: isFavorite(station.id)
+    };
   });
 
-  // All search result stations
-  const currentStations = computed(() => {
-    return searchResultIds.value
-      .map(id => getStation(id))
-      .filter(Boolean);
-  });
-
-  // Total available stations
-  const totalStations = computed(() => currentTotal.value);
-
-  // Displayed stations (progressively accumulated)
+  // Displayed stations (slice of search results for progressive rendering)
   const displayedStations = computed(() => {
-    return visibleStationIds.value
-      .map(id => getStation(id))
-      .filter(Boolean);
+    return searchResults.value
+      .slice(0, displayedCount.value)
+      .map(station => ({
+        ...station,
+        is_favorite: isFavorite(station.id)
+      }));
   });
 
   // Are there more stations to show?
   const hasMoreStations = computed(() => {
-    return visibleStationIds.value.length < searchResultIds.value.length;
+    return displayedCount.value < searchResults.value.length;
   });
 
   // Remaining stations count
   const remainingStations = computed(() => {
-    return Math.max(0, searchResultIds.value.length - visibleStationIds.value.length);
+    return Math.max(0, searchResults.value.length - displayedCount.value);
   });
 
-  // Sorted favorite stations (read directly from dedicated favorites Map)
+  // Total stations from last search
+  const totalStations = computed(() => totalResults.value);
+
+  // Sorted favorite stations
   const sortedFavorites = computed(() => {
-    return Array.from(favoriteStationsMap.value.values())
+    return [...favoriteStations.value]
       .map(station => ({ ...station, is_favorite: true }))
       .sort((a, b) => a.name.localeCompare(b.name));
   });
+
+  // === HELPER FUNCTIONS ===
+
+  /**
+   * Check if a station is in favorites
+   */
+  function isFavorite(stationId) {
+    return favoriteStations.value.some(s => s.id === stationId);
+  }
+
+  /**
+   * Check if top stations cache is valid
+   */
+  function isTopStationsCacheValid() {
+    if (!topStationsCache.value || !topStationsCacheTimestamp.value) {
+      return false;
+    }
+    const cacheAge = Date.now() - topStationsCacheTimestamp.value;
+    return cacheAge < CACHE_DURATION_MS;
+  }
 
   // === ACTIONS ===
 
   /**
    * Load stations according to active filters
-   * Uses cache when available (top stations only)
    */
   async function loadStations(favoritesOnly = false) {
-    // IMPORTANT: Set loading state immediately to prevent flash of "no stations" message
     loading.value = true;
     hasError.value = false;
 
     if (favoritesOnly) {
-      // Load favorites into dedicated favorites Map
+      // Load favorites from backend
       try {
         const response = await axios.get('/api/radio/stations', {
-          params: { limit: 10000, favorites_only: true }
+          params: { favorites_only: true }
         });
 
-        // Populate dedicated favorites Map (never evicted)
-        favoriteStationsMap.value = new Map(
-          response.data.stations.map(s => [s.id, s])
-        );
-
-        console.log(`✅ Loaded ${response.data.stations.length} favorites`);
+        favoriteStations.value = response.data.stations;
+        console.log(`✅ Loaded ${favoriteStations.value.length} favorites`);
         favoritesInitialized.value = true;
         return true;
       } catch (error) {
@@ -211,121 +140,59 @@ export const useRadioStore = defineStore('radio', () => {
       }
     }
 
-    // Check if this is a top stations request (no filters applied)
+    // Check if this is a top stations request (no filters)
     const isTopStationsRequest = !searchQuery.value && !countryFilter.value && !genreFilter.value;
 
-    // If requesting top stations, check cache first
-    if (isTopStationsRequest) {
-      // Try memory cache first
-      if (topStationsCache.value && topStationsCacheTimestamp.value) {
-        const cacheAge = Date.now() - topStationsCacheTimestamp.value;
+    // Use cache for top stations if valid
+    if (isTopStationsRequest && isTopStationsCacheValid()) {
+      const cacheAge = Math.round((Date.now() - topStationsCacheTimestamp.value) / 1000);
+      console.log(`✅ Using cached top stations (age: ${cacheAge}s)`);
 
-        if (cacheAge < CACHE_DURATION_MS) {
-          // Cache is valid, use it immediately
-          console.log(`✅ Using cached top stations (age: ${Math.round(cacheAge / 1000)}s)`);
-
-          // Update normalized store
-          upsertStations(topStationsCache.value);
-          searchResultIds.value = topStationsCache.value.map(s => s.id);
-          currentTotal.value = topStationsCache.value.length;
-          visibleStationIds.value = searchResultIds.value.slice(0, 40);
-
-          // If cache is getting old (> 5 min), refresh in background
-          if (cacheAge > BACKGROUND_REFRESH_THRESHOLD_MS) {
-            console.log('🔄 Cache is aging, triggering background refresh');
-            refreshTopStationsInBackground();
-          }
-
-          loading.value = false;
-          return true;
-        }
-
-        // Cache expired, proceed with normal API call
-        console.log(`⏰ Cache expired (age: ${Math.round(cacheAge / 1000)}s), fetching fresh data`);
-      } else {
-        // Memory cache empty, try localStorage as fallback
-        const localStorageData = loadFromLocalStorage();
-
-        if (localStorageData) {
-          const { stations: cachedStations, timestamp } = localStorageData;
-          const cacheAge = Date.now() - timestamp;
-
-          console.log(`📦 Using localStorage fallback (age: ${Math.round(cacheAge / 1000)}s, ${cachedStations.length} stations)`);
-
-          // Update normalized store
-          upsertStations(cachedStations);
-          searchResultIds.value = cachedStations.map(s => s.id);
-          currentTotal.value = cachedStations.length;
-          visibleStationIds.value = searchResultIds.value.slice(0, 40);
-
-          // Also populate memory cache
-          topStationsCache.value = cachedStations;
-          topStationsCacheTimestamp.value = timestamp;
-
-          // Always refresh in background when using localStorage
-          // (since it could be old data from previous session)
-          console.log('🔄 Triggering background refresh to get latest data');
-          refreshTopStationsInBackground();
-
-          loading.value = false;
-          return true;
-        }
-
-        console.log('📭 No cache available, fetching from API');
-      }
+      searchResults.value = topStationsCache.value;
+      totalResults.value = topStationsCache.value.length;
+      displayedCount.value = 40;
+      loading.value = false;
+      return true;
     }
 
-    // Cancel previous request if it exists
+    // Cancel previous request if exists
     if (currentAbortController) {
       console.log('🚫 Cancelling previous search request');
       currentAbortController.abort();
     }
 
-    // Create a new AbortController for this request
     currentAbortController = new AbortController();
     const signal = currentAbortController.signal;
 
-    // Load from API (loading already set to true at function start)
-
-    // IMPORTANT: Clear old data BEFORE API call to prevent showing stale data during loading
-    visibleStationIds.value = [];
-    searchResultIds.value = [];
-    currentTotal.value = 0;
+    // Clear old data before API call
+    searchResults.value = [];
+    totalResults.value = 0;
+    displayedCount.value = 40;
 
     try {
-      const params = {
-        limit: 10000,
-        favorites_only: false
-      };
+      const params = { favorites_only: false };
 
       if (searchQuery.value) params.query = searchQuery.value;
       if (countryFilter.value) params.country = countryFilter.value;
       if (genreFilter.value) params.genre = genreFilter.value;
 
-      console.log(`📻 Fetching stations from API`);
+      console.log('📻 Fetching stations from API');
       const response = await axios.get('/api/radio/stations', { params, signal });
 
-      // Update normalized store
-      upsertStations(response.data.stations);
-      searchResultIds.value = response.data.stations.map(s => s.id);
-      currentTotal.value = response.data.total;
+      searchResults.value = response.data.stations;
+      totalResults.value = response.data.total;
+      displayedCount.value = 40;
 
-      // Initialize visible stations with the first 40
-      visibleStationIds.value = searchResultIds.value.slice(0, 40);
-
-      // If this was a top stations request, cache the results
+      // Cache top stations
       if (isTopStationsRequest) {
-        const now = Date.now();
         topStationsCache.value = response.data.stations;
-        topStationsCacheTimestamp.value = now;
-        saveToLocalStorage(response.data.stations, now);
-        console.log(`💾 Cached ${response.data.stations.length} top stations (memory + localStorage)`);
+        topStationsCacheTimestamp.value = Date.now();
+        console.log(`💾 Cached ${response.data.stations.length} top stations`);
       }
 
-      console.log(`✅ Loaded ${response.data.stations.length} stations (total: ${response.data.total})`);
+      console.log(`✅ Loaded ${response.data.stations.length} stations`);
       return true;
     } catch (error) {
-      // If the request was canceled, don't log as an error
       if (axios.isCancel(error) || error.name === 'CanceledError') {
         console.log('🚫 Search request cancelled');
         return false;
@@ -333,9 +200,8 @@ export const useRadioStore = defineStore('radio', () => {
 
       console.error('❌ Error loading stations:', error);
       hasError.value = true;
-      searchResultIds.value = [];
-      currentTotal.value = 0;
-      visibleStationIds.value = [];
+      searchResults.value = [];
+      totalResults.value = 0;
       return false;
     } finally {
       loading.value = false;
@@ -344,69 +210,28 @@ export const useRadioStore = defineStore('radio', () => {
   }
 
   /**
-   * Refresh top stations in background without blocking UI
-   * Used when cache is getting old but still valid
-   */
-  async function refreshTopStationsInBackground() {
-    console.log('🔄 Starting background refresh of top stations');
-
-    try {
-      const response = await axios.get('/api/radio/stations', {
-        params: { limit: 10000, favorites_only: false }
-      });
-
-      // Update cache silently
-      const now = Date.now();
-      topStationsCache.value = response.data.stations;
-      topStationsCacheTimestamp.value = now;
-      saveToLocalStorage(response.data.stations, now);
-
-      // If user is still viewing top stations (no filters), update the display
-      const isStillViewingTopStations = !searchQuery.value && !countryFilter.value && !genreFilter.value;
-      if (isStillViewingTopStations && searchResultIds.value.length > 0) {
-        // Only update if data actually changed (compare first station ID)
-        const firstCurrentId = searchResultIds.value[0];
-        const firstNewId = response.data.stations[0]?.id;
-
-        if (firstCurrentId !== firstNewId) {
-          upsertStations(response.data.stations);
-          searchResultIds.value = response.data.stations.map(s => s.id);
-          currentTotal.value = response.data.total;
-          // Preserve current scroll position by keeping visibleStationIds as is
-          console.log('✅ Background refresh complete, display updated');
-        } else {
-          console.log('✅ Background refresh complete, no changes');
-        }
-      } else {
-        console.log('✅ Background refresh complete, cache updated');
-      }
-    } catch (error) {
-      // Silent failure, keep using old cache
-      console.warn('⚠️ Background refresh failed, keeping old cache:', error.message);
-    }
-  }
-
-  /**
-   * Load more stations (local pagination with progressive accumulation)
+   * Load more stations (increment displayed count)
    */
   function loadMore() {
     const increment = 40;
-    const currentVisible = visibleStationIds.value.length;
-    const maxAvailable = searchResultIds.value.length;
+    const newCount = Math.min(displayedCount.value + increment, searchResults.value.length);
+    const added = newCount - displayedCount.value;
 
-    // Calculate how many we can add
-    const newLimit = Math.min(currentVisible + increment, maxAvailable);
-
-    // Add new station IDs to the visible list
-    visibleStationIds.value = searchResultIds.value.slice(0, newLimit);
-
-    console.log(`📻 Load more: displaying ${visibleStationIds.value.length} / ${maxAvailable} stations (added ${newLimit - currentVisible})`);
+    displayedCount.value = newCount;
+    console.log(`📻 Load more: displaying ${displayedCount.value} / ${searchResults.value.length} stations (added ${added})`);
   }
 
-
+  /**
+   * Play a station
+   */
   async function playStation(stationId) {
     try {
-      const station = getStation(stationId);
+      // Find station in search results or favorites
+      let station = searchResults.value.find(s => s.id === stationId);
+      if (!station) {
+        station = favoriteStations.value.find(s => s.id === stationId);
+      }
+
       const payload = station
         ? { station_id: stationId, station }
         : { station_id: stationId };
@@ -419,6 +244,9 @@ export const useRadioStore = defineStore('radio', () => {
     }
   }
 
+  /**
+   * Stop playback
+   */
   async function stopPlayback() {
     try {
       const response = await axios.post('/api/radio/stop');
@@ -429,14 +257,18 @@ export const useRadioStore = defineStore('radio', () => {
     }
   }
 
+  /**
+   * Add a station to favorites
+   */
   async function addFavorite(stationId) {
     try {
-      // Get station from normalized store
-      const station = getStation(stationId);
+      let station = searchResults.value.find(s => s.id === stationId);
+      if (!station) {
+        station = favoriteStations.value.find(s => s.id === stationId);
+      }
 
-      // Send the full station (or just the ID if not found)
       const payload = station
-        ? { station_id: stationId, station: station }
+        ? { station_id: stationId, station }
         : { station_id: stationId };
 
       const response = await axios.post('/api/radio/favorites/add', payload);
@@ -447,6 +279,9 @@ export const useRadioStore = defineStore('radio', () => {
     }
   }
 
+  /**
+   * Remove a station from favorites
+   */
   async function removeFavorite(stationId) {
     try {
       const response = await axios.post('/api/radio/favorites/remove', { station_id: stationId });
@@ -457,34 +292,28 @@ export const useRadioStore = defineStore('radio', () => {
     }
   }
 
+  /**
+   * Toggle favorite status
+   */
   async function toggleFavorite(stationId) {
-    // Get station from normalized store
-    const station = getStation(stationId);
-
-    if (!station) {
-      console.warn('toggleFavorite: station not found', stationId);
-      return false;
-    }
-
-    if (station.is_favorite) {
+    if (isFavorite(stationId)) {
       return await removeFavorite(stationId);
     } else {
       return await addFavorite(stationId);
     }
   }
 
+  /**
+   * Mark a station as broken
+   */
   async function markBroken(stationId) {
     try {
       const response = await axios.post('/api/radio/broken/mark', { station_id: stationId });
 
       if (response.data.success) {
-        // Remove from visible and search results
-        visibleStationIds.value = visibleStationIds.value.filter(id => id !== stationId);
-        searchResultIds.value = searchResultIds.value.filter(id => id !== stationId);
-
-        // Remove from normalized store
-        stations.value.delete(stationId);
-
+        // Remove from search results
+        searchResults.value = searchResults.value.filter(s => s.id !== stationId);
+        totalResults.value = Math.max(0, totalResults.value - 1);
         return true;
       }
       return false;
@@ -494,10 +323,16 @@ export const useRadioStore = defineStore('radio', () => {
     }
   }
 
+  /**
+   * Reset broken stations list
+   */
   async function resetBrokenStations() {
     try {
       const response = await axios.post('/api/radio/broken/reset');
       if (response.data.success) {
+        // Invalidate cache and reload
+        topStationsCache.value = null;
+        topStationsCacheTimestamp.value = null;
         await loadStations();
         return true;
       }
@@ -508,10 +343,10 @@ export const useRadioStore = defineStore('radio', () => {
     }
   }
 
+  /**
+   * Add a custom station
+   */
   async function addCustomStation(stationData) {
-    /**
-     * Add a custom station with image upload
-     */
     try {
       const formData = new FormData();
       formData.append('name', stationData.name);
@@ -526,15 +361,12 @@ export const useRadioStore = defineStore('radio', () => {
       }
 
       const response = await axios.post('/api/radio/custom/add', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
+        headers: { 'Content-Type': 'multipart/form-data' }
       });
 
       if (response.data.success) {
-        const newStation = response.data.station;
-        console.log('📻 Custom station added:', newStation);
-        return { success: true, station: newStation };
+        console.log('📻 Custom station added:', response.data.station);
+        return { success: true, station: response.data.station };
       } else {
         return { success: false, error: response.data.error || 'Failed to add station' };
       }
@@ -545,6 +377,9 @@ export const useRadioStore = defineStore('radio', () => {
     }
   }
 
+  /**
+   * Remove a custom station
+   */
   async function removeCustomStation(stationId) {
     try {
       const response = await axios.post('/api/radio/custom/remove', { station_id: stationId });
@@ -552,12 +387,9 @@ export const useRadioStore = defineStore('radio', () => {
       if (response.data.success) {
         console.log('📻 Custom station removed:', stationId);
 
-        // Remove from visible and search results
-        visibleStationIds.value = visibleStationIds.value.filter(id => id !== stationId);
-        searchResultIds.value = searchResultIds.value.filter(id => id !== stationId);
-
-        // Remove from normalized store
-        stations.value.delete(stationId);
+        // Remove from search results
+        searchResults.value = searchResults.value.filter(s => s.id !== stationId);
+        totalResults.value = Math.max(0, totalResults.value - 1);
 
         return true;
       }
@@ -568,28 +400,28 @@ export const useRadioStore = defineStore('radio', () => {
     }
   }
 
+  /**
+   * Remove a station's image
+   */
   async function removeStationImage(stationId) {
-    /**
-     * Remove the imported image of a station
-     */
     try {
       const formData = new FormData();
       formData.append('station_id', stationId);
 
       const response = await axios.post('/api/radio/custom/remove-image', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
+        headers: { 'Content-Type': 'multipart/form-data' }
       });
 
       if (response.data.success) {
-        const updatedStation = response.data.station;
         console.log('🖼️ Image removed:', stationId);
 
-        // Update in normalized store
-        upsertStation(updatedStation);
+        // Update in search results
+        const index = searchResults.value.findIndex(s => s.id === stationId);
+        if (index !== -1) {
+          searchResults.value[index] = response.data.station;
+        }
 
-        return { success: true, station: updatedStation };
+        return { success: true, station: response.data.station };
       } else {
         return { success: false, error: response.data.error || 'Failed to remove image' };
       }
@@ -600,67 +432,42 @@ export const useRadioStore = defineStore('radio', () => {
     }
   }
 
+  /**
+   * Update current station from WebSocket metadata
+   */
   function updateFromWebSocket(metadata) {
-    // Update from WebSocket (via unifiedAudioStore)
     if (metadata.station_id) {
-      // Get station from normalized store
-      let station = getStation(metadata.station_id);
-
-      if (station) {
-        currentStationId.value = metadata.station_id;
-      } else {
-        // Station not yet loaded, create a minimal object
-        const minimalStation = {
-          id: metadata.station_id,
-          name: metadata.station_name || 'Station inconnue',
-          country: metadata.country || '',
-          genre: metadata.genre || '',
-          favicon: metadata.favicon || '',
-          is_favorite: favoriteStationsMap.value.has(metadata.station_id)
-        };
-        upsertStation(minimalStation);
-        currentStationId.value = metadata.station_id;
-      }
-    } else {
-      // No station playing - DON'T clear immediately to allow animation
-      // The timer will handle clearing after animation completes
+      currentStationId.value = metadata.station_id;
     }
+    // Don't clear immediately to allow animation
   }
 
-  async function handleFavoriteEvent(stationId, isFavorite) {
-    // Sync favorite status from the backend
-    console.log(`🔄 Syncing favorite status: ${stationId} = ${isFavorite}`);
+  /**
+   * Handle favorite added/removed event from WebSocket
+   */
+  async function handleFavoriteEvent(stationId, isFavoriteNow) {
+    console.log(`🔄 Syncing favorite status: ${stationId} = ${isFavoriteNow}`);
 
-    if (isFavorite) {
-      // Adding to favorites: copy station from search cache to favorites Map
-      const station = stations.value.get(stationId);
-      if (station) {
-        // Create new Map to ensure Vue reactivity triggers
-        const newMap = new Map(favoriteStationsMap.value);
-        newMap.set(stationId, { ...station, is_favorite: true });
-        favoriteStationsMap.value = newMap;
-        // Update search cache too
-        station.is_favorite = true;
-      } else {
-        // Station not in search cache, reload favorites from backend
-        console.log('📻 New favorite added but not in cache, reloading favorites');
+    if (isFavoriteNow) {
+      // Find station and add to favorites
+      const station = searchResults.value.find(s => s.id === stationId);
+      if (station && !favoriteStations.value.some(s => s.id === stationId)) {
+        favoriteStations.value = [...favoriteStations.value, { ...station, is_favorite: true }];
+      } else if (!station) {
+        // Station not in search results, reload favorites
+        console.log('📻 New favorite not in cache, reloading favorites');
         await loadStations(true);
       }
     } else {
-      // Removing from favorites: create new Map to ensure Vue reactivity triggers
-      const newMap = new Map(favoriteStationsMap.value);
-      newMap.delete(stationId);
-      favoriteStationsMap.value = newMap;
-      // Update search cache if station exists there
-      const station = stations.value.get(stationId);
-      if (station) {
-        station.is_favorite = false;
-      }
+      // Remove from favorites
+      favoriteStations.value = favoriteStations.value.filter(s => s.id !== stationId);
     }
   }
 
+  /**
+   * Clear current station
+   */
   function clearCurrentStation() {
-    // Clear current station
     console.log('📻 Clearing current station');
     currentStationId.value = null;
   }
@@ -676,11 +483,10 @@ export const useRadioStore = defineStore('radio', () => {
     genreFilter,
 
     // Getters
-    currentStations,
-    totalStations,
     displayedStations,
     hasMoreStations,
     remainingStations,
+    totalStations,
     favoriteStations: sortedFavorites,
 
     // Actions
