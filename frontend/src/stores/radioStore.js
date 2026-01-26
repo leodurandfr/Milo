@@ -8,8 +8,8 @@ export const useRadioStore = defineStore('radio', () => {
   // Single source of truth: Map of all stations by ID
   const stations = ref(new Map());
 
-  // Favorite station IDs
-  const favoriteStationIds = ref(new Set());
+  // Favorite stations Map (dedicated storage, never evicted)
+  const favoriteStationsMap = ref(new Map());
 
   // Currently playing station ID
   const currentStationId = ref(null);
@@ -93,14 +93,15 @@ export const useRadioStore = defineStore('radio', () => {
   function upsertStation(station) {
     const enrichedStation = {
       ...station,
-      is_favorite: favoriteStationIds.value.has(station.id)
+      is_favorite: favoriteStationsMap.value.has(station.id)
     };
 
-    // Enforce cache limit: remove oldest non-favorite entries if needed
+    // Enforce cache limit: remove oldest non-current entries if needed
+    // (favorites are stored separately, so we can evict freely here)
     if (!stations.value.has(station.id) && stations.value.size >= MAX_CACHED_STATIONS) {
-      // Find and remove oldest non-favorite, non-current station
-      for (const [id, s] of stations.value) {
-        if (!s.is_favorite && id !== currentStationId.value) {
+      // Find and remove oldest non-current station
+      for (const [id] of stations.value) {
+        if (id !== currentStationId.value) {
           stations.value.delete(id);
           break;
         }
@@ -121,11 +122,15 @@ export const useRadioStore = defineStore('radio', () => {
    * Get station by ID with is_favorite enrichment
    */
   function getStation(stationId) {
-    const station = stations.value.get(stationId);
+    let station = stations.value.get(stationId);
+    // Fallback to favorites map if not in search cache
+    if (!station) {
+      station = favoriteStationsMap.value.get(stationId);
+    }
     if (!station) return null;
     return {
       ...station,
-      is_favorite: favoriteStationIds.value.has(stationId)
+      is_favorite: favoriteStationsMap.value.has(stationId)
     };
   }
 
@@ -164,11 +169,10 @@ export const useRadioStore = defineStore('radio', () => {
     return Math.max(0, searchResultIds.value.length - visibleStationIds.value.length);
   });
 
-  // Sorted favorite stations
+  // Sorted favorite stations (read directly from dedicated favorites Map)
   const sortedFavorites = computed(() => {
-    return Array.from(favoriteStationIds.value)
-      .map(id => getStation(id))
-      .filter(Boolean)
+    return Array.from(favoriteStationsMap.value.values())
+      .map(station => ({ ...station, is_favorite: true }))
       .sort((a, b) => a.name.localeCompare(b.name));
   });
 
@@ -184,15 +188,16 @@ export const useRadioStore = defineStore('radio', () => {
     hasError.value = false;
 
     if (favoritesOnly) {
-      // Load favorites
+      // Load favorites into dedicated favorites Map
       try {
         const response = await axios.get('/api/radio/stations', {
           params: { limit: 10000, favorites_only: true }
         });
 
-        // Update normalized store
-        upsertStations(response.data.stations);
-        favoriteStationIds.value = new Set(response.data.stations.map(s => s.id));
+        // Populate dedicated favorites Map (never evicted)
+        favoriteStationsMap.value = new Map(
+          response.data.stations.map(s => [s.id, s])
+        );
 
         console.log(`✅ Loaded ${response.data.stations.length} favorites`);
         favoritesInitialized.value = true;
@@ -611,7 +616,7 @@ export const useRadioStore = defineStore('radio', () => {
           country: metadata.country || '',
           genre: metadata.genre || '',
           favicon: metadata.favicon || '',
-          is_favorite: metadata.is_favorite || false
+          is_favorite: favoriteStationsMap.value.has(metadata.station_id)
         };
         upsertStation(minimalStation);
         currentStationId.value = metadata.station_id;
@@ -626,23 +631,31 @@ export const useRadioStore = defineStore('radio', () => {
     // Sync favorite status from the backend
     console.log(`🔄 Syncing favorite status: ${stationId} = ${isFavorite}`);
 
-    // Update favorite status in normalized store
     if (isFavorite) {
-      favoriteStationIds.value.add(stationId);
+      // Adding to favorites: copy station from search cache to favorites Map
+      const station = stations.value.get(stationId);
+      if (station) {
+        // Create new Map to ensure Vue reactivity triggers
+        const newMap = new Map(favoriteStationsMap.value);
+        newMap.set(stationId, { ...station, is_favorite: true });
+        favoriteStationsMap.value = newMap;
+        // Update search cache too
+        station.is_favorite = true;
+      } else {
+        // Station not in search cache, reload favorites from backend
+        console.log('📻 New favorite added but not in cache, reloading favorites');
+        await loadStations(true);
+      }
     } else {
-      favoriteStationIds.value.delete(stationId);
-    }
-
-    // If station exists in map, update it
-    const station = stations.value.get(stationId);
-    if (station) {
-      station.is_favorite = isFavorite;
-    }
-
-    // If added to favorites and station not in map, reload favorites
-    if (isFavorite && !station) {
-      console.log('📻 New favorite added, reloading favorites');
-      await loadStations(true);
+      // Removing from favorites: create new Map to ensure Vue reactivity triggers
+      const newMap = new Map(favoriteStationsMap.value);
+      newMap.delete(stationId);
+      favoriteStationsMap.value = newMap;
+      // Update search cache if station exists there
+      const station = stations.value.get(stationId);
+      if (station) {
+        station.is_favorite = false;
+      }
     }
   }
 

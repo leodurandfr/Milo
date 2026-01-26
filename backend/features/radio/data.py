@@ -233,6 +233,16 @@ class StationDataService:
             self.logger.error(f"Error loading station data: {e}")
             self._loaded = True
 
+    async def _broadcast_event(self, event_type: str, data: Dict[str, Any]) -> None:
+        """Broadcast radio event via state machine and EventBus."""
+        if self._state_machine:
+            await self._state_machine.broadcast_event("radio", event_type, data)
+        if self._event_bus:
+            from backend.core.events import Events
+            event_name = getattr(Events, f"RADIO_{event_type.upper()}", None)
+            if event_name:
+                await self._event_bus.emit(event_name, data)
+
     async def _load_data(self) -> Dict[str, Any]:
         """Load radio_data.json."""
         try:
@@ -382,9 +392,8 @@ class StationDataService:
 
         success = await self._save()
 
-        if success and self._event_bus:
-            from backend.core.events import Events
-            await self._event_bus.emit(Events.RADIO_FAVORITE_ADDED, {
+        if success:
+            await self._broadcast_event("favorite_added", {
                 "station_id": station_id,
                 "favorites_count": len(self._favorites),
                 "source": "radio"
@@ -400,9 +409,8 @@ class StationDataService:
         self._favorites.remove(station_id)
         success = await self._save()
 
-        if success and self._event_bus:
-            from backend.core.events import Events
-            await self._event_bus.emit(Events.RADIO_FAVORITE_REMOVED, {
+        if success:
+            await self._broadcast_event("favorite_removed", {
                 "station_id": station_id,
                 "favorites_count": len(self._favorites),
                 "source": "radio"
