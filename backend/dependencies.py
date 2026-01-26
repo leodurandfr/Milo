@@ -164,7 +164,8 @@ def _create_service(name: str) -> Any:
         "version_service": lambda: VersionService(),
         "update_service": lambda: UpdateService(),
         "satellite_update_service": lambda: SatelliteUpdateService(
-            snapcast_service=get_service("snapcast_service")
+            snapcast_service=get_service("snapcast_service"),
+            client_registry_service=get_service("client_registry_service")
         ),
 
         # Audio sources
