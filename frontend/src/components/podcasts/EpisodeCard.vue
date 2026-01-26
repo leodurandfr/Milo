@@ -39,9 +39,9 @@
 
       <div class="card-actions">
         <IconButton v-if="showCompleteButton" icon="close" :variant="contrast ? 'on-dark' : 'background-strong'" size="medium"
-          @click.stop="emit('complete', episode)" />
+          @pointerdown.stop @click.stop="emit('complete', episode)" />
         <IconButton :icon="isCurrentlyPlaying ? 'pause' : 'play'" :variant="contrast ? 'on-dark' : 'background-strong'" size="medium"
-          :loading="isCurrentEpisodeBuffering" @click.stop="handlePlayClick" />
+          :loading="isCurrentEpisodeBuffering" @pointerdown.stop @click.stop="handlePlayClick" />
       </div>
     </div>
   </div>
