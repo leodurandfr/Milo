@@ -3,6 +3,10 @@
     "connecting": "正在尝试连接...",
     "connectionUnavailable": "连接不可用"
   },
+  "notification": {
+    "connectionLostTitle": "连接丢失",
+    "connectionLostDescription": "可用时自动重新连接"
+  },
   "settings": {
     "title": "Milō 配置",
     "languages": "语言",

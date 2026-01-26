@@ -291,7 +291,9 @@ class PodcastSource(BaseAudioSource):
             if not success:
                 self._is_buffering = False
                 self._current_episode = None
-                return self.error_response("Failed to load stream")
+                error_msg = "Failed to load stream"
+                self.broadcast_error(error_msg)
+                return self.error_response(error_msg)
 
             # Check if mpv is paused after loading and unpause if needed
             pause_state = await self._mpv.get_property("pause")
@@ -320,12 +322,16 @@ class PodcastSource(BaseAudioSource):
             self._metadata = self._build_playback_metadata()
             self._update_connection_state()
 
+            # Clear any previous error now that playback is successful
+            self.broadcast_error_cleared()
+
             self._logger.info("Playback started successfully")
             return self.success_response(f"Playing {episode.get('name', 'Unknown')}")
 
         except Exception as e:
             self._logger.error(f"Episode playback error: {e}")
             self._is_buffering = False
+            self.broadcast_error(str(e))
             return self.error_response(str(e))
 
     async def _wait_and_seek(self, position: int) -> None:
@@ -570,6 +576,20 @@ class PodcastSource(BaseAudioSource):
                 await asyncio.sleep(1.0)
 
                 if not self._mpv or not self._mpv.is_connected:
+                    # Detect unexpected disconnect during playback
+                    if self._is_playing or self._is_buffering:
+                        self._logger.error("mpv disconnected unexpectedly during playback")
+                        # Save progress before clearing state
+                        if self._current_episode and self._position > 0:
+                            await self._save_progress()
+                        self._is_playing = False
+                        self._is_buffering = False
+                        self._current_episode = None
+                        self._position = 0
+                        self._duration = 0
+                        self._metadata = {}
+                        self._stop_progress_save()
+                        self.broadcast_error("Audio stream disconnected")
                     continue
 
                 if not self._current_episode:

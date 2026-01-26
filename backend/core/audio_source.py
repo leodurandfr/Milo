@@ -635,9 +635,8 @@ class BaseAudioSource:
         if metadata:
             self._metadata.update(metadata)
 
-        # Sync with state machine if available
+        # Sync with state machine if available (active sources only)
         if self.state_machine and hasattr(self, 'source'):
-            # Map SourceState to PluginState
             plugin_state_map = {
                 SourceState.STARTING: PluginState.STARTING,
                 SourceState.READY: PluginState.READY,
@@ -645,7 +644,7 @@ class BaseAudioSource:
                 SourceState.ERROR: PluginState.ERROR,
             }
             plugin_state = plugin_state_map.get(state, PluginState.READY)
-            # Schedule async update (we're in sync context)
+
             import asyncio
             try:
                 loop = asyncio.get_running_loop()
@@ -655,8 +654,62 @@ class BaseAudioSource:
                     )
                 )
             except RuntimeError:
-                # No running loop, can't update
                 pass
+
+    def broadcast_error(self, error_message: str) -> None:
+        """
+        Broadcast an error to the UI notification banner.
+
+        This bypasses the active-source filter so errors are always shown
+        to the user regardless of which source is currently active.
+
+        Args:
+            error_message: Human-readable error message
+        """
+        if not self.state_machine or not hasattr(self, 'source'):
+            return
+
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(
+                self.state_machine.broadcast_event(
+                    "plugin",
+                    "state_changed",
+                    {
+                        "source": self.source.value,
+                        "new_state": PluginState.ERROR.value,
+                        "metadata": {"error": error_message}
+                    }
+                )
+            )
+        except RuntimeError:
+            pass
+
+    def broadcast_error_cleared(self) -> None:
+        """
+        Clear any displayed error for this source.
+
+        Called when an error condition is resolved (e.g., connection restored,
+        stream loaded successfully). The UI will automatically dismiss the
+        notification banner.
+        """
+        if not self.state_machine or not hasattr(self, 'source'):
+            return
+
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(
+                self.state_machine.broadcast_event(
+                    "plugin",
+                    "error_cleared",
+                    {"source": self.source.value}
+                )
+            )
+            self._logger.debug(f"[{self.source_id}] Error cleared broadcast sent")
+        except RuntimeError:
+            pass
 
     def success_response(self, message: str = None, **kwargs) -> Dict[str, Any]:
         """
