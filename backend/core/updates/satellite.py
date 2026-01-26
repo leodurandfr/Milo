@@ -14,8 +14,9 @@ from backend.config.constants import CLIENT_API_PORT
 class SatelliteUpdateService:
     """Service to manage satellites and their updates"""
 
-    def __init__(self, snapcast_service):
+    def __init__(self, snapcast_service, client_registry_service=None):
         self.snapcast_service = snapcast_service
+        self.client_registry_service = client_registry_service
         self.logger = logging.getLogger(__name__)
         self.satellite_api_port = CLIENT_API_PORT
 
@@ -63,9 +64,18 @@ class SatelliteUpdateService:
                 satellite_info = await self._check_satellite_api(hostname, ip)
 
                 if satellite_info["online"]:
+                    # Display name: registry > hostname
+                    display_name = hostname
+                    if self.client_registry_service:
+                        mac_id = client.get("mac_id")
+                        if mac_id:
+                            registry_client = self.client_registry_service.get_client(mac_id)
+                            if registry_client and registry_client.name:
+                                display_name = registry_client.name
+
                     satellites.append({
                         "hostname": hostname,
-                        "display_name": client.get("name", hostname),
+                        "display_name": display_name,
                         "ip": ip,
                         "snapclient_version": satellite_info.get("version"),
                         "online": True,
