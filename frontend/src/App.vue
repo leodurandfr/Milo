@@ -1,6 +1,14 @@
 <!-- App.vue - Version with i18n WebSocket -->
 <template>
   <div class="app-container">
+    <!-- Notification banner for connection issues and errors (shown after boot) -->
+    <NotificationBanner
+      :title="notificationTitle"
+      :detail="notificationDetail"
+      :dismissable="isNotificationDismissable"
+      @dismiss="dismissNotification"
+    />
+
     <!-- App content only renders after boot completes -->
     <template v-if="isBootComplete">
       <router-view />
@@ -26,10 +34,11 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onUnmounted, provide, defineAsyncComponent } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted, provide, defineAsyncComponent } from 'vue';
 import VolumeBar from '@/components/ui/VolumeBar.vue';
 import Dock from '@/components/ui/Dock.vue';
 import Modal from '@/components/ui/Modal.vue';
+import NotificationBanner from '@/components/ui/NotificationBanner.vue';
 
 // Lazy-loaded modals
 const MultiroomModal = defineAsyncComponent(() =>
@@ -75,12 +84,12 @@ useScreenActivity();
 // === State ===
 const isReady = ref(false);
 const isBootComplete = ref(false);
+const currentError = ref(null);
 
 // === Boot screen reference ===
 let bootScreenEl = null;
 let bootTimeoutId = null;
 let bootFailedTimeoutId = null;
-let reconnectionTimeout = null;
 
 // === Boot timeout handling ===
 function startBootTimeout() {
@@ -125,26 +134,35 @@ function hideBootMessage() {
   bootScreenEl.classList.remove('show-message');
 }
 
-// === Reconnection screen (reuse boot screen) ===
-function showReconnectionScreen() {
-  if (!bootScreenEl) return;
+// === Notification banner (connection issues and errors after boot) ===
+const capitalize = (s) => s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
 
-  bootScreenEl.style.display = 'flex';
-  bootScreenEl.classList.remove('fade-out', 'logo-exit');
-  showBootMessage(t('app.connectionUnavailable'));
-}
+const notificationTitle = computed(() => {
+  // Priority 1: Connection lost (highest priority)
+  if (!isConnected.value && isBootComplete.value) {
+    return t('notification.connectionLostTitle');
+  }
+  // Priority 2: System/plugin errors
+  return currentError.value?.title || null;
+});
 
-function hideReconnectionScreen() {
-  if (!bootScreenEl) return;
+const notificationDetail = computed(() => {
+  // Priority 1: Connection lost description
+  if (!isConnected.value && isBootComplete.value) {
+    return t('notification.connectionLostDescription');
+  }
+  // Priority 2: System/plugin error detail
+  return currentError.value?.detail || null;
+});
 
-  hideBootMessage();
+// Connection lost is not dismissable (auto-clears on reconnect)
+// System/plugin errors are dismissable
+const isNotificationDismissable = computed(() => {
+  return isConnected.value && currentError.value !== null;
+});
 
-  setTimeout(() => {
-    bootScreenEl.classList.add('fade-out');
-    setTimeout(() => {
-      if (bootScreenEl) bootScreenEl.style.display = 'none';
-    }, DOM_REMOVE_DELAY);
-  }, 200);
+function dismissNotification() {
+  currentError.value = null;
 }
 
 // Watch isReady → trigger boot screen fade and dock auto-show
@@ -172,25 +190,6 @@ watch(isReady, (ready) => {
         }
       }, DOCK_AUTO_SHOW_DELAY);
     }, SCREEN_FADE_DELAY);
-  }
-});
-
-// Watch connection lost AFTER boot (iOS: delayed, Desktop: immediate)
-watch(isConnected, (connected) => {
-  if (!isBootComplete.value) return;
-  clearTimeout(reconnectionTimeout);
-  if (!connected) {
-    if (document.body.classList.contains('ios-app')) {
-      // iOS app: delay to avoid flash during quick background/foreground transitions
-      reconnectionTimeout = setTimeout(() => {
-        if (!isConnected.value) showReconnectionScreen();
-      }, 1200);
-    } else {
-      // Desktop browser: show immediately
-      showReconnectionScreen();
-    }
-  } else {
-    hideReconnectionScreen();
   }
 });
 
@@ -257,10 +256,25 @@ onMounted(async () => {
     on('system', 'state_changed', (event) => unifiedStore.updateState(event)),
     on('system', 'transition_start', (event) => unifiedStore.updateState(event)),
     on('system', 'transition_complete', (event) => unifiedStore.updateState(event)),
-    on('system', 'error', (event) => unifiedStore.updateState(event)),
+    on('system', 'error', (event) => {
+      unifiedStore.updateState(event);
+      // Display system error in notification banner
+      const errorMessage = event.data?.error || 'System error';
+      currentError.value = { title: 'System Error', detail: errorMessage };
+    }),
     on('plugin', 'state_changed', (event) => {
       unifiedStore.updateState(event);
       podcastStore.handlePluginEvent(event);
+      // Display plugin error in notification banner
+      if (event.data?.new_state === 'error') {
+        const source = event.data?.source || 'plugin';
+        const error = event.data?.metadata?.error || 'error';
+        currentError.value = { title: `${capitalize(source)} Error`, detail: error };
+      }
+    }),
+    on('plugin', 'error_cleared', () => {
+      // Auto-dismiss error notification when the error condition is resolved
+      currentError.value = null;
     }),
     on('plugin', 'metadata', (event) => {
       unifiedStore.updateState(event);
@@ -315,7 +329,6 @@ onMounted(async () => {
 
 onUnmounted(() => {
   clearBootTimeout();
-  clearTimeout(reconnectionTimeout);
   cleanupFunctions.forEach(cleanup => cleanup());
 });
 </script>

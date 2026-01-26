@@ -284,7 +284,9 @@ class RadioSource(BaseAudioSource):
                 self._is_buffering = False
                 self._current_station = None
                 await self._station_data.mark_as_broken(station_id)
-                return self.error_response(f"Unable to load stream {station_name}")
+                error_msg = f"Unable to load stream: {station_name}"
+                self.broadcast_error(error_msg)
+                return self.error_response(error_msg)
 
             # Update station URL if we used an alternative
             if working_url != primary_url:
@@ -297,6 +299,7 @@ class RadioSource(BaseAudioSource):
         except Exception as e:
             self._logger.error(f"Station playback error: {e}")
             self._is_buffering = False
+            self.broadcast_error(str(e))
             return self.error_response(str(e))
 
     async def _try_play_with_fallback(
@@ -436,6 +439,9 @@ class RadioSource(BaseAudioSource):
     def _update_connection_state(self) -> None:
         """Update state based on playback."""
         if self._current_station:
+            # Clear any previous error when playback is active
+            if self._is_playing:
+                self.broadcast_error_cleared()
             self.set_state(SourceState.CONNECTED, {
                 "station_id": self._current_station.get('id'),
                 "station_name": self._current_station.get('name'),
@@ -491,6 +497,14 @@ class RadioSource(BaseAudioSource):
                 await asyncio.sleep(1.0)
 
                 if not self._mpv or not self._mpv.is_connected:
+                    # Detect unexpected disconnect during playback
+                    if self._is_playing or self._is_buffering:
+                        self._logger.error("mpv disconnected unexpectedly during playback")
+                        self._is_playing = False
+                        self._is_buffering = False
+                        self._current_station = None
+                        self._metadata = {}
+                        self.broadcast_error("Audio stream disconnected")
                     continue
 
                 was_playing = self._is_playing

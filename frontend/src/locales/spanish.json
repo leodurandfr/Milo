@@ -3,6 +3,10 @@
     "connecting": "Intentando conectar...",
     "connectionUnavailable": "Conexión no disponible"
   },
+  "notification": {
+    "connectionLostTitle": "Conexión perdida",
+    "connectionLostDescription": "Reconectando automáticamente cuando esté disponible"
+  },
   "settings": {
     "title": "Configuración de Milō",
     "languages": "Idiomas",

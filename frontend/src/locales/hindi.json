@@ -3,6 +3,10 @@
     "connecting": "कनेक्ट करने का प्रयास...",
     "connectionUnavailable": "कनेक्शन उपलब्ध नहीं"
   },
+  "notification": {
+    "connectionLostTitle": "कनेक्शन खो गया",
+    "connectionLostDescription": "उपलब्ध होने पर स्वचालित रूप से पुनः कनेक्ट हो रहा है"
+  },
   "settings": {
     "title": "Milō कॉन्फ़िगरेशन",
     "languages": "भाषाएं",

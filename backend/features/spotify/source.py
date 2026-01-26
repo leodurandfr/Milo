@@ -14,6 +14,7 @@ Features:
 """
 import asyncio
 import os
+import time
 import yaml
 from typing import Dict, Any, Optional
 
@@ -92,6 +93,11 @@ class SpotifySource(BaseAudioSource):
         self.pause_disconnect_delay = 10.0
         self._pause_timer: Optional[asyncio.Task] = None
 
+        # Log monitor for error detection
+        self._log_monitor_task: Optional[asyncio.Task] = None
+        self._connection_error_count = 0
+        self._last_error_time = 0.0
+
     async def _do_start(self) -> bool:
         """Start go-librespot service and WebSocket."""
         try:
@@ -117,7 +123,10 @@ class SpotifySource(BaseAudioSource):
             # 5. Start WebSocket
             await self._start_websocket()
 
-            # 6. Update state
+            # 6. Start log monitor for error detection
+            self._start_log_monitor()
+
+            # 7. Update state
             self._update_connection_state()
 
             return True
@@ -428,11 +437,108 @@ class SpotifySource(BaseAudioSource):
 
         self._pause_timer = asyncio.create_task(disconnect_after_delay())
 
+    # === Log Monitor ===
+
+    def _start_log_monitor(self) -> None:
+        """Start monitoring journalctl logs for go-librespot errors."""
+        if self._log_monitor_task:
+            return
+        self._log_monitor_task = asyncio.create_task(self._monitor_logs())
+
+    def _stop_log_monitor(self) -> None:
+        """Stop log monitoring."""
+        if self._log_monitor_task:
+            self._log_monitor_task.cancel()
+            self._log_monitor_task = None
+
+    async def _monitor_logs(self) -> None:
+        """Monitor journalctl for go-librespot errors."""
+        process = None
+        try:
+            process = await asyncio.create_subprocess_exec(
+                "journalctl", "-u", "milo-spotify", "-f", "-n", "0",
+                "--output", "cat",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL
+            )
+
+            while True:
+                line = await process.stdout.readline()
+                if not line:
+                    break
+
+                text = line.decode('utf-8', errors='ignore').strip()
+                await self._handle_log_line(text)
+
+        except asyncio.CancelledError:
+            if process:
+                process.terminate()
+                await process.wait()
+        except Exception as e:
+            self._logger.error(f"Log monitor error: {e}")
+
+    async def _handle_log_line(self, line: str) -> None:
+        """Parse and handle a log line from go-librespot."""
+        # Success: connection established - clear any error
+        if "authenticated AP" in line or "authenticated Login5" in line:
+            self.broadcast_error_cleared()
+            self._connection_error_count = 0
+            return
+
+        # Success: track loaded - clear any error
+        if "loaded track" in line:
+            self.broadcast_error_cleared()
+            return
+
+        # Critical error: track loading failed - show raw log message
+        if "failed loading current track" in line:
+            self.broadcast_error(self._extract_log_message(line))
+            return
+
+        # Connection error: show after 3 consecutive failures within 10s
+        if "failed connecting to accesspoint" in line:
+            now = time.time()
+            if now - self._last_error_time < 10:
+                self._connection_error_count += 1
+            else:
+                self._connection_error_count = 1
+            self._last_error_time = now
+
+            if self._connection_error_count >= 3:
+                self.broadcast_error(self._extract_log_message(line))
+                self._connection_error_count = 0
+
+        # Ignore normal WebSocket closures (StatusNormalClosure)
+        # These are expected when stopping the service
+
+    def _extract_log_message(self, line: str) -> str:
+        """
+        Extract the msg and error fields from a go-librespot log line.
+
+        Log format: level=warning msg="..." error="..."
+        Returns the message exactly as it appears in the logs.
+        """
+        import re
+
+        # Extract msg="..."
+        msg_match = re.search(r'msg="([^"]+)"', line)
+        msg = msg_match.group(1) if msg_match else ""
+
+        # Extract error="..." (may not exist)
+        error_match = re.search(r'error="([^"]+)"', line)
+        error = error_match.group(1) if error_match else ""
+
+        # Return exactly what's in the log
+        if error:
+            return f'{msg}: {error}'
+        return msg if msg else "Unknown error"
+
     # === Helpers ===
 
     async def _cleanup(self) -> None:
         """Clean up resources."""
         self._cancel_pause_timer()
+        self._stop_log_monitor()
 
         if self._ws_client:
             await self._ws_client.stop()
