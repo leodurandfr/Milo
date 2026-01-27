@@ -1,8 +1,8 @@
 # backend/features/mac/source.py
 """
-Mac audio source using ROC toolkit.
+Mac audio source using ROC Streaming toolkit.
 
-This source handles streaming audio from Mac computers via ROC (Roc Opus Codec).
+This source handles streaming audio from Mac computers via ROC Streaming.
 It supports multiple simultaneous Mac connections and provides real-time
 connection monitoring via journalctl logs.
 
@@ -18,7 +18,7 @@ import ipaddress
 from typing import Dict, Any, Optional, Tuple
 
 from backend.core.audio_source import BaseAudioSource, SourceState
-from backend.core.events import EventBus, Events
+from backend.core.events import EventBus
 
 
 # IPv4/IPv6 parsing regex for ROC log lines

@@ -210,6 +210,15 @@ class SettingsService:
             'dsp_effects_enabled': bool(routing_input.get('dsp_effects_enabled', False))
         }
 
+        # Mac ROC streaming settings
+        mac_input = settings.get('mac', {})
+        if mac_input:
+            validated['mac'] = {
+                'target_latency_ms': max(5, min(500, int(mac_input.get('target_latency_ms', 200)))),
+                'latency_profile': mac_input.get('latency_profile', 'responsive') if mac_input.get('latency_profile') in ['responsive', 'gradual', 'intact'] else 'responsive',
+                'frame_length_ms': mac_input.get('frame_length_ms', 7) if mac_input.get('frame_length_ms') in [2, 4, 7, 8, 12] else 7
+            }
+
         # Equalizer (saved_bands) - Preserve equalizer section without strict validation
         equalizer_input = settings.get('equalizer', {})
         if equalizer_input:

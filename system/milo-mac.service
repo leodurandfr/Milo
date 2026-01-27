@@ -18,11 +18,9 @@ ExecStart=/usr/bin/roc-recv -vvv \
   -s rtp+rs8m://0.0.0.0:10001 \
   -r rs8m://0.0.0.0:10002 \
   -c rtcp://0.0.0.0:10003 \
-#  --target-latency=30ms \
-#  --latency-profile=responsive \
-#  --resampler-backend=builtin \
-#  --resampler-profile=high \
-#  --frame-len=6ms \
+  --target-latency=${ROC_TARGET_LATENCY} \
+  --latency-profile=${ROC_LATENCY_PROFILE} \
+  --frame-len=${ROC_FRAME_LENGTH} \
   -o alsa://milo_roc
 
 Restart=always
