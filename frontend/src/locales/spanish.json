@@ -40,7 +40,8 @@
       "noFavorites": "No hay radios favoritas",
       "stationNoImage": "Estación sin imagen",
       "playRadio": "Escuchar",
-      "stopRadio": "Detener"
+      "stopRadio": "Detener",
+      "loadingMore": "Cargando..."
     }
   },
   "multiroom": {
@@ -74,9 +75,18 @@
       "disablePhysicalCrossover": "Configure el crossover físico de su subwoofer en bypass/LFE para evitar la acumulación de filtros.",
       "highpassActive": "Filtro paso alto activo",
       "highpassDescription": "Los graves por debajo de {freq} Hz se eliminan de este altavoz y son gestionados por el subwoofer de la zona.",
-      "crossoverFrequency": "Frecuencia de corte:"
+      "crossoverFrequency": "Frecuencia de corte:",
+      "badgeActive": "Crossover activo",
+      "badgeInactive": "Crossover inactivo",
+      "subwooferOffline": "Subwoofer desconectado"
     },
-    "offline": "Desconectado"
+    "speakerOffline": "« {name} » está desconectado",
+    "speakerOfflineDescription": "Este sistema de audio no está conectado actualmente a Milō.<br>IP: {ip}",
+    "deleteSpeaker": "Eliminar este sistema de audio",
+    "offline": "Desconectado",
+    "syncing": "Sincronizando...",
+    "syncError": "Error de sincronización",
+    "retrySync": "Reintentar"
   },
   "dsp": {
     "title": "Ecualizador DSP",
@@ -224,6 +234,21 @@
     "title": "Spotify",
     "autoDisconnect": "Desconexión automática",
     "disconnectDelay": "Retraso de desconexión después de que la música esté en pausa durante:"
+  },
+  "macSettings": {
+    "title": "Streaming Mac",
+    "latency": "Latencia",
+    "targetLatency": "Latencia objetivo",
+    "latencyProfile": "Perfil de latencia",
+    "frameLength": "Tamaño de trama",
+    "profiles": {
+      "responsive": "Reactivo",
+      "gradual": "Gradual",
+      "intact": "Intacto"
+    },
+    "apply": "Aplicar y reiniciar",
+    "restarting": "Reiniciando...",
+    "warning": "Una latencia baja puede causar cortes de audio en redes inestables."
   },
   "podcastSettings": {
     "title": "Podcasts",
@@ -376,6 +401,7 @@
     "confirm": "Confirmar",
     "restore": "Restaurar",
     "delete": "Eliminar",
+    "deleting": "Eliminando...",
     "modify": "Modificar"
   },
   "radio": {

@@ -153,7 +153,6 @@
     "loudness": {
       "title": "Loudness",
       "enable": "Enable loudness",
-      "referenceLevel": "Reference level",
       "lowBoost": "Bass boost",
       "highBoost": "Treble boost"
     },

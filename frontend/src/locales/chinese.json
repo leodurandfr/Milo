@@ -40,7 +40,8 @@
       "noFavorites": "没有喜爱的广播",
       "stationNoImage": "无图片的电台",
       "playRadio": "收听",
-      "stopRadio": "停止"
+      "stopRadio": "停止",
+      "loadingMore": "加载中..."
     }
   },
   "multiroom": {
@@ -74,9 +75,18 @@
       "disablePhysicalCrossover": "将低音炮的物理分频设置为旁路/LFE以避免滤波器叠加。",
       "highpassActive": "高通滤波器已激活",
       "highpassDescription": "{freq} Hz以下的低音已从此扬声器移除并由区域低音炮处理。",
-      "crossoverFrequency": "分频频率："
+      "crossoverFrequency": "分频频率：",
+      "badgeActive": "分频器已启用",
+      "badgeInactive": "分频器未启用",
+      "subwooferOffline": "低音炮离线"
     },
-    "offline": "离线"
+    "speakerOffline": "「{name}」已离线",
+    "speakerOfflineDescription": "此音频系统当前未连接到Milō。<br>IP：{ip}",
+    "deleteSpeaker": "删除此音频系统",
+    "offline": "离线",
+    "syncing": "同步中...",
+    "syncError": "同步错误",
+    "retrySync": "重试"
   },
   "dsp": {
     "title": "DSP 均衡器",
@@ -224,6 +234,21 @@
     "title": "Spotify",
     "autoDisconnect": "自动断开",
     "disconnectDelay": "音乐暂停后断开延迟时间:"
+  },
+  "macSettings": {
+    "title": "Mac 流媒体",
+    "latency": "延迟",
+    "targetLatency": "目标延迟",
+    "latencyProfile": "延迟配置",
+    "frameLength": "帧大小",
+    "profiles": {
+      "responsive": "快速响应",
+      "gradual": "渐进",
+      "intact": "完整"
+    },
+    "apply": "应用并重启",
+    "restarting": "正在重启...",
+    "warning": "低延迟可能在不稳定的网络上导致音频中断。"
   },
   "podcastSettings": {
     "title": "播客",
@@ -376,6 +401,7 @@
     "confirm": "确认",
     "restore": "恢复",
     "delete": "删除",
+    "deleting": "删除中...",
     "modify": "编辑"
   },
   "radio": {
