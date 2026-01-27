@@ -14,6 +14,7 @@ Features:
 """
 import asyncio
 import os
+import re
 import time
 import yaml
 from typing import Dict, Any, Optional
@@ -213,8 +214,16 @@ class SpotifySource(BaseAudioSource):
                 metadata=self._metadata
             )
 
-        if cmd == "seek" and "position_ms" in data:
-            return await self._send_api_command("seek", {"position": data["position_ms"]})
+        if cmd == "seek":
+            position = data.get("position_ms")
+            if position is None:
+                return self.error_response("position_ms required")
+            if not isinstance(position, (int, float)) or position < 0:
+                return self.error_response("position_ms must be a non-negative number")
+            duration = self._metadata.get("duration", 0)
+            if duration > 0 and position > duration:
+                return self.error_response(f"position_ms ({position}) exceeds duration ({duration}ms)")
+            return await self._send_api_command("seek", {"position": int(position)})
 
         if cmd in ["play", "pause", "resume", "playpause"]:
             return await self._send_api_command(cmd)
@@ -291,9 +300,12 @@ class SpotifySource(BaseAudioSource):
         await self._ws_client.start()
 
     async def _handle_ws_event(self, event: Dict[str, Any]) -> None:
-        """Handle WebSocket event from go-librespot."""
+        """Handle WebSocket event from go-librespot.
+
+        go-librespot sends flat events (fields at root level, no "data" wrapper):
+        {"type": "seek", "position": 12345, "uri": "spotify:track:..."}
+        """
         event_type = event.get("type")
-        data = event.get("data", {})
 
         self._ws_connected = True
 
@@ -313,7 +325,13 @@ class SpotifySource(BaseAudioSource):
             await self._on_metadata_update()
 
         elif event_type == "seek":
-            await self._on_seek(data.get("position", 0))
+            await self._on_seek()
+
+        elif event_type == "stopped":
+            await self._on_stopped()
+
+        elif event_type == "not_playing":
+            await self._on_not_playing()
 
     async def _on_device_active(self) -> None:
         """Handle device active event."""
@@ -348,10 +366,23 @@ class SpotifySource(BaseAudioSource):
         await self._refresh_metadata()
         self._update_connection_state()
 
-    async def _on_seek(self, position: int) -> None:
+    async def _on_seek(self) -> None:
         """Handle seek event."""
-        if self._metadata:
-            self._metadata["position"] = position
+        await self._refresh_metadata()
+        self._update_connection_state()
+
+    async def _on_stopped(self) -> None:
+        """Handle stopped event - context ended, nothing more to play."""
+        self._logger.info("Playback stopped - context ended")
+        self._is_playing = False
+        self._cancel_pause_timer()
+        self._update_connection_state()
+
+    async def _on_not_playing(self) -> None:
+        """Handle not_playing event - track finished naturally."""
+        self._logger.debug("Track finished playing")
+        self._is_playing = False
+        self._start_pause_timer()
         self._update_connection_state()
 
     # === REST API ===
@@ -521,8 +552,6 @@ class SpotifySource(BaseAudioSource):
         Log format: level=warning msg="..." error="..."
         Returns the message exactly as it appears in the logs.
         """
-        import re
-
         # Extract msg="..."
         msg_match = re.search(r'msg="([^"]+)"', line)
         msg = msg_match.group(1) if msg_match else ""
@@ -591,6 +620,11 @@ class SpotifySource(BaseAudioSource):
     def device_connected(self) -> bool:
         """Check if device is connected."""
         return self._device_connected
+
+    @property
+    def has_active_session(self) -> bool:
+        """Check if HTTP session is active."""
+        return self._session is not None
 
     async def set_auto_disconnect_config(
         self,
