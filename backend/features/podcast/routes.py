@@ -3,18 +3,16 @@
 FastAPI routes for Podcast feature.
 
 Provides REST API for:
-- Discovery (popular, top charts, by genre)
+- Discovery (top charts, by genre)
 - Search (podcasts and episodes)
 - Content (series details, episode details)
 - Playback (play, pause, resume, seek, stop, speed)
 - Subscriptions (add, remove, list)
 - Queue (in-progress episodes)
-- Progress (get, update)
 - Settings (podcast-specific settings)
 """
-from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException, Query, Depends
-from typing import Optional
+from typing import Callable, Dict, Any, Optional
 import logging
 
 from backend.features.podcast.models import (
@@ -22,41 +20,40 @@ from backend.features.podcast.models import (
     SeekRequest,
     SpeedRequest,
     SubscribeRequest,
-    ProgressRequest,
     SettingsRequest
 )
+from backend.features.podcast.source import PodcastSource
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/podcast", tags=["podcast"])
 
-# Podcast source instance (set by setup_podcast_routes)
-_podcast_source = None
+# Source provider function
+_source_provider: Optional[Callable[[], PodcastSource]] = None
 
 
-def setup_podcast_routes(podcast_source_getter) -> APIRouter:
+def setup_podcast_routes(source_provider: Callable[[], PodcastSource]) -> APIRouter:
     """
-    Setup podcast routes with source dependency.
+    Configure routes with source provider.
 
     Args:
-        podcast_source_getter: Callable that returns PodcastSource instance
+        source_provider: Function returning PodcastSource instance
 
     Returns:
         Configured router
     """
-    global _podcast_source
-    _podcast_source = podcast_source_getter
+    global _source_provider
+    _source_provider = source_provider
     return router
 
 
-def get_podcast_source():
-    """Get podcast source or raise 503."""
-    if _podcast_source is None:
-        raise HTTPException(status_code=503, detail="Podcast source not configured")
-    # Call the getter if it's callable
-    source = _podcast_source() if callable(_podcast_source) else _podcast_source
-    if source is None:
-        raise HTTPException(status_code=503, detail="Podcast source not initialized")
-    return source
+def get_source() -> PodcastSource:
+    """Dependency to get PodcastSource instance."""
+    if _source_provider is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Podcast source not configured"
+        )
+    return _source_provider()
 
 
 # === Language/Country Mappings ===
@@ -97,76 +94,36 @@ ITUNES_COUNTRY_TO_TADDY_COUNTRY = {
 # === Status Route ===
 
 @router.get("/status")
-async def get_status():
+async def get_status(source: PodcastSource = Depends(get_source)) -> Dict[str, Any]:
     """Get current playback status."""
     try:
-        source = get_podcast_source()
-        return await source.status()
-    except HTTPException:
-        raise
+        status = await source.status()
+        return {
+            "status": "ok",
+            **status
+        }
     except Exception as e:
-        logger.error(f"Error getting status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Status error: {e}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "service_active": False,
+            "mpv_connected": False,
+            "is_playing": False
+        }
 
 
 # === Discovery Routes ===
 
-@router.get("/discover/popular")
-async def get_popular_content(
-    language: str = Query(None, description="Language filter (e.g., FRENCH)"),
-    genres: str = Query(None, description="Comma-separated genre list"),
-    page: int = Query(1, ge=1, le=20),
-    limit: int = Query(25, ge=1, le=25)
-):
-    """Get popular podcasts globally."""
-    try:
-        source = get_podcast_source()
-
-        # If language not provided, get from user settings
-        if not language:
-            from backend.features.podcast.taddy_api import map_milo_language_to_taddy
-            from backend.dependencies import get_service
-            settings_service = get_service("settings_service")
-            settings = await settings_service.load_settings()
-            milo_language = settings.get('language', 'english')
-            language = map_milo_language_to_taddy(milo_language)
-
-        # Parse genres if provided
-        genre_list = None
-        if genres:
-            genre_list = [g.strip() for g in genres.split(",")]
-
-        result = await source.taddy_api.get_popular_content(
-            language=language,
-            genres=genre_list,
-            page=page,
-            limit=limit
-        )
-
-        # Enrich with subscription status
-        subscriptions = await source.podcast_data.get_subscription_uuids()
-        for podcast in result.get('results', []):
-            podcast['is_subscribed'] = podcast.get('uuid') in subscriptions
-
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting popular content: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.get("/discover/top-charts")
-async def get_top_charts_auto(
+async def get_top_charts(
+    source: PodcastSource = Depends(get_source),
     content_type: str = Query("PODCASTSERIES", description="PODCASTSERIES or PODCASTEPISODE"),
     page: int = Query(1, ge=1, le=20),
     limit: int = Query(25, ge=1, le=25)
-):
+) -> Dict[str, Any]:
     """Get top charts using user's language from settings."""
     try:
-        source = get_podcast_source()
-
         from backend.features.podcast.taddy_api import map_milo_language_to_itunes_country
         from backend.dependencies import get_service
         settings_service = get_service("settings_service")
@@ -206,90 +163,14 @@ async def get_top_charts_auto(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/discover/top-charts/{country}")
-async def get_top_charts(
-    country: str,
-    content_type: str = Query("PODCASTSERIES", description="PODCASTSERIES or PODCASTEPISODE"),
-    page: int = Query(1, ge=1, le=20),
-    limit: int = Query(25, ge=1, le=25)
-):
-    """Get top charts by country (explicit)."""
-    try:
-        source = get_podcast_source()
-
-        result = await source.taddy_api.get_top_charts_by_country(
-            country=country,
-            content_type=content_type,
-            page=page,
-            limit=limit
-        )
-
-        # Enrich with subscription/progress status
-        if content_type == "PODCASTSERIES":
-            subscriptions = await source.podcast_data.get_subscription_uuids()
-            for podcast in result.get('results', []):
-                podcast['is_subscribed'] = podcast.get('uuid') in subscriptions
-        else:
-            for episode in result.get('results', []):
-                progress = await source.podcast_data.get_playback_progress(episode.get('uuid'))
-                if progress:
-                    episode['playback_progress'] = progress
-
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting top charts: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/discover/genres")
-async def get_top_by_genres(
-    genres: str = Query(..., description="Comma-separated genre list"),
-    country: str = Query(None, description="Country filter"),
-    content_type: str = Query("PODCASTSERIES"),
-    page: int = Query(1, ge=1, le=20),
-    limit: int = Query(25, ge=1, le=25)
-):
-    """Get top content by genres."""
-    try:
-        source = get_podcast_source()
-
-        genre_list = [g.strip() for g in genres.split(",")]
-
-        result = await source.taddy_api.get_top_charts_by_genres(
-            genres=genre_list,
-            country=country,
-            content_type=content_type,
-            page=page,
-            limit=limit
-        )
-
-        # Enrich with subscription status
-        if content_type == "PODCASTSERIES":
-            subscriptions = await source.podcast_data.get_subscription_uuids()
-            for podcast in result.get('results', []):
-                podcast['is_subscribed'] = podcast.get('uuid') in subscriptions
-
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting top by genres: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.get("/discover/by-genre")
 async def get_content_by_genre(
+    source: PodcastSource = Depends(get_source),
     genre: str = Query(..., description="Genre (e.g., PODCASTSERIES_TECHNOLOGY)"),
     limit: int = Query(30, ge=1, le=200)
-):
+) -> Dict[str, Any]:
     """Get top podcasts for a specific genre using user's language."""
     try:
-        source = get_podcast_source()
-
         from backend.features.podcast.taddy_api import (
             map_milo_language_to_taddy,
             map_milo_language_to_itunes_country
@@ -326,12 +207,11 @@ async def get_content_by_genre(
 @router.get("/lookup/itunes/{itunes_id}")
 async def lookup_podcast_by_itunes_id(
     itunes_id: str,
+    source: PodcastSource = Depends(get_source),
     name: str = Query(None, description="Podcast name for fallback search")
-):
+) -> Dict[str, Any]:
     """Lookup Taddy UUID for a podcast using its iTunes ID."""
     try:
-        source = get_podcast_source()
-
         uuid = await source.taddy_api.lookup_podcast_uuid_by_itunes_id(
             itunes_id=itunes_id,
             podcast_name=name
@@ -353,6 +233,7 @@ async def lookup_podcast_by_itunes_id(
 
 @router.get("/search")
 async def search_mixed(
+    source: PodcastSource = Depends(get_source),
     term: str = Query("", description="Search term (optional)"),
     genres: str = Query(None, description="Comma-separated genre list"),
     languages: str = Query(None, description="Comma-separated language list"),
@@ -363,11 +244,9 @@ async def search_mixed(
     sort_by: str = Query("EXACTNESS", description="EXACTNESS or POPULARITY"),
     page: int = Query(1, ge=1, le=20),
     limit: int = Query(25, ge=1, le=25)
-):
+) -> Dict[str, Any]:
     """Search for podcasts AND episodes simultaneously."""
     try:
-        source = get_podcast_source()
-
         # Only return empty if BOTH term is empty AND no filters are active
         if not term and not genres and not languages and not duration_min and not duration_max:
             return {
@@ -384,9 +263,8 @@ async def search_mixed(
         language_list = [l.strip() for l in languages.split(",")] if languages else None
         country_list = [c.strip() for c in countries.split(",")] if countries else None
 
-        # Filter episodes to last 14 days
-        published_after = int((datetime.now(timezone.utc) - timedelta(days=14)).timestamp())
-
+        # Note: Do NOT use published_after filter - it breaks podcast search relevance
+        # The Taddy API returns random podcasts instead of matching the search term
         result = await source.taddy_api.search_mixed(
             term=term,
             genres=genre_list,
@@ -394,7 +272,6 @@ async def search_mixed(
             countries=country_list,
             duration_min=duration_min,
             duration_max=duration_max,
-            published_after=published_after,
             safe_mode=safe_mode,
             sort_by=sort_by,
             page=page,
@@ -426,14 +303,13 @@ async def search_mixed(
 @router.get("/series/{uuid}")
 async def get_podcast_series(
     uuid: str,
+    source: PodcastSource = Depends(get_source),
     page: int = Query(1, ge=1),
     limit: int = Query(25, ge=1, le=25),
     sort_order: str = Query("LATEST", description="LATEST, OLDEST, or SEARCH")
-):
+) -> Dict[str, Any]:
     """Get podcast series details with episodes."""
     try:
-        source = get_podcast_source()
-
         series = await source.taddy_api.get_podcast_series(
             uuid=uuid,
             episodes_page=page,
@@ -463,11 +339,12 @@ async def get_podcast_series(
 
 
 @router.get("/episode/{uuid}")
-async def get_episode(uuid: str):
+async def get_episode(
+    uuid: str,
+    source: PodcastSource = Depends(get_source)
+) -> Dict[str, Any]:
     """Get episode details."""
     try:
-        source = get_podcast_source()
-
         episode = await source.taddy_api.get_episode(uuid)
         if not episode:
             raise HTTPException(status_code=404, detail="Episode not found")
@@ -489,10 +366,12 @@ async def get_episode(uuid: str):
 # === Playback Routes ===
 
 @router.post("/play")
-async def play_episode(request: PlayEpisodeRequest):
+async def play_episode(
+    request: PlayEpisodeRequest,
+    source: PodcastSource = Depends(get_source)
+) -> Dict[str, Any]:
     """Play an episode."""
     try:
-        source = get_podcast_source()
         success = await source.play_episode(request.episode_uuid)
 
         if not success:
@@ -512,10 +391,11 @@ async def play_episode(request: PlayEpisodeRequest):
 
 
 @router.post("/pause")
-async def pause_playback():
+async def pause_playback(
+    source: PodcastSource = Depends(get_source)
+) -> Dict[str, Any]:
     """Pause playback."""
     try:
-        source = get_podcast_source()
         success = await source.pause()
         return {"success": success}
     except Exception as e:
@@ -524,10 +404,11 @@ async def pause_playback():
 
 
 @router.post("/resume")
-async def resume_playback():
+async def resume_playback(
+    source: PodcastSource = Depends(get_source)
+) -> Dict[str, Any]:
     """Resume playback."""
     try:
-        source = get_podcast_source()
         success = await source.resume()
         return {"success": success}
     except Exception as e:
@@ -536,10 +417,12 @@ async def resume_playback():
 
 
 @router.post("/seek")
-async def seek_playback(request: SeekRequest):
+async def seek_playback(
+    request: SeekRequest,
+    source: PodcastSource = Depends(get_source)
+) -> Dict[str, Any]:
     """Seek to position."""
     try:
-        source = get_podcast_source()
         success = await source.seek(request.position)
         return {"success": success}
     except Exception as e:
@@ -548,10 +431,11 @@ async def seek_playback(request: SeekRequest):
 
 
 @router.post("/stop")
-async def stop_playback():
+async def stop_playback(
+    source: PodcastSource = Depends(get_source)
+) -> Dict[str, Any]:
     """Stop playback."""
     try:
-        source = get_podcast_source()
         result = await source.command("stop", {})
         return result
     except Exception as e:
@@ -560,10 +444,12 @@ async def stop_playback():
 
 
 @router.post("/speed")
-async def set_speed(request: SpeedRequest):
+async def set_speed(
+    request: SpeedRequest,
+    source: PodcastSource = Depends(get_source)
+) -> Dict[str, Any]:
     """Set playback speed (0.5, 0.75, 1.0, 1.25, 1.5, 2.0)."""
     try:
-        source = get_podcast_source()
         success = await source.set_speed(request.speed)
         return {"success": success, "speed": source.playback_speed}
     except Exception as e:
@@ -574,10 +460,11 @@ async def set_speed(request: SpeedRequest):
 # === Subscription Routes ===
 
 @router.get("/subscriptions")
-async def get_subscriptions():
+async def get_subscriptions(
+    source: PodcastSource = Depends(get_source)
+) -> Dict[str, Any]:
     """Get all subscriptions with metadata."""
     try:
-        source = get_podcast_source()
         subscriptions = await source.podcast_data.get_subscriptions()
         return {"subscriptions": subscriptions, "total": len(subscriptions)}
     except Exception as e:
@@ -586,10 +473,12 @@ async def get_subscriptions():
 
 
 @router.post("/subscriptions")
-async def add_subscription(request: SubscribeRequest):
+async def add_subscription(
+    request: SubscribeRequest,
+    source: PodcastSource = Depends(get_source)
+) -> Dict[str, Any]:
     """Subscribe to a podcast with metadata."""
     try:
-        source = get_podcast_source()
         success = await source.podcast_data.add_subscription(
             podcast_uuid=request.uuid,
             name=request.name,
@@ -603,10 +492,12 @@ async def add_subscription(request: SubscribeRequest):
 
 
 @router.delete("/subscriptions/{uuid}")
-async def remove_subscription(uuid: str):
+async def remove_subscription(
+    uuid: str,
+    source: PodcastSource = Depends(get_source)
+) -> Dict[str, Any]:
     """Unsubscribe from a podcast."""
     try:
-        source = get_podcast_source()
         success = await source.podcast_data.remove_subscription(uuid)
         return {"success": success}
     except Exception as e:
@@ -616,13 +507,12 @@ async def remove_subscription(uuid: str):
 
 @router.get("/subscriptions/latest-episodes")
 async def get_latest_episodes_from_subscriptions(
+    source: PodcastSource = Depends(get_source),
     page: int = Query(1, ge=1, le=20),
     limit: int = Query(50, ge=1, le=50)
-):
+) -> Dict[str, Any]:
     """Get latest episodes from all subscribed podcasts."""
     try:
-        source = get_podcast_source()
-
         # Get subscription UUIDs
         uuids = await source.podcast_data.get_subscription_uuids()
 
@@ -651,10 +541,11 @@ async def get_latest_episodes_from_subscriptions(
 # === Queue Routes ===
 
 @router.get("/queue")
-async def get_queue():
+async def get_queue(
+    source: PodcastSource = Depends(get_source)
+) -> Dict[str, Any]:
     """Get in-progress episodes (queue)."""
     try:
-        source = get_podcast_source()
         episodes = await source.podcast_data.get_in_progress_episodes()
         return {"episodes": episodes, "total": len(episodes)}
     except Exception as e:
@@ -663,10 +554,12 @@ async def get_queue():
 
 
 @router.post("/queue/{episode_uuid}/complete")
-async def mark_episode_complete(episode_uuid: str):
+async def mark_episode_complete(
+    episode_uuid: str,
+    source: PodcastSource = Depends(get_source)
+) -> Dict[str, Any]:
     """Mark episode as completed."""
     try:
-        source = get_podcast_source()
         success = await source.podcast_data.mark_episode_completed(episode_uuid)
         return {"success": success}
     except Exception as e:
@@ -675,10 +568,12 @@ async def mark_episode_complete(episode_uuid: str):
 
 
 @router.delete("/queue/{episode_uuid}")
-async def remove_from_queue(episode_uuid: str):
+async def remove_from_queue(
+    episode_uuid: str,
+    source: PodcastSource = Depends(get_source)
+) -> Dict[str, Any]:
     """Remove episode from queue."""
     try:
-        source = get_podcast_source()
         success = await source.podcast_data.clear_playback_progress(episode_uuid)
         return {"success": success}
     except Exception as e:
@@ -686,43 +581,14 @@ async def remove_from_queue(episode_uuid: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# === Progress Routes ===
-
-@router.get("/progress/{episode_uuid}")
-async def get_progress(episode_uuid: str):
-    """Get playback progress for an episode."""
-    try:
-        source = get_podcast_source()
-        progress = await source.podcast_data.get_playback_progress(episode_uuid)
-        return {"progress": progress}
-    except Exception as e:
-        logger.error(f"Error getting progress: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/progress/{episode_uuid}")
-async def update_progress(episode_uuid: str, request: ProgressRequest):
-    """Update playback progress."""
-    try:
-        source = get_podcast_source()
-        success = await source.podcast_data.update_playback_progress(
-            episode_uuid=episode_uuid,
-            position=request.position,
-            duration=request.duration
-        )
-        return {"success": success}
-    except Exception as e:
-        logger.error(f"Error updating progress: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 # === Settings Routes ===
 
 @router.get("/settings")
-async def get_settings():
+async def get_settings(
+    source: PodcastSource = Depends(get_source)
+) -> Dict[str, Any]:
     """Get podcast settings."""
     try:
-        source = get_podcast_source()
         settings = await source.podcast_data.get_podcast_settings()
         return {"settings": settings}
     except Exception as e:
@@ -731,11 +597,12 @@ async def get_settings():
 
 
 @router.post("/settings")
-async def update_settings(request: SettingsRequest):
+async def update_settings(
+    request: SettingsRequest,
+    source: PodcastSource = Depends(get_source)
+) -> Dict[str, Any]:
     """Update podcast settings."""
     try:
-        source = get_podcast_source()
-
         updates = {}
         if request.safeMode is not None:
             updates['safeMode'] = request.safeMode
@@ -747,18 +614,4 @@ async def update_settings(request: SettingsRequest):
 
     except Exception as e:
         logger.error(f"Error updating settings: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# === API Monitoring ===
-
-@router.get("/api-quota")
-async def get_api_quota():
-    """Get remaining API requests for current hour."""
-    try:
-        source = get_podcast_source()
-        remaining = await source.taddy_api.get_api_requests_remaining()
-        return {"remaining": remaining}
-    except Exception as e:
-        logger.error(f"Error getting API quota: {e}")
         raise HTTPException(status_code=500, detail=str(e))

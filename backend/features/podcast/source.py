@@ -751,26 +751,3 @@ class PodcastSource(BaseAudioSource):
         """Set playback speed (convenience method for routes)."""
         result = await self.command("set_speed", {"speed": speed})
         return result.get("success", False)
-
-    async def reload_credentials(self, user_id: str, api_key: str) -> bool:
-        """Reload Taddy API credentials without restarting the source."""
-        try:
-            self._logger.info("Reloading Taddy API credentials")
-
-            # Close old TaddyAPI instance
-            if self._taddy_api:
-                await self._taddy_api.close()
-
-            # Create new TaddyAPI instance with new credentials
-            self._taddy_api = TaddyAPI(
-                user_id=user_id,
-                api_key=api_key,
-                cache_duration_minutes=60
-            )
-
-            self._logger.info("Taddy API credentials reloaded successfully")
-            return True
-
-        except Exception as e:
-            self._logger.error(f"Failed to reload Taddy credentials: {e}")
-            return False

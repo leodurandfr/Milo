@@ -13,7 +13,7 @@
     <div class="results" ref="resultsContainer">
       <Transition name="fade-slide" mode="out-in">
         <!-- Loading state -->
-        <MessageContent v-if="loading" key="loading" loading :title="t('podcasts.loading')" />
+        <MessageContent v-if="loading" key="loading" loading :loading-delay="0" :title="t('podcasts.loading')" />
 
         <!-- Search results -->
         <div v-else-if="hasSearched && (searchResults.podcasts.length > 0 || searchResults.episodes.length > 0)" key="results" class="results-content">
