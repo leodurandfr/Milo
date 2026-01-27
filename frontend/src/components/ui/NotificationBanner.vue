@@ -7,7 +7,7 @@
           <Icon name="close" :size="16" />
         </button>
       </div>
-      <div v-if="detail" class="notification-detail text-mono">{{ detail }}</div>
+      <div v-if="detail" class="notification-detail text-mono-small">{{ detail }}</div>
     </div>
   </Transition>
 </template>
@@ -36,7 +36,7 @@ defineEmits(['dismiss']);
 <style scoped>
 .notification-banner {
   position: fixed;
-  top: var(--space-03);
+  top: var(--space-06);
   left: 50%;
   transform: translateX(-50%);
   max-width: 400px;
