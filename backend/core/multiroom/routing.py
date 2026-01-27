@@ -23,6 +23,9 @@ class RoutingEnvironment:
     Environment variables written:
     - MILO_MODE: "direct" or "multiroom"
     - MILO_SNAPCLIENT_SOUNDCARD: always "camilladsp"
+    - ROC_TARGET_LATENCY: ROC target latency (e.g., "10ms")
+    - ROC_LATENCY_PROFILE: ROC latency profile (responsive/gradual/intact)
+    - ROC_FRAME_LENGTH: ROC frame length (e.g., "4ms")
 
     Note: MILO_EQUALIZER was removed - CamillaDSP is always in the audio path.
     DSP effects (EQ, compressor, loudness) are controlled via CamillaDSP bypass,
@@ -31,14 +34,30 @@ class RoutingEnvironment:
 
     ENVIRONMENT_FILE = "/var/lib/milo/routing.env"
     ALLOWED_MODES = frozenset(["direct", "multiroom"])
+    ALLOWED_LATENCY_PROFILES = frozenset(["responsive", "gradual", "intact"])
+    ALLOWED_FRAME_LENGTHS = frozenset([2, 4, 7, 8, 12])
+
+    # Default ROC settings (aligned with roc-streaming official defaults)
+    DEFAULT_ROC_CONFIG = {
+        "target_latency_ms": 200,
+        "latency_profile": "responsive",
+        "frame_length_ms": 7
+    }
+
+    # Class-level ROC config cache (updated via update_roc_config)
+    _roc_config = None
 
     @classmethod
-    def update(cls, multiroom_enabled: bool) -> None:
+    def update(cls, multiroom_enabled: bool, roc_config: Dict[str, Any] = None) -> None:
         """
         Update routing environment file atomically.
 
         Args:
             multiroom_enabled: Whether multiroom mode is active
+            roc_config: Optional ROC configuration dict with:
+                - target_latency_ms: int (5-500)
+                - latency_profile: str (responsive/gradual/intact)
+                - frame_length_ms: int (2/4/7/8/12)
         """
         logger = logging.getLogger(__name__)
         mode_value = "multiroom" if multiroom_enabled else "direct"
@@ -51,19 +70,36 @@ class RoutingEnvironment:
         try:
             snapclient_soundcard = "camilladsp"
 
+            # Use provided ROC config, cached config, or defaults
+            roc = roc_config or cls._roc_config or cls.DEFAULT_ROC_CONFIG
+            target_latency = roc.get("target_latency_ms", 200)
+            latency_profile = roc.get("latency_profile", "responsive")
+            frame_length = roc.get("frame_length_ms", 7)
+
+            # Validate ROC settings
+            if latency_profile not in cls.ALLOWED_LATENCY_PROFILES:
+                latency_profile = "responsive"
+            if frame_length not in cls.ALLOWED_FRAME_LENGTHS:
+                frame_length = 7
+            target_latency = max(5, min(500, target_latency))
+
             with open(temp_file, 'w') as f:
                 f.write("# Milo Audio Routing Environment Variables\n")
                 f.write("# This file is automatically modified by Milo backend\n")
                 f.write("# Do not edit manually\n\n")
                 f.write(f"MILO_MODE={mode_value}\n")
                 f.write(f"MILO_SNAPCLIENT_SOUNDCARD={snapclient_soundcard}\n")
+                f.write("\n# ROC Streaming Configuration\n")
+                f.write(f"ROC_TARGET_LATENCY={target_latency}ms\n")
+                f.write(f"ROC_LATENCY_PROFILE={latency_profile}\n")
+                f.write(f"ROC_FRAME_LENGTH={frame_length}ms\n")
                 f.flush()
                 os.fsync(f.fileno())
 
             os.replace(temp_file, cls.ENVIRONMENT_FILE)
             os.environ["MILO_MODE"] = mode_value
 
-            logger.info(f"Updated routing.env: MODE={mode_value}")
+            logger.info(f"Updated routing.env: MODE={mode_value}, ROC latency={target_latency}ms/{latency_profile}")
 
         except Exception as e:
             logger.error(f"Failed to update environment file: {e}")
@@ -73,6 +109,19 @@ class RoutingEnvironment:
             except Exception:
                 pass
             raise RuntimeError(f"Failed to update environment file: {e}")
+
+    @classmethod
+    def update_roc_config(cls, roc_config: Dict[str, Any]) -> None:
+        """
+        Update ROC configuration and regenerate routing.env.
+
+        Args:
+            roc_config: ROC configuration dict
+        """
+        cls._roc_config = roc_config
+        # Read current mode and regenerate file with new ROC config
+        current_mode = cls.get_mode()
+        cls.update(current_mode == "multiroom", roc_config)
 
     @classmethod
     def get_mode(cls) -> Literal["direct", "multiroom"]:

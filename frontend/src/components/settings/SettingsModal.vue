@@ -74,6 +74,12 @@
               </template>
             </ListItemButton>
 
+            <ListItemButton v-if="settingsStore.dockApps.mac" :title="t('macSettings.title')" action="caret" @click="goToView('macos')">
+              <template #icon>
+                <img :src="macosIcon" alt="Mac" />
+              </template>
+            </ListItemButton>
+
             <ListItemButton v-if="settingsStore.dockApps.radio" :title="t('audioSources.radio')" action="caret" @click="goToView('radio')">
               <template #icon>
                 <img :src="radioIcon" alt="Radio" />
@@ -161,6 +167,9 @@
         <!-- Podcast view -->
         <PodcastSettings v-else-if="currentView === 'podcast'" key="podcast" class="view-content" />
 
+        <!-- Mac streaming view -->
+        <MacosSettings v-else-if="currentView === 'macos'" key="macos" class="view-content" />
+
         <!-- DSP view -->
         <DspSettings
           v-else-if="currentView === 'equalizer'"
@@ -206,6 +215,7 @@ import informationIcon from '@/assets/settings-icons/information.svg';
 import radioIcon from '@/assets/settings-icons/radio.svg';
 import podcastIcon from '@/assets/settings-icons/podcast.svg';
 import equalizerIcon from '@/assets/settings-icons/equalizer.svg';
+import macosIcon from '@/assets/settings-icons/macos.svg';
 import ApplicationsSettings from '@/components/settings/categories/ApplicationsSettings.vue';
 import VolumeSettings from '@/components/settings/categories/VolumeSettings.vue';
 import ScreenSettings from '@/components/settings/categories/ScreenSettings.vue';
@@ -216,6 +226,7 @@ import ClientEdit from './categories/multiroom/ClientEdit.vue';
 import RadioSettings from '@/components/settings/categories/radio/RadioSettings.vue';
 import ManageStation from '@/components/settings/categories/radio/ManageStation.vue';
 import PodcastSettings from '@/components/settings/categories/PodcastSettings.vue';
+import MacosSettings from '@/components/settings/categories/MacosSettings.vue';
 import UpdateManager from '@/components/settings/categories/UpdateManager.vue';
 import InfoSettings from '@/components/settings/categories/InfoSettings.vue';
 import DspSettings from '@/components/settings/categories/DspSettings.vue';
@@ -271,6 +282,7 @@ const headerTitle = computed(() => {
     'radio-add': t('radio.manageStation.addStationTitle'),
     'radio-edit': t('radio.manageStation.editStationTitle'),
     'podcast': t('podcastSettings.title'),
+    'macos': t('macSettings.title'),
     'equalizer': t('dsp.title'),
     'updates': t('settings.updates'),
     'info': t('settings.information')
@@ -465,6 +477,7 @@ const shouldShowPlaceholder = computed(() => {
   // Count the number of visible IconButtons
   let count = 7; // Base: Languages, Applications, Volume, Screen, Equalizer, Updates, Information
   if (settingsStore.dockApps.spotify) count++;
+  if (settingsStore.dockApps.mac) count++;
   if (settingsStore.dockApps.multiroom) count++;
   if (settingsStore.dockApps.radio) count++;
   if (settingsStore.dockApps.podcast) count++;

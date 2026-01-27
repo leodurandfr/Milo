@@ -236,6 +236,21 @@
     "autoDisconnect": "Déconnexion automatique",
     "disconnectDelay": "Délai de déconnexion après que la musique soit en pause pendant :"
   },
+  "macSettings": {
+    "title": "Streaming Mac",
+    "latency": "Latence",
+    "targetLatency": "Latence cible",
+    "latencyProfile": "Profil de latence",
+    "frameLength": "Taille de trame",
+    "profiles": {
+      "responsive": "Réactif",
+      "gradual": "Graduel",
+      "intact": "Intact"
+    },
+    "apply": "Appliquer & Redémarrer",
+    "restarting": "Redémarrage...",
+    "warning": "Une latence basse peut causer des coupures audio sur les réseaux instables."
+  },
   "podcastSettings": {
     "title": "Podcasts",
     "taddyCredentials": "Identifiants API Taddy",

@@ -236,6 +236,21 @@
     "autoDisconnect": "Auto disconnect",
     "disconnectDelay": "Disconnect delay after music is paused for:"
   },
+  "macSettings": {
+    "title": "Mac Streaming",
+    "latency": "Latency",
+    "targetLatency": "Target latency",
+    "latencyProfile": "Latency profile",
+    "frameLength": "Frame length",
+    "profiles": {
+      "responsive": "Responsive",
+      "gradual": "Gradual",
+      "intact": "Intact"
+    },
+    "apply": "Apply & Restart",
+    "restarting": "Restarting...",
+    "warning": "Lower latency may cause audio dropouts on unstable networks."
+  },
   "podcastSettings": {
     "title": "Podcasts",
     "taddyCredentials": "Taddy API credentials",

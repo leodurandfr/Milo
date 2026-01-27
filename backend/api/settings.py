@@ -17,8 +17,10 @@ from backend.api.models import (
     SpotifyDisconnectRequest,
     PodcastCredentialsRequest,
     ScreenTimeoutRequest,
-    ScreenBrightnessRequest
+    ScreenBrightnessRequest,
+    MacRocConfigRequest
 )
+from backend.core.multiroom.routing import RoutingEnvironment
 import logging
 import asyncio
 
@@ -859,5 +861,72 @@ def create_settings_router(
                     "screen_resolution": {"width": None, "height": None}
                 }
             }
+
+    # Mac ROC Streaming configuration
+    @router.get("/mac-roc")
+    async def get_mac_roc_config():
+        """Get Mac ROC streaming configuration (latency, profile, frame length)"""
+        mac = await settings.get_setting('mac') or {}
+        return {
+            "status": "success",
+            "config": {
+                "target_latency_ms": mac.get("target_latency_ms", 10),
+                "latency_profile": mac.get("latency_profile", "responsive"),
+                "frame_length_ms": mac.get("frame_length_ms", 4)
+            }
+        }
+
+    @router.post("/mac-roc")
+    async def set_mac_roc_config(payload: MacRocConfigRequest):
+        """
+        Update Mac ROC streaming configuration and restart the service.
+
+        This endpoint:
+        1. Saves settings to settings.json
+        2. Updates routing.env with ROC environment variables
+        3. Restarts milo-mac.service to apply changes
+        """
+        try:
+            target_latency_ms = payload.target_latency_ms
+            latency_profile = payload.latency_profile
+            frame_length_ms = payload.frame_length_ms
+
+            # Save settings to settings.json
+            mac_config = {
+                'target_latency_ms': target_latency_ms,
+                'latency_profile': latency_profile,
+                'frame_length_ms': frame_length_ms
+            }
+            success = await settings.set_setting('mac', mac_config)
+            if not success:
+                raise HTTPException(status_code=500, detail="Failed to save Mac ROC settings")
+
+            # Update routing.env with ROC environment variables
+            RoutingEnvironment.update_roc_config(mac_config)
+
+            # Restart milo-mac.service to apply changes
+            restart_success = await systemd_manager.restart("milo-mac.service")
+            if not restart_success:
+                logger.warning("Failed to restart milo-mac.service, settings saved but not applied")
+
+            # Broadcast settings change via WebSocket
+            await ws_manager.broadcast_dict({
+                "category": "settings",
+                "type": "mac_roc_changed",
+                "source": "settings",
+                "data": {"config": mac_config, "service_restarted": restart_success}
+            })
+
+            return {
+                "status": "success",
+                "config": mac_config,
+                "service_restarted": restart_success
+            }
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error updating Mac ROC config: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
 
     return router

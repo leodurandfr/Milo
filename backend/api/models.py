@@ -415,3 +415,18 @@ class DspPresetRequest(BaseModel):
         if not cleaned.replace('_', '').isalnum():
             raise ValueError('Preset ID must contain only alphanumeric characters and underscores')
         return cleaned
+
+
+# =============================================================================
+# SETTINGS - MAC ROC STREAMING
+# =============================================================================
+
+ROC_LATENCY_PROFILES = Literal['responsive', 'gradual', 'intact']
+ROC_FRAME_LENGTHS = Literal[2, 4, 7, 8, 12]
+
+
+class MacRocConfigRequest(BaseModel):
+    """Mac ROC streaming configuration request"""
+    target_latency_ms: int = Field(default=200, ge=5, le=500, description="Target latency in milliseconds")
+    latency_profile: ROC_LATENCY_PROFILES = Field(default='responsive', description="Latency tuning profile")
+    frame_length_ms: ROC_FRAME_LENGTHS = Field(default=7, description="Internal frame length in milliseconds")
