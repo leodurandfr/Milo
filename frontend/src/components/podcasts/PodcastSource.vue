@@ -49,12 +49,12 @@
 
         <!-- Podcast Details (full screen overlay) -->
         <PodcastDetails v-else-if="currentView === 'podcast-details'" key="podcast-details"
-          :uuid="selectedPodcastUuid" @back="goBack" @play-episode="playEpisode"
+          :uuid="selectedPodcastUuid" @play-episode="playEpisode"
           @select-episode="openEpisodeDetails" />
 
         <!-- Episode Details (full screen overlay) -->
         <EpisodeDetails v-else-if="currentView === 'episode-details'" key="episode-details"
-          :uuid="selectedEpisodeUuid" @back="goBack" @play-episode="playEpisode"
+          :uuid="selectedEpisodeUuid" @play-episode="playEpisode"
           @select-podcast="openPodcastDetails" />
       </div>
     </template>

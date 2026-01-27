@@ -83,15 +83,6 @@ async function markComplete(episodeUuid) {
   }
 }
 
-async function removeFromQueue(episodeUuid) {
-  try {
-    await fetch(`/api/podcast/queue/${episodeUuid}`, { method: 'DELETE' })
-    episodes.value = episodes.value.filter(e => e.episodeUuid !== episodeUuid)
-  } catch (error) {
-    console.error('Error removing from queue:', error)
-  }
-}
-
 onMounted(() => {
   loadQueue()
 })

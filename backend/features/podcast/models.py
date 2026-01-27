@@ -30,12 +30,6 @@ class SubscribeRequest(BaseModel):
     children_hash: Optional[str] = ""
 
 
-class ProgressRequest(BaseModel):
-    """Request to update playback progress."""
-    position: int
-    duration: int
-
-
 class SettingsRequest(BaseModel):
     """Request to update podcast settings."""
     safeMode: Optional[bool] = None

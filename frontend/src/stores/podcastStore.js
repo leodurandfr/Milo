@@ -281,10 +281,6 @@ export const usePodcastStore = defineStore('podcast', () => {
   }
 
   // === PROGRESS CACHE HELPERS ===
-  function getEpisodeProgress(episodeUuid) {
-    // Get progress from cache (reactive)
-    return progressCache.value.get(episodeUuid) || null
-  }
 
   /**
    * Enforce cache limit by evicting oldest entries (LRU based on lastPlayed)
@@ -305,8 +301,11 @@ export const usePodcastStore = defineStore('podcast', () => {
     }
   }
 
+  function getEpisodeProgress(episodeUuid) {
+    return progressCache.value.get(episodeUuid) || null
+  }
+
   function setEpisodeProgress(episodeUuid, position, duration) {
-    // Manually set progress (used when loading from API)
     progressCache.value.set(episodeUuid, {
       position,
       duration,
@@ -348,8 +347,8 @@ export const usePodcastStore = defineStore('podcast', () => {
     return map
   }
 
-  // Lightweight preload - only fetches subscriptions list (no Taddy API call)
-  // Called at app startup to know if hasSubscriptions before opening Podcasts
+  // Preload subscriptions list only (no Taddy API call)
+  // Called at app startup for instant hasSubscriptions check
   async function preloadSubscriptionsList() {
     if (subscriptionsListLoaded.value) return
 

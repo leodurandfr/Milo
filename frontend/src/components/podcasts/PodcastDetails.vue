@@ -69,7 +69,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['back', 'play-episode', 'select-episode'])
+const emit = defineEmits(['play-episode', 'select-episode'])
 const podcastStore = usePodcastStore()
 
 async function handlePause() {

@@ -221,52 +221,6 @@ class PodcastDataService:
         subscriptions = await self.get_subscription_uuids()
         return podcast_uuid in subscriptions
 
-    async def update_subscription_hash(
-        self,
-        podcast_uuid: str,
-        new_hash: str
-    ) -> bool:
-        """
-        Update children_hash for a subscription (for detecting new episodes).
-
-        Args:
-            podcast_uuid: Podcast series UUID
-            new_hash: New children_hash from API
-        """
-        data = await self.load_data()
-
-        for subscription in data['subscriptions']:
-            if subscription.get('uuid') == podcast_uuid:
-                subscription['childrenHash'] = new_hash
-                subscription['lastChecked'] = int(time.time())
-                return await self.save_data(data)
-
-        return False
-
-    async def check_new_episodes(
-        self,
-        podcast_uuid: str,
-        current_hash: str
-    ) -> bool:
-        """
-        Check if podcast has new episodes by comparing hash.
-
-        Args:
-            podcast_uuid: Podcast series UUID
-            current_hash: Current childrenHash from API
-
-        Returns:
-            True if hash is different (new episodes available)
-        """
-        subscriptions = await self.get_subscriptions()
-
-        for subscription in subscriptions:
-            if subscription.get('uuid') == podcast_uuid:
-                stored_hash = subscription.get('childrenHash', '')
-                return stored_hash != '' and stored_hash != current_hash
-
-        return False
-
     # ========== PLAYBACK PROGRESS ==========
 
     async def update_playback_progress(
@@ -386,75 +340,6 @@ class PodcastDataService:
         }
         return await self.save_data(data)
 
-    async def get_cached_episode(self, episode_uuid: str) -> Optional[Dict[str, Any]]:
-        """Get cached episode data."""
-        data = await self.load_data()
-        cached = data.get('cache', {}).get('episodes', {}).get(episode_uuid)
-        if cached:
-            return cached.get('data')
-        return None
-
-    async def cache_podcast(
-        self,
-        podcast_uuid: str,
-        podcast_data: Dict[str, Any]
-    ) -> bool:
-        """Cache podcast data."""
-        data = await self.load_data()
-        data['cache']['podcasts'][podcast_uuid] = {
-            'data': podcast_data,
-            'cachedAt': int(time.time())
-        }
-        return await self.save_data(data)
-
-    async def get_cached_podcast(self, podcast_uuid: str) -> Optional[Dict[str, Any]]:
-        """Get cached podcast data."""
-        data = await self.load_data()
-        cached = data.get('cache', {}).get('podcasts', {}).get(podcast_uuid)
-        if cached:
-            return cached.get('data')
-        return None
-
-    async def clean_old_cache(self, max_age_seconds: int = 7200) -> int:
-        """
-        Remove cached entries older than max_age_seconds.
-
-        Args:
-            max_age_seconds: Maximum age in seconds (default 2 hours)
-
-        Returns:
-            Number of entries removed
-        """
-        data = await self.load_data()
-        now = int(time.time())
-        removed = 0
-
-        # Clean episode cache
-        episodes_to_remove = []
-        for episode_uuid, cached in data['cache']['episodes'].items():
-            if now - cached.get('cachedAt', 0) > max_age_seconds:
-                episodes_to_remove.append(episode_uuid)
-
-        for uuid in episodes_to_remove:
-            del data['cache']['episodes'][uuid]
-            removed += 1
-
-        # Clean podcast cache
-        podcasts_to_remove = []
-        for podcast_uuid, cached in data['cache']['podcasts'].items():
-            if now - cached.get('cachedAt', 0) > max_age_seconds:
-                podcasts_to_remove.append(podcast_uuid)
-
-        for uuid in podcasts_to_remove:
-            del data['cache']['podcasts'][uuid]
-            removed += 1
-
-        if removed > 0:
-            await self.save_data(data)
-            self._logger.info(f"Cleaned {removed} old cache entries")
-
-        return removed
-
     # ========== SETTINGS ==========
 
     async def get_podcast_settings(self) -> Dict[str, Any]:
@@ -486,15 +371,3 @@ class PodcastDataService:
     async def set_setting(self, key: str, value: Any) -> bool:
         """Set a single setting value."""
         return await self.update_podcast_settings({key: value})
-
-    # ========== STATS ==========
-
-    def get_stats(self) -> Dict[str, Any]:
-        """Get statistics (sync, for status response)."""
-        # Note: This is called synchronously, so we return cached stats
-        # For accurate stats, use async methods
-        return {
-            'subscriptions_count': 0,
-            'in_progress_count': 0,
-            'cached_episodes': 0
-        }

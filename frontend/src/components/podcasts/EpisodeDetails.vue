@@ -46,7 +46,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['back', 'play-episode', 'select-podcast'])
+const emit = defineEmits(['play-episode', 'select-podcast'])
 
 const podcastStore = usePodcastStore()
 const loading = ref(false)
