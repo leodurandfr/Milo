@@ -96,7 +96,7 @@ function onProgressClick(event) {
   display: flex;
   align-items: center;
   width: 100%;
-  gap: var(--space-03)
+  gap: var(--space-03);
 }
 
 .progress-container {
@@ -117,6 +117,6 @@ function onProgressClick(event) {
 }
 
 .time {
-  color: var(--color-text-light)
+  color: var(--color-text-light);
 }
 </style>

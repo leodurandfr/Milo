@@ -50,15 +50,17 @@ export function usePlaybackProgress() {
     }
   }
 
-  function seekTo(position) {
+  async function seekTo(position) {
     isApiSyncing = true;
     localPosition.value = position;
 
-    unifiedStore.sendCommand('spotify', 'seek', { position_ms: position });
-
-    setTimeout(() => {
+    try {
+      await unifiedStore.sendCommand('spotify', 'seek', { position_ms: position });
+    } finally {
+      // Small delay to let WebSocket event arrive first
+      await new Promise(resolve => setTimeout(resolve, 50));
       isApiSyncing = false;
-    }, 200);
+    }
   }
 
   // Cleanup

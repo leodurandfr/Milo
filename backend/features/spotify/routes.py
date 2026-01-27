@@ -15,8 +15,6 @@ Usage:
     setup_spotify_routes(lambda: source)
     app.include_router(router, prefix="/api")
 """
-import asyncio
-
 import aiohttp
 from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import Dict, Any, Callable, Optional
@@ -67,8 +65,8 @@ async def get_status(source: SpotifySource = Depends(get_source)) -> Dict[str, A
         Status dict with state, device info, and metadata
     """
     try:
-        # Refresh metadata if possible
-        if source._session:
+        # Refresh metadata if session is active
+        if source.has_active_session:
             await source._refresh_metadata()
 
         status = await source.status()
@@ -96,7 +94,7 @@ async def get_status(source: SpotifySource = Depends(get_source)) -> Dict[str, A
 
 
 @router.get("/fresh-status")
-async def get_fresh_status() -> Dict[str, Any]:
+async def get_fresh_status(source: SpotifySource = Depends(get_source)) -> Dict[str, Any]:
     """
     Get fresh status directly from go-librespot API.
 
@@ -106,7 +104,14 @@ async def get_fresh_status() -> Dict[str, Any]:
         Status with metadata from go-librespot
     """
     try:
-        api_url = "http://localhost:3678/status"
+        if not source.api_url:
+            return {
+                "status": "error",
+                "message": "API URL not configured",
+                "source": "config_error"
+            }
+
+        api_url = f"{source.api_url}/status"
         timeout = aiohttp.ClientTimeout(total=3)
 
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -153,7 +158,7 @@ async def get_fresh_status() -> Dict[str, Any]:
             "message": "Cannot connect to go-librespot API - server may not be running",
             "source": "connection_error"
         }
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return {
             "status": "error",
             "message": "Timeout connecting to go-librespot API",
