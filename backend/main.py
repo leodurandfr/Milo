@@ -146,17 +146,17 @@ app.include_router(volume_router)
 spotify_router = setup_spotify_routes(
     lambda: state_machine.plugins.get(AudioSource.SPOTIFY)
 )
-app.include_router(spotify_router)
+app.include_router(spotify_router, prefix="/api")
 
 mac_router = setup_mac_routes(
     lambda: state_machine.plugins.get(AudioSource.MAC)
 )
-app.include_router(mac_router)
+app.include_router(mac_router, prefix="/api")
 
 bluetooth_router = setup_bluetooth_routes(
     lambda: state_machine.plugins.get(AudioSource.BLUETOOTH)
 )
-app.include_router(bluetooth_router)
+app.include_router(bluetooth_router, prefix="/api")
 
 radio_router = setup_radio_routes(
     lambda: state_machine.plugins.get(AudioSource.RADIO)

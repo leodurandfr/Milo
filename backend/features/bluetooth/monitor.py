@@ -33,11 +33,6 @@ class BlueAlsaMonitor:
         self._stopped = False
         self._read_task: Optional[asyncio.Task] = None
 
-    @property
-    def connected_devices(self) -> Dict[str, Dict[str, Any]]:
-        """Get currently connected devices."""
-        return dict(self._connected_devices)
-
     def set_callbacks(
         self,
         on_connect: ConnectionCallback,
