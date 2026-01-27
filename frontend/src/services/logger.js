@@ -228,6 +228,3 @@ class Logger {
 
 // Singleton instance
 export const logger = new Logger();
-
-// Named export for convenience
-export default logger;

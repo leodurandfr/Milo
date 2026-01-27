@@ -11,7 +11,7 @@
  * - Filter uses: "The United States Of America" (exact API name)
  */
 
-export const COUNTRY_NAME_TO_I18N_KEY = {
+const COUNTRY_NAME_TO_I18N_KEY = {
   // Top countries (6000+ stations)
   'The United States Of America': 'usa',
   'Germany': 'germany',
@@ -87,7 +87,7 @@ export const COUNTRY_NAME_TO_I18N_KEY = {
  * @param {string} apiName - Country name as returned by RadioBrowser API
  * @returns {string} i18n key (e.g., "usa", "france") or the original name if not found
  */
-export function getCountryI18nKey(apiName) {
+function getCountryI18nKey(apiName) {
   return COUNTRY_NAME_TO_I18N_KEY[apiName] || apiName.toLowerCase().replace(/\s+/g, '_');
 }
 

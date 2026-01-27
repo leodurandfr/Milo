@@ -15,7 +15,7 @@
 import { ref, onUnmounted } from 'vue';
 
 // Throttle presets (in milliseconds)
-export const THROTTLE_PRESETS = {
+const THROTTLE_PRESETS = {
   FAST: { throttle: 50, final: 150 },
   MEDIUM: { throttle: 80, final: 300 },
   SLOW: { throttle: 150, final: 500 },
@@ -180,4 +180,3 @@ export function useVolumeThrottleMap(callbackFactory, preset = 'MEDIUM') {
   };
 }
 
-export default useVolumeThrottle;

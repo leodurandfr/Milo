@@ -3,12 +3,12 @@
  * Integration tests for multiroomStore - Real-time sync via WebSocket (Story 6.3)
  *
  * Tests verify the reactive chain:
- * WebSocket Event → clientRegistryStore.handleMultiroomEvent() → clients Map → multiroomStore.clients computed
+ * WebSocket Event → multiroomStore.handleMultiroomEvent() → clients Map → multiroomStore.clients computed
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
 import { useMultiroomStore } from '@/stores/multiroomStore';
-import { useClientRegistryStore } from '@/stores/clientRegistryStore';
+// Note: clientRegistryStore was merged into multiroomStore
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import axios from 'axios';
 
@@ -36,12 +36,10 @@ vi.mock('@/stores/unifiedAudioStore', () => ({
 
 describe('multiroomStore - Real-Time Sync (Story 6.3)', () => {
   let multiroomStore;
-  let clientRegistryStore;
 
   beforeEach(() => {
     setActivePinia(createPinia());
     multiroomStore = useMultiroomStore();
-    clientRegistryStore = useClientRegistryStore();
     vi.clearAllMocks();
   });
 
@@ -69,7 +67,7 @@ describe('multiroomStore - Real-Time Sync (Story 6.3)', () => {
         }
       };
 
-      clientRegistryStore.handleMultiroomEvent(event);
+      multiroomStore.handleMultiroomEvent(event);
 
       // multiroomStore.clients should reflect the new client
       const clients = multiroomStore.clients;
@@ -81,7 +79,7 @@ describe('multiroomStore - Real-Time Sync (Story 6.3)', () => {
 
     it('should update multiroomStore.clients when client goes offline', () => {
       // Add initial client
-      clientRegistryStore.handleMultiroomEvent({
+      multiroomStore.handleMultiroomEvent({
         type: 'client_state_changed',
         data: {
           mac_id: 'dc:a6:32:7e:d3:43',
@@ -97,7 +95,7 @@ describe('multiroomStore - Real-Time Sync (Story 6.3)', () => {
       expect(multiroomStore.clients[0].online).toBe(true);
 
       // Client goes offline
-      clientRegistryStore.handleMultiroomEvent({
+      multiroomStore.handleMultiroomEvent({
         type: 'client_state_changed',
         data: {
           mac_id: 'dc:a6:32:7e:d3:43',
@@ -116,7 +114,7 @@ describe('multiroomStore - Real-Time Sync (Story 6.3)', () => {
 
     it('should update multiroomStore.clients when client name changes', () => {
       // Add initial client
-      clientRegistryStore.handleMultiroomEvent({
+      multiroomStore.handleMultiroomEvent({
         type: 'client_state_changed',
         data: {
           mac_id: 'dc:a6:32:7e:d3:43',
@@ -133,7 +131,7 @@ describe('multiroomStore - Real-Time Sync (Story 6.3)', () => {
       expect(multiroomStore.clients[0].name).toBe('Old Name');
 
       // Name changes
-      clientRegistryStore.handleMultiroomEvent({
+      multiroomStore.handleMultiroomEvent({
         type: 'client_state_changed',
         data: {
           mac_id: 'dc:a6:32:7e:d3:43',
@@ -157,7 +155,7 @@ describe('multiroomStore - Real-Time Sync (Story 6.3)', () => {
   // ===========================================================================
 
   describe('AC2: zone_changed (create) → zones list updated', () => {
-    it('should add zone to clientRegistryStore.zoneList when zone_changed event creates zone', () => {
+    it('should add zone to multiroomStore.zoneList when zone_changed event creates zone', () => {
       // Simulate zone creation via WebSocket
       const event = {
         type: 'zone_changed',
@@ -174,10 +172,10 @@ describe('multiroomStore - Real-Time Sync (Story 6.3)', () => {
         }
       };
 
-      clientRegistryStore.handleMultiroomEvent(event);
+      multiroomStore.handleMultiroomEvent(event);
 
-      // clientRegistryStore.zoneList should have the new zone
-      const zones = clientRegistryStore.zoneList;
+      // multiroomStore.zoneList should have the new zone
+      const zones = multiroomStore.zoneList;
       expect(zones.length).toBe(1);
       expect(zones[0].name).toBe('Living Room');
       expect(zones[0].client_ids).toHaveLength(2);
@@ -185,7 +183,7 @@ describe('multiroomStore - Real-Time Sync (Story 6.3)', () => {
 
     it('should update zone when zone_changed event modifies zone', () => {
       // Create initial zone
-      clientRegistryStore.handleMultiroomEvent({
+      multiroomStore.handleMultiroomEvent({
         type: 'zone_changed',
         data: {
           zone_id: 'uuid-zone-1',
@@ -197,10 +195,10 @@ describe('multiroomStore - Real-Time Sync (Story 6.3)', () => {
         }
       });
 
-      expect(clientRegistryStore.zoneList[0].client_ids).toHaveLength(1);
+      expect(multiroomStore.zoneList[0].client_ids).toHaveLength(1);
 
       // Zone gets more members
-      clientRegistryStore.handleMultiroomEvent({
+      multiroomStore.handleMultiroomEvent({
         type: 'zone_changed',
         data: {
           zone_id: 'uuid-zone-1',
@@ -213,15 +211,15 @@ describe('multiroomStore - Real-Time Sync (Story 6.3)', () => {
       });
 
       // Zone should be updated
-      expect(clientRegistryStore.zoneList[0].name).toBe('Bedroom Extended');
-      expect(clientRegistryStore.zoneList[0].client_ids).toHaveLength(3);
+      expect(multiroomStore.zoneList[0].name).toBe('Bedroom Extended');
+      expect(multiroomStore.zoneList[0].client_ids).toHaveLength(3);
     });
   });
 
   describe('AC2: zone_changed (delete) → zone removed from list', () => {
     it('should remove zone when zone_changed event has null zone', () => {
       // Create zone first
-      clientRegistryStore.handleMultiroomEvent({
+      multiroomStore.handleMultiroomEvent({
         type: 'zone_changed',
         data: {
           zone_id: 'uuid-zone-delete',
@@ -233,10 +231,10 @@ describe('multiroomStore - Real-Time Sync (Story 6.3)', () => {
         }
       });
 
-      expect(clientRegistryStore.zoneList.length).toBe(1);
+      expect(multiroomStore.zoneList.length).toBe(1);
 
       // Delete zone (zone: null)
-      clientRegistryStore.handleMultiroomEvent({
+      multiroomStore.handleMultiroomEvent({
         type: 'zone_changed',
         data: {
           zone_id: 'uuid-zone-delete',
@@ -245,7 +243,7 @@ describe('multiroomStore - Real-Time Sync (Story 6.3)', () => {
       });
 
       // Zone should be removed
-      expect(clientRegistryStore.zoneList.length).toBe(0);
+      expect(multiroomStore.zoneList.length).toBe(0);
     });
   });
 
@@ -262,7 +260,7 @@ describe('multiroomStore - Real-Time Sync (Story 6.3)', () => {
       expect(multiroomStore.clients).toBeDefined();
       expect(Array.isArray(multiroomStore.clients)).toBe(true);
 
-      // Verify isLoading derives from clientRegistryStore (not internal polling state)
+      // Verify isLoading derives from multiroomStore (not internal polling state)
       expect(typeof multiroomStore.isLoading).toBe('boolean');
 
       // Verify no fetchClients or refresh methods that would indicate polling
@@ -273,14 +271,14 @@ describe('multiroomStore - Real-Time Sync (Story 6.3)', () => {
     });
 
     it('should use Vue computed (not ref with polling) for clients', () => {
-      // multiroomStore.clients should be a computed that derives from clientRegistryStore
+      // multiroomStore.clients should be a computed that derives from multiroomStore
       // Adding a client via event should automatically update multiroomStore.clients
 
       // Initial state
       expect(multiroomStore.clients.length).toBe(0);
 
       // Add client via event (simulating WebSocket)
-      clientRegistryStore.handleMultiroomEvent({
+      multiroomStore.handleMultiroomEvent({
         type: 'client_state_changed',
         data: {
           mac_id: 'test-client',
@@ -297,7 +295,7 @@ describe('multiroomStore - Real-Time Sync (Story 6.3)', () => {
   // AC5: Reactive Chain Verification
   // ===========================================================================
 
-  describe('AC5: Reactive chain - WebSocket → clientRegistryStore → multiroomStore', () => {
+  describe('AC5: Reactive chain - WebSocket → multiroomStore → multiroomStore', () => {
     it('should propagate multiple rapid events without data loss', async () => {
       // Simulate multiple rapid WebSocket events
       const events = [
@@ -310,12 +308,12 @@ describe('multiroomStore - Real-Time Sync (Story 6.3)', () => {
 
       // Process all events rapidly
       events.forEach(event => {
-        clientRegistryStore.handleMultiroomEvent(event);
+        multiroomStore.handleMultiroomEvent(event);
       });
 
       // All data should be present without loss
       expect(multiroomStore.clients.length).toBe(3);
-      expect(clientRegistryStore.zoneList.length).toBe(1);
+      expect(multiroomStore.zoneList.length).toBe(1);
 
       // Verify final states
       const client1 = multiroomStore.clients.find(c => c.mac_id === 'client1');
@@ -323,23 +321,23 @@ describe('multiroomStore - Real-Time Sync (Story 6.3)', () => {
       expect(client1.online).toBe(false);
     });
 
-    it('should maintain consistency between clientRegistryStore.clientList and multiroomStore.clients', () => {
+    it('should maintain consistency between multiroomStore.clientList and multiroomStore.clients', () => {
       // Add clients
-      clientRegistryStore.handleMultiroomEvent({
+      multiroomStore.handleMultiroomEvent({
         type: 'client_state_changed',
         data: { mac_id: 'aa:bb:cc:dd:ee:ff', client: { mac_id: 'aa:bb:cc:dd:ee:ff', snapcast_id: 'local', name: 'Milo', online: true, is_local: true } }
       });
-      clientRegistryStore.handleMultiroomEvent({
+      multiroomStore.handleMultiroomEvent({
         type: 'client_state_changed',
         data: { mac_id: 'remote1', client: { mac_id: 'remote1', snapcast_id: 'remote1', name: 'Remote', online: true, is_local: false } }
       });
 
       // Both stores should have consistent data
-      expect(clientRegistryStore.clientList.length).toBe(2);
+      expect(multiroomStore.clientList.length).toBe(2);
       expect(multiroomStore.clients.length).toBe(2);
 
       // Verify data is derived (not duplicated)
-      const registryClient = clientRegistryStore.clientList.find(c => c.is_local);
+      const registryClient = multiroomStore.clientList.find(c => c.is_local);
       const multiroomClient = multiroomStore.clients.find(c => c.is_local);
 
       expect(registryClient.name).toBe('Milo');
@@ -352,7 +350,7 @@ describe('multiroomStore - Real-Time Sync (Story 6.3)', () => {
       expect(initialCount).toBe(0);
 
       // Direct Map modification via handleMultiroomEvent
-      clientRegistryStore.handleMultiroomEvent({
+      multiroomStore.handleMultiroomEvent({
         type: 'client_state_changed',
         data: {
           mac_id: 'reactive-test',
@@ -371,7 +369,7 @@ describe('multiroomStore - Real-Time Sync (Story 6.3)', () => {
 
     it('should update computed properties when Map is modified via delete()', () => {
       // Add a zone
-      clientRegistryStore.handleMultiroomEvent({
+      multiroomStore.handleMultiroomEvent({
         type: 'zone_changed',
         data: {
           zone_id: 'zone-to-delete',
@@ -379,10 +377,10 @@ describe('multiroomStore - Real-Time Sync (Story 6.3)', () => {
         }
       });
 
-      expect(clientRegistryStore.zoneList.length).toBe(1);
+      expect(multiroomStore.zoneList.length).toBe(1);
 
       // Delete the zone
-      clientRegistryStore.handleMultiroomEvent({
+      multiroomStore.handleMultiroomEvent({
         type: 'zone_changed',
         data: {
           zone_id: 'zone-to-delete',
@@ -391,7 +389,7 @@ describe('multiroomStore - Real-Time Sync (Story 6.3)', () => {
       });
 
       // Computed should recalculate
-      expect(clientRegistryStore.zoneList.length).toBe(0);
+      expect(multiroomStore.zoneList.length).toBe(0);
     });
   });
 
@@ -409,7 +407,7 @@ describe('multiroomStore - Real-Time Sync (Story 6.3)', () => {
   describe('Integration: Volume data derives from unifiedAudioStore', () => {
     it('should include volume in derived client objects', () => {
       // Add client that has volume data in unifiedAudioStore mock
-      clientRegistryStore.handleMultiroomEvent({
+      multiroomStore.handleMultiroomEvent({
         type: 'client_state_changed',
         data: {
           mac_id: 'dc:a6:32:7e:d3:43',

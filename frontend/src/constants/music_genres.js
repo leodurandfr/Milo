@@ -9,7 +9,7 @@
  * The backend normalizes tags to lowercase before comparison.
  */
 
-export const MUSIC_GENRES = [
+const MUSIC_GENRES = [
   '60s',
   '70s',
   '80s',
