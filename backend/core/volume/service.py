@@ -745,10 +745,9 @@ class VolumeService:
                     if current:
                         updates[cid] = self._config_service.config.clamp(current.volume_db + delta_db)
                 success = await self._apply_to_multiroom_clients(updates)
-                if success and updates:
-                    # Keep _local_volume_db in sync (use average of client volumes)
-                    avg_volume = sum(updates.values()) / len(updates)
-                    self._state_store.set_local_volume(avg_volume)
+                # No need to update _local_volume_db in multiroom mode:
+                # - Individual client volumes are stored in _clients
+                # - Mode switch (multiroom→direct) uses global_volume_db (average)
                 return success
             else:
                 new_db = self._config_service.config.clamp(volume_state.global_volume_db + delta_db)

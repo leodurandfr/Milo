@@ -23,7 +23,7 @@ export const PluginStateSchema = z.enum([
 ]);
 
 // Metadata varies by source, so we use a flexible schema
-export const MetadataSchema = z.object({
+const MetadataSchema = z.object({
   // Common fields
   title: z.string().optional(),
   artist: z.string().optional(),
@@ -60,14 +60,14 @@ export const SystemStateSchema = z.object({
 
 // === VOLUME ===
 
-export const VolumeClientSchema = z.object({
+const VolumeClientSchema = z.object({
   volume_db: z.number(),
   offset_db: z.number().default(0),
   mute: z.boolean().default(false),
   online: z.boolean().default(true)  // Renamed from 'available' for consistency with backend
 });
 
-export const VolumeZoneSchema = z.object({
+const VolumeZoneSchema = z.object({
   id: z.string(),
   name: z.string(),
   client_ids: z.array(z.string()),
@@ -85,33 +85,33 @@ export const VolumeStateSchema = z.object({
 
 // === WEBSOCKET EVENTS ===
 
-export const WebSocketMessageSchema = z.object({
+const WebSocketMessageSchema = z.object({
   category: z.string(),
   type: z.string(),
   source: z.string().optional(),
   data: z.unknown().optional()
 });
 
-export const VolumeEventDataSchema = z.object({
+const VolumeEventDataSchema = z.object({
   show_bar: z.boolean().optional(),
   step_mobile_db: z.number().optional(),
   state: VolumeStateSchema.optional()
 });
 
-export const PluginEventDataSchema = z.object({
+const PluginEventDataSchema = z.object({
   state: PluginStateSchema.optional(),
   metadata: MetadataSchema.optional()
 });
 
 // === API RESPONSES ===
 
-export const ApiResponseSchema = z.object({
+const ApiResponseSchema = z.object({
   status: z.enum(['success', 'error']),
   message: z.string().optional(),
   error: z.string().optional()
 });
 
-export const HealthResponseSchema = z.object({
+const HealthResponseSchema = z.object({
   status: z.enum(['healthy', 'degraded', 'unhealthy']),
   services: z.record(z.string(), z.object({
     status: z.string(),
@@ -121,7 +121,7 @@ export const HealthResponseSchema = z.object({
 
 // === DSP ===
 
-export const DspFilterSchema = z.object({
+const DspFilterSchema = z.object({
   id: z.string(),
   freq: z.number(),
   gain: z.number(),
@@ -130,7 +130,7 @@ export const DspFilterSchema = z.object({
   enabled: z.boolean().default(true)
 });
 
-export const DspStatusSchema = z.object({
+const DspStatusSchema = z.object({
   state: z.enum(['disconnected', 'inactive', 'running', 'paused']),
   sample_rate: z.number().optional(),
   input_peak: z.tuple([z.number(), z.number()]).optional(),
@@ -141,7 +141,7 @@ export const DspStatusSchema = z.object({
  * Response from zone DSP endpoints (PATCH /api/dsp/zone/{zone_id}/...).
  * Backend applies changes to all ONLINE clients and returns status.
  */
-export const DspZoneResponseSchema = z.object({
+const DspZoneResponseSchema = z.object({
   status: z.enum(['success', 'partial', 'error']),
   zone_id: z.string(),
   applied_to: z.array(z.string()),
@@ -155,7 +155,7 @@ export const DspZoneResponseSchema = z.object({
   enabled: z.boolean().optional()     // For zone DSP bypass toggle
 });
 
-export const DspCompressorSchema = z.object({
+const DspCompressorSchema = z.object({
   enabled: z.boolean(),
   threshold: z.number(),
   ratio: z.number(),
@@ -164,19 +164,19 @@ export const DspCompressorSchema = z.object({
   makeup_gain: z.number()
 });
 
-export const DspLoudnessSchema = z.object({
+const DspLoudnessSchema = z.object({
   enabled: z.boolean(),
   high_boost: z.number(),
   low_boost: z.number()
 });
 
-export const DspPresetSchema = z.object({
+const DspPresetSchema = z.object({
   id: z.string(),
   name: z.string(),
   gains: z.array(z.number())
 });
 
-export const DspPresetsResponseSchema = z.object({
+const DspPresetsResponseSchema = z.object({
   presets: z.array(DspPresetSchema),
   manual_gains: z.array(z.number()),
   active_preset: z.string().nullable()
@@ -230,7 +230,7 @@ export const RadioStationSchema = z.object({
 
 // === PODCAST ===
 
-export const PodcastSchema = z.object({
+const PodcastSchema = z.object({
   uuid: z.string(),
   name: z.string(),
   description: z.string().optional(),
@@ -239,7 +239,7 @@ export const PodcastSchema = z.object({
   language: z.string().optional()
 });
 
-export const PodcastEpisodeSchema = z.object({
+const PodcastEpisodeSchema = z.object({
   uuid: z.string(),
   name: z.string(),
   description: z.string().optional(),
@@ -257,7 +257,7 @@ export const PodcastEpisodeSchema = z.object({
 
 // === SETTINGS ===
 
-export const SettingsSchema = z.object({
+const SettingsSchema = z.object({
   language: z.string().optional(),
   volume: z.object({
     max_db: z.number().optional(),

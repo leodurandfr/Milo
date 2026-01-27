@@ -2,187 +2,162 @@
 <template>
   <div class="settings-modal">
     <!-- Single ModalHeader outside transition -->
-    <ModalHeader
-      :title="headerTitle"
-      :show-back="canGoBack"
-      :actions-key="currentView"
-      :class="{ 'header-hidden': headerHidden }"
-      @back="handleBack"
-    >
+    <ModalHeader :title="headerTitle" :show-back="canGoBack" :actions-key="currentView"
+      :class="{ 'header-hidden': headerHidden }" @back="handleBack">
       <template v-if="currentView === 'multiroom'" #actions="{ iconType }">
-        <Toggle
-          :model-value="isMultiroomActive"
-          :type="iconType"
-          :disabled="unifiedStore.systemState.transitioning || isMultiroomToggling"
-          @change="handleMultiroomToggle"
-        />
+        <Toggle :model-value="isMultiroomActive" :type="iconType"
+          :disabled="unifiedStore.systemState.transitioning || isMultiroomToggling" @change="handleMultiroomToggle" />
       </template>
       <template v-else-if="currentView === 'equalizer'" #actions="{ iconType }">
-        <Toggle
-          :model-value="dspStore.isDspEffectsEnabled"
-          :type="iconType"
-          :disabled="dspStore.isTogglingEnabled"
-          @change="handleDspToggle"
-        />
+        <Toggle :model-value="dspStore.isDspEffectsEnabled" :type="iconType" :disabled="dspStore.isTogglingEnabled"
+          @change="handleDspToggle" />
       </template>
     </ModalHeader>
 
     <!-- Content area -->
-    <Transition name="fade-slide" mode="out-in" @before-leave="onBeforeLeave" @after-leave="onAfterLeave" @enter="onEnter">
-        <!-- Home view: list of categories -->
-        <div v-if="currentView === 'home'" key="home" class="view-content">
-          <div class="settings-nav-grid">
-            <ListItemButton :title="t('settings.languages')" action="caret" @click="goToView('languages')">
-              <template #icon>
-                <img :src="languagesIcon" alt="Languages" />
-              </template>
-            </ListItemButton>
+    <Transition name="fade-slide" mode="out-in" @before-leave="onBeforeLeave" @after-leave="onAfterLeave"
+      @enter="onEnter">
+      <!-- Home view: list of categories -->
+      <div v-if="currentView === 'home'" key="home" class="view-content">
+        <div class="settings-nav-grid">
+          <ListItemButton :title="t('settings.languages')" action="caret" @click="goToView('languages')">
+            <template #icon>
+              <img :src="languagesIcon" alt="Languages" />
+            </template>
+          </ListItemButton>
 
-            <ListItemButton :title="t('settings.applications')" action="caret" @click="goToView('apps')">
-              <template #icon>
-                <img :src="applicationsIcon" alt="Applications" />
-              </template>
-            </ListItemButton>
+          <ListItemButton :title="t('settings.applications')" action="caret" @click="goToView('apps')">
+            <template #icon>
+              <img :src="applicationsIcon" alt="Applications" />
+            </template>
+          </ListItemButton>
 
-            <ListItemButton :title="t('settings.volume')" action="caret" @click="goToView('volume')">
-              <template #icon>
-                <img :src="volumeIcon" alt="Volume" />
-              </template>
-            </ListItemButton>
+          <ListItemButton :title="t('settings.volume')" action="caret" @click="goToView('volume')">
+            <template #icon>
+              <img :src="volumeIcon" alt="Volume" />
+            </template>
+          </ListItemButton>
 
-            <ListItemButton :title="t('dsp.title')" action="caret" @click="goToView('equalizer')">
-              <template #icon>
-                <img :src="equalizerIcon" alt="Equalizer" />
-              </template>
-            </ListItemButton>
+          <ListItemButton :title="t('settings.screen')" action="caret" @click="goToView('screen')">
+            <template #icon>
+              <img :src="displayIcon" alt="Display" />
+            </template>
+          </ListItemButton>
+          
+          <ListItemButton :title="t('dsp.title')" action="caret" @click="goToView('equalizer')">
+            <template #icon>
+              <img :src="equalizerIcon" alt="Equalizer" />
+            </template>
+          </ListItemButton>
 
-            <ListItemButton v-if="settingsStore.dockApps.multiroom" :title="t('multiroom.title')" action="caret" @click="goToView('multiroom')">
-              <template #icon>
-                <img :src="multiroomIcon" alt="Multiroom" />
-              </template>
-            </ListItemButton>
+          <ListItemButton v-if="settingsStore.dockApps.multiroom" :title="t('multiroom.title')" action="caret"
+            @click="goToView('multiroom')">
+            <template #icon>
+              <img :src="multiroomIcon" alt="Multiroom" />
+            </template>
+          </ListItemButton>
 
-            <ListItemButton :title="t('settings.screen')" action="caret" @click="goToView('screen')">
-              <template #icon>
-                <img :src="displayIcon" alt="Display" />
-              </template>
-            </ListItemButton>
+          <ListItemButton v-if="settingsStore.dockApps.spotify" :title="t('audioSources.spotify')" action="caret"
+            @click="goToView('spotify')">
+            <template #icon>
+              <img :src="spotifyIcon" alt="Spotify" />
+            </template>
+          </ListItemButton>
 
-            <ListItemButton v-if="settingsStore.dockApps.spotify" :title="t('audioSources.spotify')" action="caret" @click="goToView('spotify')">
-              <template #icon>
-                <img :src="spotifyIcon" alt="Spotify" />
-              </template>
-            </ListItemButton>
+          <ListItemButton v-if="settingsStore.dockApps.mac" :title="t('macSettings.title')" action="caret"
+            @click="goToView('macos')">
+            <template #icon>
+              <img :src="macosIcon" alt="Mac" />
+            </template>
+          </ListItemButton>
 
-            <ListItemButton v-if="settingsStore.dockApps.mac" :title="t('macSettings.title')" action="caret" @click="goToView('macos')">
-              <template #icon>
-                <img :src="macosIcon" alt="Mac" />
-              </template>
-            </ListItemButton>
+          <ListItemButton v-if="settingsStore.dockApps.radio" :title="t('audioSources.radio')" action="caret"
+            @click="goToView('radio')">
+            <template #icon>
+              <img :src="radioIcon" alt="Radio" />
+            </template>
+          </ListItemButton>
 
-            <ListItemButton v-if="settingsStore.dockApps.radio" :title="t('audioSources.radio')" action="caret" @click="goToView('radio')">
-              <template #icon>
-                <img :src="radioIcon" alt="Radio" />
-              </template>
-            </ListItemButton>
+          <ListItemButton v-if="settingsStore.dockApps.podcast" :title="t('audioSources.podcasts')" action="caret"
+            @click="goToView('podcast')">
+            <template #icon>
+              <img :src="podcastIcon" alt="Podcasts" />
+            </template>
+          </ListItemButton>
 
-            <ListItemButton v-if="settingsStore.dockApps.podcast" :title="t('audioSources.podcasts')" action="caret" @click="goToView('podcast')">
-              <template #icon>
-                <img :src="podcastIcon" alt="Podcasts" />
-              </template>
-            </ListItemButton>
+          <ListItemButton :title="t('settings.updates')" action="caret" @click="goToView('updates')">
+            <template #icon>
+              <img :src="updatesIcon" alt="Updates" />
+            </template>
+          </ListItemButton>
 
-            <ListItemButton :title="t('settings.updates')" action="caret" @click="goToView('updates')">
-              <template #icon>
-                <img :src="updatesIcon" alt="Updates" />
-              </template>
-            </ListItemButton>
+          <ListItemButton :title="t('settings.information')" action="caret" @click="goToView('info')">
+            <template #icon>
+              <img :src="informationIcon" alt="Information" />
+            </template>
+          </ListItemButton>
 
-            <ListItemButton :title="t('settings.information')" action="caret" @click="goToView('info')">
-              <template #icon>
-                <img :src="informationIcon" alt="Information" />
-              </template>
-            </ListItemButton>
-
-            <!-- Placeholder for an odd number of IconButtons on desktop -->
-            <div v-if="shouldShowPlaceholder" class="icon-button-placeholder"></div>
-          </div>
+          <!-- Placeholder for an odd number of IconButtons on desktop -->
+          <div v-if="shouldShowPlaceholder" class="icon-button-placeholder"></div>
         </div>
+      </div>
 
-        <!-- Languages view -->
-        <LanguageSettings v-else-if="currentView === 'languages'" key="languages" class="view-content" />
+      <!-- Languages view -->
+      <LanguageSettings v-else-if="currentView === 'languages'" key="languages" class="view-content" />
 
-        <!-- Applications view -->
-        <ApplicationsSettings v-else-if="currentView === 'apps'" key="apps" class="view-content" />
+      <!-- Applications view -->
+      <ApplicationsSettings v-else-if="currentView === 'apps'" key="apps" class="view-content" />
 
-        <!-- Volume view -->
-        <VolumeSettings v-else-if="currentView === 'volume'" key="volume" class="view-content" />
+      <!-- Volume view -->
+      <VolumeSettings v-else-if="currentView === 'volume'" key="volume" class="view-content" />
 
-        <!-- Screen view -->
-        <ScreenSettings v-else-if="currentView === 'screen'" key="screen" class="view-content" />
+      <!-- Screen view -->
+      <ScreenSettings v-else-if="currentView === 'screen'" key="screen" class="view-content" />
 
-        <!-- Spotify view -->
-        <SpotifySettings v-else-if="currentView === 'spotify'" key="spotify" class="view-content" />
+      <!-- Spotify view -->
+      <SpotifySettings v-else-if="currentView === 'spotify'" key="spotify" class="view-content" />
 
-        <!-- Multiroom view -->
-        <MultiroomSettings
-          v-else-if="currentView === 'multiroom'"
-          key="multiroom"
-          class="view-content"
-          @edit-zone="handleEditZone"
-          @create-zone="handleCreateZone"
-          @edit-client="handleEditClient"
-        />
+      <!-- Multiroom view -->
+      <MultiroomSettings v-else-if="currentView === 'multiroom'" key="multiroom" class="view-content"
+        @edit-zone="handleEditZone" @create-zone="handleCreateZone" @edit-client="handleEditClient" />
 
-        <!-- Multiroom zone edit view -->
-        <ZoneEdit
-          v-else-if="currentView === 'multiroom-zone-edit'"
-          key="multiroom-zone-edit"
-          class="view-content"
-          :group-id="zoneGroupId"
-          :enable-client-renaming="true"
-          @back="handleZoneSaved"
-          @saved="handleZoneSaved"
-        />
+      <!-- Multiroom zone edit view -->
+      <ZoneEdit v-else-if="currentView === 'multiroom-zone-edit'" key="multiroom-zone-edit" class="view-content"
+        :group-id="zoneGroupId" :enable-client-renaming="true" @back="handleZoneSaved" @saved="handleZoneSaved" />
 
-        <!-- Multiroom client edit view -->
-        <ClientEdit
-          v-else-if="currentView === 'multiroom-client-edit'"
-          key="multiroom-client-edit"
-          class="view-content"
-          :mac-id="macIdToEdit"
-          @back="handleClientSaved"
-          @saved="handleClientSaved"
-        />
+      <!-- Multiroom client edit view -->
+      <ClientEdit v-else-if="currentView === 'multiroom-client-edit'" key="multiroom-client-edit" class="view-content"
+        :mac-id="macIdToEdit" @back="handleClientSaved" @saved="handleClientSaved" />
 
-        <!-- Radio view -->
-        <RadioSettings v-else-if="currentView === 'radio'" key="radio" ref="radioSettingsRef" class="view-content" @go-to-add-station="goToView('radio-add')" @edit-station="handleEditStation" />
+      <!-- Radio view -->
+      <RadioSettings v-else-if="currentView === 'radio'" key="radio" ref="radioSettingsRef" class="view-content"
+        @go-to-add-station="goToView('radio-add')" @edit-station="handleEditStation" />
 
-        <!-- Radio view - Add a station -->
-        <ManageStation v-else-if="currentView === 'radio-add'" key="radio-add" class="view-content" mode="add" @back="handleBackFromRadioModal" @success="handleRadioStationAdded" />
+      <!-- Radio view - Add a station -->
+      <ManageStation v-else-if="currentView === 'radio-add'" key="radio-add" class="view-content" mode="add"
+        @back="handleBackFromRadioModal" @success="handleRadioStationAdded" />
 
-        <!-- Radio view - Edit a station -->
-        <ManageStation v-else-if="currentView === 'radio-edit'" key="radio-edit" class="view-content" mode="edit" :station="stationToEdit" :can-restore="canRestoreStation" :can-delete="canDeleteStation" @back="handleBackFromRadioModal" @success="handleRadioStationEdited" @restore="handleRestoreStation" @delete="handleDeleteStation" />
+      <!-- Radio view - Edit a station -->
+      <ManageStation v-else-if="currentView === 'radio-edit'" key="radio-edit" class="view-content" mode="edit"
+        :station="stationToEdit" :can-restore="canRestoreStation" :can-delete="canDeleteStation"
+        @back="handleBackFromRadioModal" @success="handleRadioStationEdited" @restore="handleRestoreStation"
+        @delete="handleDeleteStation" />
 
-        <!-- Podcast view -->
-        <PodcastSettings v-else-if="currentView === 'podcast'" key="podcast" class="view-content" />
+      <!-- Podcast view -->
+      <PodcastSettings v-else-if="currentView === 'podcast'" key="podcast" class="view-content" />
 
-        <!-- Mac streaming view -->
-        <MacosSettings v-else-if="currentView === 'macos'" key="macos" class="view-content" />
+      <!-- Mac streaming view -->
+      <MacosSettings v-else-if="currentView === 'macos'" key="macos" class="view-content" />
 
-        <!-- DSP view -->
-        <DspSettings
-          v-else-if="currentView === 'equalizer'"
-          key="equalizer"
-          class="view-content"
-          @configure-zone="handleEditZone"
-        />
+      <!-- DSP view -->
+      <DspSettings v-else-if="currentView === 'equalizer'" key="equalizer" class="view-content"
+        @configure-zone="handleEditZone" />
 
-        <!-- Updates view -->
-        <UpdateManager v-else-if="currentView === 'updates'" key="updates" class="view-content" />
+      <!-- Updates view -->
+      <UpdateManager v-else-if="currentView === 'updates'" key="updates" class="view-content" />
 
-        <!-- Information view -->
-        <InfoSettings v-else-if="currentView === 'info'" key="info" class="view-content" />
+      <!-- Information view -->
+      <InfoSettings v-else-if="currentView === 'info'" key="info" class="view-content" />
     </Transition>
   </div>
 </template>
@@ -248,7 +223,7 @@ const radioStore = useRadioStore();
 const dspStore = useDspStore();
 
 // Inject modal scroll reset function and content ref for scroll position check
-const resetScroll = inject('modalResetScroll', () => {});
+const resetScroll = inject('modalResetScroll', () => { });
 const modalContentRef = inject('modalContentRef', null);
 
 // Header hidden state (only when scrolled)
@@ -543,12 +518,14 @@ onUnmounted(() => {
 
 /* Header hide/show transition (only when scroll reset is needed) */
 :deep(.modal-header) {
-  transition: opacity var(--transition-in-out); /* Fade-in: 400ms cubic-bezier(0.5,0,0.1,1) */
+  transition: opacity var(--transition-in-out);
+  /* Fade-in: 400ms cubic-bezier(0.5,0,0.1,1) */
 }
 
 :deep(.modal-header.header-hidden) {
   opacity: 0;
-  transition: opacity var(--transition-ultra-fast); /* Fade-out: 150ms ease */
+  transition: opacity var(--transition-ultra-fast);
+  /* Fade-out: 150ms ease */
 }
 
 .view-content {

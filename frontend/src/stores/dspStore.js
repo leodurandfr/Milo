@@ -16,8 +16,8 @@ const DEFAULT_FREQUENCIES = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 1600
 const THROTTLE_DELAY = 50;
 const FINAL_DELAY = 200;
 
-// Filter type options
-export const FILTER_TYPES = [
+// Filter type options (currently unused, kept for future UI use)
+const FILTER_TYPES = [
   { value: 'Peaking', label: 'Peaking' },
   { value: 'Lowshelf', label: 'Low Shelf' },
   { value: 'Highshelf', label: 'High Shelf' },
@@ -1443,7 +1443,6 @@ export const useDspStore = defineStore('dsp', () => {
 
     // Utils
     formatFrequency,
-    FILTER_TYPES,
 
     // Actions
     initializeFilters,

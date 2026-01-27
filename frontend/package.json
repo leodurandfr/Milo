@@ -19,8 +19,10 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.0",
+    "@vitest/coverage-v8": "^4.0.18",
     "@vue/test-utils": "^2.4.6",
     "happy-dom": "^20.1.0",
+    "knip": "^5.82.1",
     "vite": "^6.2.0",
     "vitest": "^4.0.16"
   }

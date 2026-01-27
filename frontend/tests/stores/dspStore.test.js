@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
 import { useDspStore } from '@/stores/dspStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import { useClientRegistryStore } from '@/stores/clientRegistryStore';
+import { useMultiroomStore } from '@/stores/multiroomStore';
 import axios from 'axios';
 
 // Mock axios
@@ -22,8 +22,8 @@ vi.mock('@/stores/unifiedAudioStore', () => ({
   }))
 }));
 
-vi.mock('@/stores/clientRegistryStore', () => ({
-  useClientRegistryStore: vi.fn(() => ({
+vi.mock('@/stores/multiroomStore', () => ({
+  useMultiroomStore: vi.fn(() => ({
     clientList: [
       { mac_id: 'dc:a6:32:7e:d3:43', name: 'Test Client', host: 'test-host', ip: '192.168.1.10', online: true }
     ],
@@ -254,7 +254,7 @@ describe('dspStore - EQ Filter Zone Propagation', () => {
     it('should propagate filter updates to linked zone members', async () => {
       // Setup: Multiple linked clients in a zone
       const linkedClients = ['local', 'dc:a6:32:7e:d3:43', 'dc:a6:32:7e:d3:44'];
-      useClientRegistryStore.mockReturnValue({
+      useMultiroomStore.mockReturnValue({
         clientList: [
           { mac_id: 'dc:a6:32:7e:d3:43', host: 'milo-client-1', online: true },
           { mac_id: 'dc:a6:32:7e:d3:44', host: 'milo-client-2', online: true }
@@ -292,7 +292,7 @@ describe('dspStore - EQ Filter Zone Propagation', () => {
 
     it('should skip offline clients during propagation', async () => {
       // Setup mock BEFORE creating store: standalone with linked clients (no zone)
-      useClientRegistryStore.mockReturnValue({
+      useMultiroomStore.mockReturnValue({
         clientList: [
           { mac_id: 'dc:a6:32:7e:d3:43', host: 'milo-client-1', online: true },
           { mac_id: 'dc:a6:32:7e:d3:44', host: 'milo-client-2', online: false }
@@ -331,7 +331,7 @@ describe('dspStore - EQ Filter Zone Propagation', () => {
   describe('updateFilter with zone propagation', () => {
     it('should update filter state and trigger throttled update', async () => {
       // Setup standalone mock BEFORE creating store
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
       vi.clearAllMocks();
@@ -354,7 +354,7 @@ describe('dspStore - EQ Filter Zone Propagation', () => {
 
     it('should use zone endpoint when in zone via finalizeFilterUpdate', async () => {
       // Setup zone mock BEFORE creating store
-      useClientRegistryStore.mockReturnValue(createZoneMock('zone-1', 'Test Zone'));
+      useMultiroomStore.mockReturnValue(createZoneMock('zone-1', 'Test Zone'));
       setActivePinia(createPinia());
       const store = useDspStore();
       vi.clearAllMocks();
@@ -458,7 +458,7 @@ describe('dspStore - Preset Management (Story 4.6)', () => {
   describe('loadPreset', () => {
     it('should call PUT /api/dsp/preset/{preset_id} for standalone client', async () => {
       // Setup standalone mock BEFORE creating store
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
       vi.clearAllMocks();
@@ -475,7 +475,7 @@ describe('dspStore - Preset Management (Story 4.6)', () => {
 
     it('should use POST /api/dsp/zone/{zone_id}/preset when in zone', async () => {
       // Setup zone mock BEFORE creating store (backend handles propagation)
-      useClientRegistryStore.mockReturnValue(createZoneMock('zone-1', 'Test Zone'));
+      useMultiroomStore.mockReturnValue(createZoneMock('zone-1', 'Test Zone'));
       setActivePinia(createPinia());
       const store = useDspStore();
       vi.clearAllMocks();
@@ -496,7 +496,7 @@ describe('dspStore - Preset Management (Story 4.6)', () => {
 
     it('should handle partial success from zone endpoint', async () => {
       // Setup zone mock BEFORE creating store
-      useClientRegistryStore.mockReturnValue(createZoneMock('zone-1', 'Test Zone'));
+      useMultiroomStore.mockReturnValue(createZoneMock('zone-1', 'Test Zone'));
       setActivePinia(createPinia());
       const store = useDspStore();
       vi.clearAllMocks();
@@ -520,7 +520,7 @@ describe('dspStore - Preset Management (Story 4.6)', () => {
 
     it('should return false on API error', async () => {
       // Setup standalone mock BEFORE creating store
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
       vi.clearAllMocks();
@@ -535,7 +535,7 @@ describe('dspStore - Preset Management (Story 4.6)', () => {
 
     it('should update activePreset state on successful load', async () => {
       // Setup standalone mock BEFORE creating store
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
       vi.clearAllMocks();
@@ -554,7 +554,7 @@ describe('dspStore - Preset Management (Story 4.6)', () => {
 
   describe('preset propagation via loadPreset', () => {
     it('should track propagation errors array for UI notification', async () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
       // propagationErrors should be available for UI to display
@@ -562,7 +562,7 @@ describe('dspStore - Preset Management (Story 4.6)', () => {
     });
 
     it('should have clearPropagationErrors function', async () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
       // clearPropagationErrors should be available
@@ -572,7 +572,7 @@ describe('dspStore - Preset Management (Story 4.6)', () => {
 
   describe('isManualMode computed', () => {
     it('should be a computed property that exists', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
       // isManualMode should be defined
@@ -580,7 +580,7 @@ describe('dspStore - Preset Management (Story 4.6)', () => {
     });
 
     it('should return true when activePreset is "manual"', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
       store.activePreset = 'manual';
@@ -591,7 +591,7 @@ describe('dspStore - Preset Management (Story 4.6)', () => {
     });
 
     it('should return true when no preset is selected', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
       store.activePreset = null;
@@ -603,7 +603,7 @@ describe('dspStore - Preset Management (Story 4.6)', () => {
     // The flicker prevention is an implementation detail tested by inspection
 
     it('should return false when gains match active preset', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
       store.activePreset = 'jazz';
@@ -627,7 +627,7 @@ describe('dspStore - Preset Management (Story 4.6)', () => {
     });
 
     it('should return true when gains differ from active preset', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
       store.activePreset = 'jazz';
@@ -653,7 +653,7 @@ describe('dspStore - Preset Management (Story 4.6)', () => {
 
   describe('handlePresetLoaded WebSocket handler', () => {
     it('should update activePreset from WebSocket event', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
       store.activePreset = 'manual';
@@ -664,7 +664,7 @@ describe('dspStore - Preset Management (Story 4.6)', () => {
     });
 
     it('should support both id and name formats in event data', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
       store.activePreset = 'jazz';
@@ -723,7 +723,7 @@ describe('dspStore - Zone DSP Endpoints (Story 4.7)', () => {
   describe('Zone endpoint detection', () => {
     it('should detect when target is in a zone', () => {
       // Setup mock BEFORE creating store
-      useClientRegistryStore.mockReturnValue(createZoneMock('zone-living-room', 'Living Room'));
+      useMultiroomStore.mockReturnValue(createZoneMock('zone-living-room', 'Living Room'));
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -734,7 +734,7 @@ describe('dspStore - Zone DSP Endpoints (Story 4.7)', () => {
 
     it('should detect when target is a standalone client (not in zone)', () => {
       // Setup mock BEFORE creating store
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -748,7 +748,7 @@ describe('dspStore - Zone DSP Endpoints (Story 4.7)', () => {
   describe('updateCompressor with zone endpoint', () => {
     it('should use PATCH /api/dsp/zone/{zone_id}/compressor when in zone', async () => {
       // Setup mock BEFORE creating store
-      useClientRegistryStore.mockReturnValue(createZoneMock('zone-living-room', 'Living Room'));
+      useMultiroomStore.mockReturnValue(createZoneMock('zone-living-room', 'Living Room'));
       setActivePinia(createPinia());
       const store = useDspStore();
       vi.clearAllMocks(); // Clear after store creation to reset axios mocks
@@ -770,7 +770,7 @@ describe('dspStore - Zone DSP Endpoints (Story 4.7)', () => {
 
     it('should use PUT /api/dsp/compressor for standalone client', async () => {
       // Setup mock BEFORE creating store
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
       vi.clearAllMocks();
@@ -794,7 +794,7 @@ describe('dspStore - Zone DSP Endpoints (Story 4.7)', () => {
   describe('updateLoudness with zone endpoint', () => {
     it('should use PATCH /api/dsp/zone/{zone_id}/loudness when in zone', async () => {
       // Setup mock BEFORE creating store
-      useClientRegistryStore.mockReturnValue(createZoneMock('zone-bedroom', 'Bedroom'));
+      useMultiroomStore.mockReturnValue(createZoneMock('zone-bedroom', 'Bedroom'));
       setActivePinia(createPinia());
       const store = useDspStore();
       vi.clearAllMocks();
@@ -818,7 +818,7 @@ describe('dspStore - Zone DSP Endpoints (Story 4.7)', () => {
   describe('toggleDspEffectsEnabled with zone endpoint', () => {
     it('should use PATCH /api/dsp/zone/{zone_id}/enabled when in zone', async () => {
       // Setup mock BEFORE creating store
-      useClientRegistryStore.mockReturnValue(createZoneMock('zone-kitchen', 'Kitchen'));
+      useMultiroomStore.mockReturnValue(createZoneMock('zone-kitchen', 'Kitchen'));
       setActivePinia(createPinia());
       const store = useDspStore();
       vi.clearAllMocks();
@@ -840,7 +840,7 @@ describe('dspStore - Zone DSP Endpoints (Story 4.7)', () => {
 
     it('should use PUT /api/dsp/enabled for standalone client', async () => {
       // Setup mock BEFORE creating store
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
       vi.clearAllMocks();
@@ -865,7 +865,7 @@ describe('dspStore - Zone DSP Endpoints (Story 4.7)', () => {
   describe('finalizeFilterUpdate with zone endpoint', () => {
     it('should use PATCH /api/dsp/zone/{zone_id}/filter/{filter_id} when in zone', async () => {
       // Setup mock BEFORE creating store
-      useClientRegistryStore.mockReturnValue(createZoneMock('zone-office', 'Office'));
+      useMultiroomStore.mockReturnValue(createZoneMock('zone-office', 'Office'));
       setActivePinia(createPinia());
       const store = useDspStore();
       vi.clearAllMocks();
@@ -890,7 +890,7 @@ describe('dspStore - Zone DSP Endpoints (Story 4.7)', () => {
 
     it('should use PUT /api/dsp/filter/{filter_id} for standalone client', async () => {
       // Setup mock BEFORE creating store
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
       vi.clearAllMocks();
@@ -917,7 +917,7 @@ describe('dspStore - Zone DSP Endpoints (Story 4.7)', () => {
   describe('Zone endpoint response handling', () => {
     it('should handle partial success status', async () => {
       // Setup mock BEFORE creating store
-      useClientRegistryStore.mockReturnValue(createZoneMock('zone-partial', 'Partial Zone'));
+      useMultiroomStore.mockReturnValue(createZoneMock('zone-partial', 'Partial Zone'));
       setActivePinia(createPinia());
       const store = useDspStore();
       vi.clearAllMocks();
@@ -942,7 +942,7 @@ describe('dspStore - Zone DSP Endpoints (Story 4.7)', () => {
 
     it('should report offline_clients in response', async () => {
       // Setup mock BEFORE creating store
-      useClientRegistryStore.mockReturnValue(createZoneMock('zone-offline', 'Zone with Offline'));
+      useMultiroomStore.mockReturnValue(createZoneMock('zone-offline', 'Zone with Offline'));
       setActivePinia(createPinia());
       const store = useDspStore();
       vi.clearAllMocks();
@@ -973,7 +973,7 @@ describe('dspStore - Zone DSP Endpoints (Story 4.7)', () => {
 describe('dspStore - ItemSelector Zone/Client Selection (Story 4.8)', () => {
   describe('availableTargets computed property', () => {
     it('should derive targets from clientRegistryStore.clientList', () => {
-      useClientRegistryStore.mockReturnValue({
+      useMultiroomStore.mockReturnValue({
         clientList: [
           { mac_id: 'local', name: 'Milo', host: 'milo', ip: '192.168.1.1', online: true },
           { mac_id: 'dc:a6:32:7e:d3:43', name: 'Kitchen', host: 'milo-client-01', ip: '192.168.1.10', online: true },
@@ -1012,7 +1012,7 @@ describe('dspStore - ItemSelector Zone/Client Selection (Story 4.8)', () => {
         isClientOnline: vi.fn(() => true),
         initialize: vi.fn()
       };
-      useClientRegistryStore.mockReturnValue(mockStore);
+      useMultiroomStore.mockReturnValue(mockStore);
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1022,7 +1022,7 @@ describe('dspStore - ItemSelector Zone/Client Selection (Story 4.8)', () => {
 
   describe('linkedGroups computed property', () => {
     it('should derive zones from clientRegistryStore.zoneList', () => {
-      useClientRegistryStore.mockReturnValue({
+      useMultiroomStore.mockReturnValue({
         clientList: [
           { mac_id: 'local', name: 'Milo', online: true },
           { mac_id: 'dc:a6:32:7e:d3:43', name: 'Kitchen', online: true }
@@ -1049,7 +1049,7 @@ describe('dspStore - ItemSelector Zone/Client Selection (Story 4.8)', () => {
 
   describe('getLinkedClientIds helper', () => {
     it('should return zone members when client is in a zone', () => {
-      useClientRegistryStore.mockReturnValue(createZoneMock('zone-test', 'Test Zone'));
+      useMultiroomStore.mockReturnValue(createZoneMock('zone-test', 'Test Zone'));
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1060,7 +1060,7 @@ describe('dspStore - ItemSelector Zone/Client Selection (Story 4.8)', () => {
     });
 
     it('should return only the client itself when not in a zone', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1072,7 +1072,7 @@ describe('dspStore - ItemSelector Zone/Client Selection (Story 4.8)', () => {
 
   describe('getZoneGroup helper', () => {
     it('should return zone object when client is in a zone', () => {
-      useClientRegistryStore.mockReturnValue(createZoneMock('zone-office', 'Office'));
+      useMultiroomStore.mockReturnValue(createZoneMock('zone-office', 'Office'));
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1084,7 +1084,7 @@ describe('dspStore - ItemSelector Zone/Client Selection (Story 4.8)', () => {
     });
 
     it('should return null when client is standalone', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1099,7 +1099,7 @@ describe('dspStore - ItemSelector Zone/Client Selection (Story 4.8)', () => {
 describe('dspStore - Preset Display Integration (Story 4.8)', () => {
   describe('builtinPresets array', () => {
     it('should be populated after fetchPresets', async () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
       vi.clearAllMocks();
@@ -1139,7 +1139,7 @@ describe('dspStore - Preset Display Integration (Story 4.8)', () => {
 
   describe('currentPresetValue behavior', () => {
     it('should return manual when isManualMode is true', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1154,7 +1154,7 @@ describe('dspStore - Preset Display Integration (Story 4.8)', () => {
     });
 
     it('should return active preset when gains match', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1173,7 +1173,7 @@ describe('dspStore - Preset Display Integration (Story 4.8)', () => {
 describe('dspStore - WebSocket Event Handlers (Story 4.8)', () => {
   describe('handleFilterChanged', () => {
     it('should update filter gain from WebSocket event', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1189,7 +1189,7 @@ describe('dspStore - WebSocket Event Handlers (Story 4.8)', () => {
     });
 
     it('should update filter frequency and displayName from WebSocket event', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1206,7 +1206,7 @@ describe('dspStore - WebSocket Event Handlers (Story 4.8)', () => {
     });
 
     it('should not update filters during throttling', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1229,7 +1229,7 @@ describe('dspStore - WebSocket Event Handlers (Story 4.8)', () => {
 
   describe('handleFiltersReset', () => {
     it('should reset all filter gains to 0', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1249,7 +1249,7 @@ describe('dspStore - WebSocket Event Handlers (Story 4.8)', () => {
 
   describe('handleStateChanged', () => {
     it('should update DSP state from WebSocket event', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1261,7 +1261,7 @@ describe('dspStore - WebSocket Event Handlers (Story 4.8)', () => {
     });
 
     it('should default to disconnected when state is missing', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1275,7 +1275,7 @@ describe('dspStore - WebSocket Event Handlers (Story 4.8)', () => {
 
   describe('handleCompressorChanged', () => {
     it('should update compressor settings from WebSocket event', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1295,7 +1295,7 @@ describe('dspStore - WebSocket Event Handlers (Story 4.8)', () => {
 
   describe('handleLoudnessChanged', () => {
     it('should update loudness settings from WebSocket event', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1314,7 +1314,7 @@ describe('dspStore - WebSocket Event Handlers (Story 4.8)', () => {
 
   describe('handleEnabledChanged', () => {
     it('should update isDspEffectsEnabled from WebSocket event', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1326,7 +1326,7 @@ describe('dspStore - WebSocket Event Handlers (Story 4.8)', () => {
     });
 
     it('should not change state when enabled is undefined', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1347,7 +1347,7 @@ describe('dspStore - WebSocket Event Handlers (Story 4.8)', () => {
 describe('dspStore - handleDspChanged (Story 6.2)', () => {
   describe('target matching', () => {
     it('should update state when target_type is client and matches selectedTarget', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1369,7 +1369,7 @@ describe('dspStore - handleDspChanged (Story 6.2)', () => {
     });
 
     it('should update state when target_type is zone and selectedTarget is in that zone', () => {
-      useClientRegistryStore.mockReturnValue(createZoneMock('zone-living', 'Living Room'));
+      useMultiroomStore.mockReturnValue(createZoneMock('zone-living', 'Living Room'));
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1391,7 +1391,7 @@ describe('dspStore - handleDspChanged (Story 6.2)', () => {
     });
 
     it('should ignore event when target_type is client but does not match selectedTarget', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1414,7 +1414,7 @@ describe('dspStore - handleDspChanged (Story 6.2)', () => {
     });
 
     it('should ignore event when target_type is zone but selectedTarget is not in that zone', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock()); // Standalone = not in any zone
+      useMultiroomStore.mockReturnValue(createStandaloneMock()); // Standalone = not in any zone
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1438,7 +1438,7 @@ describe('dspStore - handleDspChanged (Story 6.2)', () => {
 
   describe('filter updates', () => {
     it('should update filters from dsp_settings when not throttling', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1470,7 +1470,7 @@ describe('dspStore - handleDspChanged (Story 6.2)', () => {
 
   describe('missing or invalid data', () => {
     it('should handle missing event.data gracefully', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1486,7 +1486,7 @@ describe('dspStore - handleDspChanged (Story 6.2)', () => {
     });
 
     it('should handle missing dsp_settings gracefully', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1514,7 +1514,7 @@ describe('dspStore - handleDspChanged (Story 6.2)', () => {
 describe('dspStore - Real-Time Sync (Story 6.4)', () => {
   describe('AC1: Zone DSP Changed Event Handling', () => {
     it('should update zone DSP settings when receiving dsp_changed for zone containing selectedTarget', () => {
-      useClientRegistryStore.mockReturnValue(createZoneMock('zone-living', 'Living Room'));
+      useMultiroomStore.mockReturnValue(createZoneMock('zone-living', 'Living Room'));
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1553,7 +1553,7 @@ describe('dspStore - Real-Time Sync (Story 6.4)', () => {
     });
 
     it('should ignore zone dsp_changed event when selectedTarget is not in that zone', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock()); // local is standalone
+      useMultiroomStore.mockReturnValue(createStandaloneMock()); // local is standalone
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1574,7 +1574,7 @@ describe('dspStore - Real-Time Sync (Story 6.4)', () => {
 
   describe('AC2: Client DSP Changed Event Handling', () => {
     it('should update client DSP settings when receiving dsp_changed for standalone client', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1597,7 +1597,7 @@ describe('dspStore - Real-Time Sync (Story 6.4)', () => {
     });
 
     it('should ignore client dsp_changed event when target_id does not match selectedTarget', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1620,7 +1620,7 @@ describe('dspStore - Real-Time Sync (Story 6.4)', () => {
 
   describe('AC3: Preset Change to Manual', () => {
     it('should update activePreset when preset_loaded event sets preset to manual', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1632,7 +1632,7 @@ describe('dspStore - Real-Time Sync (Story 6.4)', () => {
     });
 
     it('should show isManualMode as true when preset is manual', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1644,7 +1644,7 @@ describe('dspStore - Real-Time Sync (Story 6.4)', () => {
     });
 
     it('should detect manual mode when filter gains differ from active preset', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1669,7 +1669,7 @@ describe('dspStore - Real-Time Sync (Story 6.4)', () => {
 
   describe('AC4: Remote User DSP Changes', () => {
     it('should update local UI immediately on remote dsp_changed event (no conflict)', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1693,7 +1693,7 @@ describe('dspStore - Real-Time Sync (Story 6.4)', () => {
     });
 
     it('should not overwrite filters during local editing (throttle guard)', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1721,7 +1721,7 @@ describe('dspStore - Real-Time Sync (Story 6.4)', () => {
 
   describe('AC5: No Polling for DSP State', () => {
     it('should use reactive state updates via WebSocket handlers', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1737,7 +1737,7 @@ describe('dspStore - Real-Time Sync (Story 6.4)', () => {
 
   describe('Multiple Rapid DSP Events', () => {
     it('should process multiple rapid dsp_changed events without data loss', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1778,7 +1778,7 @@ describe('dspStore - Real-Time Sync (Story 6.4)', () => {
     });
 
     it('should process rapid filter_changed events correctly', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1801,7 +1801,7 @@ describe('dspStore - Real-Time Sync (Story 6.4)', () => {
 
   describe('enabled_changed Event Handling', () => {
     it('should update isDspEffectsEnabled from WebSocket event', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1813,7 +1813,7 @@ describe('dspStore - Real-Time Sync (Story 6.4)', () => {
     });
 
     it('should toggle from false to true', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1825,7 +1825,7 @@ describe('dspStore - Real-Time Sync (Story 6.4)', () => {
     });
 
     it('should ignore event with undefined enabled value', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1841,7 +1841,7 @@ describe('dspStore - Real-Time Sync (Story 6.4)', () => {
 describe('dspStore - handleZoneCrossoverChanged (Story 6.2)', () => {
   describe('legacy format support', () => {
     it('should handle legacy crossover event format', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1863,7 +1863,7 @@ describe('dspStore - handleZoneCrossoverChanged (Story 6.2)', () => {
 
   describe('new multiroom format support', () => {
     it('should handle new multiroom.crossover_changed format', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1883,7 +1883,7 @@ describe('dspStore - handleZoneCrossoverChanged (Story 6.2)', () => {
     });
 
     it('should prefer new field names over legacy when both present', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1904,7 +1904,7 @@ describe('dspStore - handleZoneCrossoverChanged (Story 6.2)', () => {
 
   describe('missing data handling', () => {
     it('should ignore event with missing zone_id', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
@@ -1920,7 +1920,7 @@ describe('dspStore - handleZoneCrossoverChanged (Story 6.2)', () => {
     });
 
     it('should handle empty data gracefully', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
+      useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
       const store = useDspStore();
 
