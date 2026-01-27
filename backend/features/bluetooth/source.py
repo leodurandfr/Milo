@@ -9,7 +9,7 @@ monitors BlueALSA PCM events for connection detection.
 Features:
 - Multi-service management: bluetooth, bluealsa, bluealsa-aplay
 - D-Bus agent for automatic pairing (NoInputNoOutput mode)
-- Single device connection enforcement
+- Single device connection enforcement (via BlueALSA monitor callbacks)
 - BlueALSA PCM monitoring for real-time connection events
 """
 import asyncio
@@ -30,7 +30,7 @@ class BluetoothSource(BaseAudioSource):
     - stop(): Stop services and cleanup
     - restart(): Restart audio playback service
     - status(): Get current status with connected device
-    - command(): Handle disconnect, restart_audio, etc.
+    - command(): Handle disconnect
 
     Events emitted:
     - source.started: Bluetooth source activated
@@ -78,16 +78,12 @@ class BluetoothSource(BaseAudioSource):
 
         # State
         self.connected_device: Optional[Dict[str, str]] = None
-        self._first_connected_device: Optional[str] = None
         self._restart_in_progress = False
         self._restart_lock = asyncio.Lock()
 
         # Components
         self.agent = BluetoothAgent()
         self.monitor = BlueAlsaMonitor()
-
-        # Tasks
-        self._monitor_task: Optional[asyncio.Task] = None
 
     async def _do_start(self) -> bool:
         """Start Bluetooth services and monitoring."""
@@ -105,15 +101,12 @@ class BluetoothSource(BaseAudioSource):
             if not await self._configure_adapter():
                 self._logger.warning("Adapter configuration failed")
 
-            # 4. Start connection monitoring task
-            self._monitor_task = asyncio.create_task(self._monitor_connections())
-
-            # 5. Register D-Bus agent
+            # 4. Register D-Bus agent
             if self.auto_agent:
                 if not await self.agent.register():
                     self._logger.warning("Agent registration failed")
 
-            # 6. Set up and start BlueALSA monitor
+            # 5. Set up and start BlueALSA monitor (event-based connection detection)
             self.monitor.set_callbacks(
                 self._on_device_connected,
                 self._on_device_disconnected
@@ -121,7 +114,7 @@ class BluetoothSource(BaseAudioSource):
             if not await self.monitor.start():
                 raise RuntimeError("BlueALSA monitor failed to start")
 
-            # 7. Update state
+            # 6. Update state
             self._update_connection_state()
 
             return True
@@ -147,7 +140,6 @@ class BluetoothSource(BaseAudioSource):
 
             # Reset state
             self.connected_device = None
-            self._first_connected_device = None
 
             return True
 
@@ -203,18 +195,7 @@ class BluetoothSource(BaseAudioSource):
         if cmd == "disconnect":
             return await self._cmd_disconnect()
 
-        if cmd == "restart_audio":
-            return await self._cmd_restart_audio()
-
-        if cmd == "restart_bluealsa":
-            return await self._cmd_restart_bluealsa()
-
-        if cmd == "toggle_agent":
-            return await self._cmd_toggle_agent()
-
         return self.error_response(f"Unknown command: {cmd}")
-
-    # === Command Handlers ===
 
     async def _cmd_disconnect(self) -> Dict[str, Any]:
         """Disconnect current device."""
@@ -238,91 +219,20 @@ class BluetoothSource(BaseAudioSource):
         except Exception as e:
             return self.error_response(str(e))
 
-    async def _cmd_restart_audio(self) -> Dict[str, Any]:
-        """Restart audio playback."""
+    # === BlueALSA Monitor Callbacks ===
+
+    async def _on_device_connected(self, address: str, name: str) -> None:
+        """Handle device connection from BlueALSA monitor."""
+        # Single device enforcement: disconnect if another device is already connected
+        if self.connected_device and self.connected_device.get("address") != address:
+            self._logger.warning(f"Disconnecting {name} ({address}) - another device already connected")
+            await self._disconnect_device(address)
+            return
+
         if not self.connected_device:
-            return self.error_response("No device connected")
-
-        success = await self._do_restart()
-        return (
-            self.success_response("Audio playback restarted")
-            if success else self.error_response("Audio restart failed")
-        )
-
-    async def _cmd_restart_bluealsa(self) -> Dict[str, Any]:
-        """Restart BlueALSA service."""
-        success = await self._restart_service_by_name(self.bluealsa_service)
-        return (
-            self.success_response("BlueALSA service restarted")
-            if success else self.error_response("Restart failed")
-        )
-
-    async def _cmd_toggle_agent(self) -> Dict[str, Any]:
-        """Toggle auto-pairing agent."""
-        if self.auto_agent:
-            await self.agent.unregister()
-            self.auto_agent = False
-            return self.success_response("Agent disabled", auto_agent=False)
-        else:
-            success = await self.agent.register()
-            self.auto_agent = success
-            message = "Agent enabled" if success else "Agent activation failed"
-            return self.success_response(message, auto_agent=success)
-
-    # === Connection Monitoring ===
-
-    async def _monitor_connections(self) -> None:
-        """Monitor for additional connections and enforce single device."""
-        self._logger.info("Connection monitoring started")
-
-        while True:
-            try:
-                await asyncio.sleep(0.5)
-
-                # List connected devices
-                proc = await asyncio.create_subprocess_exec(
-                    "bluetoothctl", "devices", "Connected",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.DEVNULL
-                )
-                stdout, _ = await proc.communicate()
-
-                if proc.returncode != 0:
-                    continue
-
-                connected = []
-                for line in stdout.decode().splitlines():
-                    if line.startswith("Device "):
-                        parts = line.split(" ", 2)
-                        if len(parts) >= 2:
-                            connected.append(parts[1])
-
-                # Reset if no devices
-                if not connected:
-                    self._first_connected_device = None
-                    continue
-
-                # Register first device
-                if self._first_connected_device is None and len(connected) == 1:
-                    self._first_connected_device = connected[0]
-                    self._logger.info(f"First device: {self._first_connected_device}")
-                    continue
-
-                # Disconnect additional devices
-                if len(connected) > 1:
-                    for addr in connected:
-                        if addr != self._first_connected_device:
-                            self._logger.warning(
-                                f"Disconnecting {addr} - another device is connected"
-                            )
-                            await self._disconnect_device(addr)
-
-            except asyncio.CancelledError:
-                self._logger.info("Connection monitoring stopped")
-                break
-            except Exception as e:
-                self._logger.error(f"Monitor error: {e}")
-                await asyncio.sleep(1)
+            self.connected_device = {"address": address, "name": name}
+            self._logger.info(f"Device connected: {name} ({address})")
+            self._update_connection_state()
 
     async def _disconnect_device(self, address: str) -> bool:
         """Disconnect a device by address."""
@@ -342,16 +252,6 @@ class BluetoothSource(BaseAudioSource):
         except Exception as e:
             self._logger.error(f"Disconnect error: {e}")
             return False
-
-    # === BlueALSA Monitor Callbacks ===
-
-    async def _on_device_connected(self, address: str, name: str) -> None:
-        """Handle device connection from BlueALSA monitor."""
-        if not self.connected_device:
-            self.connected_device = {"address": address, "name": name}
-
-        self._logger.info(f"Device connected: {name} ({address})")
-        self._update_connection_state()
 
     async def _on_device_disconnected(self, address: str, name: str) -> None:
         """Handle device disconnection from BlueALSA monitor."""
@@ -417,12 +317,10 @@ class BluetoothSource(BaseAudioSource):
                             address = parts[1]
                             name = parts[2] if len(parts) > 2 else address
                             self.connected_device = {"address": address, "name": name}
-                            self._first_connected_device = address
                             return
 
             # No device found
             self.connected_device = None
-            self._first_connected_device = None
 
         except Exception as e:
             self._logger.error(f"Device detection error: {e}")
@@ -432,21 +330,9 @@ class BluetoothSource(BaseAudioSource):
         # Stop BlueALSA monitor
         await self.monitor.stop()
 
-        # Cancel monitoring task
-        if self._monitor_task and not self._monitor_task.done():
-            self._monitor_task.cancel()
-            try:
-                await self._monitor_task
-            except asyncio.CancelledError:
-                pass
-            self._monitor_task = None
-
         # Unregister agent
         if self.auto_agent:
             await self.agent.unregister()
-
-        # Reset state
-        self._first_connected_device = None
 
     def _update_connection_state(self) -> None:
         """Update state based on connected device."""
