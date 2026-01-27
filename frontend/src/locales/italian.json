@@ -40,7 +40,8 @@
       "noFavorites": "Nessuna radio preferita",
       "stationNoImage": "Stazione senza immagine",
       "playRadio": "Ascolta",
-      "stopRadio": "Ferma"
+      "stopRadio": "Ferma",
+      "loadingMore": "Caricamento..."
     }
   },
   "multiroom": {
@@ -74,9 +75,18 @@
       "disablePhysicalCrossover": "Imposta il crossover fisico del tuo subwoofer su bypass/LFE per evitare l'accumulo di filtri.",
       "highpassActive": "Filtro passa-alto attivo",
       "highpassDescription": "I bassi al di sotto di {freq} Hz vengono rimossi da questo altoparlante e gestiti dal subwoofer della zona.",
-      "crossoverFrequency": "Frequenza di taglio:"
+      "crossoverFrequency": "Frequenza di taglio:",
+      "badgeActive": "Crossover attivo",
+      "badgeInactive": "Crossover inattivo",
+      "subwooferOffline": "Subwoofer offline"
     },
-    "offline": "Offline"
+    "speakerOffline": "« {name} » è offline",
+    "speakerOfflineDescription": "Questo sistema audio non è attualmente connesso a Milō.<br>IP: {ip}",
+    "deleteSpeaker": "Elimina questo sistema audio",
+    "offline": "Offline",
+    "syncing": "Sincronizzazione...",
+    "syncError": "Errore di sincronizzazione",
+    "retrySync": "Riprova"
   },
   "dsp": {
     "title": "Equalizzatore DSP",
@@ -224,6 +234,21 @@
     "title": "Spotify",
     "autoDisconnect": "Disconnessione automatica",
     "disconnectDelay": "Ritardo disconnessione dopo la pausa della musica per:"
+  },
+  "macSettings": {
+    "title": "Streaming Mac",
+    "latency": "Latenza",
+    "targetLatency": "Latenza target",
+    "latencyProfile": "Profilo latenza",
+    "frameLength": "Dimensione frame",
+    "profiles": {
+      "responsive": "Reattivo",
+      "gradual": "Graduale",
+      "intact": "Intatto"
+    },
+    "apply": "Applica e riavvia",
+    "restarting": "Riavvio in corso...",
+    "warning": "Una latenza bassa può causare interruzioni audio su reti instabili."
   },
   "podcastSettings": {
     "title": "Podcast",
@@ -376,6 +401,7 @@
     "confirm": "Conferma",
     "restore": "Ripristina",
     "delete": "Elimina",
+    "deleting": "Eliminazione...",
     "modify": "Modifica"
   },
   "radio": {
