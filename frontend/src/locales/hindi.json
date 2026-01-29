@@ -454,7 +454,7 @@
   },
   "radioSettings": {
     "unmodifiedFavoritesTitle": "अपरिवर्तित पसंदीदा",
-    "modifiedStationsTitle": "संशोधित पसंदीदा स्टेशन",
+    "modifiedStationsTitle": "संशोधित स्टेशन",
     "noModifiedStations": "कोई संशोधित स्टेशन नहीं",
     "restoreStationConfirm": "मूल स्टेशन पुनर्स्थापित करें?",
     "modificationsWillBeLost": "सभी संशोधन खो जाएंगे और मूल स्टेशन पुनर्स्थापित हो जाएगा।",

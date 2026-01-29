@@ -274,11 +274,8 @@ watch(isCurrentlyPlaying, (isPlaying) => {
 }, { immediate: true })
 
 // === WEBSOCKET SYNC ===
-watch(() => unifiedStore.systemState.metadata, (newMetadata) => {
-  if (unifiedStore.systemState.active_source === 'radio' && newMetadata) {
-    radioStore.updateFromWebSocket(newMetadata)
-  }
-}, { immediate: true, deep: true })
+// currentStation now reads directly from unifiedStore.systemState.metadata
+// No need for manual sync here
 
 on('radio', 'favorite_added', (event) => {
   if (event.data?.station_id) {
@@ -289,6 +286,12 @@ on('radio', 'favorite_added', (event) => {
 on('radio', 'favorite_removed', (event) => {
   if (event.data?.station_id) {
     radioStore.handleFavoriteEvent(event.data.station_id, false)
+  }
+})
+
+on('radio', 'favorite_modified', (event) => {
+  if (event.data?.station) {
+    radioStore.handleMetadataModified(event.data.station)
   }
 })
 
@@ -308,12 +311,7 @@ onMounted(async () => {
   console.log('📻 RadioSource mounted')
 
   await radioStore.loadStations(true) // Load only favorites at startup
-
-  // Sync currentStation from current backend state
-  if (unifiedStore.systemState.active_source === 'radio' && unifiedStore.systemState.metadata) {
-    console.log('📻 Syncing currentStation from existing state on mount')
-    radioStore.updateFromWebSocket(unifiedStore.systemState.metadata)
-  }
+  // currentStation now reads directly from unifiedStore - no manual sync needed
 })
 
 onBeforeUnmount(() => {
@@ -322,9 +320,7 @@ onBeforeUnmount(() => {
     clearTimeout(stopTimer.value)
     stopTimer.value = null
   }
-
-  // Clear current station
-  radioStore.clearCurrentStation()
+  // currentStation reads from unifiedStore - no need to clear local state
 })
 </script>
 

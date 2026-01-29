@@ -23,7 +23,6 @@ from backend.features.radio.source import RadioSource
 from backend.features.radio.models import (
     PlayStationRequest,
     FavoriteRequest,
-    MarkBrokenRequest,
     RemoveCustomStationRequest
 )
 
@@ -231,8 +230,7 @@ async def search_stations(
                 limit=limit
             )
 
-            filtered_stations = source.station_data.filter_broken_stations(result["stations"])
-            enriched_stations = source.station_data.enrich_with_favorite_status(filtered_stations)
+            enriched_stations = source.station_data.enrich_with_favorite_status(result["stations"])
 
             return {
                 "stations": enriched_stations,
@@ -447,64 +445,6 @@ async def restore_favorite_metadata(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Restore favorite error: {str(e)}")
-
-
-# === Broken Stations Routes ===
-
-@router.post("/broken/mark")
-async def mark_broken(
-    request: MarkBrokenRequest,
-    source: RadioSource = Depends(get_source)
-) -> Dict[str, Any]:
-    """
-    Mark a station as broken.
-
-    Args:
-        request: Request with station_id
-
-    Returns:
-        Operation result
-    """
-    try:
-        result = await source.command("mark_broken", {"station_id": request.station_id})
-
-        if not result.get("success"):
-            raise HTTPException(
-                status_code=400,
-                detail=result.get("error", "Mark broken failed")
-            )
-
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Mark broken error: {str(e)}")
-
-
-@router.post("/broken/reset")
-async def reset_broken_stations(source: RadioSource = Depends(get_source)) -> Dict[str, Any]:
-    """
-    Reset the list of broken stations.
-
-    Returns:
-        Operation result
-    """
-    try:
-        result = await source.command("reset_broken", {})
-
-        if not result.get("success"):
-            raise HTTPException(
-                status_code=400,
-                detail=result.get("error", "Reset failed")
-            )
-
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Reset error: {str(e)}")
 
 
 # === Custom Stations Routes ===

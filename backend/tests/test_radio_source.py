@@ -98,7 +98,7 @@ class TestRadioSourceLifecycle:
             with patch('backend.features.radio.source.StationDataService') as mock_data_class:
                 mock_data = AsyncMock()
                 mock_data.initialize = AsyncMock()
-                mock_data.get_stats = Mock(return_value={'favorites_count': 0, 'broken_stations_count': 0})
+                mock_data.get_stats = Mock(return_value={'favorites_count': 0})
                 mock_data_class.return_value = mock_data
 
                 with patch('backend.features.radio.source.RadioBrowserAPI') as mock_api_class:
@@ -165,8 +165,7 @@ class TestRadioSourceStatus:
         radio_source._mpv = None
         radio_source._station_data = Mock()
         radio_source._station_data.get_stats = Mock(return_value={
-            'favorites_count': 5,
-            'broken_stations_count': 2
+            'favorites_count': 5
         })
 
         status = await radio_source.status()
@@ -189,8 +188,7 @@ class TestRadioSourceStatus:
         radio_source._is_playing = True
         radio_source._station_data = Mock()
         radio_source._station_data.get_stats = Mock(return_value={
-            'favorites_count': 0,
-            'broken_stations_count': 0
+            'favorites_count': 0
         })
 
         status = await radio_source.status()
@@ -210,7 +208,6 @@ class TestRadioSourceCommands:
         radio_source._mpv.load_stream = AsyncMock(return_value=True)
         radio_source._station_data = Mock()
         radio_source._station_data.is_favorite = Mock(return_value=False)
-        radio_source._station_data.mark_as_broken = AsyncMock()
         radio_source._radio_api = Mock()
         radio_source._radio_api.get_station_by_id = AsyncMock(return_value={
             "id": "test-id",
@@ -263,26 +260,6 @@ class TestRadioSourceCommands:
         assert result["success"] is True
 
     @pytest.mark.asyncio
-    async def test_mark_broken_command(self, radio_source):
-        """Test mark_broken command."""
-        radio_source._station_data = Mock()
-        radio_source._station_data.mark_as_broken = AsyncMock(return_value=True)
-
-        result = await radio_source.command("mark_broken", {"station_id": "test-id"})
-
-        assert result["success"] is True
-
-    @pytest.mark.asyncio
-    async def test_reset_broken_command(self, radio_source):
-        """Test reset_broken command."""
-        radio_source._station_data = Mock()
-        radio_source._station_data.reset_broken_stations = AsyncMock(return_value=True)
-
-        result = await radio_source.command("reset_broken", {})
-
-        assert result["success"] is True
-
-    @pytest.mark.asyncio
     async def test_unknown_command(self, radio_source):
         """Test unknown command returns error."""
         result = await radio_source.command("unknown_cmd", {})
@@ -308,7 +285,7 @@ class TestRadioSourceEventBus:
             with patch('backend.features.radio.source.StationDataService') as mock_data_class:
                 mock_data = AsyncMock()
                 mock_data.initialize = AsyncMock()
-                mock_data.get_stats = Mock(return_value={'favorites_count': 0, 'broken_stations_count': 0})
+                mock_data.get_stats = Mock(return_value={'favorites_count': 0})
                 mock_data_class.return_value = mock_data
 
                 with patch('backend.features.radio.source.RadioBrowserAPI') as mock_api_class:
@@ -360,7 +337,6 @@ class TestStationDataService:
         service = StationDataService()
 
         assert service._favorites == []
-        assert service._broken_stations == set()
         assert service._manual_stations == {}
 
     @pytest.mark.asyncio
@@ -373,46 +349,18 @@ class TestStationDataService:
         assert service.is_favorite("station-3") is False
 
     @pytest.mark.asyncio
-    async def test_is_broken(self):
-        """Test is_broken method."""
-        service = StationDataService()
-        service._broken_stations = {"broken-1", "broken-2"}
-
-        assert service.is_broken("broken-1") is True
-        assert service.is_broken("working-1") is False
-
-    @pytest.mark.asyncio
     async def test_get_stats(self):
         """Test get_stats method."""
         service = StationDataService()
         service._favorites = ["s1", "s2", "s3"]
-        service._broken_stations = {"b1"}
         service._manual_stations = {"c1": {}, "c2": {}}
         service._modified_metadata = {"m1": {}}
 
         stats = service.get_stats()
 
         assert stats["favorites_count"] == 3
-        assert stats["broken_stations_count"] == 1
         assert stats["manual_stations_count"] == 2
         assert stats["modified_metadata_count"] == 1
-
-    @pytest.mark.asyncio
-    async def test_filter_broken_stations(self):
-        """Test filter_broken_stations method."""
-        service = StationDataService()
-        service._broken_stations = {"broken-1"}
-
-        stations = [
-            {"id": "good-1", "name": "Good"},
-            {"id": "broken-1", "name": "Broken"},
-            {"id": "good-2", "name": "Good 2"}
-        ]
-
-        filtered = service.filter_broken_stations(stations)
-
-        assert len(filtered) == 2
-        assert all(s["id"] != "broken-1" for s in filtered)
 
     @pytest.mark.asyncio
     async def test_enrich_with_favorite_status(self):

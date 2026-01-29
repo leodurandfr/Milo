@@ -2,6 +2,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
+import { useUnifiedAudioStore } from './unifiedAudioStore';
 
 export const useRadioStore = defineStore('radio', () => {
   // === STATE ===
@@ -17,9 +18,6 @@ export const useRadioStore = defineStore('radio', () => {
 
   // Favorite stations (dedicated storage, loaded from backend)
   const favoriteStations = ref([]);
-
-  // Currently playing station ID
-  const currentStationId = ref(null);
 
   // UI state
   const loading = ref(false);
@@ -41,23 +39,35 @@ export const useRadioStore = defineStore('radio', () => {
 
   // === COMPUTED PROPERTIES ===
 
-  // Currently playing station (lookup in search results or favorites)
+  // Currently playing station (from unified store metadata, with property normalization)
+  // Enriched with local favoriteStations data for immediate updates after metadata modifications
   const currentStation = computed(() => {
-    if (!currentStationId.value) return null;
+    const unifiedStore = useUnifiedAudioStore();
 
-    // Try search results first
-    let station = searchResults.value.find(s => s.id === currentStationId.value);
-
-    // Fallback to favorites
-    if (!station) {
-      station = favoriteStations.value.find(s => s.id === currentStationId.value);
+    // Only return station when radio is the active source
+    if (unifiedStore.systemState.active_source !== 'radio') {
+      return null;
     }
 
-    if (!station) return null;
+    const metadata = unifiedStore.systemState.metadata;
+    if (!metadata?.station_id) {
+      return null;
+    }
 
+    // Check if we have local metadata (from favoriteStations) - this has the most up-to-date info after modifications
+    const localStation = favoriteStations.value.find(s => s.id === metadata.station_id);
+
+    // Use local metadata if available (more up-to-date after modifications), fallback to WebSocket metadata
     return {
-      ...station,
-      is_favorite: isFavorite(station.id)
+      id: metadata.station_id,
+      name: localStation?.name ?? metadata.station_name,
+      url: localStation?.url ?? metadata.station_url,
+      country: localStation?.country ?? metadata.country,
+      genre: localStation?.genre ?? metadata.genre,
+      favicon: localStation?.favicon ?? metadata.favicon,
+      bitrate: localStation?.bitrate ?? metadata.bitrate,
+      codec: localStation?.codec ?? metadata.codec,
+      is_favorite: isFavorite(metadata.station_id)
     };
   });
 
@@ -304,46 +314,6 @@ export const useRadioStore = defineStore('radio', () => {
   }
 
   /**
-   * Mark a station as broken
-   */
-  async function markBroken(stationId) {
-    try {
-      const response = await axios.post('/api/radio/broken/mark', { station_id: stationId });
-
-      if (response.data.success) {
-        // Remove from search results
-        searchResults.value = searchResults.value.filter(s => s.id !== stationId);
-        totalResults.value = Math.max(0, totalResults.value - 1);
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error('Error marking station as broken:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Reset broken stations list
-   */
-  async function resetBrokenStations() {
-    try {
-      const response = await axios.post('/api/radio/broken/reset');
-      if (response.data.success) {
-        // Invalidate cache and reload
-        topStationsCache.value = null;
-        topStationsCacheTimestamp.value = null;
-        await loadStations();
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error('Error resetting broken stations:', error);
-      return false;
-    }
-  }
-
-  /**
    * Add a custom station
    */
   async function addCustomStation(stationData) {
@@ -433,13 +403,11 @@ export const useRadioStore = defineStore('radio', () => {
   }
 
   /**
-   * Update current station from WebSocket metadata
+   * Update from WebSocket metadata (legacy - kept for compatibility)
+   * No longer needs to store state as currentStation reads directly from unifiedStore
    */
   function updateFromWebSocket(metadata) {
-    if (metadata.station_id) {
-      currentStationId.value = metadata.station_id;
-    }
-    // Don't clear immediately to allow animation
+    // No-op: currentStation now reads directly from unifiedStore.systemState.metadata
   }
 
   /**
@@ -459,17 +427,45 @@ export const useRadioStore = defineStore('radio', () => {
         await loadStations(true);
       }
     } else {
-      // Remove from favorites
-      favoriteStations.value = favoriteStations.value.filter(s => s.id !== stationId);
+      // Remove from favorites - reload to get animation and ensure consistency
+      console.log('📻 Favorite removed, reloading favorites');
+      await loadStations(true);
     }
   }
 
   /**
-   * Clear current station
+   * Handle metadata modified event from WebSocket
+   */
+  function handleMetadataModified(updatedStation) {
+    console.log('📻 Station metadata modified:', updatedStation.id);
+
+    // Update in favoriteStations
+    const favIndex = favoriteStations.value.findIndex(s => s.id === updatedStation.id);
+    if (favIndex !== -1) {
+      favoriteStations.value = [
+        ...favoriteStations.value.slice(0, favIndex),
+        { ...updatedStation, is_favorite: true },
+        ...favoriteStations.value.slice(favIndex + 1)
+      ];
+    }
+
+    // Update in searchResults
+    const searchIndex = searchResults.value.findIndex(s => s.id === updatedStation.id);
+    if (searchIndex !== -1) {
+      searchResults.value = [
+        ...searchResults.value.slice(0, searchIndex),
+        { ...searchResults.value[searchIndex], ...updatedStation },
+        ...searchResults.value.slice(searchIndex + 1)
+      ];
+    }
+  }
+
+  /**
+   * Clear current station (legacy - kept for compatibility)
+   * No longer needs to clear local state as currentStation reads from unifiedStore
    */
   function clearCurrentStation() {
-    console.log('📻 Clearing current station');
-    currentStationId.value = null;
+    // No-op: currentStation now reads directly from unifiedStore.systemState.metadata
   }
 
   return {
@@ -497,13 +493,12 @@ export const useRadioStore = defineStore('radio', () => {
     addFavorite,
     removeFavorite,
     toggleFavorite,
-    markBroken,
-    resetBrokenStations,
     addCustomStation,
     removeCustomStation,
     removeStationImage,
     updateFromWebSocket,
     handleFavoriteEvent,
+    handleMetadataModified,
     clearCurrentStation
   };
 });

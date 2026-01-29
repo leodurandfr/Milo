@@ -43,11 +43,6 @@ class FavoriteRequest(BaseModel):
     station: Optional[dict] = None
 
 
-class MarkBrokenRequest(BaseModel):
-    """Request to mark a station as broken."""
-    station_id: str
-
-
 class AddCustomStationRequest(BaseModel):
     """Request to add a custom station."""
     name: str

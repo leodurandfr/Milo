@@ -454,7 +454,7 @@
   },
   "radioSettings": {
     "unmodifiedFavoritesTitle": "Unveränderte Favoriten",
-    "modifiedStationsTitle": "Geänderte Lieblingssender",
+    "modifiedStationsTitle": "Geänderte Sender",
     "noModifiedStations": "Keine geänderten Sender",
     "restoreStationConfirm": "Originalsender wiederherstellen?",
     "modificationsWillBeLost": "Alle Änderungen gehen verloren und der Originalsender wird wiederhergestellt.",

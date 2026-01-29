@@ -225,7 +225,7 @@ class SettingsService:
             # Preserve equalizer section as-is (no strict validation)
             validated['equalizer'] = equalizer_input
 
-        # Radio (favorites + broken_stations) - Preserve radio section without strict validation
+        # Radio - Preserve radio section without strict validation
         radio_input = settings.get('radio', {})
         if radio_input:
             # Preserve radio section as-is (no strict validation)
