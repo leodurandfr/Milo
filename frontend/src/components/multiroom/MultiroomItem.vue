@@ -190,7 +190,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue';
+import { ref, computed, watch } from 'vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
@@ -212,11 +212,6 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  // Client names string to show when item represents a zone (e.g., "Client1 · Client2")
-  zoneClients: {
-    type: String,
-    default: ''
-  },
   // Whether this item represents a zone (multiple linked clients)
   isZone: {
     type: Boolean,
@@ -235,8 +230,8 @@ const emit = defineEmits([
   'mute-toggle',
   'client-volume-change',
   'client-mute-toggle',
-  'before-expand',    // Emits height delta before zone expansion starts
-  'before-collapse'   // Emits height delta before zone collapse starts
+  'before-expand',   // Emits height delta before zone expansion
+  'before-collapse'  // Emits height delta before zone collapse
 ]);
 
 // === LOCAL STATE ===
@@ -330,24 +325,40 @@ function getClientDisplayVolume(macId, serverVolume) {
 }
 
 // === ZONE HEADER HANDLERS ===
-async function toggleExpand() {
+function toggleExpand() {
   if (!canExpand.value) return;
 
   if (!isExpanded.value) {
-    // OPENING: Tell parent to pre-allocate space, then animate
+    // OPENING: Calculate full height (offsetHeight + margin-top)
     if (expandedContentRef.value) {
-      const expandedHeight = expandedContentRef.value.offsetHeight;
-      emit('before-expand', expandedHeight);  // Parent pre-allocates space instantly
-      await nextTick();  // Let parent update before we start animating
-      expandedWrapperHeight.value = `${expandedHeight}px`;
+      const el = expandedContentRef.value;
+      const marginTop = parseFloat(getComputedStyle(el).marginTop) || 0;
+      const fullHeight = el.offsetHeight + marginTop;
+
+      // Account for padding-bottom removed from .multiroom-item when expanded (--space-04 = 16px)
+      const paddingOffset = 16;
+      const heightDelta = fullHeight - paddingOffset;
+
+      // Tell parent to pre-allocate space on clients-list
+      emit('before-expand', heightDelta);
+
+      // Set local wrapper height (will animate via transition)
+      expandedWrapperHeight.value = `${fullHeight}px`;
     }
     isExpanded.value = true;
   } else {
-    // CLOSING: Tell parent to shrink, then animate
+    // CLOSING: Get current height before collapsing
     if (expandedContentRef.value) {
-      const currentHeight = expandedContentRef.value.offsetHeight;
-      emit('before-collapse', currentHeight);  // Parent shrinks space instantly
-      await nextTick();  // Let parent update before we start animating
+      const el = expandedContentRef.value;
+      const marginTop = parseFloat(getComputedStyle(el).marginTop) || 0;
+      const fullHeight = el.offsetHeight + marginTop;
+
+      // Account for padding-bottom restored to .multiroom-item when collapsed (--space-04 = 16px)
+      const paddingOffset = 16;
+      const heightDelta = fullHeight - paddingOffset;
+
+      // Tell parent to shrink space on clients-list
+      emit('before-collapse', heightDelta);
     }
     isExpanded.value = false;
     expandedWrapperHeight.value = '0px';
@@ -413,6 +424,16 @@ function handleClientMuteToggle(clientMacId, muted) {
   border-radius: var(--radius-06);
   padding: var(--space-04);
   background: var(--color-background-neutral);
+}
+
+/* Zone: animate padding change to sync with wrapper height animation */
+.multiroom-item.is-zone {
+  transition: padding-bottom var(--transition-fast);
+}
+
+/* Remove bottom padding when zone is expanded (moved to .expanded-clients) */
+.multiroom-item.is-zone.is-expanded {
+  padding-bottom: 0;
 }
 
 /* === ITEM HEADER (zone/client row) === */
@@ -538,42 +559,27 @@ function handleClientMuteToggle(clientMacId, muted) {
 
 /* Real name content */
 .client-name {
-  color: var(--color-text);
-  overflow: hidden;
-  opacity: 0;
-  transition: opacity 300ms ease 0ms, color 300ms ease;
-  width: 100%;
-}
-
-.client-name.visible {
-  opacity: 1;
-  transition: opacity 300ms ease 0ms, color 300ms ease;
-}
-
-.client-name.muted {
-  color: var(--color-text-light);
-}
-
-.client-name.offline {
-  color: var(--color-text-light);
-}
-
-.client-name {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 0;
+  color: var(--color-text);
+  overflow: hidden;
+  width: 100%;
+  opacity: 0;
+  transition: opacity var(--transition-fast), color var(--transition-fast);
+}
+
+.client-name.visible {
+  opacity: 1;
+}
+
+.client-name.muted,
+.client-name.offline {
+  color: var(--color-text-light);
 }
 
 .item-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  width: 100%;
-}
-
-.zone-clients {
-  color: var(--color-text-light);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -685,7 +691,7 @@ function handleClientMuteToggle(clientMacId, muted) {
 .expanded-wrapper {
   height: 0;
   overflow: hidden;
-  transition: height var(--transition-spring);
+  transition: height var(--transition-fast);
 }
 
 .expanded-clients {
@@ -693,6 +699,7 @@ function handleClientMuteToggle(clientMacId, muted) {
   flex-direction: column;
   margin-top: var(--space-03);
   padding-top: var(--space-03);
+  padding-bottom: var(--space-04); /* Bottom padding moved from .multiroom-item */
   border-top: 1px solid var(--color-border);
   /* Hidden by default, visible when expanded */
   opacity: 0;
@@ -713,6 +720,9 @@ function handleClientMuteToggle(clientMacId, muted) {
   align-items: center;
   gap: var(--space-04);
   padding: var(--space-03) 0;
+  /* Fade animation base state */
+  opacity: 0;
+  transition: opacity var(--transition-fast);
 }
 
 .client-row:first-child {
@@ -780,17 +790,12 @@ function handleClientMuteToggle(clientMacId, muted) {
   opacity: 1;
 }
 
-/* Staggered fade-in animation for client rows (only when parent is visible) */
+/* Staggered fade-in animation for client rows (when parent is visible) */
+/* backwards: opacity 0 during delay. CSS opacity: 1 takes over after animation for proper fade-out transition */
 .expanded-clients.is-visible .client-row {
-  opacity: 0;
-  animation: fadeInRow 300ms ease forwards;
+  opacity: 1;
+  animation: fadeInRow 300ms ease backwards;
   animation-delay: var(--row-delay, 0ms);
-}
-
-/* Reset animation when closing */
-.expanded-clients:not(.is-visible) .client-row {
-  opacity: 0;
-  animation: none;
 }
 
 @keyframes fadeInRow {
