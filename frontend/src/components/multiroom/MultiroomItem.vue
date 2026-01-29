@@ -124,14 +124,23 @@
       </div>
     </div>
 
-    <!-- EXPANDED CLIENT LIST (only when zone is expanded) -->
-    <Transition name="expand">
-      <div v-if="isExpanded && zoneClientDetails" class="expanded-clients">
+    <!-- EXPANDED CLIENT LIST - Height wrapper for single-step ResizeObserver update -->
+    <div
+      class="expanded-wrapper"
+      :style="{ height: expandedWrapperHeight }"
+    >
+      <!-- Content always rendered when data exists (for measurement), visibility controlled by CSS -->
+      <div
+        v-if="zoneClientDetails?.length > 1"
+        ref="expandedContentRef"
+        class="expanded-clients"
+        :class="{ 'is-visible': isExpanded }"
+      >
         <div
           v-for="(zoneClient, index) in zoneClientDetails"
           :key="zoneClient.mac_id"
           class="client-row"
-          :style="{ animationDelay: `${150 + index * 120}ms` }"
+          :style="{ '--row-delay': `${100 + index * 80}ms` }"
         >
           <!-- Speaker icon -->
           <div class="client-icon">
@@ -176,12 +185,12 @@
           />
         </div>
       </div>
-    </Transition>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, nextTick } from 'vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
@@ -225,7 +234,9 @@ const emit = defineEmits([
   'volume-change',
   'mute-toggle',
   'client-volume-change',
-  'client-mute-toggle'
+  'client-mute-toggle',
+  'before-expand',    // Emits height delta before zone expansion starts
+  'before-collapse'   // Emits height delta before zone collapse starts
 ]);
 
 // === LOCAL STATE ===
@@ -233,9 +244,10 @@ const isExpanded = ref(false);
 const localDisplayVolume = ref(null);
 const clientLocalVolumes = ref({});
 
-// Optimistic mute state (similar to localDisplayVolume for volume)
-const localMutedState = ref(null);
-const clientLocalMutes = ref({});
+// Ref for measuring expanded content height
+const expandedContentRef = ref(null);
+// Explicit height for the wrapper (enables single-step ResizeObserver update)
+const expandedWrapperHeight = ref('0px');
 
 // Clear local volume when backend confirms the update (via WebSocket)
 watch(
@@ -318,9 +330,27 @@ function getClientDisplayVolume(macId, serverVolume) {
 }
 
 // === ZONE HEADER HANDLERS ===
-function toggleExpand() {
-  if (canExpand.value) {
-    isExpanded.value = !isExpanded.value;
+async function toggleExpand() {
+  if (!canExpand.value) return;
+
+  if (!isExpanded.value) {
+    // OPENING: Tell parent to pre-allocate space, then animate
+    if (expandedContentRef.value) {
+      const expandedHeight = expandedContentRef.value.offsetHeight;
+      emit('before-expand', expandedHeight);  // Parent pre-allocates space instantly
+      await nextTick();  // Let parent update before we start animating
+      expandedWrapperHeight.value = `${expandedHeight}px`;
+    }
+    isExpanded.value = true;
+  } else {
+    // CLOSING: Tell parent to shrink, then animate
+    if (expandedContentRef.value) {
+      const currentHeight = expandedContentRef.value.offsetHeight;
+      emit('before-collapse', currentHeight);  // Parent shrinks space instantly
+      await nextTick();  // Let parent update before we start animating
+    }
+    isExpanded.value = false;
+    expandedWrapperHeight.value = '0px';
   }
 }
 
@@ -651,12 +681,29 @@ function handleClientMuteToggle(clientMacId, muted) {
 }
 
 /* === EXPANDED CLIENTS SECTION === */
+/* Wrapper animates height - parent pre-allocates space so Modal sees one change */
+.expanded-wrapper {
+  height: 0;
+  overflow: hidden;
+  transition: height var(--transition-spring);
+}
+
 .expanded-clients {
   display: flex;
   flex-direction: column;
   margin-top: var(--space-03);
   padding-top: var(--space-03);
   border-top: 1px solid var(--color-border);
+  /* Hidden by default, visible when expanded */
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 250ms ease, visibility 0ms linear 250ms;
+}
+
+.expanded-clients.is-visible {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 300ms ease, visibility 0ms linear 0ms;
 }
 
 /* Individual client row in expanded zone */
@@ -733,10 +780,17 @@ function handleClientMuteToggle(clientMacId, muted) {
   opacity: 1;
 }
 
-/* Staggered fade-in animation for client rows */
-.expanded-clients .client-row {
+/* Staggered fade-in animation for client rows (only when parent is visible) */
+.expanded-clients.is-visible .client-row {
   opacity: 0;
   animation: fadeInRow 300ms ease forwards;
+  animation-delay: var(--row-delay, 0ms);
+}
+
+/* Reset animation when closing */
+.expanded-clients:not(.is-visible) .client-row {
+  opacity: 0;
+  animation: none;
 }
 
 @keyframes fadeInRow {
@@ -748,31 +802,6 @@ function handleClientMuteToggle(clientMacId, muted) {
     opacity: 1;
     transform: translateY(0);
   }
-}
-
-/* === EXPAND TRANSITION === */
-.expand-enter-active {
-  transition: all 400ms ease;
-  overflow: hidden;
-}
-
-.expand-leave-active {
-  transition: all 300ms ease;
-  overflow: hidden;
-}
-
-.expand-enter-from,
-.expand-leave-to {
-  opacity: 0;
-  max-height: 0;
-  padding-top: 0;
-  margin-top: 0;
-}
-
-.expand-enter-to,
-.expand-leave-from {
-  opacity: 1;
-  max-height: 300px;
 }
 
 /* === ANIMATIONS === */

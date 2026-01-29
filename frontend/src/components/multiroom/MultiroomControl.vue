@@ -1,7 +1,7 @@
 <!-- frontend/src/components/multiroom/MultiroomControl.vue -->
 <template>
   <div class="clients-container">
-    <div class="clients-list">
+    <div ref="clientsListRef" class="clients-list" :style="clientsListStyle">
       <!-- Single Transition for both states -->
       <Transition name="fade-slide" mode="out-in">
         <!-- MESSAGE: Multiroom disabled or error -->
@@ -21,6 +21,8 @@
             @mute-toggle="handleMuteToggle"
             @client-volume-change="handleClientVolumeChange"
             @client-mute-toggle="handleClientMuteToggle"
+            @before-expand="handleBeforeExpand"
+            @before-collapse="handleBeforeCollapse"
           />
         </div>
       </Transition>
@@ -29,7 +31,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useSnapcastStore } from '@/stores/snapcastStore';
@@ -50,6 +52,17 @@ const { on } = useWebSocket();
 // 'idle' | 'enabling' | 'disabling' | 'error'
 const transitionState = ref('idle');
 const errorMessage = ref('');
+
+// Ref for clients-list to control height during zone expansion
+const clientsListRef = ref(null);
+// Explicit height for pre-allocation (null = auto height)
+const clientsListHeight = ref(null);
+
+// Computed style for clients-list
+const clientsListStyle = computed(() => {
+  if (clientsListHeight.value === null) return {};
+  return { height: clientsListHeight.value };
+});
 
 // Timeout for transition (15 seconds)
 const TRANSITION_TIMEOUT_MS = 15000;
@@ -311,6 +324,23 @@ const displayClients = computed(() => {
   });
 });
 
+// === HEIGHT PRE-ALLOCATION HANDLERS ===
+// Called by MultiroomItem before zone expansion starts
+function handleBeforeExpand(heightDelta) {
+  if (!clientsListRef.value) return;
+  // Get current height, add delta, set instantly (no transition on clients-list)
+  const currentHeight = clientsListRef.value.offsetHeight;
+  clientsListHeight.value = `${currentHeight + heightDelta}px`;
+}
+
+// Called by MultiroomItem before zone collapse starts
+function handleBeforeCollapse(heightDelta) {
+  if (!clientsListRef.value) return;
+  // Get current height, subtract delta, set instantly
+  const currentHeight = clientsListRef.value.offsetHeight;
+  clientsListHeight.value = `${currentHeight - heightDelta}px`;
+}
+
 // === HANDLERS ===
 async function handleVolumeChange(clientMacId, volumeDb, options = {}) {
   const { isZone = false } = options;
@@ -514,6 +544,7 @@ watch(displayClients, (newClients) => {
   display: flex;
   flex-direction: column;
   position: relative;
+  overflow: hidden; /* Clip content during zone expansion/collapse animation */
 }
 
 .clients-wrapper {

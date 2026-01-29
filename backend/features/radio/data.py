@@ -3,7 +3,7 @@
 Radio station data management.
 
 This module provides:
-- Persistent storage for favorites, custom stations, broken stations
+- Persistent storage for favorites and custom stations
 - Image management for station artwork
 - Metadata caching from RadioBrowser API
 
@@ -17,7 +17,7 @@ import os
 import uuid
 import io
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Set, Tuple
+from typing import Dict, Any, List, Optional, Tuple
 
 import aiofiles
 from PIL import Image
@@ -184,8 +184,7 @@ class StationDataService:
         "favorites": ["station_id1", ...],
         "modified_metadata": {"station_id": {...}},
         "manual_stations": {"custom_xxx": {...}},
-        "favorites_cache": {"station_id": {...}},
-        "broken_stations": ["station_id", ...]
+        "favorites_cache": {"station_id": {...}}
     }
     """
 
@@ -203,7 +202,6 @@ class StationDataService:
         self._modified_metadata: Dict[str, Dict[str, Any]] = {}
         self._manual_stations: Dict[str, Dict[str, Any]] = {}
         self._favorites_cache: Dict[str, Dict[str, Any]] = {}
-        self._broken_stations: Set[str] = set()
         self._loaded = False
 
         # External API reference (set after initialization)
@@ -220,11 +218,9 @@ class StationDataService:
             self._modified_metadata = data.get('modified_metadata', {})
             self._manual_stations = data.get('manual_stations', {})
             self._favorites_cache = data.get('favorites_cache', {})
-            self._broken_stations = set(data.get('broken_stations', []))
 
             self.logger.info(
                 f"Loaded {len(self._favorites)} favorites, "
-                f"{len(self._broken_stations)} broken, "
                 f"{len(self._manual_stations)} custom stations"
             )
             self._loaded = True
@@ -257,8 +253,6 @@ class StationDataService:
                 self.logger.info("radio_data.json not found, creating new file")
                 default_data = {
                     "favorites": [],
-                    "broken_stations": [],
-                    "custom_stations": {},
                     "modified_metadata": {},
                     "manual_stations": {},
                     "favorites_cache": {}
@@ -268,10 +262,10 @@ class StationDataService:
 
         except json.JSONDecodeError as e:
             self.logger.error(f"JSON error in radio_data.json: {e}")
-            return {"favorites": [], "broken_stations": [], "modified_metadata": {}, "manual_stations": {}, "favorites_cache": {}}
+            return {"favorites": [], "modified_metadata": {}, "manual_stations": {}, "favorites_cache": {}}
         except Exception as e:
             self.logger.error(f"Error loading radio_data.json: {e}")
-            return {"favorites": [], "broken_stations": [], "modified_metadata": {}, "manual_stations": {}, "favorites_cache": {}}
+            return {"favorites": [], "modified_metadata": {}, "manual_stations": {}, "favorites_cache": {}}
 
     async def _save_data(self, data: Dict[str, Any]) -> bool:
         """Save radio_data.json with atomic write."""
@@ -299,8 +293,7 @@ class StationDataService:
             "favorites": self._favorites,
             "modified_metadata": self._modified_metadata,
             "manual_stations": self._manual_stations,
-            "favorites_cache": self._favorites_cache,
-            "broken_stations": list(self._broken_stations)
+            "favorites_cache": self._favorites_cache
         }
         return await self._save_data(data)
 
@@ -402,11 +395,23 @@ class StationDataService:
         return success
 
     async def remove_favorite(self, station_id: str) -> bool:
-        """Remove station from favorites."""
+        """Remove station from favorites and clean up associated data."""
         if not station_id or station_id not in self._favorites:
             return True
 
         self._favorites.remove(station_id)
+
+        # Clean up modified metadata (delete custom image if exists)
+        if station_id in self._modified_metadata:
+            old_image = self._modified_metadata[station_id].get('image_filename')
+            if old_image:
+                await self.image_manager.delete_image(old_image)
+            del self._modified_metadata[station_id]
+
+        # Clean up favorites cache
+        if station_id in self._favorites_cache:
+            del self._favorites_cache[station_id]
+
         success = await self._save()
 
         if success:
@@ -417,28 +422,6 @@ class StationDataService:
             })
 
         return success
-
-    # === Broken Stations ===
-
-    def is_broken(self, station_id: str) -> bool:
-        """Check if station is marked as broken."""
-        return station_id in self._broken_stations
-
-    async def mark_as_broken(self, station_id: str) -> bool:
-        """Mark station as broken."""
-        if not station_id or station_id in self._broken_stations:
-            return True
-        self._broken_stations.add(station_id)
-        return await self._save()
-
-    async def reset_broken_stations(self) -> bool:
-        """Reset broken stations list."""
-        self._broken_stations.clear()
-        return await self._save()
-
-    def filter_broken_stations(self, stations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Filter broken stations from a list."""
-        return [s for s in stations if not self.is_broken(s.get('id'))]
 
     def enrich_with_favorite_status(self, stations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Enrich stations with favorite status and custom metadata."""
@@ -742,11 +725,9 @@ class StationDataService:
             station_data['id'] = station_id
             station_data['is_favorite'] = station_id in self._favorites
 
-            if success and self._event_bus:
-                from backend.core.events import Events
-                await self._event_bus.emit(Events.RADIO_FAVORITE_MODIFIED, {
-                    "station": station_data,
-                    "source": "radio"
+            if success:
+                await self._broadcast_event("favorite_modified", {
+                    "station": station_data
                 })
 
             return {"success": success, "station": station_data}
@@ -794,7 +775,6 @@ class StationDataService:
         """Get statistics."""
         return {
             'favorites_count': len(self._favorites),
-            'broken_stations_count': len(self._broken_stations),
             'modified_metadata_count': len(self._modified_metadata),
             'manual_stations_count': len(self._manual_stations)
         }

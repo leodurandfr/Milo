@@ -2,34 +2,33 @@
   <div class="radio-settings-container">
     <section class="settings-section">
       <!-- Section 1: Unmodified Favorites -->
-      <template v-if="unmodifiedFavorites.length > 0">
+      <div v-if="unmodifiedFavorites.length > 0" class="section-group">
         <h2 class="heading-2">{{ $t('radioSettings.unmodifiedFavoritesTitle') }}</h2>
-
         <div class="stations-list">
           <StationCard v-for="station in unmodifiedFavorites" :key="station.id" :station="station" variant="card"
             :show-country="true" @click="$emit('edit-station', station)" />
         </div>
-      </template>
+      </div>
 
       <!-- Section 2: Modified Stations (from RadioBrowserAPI favorites) -->
-      <h2 class="heading-2">{{ $t('radioSettings.modifiedStationsTitle') }}</h2>
-
-      <div v-if="modifiedStations.length > 0" class="stations-list">
-        <StationCard v-for="station in modifiedStations" :key="`${station.id}-${station.name}-${updateCounter}`" :station="station"
-          variant="card" :show-country="true" @click="$emit('edit-station', { ...station, _canRestore: true })" />
+      <div class="section-group">
+        <h2 class="heading-2">{{ $t('radioSettings.modifiedStationsTitle') }}</h2>
+        <div v-if="modifiedStations.length > 0" class="stations-list">
+          <StationCard v-for="station in modifiedStations" :key="`${station.id}-${station.name}-${updateCounter}`" :station="station"
+            variant="card" :show-country="true" @click="$emit('edit-station', { ...station, _canRestore: true })" />
+        </div>
+        <div v-else class="empty-state text-mono">
+          {{ $t('radioSettings.noModifiedStations') }}
+        </div>
       </div>
-
-      <div v-else class="empty-state text-mono">
-        {{ $t('radioSettings.noModifiedStations') }}
-      </div>
-
 
       <!-- Section 3: Added Stations (manually created) -->
-      <h2 v-if="addedStations.length > 0" class="heading-2">{{ $t('radioSettings.addedStationsTitle') }}</h2>
-
-      <div v-if="addedStations.length > 0" class="stations-list">
-        <StationCard v-for="station in addedStations" :key="station.id" :station="station" variant="card"
-          :show-country="true" @click="$emit('edit-station', { ...station, _canDelete: true })" />
+      <div v-if="addedStations.length > 0" class="section-group">
+        <h2 class="heading-2">{{ $t('radioSettings.addedStationsTitle') }}</h2>
+        <div class="stations-list">
+          <StationCard v-for="station in addedStations" :key="station.id" :station="station" variant="card"
+            :show-country="true" @click="$emit('edit-station', { ...station, _canDelete: true })" />
+        </div>
       </div>
 
       <Button variant="brand" @click="$emit('go-to-add-station')">
@@ -43,39 +42,45 @@
 import { ref, computed, onMounted } from 'vue';
 import axios from 'axios';
 import { useRadioStore } from '@/stores/radioStore';
+import useWebSocket from '@/services/websocket';
 import Button from '@/components/ui/Button.vue';
 import StationCard from '@/components/radio/StationCard.vue';
 
 defineEmits(['go-to-add-station', 'edit-station']);
 
 const radioStore = useRadioStore();
+const { on } = useWebSocket();
 
 // Local lists loaded from the API
 const customStationsDict = ref({}); // Dict of station_id → custom metadata
 const allFavorites = ref([]); // All favorites from API
 const updateCounter = ref(0); // Force re-render counter
 
-// Unmodified favorites: favorites that are NOT in customStationsDict
+// Unmodified favorites: favorites that are NOT in customStationsDict (sorted alphabetically)
 const unmodifiedFavorites = computed(() => {
-  return allFavorites.value.filter(station => !customStationsDict.value[station.id]);
+  return allFavorites.value
+    .filter(station => !customStationsDict.value[station.id])
+    .sort((a, b) => a.name.localeCompare(b.name));
 });
 
-// Modified stations: RadioBrowser favorites that have been modified
+// Modified stations: RadioBrowser favorites that have been modified (sorted alphabetically)
 // These are entries in customStationsDict with RadioBrowser UUID keys (not starting with "custom_")
 const modifiedStations = computed(() => {
   const _ = updateCounter.value;
   return Object.entries(customStationsDict.value)
     .filter(([id, _]) => !id.startsWith('custom_'))
-    .map(([id, metadata]) => ({ ...metadata, id }));
+    .map(([id, metadata]) => ({ ...metadata, id }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 });
 
-// Added stations: custom stations created manually
+// Added stations: custom stations created manually (sorted alphabetically)
 // These are entries in customStationsDict with keys starting with "custom_"
 const addedStations = computed(() => {
   const _ = updateCounter.value;
   return Object.entries(customStationsDict.value)
     .filter(([id, _]) => id.startsWith('custom_'))
-    .map(([id, metadata]) => ({ ...metadata, id }));
+    .map(([id, metadata]) => ({ ...metadata, id }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 });
 
 async function loadCustomStations() {
@@ -93,7 +98,7 @@ async function loadAllFavorites() {
   // Load all favorites (including unmodified ones)
   try {
     const response = await axios.get('/api/radio/stations', {
-      params: { favorites_only: true, limit: 10000 }
+      params: { favorites_only: true }
     });
     allFavorites.value = response.data.stations || [];
   } catch (error) {
@@ -112,6 +117,12 @@ defineExpose({ loadCustomStations: loadAllData });
 onMounted(() => {
   loadAllData();
 });
+
+// Listen for metadata modifications to auto-reload
+on('radio', 'favorite_modified', () => {
+  console.log('📻 Station modified, reloading RadioSettings data');
+  loadAllData();
+});
 </script>
 
 <style scoped>
@@ -125,6 +136,12 @@ onMounted(() => {
   background: var(--color-background-neutral);
   border-radius: var(--radius-06);
   padding: var(--space-05-fixed) var(--space-05);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-05-fixed);
+}
+
+.section-group {
   display: flex;
   flex-direction: column;
   gap: var(--space-04);

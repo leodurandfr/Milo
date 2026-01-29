@@ -454,7 +454,7 @@
   },
   "radioSettings": {
     "unmodifiedFavoritesTitle": "Unmodified favorites",
-    "modifiedStationsTitle": "Modified favorite stations",
+    "modifiedStationsTitle": "Modified stations",
     "noModifiedStations": "No modified stations",
     "restoreStationConfirm": "Restore original station?",
     "modificationsWillBeLost": "All modifications will be lost and the original station will be restored.",

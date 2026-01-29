@@ -209,8 +209,7 @@ class RadioSource(BaseAudioSource):
             "buffering": self._is_buffering,
             "current_station": self._current_station,
             "metadata": self._metadata,
-            "favorites_count": self._station_data.get_stats()['favorites_count'] if self._station_data else 0,
-            "broken_stations_count": self._station_data.get_stats()['broken_stations_count'] if self._station_data else 0
+            "favorites_count": self._station_data.get_stats()['favorites_count'] if self._station_data else 0
         }
 
     async def _handle_command(self, cmd: str, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -226,12 +225,6 @@ class RadioSource(BaseAudioSource):
 
         if cmd == "remove_favorite":
             return await self._handle_remove_favorite(data)
-
-        if cmd == "mark_broken":
-            return await self._handle_mark_broken(data)
-
-        if cmd == "reset_broken":
-            return await self._handle_reset_broken()
 
         return self.error_response(f"Unknown command: {cmd}")
 
@@ -286,7 +279,6 @@ class RadioSource(BaseAudioSource):
             if not working_url:
                 self._is_buffering = False
                 self._current_station = None
-                await self._station_data.mark_as_broken(station_id)
                 error_msg = f"Unable to load stream: {station_name}"
                 self.broadcast_error(error_msg)
                 return self.error_response(error_msg)
@@ -394,26 +386,6 @@ class RadioSource(BaseAudioSource):
         return (
             self.success_response("Station removed from favorites")
             if success else self.error_response("Remove favorite failed")
-        )
-
-    async def _handle_mark_broken(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Mark station as broken."""
-        station_id = data.get('station_id')
-        if not station_id:
-            return self.error_response("station_id required")
-
-        success = await self._station_data.mark_as_broken(station_id)
-        return (
-            self.success_response("Station marked as broken")
-            if success else self.error_response("Marking failed")
-        )
-
-    async def _handle_reset_broken(self) -> Dict[str, Any]:
-        """Reset broken stations."""
-        success = await self._station_data.reset_broken_stations()
-        return (
-            self.success_response("Broken stations reset")
-            if success else self.error_response("Reset failed")
         )
 
     # === Helpers ===
