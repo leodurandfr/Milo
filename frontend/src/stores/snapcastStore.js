@@ -112,7 +112,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
   function saveDisplayCache(displayItems) {
     try {
       const items = displayItems.map(item => ({
-        type: item.zoneClients ? 'zone' : 'client'
+        type: item.isZone ? 'zone' : 'client'
       }));
       localStorage.setItem(DISPLAY_CACHE_KEY, JSON.stringify(items));
       lastKnownDisplayItems.value = items;

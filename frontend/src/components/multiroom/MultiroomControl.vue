@@ -14,7 +14,6 @@
             :key="client.mac_id || client.id"
             :client="client"
             :is-loading="shouldShowLoading"
-            :zone-clients="getZoneClients(client)"
             :is-zone="client.isZone || false"
             :zone-client-details="client.zoneClientDetails || null"
             @volume-change="handleVolumeChange"
@@ -31,7 +30,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useSnapcastStore } from '@/stores/snapcastStore';
@@ -53,7 +52,7 @@ const { on } = useWebSocket();
 const transitionState = ref('idle');
 const errorMessage = ref('');
 
-// Ref for clients-list to control height during zone expansion
+// Ref for clients-list to pre-allocate height during zone expansion
 const clientsListRef = ref(null);
 // Explicit height for pre-allocation (null = auto height)
 const clientsListHeight = ref(null);
@@ -171,15 +170,6 @@ function clearZoneSliderState(zone) {
   delete zoneSliderState.value[zoneId];
 }
 
-// Get zone clients for display (shows client names)
-function getZoneClients(client) {
-  // If client has zoneClients property (set by displayClients), use it
-  if (client.zoneClients) {
-    return client.zoneClients;
-  }
-  return '';
-}
-
 const showMessage = computed(() => {
   // Show message when:
   // - Error state
@@ -249,12 +239,10 @@ const displayClients = computed(() => {
           const zoneName = zone.name || `Zone ${zoneIndex}`;
           // Filter from already-sorted clients list (local first, online first)
           const zoneClientIds = new Set(zone.client_ids);
-          const zoneClients = snapcastStore.clients.filter(c => zoneClientIds.has(c.mac_id));
-          const clientNames = zoneClients.map(c => c.name).join(' · ');
+          const zoneClientsFiltered = snapcastStore.clients.filter(c => zoneClientIds.has(c.mac_id));
 
           // Build detailed client list for expanded view
-          // zoneClients is already sorted (local first, online first, alphabetical)
-          const zoneClientDetails = zoneClients.map(c => ({
+          const zoneClientDetails = zoneClientsFiltered.map(c => ({
             id: c.mac_id,
             mac_id: c.mac_id,
             name: c.name,
@@ -270,7 +258,6 @@ const displayClients = computed(() => {
           return {
             ...client,
             name: zoneName,
-            zoneClients: clientNames,
             dspVolume: zoneVolume,
             dspMuted: getZoneMuted(zone),
             volumeLoading: zoneVolume === null,
@@ -325,18 +312,17 @@ const displayClients = computed(() => {
 });
 
 // === HEIGHT PRE-ALLOCATION HANDLERS ===
-// Called by MultiroomItem before zone expansion starts
+// Called by MultiroomItem BEFORE zone expansion starts
+// Pre-allocates space on clients-list so Modal sees ONE height change
 function handleBeforeExpand(heightDelta) {
   if (!clientsListRef.value) return;
-  // Get current height, add delta, set instantly (no transition on clients-list)
   const currentHeight = clientsListRef.value.offsetHeight;
   clientsListHeight.value = `${currentHeight + heightDelta}px`;
 }
 
-// Called by MultiroomItem before zone collapse starts
+// Called by MultiroomItem BEFORE zone collapse starts
 function handleBeforeCollapse(heightDelta) {
   if (!clientsListRef.value) return;
-  // Get current height, subtract delta, set instantly
   const currentHeight = clientsListRef.value.offsetHeight;
   clientsListHeight.value = `${currentHeight - heightDelta}px`;
 }
@@ -544,7 +530,6 @@ watch(displayClients, (newClients) => {
   display: flex;
   flex-direction: column;
   position: relative;
-  overflow: hidden; /* Clip content during zone expansion/collapse animation */
 }
 
 .clients-wrapper {

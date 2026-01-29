@@ -8,7 +8,7 @@
       </div>
 
       <!-- Content with animated height -->
-      <div ref="modalContent" class="modal-content">
+      <div ref="modalContent" class="modal-content" :class="contentOverflowClass">
         <div ref="contentInner" class="modal-content-inner">
           <slot></slot>
         </div>
@@ -18,7 +18,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch, nextTick, provide } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick, provide } from 'vue';
 import IconButton from './IconButton.vue';
 import { useAnimatedHeight } from '@/composables/useAnimatedHeight';
 
@@ -30,10 +30,22 @@ const props = defineProps({
   closeOnOverlay: {
     type: Boolean,
     default: true
+  },
+  contentOverflow: {
+    type: String,
+    default: 'auto',
+    validator: (value) => ['auto', 'visible', 'hidden'].includes(value)
   }
 });
 
 const emit = defineEmits(['close']);
+
+// Computed class for content overflow
+const contentOverflowClass = computed(() => {
+  if (props.contentOverflow === 'visible') return 'overflow-visible';
+  if (props.contentOverflow === 'hidden') return 'overflow-hidden';
+  return '';
+});
 
 // References to modal elements
 const modalContent = ref(null);
@@ -351,7 +363,8 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   opacity: 0;
-  overflow: visible;
+  overflow-x: visible;
+  overflow-y: hidden;
   transition: height var(--transition-spring);
 }
 
@@ -393,6 +406,15 @@ onUnmounted(() => {
   min-height: 0;
   touch-action: pan-y;
   border-radius: var(--radius-08);
+}
+
+/* Overflow variants for specific modals */
+.modal-content.overflow-visible {
+  overflow: visible;
+}
+
+.modal-content.overflow-hidden {
+  overflow: hidden;
 }
 
 .modal-content-inner {
