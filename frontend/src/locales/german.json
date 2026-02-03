@@ -101,7 +101,6 @@
       "zoneName": "Zonenname",
       "zoneNamePlaceholder": "z.B.: Wohnzimmer",
       "selectClients": "Audiosysteme auswählen",
-      "selectClientsDescription": "Wählen Sie mindestens 2 Systeme aus, um eine Zone zu erstellen.",
       "createZone": "Zone erstellen",
       "editZone": "Zone bearbeiten",
       "updateZone": "Aktualisieren",

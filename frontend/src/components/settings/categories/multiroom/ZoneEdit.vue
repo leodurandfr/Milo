@@ -20,9 +20,6 @@
     <section class="settings-section">
       <div class="section-group">
         <h2 class="heading-2">{{ $t('dsp.zones.selectClients', 'Select Clients') }}</h2>
-        <p class="description text-mono">
-          {{ $t('dsp.zones.selectClientsDescription', 'Select at least 2 clients to create a zone.') }}
-        </p>
         <div class="clients-list">
           <ListItemButton
             v-for="target in availableTargets"
@@ -52,6 +49,16 @@
             </template>
           </ListItemButton>
         </div>
+
+        <!-- Crossover frequency (edit mode with subwoofer only) -->
+        <template v-if="groupId && currentGroup?.has_subwoofer">
+          <div class="section-divider"></div>
+          <div class="form-group">
+            <label class="text-mono">{{ $t('multiroom.crossover.crossoverFrequency') }}</label>
+            <RangeSlider v-model="crossoverFrequency" :min="40" :max="200" :step="5" value-unit="Hz"
+              @change="handleCrossoverChange" />
+          </div>
+        </template>
       </div>
     </section>
 
@@ -89,6 +96,7 @@ import { useI18n } from '@/services/i18n';
 import Button from '@/components/ui/Button.vue';
 import InputText from '@/components/ui/InputText.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
+import RangeSlider from '@/components/ui/RangeSlider.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const props = defineProps({
@@ -109,6 +117,7 @@ const deleting = ref(false);
 const zoneName = ref('');
 const originalZoneName = ref('');
 const selectedClients = ref([]);
+const crossoverFrequency = ref(80);
 
 // Get available clients from multiroomStore (single source of truth)
 const availableTargets = computed(() => {
@@ -201,6 +210,16 @@ async function saveZoneName() {
   }
 }
 
+// Update crossover frequency on the zone via API
+async function handleCrossoverChange(frequency) {
+  if (!props.groupId) return;
+  try {
+    await dspStore.setZoneCrossoverFrequency(props.groupId, frequency);
+  } catch (error) {
+    console.error('Error updating crossover frequency:', error);
+  }
+}
+
 // Initialize state when mounted
 onMounted(async () => {
   if (currentGroup.value) {
@@ -208,6 +227,7 @@ onMounted(async () => {
     zoneName.value = currentGroup.value.name || '';
     originalZoneName.value = zoneName.value;
     selectedClients.value = [...(currentGroup.value.client_ids || [])];
+    crossoverFrequency.value = currentGroup.value.crossover_frequency || 80;
   } else {
     // Creating new zone
     selectedClients.value = [];
@@ -224,6 +244,16 @@ watch(
     }
   },
   { deep: true }
+);
+
+// Sync crossover frequency when changed externally (WebSocket)
+watch(
+  () => currentGroup.value?.crossover_frequency,
+  (newFreq) => {
+    if (newFreq != null) {
+      crossoverFrequency.value = newFreq;
+    }
+  }
 );
 
 // Create new zone (only used when groupId is null)
@@ -276,11 +306,7 @@ async function handleDelete() {
 .section-group {
   display: flex;
   flex-direction: column;
-  gap: var(--space-04);
-}
-
-.description {
-  color: var(--color-text-secondary);
+  gap: var(--space-05);
 }
 
 .clients-list {
@@ -312,6 +338,21 @@ async function handleDelete() {
 }
 
 .text-secondary {
+  color: var(--color-text-secondary);
+}
+
+.section-divider {
+  height: 1px;
+  background: var(--color-border);
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
+.form-group label {
   color: var(--color-text-secondary);
 }
 
