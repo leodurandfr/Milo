@@ -698,8 +698,8 @@ export const useDspStore = defineStore('dsp', () => {
 
     throttleState.finalTimeout = setTimeout(() => {
       sendFilterUpdate(filterId, filterData);
-      // Clean up this entry after final update (prevents stale entries accumulating)
-      filterThrottleMap.delete(filterId);
+      // Entry is cleaned up by clearThrottleForFilter() on drag-end, not here.
+      // Removing it here would open a window for WebSocket echo during drag pauses.
     }, FINAL_DELAY);
 
     filterThrottleMap.set(filterId, throttleState);

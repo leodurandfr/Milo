@@ -1,12 +1,18 @@
 <!-- frontend/src/components/ui/RangeSlider.vue -->
 <template>
-  <div ref="sliderContainer" :class="['slider-container', orientation]" :style="cssVars">
-    <input type="range" :class="['range-slider', orientation, { muted: muted }]" :min="min" :max="max" :step="step" :value="modelValue"
-      @input="handleInput" @change="handleChange" @pointerdown="handlePointerDown" @pointerup="handlePointerUp"
-      :disabled="disabled">
+  <div :class="['slider-container', orientation, { disabled, muted }]" :style="cssVars">
+    <div ref="track" class="range-track"></div>
+
+    <div
+      class="range-thumb"
+      :class="{ dragging: isDragging }"
+      :style="thumbStyle"
+      @pointerdown="startDrag"
+      @touchstart.prevent
+    ></div>
 
     <div v-if="orientation === 'horizontal' && !hideInlineValue" class="slider-value text-mono" :class="{ dragging: isDragging, muted: muted }">
-      {{ modelValue }}{{ valueUnit }}
+      {{ effectiveValue }}{{ valueUnit }}
     </div>
   </div>
 </template>
@@ -29,50 +35,50 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'input', 'change', 'drag-start', 'drag-end']);
 
 const isDragging = ref(false);
-const sliderContainer = ref(null);
-const containerSize = ref({ width: 0, height: 0 });
+const track = ref(null);
+const trackSize = ref({ width: 0, height: 0 });
+
+// Local value during drag - prevents external updates (WebSocket echo) from causing jumps
+const localDragValue = ref(null);
 
 let resizeObserver = null;
+let thumbOffset = 0;
 
-onMounted(() => {
-  if (sliderContainer.value) {
-    // Initial size
-    updateContainerSize();
-
-    // Watch for size changes
-    resizeObserver = new ResizeObserver(() => {
-      updateContainerSize();
-    });
-    resizeObserver.observe(sliderContainer.value);
-  }
+// Effective value: local during drag, prop otherwise
+const effectiveValue = computed(() => {
+  return localDragValue.value !== null ? localDragValue.value : props.modelValue;
 });
 
-onUnmounted(() => {
-  if (resizeObserver) {
-    resizeObserver.disconnect();
-  }
-});
-
-function updateContainerSize() {
-  if (sliderContainer.value) {
-    const rect = sliderContainer.value.getBoundingClientRect();
-    containerSize.value = { width: rect.width, height: rect.height };
-  }
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
 }
 
+function roundToStep(value) {
+  return parseFloat((Math.round(value / props.step) * props.step).toFixed(10));
+}
+
+// Thumb positioning via CSS calc (same formula as DoubleRangeSlider)
+const thumbStyle = computed(() => {
+  const pct = (effectiveValue.value - props.min) / (props.max - props.min);
+  if (props.orientation === 'horizontal') {
+    return { left: `calc(31px + ${pct} * (100% - 62px))` };
+  } else {
+    return { bottom: `calc(31px + ${pct} * (100% - 62px))` };
+  }
+});
+
+// Progress percentage for CSS gradient (accounts for thumb size)
 const percentage = computed(() => {
-  const rawPercentage = ((props.modelValue - props.min) / (props.max - props.min)) * 100;
+  const rawPercentage = ((effectiveValue.value - props.min) / (props.max - props.min)) * 100;
 
   if (props.orientation === 'horizontal') {
-    // Thumb width is 62px
     const thumbWidth = 62;
-    const containerWidth = containerSize.value.width || 400; // Fallback to reasonable default
+    const containerWidth = trackSize.value.width || 400;
     const thumbAdjustment = (thumbWidth / containerWidth) * 100;
     return rawPercentage * (100 - thumbAdjustment) / 100 + thumbAdjustment / 2;
   } else {
-    // Thumb height is 62px
     const thumbHeight = 62;
-    const containerHeight = containerSize.value.height || 260; // Fallback to reasonable default
+    const containerHeight = trackSize.value.height || 260;
     const thumbAdjustment = (thumbHeight / containerHeight) * 100;
     return rawPercentage * (100 - thumbAdjustment) / 100 + thumbAdjustment / 2;
   }
@@ -82,30 +88,102 @@ const cssVars = computed(() => ({
   '--progress': `${percentage.value}%`
 }));
 
-function handleInput(event) {
-  const value = parseFloat(event.target.value);
-  emit('input', value);
-  emit('update:modelValue', value);
-}
-
-function handleChange(event) {
-  const value = parseFloat(event.target.value);
-  emit('change', value);
-  emit('update:modelValue', value);
-}
-
-function handlePointerDown(event) {
+// Drag handling with offset to prevent thumb jump
+function startDrag(event) {
   if (event.button !== 0 || props.disabled) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  if (!track.value) return;
+
+  const rect = track.value.getBoundingClientRect();
+  const currentPct = (props.modelValue - props.min) / (props.max - props.min);
+
+  if (props.orientation === 'horizontal') {
+    const usableWidth = rect.width - 62;
+    const thumbCenterX = rect.left + 31 + (currentPct * usableWidth);
+    thumbOffset = event.clientX - thumbCenterX;
+  } else {
+    const usableHeight = rect.height - 62;
+    const thumbCenterY = rect.bottom - 31 - (currentPct * usableHeight);
+    thumbOffset = event.clientY - thumbCenterY;
+  }
+
+  localDragValue.value = props.modelValue;
   isDragging.value = true;
   emit('drag-start');
+
+  document.addEventListener('pointermove', handleDrag);
+  document.addEventListener('pointerup', stopDrag);
+  document.addEventListener('pointercancel', stopDrag);
 }
 
-function handlePointerUp() {
+function handleDrag(event) {
+  if (!track.value) return;
+
+  const rect = track.value.getBoundingClientRect();
+  let pct;
+
+  if (props.orientation === 'horizontal') {
+    const correctedX = event.clientX - thumbOffset;
+    const usableWidth = rect.width - 62;
+    const positionInUsableArea = correctedX - rect.left - 31;
+    pct = clamp(positionInUsableArea / usableWidth, 0, 1);
+  } else {
+    const correctedY = event.clientY - thumbOffset;
+    const usableHeight = rect.height - 62;
+    const positionInUsableArea = rect.bottom - 31 - correctedY;
+    pct = clamp(positionInUsableArea / usableHeight, 0, 1);
+  }
+
+  const rawValue = props.min + pct * (props.max - props.min);
+  const value = clamp(roundToStep(rawValue), props.min, props.max);
+
+  localDragValue.value = value;
+  emit('update:modelValue', value);
+  emit('input', value);
+}
+
+function stopDrag() {
   if (isDragging.value) {
     isDragging.value = false;
+    emit('change', effectiveValue.value);
     emit('drag-end');
+    localDragValue.value = null;
+  }
+
+  document.removeEventListener('pointermove', handleDrag);
+  document.removeEventListener('pointerup', stopDrag);
+  document.removeEventListener('pointercancel', stopDrag);
+}
+
+function updateTrackSize() {
+  if (track.value) {
+    const rect = track.value.getBoundingClientRect();
+    trackSize.value = { width: rect.width, height: rect.height };
   }
 }
+
+onMounted(() => {
+  if (track.value) {
+    updateTrackSize();
+    resizeObserver = new ResizeObserver(() => {
+      updateTrackSize();
+    });
+    resizeObserver.observe(track.value);
+  }
+});
+
+onUnmounted(() => {
+  document.removeEventListener('pointermove', handleDrag);
+  document.removeEventListener('pointerup', stopDrag);
+  document.removeEventListener('pointercancel', stopDrag);
+
+  if (resizeObserver) {
+    resizeObserver.disconnect();
+  }
+});
 </script>
 
 <style scoped>
@@ -127,18 +205,14 @@ function handlePointerUp() {
   flex-direction: column;
 }
 
-.range-slider {
-  -webkit-appearance: none;
-  appearance: none;
-  outline: none;
-  cursor: pointer;
-  border: none;
+/* Track */
+.range-track {
   border-radius: 20px;
   transition: opacity 300ms ease;
   pointer-events: none;
 }
 
-.range-slider.horizontal {
+.slider-container.horizontal .range-track {
   width: 100%;
   height: 40px;
   background: linear-gradient(to right,
@@ -148,12 +222,10 @@ function handlePointerUp() {
       var(--color-background) 100%);
 }
 
-.range-slider.vertical {
+.slider-container.vertical .range-track {
   width: 40px;
   min-height: 260px;
   flex: 1;
-  writing-mode: vertical-lr;
-  direction: rtl;
   background: linear-gradient(to top,
       var(--color-text-secondary) 0%,
       var(--color-text-secondary) var(--progress),
@@ -161,75 +233,43 @@ function handlePointerUp() {
       var(--color-background) 100%);
 }
 
-.range-slider.horizontal::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
+/* Thumb */
+.range-thumb {
+  position: absolute;
+  border-radius: 20px;
+  background: var(--color-background-neutral);
+  border: 2px solid var(--color-text-secondary);
+  cursor: pointer;
+  z-index: 2;
+}
+
+.slider-container.horizontal .range-thumb {
+  top: 0;
   width: 62px;
   height: 40px;
-  border-radius: 20px;
-  background: var(--color-background-neutral);
-  border: 2px solid var(--color-text-secondary);
-  cursor: pointer;
-  box-shadow: none;
-  pointer-events: auto;
+  transform: translateX(-50%);
 }
 
-.range-slider.horizontal::-moz-range-thumb {
-  width: 58px;
-  height: 36px;
-  border-radius: 20px;
-  background: var(--color-background-neutral);
-  border: 2px solid var(--color-text-secondary);
-  cursor: pointer;
-  pointer-events: auto;
-}
-
-.range-slider.vertical::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
+.slider-container.vertical .range-thumb {
+  left: 0;
   width: 40px;
   height: 62px;
-  border-radius: 20px;
-  background: var(--color-background-neutral);
-  border: 2px solid var(--color-text-secondary);
-  cursor: pointer;
-  pointer-events: auto;
+  transform: translateY(50%);
 }
 
-.range-slider.vertical::-moz-range-thumb {
-  width: 36px;
-  height: 58px;
-  border-radius: 20px;
-  background: var(--color-background-neutral);
-  border: 2px solid var(--color-text-secondary);
-  cursor: pointer;
-  pointer-events: auto;
-}
-
-.range-slider::-webkit-slider-track {
-  background: transparent;
-  border: none;
-  pointer-events: none;
-}
-
-.range-slider::-moz-range-track {
-  background: transparent;
-  border: none;
-  pointer-events: none;
-}
-
-.range-slider:disabled {
+/* Disabled state */
+.slider-container.disabled .range-track,
+.slider-container.disabled .range-thumb {
   opacity: 0.5;
-  cursor: not-allowed;
 }
 
-.range-slider:disabled::-webkit-slider-thumb,
-.range-slider:disabled::-moz-range-thumb {
+.slider-container.disabled .range-thumb {
   cursor: not-allowed;
 }
 
 /* Muted state: visual disabled appearance but still interactive */
-.range-slider.muted {
+.slider-container.muted .range-track,
+.slider-container.muted .range-thumb {
   opacity: 0.5;
 }
 
@@ -237,13 +277,14 @@ function handlePointerUp() {
   opacity: 0.5;
 }
 
+/* Inline value */
 .slider-value {
   position: absolute;
   right: var(--space-04);
   color: var(--color-text-secondary);
   transition: color 300ms ease;
   pointer-events: none;
-  z-index: 1;
+  z-index: 3;
 }
 
 .slider-value.dragging {
