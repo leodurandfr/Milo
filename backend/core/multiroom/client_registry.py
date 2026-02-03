@@ -637,6 +637,12 @@ class ClientRegistryService:
 
         await self._persist_state()
 
+        # Notify crossover service to disable filters on the removed client
+        await self._emit_event(RegistryEventType.ZONE_CLIENT_REMOVED, {
+            "zone_id": zone_id,
+            "mac_id": mac_id
+        })
+
         if zone_deleted:
             await self._emit_event(RegistryEventType.ZONE_DELETED, {
                 "zone_id": zone_id,
