@@ -42,31 +42,29 @@
           />
 
           <!-- Section 2: 10 Bands Equalizer with presets dropdown -->
-          <section class="settings-section">
-            <div class="section-group">
-              <div class="section-header">
-                <div class="section-title">
-                  <h2 class="heading-2">{{ $t('dsp.equalizer.title', '10 Bands Equalizer') }}</h2>
-                  <span v-if="selectedZoneName" class="zone-suffix text-mono">{{ selectedZoneName }}</span>
-                </div>
-                <Dropdown
-                  :model-value="currentPresetValue"
-                  :options="presetOptions"
-                  :placeholder="$t('dsp.selectPreset', 'Preset')"
-                  :disabled="dspStore.isUpdating"
-                  @update:model-value="handlePresetChange"
-                />
-              </div>
-              <ParametricEQ
-                :filters="dspStore.filters"
-                :filters-loaded="dspStore.filtersLoaded"
-                :disabled="dspStore.isUpdating"
-                :is-mobile="isMobile"
-                @update:filter="handleFilterUpdate"
-                @change="handleFilterChange"
-              />
-            </div>
-          </section>
+          <SettingsSection>
+            <template #header>
+              <SectionHeader :title="$t('dsp.equalizer.title', '10 Bands Equalizer')" :subtitle="selectedZoneName">
+                <template #actions>
+                  <Dropdown
+                    :model-value="currentPresetValue"
+                    :options="presetOptions"
+                    :placeholder="$t('dsp.selectPreset', 'Preset')"
+                    :disabled="dspStore.isUpdating"
+                    @update:model-value="handlePresetChange"
+                  />
+                </template>
+              </SectionHeader>
+            </template>
+            <ParametricEQ
+              :filters="dspStore.filters"
+              :filters-loaded="dspStore.filtersLoaded"
+              :disabled="dspStore.isUpdating"
+              :is-mobile="isMobile"
+              @update:filter="handleFilterUpdate"
+              @change="handleFilterChange"
+            />
+          </SettingsSection>
 
           <!-- Section 3: Advanced DSP (Compressor, Loudness, Delay) -->
           <AdvancedDsp :zone-name="selectedZoneName" />
@@ -86,6 +84,8 @@ import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import Dropdown from '@/components/ui/Dropdown.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
+import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionHeader from '@/components/settings/SectionHeader.vue';
 import ItemSelector from './dsp/ItemSelector.vue';
 import ParametricEQ from './dsp/ParametricEQ.vue';
 import AdvancedDsp from './dsp/AdvancedDsp.vue';
@@ -283,41 +283,9 @@ defineExpose({
   opacity: 1;
 }
 
-/* Settings section pattern */
-.settings-section {
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-06);
-  padding: var(--space-05-fixed) var(--space-05);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-05-fixed);
-}
-
-.section-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-04);
-}
-
-.section-header {
-  display: flex;
-  flex-direction: row;
-  justify-content: space-between;
-  gap: var(--space-03);
-}
-
-.section-header :deep(.dropdown) {
+/* SectionHeader dropdown constraint */
+:deep(.section-header__actions .dropdown) {
   max-width: 260px;
-}
-
-.section-title {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-01);
-}
-
-.zone-suffix {
-  color: var(--color-text-secondary);
 }
 
 /* Transitions */
@@ -338,14 +306,8 @@ defineExpose({
 
 /* Mobile adjustments */
 @media (max-aspect-ratio: 4/3) {
-  .settings-section {
-    border-radius: var(--radius-05);
+  :deep(.section-header__actions .dropdown) {
+    max-width: none;
   }
-  .section-header {
-    flex-direction: column;
-  }
-  .section-header :deep(.dropdown) {
-  max-width: none;
-}
 }
 </style>

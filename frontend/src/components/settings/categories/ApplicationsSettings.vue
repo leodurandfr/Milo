@@ -1,12 +1,9 @@
 <!-- frontend/src/components/settings/categories/ApplicationsSettings.vue -->
 <template>
-  <div class="settings-container">
-
-    <section class="settings-section">
+  <SettingsContainer>
+    <SettingsSection>
       <!-- Audio sources -->
-      <div class="setting-item-container">
-        <p class="app-group-title text-mono">{{ t('audioSources.title') }}</p>
-
+      <SettingItem :label="t('audioSources.title')">
         <div class="app-list">
           <ListItemButton
             :title="t('applications.spotify')"
@@ -73,11 +70,10 @@
             </template>
           </ListItemButton>
         </div>
-      </div>
-      <!-- Features -->
-      <div class="setting-item-container">
-        <p class="app-group-title text-mono">{{ t('applications.features') }}</p>
+      </SettingItem>
 
+      <!-- Features -->
+      <SettingItem :label="t('applications.features')">
         <div class="app-list">
           <ListItemButton
             :title="t('multiroom.title')"
@@ -103,9 +99,9 @@
             </template>
           </ListItemButton>
         </div>
-      </div>
-    </section>
-  </div>
+      </SettingItem>
+    </SettingsSection>
+  </SettingsContainer>
 </template>
 
 <script setup>
@@ -117,6 +113,9 @@ import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
+import SettingsContainer from '@/components/settings/SettingsContainer.vue';
+import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SettingItem from '@/components/settings/SettingItem.vue';
 
 const { t } = useI18n();
 const { on } = useWebSocket();
@@ -164,45 +163,13 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.settings-container {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-.settings-section {
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-06);
-  padding: var(--space-05-fixed) var(--space-05);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-05-fixed);
-}
-
-.setting-item-container {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-03);
-}
-
-.app-group-title {
-  color: var(--color-text-secondary);
-  font-weight: 500;
-}
-
 .app-list {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-01);
 }
 
-
-/* Responsive */
 @media (max-aspect-ratio: 4/3) {
-  .settings-section {
-    border-radius: var(--radius-05);
-  }
-
   .app-list {
     display: flex;
     flex-direction: column;

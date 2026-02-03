@@ -1,22 +1,16 @@
 <!-- frontend/src/components/settings/categories/SpotifySettings.vue -->
 <template>
-  <section class="settings-section">
-    <div class="spotify-group">
-      <h2 class="heading-2">{{ t('spotifySettings.autoDisconnect') }}</h2>
-      <div class="setting-item-container">
-        <div class="spotify-description text-mono">
-          {{ t('spotifySettings.disconnectDelay') }}
-        </div>
-        <ButtonGroup
-          :model-value="config.auto_disconnect_delay"
-          :options="disconnectPresets"
-          mobile-layout="grid-3"
-          :last-full-width="true"
-          @change="setSpotifyDisconnect"
-        />
-      </div>
-    </div>
-  </section>
+  <SettingsSection :title="t('spotifySettings.autoDisconnect')">
+    <SettingItem :label="t('spotifySettings.disconnectDelay')">
+      <ButtonGroup
+        :model-value="config.auto_disconnect_delay"
+        :options="disconnectPresets"
+        mobile-layout="grid-3"
+        :last-full-width="true"
+        @change="setSpotifyDisconnect"
+      />
+    </SettingItem>
+  </SettingsSection>
 </template>
 
 <script setup>
@@ -26,6 +20,8 @@ import useWebSocket from '@/services/websocket';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
+import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SettingItem from '@/components/settings/SettingItem.vue';
 
 const { t } = useI18n();
 const { on } = useWebSocket();
@@ -65,37 +61,3 @@ onMounted(() => {
   on('settings', 'spotify_disconnect_changed', handleSpotifyDisconnectChanged);
 });
 </script>
-
-<style scoped>
-.settings-section {
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-06);
-  padding: var(--space-05-fixed) var(--space-05);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-05-fixed);
-}
-
-.spotify-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-04);
-}
-
-.setting-item-container {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-03);
-}
-
-.spotify-description {
-  color: var(--color-text-secondary);
-}
-
-/* Responsive */
-@media (max-aspect-ratio: 4/3) {
-  .settings-section {
-    border-radius: var(--radius-05);
-  }
-}
-</style>

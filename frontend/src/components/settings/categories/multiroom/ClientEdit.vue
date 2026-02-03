@@ -16,79 +16,69 @@
     <!-- Online State - Settings -->
     <template v-else>
       <!-- Speaker Name Input -->
-      <section class="settings-section">
-        <div class="section-group">
-          <h2 class="heading-2">{{ $t('multiroom.speakerName', 'Speaker Name') }}</h2>
-          <InputText v-model="clientName" :placeholder="client?.host" size="medium" :maxlength="50"
-            @blur="saveClientName" />
-        </div>
-      </section>
+      <SettingsSection :title="$t('multiroom.speakerName', 'Speaker Name')">
+        <InputText v-model="clientName" :placeholder="client?.host" size="medium" :maxlength="50"
+          @blur="saveClientName" />
+      </SettingsSection>
 
       <!-- Speaker Type Selection -->
-      <section class="settings-section">
-        <div class="section-group">
-          <h2 class="heading-2">{{ $t('multiroom.speakerType', 'Speaker Type') }}</h2>
-          <div class="speaker-types">
-            <ListItemButton v-for="type in speakerTypes" :key="type.value" :title="type.label" variant="background"
-              action="radio" icon-variant="standard" :model-value="selectedSpeakerType === type.value"
-              @click="selectSpeakerType(type.value)">
-              <template #icon>
-                <SvgIcon :name="type.icon" :size="28" />
-              </template>
-            </ListItemButton>
-          </div>
-
-          <!-- Crossover Info Section -->
-          <div v-if="showCrossoverInfo" class="crossover-info">
-            <!-- Case 1: Subwoofer not in zone -->
-            <template v-if="isSubwoofer && !isInZone">
-              <p class="text-mono">
-                {{ $t('multiroom.crossover.subwooferNotInZone', 'Add this subwoofer to a zone to enable automatic crossover management. Lowpass (subwoofer) and highpass (other speakers) filters will be applied automatically.') }}
-              </p>
+      <SettingsSection :title="$t('multiroom.speakerType', 'Speaker Type')">
+        <div class="speaker-types">
+          <ListItemButton v-for="type in speakerTypes" :key="type.value" :title="type.label" variant="background"
+            action="radio" icon-variant="standard" :model-value="selectedSpeakerType === type.value"
+            @click="selectSpeakerType(type.value)">
+            <template #icon>
+              <SvgIcon :name="type.icon" :size="28" />
             </template>
-
-            <!-- Case 2: Subwoofer in zone -->
-            <template v-else-if="isSubwoofer && isInZone">
-              <h3 class="info-title text-mono">{{ $t('multiroom.crossover.lowpassActive', 'Lowpass filter active') }}</h3>
-              <p class="text-mono">{{ $t('multiroom.crossover.lowpassDescription', 'This subwoofer only receives bass frequencies below the crossover frequency.') }}</p>
-              <div class="crossover-frequency">
-                <span class="info-label text-mono">{{ $t('multiroom.crossover.crossoverFrequency', 'Crossover frequency:') }}</span>
-                <span class="crossover-value text-mono">{{ zoneCrossoverFrequency }} Hz</span>
-              </div>
-              <p class="text-mono">{{ $t('multiroom.crossover.highpassOnOthers', 'A highpass filter is applied to other speakers in the zone to remove bass (handled by this subwoofer).') }}</p>
-              <p class="text-mono text-warning">{{ $t('multiroom.crossover.disablePhysicalCrossover', "Set your subwoofer's physical crossover to bypass/LFE to avoid filter stacking.") }}</p>
-            </template>
-
-            <!-- Case 3: Non-subwoofer in zone with subwoofer -->
-            <template v-else-if="!isSubwoofer && isInZone && zoneHasSubwoofer">
-              <h3 class="info-title text-mono">{{ $t('multiroom.crossover.highpassActive', 'Highpass filter active') }}</h3>
-              <p class="text-mono">{{ $t('multiroom.crossover.highpassDescription', { freq: zoneCrossoverFrequency }, `Bass frequencies below ${zoneCrossoverFrequency} Hz are removed from this speaker and handled by the subwoofer in the zone.`) }}</p>
-              <div class="crossover-frequency">
-                <span class="info-label text-mono">{{ $t('multiroom.crossover.crossoverFrequency', 'Crossover frequency:') }}</span>
-                <span class="crossover-value text-mono">{{ zoneCrossoverFrequency }} Hz</span>
-              </div>
-            </template>
-          </div>
+          </ListItemButton>
         </div>
 
-      </section>
+        <!-- Crossover Info Section -->
+        <div v-if="showCrossoverInfo" class="crossover-info">
+          <!-- Case 1: Subwoofer not in zone -->
+          <template v-if="isSubwoofer && !isInZone">
+            <p class="text-mono">
+              {{ $t('multiroom.crossover.subwooferNotInZone', 'Add this subwoofer to a zone to enable automatic crossover management. Lowpass (subwoofer) and highpass (other speakers) filters will be applied automatically.') }}
+            </p>
+          </template>
+
+          <!-- Case 2: Subwoofer in zone -->
+          <template v-else-if="isSubwoofer && isInZone">
+            <h3 class="info-title text-mono">{{ $t('multiroom.crossover.lowpassActive', 'Lowpass filter active') }}</h3>
+            <p class="text-mono">{{ $t('multiroom.crossover.lowpassDescription', 'This subwoofer only receives bass frequencies below the crossover frequency.') }}</p>
+            <div class="crossover-frequency">
+              <span class="info-label text-mono">{{ $t('multiroom.crossover.crossoverFrequency', 'Crossover frequency:') }}</span>
+              <span class="crossover-value text-mono">{{ zoneCrossoverFrequency }} Hz</span>
+            </div>
+            <p class="text-mono">{{ $t('multiroom.crossover.highpassOnOthers', 'A highpass filter is applied to other speakers in the zone to remove bass (handled by this subwoofer).') }}</p>
+            <p class="text-mono text-warning">{{ $t('multiroom.crossover.disablePhysicalCrossover', "Set your subwoofer's physical crossover to bypass/LFE to avoid filter stacking.") }}</p>
+          </template>
+
+          <!-- Case 3: Non-subwoofer in zone with subwoofer -->
+          <template v-else-if="!isSubwoofer && isInZone && zoneHasSubwoofer">
+            <h3 class="info-title text-mono">{{ $t('multiroom.crossover.highpassActive', 'Highpass filter active') }}</h3>
+            <p class="text-mono">{{ $t('multiroom.crossover.highpassDescription', { freq: zoneCrossoverFrequency }, `Bass frequencies below ${zoneCrossoverFrequency} Hz are removed from this speaker and handled by the subwoofer in the zone.`) }}</p>
+            <div class="crossover-frequency">
+              <span class="info-label text-mono">{{ $t('multiroom.crossover.crossoverFrequency', 'Crossover frequency:') }}</span>
+              <span class="crossover-value text-mono">{{ zoneCrossoverFrequency }} Hz</span>
+            </div>
+          </template>
+        </div>
+      </SettingsSection>
 
       <!-- Client Info -->
-      <section class="settings-section">
-        <div class="section-group">
-          <h2 class="heading-2">{{ $t('multiroom.speakerInfo', 'Speaker Info') }}</h2>
-          <div class="info-grid">
-            <div class="info-item">
-              <span class="info-label text-mono">{{ $t('clientDetails.hostname', 'Hostname') }}</span>
-              <span class="info-value text-mono">{{ client?.host }}</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label text-mono">{{ $t('clientDetails.ipAddress', 'IP Address') }}</span>
-              <span class="info-value text-mono">{{ client?.ip || 'Unknown' }}</span>
-            </div>
+      <SettingsSection :title="$t('multiroom.speakerInfo', 'Speaker Info')">
+        <div class="info-grid">
+          <div class="info-item">
+            <span class="info-label text-mono">{{ $t('clientDetails.hostname', 'Hostname') }}</span>
+            <span class="info-value text-mono">{{ client?.host }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label text-mono">{{ $t('clientDetails.ipAddress', 'IP Address') }}</span>
+            <span class="info-value text-mono">{{ client?.ip || 'Unknown' }}</span>
           </div>
         </div>
-      </section>
+      </SettingsSection>
     </template>
 
   </div>
@@ -104,6 +94,7 @@ import InputText from '@/components/ui/InputText.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
+import SettingsSection from '@/components/settings/SettingsSection.vue';
 
 const props = defineProps({
   macId: {
@@ -235,21 +226,6 @@ onMounted(() => {
   gap: var(--space-03);
 }
 
-.settings-section {
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-06);
-  padding: var(--space-05-fixed) var(--space-05);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-05-fixed);
-}
-
-.section-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-04);
-}
-
 .speaker-types {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -319,10 +295,6 @@ onMounted(() => {
 
 /* Mobile adjustments */
 @media (max-aspect-ratio: 4/3) {
-  .settings-section {
-    border-radius: var(--radius-05);
-  }
-
   .speaker-types {
     grid-template-columns: 1fr;
   }

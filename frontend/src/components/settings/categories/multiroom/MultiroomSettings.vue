@@ -7,135 +7,95 @@
         <MessageContent v-if="showMessage" :key="transitionState" :loading="isLoading" :loading-delay="0"
           :icon="isLoading ? null : 'multiroom'" :title="messageTitle" />
         <!-- SETTINGS: Active and ready -->
-        <div v-else key="settings" class="settings-container">
+        <SettingsContainer v-else key="settings">
           <!-- Zones & Speakers Section -->
-          <section class="settings-section">
-            <div class="multiroom-group" :class="{ 'multiroom-group--compact': ungroupedClients.length >= 2 }">
-              <!-- Header: Title + Create Zone Button -->
-              <div class="section-header">
-                <h2 class="heading-2">{{ t('multiroom.zonesAndSpeakers') }}</h2>
-                <Button v-if="ungroupedClients.length >= 2" variant="brand" size="small" @click="handleCreateZone">
-                  {{ t('dsp.zones.createZone', 'Create Zone') }}
-                </Button>
-              </div>
-
-              <div v-if="snapcastStore.isLoading" class="loading-state">
-                <p class="text-mono">{{ t('multiroom.loadingSpeakers') }}</p>
-              </div>
-
-              <div v-else-if="sortedMultiroomClients.length === 0" class="no-clients-state">
-                <p class="text-mono">{{ t('multiroom.noSpeakers') }}</p>
-              </div>
-
-              <div v-else class="speakers-list">
-                <!-- Zones -->
-                <div v-for="zone in zones" :key="zone.id" class="zone-group">
-                  <!-- Zone header (clickable) -->
-                  <button type="button" class="zone-header" @click="handleEditZone(zone.id)">
-                    <span class="zone-header__name heading-3">{{ zone.displayName }}</span>
-                    <SvgIcon name="caretRight" :size="20" class="zone-header__caret" />
-                    <!-- Crossover badge -->
-                    <span v-if="zone.crossover_enabled" class="crossover-badge crossover-badge--active text-mono"
-                      :title="t('multiroom.crossover.badgeActive')">
-                      {{ zone.crossover_frequency}} Hz
-                    </span>
-                    <span v-else-if="zone.has_subwoofer" class="crossover-badge crossover-badge--inactive text-mono"
-                      :title="t('multiroom.crossover.subwooferOffline')">
-                      {{ t('multiroom.crossover.badgeInactive') }}
-                    </span>
-                  </button>
-                  <!-- Zone clients -->
-                  <div class="zone-clients">
-                    <ListItemButton v-for="client in zone.clients" :key="client.id" variant="background"
-                      icon-variant="standard" action="caret" @click="handleEditClient(client.mac_id)">
-                      <template #icon>
-                        <div class="client-icon" :class="{ 'is-offline': !client.online }">
-                          <SvgIcon :name="getSpeakerIcon(client.mac_id)" :size="28" />
-                        </div>
-                      </template>
-                      <template #title>
-                        <div class="client-title">
-                          <span :class="{ 'text-secondary': !client.online }">{{ client.name }}</span>
-                          <span v-if="!client.online" class="text-mono-small client-title__status">
-                            {{ t('multiroom.offline') }}
-                          </span>
-                          <span v-else class="text-mono-small client-title__type">
-                            {{ getSpeakerTypeLabel(client.mac_id) }}
-                          </span>
-                        </div>
-                      </template>
-                    </ListItemButton>
-                  </div>
-                </div>
-
-                <!-- Individual speakers section -->
-                <template v-if="ungroupedClients.length > 0">
-                  <h3 v-if="zones.length > 0" class="heading-3 section-subtitle">{{ t('multiroom.individualSpeakers') }}
-                  </h3>
-                  <div class="ungrouped-clients">
-                    <ListItemButton v-for="client in ungroupedClients" :key="client.id" variant="background"
-                      icon-variant="standard" action="caret" @click="handleEditClient(client.mac_id)">
-                      <template #icon>
-                        <div class="client-icon" :class="{ 'is-offline': !client.online }">
-                          <SvgIcon :name="getSpeakerIcon(client.mac_id)" :size="28" />
-                        </div>
-                      </template>
-                      <template #title>
-                        <div class="client-title">
-                          <span :class="{ 'text-secondary': !client.online }">{{ client.name }}</span>
-                          <span v-if="!client.online" class="text-mono-small client-title__status">
-                            {{ t('multiroom.offline') }}
-                          </span>
-                          <span v-else class="text-mono-small client-title__type">
-                            {{ getSpeakerTypeLabel(client.mac_id) }}
-                          </span>
-                        </div>
-                      </template>
-                    </ListItemButton>
-                  </div>
+          <SettingsSection>
+            <template #header>
+              <SectionHeader :title="t('multiroom.zonesAndSpeakers')">
+                <template #actions>
+                  <Button v-if="ungroupedClients.length >= 2" variant="brand" size="small" @click="handleCreateZone">
+                    {{ t('dsp.zones.createZone', 'Create Zone') }}
+                  </Button>
                 </template>
-              </div>
+              </SectionHeader>
+            </template>
+
+            <div v-if="snapcastStore.isLoading" class="loading-state">
+              <p class="text-mono">{{ t('multiroom.loadingSpeakers') }}</p>
             </div>
-          </section>
+
+            <div v-else-if="sortedMultiroomClients.length === 0" class="no-clients-state">
+              <p class="text-mono">{{ t('multiroom.noSpeakers') }}</p>
+            </div>
+
+            <div v-else class="speakers-list">
+              <!-- Zones -->
+              <div v-for="zone in zones" :key="zone.id" class="zone-group">
+                <!-- Zone header (clickable) -->
+                <button type="button" class="zone-header" @click="handleEditZone(zone.id)">
+                  <span class="zone-header__name heading-3">{{ zone.displayName }}</span>
+                  <SvgIcon name="caretRight" :size="20" class="zone-header__caret" />
+                  <!-- Crossover badge -->
+                  <span v-if="zone.crossover_enabled" class="crossover-badge crossover-badge--active text-mono"
+                    :title="t('multiroom.crossover.badgeActive')">
+                    {{ zone.crossover_frequency}} Hz
+                  </span>
+                  <span v-else-if="zone.has_subwoofer" class="crossover-badge crossover-badge--inactive text-mono"
+                    :title="t('multiroom.crossover.subwooferOffline')">
+                    {{ t('multiroom.crossover.badgeInactive') }}
+                  </span>
+                </button>
+                <!-- Zone clients -->
+                <div class="zone-clients">
+                  <SpeakerListItem v-for="client in zone.clients" :key="client.id"
+                    :name="client.name" :mac-id="client.mac_id" :online="client.online"
+                    @click="handleEditClient(client.mac_id)" />
+                </div>
+              </div>
+
+              <!-- Individual speakers section -->
+              <template v-if="ungroupedClients.length > 0">
+                <h3 v-if="zones.length > 0" class="heading-3 section-subtitle">{{ t('multiroom.individualSpeakers') }}
+                </h3>
+                <div class="ungrouped-clients">
+                  <SpeakerListItem v-for="client in ungroupedClients" :key="client.id"
+                    :name="client.name" :mac-id="client.mac_id" :online="client.online"
+                    @click="handleEditClient(client.mac_id)" />
+                </div>
+              </template>
+            </div>
+          </SettingsSection>
 
           <!-- Advanced settings (includes presets) -->
-          <section class="settings-section">
-            <div class="multiroom-group">
-              <!-- Presets -->
-              <h2 class="heading-2">{{ t('multiroomSettings.presets') }}</h2>
-              <ButtonGroup :model-value="activePresetId" :options="presetOptions"
-                :disabled="snapcastStore.isApplyingServerConfig" mobile-layout="column" @change="handlePresetChange" />
+          <SettingsSection :title="t('multiroomSettings.presets')">
+            <ButtonGroup :model-value="activePresetId" :options="presetOptions"
+              :disabled="snapcastStore.isApplyingServerConfig" mobile-layout="column" @change="handlePresetChange" />
 
-              <div class="section-divider"></div>
+            <div class="section-divider"></div>
 
-              <!-- Advanced controls -->
-              <h2 class="heading-2">{{ t('multiroomSettings.advanced') }}</h2>
+            <h2 class="heading-2">{{ t('multiroomSettings.advanced') }}</h2>
 
-              <div class="form-group">
-                <label class="text-mono">{{ t('multiroomSettings.globalBuffer') }}</label>
-                <RangeSlider v-model="snapcastStore.serverConfig.buffer" :min="100" :max="2000" :step="50"
-                  value-unit="ms" />
-              </div>
+            <SettingItem :label="t('multiroomSettings.globalBuffer')">
+              <RangeSlider v-model="snapcastStore.serverConfig.buffer" :min="100" :max="2000" :step="50"
+                value-unit="ms" />
+            </SettingItem>
 
-              <div class="form-group">
-                <label class="text-mono">{{ t('multiroomSettings.chunkSize') }}</label>
-                <RangeSlider v-model="snapcastStore.serverConfig.chunk_ms" :min="10" :max="100" :step="5"
-                  value-unit="ms" />
-              </div>
+            <SettingItem :label="t('multiroomSettings.chunkSize')">
+              <RangeSlider v-model="snapcastStore.serverConfig.chunk_ms" :min="10" :max="100" :step="5"
+                value-unit="ms" />
+            </SettingItem>
 
-              <div class="form-group">
-                <label class="text-mono">{{ t('multiroomSettings.codec') }}</label>
-                <ButtonGroup :model-value="snapcastStore.serverConfig.codec" :options="codecOptions"
-                  mobile-layout="column" @change="selectCodec" />
-              </div>
-            </div>
-          </section>
+            <SettingItem :label="t('multiroomSettings.codec')">
+              <ButtonGroup :model-value="snapcastStore.serverConfig.codec" :options="codecOptions"
+                mobile-layout="column" @change="selectCodec" />
+            </SettingItem>
+          </SettingsSection>
 
           <Button v-if="snapcastStore.hasServerConfigChanges" variant="brand" size="medium" class="apply-button-sticky"
             :disabled="snapcastStore.isApplyingServerConfig" @click="applyServerConfig">
             {{ snapcastStore.isApplyingServerConfig ? t('multiroom.restarting') : t('multiroomSettings.apply') }}
           </Button>
-        </div>
+        </SettingsContainer>
       </Transition>
     </div>
   </div>
@@ -147,14 +107,17 @@ import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useSnapcastStore } from '@/stores/snapcastStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import { useDspStore } from '@/stores/dspStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import Button from '@/components/ui/Button.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
-import ListItemButton from '@/components/ui/ListItemButton.vue';
+import SpeakerListItem from '@/components/settings/categories/multiroom/SpeakerListItem.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
+import SettingsContainer from '@/components/settings/SettingsContainer.vue';
+import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionHeader from '@/components/settings/SectionHeader.vue';
+import SettingItem from '@/components/settings/SettingItem.vue';
 
 const emit = defineEmits(['edit-zone', 'create-zone', 'edit-client']);
 
@@ -162,7 +125,6 @@ const { t } = useI18n();
 const { on } = useWebSocket();
 const snapcastStore = useSnapcastStore();
 const unifiedStore = useUnifiedAudioStore();
-const dspStore = useDspStore();
 const multiroomClientStore = useMultiroomStore();
 
 // Multiroom state
@@ -225,34 +187,6 @@ const ungroupedClients = computed(() => {
       online: client.online
     }));
 });
-
-// Get translated speaker type label
-function getSpeakerTypeLabel(clientMacId) {
-  const speakerType = dspStore.getClientSpeakerType(clientMacId);
-  return t(`multiroom.speakerTypes.${speakerType}`);
-}
-
-// Get speaker icon name based on type
-function getSpeakerIcon(clientMacId) {
-  const speakerType = dspStore.getClientSpeakerType(clientMacId);
-  const iconMap = {
-    satellite: 'speakerSatellite',
-    bookshelf: 'speakerShelf',
-    tower: 'speakerColumn',
-    subwoofer: 'speakerSub'
-  };
-  return iconMap[speakerType] || 'speakerShelf';
-}
-
-// Get crossover settings for a zone
-function getZoneCrossover(zoneId) {
-  return dspStore.getZoneCrossoverSettings(zoneId);
-}
-
-// Check if zone has a subwoofer (online or offline)
-function zoneHasSubwoofer(zone) {
-  return zone.clients?.some(c => dspStore.getClientSpeakerType(c.mac_id) === 'subwoofer');
-}
 
 // Navigation handlers - emit to parent (SettingsModal)
 function handleEditZone(groupId) {
@@ -393,31 +327,6 @@ onMounted(async () => {
   background: var(--color-background-neutral);
 }
 
-.settings-container {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-.settings-section {
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-06);
-  padding: var(--space-05-fixed) var(--space-05);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-05-fixed);
-}
-
-.multiroom-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-05);
-}
-
-.multiroom-group--compact {
-  gap: var(--space-04);
-}
-
 .section-divider {
   height: 1px;
   background: var(--color-border);
@@ -428,14 +337,6 @@ onMounted(async () => {
   text-align: center;
   padding: var(--space-04);
   color: var(--color-text-secondary);
-}
-
-/* Section header with title and button */
-.section-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-03);
 }
 
 /* Speakers list */
@@ -464,32 +365,6 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-01);
-}
-
-/* Client title with name and type stacked */
-.client-title {
-  display: flex;
-  flex-direction: column;
-}
-
-.client-title__type,
-.client-title__status {
-  color: var(--color-text-secondary);
-}
-
-.text-secondary {
-  color: var(--color-text-secondary);
-}
-
-/* Client icon with online/offline indicator */
-.client-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.client-icon.is-offline {
-  opacity: 0.4;
 }
 
 /* Zone header button */
@@ -537,16 +412,6 @@ onMounted(async () => {
   margin-bottom: var(--space-01);
 }
 
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-.form-group label {
-  color: var(--color-text-secondary);
-}
-
 .apply-button-sticky {
   position: sticky;
   bottom: 0;
@@ -556,10 +421,6 @@ onMounted(async () => {
 
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
-  .settings-section {
-    border-radius: var(--radius-05);
-  }
-
   .zone-clients,
   .ungrouped-clients {
     grid-template-columns: 1fr;

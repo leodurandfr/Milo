@@ -1,63 +1,44 @@
 <!-- frontend/src/components/settings/categories/MacosSettings.vue -->
 <template>
-  <div class="settings-container">
+  <SettingsContainer>
     <!-- Latency Section -->
-    <section class="settings-section">
-      <div class="settings-group">
-        <h2 class="heading-2">{{ t('macSettings.latency') }}</h2>
+    <SettingsSection :title="t('macSettings.latency')">
+      <!-- Target Latency Slider (5-500ms) -->
+      <SettingItem :label="t('macSettings.targetLatency')">
+        <RangeSlider
+          v-model="config.target_latency_ms"
+          :min="5"
+          :max="500"
+          :step="5"
+          value-unit="ms"
+          @input="onConfigChange"
+        />
+      </SettingItem>
 
-        <!-- Target Latency Slider (5-500ms) -->
-        <div class="setting-item-container">
-          <div class="setting-item-label text-mono">
-            {{ t('macSettings.targetLatency') }}
-          </div>
-          <div class="setting-item-control">
-            <RangeSlider
-              v-model="config.target_latency_ms"
-              :min="5"
-              :max="500"
-              :step="5"
-              value-unit="ms"
-              @input="onConfigChange"
-            />
-          </div>
-        </div>
+      <!-- Latency Profile ButtonGroup -->
+      <SettingItem :label="t('macSettings.latencyProfile')">
+        <ButtonGroup
+          :model-value="config.latency_profile"
+          :options="profileOptions"
+          mobile-layout="column"
+          @change="handleProfileChange"
+        />
+      </SettingItem>
 
-        <!-- Latency Profile ButtonGroup -->
-        <div class="setting-item-container">
-          <div class="setting-item-label text-mono">
-            {{ t('macSettings.latencyProfile') }}
-          </div>
-          <div class="setting-item-control">
-            <ButtonGroup
-              :model-value="config.latency_profile"
-              :options="profileOptions"
-              mobile-layout="column"
-              @change="handleProfileChange"
-            />
-          </div>
-        </div>
+      <!-- Frame Length ButtonGroup -->
+      <SettingItem :label="t('macSettings.frameLength')">
+        <ButtonGroup
+          :model-value="config.frame_length_ms"
+          :options="frameLengthOptions"
+          @change="handleFrameLengthChange"
+        />
+      </SettingItem>
 
-        <!-- Frame Length ButtonGroup -->
-        <div class="setting-item-container">
-          <div class="setting-item-label text-mono">
-            {{ t('macSettings.frameLength') }}
-          </div>
-          <div class="setting-item-control">
-            <ButtonGroup
-              :model-value="config.frame_length_ms"
-              :options="frameLengthOptions"
-              @change="handleFrameLengthChange"
-            />
-          </div>
-        </div>
-
-        <!-- Warning message -->
-        <p class="warning-text text-mono-small">
-          {{ t('macSettings.warning') }}
-        </p>
-      </div>
-    </section>
+      <!-- Warning message -->
+      <p class="warning-text text-mono-small">
+        {{ t('macSettings.warning') }}
+      </p>
+    </SettingsSection>
 
     <!-- Apply Button (requires service restart) -->
     <Button
@@ -70,7 +51,7 @@
     >
       {{ isApplying ? t('macSettings.restarting') : t('macSettings.apply') }}
     </Button>
-  </div>
+  </SettingsContainer>
 </template>
 
 <script setup>
@@ -81,6 +62,9 @@ import axios from 'axios';
 import Button from '@/components/ui/Button.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
+import SettingsContainer from '@/components/settings/SettingsContainer.vue';
+import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SettingItem from '@/components/settings/SettingItem.vue';
 
 const { t } = useI18n();
 const { on } = useWebSocket();
@@ -214,43 +198,6 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.settings-container {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-.settings-section {
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-06);
-  padding: var(--space-05-fixed) var(--space-05);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-05-fixed);
-}
-
-.settings-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-04);
-}
-
-.setting-item-container {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-03);
-}
-
-.setting-item-label {
-  color: var(--color-text-secondary);
-}
-
-.setting-item-control {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-}
-
 .warning-text {
   color: var(--color-text-secondary);
   margin-top: var(--space-02);
@@ -261,12 +208,5 @@ onUnmounted(() => {
   bottom: 0;
   width: 100%;
   z-index: 10;
-}
-
-/* Responsive */
-@media (max-aspect-ratio: 4/3) {
-  .settings-section {
-    border-radius: var(--radius-05);
-  }
 }
 </style>

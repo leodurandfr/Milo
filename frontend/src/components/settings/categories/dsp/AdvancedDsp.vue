@@ -3,11 +3,13 @@
 <template>
   <div class="advanced-dsp">
     <!-- Loudness Section -->
-    <section class="settings-section">
-      <div class="effect-header">
-        <h2 class="heading-2" :class="{ 'effect-enabled': dspStore.loudness.enabled }">{{ $t('dsp.loudness.title', 'Loudness') }}</h2>
-        <Toggle :model-value="dspStore.loudness.enabled" @change="handleLoudnessToggle" />
-      </div>
+    <SettingsSection>
+      <template #header>
+        <div class="effect-header">
+          <h2 class="heading-2" :class="{ 'effect-enabled': dspStore.loudness.enabled }">{{ $t('dsp.loudness.title', 'Loudness') }}</h2>
+          <Toggle :model-value="dspStore.loudness.enabled" @change="handleLoudnessToggle" />
+        </div>
+      </template>
 
       <Transition name="expand">
         <div v-if="dspStore.loudness.enabled" class="effect-controls">
@@ -26,14 +28,16 @@
           </div>
         </div>
       </Transition>
-    </section>
+    </SettingsSection>
 
     <!-- Compressor Section -->
-    <section class="settings-section">
-      <div class="effect-header">
-        <h2 class="heading-2" :class="{ 'effect-enabled': dspStore.compressor.enabled }">{{ $t('dsp.compressor.title', 'Compressor') }}</h2>
-        <Toggle :model-value="dspStore.compressor.enabled" @change="handleCompressorToggle" />
-      </div>
+    <SettingsSection>
+      <template #header>
+        <div class="effect-header">
+          <h2 class="heading-2" :class="{ 'effect-enabled': dspStore.compressor.enabled }">{{ $t('dsp.compressor.title', 'Compressor') }}</h2>
+          <Toggle :model-value="dspStore.compressor.enabled" @change="handleCompressorToggle" />
+        </div>
+      </template>
 
       <Transition name="expand">
         <div v-if="dspStore.compressor.enabled" class="effect-controls">
@@ -73,7 +77,7 @@
           </div>
         </div>
       </Transition>
-    </section>
+    </SettingsSection>
   </div>
 </template>
 
@@ -81,6 +85,7 @@
 import { useDspStore } from '@/stores/dspStore';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import Toggle from '@/components/ui/Toggle.vue';
+import SettingsSection from '@/components/settings/SettingsSection.vue';
 
 const dspStore = useDspStore();
 
@@ -110,14 +115,6 @@ async function handleLoudnessChange(field, value) {
   gap: var(--space-02);
 }
 
-.settings-section {
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-06);
-  padding: var(--space-05-fixed) var(--space-05);
-  display: flex;
-  flex-direction: column;
-}
-
 .effect-header {
   display: flex;
   align-items: center;
@@ -136,7 +133,6 @@ async function handleLoudnessChange(field, value) {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-03);
-  margin-top: var(--space-03);
 }
 
 /* Expand transition for effect controls */
@@ -179,10 +175,6 @@ async function handleLoudnessChange(field, value) {
 
 /* Mobile adjustments */
 @media (max-aspect-ratio: 4/3) {
-  .settings-section {
-    border-radius: var(--radius-05);
-  }
-
   .effect-controls {
     grid-template-columns: 1fr;
   }

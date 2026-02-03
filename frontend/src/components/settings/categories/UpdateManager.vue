@@ -6,7 +6,7 @@
       <transition name="content-fade">
         <div v-if="localProgramsLoading" key="skeleton" class="update-content">
           <!-- Section OS skeleton -->
-          <section class="settings-section">
+          <SettingsSection>
             <div class="skeleton-text skeleton-heading"></div>
             <div class="programs-list">
               <div class="program-item-skeleton">
@@ -16,10 +16,10 @@
                 <div class="skeleton-button"></div>
               </div>
             </div>
-          </section>
+          </SettingsSection>
 
           <!-- Section Programs skeleton -->
-          <section class="settings-section">
+          <SettingsSection>
             <div class="skeleton-text skeleton-heading"></div>
             <div class="programs-list">
               <div v-for="n in 4" :key="n" class="program-item-skeleton">
@@ -29,10 +29,10 @@
                 <div class="skeleton-button"></div>
               </div>
             </div>
-          </section>
+          </SettingsSection>
 
           <!-- Section Satellites skeleton -->
-          <section v-if="isMultiroomEnabled" class="settings-section">
+          <SettingsSection v-if="isMultiroomEnabled">
             <div class="skeleton-text skeleton-heading"></div>
             <div class="programs-list">
               <div v-for="n in 1" :key="n" class="program-item-skeleton">
@@ -42,7 +42,7 @@
                 <div class="skeleton-button"></div>
               </div>
             </div>
-          </section>
+          </SettingsSection>
         </div>
       </transition>
 
@@ -62,8 +62,7 @@
       <transition name="content-fade">
         <div v-if="!localProgramsLoading && !localProgramsError" key="content" class="update-content">
           <!-- Section 1: Operating System (Milo OS only) -->
-          <section v-if="localPrograms.milo" class="settings-section">
-            <h1 class="heading-2">{{ $t('updates.osTitle') }}</h1>
+          <SettingsSection v-if="localPrograms.milo" :title="$t('updates.osTitle')">
             <div class="programs-list">
               <div class="program-item">
                 <div class="program-info">
@@ -98,11 +97,10 @@
                 </Button>
               </div>
             </div>
-          </section>
+          </SettingsSection>
 
           <!-- Section 2: Milo Programs -->
-          <section class="settings-section">
-            <h1 class="heading-2">{{ $t('updates.programsTitle') }}</h1>
+          <SettingsSection :title="$t('updates.programsTitle')">
             <div class="programs-list">
               <template v-for="(program, key) in localPrograms" :key="key">
                 <div v-if="key !== 'milo'" class="program-item">
@@ -139,12 +137,10 @@
                 </div>
               </template>
             </div>
-          </section>
+          </SettingsSection>
 
           <!-- Section 3: Satellite Programs -->
-          <section v-if="isMultiroomEnabled && (satellitesLoading || satellitesError || satellites.length > 0)" class="settings-section">
-            <h1 class="heading-2">{{ $t('updates.satelliteProgramsTitle') }}</h1>
-
+          <SettingsSection v-if="isMultiroomEnabled && (satellitesLoading || satellitesError || satellites.length > 0)" :title="$t('updates.satelliteProgramsTitle')">
             <div v-if="satellitesLoading" class="programs-list">
               <div v-for="n in 1" :key="n" class="program-item-skeleton">
                 <div class="skeleton-icon"></div>
@@ -197,7 +193,7 @@
                 </Button>
               </div>
             </div>
-          </section>
+          </SettingsSection>
         </div>
       </transition>
     </div>
@@ -212,6 +208,7 @@ import Button from '@/components/ui/Button.vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import { useI18n } from '@/services/i18n';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import SettingsSection from '@/components/settings/SettingsSection.vue';
 
 function getProgramIcon(programKey) {
   const iconMap = {
@@ -514,15 +511,6 @@ onMounted(async () => {
   opacity: 0;
 }
 
-.settings-section {
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-06);
-  padding: var(--space-05-fixed) var(--space-05);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-05-fixed);
-}
-
 .loading-state,
 .error-state,
 .empty-state {
@@ -554,6 +542,11 @@ onMounted(async () => {
   grid-template-columns: 1fr 1fr;
   align-items: center;
   gap: var(--space-04);
+}
+
+.program-item:first-child {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-04);
 }
 
 .program-item:not(:last-child) {
@@ -645,6 +638,11 @@ onMounted(async () => {
   gap: var(--space-01) var(--space-04);
 }
 
+.program-item-skeleton:first-child {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-04);
+}
+
 .program-item-skeleton:not(:last-child) {
   border-bottom: 1px solid var(--color-border);
   padding-bottom: var(--space-04);
@@ -704,10 +702,6 @@ onMounted(async () => {
 
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
-  .settings-section {
-    border-radius: var(--radius-05);
-  }
-
   .program-item {
     grid-template-columns: 1fr;
     gap: var(--space-02);
