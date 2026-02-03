@@ -552,11 +552,9 @@ configure_avahi() {
 
     # Determine active interface (eth0 preferred, wlan0 as fallback)
     local active_iface="eth0"
-    local deny_ifaces="wlan0,lo"
     if ! ip addr show eth0 2>/dev/null | grep -q 'inet '; then
         if ip addr show wlan0 2>/dev/null | grep -q 'inet '; then
             active_iface="wlan0"
-            deny_ifaces="eth0,lo"
             log_info "eth0 not available, using wlan0 for mDNS"
         fi
     fi
@@ -564,11 +562,14 @@ configure_avahi() {
     # Copy and process Avahi config template
     sudo cp "$MILO_CLIENT_ROOTFS_DIR/etc/avahi/avahi-daemon.conf.template" /etc/avahi/avahi-daemon.conf
     sudo sed -i "s/__ALLOW_IFACE__/$active_iface/" /etc/avahi/avahi-daemon.conf
-    sudo sed -i "s/__DENY_IFACES__/$deny_ifaces/" /etc/avahi/avahi-daemon.conf
 
-    # Copy failover script for dynamic interface switching
-    sudo cp "$MILO_CLIENT_ROOTFS_DIR/etc/NetworkManager/dispatcher.d/99-avahi-interface" /etc/NetworkManager/dispatcher.d/
-    sudo chmod +x /etc/NetworkManager/dispatcher.d/99-avahi-interface
+    # Install systemd override to reset Avahi config to eth0 on every boot
+    # Prevents stale wlan0 config from causing mDNS conflicts
+    log_info "Installing Avahi boot reset override..."
+    sudo mkdir -p /etc/systemd/system/avahi-daemon.service.d
+    sudo cp "$MILO_CLIENT_SYSTEM_DIR/avahi-daemon-override.conf" \
+        /etc/systemd/system/avahi-daemon.service.d/milo-override.conf
+    sudo systemctl daemon-reload
 
     sudo systemctl enable avahi-daemon
     sudo systemctl restart avahi-daemon
@@ -579,9 +580,13 @@ configure_avahi() {
 configure_network_priority() {
     log_info "Configuring network priority (ethernet over wifi)..."
 
-    # Copy NetworkManager dispatcher script from repo
-    sudo cp "$MILO_CLIENT_ROOTFS_DIR/etc/NetworkManager/dispatcher.d/98-wifi-eth0-priority" /etc/NetworkManager/dispatcher.d/
-    sudo chmod +x /etc/NetworkManager/dispatcher.d/98-wifi-eth0-priority
+    # Install unified NetworkManager dispatcher for WiFi/Ethernet priority and Avahi
+    sudo cp "$MILO_CLIENT_ROOTFS_DIR/etc/NetworkManager/dispatcher.d/90-milo-network" /etc/NetworkManager/dispatcher.d/
+    sudo chmod 755 /etc/NetworkManager/dispatcher.d/90-milo-network
+
+    # Remove legacy dispatchers from older installations
+    sudo rm -f /etc/NetworkManager/dispatcher.d/98-wifi-eth0-priority
+    sudo rm -f /etc/NetworkManager/dispatcher.d/99-avahi-interface
 
     # If currently connected via both ethernet and wifi, disconnect wifi now
     if ip addr show eth0 2>/dev/null | grep -q "inet " && \
