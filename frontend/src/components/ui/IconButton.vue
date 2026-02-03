@@ -176,6 +176,12 @@ function handleClick(event) {
   pointer-events: none;
 }
 
+/* Disable press opacity for semi-transparent backgrounds (scale only) */
+.icon-button--rounded.interactive-press:active,
+.icon-button--rounded.interactive-press.pressed {
+  opacity: 1 !important;
+}
+
 /* === STATES === */
 .icon-button:disabled {
   opacity: 0.5;

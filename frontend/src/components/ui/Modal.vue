@@ -1,16 +1,18 @@
 <!-- frontend/src/components/ui/Modal.vue -->
 <template>
   <div v-if="isVisible" ref="modalOverlay" class="modal-overlay" @click.self="handleOverlayClick">
-    <div ref="modalContainer" class="modal-container" :style="{ height: containerHeight }">
+    <div class="modal-wrapper">
       <div ref="closeButtonWrapper" class="close-btn-wrapper">
         <IconButton ref="closeButton" icon="close" variant="rounded" size="large"
           aria-label="Fermer" @click="close" />
       </div>
 
-      <!-- Content with animated height -->
-      <div ref="modalContent" class="modal-content" :class="contentOverflowClass">
-        <div ref="contentInner" class="modal-content-inner">
-          <slot></slot>
+      <div ref="modalContainer" class="modal-container" :style="{ height: containerHeight }">
+        <!-- Content with animated height -->
+        <div ref="modalContent" class="modal-content" :class="contentOverflowClass">
+          <div ref="contentInner" class="modal-content-inner">
+            <slot></slot>
+          </div>
         </div>
       </div>
     </div>
@@ -169,11 +171,13 @@ async function openModal() {
   // Initial container state (invisible and lower position like the dock)
   modalContainer.value.style.transition = 'none';
   modalContainer.value.style.opacity = '0';
-  modalContainer.value.style.transform = 'translateY(80px) scale(0.85)';
+  modalContainer.value.style.transform = 'translateY(48px) scale(0.85)';
 
-  // Initial close button wrapper state (invisible and higher position)
+  // Initial close button state (invisible and higher position)
   closeButtonWrapper.value.style.transition = 'none';
   closeButtonWrapper.value.classList.remove('visible');
+  closeButton.value.$el.style.transition = 'none';
+  closeButton.value.$el.style.opacity = '0';
 
   // Force reflow
   modalContainer.value.offsetHeight;
@@ -195,11 +199,13 @@ async function openModal() {
   }, ANIMATION_TIMINGS.containerDelay);
   animationTimeouts.push(containerTimeout);
 
-  // Delayed close button wrapper animation (uses --transition-spring)
+  // Delayed close button animation (wrapper slides, button fades independently)
   const closeButtonTimeout = setTimeout(() => {
-    if (!closeButtonWrapper.value) return;
-    closeButtonWrapper.value.style.transition = `transform var(--transition-spring), opacity ${ANIMATION_TIMINGS.closeButtonDuration}ms ease-out`;
+    if (!closeButtonWrapper.value || !closeButton.value) return;
+    closeButtonWrapper.value.style.transition = 'transform var(--transition-spring)';
     closeButtonWrapper.value.classList.add('visible');
+    closeButton.value.$el.style.transition = `opacity ${ANIMATION_TIMINGS.closeButtonDuration}ms ease-out`;
+    closeButton.value.$el.style.opacity = '1';
   }, ANIMATION_TIMINGS.closeButtonDelay);
   animationTimeouts.push(closeButtonTimeout);
 
@@ -240,13 +246,13 @@ async function closeModal() {
     if (!modalContainer.value) return;
     modalContainer.value.style.transition = `transform ${ANIMATION_TIMINGS.closeContainerDuration}ms ease-out, opacity ${ANIMATION_TIMINGS.closeContainerDuration}ms ease-out, height ${ANIMATION_TIMINGS.closeContainerDuration}ms ease-out`;
     modalContainer.value.style.opacity = '0';
-    modalContainer.value.style.transform = 'translateY(var(--space-08)) scale(0.95)';
+    modalContainer.value.style.transform = 'translateY(-80px) scale(0.95)';
   }, ANIMATION_TIMINGS.closeContainerDelay);
   animationTimeouts.push(containerCloseTimeout);
 
   const closeButtonCloseTimeout = setTimeout(() => {
     if (!closeButtonWrapper.value) return;
-    closeButtonWrapper.value.style.transition = `opacity ${ANIMATION_TIMINGS.closeButtonDurationOut}ms ease-out`;
+    closeButtonWrapper.value.style.transition = 'none';
     closeButtonWrapper.value.classList.remove('visible');
   }, ANIMATION_TIMINGS.closeButtonDelayOut);
   animationTimeouts.push(closeButtonCloseTimeout);
@@ -353,18 +359,23 @@ onUnmounted(() => {
   opacity: 0;
 }
 
+.modal-wrapper {
+  position: relative;
+  width: 100%;
+  max-width: 768px;
+  max-height: 100%;
+}
+
 .modal-container {
   position: relative;
   background: var(--color-background-neutral-50);
   border-radius: var(--radius-08);
   width: 100%;
-  max-width: 768px;
   max-height: 100%;
   display: flex;
   flex-direction: column;
   opacity: 0;
-  overflow-x: visible;
-  overflow-y: hidden;
+  overflow: hidden;
   transition: height var(--transition-spring);
 }
 
@@ -444,7 +455,7 @@ onUnmounted(() => {
     padding: 80px var(--space-02) var(--space-02) var(--space-02);
   }
 
-  .modal-container {
+  .modal-wrapper {
     max-width: none;
   }
 
