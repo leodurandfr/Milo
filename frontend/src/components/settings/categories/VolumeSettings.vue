@@ -1,73 +1,42 @@
 <!-- frontend/src/components/settings/categories/VolumeSettings.vue -->
 <template>
-  <div class="settings-container">
+  <SettingsContainer>
     <!-- Volume controls -->
-    <section class="settings-section">
-      <div class="volume-group">
-        <h2 class="heading-2">{{ t('volumeSettings.controls') }}</h2>
+    <SettingsSection :title="t('volumeSettings.controls')">
+      <SettingItem :label="t('volumeSettings.rotaryIncrement')">
+        <RangeSlider v-model="config.step_rotary_db" :min="1" :max="6" :step="1" value-unit=" dB"
+          @input="debouncedUpdate('rotary-steps', 'rotary-steps', { step_rotary_db: $event })" />
+      </SettingItem>
 
-        <div class="setting-item-container">
-          <div class="volume-item-setting text-mono">
-            {{ t('volumeSettings.rotaryIncrement') }}
-          </div>
-          <div class="volume-steps-control">
-            <RangeSlider v-model="config.step_rotary_db" :min="1" :max="6" :step="1" value-unit=" dB"
-              @input="debouncedUpdate('rotary-steps', 'rotary-steps', { step_rotary_db: $event })" />
-          </div>
-        </div>
-
-        <div class="setting-item-container">
-          <div class="volume-item-setting text-mono">
-            {{ t('volumeSettings.mobileIncrement') }}
-          </div>
-          <div class="volume-steps-control">
-            <RangeSlider v-model="config.step_mobile_db" :min="1" :max="6" :step="1" value-unit=" dB"
-              @input="debouncedUpdate('volume-steps', 'volume-steps', { step_mobile_db: $event })" />
-          </div>
-        </div>
-      </div>
-    </section>
+      <SettingItem :label="t('volumeSettings.mobileIncrement')">
+        <RangeSlider v-model="config.step_mobile_db" :min="1" :max="6" :step="1" value-unit=" dB"
+          @input="debouncedUpdate('volume-steps', 'volume-steps', { step_mobile_db: $event })" />
+      </SettingItem>
+    </SettingsSection>
 
     <!-- Volume limits -->
-    <section class="settings-section">
-      <div class="volume-group">
-        <h2 class="heading-2">{{ t('volumeSettings.limits') }}</h2>
-        <div class="setting-item-container">
-          <div class="volume-item-setting text-mono">
-            {{ t('volumeSettings.minMax') }}
-          </div>
-          <div class="volume-limits-control">
-            <DoubleRangeSlider v-model="config.limits" :min="-80" :max="0" :step="1" :gap="6" value-unit=" dB"
-              @input="updateVolumeLimits" />
-          </div>
-        </div>
-      </div>
-    </section>
+    <SettingsSection :title="t('volumeSettings.limits')">
+      <SettingItem :label="t('volumeSettings.minMax')">
+        <DoubleRangeSlider v-model="config.limits" :min="-80" :max="0" :step="1" :gap="6" value-unit=" dB"
+          @input="updateVolumeLimits" />
+      </SettingItem>
+    </SettingsSection>
 
     <!-- Startup volume -->
-    <section class="settings-section">
-      <div class="volume-group">
-        <h2 class="heading-2">{{ t('volumeSettings.startup') }}</h2>
+    <SettingsSection :title="t('volumeSettings.startup')">
+      <ButtonGroup
+        :model-value="config.restore_last_volume"
+        :options="startupModeOptions"
+        mobile-layout="column-reverse"
+        @change="handleStartupModeChange"
+      />
 
-        <ButtonGroup
-          :model-value="config.restore_last_volume"
-          :options="startupModeOptions"
-          mobile-layout="column-reverse"
-          @change="handleStartupModeChange"
-        />
-
-        <div v-if="!config.restore_last_volume" class="setting-item-container">
-          <div class="volume-item-setting text-mono">
-            {{ t('volumeSettings.fixedStartup') }}
-          </div>
-          <div class="startup-volume-control">
-            <RangeSlider v-model="config.startup_volume_db" :min="config.limits.min" :max="config.limits.max" :step="1" value-unit=" dB"
-              @input="debouncedUpdate('volume-startup', 'volume-startup', { startup_volume_db: $event, restore_last_volume: false })" />
-          </div>
-        </div>
-      </div>
-    </section>
-  </div>
+      <SettingItem v-if="!config.restore_last_volume" :label="t('volumeSettings.fixedStartup')">
+        <RangeSlider v-model="config.startup_volume_db" :min="config.limits.min" :max="config.limits.max" :step="1" value-unit=" dB"
+          @input="debouncedUpdate('volume-startup', 'volume-startup', { startup_volume_db: $event, restore_last_volume: false })" />
+      </SettingItem>
+    </SettingsSection>
+  </SettingsContainer>
 </template>
 
 <script setup>
@@ -80,6 +49,9 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import DoubleRangeSlider from '@/components/ui/DoubleRangeSlider.vue';
+import SettingsContainer from '@/components/settings/SettingsContainer.vue';
+import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SettingItem from '@/components/settings/SettingItem.vue';
 
 const { t } = useI18n();
 const { on } = useWebSocket();
@@ -179,59 +151,3 @@ onUnmounted(() => {
   clearAllTimers();
 });
 </script>
-
-<style scoped>
-.settings-container {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-.settings-section {
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-06);
-  padding: var(--space-05-fixed) var(--space-05);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-05-fixed);
-}
-
-.volume-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-04);
-}
-
-.setting-item-container {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-03);
-}
-
-.volume-item-setting {
-  color: var(--color-text-secondary);
-}
-
-.volume-steps-control,
-.startup-volume-control {
-  display: flex;
-  align-items: center;
-}
-
-.volume-limits-control {
-  display: flex;
-  flex-direction: column;
-}
-
-/* Responsive */
-@media (max-aspect-ratio: 4/3) {
-  .settings-section {
-    border-radius: var(--radius-05);
-  }
-
-  .volume-steps-control,
-  .startup-volume-control {
-    gap: var(--space-05);
-  }
-}
-</style>

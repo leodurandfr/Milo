@@ -1,66 +1,59 @@
 <!-- frontend/src/components/settings/categories/PodcastSettings.vue -->
 <template>
-  <section class="settings-section">
-    <div class="podcast-group">
-      <h2 class="heading-2">{{ t('podcastSettings.taddyCredentials') }}</h2>
-      <div class="setting-item-container">
-        <div class="podcast-description text-mono">
-          {{ t('podcastSettings.credentialsDescription') }}
+  <SettingsSection :title="t('podcastSettings.taddyCredentials')">
+    <SettingItem :label="t('podcastSettings.credentialsDescription')">
+      <div class="credentials-form">
+        <div class="form-field">
+          <label class="form-label text-mono">{{ t('podcastSettings.userId') }}</label>
+          <InputText
+            v-model="localUserId"
+            type="text"
+            :placeholder="t('podcastSettings.userIdPlaceholder')"
+          />
         </div>
 
-        <div class="credentials-form">
-          <div class="form-field">
-            <label class="form-label text-mono">{{ t('podcastSettings.userId') }}</label>
-            <InputText
-              v-model="localUserId"
-              type="text"
-              :placeholder="t('podcastSettings.userIdPlaceholder')"
-            />
-          </div>
+        <div class="form-field">
+          <label class="form-label text-mono">{{ t('podcastSettings.apiKey') }}</label>
+          <InputText
+            v-model="localApiKey"
+            type="text"
+            :placeholder="t('podcastSettings.apiKeyPlaceholder')"
+          />
+        </div>
 
-          <div class="form-field">
-            <label class="form-label text-mono">{{ t('podcastSettings.apiKey') }}</label>
-            <InputText
-              v-model="localApiKey"
-              type="text"
-              :placeholder="t('podcastSettings.apiKeyPlaceholder')"
-            />
+        <!-- API Usage Display -->
+        <div v-if="requestsUsed !== null" class="usage-display">
+          <div class="usage-header">
+            <label class="form-label text-mono">{{ t('podcastSettings.apiUsage') }}</label>
+            <span class="usage-value text-mono">{{ requestsUsed }}/500 {{ t('podcastSettings.requestsPerMonth') }}</span>
           </div>
+          <div class="progress-bar">
+            <div class="progress-fill" :style="{ width: usagePercentage + '%' }"></div>
+          </div>
+          <span v-if="resetDateText" class="usage-description text-mono">{{ resetDateText }}</span>
+          <span v-else class="usage-description text-mono">{{ t('podcastSettings.resetsMonthly') }}</span>
+        </div>
 
-          <!-- API Usage Display -->
-          <div v-if="requestsUsed !== null" class="usage-display">
-            <div class="usage-header">
-              <label class="form-label text-mono">{{ t('podcastSettings.apiUsage') }}</label>
-              <span class="usage-value text-mono">{{ requestsUsed }}/500 {{ t('podcastSettings.requestsPerMonth') }}</span>
-            </div>
-            <div class="progress-bar">
-              <div class="progress-fill" :style="{ width: usagePercentage + '%' }"></div>
-            </div>
-            <span v-if="resetDateText" class="usage-description text-mono">{{ resetDateText }}</span>
-            <span v-else class="usage-description text-mono">{{ t('podcastSettings.resetsMonthly') }}</span>
-          </div>
+        <!-- Test connection button - Visible when no credentials OR changes -->
+        <div v-if="!hasCredentials || hasChanges" class="action-buttons-sticky">
+          <Button
+            variant="brand"
+            :disabled="isValidating || !localUserId || !localApiKey"
+            :loading="isValidating"
+            :loading-label="false"
+            @click="handleTestConnection"
+          >
+            {{ t('podcastSettings.validateButton') }}
+          </Button>
+        </div>
 
-          <!-- Test connection button - Visible when no credentials OR changes -->
-          <div v-if="!hasCredentials || hasChanges" class="action-buttons-sticky">
-            <Button
-              variant="brand"
-              :disabled="isValidating || !localUserId || !localApiKey"
-              :loading="isValidating"
-              :loading-label="false"
-              @click="handleTestConnection"
-            >
-              {{ t('podcastSettings.validateButton') }}
-            </Button>
-          </div>
-
-          <!-- Error message -->
-          <div v-if="errorMessage" class="status-message error text-mono">
-            {{ errorMessage }}
-          </div>
+        <!-- Error message -->
+        <div v-if="errorMessage" class="status-message error text-mono">
+          {{ errorMessage }}
         </div>
       </div>
-    </div>
-  </section>
+    </SettingItem>
+  </SettingsSection>
 </template>
 
 <script setup>
@@ -71,6 +64,8 @@ import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
 import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
+import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SettingItem from '@/components/settings/SettingItem.vue';
 
 const { t } = useI18n();
 const { on } = useWebSocket();
@@ -214,31 +209,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.settings-section {
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-06);
-  padding: var(--space-05-fixed) var(--space-05);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-05-fixed);
-}
-
-.podcast-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-04);
-}
-
-.setting-item-container {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-03);
-}
-
-.podcast-description {
-  color: var(--color-text-secondary);
-}
-
 .credentials-form {
   display: flex;
   flex-direction: column;
@@ -256,12 +226,12 @@ onMounted(() => {
 }
 
 .usage-display {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-02);
-    border-radius: var(--radius-03);
-    margin-top: var(--space-04);
-    margin-bottom: var(--space-03);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+  border-radius: var(--radius-03);
+  margin-top: var(--space-04);
+  margin-bottom: var(--space-03);
 }
 
 .usage-header {
@@ -311,24 +281,13 @@ onMounted(() => {
   font-size: var(--text-size-small);
 }
 
-.status-message.success {
-  background: rgba(46, 204, 113, 0.1);
-  color: #2ecc71;
-  border: 1px solid rgba(46, 204, 113, 0.3);
-}
-
 .status-message.error {
   background: rgba(231, 76, 60, 0.1);
   color: #e74c3c;
   border: 1px solid rgba(231, 76, 60, 0.3);
 }
 
-/* Responsive */
 @media (max-aspect-ratio: 4/3) {
-  .settings-section {
-    border-radius: var(--radius-05);
-  }
-
   .usage-header {
     flex-direction: column;
   }

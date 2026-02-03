@@ -3,64 +3,41 @@
 <template>
   <div class="zone-edit">
     <!-- Zone Name Input -->
-    <section class="settings-section">
-      <div class="section-group">
-        <h2 class="heading-2">{{ $t('dsp.zones.zoneName', 'Zone Name') }}</h2>
-        <InputText
-          v-model="zoneName"
-          :placeholder="$t('dsp.zones.zoneNamePlaceholder', 'e.g., Living Room')"
-          size="medium"
-          :maxlength="15"
-          @blur="saveZoneName"
-        />
-      </div>
-    </section>
+    <SettingsSection :title="$t('dsp.zones.zoneName', 'Zone Name')">
+      <InputText
+        v-model="zoneName"
+        :placeholder="$t('dsp.zones.zoneNamePlaceholder', 'e.g., Living Room')"
+        size="medium"
+        :maxlength="15"
+        @blur="saveZoneName"
+      />
+    </SettingsSection>
 
     <!-- Client Selection -->
-    <section class="settings-section">
-      <div class="section-group">
-        <h2 class="heading-2">{{ $t('dsp.zones.selectClients', 'Select Clients') }}</h2>
-        <div class="clients-list">
-          <ListItemButton
-            v-for="target in availableTargets"
-            :key="target.id"
-            variant="background"
-            action="toggle"
-            icon-variant="standard"
-            :toggle-variant="target.online ? 'primary' : 'secondary'"
-            :model-value="selectedClients.includes(target.id)"
-            @click="toggleClient(target.id)"
-          >
-            <template #icon>
-              <div class="client-icon" :class="{ 'is-offline': !target.online }">
-                <SvgIcon :name="getSpeakerIcon(target.id)" :size="28" />
-              </div>
-            </template>
-            <template #title>
-              <div class="client-title">
-                <span :class="{ 'text-secondary': !target.online }">{{ target.name }}</span>
-                <span v-if="!target.online" class="text-mono-small client-title__status">
-                  {{ $t('multiroom.offline') }}
-                </span>
-                <span v-else class="text-mono-small client-title__type">
-                  {{ getSpeakerTypeLabel(target.id) }}
-                </span>
-              </div>
-            </template>
-          </ListItemButton>
-        </div>
-
-        <!-- Crossover frequency (edit mode with subwoofer only) -->
-        <template v-if="groupId && currentGroup?.has_subwoofer">
-          <div class="section-divider"></div>
-          <div class="form-group">
-            <label class="text-mono">{{ $t('multiroom.crossover.crossoverFrequency') }}</label>
-            <RangeSlider v-model="crossoverFrequency" :min="40" :max="200" :step="5" value-unit="Hz"
-              @change="handleCrossoverChange" />
-          </div>
-        </template>
+    <SettingsSection :title="$t('dsp.zones.selectClients', 'Select Clients')">
+      <div class="clients-list">
+        <SpeakerListItem
+          v-for="target in availableTargets"
+          :key="target.id"
+          :name="target.name"
+          :mac-id="target.id"
+          :online="target.online"
+          action="toggle"
+          :toggle-variant="target.online ? 'primary' : 'secondary'"
+          :model-value="selectedClients.includes(target.id)"
+          @click="toggleClient(target.id)"
+        />
       </div>
-    </section>
+
+      <!-- Crossover frequency (edit mode with subwoofer only) -->
+      <template v-if="groupId && currentGroup?.has_subwoofer">
+        <div class="section-divider"></div>
+        <SettingItem :label="$t('multiroom.crossover.crossoverFrequency')">
+          <RangeSlider v-model="crossoverFrequency" :min="40" :max="200" :step="5" value-unit="Hz"
+            @change="handleCrossoverChange" />
+        </SettingItem>
+      </template>
+    </SettingsSection>
 
     <!-- Create Zone Button (only when creating new zone) -->
     <Button
@@ -92,12 +69,12 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { useDspStore } from '@/stores/dspStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
-import { useI18n } from '@/services/i18n';
 import Button from '@/components/ui/Button.vue';
 import InputText from '@/components/ui/InputText.vue';
-import ListItemButton from '@/components/ui/ListItemButton.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
-import SvgIcon from '@/components/ui/SvgIcon.vue';
+import SpeakerListItem from '@/components/settings/categories/multiroom/SpeakerListItem.vue';
+import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SettingItem from '@/components/settings/SettingItem.vue';
 
 const props = defineProps({
   // Group ID if editing an existing zone, null for creating new
@@ -109,7 +86,6 @@ const props = defineProps({
 
 const emit = defineEmits(['back', 'saved']);
 
-const { t } = useI18n();
 const dspStore = useDspStore();
 const multiroomStore = useMultiroomStore();
 const saving = ref(false);
@@ -135,24 +111,6 @@ const currentGroup = computed(() => {
   if (!props.groupId) return null;
   return multiroomStore.zoneList.find(z => z.id === props.groupId);
 });
-
-// Get speaker icon name based on type
-function getSpeakerIcon(macId) {
-  const speakerType = dspStore.getClientSpeakerType(macId);
-  const iconMap = {
-    satellite: 'speakerSatellite',
-    bookshelf: 'speakerShelf',
-    tower: 'speakerColumn',
-    subwoofer: 'speakerSub'
-  };
-  return iconMap[speakerType] || 'speakerShelf';
-}
-
-// Get speaker type label for display
-function getSpeakerTypeLabel(macId) {
-  const speakerType = dspStore.getClientSpeakerType(macId);
-  return t(`multiroom.speakerTypes.${speakerType}`);
-}
 
 // Toggle client selection
 async function toggleClient(clientId) {
@@ -294,51 +252,10 @@ async function handleDelete() {
   gap: var(--space-03);
 }
 
-.settings-section {
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-06);
-  padding: var(--space-05-fixed) var(--space-05);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-05-fixed);
-}
-
-.section-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-05);
-}
-
 .clients-list {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-01);
-}
-
-/* Client icon */
-.client-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.client-icon.is-offline {
-  opacity: 0.4;
-}
-
-/* Client title with type/status */
-.client-title {
-  display: flex;
-  flex-direction: column;
-}
-
-.client-title__type,
-.client-title__status {
-  color: var(--color-text-secondary);
-}
-
-.text-secondary {
-  color: var(--color-text-secondary);
 }
 
 .section-divider {
@@ -346,22 +263,8 @@ async function handleDelete() {
   background: var(--color-border);
 }
 
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-.form-group label {
-  color: var(--color-text-secondary);
-}
-
 /* Mobile adjustments */
 @media (max-aspect-ratio: 4/3) {
-  .settings-section {
-    border-radius: var(--radius-05);
-  }
-
   .clients-list {
     grid-template-columns: 1fr;
   }

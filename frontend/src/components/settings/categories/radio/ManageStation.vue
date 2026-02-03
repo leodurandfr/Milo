@@ -1,5 +1,5 @@
 <template>
-  <section class="settings-section">
+  <SettingsSection>
     <form @submit.prevent="handleSubmit" class="station-form">
       <!-- Station Name and Image Section -->
       <div class="station-header-row">
@@ -88,7 +88,7 @@
         </Button>
       </div>
     </form>
-  </section>
+  </SettingsSection>
 </template>
 
 <script setup>
@@ -101,6 +101,7 @@ import Dropdown from '@/components/ui/Dropdown.vue';
 import InputText from '@/components/ui/InputText.vue';
 import placeholderImg from '@/assets/radio/station-placeholder.jpg';
 import axios from 'axios';
+import SettingsSection from '@/components/settings/SettingsSection.vue';
 
 const props = defineProps({
   mode: {
@@ -387,12 +388,6 @@ async function handleSubmit() {
 </script>
 
 <style scoped>
-.settings-section {
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-06);
-  padding: var(--space-05-fixed) var(--space-05);
-}
-
 .station-form {
   display: flex;
   flex-direction: column;

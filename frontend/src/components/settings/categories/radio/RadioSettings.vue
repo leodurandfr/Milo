@@ -1,41 +1,37 @@
 <template>
-  <div class="radio-settings-container">
-    <section class="settings-section">
-      <!-- Section 1: Unmodified Favorites -->
-      <div v-if="unmodifiedFavorites.length > 0" class="section-group">
-        <h2 class="heading-2">{{ $t('radioSettings.unmodifiedFavoritesTitle') }}</h2>
-        <div class="stations-list">
-          <StationCard v-for="station in unmodifiedFavorites" :key="station.id" :station="station" variant="card"
-            :show-country="true" @click="$emit('edit-station', station)" />
-        </div>
+  <SettingsSection>
+    <!-- Section 1: Unmodified Favorites -->
+    <template v-if="unmodifiedFavorites.length > 0">
+      <h2 class="heading-2">{{ $t('radioSettings.unmodifiedFavoritesTitle') }}</h2>
+      <div class="stations-list">
+        <StationCard v-for="station in unmodifiedFavorites" :key="station.id" :station="station" variant="card"
+          :show-country="true" @click="$emit('edit-station', station)" />
       </div>
+    </template>
 
-      <!-- Section 2: Modified Stations (from RadioBrowserAPI favorites) -->
-      <div class="section-group">
-        <h2 class="heading-2">{{ $t('radioSettings.modifiedStationsTitle') }}</h2>
-        <div v-if="modifiedStations.length > 0" class="stations-list">
-          <StationCard v-for="station in modifiedStations" :key="`${station.id}-${station.name}-${updateCounter}`" :station="station"
-            variant="card" :show-country="true" @click="$emit('edit-station', { ...station, _canRestore: true })" />
-        </div>
-        <div v-else class="empty-state text-mono">
-          {{ $t('radioSettings.noModifiedStations') }}
-        </div>
+    <!-- Section 2: Modified Stations (from RadioBrowserAPI favorites) -->
+    <h2 class="heading-2">{{ $t('radioSettings.modifiedStationsTitle') }}</h2>
+    <div v-if="modifiedStations.length > 0" class="stations-list">
+      <StationCard v-for="station in modifiedStations" :key="`${station.id}-${station.name}-${updateCounter}`" :station="station"
+        variant="card" :show-country="true" @click="$emit('edit-station', { ...station, _canRestore: true })" />
+    </div>
+    <div v-else class="empty-state text-mono">
+      {{ $t('radioSettings.noModifiedStations') }}
+    </div>
+
+    <!-- Section 3: Added Stations (manually created) -->
+    <template v-if="addedStations.length > 0">
+      <h2 class="heading-2">{{ $t('radioSettings.addedStationsTitle') }}</h2>
+      <div class="stations-list">
+        <StationCard v-for="station in addedStations" :key="station.id" :station="station" variant="card"
+          :show-country="true" @click="$emit('edit-station', { ...station, _canDelete: true })" />
       </div>
+    </template>
 
-      <!-- Section 3: Added Stations (manually created) -->
-      <div v-if="addedStations.length > 0" class="section-group">
-        <h2 class="heading-2">{{ $t('radioSettings.addedStationsTitle') }}</h2>
-        <div class="stations-list">
-          <StationCard v-for="station in addedStations" :key="station.id" :station="station" variant="card"
-            :show-country="true" @click="$emit('edit-station', { ...station, _canDelete: true })" />
-        </div>
-      </div>
-
-      <Button variant="brand" @click="$emit('go-to-add-station')">
-        {{ $t('radioSettings.addStation') }}
-      </Button>
-    </section>
-  </div>
+    <Button variant="brand" @click="$emit('go-to-add-station')">
+      {{ $t('radioSettings.addStation') }}
+    </Button>
+  </SettingsSection>
 </template>
 
 <script setup>
@@ -45,6 +41,7 @@ import { useRadioStore } from '@/stores/radioStore';
 import useWebSocket from '@/services/websocket';
 import Button from '@/components/ui/Button.vue';
 import StationCard from '@/components/radio/StationCard.vue';
+import SettingsSection from '@/components/settings/SettingsSection.vue';
 
 defineEmits(['go-to-add-station', 'edit-station']);
 
@@ -126,27 +123,6 @@ on('radio', 'favorite_modified', () => {
 </script>
 
 <style scoped>
-.radio-settings-container {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-.settings-section {
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-06);
-  padding: var(--space-05-fixed) var(--space-05);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-05-fixed);
-}
-
-.section-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-04);
-}
-
 /* Stations list */
 .stations-list {
   display: grid;
@@ -166,24 +142,8 @@ on('radio', 'favorite_modified', () => {
 
 /* Responsive */
 @media (max-width: 600px) {
-  .settings-section {
-    border-radius: var(--radius-05);
-  }
-
-  .station-item {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .station-actions {
-    align-self: flex-end;
-  }
-
   .stations-list {
-    display: grid;
     grid-template-columns: repeat(1, minmax(0, 1fr));
-    gap: var(--space-01);
   }
-
 }
 </style>

@@ -1,6 +1,6 @@
 <!-- frontend/src/components/settings/categories/LanguageSettings.vue -->
 <template>
-  <section class="settings-section">
+  <SettingsSection>
     <div class="language-grid">
       <ListItemButton
         v-for="language in availableLanguages"
@@ -16,7 +16,7 @@
         </template>
       </ListItemButton>
     </div>
-  </section>
+  </SettingsSection>
 </template>
 
 <script setup>
@@ -27,6 +27,7 @@ import useWebSocket from '@/services/websocket';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
+import SettingsSection from '@/components/settings/SettingsSection.vue';
 
 import franceIcon from '@/assets/flags-icons/france.svg';
 import unitedKingdomIcon from '@/assets/flags-icons/united-kingdom.svg';
@@ -80,29 +81,15 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.settings-section {
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-06);
-  padding: var(--space-05-fixed) var(--space-05);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-05-fixed);
-}
-
 .language-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-01);
 }
 
-/* Responsive */
 @media (max-aspect-ratio: 4/3) {
-    .settings-section {
-    border-radius: var(--radius-05);
-  }
   .language-grid {
     grid-template-columns: 1fr;
   }
-  
 }
 </style>
