@@ -383,6 +383,9 @@ class CrossoverService:
                 "frequency": frequency
             })
 
+            # Apply the updated crossover filters to all zone clients
+            await self.apply_zone_crossover(zone_id)
+
             return True
 
         except Exception as e:
@@ -401,7 +404,7 @@ class CrossoverService:
                 return False
 
             client_ids = zone.client_ids
-            frequency = await self.get_zone_auto_crossover(zone_id)
+            frequency = zone.crossover_frequency or await self.get_zone_auto_crossover(zone_id)
 
             available_clients = {
                 cid for cid in client_ids

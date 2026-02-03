@@ -101,7 +101,6 @@
       "zoneName": "Nome da zona",
       "zoneNamePlaceholder": "ex: Sala",
       "selectClients": "Selecionar sistemas de áudio",
-      "selectClientsDescription": "Selecione pelo menos 2 sistemas para criar uma zona.",
       "createZone": "Criar uma zona",
       "editZone": "Editar a zona",
       "updateZone": "Atualizar",

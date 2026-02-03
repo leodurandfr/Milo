@@ -983,8 +983,8 @@ class ClientRegistryService:
         base['online_client_count'] = online_count
         base['has_subwoofer'] = has_subwoofer
 
-        # Compute crossover frequency from speaker types (use min frequency)
-        if speaker_frequencies:
+        # Use auto-calculated crossover frequency only if zone has no custom value
+        if speaker_frequencies and zone.crossover_frequency is None:
             base['crossover_frequency'] = min(speaker_frequencies)
 
         # Crossover is enabled when: zone.crossover_enabled is explicitly True,
