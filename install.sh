@@ -1022,9 +1022,17 @@ install_avahi_nginx() {
 configure_avahi() {
     log_info "Configuring Avahi (mDNS)..."
 
-    # Copy Avahi config with deny-interfaces to prevent mDNS conflicts (milo -> milo-2)
-    log_info "Installing Avahi config (eth0 only, deny wlan0)..."
+    # Copy Avahi config (eth0 default, no deny-interfaces needed)
+    log_info "Installing Avahi config (eth0 default)..."
     sudo cp "$MILO_APP_DIR/rootfs/etc/avahi/avahi-daemon.conf" /etc/avahi/avahi-daemon.conf
+
+    # Install systemd override to reset Avahi config to eth0 on every boot
+    # Prevents stale wlan0 config from causing mDNS conflicts (milo -> milo-2)
+    log_info "Installing Avahi boot reset override..."
+    sudo mkdir -p /etc/systemd/system/avahi-daemon.service.d
+    sudo cp "$MILO_APP_DIR/system/avahi-daemon-override.conf" \
+        /etc/systemd/system/avahi-daemon.service.d/milo-override.conf
+    sudo systemctl daemon-reload
 
     sudo systemctl enable avahi-daemon
     sudo systemctl start avahi-daemon
@@ -1048,14 +1056,14 @@ EOF
 
     sudo systemctl restart avahi-daemon
 
-    # Install NetworkManager dispatchers for network priority and mDNS
-    log_info "Installing WiFi/Ethernet priority dispatcher..."
-    sudo cp "$MILO_APP_DIR/rootfs/etc/NetworkManager/dispatcher.d/98-wifi-eth0-priority" /etc/NetworkManager/dispatcher.d/
-    sudo chmod 755 /etc/NetworkManager/dispatcher.d/98-wifi-eth0-priority
+    # Install unified NetworkManager dispatcher for WiFi/Ethernet priority and Avahi
+    log_info "Installing network dispatcher..."
+    sudo cp "$MILO_APP_DIR/rootfs/etc/NetworkManager/dispatcher.d/90-milo-network" /etc/NetworkManager/dispatcher.d/
+    sudo chmod 755 /etc/NetworkManager/dispatcher.d/90-milo-network
 
-    log_info "Installing Avahi interface dispatcher..."
-    sudo cp "$MILO_APP_DIR/rootfs/etc/NetworkManager/dispatcher.d/99-avahi-interface" /etc/NetworkManager/dispatcher.d/
-    sudo chmod 755 /etc/NetworkManager/dispatcher.d/99-avahi-interface
+    # Remove legacy dispatchers from older installations
+    sudo rm -f /etc/NetworkManager/dispatcher.d/98-wifi-eth0-priority
+    sudo rm -f /etc/NetworkManager/dispatcher.d/99-avahi-interface
 
     log_success "Avahi configured (access via milo.local)"
 }

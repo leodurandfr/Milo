@@ -1,10 +1,10 @@
 # Milo Client Avahi Configuration
-# Publishes on active network interface (eth0 preferred, wlan0 as fallback)
-# Variables: __ALLOW_IFACE__ and __DENY_IFACES__ are replaced at install time
+# Ethernet is the default mDNS interface. WiFi failover is handled
+# by the NetworkManager dispatcher (90-milo-network).
+# Config is reset to eth0 at every boot via systemd ExecStartPre.
 
 [server]
 allow-interfaces=__ALLOW_IFACE__
-deny-interfaces=__DENY_IFACES__
 use-ipv4=yes
 use-ipv6=yes
 ratelimit-interval-usec=1000000

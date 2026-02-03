@@ -4,7 +4,9 @@
 # Handles:
 # - Ethernet priority over WiFi (disconnects WiFi when Ethernet is up)
 # - Avahi mDNS interface management (switches to active interface)
-# - Race condition prevention (only restarts Avahi when config actually changes)
+#
+# Avahi config is reset to eth0 at every boot via systemd ExecStartPre.
+# This dispatcher only handles runtime changes (cable plug/unplug).
 #
 # Scenarios:
 # - Ethernet only: Avahi uses eth0
@@ -39,12 +41,7 @@ set_avahi_interface() {
     # Skip if already configured correctly
     [ "$current" = "$interface" ] && return 0
 
-    # Update config
-    if grep -q "^allow-interfaces=" "$AVAHI_CONF"; then
-        sed -i "s/^allow-interfaces=.*/allow-interfaces=$interface/" "$AVAHI_CONF"
-    else
-        sed -i "/^\[server\]/a allow-interfaces=$interface" "$AVAHI_CONF"
-    fi
+    sed -i "s/^allow-interfaces=.*/allow-interfaces=$interface/" "$AVAHI_CONF"
 
     # Restart Avahi to apply changes
     systemctl restart avahi-daemon.service
