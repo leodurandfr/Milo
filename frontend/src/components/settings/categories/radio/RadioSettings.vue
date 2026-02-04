@@ -1,17 +1,18 @@
 <template>
-  <!-- Track Recognition Toggle -->
-  <SettingsSection>
-    <div class="track-recognition">
-      <span class="heading-2">{{ $t('radioSettings.trackRecognition') }}</span>
-      <div class="track-recognition__toggle">
-        <Toggle :model-value="shazamEnabled" @change="handleShazamToggle" />
+  <div>
+    <!-- Track Recognition Toggle -->
+    <SettingsSection>
+      <div class="track-recognition">
+        <span class="heading-2">{{ $t('radioSettings.trackRecognition') }}</span>
+        <div class="track-recognition__toggle">
+          <Toggle :model-value="shazamEnabled" @change="handleShazamToggle" />
+        </div>
+        <span class="text-mono track-recognition__description">{{ $t('radioSettings.trackRecognitionDescription') }}</span>
       </div>
-      <span class="text-mono track-recognition__description">{{ $t('radioSettings.trackRecognitionDescription') }}</span>
-    </div>
-  </SettingsSection>
+    </SettingsSection>
 
-  <!-- Stations Management -->
-  <SettingsSection>
+    <!-- Stations Management -->
+    <SettingsSection>
     <!-- Section 1: Unmodified Favorites -->
     <template v-if="unmodifiedFavorites.length > 0">
       <h2 class="heading-2">{{ $t('radioSettings.unmodifiedFavoritesTitle') }}</h2>
@@ -43,7 +44,8 @@
     <Button variant="brand" @click="$emit('go-to-add-station')">
       {{ $t('radioSettings.addStation') }}
     </Button>
-  </SettingsSection>
+    </SettingsSection>
+  </div>
 </template>
 
 <script setup>

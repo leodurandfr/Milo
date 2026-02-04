@@ -24,6 +24,7 @@ logging.getLogger("symphonia_core").setLevel(logging.ERROR)
 INITIAL_DELAY_SECONDS = 10
 RECOGNITION_INTERVAL_SECONDS = 45
 AUDIO_CAPTURE_DURATION_SECONDS = 5
+RECOGNITION_TIMEOUT_SECONDS = 25
 
 # Audio capture limits (~40KB/s covers most stream bitrates up to 320kbps)
 BYTES_PER_SECOND = 40_000
@@ -159,14 +160,17 @@ class ShazamRecognitionService:
             logger.debug(f"Captured {len(audio_bytes)} bytes, sending to Shazam")
 
             # Recognize
-            result = await self._shazam.recognize(audio_bytes)
+            result = await asyncio.wait_for(
+                self._shazam.recognize(audio_bytes),
+                timeout=RECOGNITION_TIMEOUT_SECONDS
+            )
             track = self._parse_result(result)
 
             if track:
                 logger.info(f"Track recognized: {track['title']} - {track['artist']}")
             else:
                 matches = result.get("matches", []) if result else []
-                logger.debug(f"No track recognized (matches: {len(matches)})")
+                logger.info(f"No track recognized (matches: {len(matches)})")
 
             # Check if track changed and notify
             if self._track_changed(track):
@@ -176,6 +180,8 @@ class ShazamRecognitionService:
 
         except asyncio.CancelledError:
             raise
+        except asyncio.TimeoutError:
+            logger.warning("Shazam recognition timed out, will retry next cycle")
         except Exception as e:
             logger.warning(f"Recognition attempt failed: {e}")
 
@@ -264,6 +270,10 @@ class ShazamRecognitionService:
         if not artwork:
             images = track.get("images", {})
             artwork = images.get("coverart") or images.get("coverarthq")
+
+        # Upgrade artwork resolution from default 400x400 to 1280x1280
+        if artwork:
+            artwork = artwork.replace("/400x400cc.jpg", "/1280x1280cc.jpg")
 
         return {
             "title": title,
