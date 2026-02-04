@@ -32,6 +32,7 @@
       :subtitle="screensaverData.subtitle"
       :station-favicon="screensaverData.stationFavicon"
       :station-name="screensaverData.stationName"
+      :use-mono-subtitle="screensaverData.useMonoSubtitle"
       @close="closeScreensaver"
     />
   </div>
@@ -118,7 +119,8 @@ const screensaverData = computed(() => {
       title: station?.name || 'Unknown station',
       subtitle: metaParts.length > 0 ? metaParts.join(' \u2022 ') : 'Live',
       stationFavicon: null,
-      stationName: null
+      stationName: null,
+      useMonoSubtitle: true
     };
   }
 
