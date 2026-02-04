@@ -14,7 +14,7 @@ The Milo frontend uses Vue 3 Composition API with a component-based architecture
 |----------|-------|-------------|
 | Audio | 4 | Core audio player components |
 | Spotify | 3 | Spotify Connect UI |
-| Radio | 5 | Internet radio UI |
+| Radio | 4 | Internet radio UI |
 | Podcasts | 15 | Podcast browsing & playback |
 | Multiroom | 4 | Multi-room audio controls |
 | Settings | 18 | Configuration panels |
@@ -32,6 +32,7 @@ The Milo frontend uses Vue 3 Composition API with a component-based architecture
 | `AudioSourceView.vue` | Source-specific view container |
 | `AudioSourceLayout.vue` | Common layout for audio sources |
 | `AudioSourceStatus.vue` | Status display for audio sources |
+| `AudioScreensaver.vue` | Screensaver overlay for radio and podcast playback |
 
 ---
 
@@ -56,7 +57,6 @@ The Milo frontend uses Vue 3 Composition API with a component-based architecture
 | `RadioSource.vue` | Main radio interface |
 | `FavoritesView.vue` | Favorite stations list |
 | `SearchView.vue` | Station search (RadioBrowser API) |
-| `RadioScreensaver.vue` | Screensaver mode |
 | `SkeletonStationCard.vue` | Loading skeleton |
 
 ---
