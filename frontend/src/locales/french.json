@@ -461,7 +461,9 @@
     "addStation": "Ajouter une station",
     "deleteStationConfirm": "Supprimer la station ?",
     "cancel": "Annuler",
-    "delete": "Supprimer"
+    "delete": "Supprimer",
+    "trackRecognition": "Reconnaissance des morceaux",
+    "trackRecognitionDescription": "Identifier les morceaux en cours de lecture via Shazam"
   },
   "podcasts": {
     "podcasts": "Podcasts",

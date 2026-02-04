@@ -425,6 +425,11 @@ ROC_LATENCY_PROFILES = Literal['responsive', 'gradual', 'intact']
 ROC_FRAME_LENGTHS = Literal[2, 4, 7, 8, 12]
 
 
+class RadioSettingsRequest(BaseModel):
+    """Radio settings request"""
+    shazam_enabled: bool
+
+
 class MacRocConfigRequest(BaseModel):
     """Mac ROC streaming configuration request"""
     target_latency_ms: int = Field(default=200, ge=5, le=500, description="Target latency in milliseconds")

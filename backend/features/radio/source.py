@@ -20,6 +20,7 @@ from typing import Dict, Any, Optional
 from backend.core.audio_source import BaseAudioSource, SourceState
 from backend.core.events import EventBus
 from backend.features.radio.data import StationDataService
+from backend.features.radio.shazam import ShazamRecognitionService
 from backend.shared.mpv import MpvController
 from backend.features.radio.browser_api import RadioBrowserAPI
 
@@ -89,6 +90,9 @@ class RadioSource(BaseAudioSource):
         )
         self._station_data.radio_api = self._radio_api
 
+        # Shazam recognition
+        self._shazam: Optional[ShazamRecognitionService] = None
+
         # State
         self._metadata: Dict[str, Any] = {}
         self._current_station: Optional[Dict[str, Any]] = None
@@ -124,7 +128,13 @@ class RadioSource(BaseAudioSource):
             if not self._station_data._loaded:
                 await self._station_data.initialize()
 
-            # 3. Connect to MPV IPC
+            # 3. Create Shazam recognition service
+            self._shazam = ShazamRecognitionService(
+                settings_service=self._settings_service,
+                on_track_changed=self._on_shazam_track_changed
+            )
+
+            # 4. Connect to MPV IPC
             self._mpv = MpvController(ipc_socket_path=self._mpv_socket)
             if not await self._mpv.connect():
                 self._logger.error("Failed to connect to MPV IPC")
@@ -264,6 +274,10 @@ class RadioSource(BaseAudioSource):
             # Increment Radio Browser counter (fire and forget)
             asyncio.create_task(self._radio_api.increment_station_clicks(station_id))
 
+            # Clear old Shazam track info before building metadata for new station
+            if self._shazam:
+                await self._shazam.stop()
+
             # Update state: buffering in progress
             self._current_station = station
             self._is_playing = False
@@ -288,6 +302,10 @@ class RadioSource(BaseAudioSource):
                 station['url'] = working_url
                 self._current_station = station
                 self._metadata = self._build_playback_metadata()
+
+            # Start Shazam recognition if enabled
+            if self._shazam:
+                await self._shazam.start(working_url)
 
             return self.success_response(f"Loading {station_name}", station=station)
 
@@ -337,20 +355,44 @@ class RadioSource(BaseAudioSource):
         return success
 
     async def _handle_stop_playback(self) -> Dict[str, Any]:
-        """Stop playback."""
+        """Stop playback while preserving station/track metadata for UI fade-out."""
         try:
-            await self._mpv.stop()
+            # Save track info before stopping shazam
+            last_track = self._shazam.current_track if self._shazam else None
 
-            self._current_station = None
+            # Mark as stopped immediately (prevents monitor from overwriting)
             self._is_playing = False
             self._is_buffering = False
-            self._metadata = {
-                "is_playing": False,
-                "buffering": False,
-                "ready": True
-            }
 
-            self.set_state(SourceState.READY, self._metadata)
+            # Stop Shazam recognition
+            if self._shazam:
+                await self._shazam.stop()
+
+            await self._mpv.stop()
+
+            # Preserve station + track metadata so the player shows them during fade-out
+            if self._current_station:
+                self._metadata = {
+                    "station_id": self._current_station.get('id'),
+                    "station_name": self._current_station.get('name'),
+                    "station_url": self._current_station.get('url'),
+                    "country": self._current_station.get('country'),
+                    "genre": self._current_station.get('genre'),
+                    "favicon": self._current_station.get('favicon'),
+                    "bitrate": self._current_station.get('bitrate'),
+                    "is_favorite": self._station_data.is_favorite(
+                        self._current_station.get('id')
+                    ) if self._station_data else False,
+                    "is_playing": False,
+                    "buffering": False,
+                    "track_title": last_track["title"] if last_track else None,
+                    "track_artist": last_track["artist"] if last_track else None,
+                    "track_artwork": last_track["artwork"] if last_track else None,
+                }
+                self.set_state(SourceState.CONNECTED, self._metadata)
+            else:
+                self._metadata = {"is_playing": False, "buffering": False, "ready": True}
+                self.set_state(SourceState.READY, self._metadata)
 
             return self.success_response("Playback stopped")
 
@@ -391,9 +433,11 @@ class RadioSource(BaseAudioSource):
     # === Helpers ===
 
     def _build_playback_metadata(self) -> Dict[str, Any]:
-        """Build metadata dict for current station."""
+        """Build metadata dict for current station, enriched with Shazam track info."""
         if not self._current_station:
             return {}
+
+        track = self._shazam.current_track if self._shazam else None
 
         return {
             "station_id": self._current_station.get('id'),
@@ -408,7 +452,11 @@ class RadioSource(BaseAudioSource):
                 self._current_station.get('id')
             ) if self._station_data else False,
             "is_playing": self._is_playing,
-            "buffering": self._is_buffering
+            "buffering": self._is_buffering,
+            # Shazam track recognition data
+            "track_title": track["title"] if track else None,
+            "track_artist": track["artist"] if track else None,
+            "track_artwork": track["artwork"] if track else None
         }
 
     def _update_connection_state(self) -> None:
@@ -417,6 +465,8 @@ class RadioSource(BaseAudioSource):
             # Clear any previous error when playback is active
             if self._is_playing:
                 self.broadcast_error_cleared()
+
+            track = self._shazam.current_track if self._shazam else None
             self.set_state(SourceState.CONNECTED, {
                 "station_id": self._current_station.get('id'),
                 "station_name": self._current_station.get('name'),
@@ -428,7 +478,10 @@ class RadioSource(BaseAudioSource):
                     self._current_station.get('id')
                 ) if self._station_data else False,
                 "is_playing": self._is_playing,
-                "buffering": self._is_buffering
+                "buffering": self._is_buffering,
+                "track_title": track["title"] if track else None,
+                "track_artist": track["artist"] if track else None,
+                "track_artwork": track["artwork"] if track else None
             })
         else:
             self.set_state(SourceState.READY, {
@@ -437,9 +490,19 @@ class RadioSource(BaseAudioSource):
                 "ready": True
             })
 
+    async def _on_shazam_track_changed(self, track) -> None:
+        """Callback from ShazamRecognitionService when a new track is detected."""
+        if self._current_station and self._is_playing:
+            self._metadata = self._build_playback_metadata()
+            self._update_connection_state()
+
     async def _cleanup(self) -> None:
         """Clean up resources."""
         self._stop_monitor()
+
+        if self._shazam:
+            await self._shazam.stop()
+            self._shazam = None
 
         if self._mpv:
             await self._mpv.disconnect()

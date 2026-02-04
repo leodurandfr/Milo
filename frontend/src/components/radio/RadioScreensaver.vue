@@ -3,31 +3,40 @@
     @touchstart.stop="handleClose">
     <!-- Full-screen black background -->
     <div class="station-art-background">
-      <img v-if="currentStation?.favicon" :src="currentStation.favicon" alt="" class="background-station" />
+      <img v-if="displayArtwork" :src="displayArtwork" alt="" class="background-station" />
     </div>
 
     <!-- Centered card with progressive animation -->
     <div class="now-playing-card stagger-1">
       <!-- Background image - heavily zoomed and blurred (inside the card) -->
       <div class="station-art-background-card">
-        <img v-if="currentStation?.favicon" :src="currentStation.favicon" alt="" class="background-station-favicon" />
+        <img v-if="displayArtwork" :src="displayArtwork" alt="" class="background-station-favicon" />
       </div>
 
-      <!-- Station image (stagger 2 animation) -->
+      <!-- Artwork (stagger 2 animation) -->
       <div class="station-art stagger-2">
-        <img v-if="currentStation?.favicon" :src="currentStation.favicon" alt="Station logo"
+        <img v-if="displayArtwork" :src="displayArtwork" :alt="trackInfo ? trackInfo.title : 'Station logo'"
           class="current-station-favicon" @error="handleImageError" />
         <img :src="placeholderImg" alt="Station sans image" class="placeholder-logo"
-          :class="{ visible: !currentStation?.favicon || imageError }" />
+          :class="{ visible: !displayArtwork || imageError }" />
       </div>
 
-      <!-- Station info (stagger 3 animation) -->
+      <!-- Info (stagger 3 animation) -->
       <div class="station-info stagger-3">
-        <p class="station-name display-1">{{ currentStation?.name || 'Station inconnue' }}</p>
-        <p class="station-meta text-mono">
-          <span v-if="metadataDisplay">{{ metadataDisplay }}</span>
-          <span v-else>En direct</span>
-        </p>
+        <!-- Track recognized: show track title, artist, and station name -->
+        <template v-if="trackInfo">
+          <p class="station-name display-1">{{ trackInfo.title }}</p>
+          <p class="track-artist heading-3">{{ trackInfo.artist }}</p>
+          <p class="station-meta text-mono">{{ currentStation?.name }}</p>
+        </template>
+        <!-- No track: show station name and genre/bitrate -->
+        <template v-else>
+          <p class="station-name display-1">{{ currentStation?.name || 'Station inconnue' }}</p>
+          <p class="station-meta text-mono">
+            <span v-if="metadataDisplay">{{ metadataDisplay }}</span>
+            <span v-else>En direct</span>
+          </p>
+        </template>
       </div>
     </div>
   </div>
@@ -52,6 +61,13 @@ const imageError = ref(false);
 const isClosing = ref(false);
 
 const currentStation = computed(() => radioStore.currentStation);
+const trackInfo = computed(() => radioStore.trackInfo);
+
+// Use track artwork when available, fallback to station favicon
+const displayArtwork = computed(() => {
+  if (trackInfo.value?.artwork) return trackInfo.value.artwork;
+  return currentStation.value?.favicon;
+});
 
 // Helper function to capitalize first letter
 function capitalizeGenre(genre) {
@@ -324,6 +340,12 @@ watch(() => props.isVisible, (visible) => {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+}
+
+.track-artist {
+  margin: 0;
+  color: var(--color-text-contrast);
+  opacity: 0.8;
 }
 
 .station-meta {

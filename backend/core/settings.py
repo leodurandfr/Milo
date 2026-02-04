@@ -48,6 +48,9 @@ class SettingsService:
             },
             "dock": {
                 "enabled_apps": ["spotify", "bluetooth", "mac", "radio", "podcast", "multiroom", "dsp", "settings"]
+            },
+            "radio": {
+                "shazam_enabled": True
             }
         }
     
@@ -225,11 +228,11 @@ class SettingsService:
             # Preserve equalizer section as-is (no strict validation)
             validated['equalizer'] = equalizer_input
 
-        # Radio - Preserve radio section without strict validation
+        # Radio settings
         radio_input = settings.get('radio', {})
-        if radio_input:
-            # Preserve radio section as-is (no strict validation)
-            validated['radio'] = radio_input
+        validated['radio'] = {
+            'shazam_enabled': bool(radio_input.get('shazam_enabled', True))
+        }
 
         # DSP (linked_groups, presets) - Preserve DSP section without strict validation
         dsp_input = settings.get('dsp', {})

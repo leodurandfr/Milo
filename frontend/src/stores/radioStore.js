@@ -71,6 +71,26 @@ export const useRadioStore = defineStore('radio', () => {
     };
   });
 
+  // Currently recognized track info from Shazam (from unified store metadata)
+  const trackInfo = computed(() => {
+    const unifiedStore = useUnifiedAudioStore();
+
+    if (unifiedStore.systemState.active_source !== 'radio') {
+      return null;
+    }
+
+    const metadata = unifiedStore.systemState.metadata;
+    if (!metadata?.track_title) {
+      return null;
+    }
+
+    return {
+      title: metadata.track_title,
+      artist: metadata.track_artist || '',
+      artwork: metadata.track_artwork || null
+    };
+  });
+
   // Displayed stations (slice of search results for progressive rendering)
   const displayedStations = computed(() => {
     return searchResults.value
@@ -471,6 +491,7 @@ export const useRadioStore = defineStore('radio', () => {
   return {
     // State
     currentStation,
+    trackInfo,
     loading,
     hasError,
     favoritesInitialized,
