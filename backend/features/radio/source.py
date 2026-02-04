@@ -173,8 +173,10 @@ class RadioSource(BaseAudioSource):
         try:
             self._logger.info("Restarting Radio source")
 
-            # Stop monitor
+            # Stop monitor and Shazam
             self._stop_monitor()
+            if self._shazam:
+                await self._shazam.stop()
 
             # Reset state
             self._current_station = None
@@ -372,23 +374,7 @@ class RadioSource(BaseAudioSource):
 
             # Preserve station + track metadata so the player shows them during fade-out
             if self._current_station:
-                self._metadata = {
-                    "station_id": self._current_station.get('id'),
-                    "station_name": self._current_station.get('name'),
-                    "station_url": self._current_station.get('url'),
-                    "country": self._current_station.get('country'),
-                    "genre": self._current_station.get('genre'),
-                    "favicon": self._current_station.get('favicon'),
-                    "bitrate": self._current_station.get('bitrate'),
-                    "is_favorite": self._station_data.is_favorite(
-                        self._current_station.get('id')
-                    ) if self._station_data else False,
-                    "is_playing": False,
-                    "buffering": False,
-                    "track_title": last_track["title"] if last_track else None,
-                    "track_artist": last_track["artist"] if last_track else None,
-                    "track_artwork": last_track["artwork"] if last_track else None,
-                }
+                self._metadata = self._build_playback_metadata(track_override=last_track)
                 self.set_state(SourceState.CONNECTED, self._metadata)
             else:
                 self._metadata = {"is_playing": False, "buffering": False, "ready": True}
@@ -432,12 +418,14 @@ class RadioSource(BaseAudioSource):
 
     # === Helpers ===
 
-    def _build_playback_metadata(self) -> Dict[str, Any]:
+    def _build_playback_metadata(self, track_override=None) -> Dict[str, Any]:
         """Build metadata dict for current station, enriched with Shazam track info."""
         if not self._current_station:
             return {}
 
-        track = self._shazam.current_track if self._shazam else None
+        track = track_override if track_override is not None else (
+            self._shazam.current_track if self._shazam else None
+        )
 
         return {
             "station_id": self._current_station.get('id'),
@@ -462,33 +450,24 @@ class RadioSource(BaseAudioSource):
     def _update_connection_state(self) -> None:
         """Update state based on playback."""
         if self._current_station:
-            # Clear any previous error when playback is active
             if self._is_playing:
                 self.broadcast_error_cleared()
-
-            track = self._shazam.current_track if self._shazam else None
-            self.set_state(SourceState.CONNECTED, {
-                "station_id": self._current_station.get('id'),
-                "station_name": self._current_station.get('name'),
-                "country": self._current_station.get('country'),
-                "genre": self._current_station.get('genre'),
-                "favicon": self._current_station.get('favicon'),
-                "bitrate": self._current_station.get('bitrate'),
-                "is_favorite": self._station_data.is_favorite(
-                    self._current_station.get('id')
-                ) if self._station_data else False,
-                "is_playing": self._is_playing,
-                "buffering": self._is_buffering,
-                "track_title": track["title"] if track else None,
-                "track_artist": track["artist"] if track else None,
-                "track_artwork": track["artwork"] if track else None
-            })
+            self.set_state(SourceState.CONNECTED, self._build_playback_metadata())
         else:
             self.set_state(SourceState.READY, {
                 "is_playing": False,
                 "buffering": False,
                 "ready": True
             })
+
+    async def on_shazam_setting_changed(self, enabled: bool) -> bool:
+        """React to Shazam toggle change. Clears track info immediately when disabled."""
+        if not enabled and self._shazam and self._shazam.current_track:
+            self._shazam.clear_track()
+            if self._current_station and self._is_playing:
+                self._metadata = self._build_playback_metadata()
+                self._update_connection_state()
+        return True
 
     async def _on_shazam_track_changed(self, track) -> None:
         """Callback from ShazamRecognitionService when a new track is detected."""
