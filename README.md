@@ -13,19 +13,23 @@
 
 | Source | Description |
 |--------|-------------|
-| 🎵 **Spotify Connect** | See what's playing and control playback |
+| 🎵 **Spotify Connect** | Native Spotify Connect receiver — control playback directly |
 | 📱 **Bluetooth** | Pair any device and stream audio |
-| 📻 **Radio** | Browse 50,000+ stations, save favorites |
-| 🎙️ **Podcasts** | Search, subscribe, resume episodes |
+| 📻 **Radio** | Browse 50,000+ stations, save favorites, add custom stations, and identify tracks with Shazam |
+| 🎙️ **Podcasts** | Search, subscribe, and resume episodes with variable speed (0.5x–2x) |
 | 💻 **Mac** | Stream your Mac's system audio (requires [Milō Mac](https://github.com/leodurandfr/Milo-Mac)) |
 
 ## Features
 
 | Feature | Description |
 |---------|-------------|
-| 🔊 **Multiroom** | Synchronized playback across multiple speakers |
-| 🎛️ **10-band Equalizer** | Adjust audio frequencies for all speakers |
-| 🌍 **8 Languages** | EN, FR, DE, ES, PT, IT, ZH, HI |
+| 🔊 **Multiroom Audio** | Synchronized playback across speakers with zone management and per-speaker volume |
+| 🎛️ **Parametric EQ** | 10-band equalizer with 21 presets, compressor, and loudness compensation (CamillaDSP) |
+| 🎤 **Shazam Recognition** | Automatic track identification on radio streams — see artist, title, and album art |
+| 🖥️ **Now Playing Display** | Fullscreen screensaver with album art during playback on touchscreen |
+| 🔈 **Volume Management** | Rotary encoder support, volume limits, startup volume mode (fixed or restore last) |
+| 🔄 **OTA Updates** | Check and install updates from GitHub, including satellite speakers |
+| 🌍 **8 Languages** | English, French, German, Spanish, Portuguese, Italian, Chinese, Hindi |
 
 ## Hardware
 
@@ -92,6 +96,15 @@ Control Milō from your other devices:
 | **iOS** | Fullscreen web interface | [Milō iOS](https://github.com/leodurandfr/Milo-iOS) |
 | **Android** | Fullscreen web interface | [Milō Android](https://github.com/leodurandfr/Milo-Android) |
 
+## Built With
+
+| Layer | Technologies |
+|-------|-------------|
+| **Backend** | Python, FastAPI, asyncio |
+| **Frontend** | Vue 3, Pinia, Vite |
+| **Audio** | ALSA, CamillaDSP, Snapcast, mpv |
+| **Platform** | Raspberry Pi OS (64-bit), systemd |
+
 ## Documentation
 
 - [📚 Documentation Index](docs/index.md) — All documentation
@@ -102,4 +115,4 @@ Control Milō from your other devices:
 
 ## License
 
-[MIT](LICENSE)
+[GPL-3.0](LICENSE)
