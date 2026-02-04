@@ -15,6 +15,11 @@ from shazamio import Shazam
 
 logger = logging.getLogger(__name__)
 
+# Suppress noisy symphonia warnings from ShazamIO's internal MP3 decoder
+# (expected when decoding raw chunks captured from live audio streams)
+logging.getLogger("symphonia_bundle_mp3").setLevel(logging.ERROR)
+logging.getLogger("symphonia_core").setLevel(logging.ERROR)
+
 # Recognition timing
 INITIAL_DELAY_SECONDS = 10
 RECOGNITION_INTERVAL_SECONDS = 45
@@ -66,6 +71,10 @@ class ShazamRecognitionService:
         """
         return self._current_track
 
+    def clear_track(self) -> None:
+        """Clear the current track without stopping the recognition loop."""
+        self._current_track = None
+
     async def start(self, stream_url: str) -> None:
         """
         Start periodic recognition for the given stream URL.
@@ -111,10 +120,6 @@ class ShazamRecognitionService:
 
         logger.info("Shazam recognition stopped")
 
-    def update_stream_url(self, url: str) -> None:
-        """Update the stream URL without restarting the loop."""
-        self._stream_url = url
-
     async def _recognition_loop(self) -> None:
         """Main recognition loop: wait, capture, recognize, repeat."""
         try:
@@ -151,7 +156,7 @@ class ShazamRecognitionService:
                 logger.warning("No audio captured, skipping recognition")
                 return
 
-            logger.info(f"Captured {len(audio_bytes)} bytes, sending to Shazam")
+            logger.debug(f"Captured {len(audio_bytes)} bytes, sending to Shazam")
 
             # Recognize
             result = await self._shazam.recognize(audio_bytes)
@@ -161,7 +166,7 @@ class ShazamRecognitionService:
                 logger.info(f"Track recognized: {track['title']} - {track['artist']}")
             else:
                 matches = result.get("matches", []) if result else []
-                logger.info(f"No track recognized (matches: {len(matches)})")
+                logger.debug(f"No track recognized (matches: {len(matches)})")
 
             # Check if track changed and notify
             if self._track_changed(track):
@@ -202,10 +207,10 @@ class ShazamRecognitionService:
                     # Read in chunks to accumulate data from live stream
                     chunks = []
                     total = 0
-                    deadline = asyncio.get_event_loop().time() + AUDIO_CAPTURE_DURATION_SECONDS
+                    deadline = asyncio.get_running_loop().time() + AUDIO_CAPTURE_DURATION_SECONDS
 
                     while total < max_bytes:
-                        remaining_time = deadline - asyncio.get_event_loop().time()
+                        remaining_time = deadline - asyncio.get_running_loop().time()
                         if remaining_time <= 0:
                             break
 

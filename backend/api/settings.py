@@ -947,12 +947,23 @@ def create_settings_router(
             'shazam_enabled': payload.shazam_enabled
         }
 
+        async def apply_to_radio():
+            try:
+                plugin = state_machine.get_plugin(AudioSource.RADIO)
+                if plugin:
+                    return await plugin.on_shazam_setting_changed(payload.shazam_enabled)
+                return True
+            except Exception as e:
+                logger.error(f"Error applying radio settings: {e}")
+                return False
+
         return await _handle_setting_update(
             payload,
             validator=lambda p: True,  # Validated by Pydantic
             setter=lambda: settings.set_setting('radio', radio_config),
             event_type="radio_settings_changed",
-            event_data={"config": radio_config}
+            event_data={"config": radio_config},
+            reload_callback=apply_to_radio
         )
 
     return router
