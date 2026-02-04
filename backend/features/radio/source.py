@@ -357,28 +357,19 @@ class RadioSource(BaseAudioSource):
         return success
 
     async def _handle_stop_playback(self) -> Dict[str, Any]:
-        """Stop playback while preserving station/track metadata for UI fade-out."""
+        """Stop playback and reset to READY state."""
         try:
-            # Save track info before stopping shazam
-            last_track = self._shazam.current_track if self._shazam else None
-
-            # Mark as stopped immediately (prevents monitor from overwriting)
             self._is_playing = False
             self._is_buffering = False
 
-            # Stop Shazam recognition
             if self._shazam:
                 await self._shazam.stop()
 
             await self._mpv.stop()
 
-            # Preserve station + track metadata so the player shows them during fade-out
-            if self._current_station:
-                self._metadata = self._build_playback_metadata(track_override=last_track)
-                self.set_state(SourceState.CONNECTED, self._metadata)
-            else:
-                self._metadata = {"is_playing": False, "buffering": False, "ready": True}
-                self.set_state(SourceState.READY, self._metadata)
+            self._current_station = None
+            self._metadata = {"is_playing": False, "buffering": False, "ready": True}
+            self.set_state(SourceState.READY, self._metadata)
 
             return self.success_response("Playback stopped")
 
