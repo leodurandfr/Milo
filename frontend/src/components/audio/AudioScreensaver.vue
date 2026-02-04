@@ -26,7 +26,7 @@
       <div class="content-section stagger-2">
         <div class="track-info stagger-3">
           <h1 class="track-title heading-1">{{ title }}</h1>
-          <p v-if="subtitle" class="track-subtitle heading-2">{{ subtitle }}</p>
+          <p v-if="subtitle" class="track-subtitle" :class="useMonoSubtitle ? 'text-mono' : 'heading-2'">{{ subtitle }}</p>
         </div>
 
         <div v-if="showBottomBar" class="station-bar stagger-4">
@@ -65,6 +65,10 @@ const props = defineProps({
   stationName: {
     type: String,
     default: null
+  },
+  useMonoSubtitle: {
+    type: Boolean,
+    default: false
   }
 });
 
@@ -267,6 +271,11 @@ watch(() => props.isVisible, (visible) => {
   display: -webkit-box;
   -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
+}
+
+.track-subtitle.text-mono {
+  color: var(--color-text-contrast-50);
+  opacity: 1;
 }
 
 /* Station bar (radio + Shazam only) */
