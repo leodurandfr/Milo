@@ -1,14 +1,13 @@
 <template>
   <!-- Track Recognition Toggle -->
   <SettingsSection>
-    <SectionHeader
-      :title="$t('radioSettings.trackRecognition')"
-      :subtitle="$t('radioSettings.trackRecognitionDescription')"
-    >
-      <template #actions>
+    <div class="track-recognition">
+      <span class="heading-2">{{ $t('radioSettings.trackRecognition') }}</span>
+      <div class="track-recognition__toggle">
         <Toggle :model-value="shazamEnabled" @change="handleShazamToggle" />
-      </template>
-    </SectionHeader>
+      </div>
+      <span class="text-mono track-recognition__description">{{ $t('radioSettings.trackRecognitionDescription') }}</span>
+    </div>
   </SettingsSection>
 
   <!-- Stations Management -->
@@ -58,7 +57,6 @@ import Button from '@/components/ui/Button.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import StationCard from '@/components/radio/StationCard.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
-import SectionHeader from '@/components/settings/SectionHeader.vue';
 
 defineEmits(['go-to-add-station', 'edit-station']);
 
@@ -157,6 +155,30 @@ on('settings', 'radio_settings_changed', (msg) => {
 </script>
 
 <style scoped>
+/* Track recognition setting */
+.track-recognition {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  row-gap: var(--space-02);
+  column-gap: var(--space-04);
+}
+
+.track-recognition__toggle {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.track-recognition__description {
+  color: var(--color-text-secondary);
+}
+
+@media (max-aspect-ratio: 4/3) {
+  .track-recognition__description {
+    grid-column: 1 / -1;
+  }
+}
+
 /* Stations list */
 .stations-list {
   display: grid;
@@ -175,9 +197,12 @@ on('settings', 'radio_settings_changed', (msg) => {
 }
 
 /* Responsive */
-@media (max-width: 600px) {
+@media (max-aspect-ratio: 4/3) {
   .stations-list {
     grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
+  .track-recognition {
+    row-gap: var(--space-01);
   }
 }
 </style>
