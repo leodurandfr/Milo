@@ -1,5 +1,14 @@
 <template>
   <SettingsSection>
+    <!-- Track Recognition Toggle -->
+    <div class="shazam-setting">
+      <div class="shazam-setting__info">
+        <span class="heading-4">{{ $t('radioSettings.trackRecognition') }}</span>
+        <span class="text-mono-small shazam-setting__description">{{ $t('radioSettings.trackRecognitionDescription') }}</span>
+      </div>
+      <Toggle :model-value="shazamEnabled" @change="handleShazamToggle" />
+    </div>
+
     <!-- Section 1: Unmodified Favorites -->
     <template v-if="unmodifiedFavorites.length > 0">
       <h2 class="heading-2">{{ $t('radioSettings.unmodifiedFavoritesTitle') }}</h2>
@@ -38,15 +47,28 @@
 import { ref, computed, onMounted } from 'vue';
 import axios from 'axios';
 import { useRadioStore } from '@/stores/radioStore';
+import { useSettingsStore } from '@/stores/settingsStore';
+import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import useWebSocket from '@/services/websocket';
 import Button from '@/components/ui/Button.vue';
+import Toggle from '@/components/ui/Toggle.vue';
 import StationCard from '@/components/radio/StationCard.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 
 defineEmits(['go-to-add-station', 'edit-station']);
 
 const radioStore = useRadioStore();
+const settingsStore = useSettingsStore();
+const { updateSetting } = useSettingsAPI();
 const { on } = useWebSocket();
+
+// Shazam toggle state (synced from settings store)
+const shazamEnabled = computed(() => settingsStore.radioSettings.shazam_enabled);
+
+async function handleShazamToggle(enabled) {
+  settingsStore.updateRadioSettings({ shazam_enabled: enabled });
+  await updateSetting('radio-settings', { shazam_enabled: enabled });
+}
 
 // Local lists loaded from the API
 const customStationsDict = ref({}); // Dict of station_id → custom metadata
@@ -120,9 +142,38 @@ on('radio', 'favorite_modified', () => {
   console.log('📻 Station modified, reloading RadioSettings data');
   loadAllData();
 });
+
+// Listen for radio settings changes (from other clients)
+on('settings', 'radio_settings_changed', (msg) => {
+  if (msg.data?.config) {
+    settingsStore.updateRadioSettings(msg.data.config);
+  }
+});
 </script>
 
 <style scoped>
+/* Shazam setting toggle */
+.shazam-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-04);
+  padding: var(--space-04);
+  background: var(--color-background);
+  border-radius: var(--radius-04);
+  margin-bottom: var(--space-04);
+}
+
+.shazam-setting__info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-01);
+}
+
+.shazam-setting__description {
+  color: var(--color-text-secondary);
+}
+
 /* Stations list */
 .stations-list {
   display: grid;

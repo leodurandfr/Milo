@@ -56,6 +56,11 @@ export const useSettingsStore = defineStore('settings', () => {
   const podcastApiUsage = ref(null); // requests_used (null if no valid credentials)
   const podcastCredentialsValidatedAt = ref(null); // Unix timestamp when credentials were validated
 
+  // === RADIO ===
+  const radioSettings = ref({
+    shazam_enabled: true
+  });
+
   // === SCREEN ===
   const screenTimeout = ref({
     screen_timeout_enabled: true,
@@ -87,7 +92,8 @@ export const useSettingsStore = defineStore('settings', () => {
         podcastResponse,
         podcastStatusResponse,
         screenTimeoutResponse,
-        screenBrightnessResponse
+        screenBrightnessResponse,
+        radioSettingsResponse
       ] = await Promise.all([
         axios.get('/api/settings/language').catch(() => ({ data: { language: 'english' } })),
         axios.get('/api/settings/volume-limits').catch(() => ({ data: { limits: { min_db: -80.0, max_db: -21.0 } } })),
@@ -98,7 +104,8 @@ export const useSettingsStore = defineStore('settings', () => {
         axios.get('/api/settings/podcast-credentials').catch(() => ({ data: { config: { taddy_user_id: '', taddy_api_key: '' } } })),
         axios.get('/api/settings/podcast-credentials/status').catch(() => ({ data: { status: 'error' } })),
         axios.get('/api/settings/screen-timeout').catch(() => ({ data: { config: { screen_timeout_enabled: true, screen_timeout_seconds: 10 } } })),
-        axios.get('/api/settings/screen-brightness').catch(() => ({ data: { config: { brightness_on: 5 } } }))
+        axios.get('/api/settings/screen-brightness').catch(() => ({ data: { config: { brightness_on: 5 } } })),
+        axios.get('/api/settings/radio-settings').catch(() => ({ data: { config: { shazam_enabled: true } } }))
       ]);
 
       // Language
@@ -179,6 +186,13 @@ export const useSettingsStore = defineStore('settings', () => {
       if (screenBrightnessResponse.data.config) {
         screenBrightness.value = {
           brightness_on: screenBrightnessResponse.data.config.brightness_on ?? 5
+        };
+      }
+
+      // Radio settings
+      if (radioSettingsResponse.data.config) {
+        radioSettings.value = {
+          shazam_enabled: radioSettingsResponse.data.config.shazam_enabled ?? true
         };
       }
 
@@ -281,6 +295,13 @@ export const useSettingsStore = defineStore('settings', () => {
     screenBrightness.value = { ...screenBrightness.value, ...config };
   }
 
+  /**
+   * Update radio settings
+   */
+  function updateRadioSettings(config) {
+    radioSettings.value = { ...radioSettings.value, ...config };
+  }
+
   return {
     // State
     isLoading,
@@ -295,6 +316,7 @@ export const useSettingsStore = defineStore('settings', () => {
     podcastCredentialsStatus,
     podcastApiUsage,
     podcastCredentialsValidatedAt,
+    radioSettings,
     screenTimeout,
     screenBrightness,
 
@@ -308,6 +330,7 @@ export const useSettingsStore = defineStore('settings', () => {
     updateSpotifyDisconnect,
     updatePodcastCredentials,
     refreshPodcastCredentialsStatus,
+    updateRadioSettings,
     updateScreenTimeout,
     updateScreenBrightness
   };

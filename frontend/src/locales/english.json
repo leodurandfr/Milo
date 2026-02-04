@@ -462,7 +462,9 @@
     "addStation": "Add station",
     "deleteStationConfirm": "Delete station?",
     "cancel": "Cancel",
-    "delete": "Delete"
+    "delete": "Delete",
+    "trackRecognition": "Track recognition",
+    "trackRecognitionDescription": "Identify playing songs using Shazam"
   },
   "podcasts": {
     "podcasts": "Podcasts",

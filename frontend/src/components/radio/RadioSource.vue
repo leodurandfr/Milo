@@ -29,8 +29,18 @@
     <!-- Player slot: AudioPlayer component -->
     <template #player="{ playerWidth, isMobile }">
       <AudioPlayer v-if="radioStore.currentStation" :visible="shouldShowNowPlayingLayout" source="radio"
-        :artwork="stationArtwork" :placeholder-artwork="placeholderImg" :title="radioStore.currentStation.name"
-        :subtitle="stationMetadata" :is-playing="isCurrentlyPlaying" :is-loading="isBuffering" :width="playerWidth">
+        :artwork="playerArtwork" :placeholder-artwork="placeholderImg" :title="playerTitle"
+        :subtitle="playerSubtitle" :is-playing="isCurrentlyPlaying" :is-loading="isBuffering" :width="playerWidth">
+        <!-- Track info: 3-line layout when Shazam recognized a track -->
+        <template v-if="radioStore.trackInfo" #info>
+          <!-- Desktop: 3-line layout -->
+          <p class="player-title heading-1 radio-track--desktop">{{ radioStore.trackInfo.title }}</p>
+          <p class="player-subtitle heading-4 radio-track--desktop">{{ radioStore.trackInfo.artist }}</p>
+          <p class="player-subtitle text-mono radio-track--desktop">{{ radioStore.currentStation.name }}</p>
+          <!-- Mobile: 2-line compact layout -->
+          <p class="player-title heading-4 radio-track--mobile">{{ radioStore.trackInfo.title }} · {{ radioStore.trackInfo.artist }}</p>
+          <p class="player-title text-mono radio-track--mobile radio-track-station">{{ radioStore.currentStation.name }}</p>
+        </template>
         <!-- Radio controls with favorite and play/stop -->
         <template #controls>
           <div class="radio-controls">
@@ -118,6 +128,22 @@ const stationArtwork = computed(() => {
 
   // External image: use backend proxy to avoid CORS
   return `/api/radio/favicon?url=${encodeURIComponent(favicon)}`
+})
+
+// Player display: use track info when available, fallback to station info
+const playerArtwork = computed(() => {
+  if (radioStore.trackInfo?.artwork) return radioStore.trackInfo.artwork
+  return stationArtwork.value
+})
+
+const playerTitle = computed(() => {
+  if (radioStore.trackInfo) return radioStore.trackInfo.title
+  return radioStore.currentStation?.name
+})
+
+const playerSubtitle = computed(() => {
+  if (radioStore.trackInfo) return radioStore.trackInfo.artist
+  return stationMetadata.value
 })
 
 // Station metadata (genre + bitrate)
@@ -349,6 +375,23 @@ onBeforeUnmount(() => {
 
 .radio-controls .btn {
   width: 100%;
+}
+
+/* Track info: mobile/desktop responsive variants */
+.radio-track--mobile {
+  display: none;
+}
+
+@media (max-aspect-ratio: 4/3) {
+  .radio-track--desktop {
+    display: none !important;
+  }
+  .radio-track--mobile {
+    display: block !important;
+  }
+  .radio-track-station {
+    color: var(--color-text-contrast-50) !important;
+  }
 }
 
 /* Mobile: compact controls on the right */

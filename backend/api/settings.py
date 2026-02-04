@@ -18,7 +18,8 @@ from backend.api.models import (
     PodcastCredentialsRequest,
     ScreenTimeoutRequest,
     ScreenBrightnessRequest,
-    MacRocConfigRequest
+    MacRocConfigRequest,
+    RadioSettingsRequest
 )
 from backend.core.multiroom.routing import RoutingEnvironment
 import logging
@@ -928,5 +929,30 @@ def create_settings_router(
         except Exception as e:
             logger.error(f"Error updating Mac ROC config: {e}")
             raise HTTPException(status_code=500, detail=str(e))
+
+    # Radio settings (Shazam recognition)
+    @router.get("/radio-settings")
+    async def get_radio_settings():
+        radio = await settings.get_setting('radio') or {}
+        return {
+            "status": "success",
+            "config": {
+                "shazam_enabled": radio.get("shazam_enabled", True)
+            }
+        }
+
+    @router.post("/radio-settings")
+    async def set_radio_settings(payload: RadioSettingsRequest):
+        radio_config = {
+            'shazam_enabled': payload.shazam_enabled
+        }
+
+        return await _handle_setting_update(
+            payload,
+            validator=lambda p: True,  # Validated by Pydantic
+            setter=lambda: settings.set_setting('radio', radio_config),
+            event_type="radio_settings_changed",
+            event_data={"config": radio_config}
+        )
 
     return router
