@@ -28,10 +28,10 @@
     <AudioScreensaver
       :is-visible="isScreensaverVisible"
       :artwork="screensaverData.artwork"
-      :placeholder-image="screensaverData.placeholderImage"
       :title="screensaverData.title"
       :subtitle="screensaverData.subtitle"
-      :metadata="screensaverData.metadata"
+      :station-favicon="screensaverData.stationFavicon"
+      :station-name="screensaverData.stationName"
       @close="closeScreensaver"
     />
   </div>
@@ -46,9 +46,6 @@ import { usePodcastStore } from '@/stores/podcastStore';
 import AudioSourceView from '@/components/audio/AudioSourceView.vue';
 import Logo from '@/components/ui/Logo.vue';
 import Modal from '@/components/ui/Modal.vue';
-
-import stationPlaceholder from '@/assets/radio/station-placeholder.jpg';
-import podcastPlaceholder from '@/assets/podcasts/podcast-placeholder.jpg';
 
 // Lazy-loaded components
 const SettingsModal = defineAsyncComponent(() =>
@@ -82,6 +79,14 @@ const shouldMonitorInactivity = computed(() => {
   return (source === 'radio' || source === 'podcast') && state === 'connected';
 });
 
+// Resolve station favicon through backend proxy to avoid CORS
+function stationArtworkUrl(station) {
+  const favicon = station?.favicon;
+  if (!favicon) return null;
+  if (favicon.startsWith('/api/radio/images/')) return favicon;
+  return `/api/radio/favicon?url=${encodeURIComponent(favicon)}`;
+}
+
 // Screensaver display data computed from active source
 const screensaverData = computed(() => {
   const source = unifiedStore.systemState.active_source;
@@ -91,17 +96,17 @@ const screensaverData = computed(() => {
     const track = radioStore.trackInfo;
 
     if (track) {
-      // Radio with Shazam track recognition
+      // Radio with Shazam track recognition: show track info + station bar
       return {
-        artwork: track.artwork || station?.favicon || null,
-        placeholderImage: stationPlaceholder,
+        artwork: track.artwork || stationArtworkUrl(station),
         title: track.title,
         subtitle: track.artist || null,
-        metadata: station?.name || null
+        stationFavicon: stationArtworkUrl(station),
+        stationName: station?.name || null
       };
     }
 
-    // Radio without track recognition
+    // Radio without track recognition: show station metadata
     const genre = station?.genre
       ? station.genre.charAt(0).toUpperCase() + station.genre.slice(1)
       : null;
@@ -109,11 +114,11 @@ const screensaverData = computed(() => {
     const metaParts = [genre, bitrate].filter(Boolean);
 
     return {
-      artwork: station?.favicon || null,
-      placeholderImage: stationPlaceholder,
+      artwork: stationArtworkUrl(station),
       title: station?.name || 'Unknown station',
-      subtitle: null,
-      metadata: metaParts.length > 0 ? metaParts.join(' \u2022 ') : 'Live'
+      subtitle: metaParts.length > 0 ? metaParts.join(' \u2022 ') : 'Live',
+      stationFavicon: null,
+      stationName: null
     };
   }
 
@@ -122,20 +127,20 @@ const screensaverData = computed(() => {
 
     return {
       artwork: episode?.image_url || null,
-      placeholderImage: podcastPlaceholder,
       title: episode?.name || 'No episode',
       subtitle: episode?.podcast?.name || null,
-      metadata: null
+      stationFavicon: null,
+      stationName: null
     };
   }
 
   // Fallback (should not happen since shouldMonitorInactivity gates this)
   return {
     artwork: null,
-    placeholderImage: stationPlaceholder,
     title: '',
     subtitle: null,
-    metadata: null
+    stationFavicon: null,
+    stationName: null
   };
 });
 
