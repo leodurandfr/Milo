@@ -1,14 +1,18 @@
 <template>
+  <!-- Track Recognition Toggle -->
   <SettingsSection>
-    <!-- Track Recognition Toggle -->
-    <div class="shazam-setting">
-      <div class="shazam-setting__info">
-        <span class="heading-4">{{ $t('radioSettings.trackRecognition') }}</span>
-        <span class="text-mono-small shazam-setting__description">{{ $t('radioSettings.trackRecognitionDescription') }}</span>
-      </div>
-      <Toggle :model-value="shazamEnabled" @change="handleShazamToggle" />
-    </div>
+    <SectionHeader
+      :title="$t('radioSettings.trackRecognition')"
+      :subtitle="$t('radioSettings.trackRecognitionDescription')"
+    >
+      <template #actions>
+        <Toggle :model-value="shazamEnabled" @change="handleShazamToggle" />
+      </template>
+    </SectionHeader>
+  </SettingsSection>
 
+  <!-- Stations Management -->
+  <SettingsSection>
     <!-- Section 1: Unmodified Favorites -->
     <template v-if="unmodifiedFavorites.length > 0">
       <h2 class="heading-2">{{ $t('radioSettings.unmodifiedFavoritesTitle') }}</h2>
@@ -54,6 +58,7 @@ import Button from '@/components/ui/Button.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import StationCard from '@/components/radio/StationCard.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionHeader from '@/components/settings/SectionHeader.vue';
 
 defineEmits(['go-to-add-station', 'edit-station']);
 
@@ -152,28 +157,6 @@ on('settings', 'radio_settings_changed', (msg) => {
 </script>
 
 <style scoped>
-/* Shazam setting toggle */
-.shazam-setting {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-04);
-  padding: var(--space-04);
-  background: var(--color-background);
-  border-radius: var(--radius-04);
-  margin-bottom: var(--space-04);
-}
-
-.shazam-setting__info {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-01);
-}
-
-.shazam-setting__description {
-  color: var(--color-text-secondary);
-}
-
 /* Stations list */
 .stations-list {
   display: grid;
