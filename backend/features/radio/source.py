@@ -306,7 +306,7 @@ class RadioSource(BaseAudioSource):
                 self._metadata = self._build_playback_metadata()
 
             # Start Shazam recognition if enabled
-            if self._shazam:
+            if self._shazam and await self._shazam.is_enabled():
                 await self._shazam.start(working_url)
 
             return self.success_response(f"Loading {station_name}", station=station)
@@ -452,12 +452,20 @@ class RadioSource(BaseAudioSource):
             })
 
     async def on_shazam_setting_changed(self, enabled: bool) -> bool:
-        """React to Shazam toggle change. Clears track info immediately when disabled."""
-        if not enabled and self._shazam and self._shazam.current_track:
-            self._shazam.clear_track()
+        """React to Shazam toggle change."""
+        if not self._shazam:
+            return True
+
+        if enabled:
+            # Start recognition if radio is currently playing
             if self._current_station and self._is_playing:
-                self._metadata = self._build_playback_metadata()
-                self._update_connection_state()
+                stream_url = self._current_station.get('url')
+                if stream_url:
+                    await self._shazam.start(stream_url)
+        else:
+            # Stop recognition loop and clear track info
+            await self._shazam.stop()
+
         return True
 
     async def _on_shazam_track_changed(self, track) -> None:

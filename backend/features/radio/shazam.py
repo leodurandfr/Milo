@@ -143,7 +143,7 @@ class ShazamRecognitionService:
 
         try:
             # Check if shazam is still enabled in settings
-            enabled = await self._is_enabled()
+            enabled = await self.is_enabled()
             if not enabled:
                 if self._current_track:
                     self._current_track = None
@@ -292,7 +292,7 @@ class ShazamRecognitionService:
             or new_track["artist"] != self._current_track["artist"]
         )
 
-    async def _is_enabled(self) -> bool:
+    async def is_enabled(self) -> bool:
         """Check if Shazam recognition is enabled in settings."""
         try:
             radio_settings = await self._settings_service.get_setting("radio") or {}
