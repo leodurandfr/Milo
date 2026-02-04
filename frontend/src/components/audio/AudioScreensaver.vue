@@ -1,42 +1,31 @@
 <template>
   <div v-if="isVisible" class="screensaver-overlay" :class="{ closing: isClosing }" @click.stop="handleClose"
     @touchstart.stop="handleClose">
-    <!-- Full-screen black background -->
-    <div class="station-art-background">
-      <img v-if="displayArtwork" :src="displayArtwork" alt="" class="background-station" />
+    <!-- Full-screen blurred background -->
+    <div class="artwork-background">
+      <img v-if="displayArtwork" :src="displayArtwork" alt="" class="background-image" />
     </div>
 
     <!-- Centered card with progressive animation -->
     <div class="now-playing-card stagger-1">
       <!-- Background image - heavily zoomed and blurred (inside the card) -->
-      <div class="station-art-background-card">
-        <img v-if="displayArtwork" :src="displayArtwork" alt="" class="background-station-favicon" />
+      <div class="artwork-background-card">
+        <img v-if="displayArtwork" :src="displayArtwork" alt="" class="background-card-image" />
       </div>
 
       <!-- Artwork (stagger 2 animation) -->
-      <div class="station-art stagger-2">
-        <img v-if="displayArtwork" :src="displayArtwork" :alt="trackInfo ? trackInfo.title : 'Station logo'"
-          class="current-station-favicon" @error="handleImageError" />
-        <img :src="placeholderImg" alt="Station sans image" class="placeholder-logo"
+      <div class="artwork-container stagger-2">
+        <img v-if="displayArtwork" :src="displayArtwork" :alt="title"
+          class="artwork-image" @error="handleImageError" />
+        <img :src="placeholderImage" alt="" class="placeholder-logo"
           :class="{ visible: !displayArtwork || imageError }" />
       </div>
 
       <!-- Info (stagger 3 animation) -->
-      <div class="station-info stagger-3">
-        <!-- Track recognized: show track title, artist, and station name -->
-        <template v-if="trackInfo">
-          <p class="station-name display-1">{{ trackInfo.title }}</p>
-          <p class="track-artist heading-3">{{ trackInfo.artist }}</p>
-          <p class="station-meta text-mono">{{ currentStation?.name }}</p>
-        </template>
-        <!-- No track: show station name and genre/bitrate -->
-        <template v-else>
-          <p class="station-name display-1">{{ currentStation?.name || 'Station inconnue' }}</p>
-          <p class="station-meta text-mono">
-            <span v-if="metadataDisplay">{{ metadataDisplay }}</span>
-            <span v-else>En direct</span>
-          </p>
-        </template>
+      <div class="info-container stagger-3">
+        <p class="info-title display-1">{{ title }}</p>
+        <p v-if="subtitle" class="info-subtitle heading-3">{{ subtitle }}</p>
+        <p v-if="metadata" class="info-metadata text-mono">{{ metadata }}</p>
       </div>
     </div>
   </div>
@@ -44,81 +33,42 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue';
-import { useRadioStore } from '@/stores/radioStore';
-import placeholderImg from '@/assets/radio/station-placeholder.jpg';
 
 const props = defineProps({
   isVisible: {
     type: Boolean,
     required: true
+  },
+  artwork: {
+    type: String,
+    default: null
+  },
+  placeholderImage: {
+    type: String,
+    required: true
+  },
+  title: {
+    type: String,
+    required: true
+  },
+  subtitle: {
+    type: String,
+    default: null
+  },
+  metadata: {
+    type: String,
+    default: null
   }
 });
 
 const emit = defineEmits(['close']);
 
-const radioStore = useRadioStore();
 const imageError = ref(false);
 const isClosing = ref(false);
 
-const currentStation = computed(() => radioStore.currentStation);
-const trackInfo = computed(() => radioStore.trackInfo);
-
-// Use track artwork when available, fallback to station favicon
-const displayArtwork = computed(() => {
-  if (trackInfo.value?.artwork) return trackInfo.value.artwork;
-  return currentStation.value?.favicon;
-});
-
-// Helper function to capitalize first letter
-function capitalizeGenre(genre) {
-  if (!genre) return '';
-  return genre.charAt(0).toUpperCase() + genre.slice(1);
-}
-
-// Compute capitalized genre
-const displayGenre = computed(() => {
-  return capitalizeGenre(currentStation.value?.genre);
-});
-
-// Compute audio quality if available
-const audioQuality = computed(() => {
-  if (!currentStation.value) return null;
-
-  const bitrate = currentStation.value.bitrate;
-
-  if (bitrate && bitrate > 0) {
-    return `${bitrate} kbps`;
-  }
-
-  return null;
-});
-
-// Compute metadata display: genre • bitrate
-const metadataDisplay = computed(() => {
-  const genre = displayGenre.value;
-  const quality = audioQuality.value;
-
-  // Both genre and quality
-  if (genre && quality) {
-    return `${genre} • ${quality}`;
-  }
-
-  // Only genre
-  if (genre) {
-    return genre;
-  }
-
-  // Only quality
-  if (quality) {
-    return quality;
-  }
-
-  // Neither - show fallback
-  return null;
-});
+const displayArtwork = computed(() => props.artwork || null);
 
 function handleClose(event) {
-  // Prevent propagation to avoid clicks behind
   event.preventDefault();
   event.stopPropagation();
 
@@ -136,10 +86,11 @@ function handleImageError() {
   imageError.value = true;
 }
 
-// Reset isClosing when the screensaver reappears
+// Reset states when the screensaver reappears
 watch(() => props.isVisible, (visible) => {
   if (visible) {
     isClosing.value = false;
+    imageError.value = false;
   }
 });
 </script>
@@ -223,7 +174,7 @@ watch(() => props.isVisible, (visible) => {
   pointer-events: none;
 }
 
-.station-art-background {
+.artwork-background {
   position: absolute;
   top: 50%;
   left: 50%;
@@ -237,7 +188,7 @@ watch(() => props.isVisible, (visible) => {
   justify-content: center;
 }
 
-.station-art-background .background-station {
+.artwork-background .background-image {
   max-width: none;
   max-height: none;
   width: auto;
@@ -250,7 +201,7 @@ watch(() => props.isVisible, (visible) => {
   opacity: 0.16;
 }
 
-.station-art-background-card {
+.artwork-background-card {
   position: absolute;
   background: var(--color-background-contrast);
   top: 50%;
@@ -265,7 +216,7 @@ watch(() => props.isVisible, (visible) => {
   justify-content: center;
 }
 
-.station-art-background-card .background-station-favicon {
+.artwork-background-card .background-card-image {
   max-width: none;
   max-height: none;
   width: auto;
@@ -277,7 +228,7 @@ watch(() => props.isVisible, (visible) => {
   filter: blur(96px) saturate(1.6) contrast(1) brightness(0.6);
 }
 
-.station-art {
+.artwork-container {
   overflow: hidden;
   display: flex;
   align-items: center;
@@ -291,13 +242,11 @@ watch(() => props.isVisible, (visible) => {
   border-radius: var(--radius-06);
 }
 
-.station-art img {
+.artwork-container img {
   background: var(--color-background-neutral);
 }
 
-
-
-.station-art .current-station-favicon {
+.artwork-container .artwork-image {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -322,7 +271,7 @@ watch(() => props.isVisible, (visible) => {
   display: flex;
 }
 
-.station-info {
+.info-container {
   position: relative;
   z-index: 1;
   flex: 1;
@@ -332,7 +281,7 @@ watch(() => props.isVisible, (visible) => {
   gap: var(--space-03);
 }
 
-.station-name {
+.info-title {
   margin: 0;
   color: var(--color-text-contrast);
   overflow: hidden;
@@ -342,13 +291,13 @@ watch(() => props.isVisible, (visible) => {
   -webkit-box-orient: vertical;
 }
 
-.track-artist {
+.info-subtitle {
   margin: 0;
   color: var(--color-text-contrast);
   opacity: 0.8;
 }
 
-.station-meta {
+.info-metadata {
   margin: 0;
   color: var(--color-text-contrast-50);
 }

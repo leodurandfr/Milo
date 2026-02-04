@@ -159,7 +159,8 @@ frontend/
 │   │   │   ├── AudioPlayer.vue
 │   │   │   ├── AudioSourceView.vue
 │   │   │   ├── AudioSourceLayout.vue
-│   │   │   └── AudioSourceStatus.vue
+│   │   │   ├── AudioSourceStatus.vue
+│   │   │   └── AudioScreensaver.vue
 │   │   │
 │   │   ├── spotify/               # Spotify UI
 │   │   │   ├── SpotifySource.vue
@@ -172,7 +173,6 @@ frontend/
 │   │   │   ├── RadioSource.vue
 │   │   │   ├── FavoritesView.vue
 │   │   │   ├── SearchView.vue
-│   │   │   ├── RadioScreensaver.vue
 │   │   │   └── SkeletonStationCard.vue
 │   │   │
 │   │   ├── podcasts/              # Podcast UI (15 components)

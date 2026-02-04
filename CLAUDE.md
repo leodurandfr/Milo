@@ -135,7 +135,7 @@ backend/
 ```
 frontend/src/
 ├── components/
-│   ├── audio/         # General audio player (AudioPlayer.vue, AudioSourceLayout.vue, AudioSourceStatus.vue, AudioSourceView.vue)
+│   ├── audio/         # General audio player (AudioPlayer.vue, AudioScreensaver.vue, AudioSourceLayout.vue, AudioSourceStatus.vue, AudioSourceView.vue)
 │   ├── podcasts/      # Podcast-specific UI (PodcastSource.vue, HomeView.vue, etc.)
 │   ├── radio/         # Radio-specific UI (RadioSource.vue)
 │   ├── spotify/       # Spotify-specific UI (SpotifySource.vue, PlaybackControls.vue)
@@ -289,7 +289,6 @@ The Radio plugin (`backend/features/radio/`) manages internet radio playback wit
 - `RadioSource.vue` - Main radio interface with station display
 - `FavoritesView.vue` - User's favorite stations
 - `SearchView.vue` - Station search interface (RadioBrowser API)
-- `RadioScreensaver.vue` - Screensaver mode for radio playback
 - `SkeletonStationCard.vue` - Loading skeleton for stations
 
 #### Spotify Plugin Architecture

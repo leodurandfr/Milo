@@ -24,28 +24,43 @@
       <SettingsModal @close="closeSettings" />
     </Modal>
 
-    <!-- Radio Screensaver -->
-    <RadioScreensaver :is-visible="isScreensaverVisible" @close="closeScreensaver" />
+    <!-- Audio Screensaver (Radio + Podcast) -->
+    <AudioScreensaver
+      :is-visible="isScreensaverVisible"
+      :artwork="screensaverData.artwork"
+      :placeholder-image="screensaverData.placeholderImage"
+      :title="screensaverData.title"
+      :subtitle="screensaverData.subtitle"
+      :metadata="screensaverData.metadata"
+      @close="closeScreensaver"
+    />
   </div>
 </template>
 
 <script setup>
 import { computed, ref, watch, onUnmounted, defineAsyncComponent } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { useRadioStore } from '@/stores/radioStore';
+import { usePodcastStore } from '@/stores/podcastStore';
 
 import AudioSourceView from '@/components/audio/AudioSourceView.vue';
 import Logo from '@/components/ui/Logo.vue';
 import Modal from '@/components/ui/Modal.vue';
 
+import stationPlaceholder from '@/assets/radio/station-placeholder.jpg';
+import podcastPlaceholder from '@/assets/podcasts/podcast-placeholder.jpg';
+
 // Lazy-loaded components
 const SettingsModal = defineAsyncComponent(() =>
   import('@/components/settings/SettingsModal.vue')
 );
-const RadioScreensaver = defineAsyncComponent(() =>
-  import('@/components/radio/RadioScreensaver.vue')
+const AudioScreensaver = defineAsyncComponent(() =>
+  import('@/components/audio/AudioScreensaver.vue')
 );
 
 const unifiedStore = useUnifiedAudioStore();
+const radioStore = useRadioStore();
+const podcastStore = usePodcastStore();
 
 // === Disconnecting states for each plugin ===
 const disconnectingStates = ref({
@@ -55,15 +70,73 @@ const disconnectingStates = ref({
   radio: false
 });
 
-// === Radio Screensaver ===
+// === Audio Screensaver ===
 const isScreensaverVisible = ref(false);
 let inactivityTimer = null;
 const SCREENSAVER_DELAY = 15000; // 15 seconds
 
-// Check if the screensaver should be active
+// Check if the screensaver should be active (radio or podcast playing)
 const shouldMonitorInactivity = computed(() => {
-  return unifiedStore.systemState.active_source === 'radio' &&
-         unifiedStore.systemState.plugin_state === 'connected';
+  const source = unifiedStore.systemState.active_source;
+  const state = unifiedStore.systemState.plugin_state;
+  return (source === 'radio' || source === 'podcast') && state === 'connected';
+});
+
+// Screensaver display data computed from active source
+const screensaverData = computed(() => {
+  const source = unifiedStore.systemState.active_source;
+
+  if (source === 'radio') {
+    const station = radioStore.currentStation;
+    const track = radioStore.trackInfo;
+
+    if (track) {
+      // Radio with Shazam track recognition
+      return {
+        artwork: track.artwork || station?.favicon || null,
+        placeholderImage: stationPlaceholder,
+        title: track.title,
+        subtitle: track.artist || null,
+        metadata: station?.name || null
+      };
+    }
+
+    // Radio without track recognition
+    const genre = station?.genre
+      ? station.genre.charAt(0).toUpperCase() + station.genre.slice(1)
+      : null;
+    const bitrate = station?.bitrate > 0 ? `${station.bitrate} kbps` : null;
+    const metaParts = [genre, bitrate].filter(Boolean);
+
+    return {
+      artwork: station?.favicon || null,
+      placeholderImage: stationPlaceholder,
+      title: station?.name || 'Unknown station',
+      subtitle: null,
+      metadata: metaParts.length > 0 ? metaParts.join(' \u2022 ') : 'Live'
+    };
+  }
+
+  if (source === 'podcast') {
+    const episode = podcastStore.displayEpisode;
+
+    return {
+      artwork: episode?.image_url || null,
+      placeholderImage: podcastPlaceholder,
+      title: episode?.name || 'No episode',
+      subtitle: episode?.podcast?.name || null,
+      metadata: null
+    };
+  }
+
+  // Fallback (should not happen since shouldMonitorInactivity gates this)
+  return {
+    artwork: null,
+    placeholderImage: stationPlaceholder,
+    title: '',
+    subtitle: null,
+    metadata: null
+  };
 });
 
 // Reset the inactivity timer
@@ -118,7 +191,7 @@ function closeScreensaver() {
   resetInactivityTimer();
 }
 
-// Watch the radio plugin state to start/stop monitoring
+// Watch the plugin state to start/stop monitoring
 watch(shouldMonitorInactivity, (shouldMonitor) => {
   if (shouldMonitor) {
     addActivityListeners();
