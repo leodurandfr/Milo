@@ -226,8 +226,10 @@
     "title": "Ecrã",
     "brightness": "Brilho",
     "brightnessIntensity": "Intensidade do brilho",
-    "autoSleep": "Suspensão automática",
-    "sleepDelay": "Atraso de suspensão após:"
+    "autoSleep": "Suspensão de tela",
+    "sleepDelay": "Quando o aplicativo estiver inativo, desligar a tela após:",
+    "screensaver": "Proteção de tela",
+    "screensaverDelay": "Iniciar a proteção de tela após:"
   },
   "spotifySettings": {
     "title": "Spotify",
@@ -380,9 +382,14 @@
     "unknownArtist": "Artista desconhecido"
   },
   "time": {
+    "5sec": "5 seg",
+    "10sec": "10 seg",
     "15sec": "15 seg",
+    "30sec": "30 seg",
+    "1min": "1 min",
     "2min": "2 min",
     "5min": "5 min",
+    "10min": "10 min",
     "15min": "15 min",
     "30min": "30 min",
     "1h": "1 h",

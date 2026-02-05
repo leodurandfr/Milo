@@ -9,6 +9,22 @@
       </SettingItem>
     </SettingsSection>
 
+    <!-- Screensaver -->
+    <ToggleSection
+      :title="t('screenSettings.screensaver')"
+      :enabled="config.screensaver_enabled"
+      @change="handleScreensaverToggle"
+    >
+      <SettingItem :label="t('screenSettings.screensaverDelay')">
+        <ButtonGroup
+          :model-value="config.screensaver_delay_seconds"
+          :options="sharedDelayPresets"
+          mobile-layout="grid-3"
+          @change="setScreensaverDelay"
+        />
+      </SettingItem>
+    </ToggleSection>
+
     <!-- Auto sleep -->
     <ToggleSection
       :title="t('screenSettings.autoSleep')"
@@ -18,7 +34,7 @@
       <SettingItem :label="t('screenSettings.sleepDelay')">
         <ButtonGroup
           :model-value="config.timeout_seconds"
-          :options="timeoutPresets"
+          :options="sharedDelayPresets"
           mobile-layout="grid-3"
           @change="setScreenTimeout"
         />
@@ -50,7 +66,9 @@ const settingsStore = useSettingsStore();
 const config = ref({
   brightness_on: 5,
   timeout_enabled: true,
-  timeout_seconds: 900
+  timeout_seconds: 900,
+  screensaver_enabled: true,
+  screensaver_delay_seconds: 15
 });
 
 // Remembers last non-zero timeout for restore on toggle ON
@@ -61,19 +79,21 @@ function syncFromStore() {
   config.value.brightness_on = settingsStore.screenBrightness.brightness_on;
   config.value.timeout_enabled = settingsStore.screenTimeout.screen_timeout_enabled;
   config.value.timeout_seconds = settingsStore.screenTimeout.screen_timeout_seconds;
+  config.value.screensaver_enabled = settingsStore.screenScreensaver.screensaver_enabled;
+  config.value.screensaver_delay_seconds = settingsStore.screenScreensaver.screensaver_delay_seconds;
 
   if (config.value.timeout_seconds > 0) {
     lastNonZeroTimeout.value = config.value.timeout_seconds;
   }
 }
 
-const timeoutPresets = computed(() => [
-  { value: 15, label: t('time.15sec') },
+const sharedDelayPresets = computed(() => [
+  { value: 10, label: t('time.10sec') },
+  { value: 30, label: t('time.30sec') },
   { value: 120, label: t('time.2min') },
   { value: 300, label: t('time.5min') },
-  { value: 900, label: t('time.15min') },
-  { value: 1800, label: t('time.30min') },
-  { value: 3600, label: t('time.1h') }
+  { value: 600, label: t('time.10min') },
+  { value: 1800, label: t('time.30min') }
 ]);
 
 let brightnessInstantTimeout = null;
@@ -124,6 +144,16 @@ function setScreenTimeout(value) {
   });
 }
 
+function handleScreensaverToggle(enabled) {
+  config.value.screensaver_enabled = enabled;
+  updateSetting('screen-screensaver', { screensaver_enabled: enabled });
+}
+
+function setScreensaverDelay(value) {
+  config.value.screensaver_delay_seconds = value;
+  updateSetting('screen-screensaver', { screensaver_delay_seconds: value });
+}
+
 // WebSocket listeners - update both the store AND local refs
 const wsListeners = {
   screen_timeout_changed: (msg) => {
@@ -147,6 +177,18 @@ const wsListeners = {
         brightness_on: msg.data.config.brightness_on
       });
       config.value.brightness_on = msg.data.config.brightness_on;
+    }
+  },
+  screen_screensaver_changed: (msg) => {
+    if (msg.data?.config) {
+      const c = msg.data.config;
+      settingsStore.updateScreenScreensaver(c);
+      if (c.screensaver_enabled !== undefined) {
+        config.value.screensaver_enabled = c.screensaver_enabled;
+      }
+      if (c.screensaver_delay_seconds !== undefined) {
+        config.value.screensaver_delay_seconds = c.screensaver_delay_seconds;
+      }
     }
   }
 };
