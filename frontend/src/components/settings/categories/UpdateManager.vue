@@ -1,66 +1,62 @@
 <!-- frontend/src/components/settings/categories/UpdateManager.vue -->
 <template>
-  <div class="update-manager">
-    <div class="transition-container">
-      <!-- Loading skeleton -->
-      <transition name="content-fade">
-        <div v-if="localProgramsLoading" key="skeleton" class="update-content">
-          <!-- Section OS skeleton -->
-          <SettingsSection>
-            <div class="skeleton-text skeleton-heading"></div>
-            <div class="programs-list">
-              <div class="program-item-skeleton">
-                <div class="skeleton-icon"></div>
-                <div class="skeleton-text skeleton-name"></div>
-                <div class="skeleton-text skeleton-version"></div>
-                <div class="skeleton-button"></div>
-              </div>
-            </div>
-          </SettingsSection>
-
-          <!-- Section Programs skeleton -->
-          <SettingsSection>
-            <div class="skeleton-text skeleton-heading"></div>
-            <div class="programs-list">
-              <div v-for="n in 4" :key="n" class="program-item-skeleton">
-                <div class="skeleton-icon"></div>
-                <div class="skeleton-text skeleton-name"></div>
-                <div class="skeleton-text skeleton-version"></div>
-                <div class="skeleton-button"></div>
-              </div>
-            </div>
-          </SettingsSection>
-
-          <!-- Section Satellites skeleton -->
-          <SettingsSection v-if="isMultiroomEnabled">
-            <div class="skeleton-text skeleton-heading"></div>
-            <div class="programs-list">
-              <div v-for="n in 1" :key="n" class="program-item-skeleton">
-                <div class="skeleton-icon"></div>
-                <div class="skeleton-text skeleton-name"></div>
-                <div class="skeleton-text skeleton-version"></div>
-                <div class="skeleton-button"></div>
-              </div>
-            </div>
-          </SettingsSection>
-        </div>
-      </transition>
-
-      <!-- Error state -->
-      <transition name="content-fade">
-        <div v-if="localProgramsError && !localProgramsLoading" key="error" class="error-state">
-          <div class="error-message text-mono">
-            {{ $t('updates.error') }}
+  <SettingsContainer>
+    <!-- Loading skeleton -->
+    <template v-if="localProgramsLoading">
+      <!-- Section OS skeleton -->
+      <SettingsSection>
+        <div class="skeleton-text skeleton-heading"></div>
+        <div class="programs-list">
+          <div class="program-item-skeleton">
+            <div class="skeleton-icon"></div>
+            <div class="skeleton-text skeleton-name"></div>
+            <div class="skeleton-text skeleton-version"></div>
+            <div class="skeleton-button"></div>
           </div>
-          <Button size="small" variant="background-strong" @click="loadLocalPrograms">
-            {{ $t('updates.retry') }}
-          </Button>
         </div>
-      </transition>
+      </SettingsSection>
 
-      <!-- Content -->
-      <transition name="content-fade">
-        <div v-if="!localProgramsLoading && !localProgramsError" key="content" class="update-content">
+      <!-- Section Programs skeleton -->
+      <SettingsSection>
+        <div class="skeleton-text skeleton-heading"></div>
+        <div class="programs-list">
+          <div v-for="n in 4" :key="n" class="program-item-skeleton">
+            <div class="skeleton-icon"></div>
+            <div class="skeleton-text skeleton-name"></div>
+            <div class="skeleton-text skeleton-version"></div>
+            <div class="skeleton-button"></div>
+          </div>
+        </div>
+      </SettingsSection>
+
+      <!-- Section Satellites skeleton -->
+      <SettingsSection v-if="isMultiroomEnabled">
+        <div class="skeleton-text skeleton-heading"></div>
+        <div class="programs-list">
+          <div v-for="n in 1" :key="n" class="program-item-skeleton">
+            <div class="skeleton-icon"></div>
+            <div class="skeleton-text skeleton-name"></div>
+            <div class="skeleton-text skeleton-version"></div>
+            <div class="skeleton-button"></div>
+          </div>
+        </div>
+      </SettingsSection>
+    </template>
+
+    <!-- Error state -->
+    <template v-else-if="localProgramsError">
+      <div class="error-state">
+        <div class="error-message text-mono">
+          {{ $t('updates.error') }}
+        </div>
+        <Button size="small" variant="background-strong" @click="loadLocalPrograms">
+          {{ $t('updates.retry') }}
+        </Button>
+      </div>
+    </template>
+
+    <!-- Content -->
+    <template v-else>
           <!-- Section 1: Operating System (Milo OS only) -->
           <SettingsSection v-if="localPrograms.milo" :title="$t('updates.osTitle')">
             <div class="programs-list">
@@ -194,10 +190,8 @@
               </div>
             </div>
           </SettingsSection>
-        </div>
-      </transition>
-    </div>
-  </div>
+    </template>
+  </SettingsContainer>
 </template>
 
 <script setup>
@@ -208,6 +202,7 @@ import Button from '@/components/ui/Button.vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import { useI18n } from '@/services/i18n';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 
 function getProgramIcon(programKey) {
@@ -477,41 +472,6 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.update-manager {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-/* Transition container for cross-fade effect */
-.transition-container {
-  display: grid;
-  grid-template-columns: 1fr;
-}
-
-.transition-container>* {
-  grid-column: 1;
-  grid-row: 1;
-}
-
-.update-content {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-/* Content fade transition (skeleton to real content) */
-.content-fade-enter-active,
-.content-fade-leave-active {
-  transition: opacity var(--transition-normal);
-}
-
-.content-fade-enter-from,
-.content-fade-leave-to {
-  opacity: 0;
-}
-
-.loading-state,
 .error-state,
 .empty-state {
   display: flex;
