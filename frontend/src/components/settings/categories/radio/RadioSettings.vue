@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <SettingsContainer>
     <!-- Track Recognition Toggle -->
     <SettingsSection>
       <div class="track-recognition">
@@ -45,7 +45,7 @@
       {{ $t('radioSettings.addStation') }}
     </Button>
     </SettingsSection>
-  </div>
+  </SettingsContainer>
 </template>
 
 <script setup>
@@ -58,6 +58,7 @@ import useWebSocket from '@/services/websocket';
 import Button from '@/components/ui/Button.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import StationCard from '@/components/radio/StationCard.vue';
+import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 
 defineEmits(['go-to-add-station', 'edit-station']);

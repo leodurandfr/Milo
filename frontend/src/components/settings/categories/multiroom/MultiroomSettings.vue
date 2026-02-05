@@ -1,8 +1,6 @@
 <!-- frontend/src/components/settings/categories/multiroom/MultiroomSettings.vue -->
 <template>
-  <div class="multiroom-settings">
-    <div class="content-wrapper">
-      <Transition name="fade-slide" mode="out-in">
+  <Transition name="fade-slide" mode="out-in">
         <!-- MESSAGE: Enabling or Disabled -->
         <MessageContent v-if="showMessage" :key="transitionState" :loading="isLoading" :loading-delay="0"
           :icon="isLoading ? null : 'multiroom'" :title="messageTitle" />
@@ -96,9 +94,7 @@
             {{ snapcastStore.isApplyingServerConfig ? t('multiroom.restarting') : t('multiroomSettings.apply') }}
           </Button>
         </SettingsContainer>
-      </Transition>
-    </div>
-  </div>
+  </Transition>
 </template>
 
 <script setup>
@@ -311,22 +307,6 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.multiroom-settings {
-  display: flex;
-  flex-direction: column;
-}
-
-.content-wrapper {
-  display: flex;
-  flex-direction: column;
-  border-radius: var(--radius-07);
-  transition: background 400ms ease;
-}
-
-.content-wrapper.with-background {
-  background: var(--color-background-neutral);
-}
-
 .section-divider {
   height: 1px;
   background: var(--color-border);
