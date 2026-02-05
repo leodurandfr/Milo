@@ -1,9 +1,8 @@
 <!-- frontend/src/components/settings/categories/dsp/ItemSelector.vue -->
 <!-- Zone/Client selector (tabs only - volume controls moved to MultiroomControl) -->
 <template>
-  <div class="item-selector">
-    <!-- Tabs section (only when multiple items) -->
-    <section v-if="zoneTabs.length > 1" class="settings-section tabs-section">
+  <div v-show="zoneTabs.length > 1" class="item-selector">
+    <section class="settings-section tabs-section">
       <div class="tabs-container">
         <button
           v-for="tab in zoneTabs"
