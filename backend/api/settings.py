@@ -18,6 +18,7 @@ from backend.api.models import (
     PodcastCredentialsRequest,
     ScreenTimeoutRequest,
     ScreenBrightnessRequest,
+    ScreenScreensaverRequest,
     MacRocConfigRequest,
     RadioSettingsRequest
 )
@@ -681,6 +682,42 @@ def create_settings_router(
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
+
+    # Screen screensaver
+    @router.get("/screen-screensaver")
+    async def get_screen_screensaver():
+        screen = await settings.get_setting('screen') or {}
+        return {
+            "status": "success",
+            "config": {
+                "screensaver_enabled": screen.get("screensaver_enabled", True),
+                "screensaver_delay_seconds": screen.get("screensaver_delay_seconds", 15)
+            }
+        }
+
+    @router.post("/screen-screensaver")
+    async def set_screen_screensaver(payload: ScreenScreensaverRequest):
+        async def setter():
+            success = True
+            if payload.screensaver_enabled is not None:
+                success = await settings.set_setting('screen.screensaver_enabled', payload.screensaver_enabled) and success
+            if payload.screensaver_delay_seconds is not None:
+                success = await settings.set_setting('screen.screensaver_delay_seconds', payload.screensaver_delay_seconds) and success
+            return success
+
+        screen = await settings.get_setting('screen') or {}
+        config = {
+            "screensaver_enabled": payload.screensaver_enabled if payload.screensaver_enabled is not None else screen.get("screensaver_enabled", True),
+            "screensaver_delay_seconds": payload.screensaver_delay_seconds if payload.screensaver_delay_seconds is not None else screen.get("screensaver_delay_seconds", 15)
+        }
+
+        return await _handle_setting_update(
+            payload,
+            validator=lambda p: True,
+            setter=setter,
+            event_type="screen_screensaver_changed",
+            event_data={"config": config}
+        )
 
     @router.post("/screen-activity")
     async def notify_screen_activity():

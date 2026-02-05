@@ -226,8 +226,10 @@
     "title": "स्क्रीन",
     "brightness": "चमक",
     "brightnessIntensity": "चमक की तीव्रता",
-    "autoSleep": "ऑटो स्लीप",
-    "sleepDelay": "स्लीप देरी के बाद:"
+    "autoSleep": "स्क्रीन स्लीप",
+    "sleepDelay": "ऐप निष्क्रिय होने पर, स्क्रीन बंद करें:",
+    "screensaver": "स्क्रीनसेवर",
+    "screensaverDelay": "स्क्रीनसेवर शुरू करें, इसके बाद:"
   },
   "spotifySettings": {
     "title": "Spotify",
@@ -380,9 +382,14 @@
     "unknownArtist": "अज्ञात कलाकार"
   },
   "time": {
+    "5sec": "5 सेकंड",
+    "10sec": "10 सेकंड",
     "15sec": "15 सेक",
+    "30sec": "30 सेकंड",
+    "1min": "1 मिनट",
     "2min": "2 मिन",
     "5min": "5 मिन",
+    "10min": "10 मिनट",
     "15min": "15 मिन",
     "30min": "30 मिन",
     "1h": "1 घंटा",

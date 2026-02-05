@@ -71,6 +71,11 @@ export const useSettingsStore = defineStore('settings', () => {
     brightness_on: 5
   });
 
+  const screenScreensaver = ref({
+    screensaver_enabled: true,
+    screensaver_delay_seconds: 15
+  });
+
   // === ACTIONS ===
 
   /**
@@ -93,6 +98,7 @@ export const useSettingsStore = defineStore('settings', () => {
         podcastStatusResponse,
         screenTimeoutResponse,
         screenBrightnessResponse,
+        screenScreensaverResponse,
         radioSettingsResponse
       ] = await Promise.all([
         axios.get('/api/settings/language').catch(() => ({ data: { language: 'english' } })),
@@ -105,6 +111,7 @@ export const useSettingsStore = defineStore('settings', () => {
         axios.get('/api/settings/podcast-credentials/status').catch(() => ({ data: { status: 'error' } })),
         axios.get('/api/settings/screen-timeout').catch(() => ({ data: { config: { screen_timeout_enabled: true, screen_timeout_seconds: 10 } } })),
         axios.get('/api/settings/screen-brightness').catch(() => ({ data: { config: { brightness_on: 5 } } })),
+        axios.get('/api/settings/screen-screensaver').catch(() => ({ data: { config: { screensaver_enabled: true } } })),
         axios.get('/api/settings/radio-settings').catch(() => ({ data: { config: { shazam_enabled: true } } }))
       ]);
 
@@ -186,6 +193,14 @@ export const useSettingsStore = defineStore('settings', () => {
       if (screenBrightnessResponse.data.config) {
         screenBrightness.value = {
           brightness_on: screenBrightnessResponse.data.config.brightness_on ?? 5
+        };
+      }
+
+      // Screen screensaver
+      if (screenScreensaverResponse.data.config) {
+        screenScreensaver.value = {
+          screensaver_enabled: screenScreensaverResponse.data.config.screensaver_enabled ?? true,
+          screensaver_delay_seconds: screenScreensaverResponse.data.config.screensaver_delay_seconds ?? 15
         };
       }
 
@@ -296,6 +311,13 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   /**
+   * Update screen screensaver
+   */
+  function updateScreenScreensaver(config) {
+    screenScreensaver.value = { ...screenScreensaver.value, ...config };
+  }
+
+  /**
    * Update radio settings
    */
   function updateRadioSettings(config) {
@@ -319,6 +341,7 @@ export const useSettingsStore = defineStore('settings', () => {
     radioSettings,
     screenTimeout,
     screenBrightness,
+    screenScreensaver,
 
     // Actions
     loadAllSettings,
@@ -332,6 +355,7 @@ export const useSettingsStore = defineStore('settings', () => {
     refreshPodcastCredentialsStatus,
     updateRadioSettings,
     updateScreenTimeout,
-    updateScreenBrightness
+    updateScreenBrightness,
+    updateScreenScreensaver
   };
 });

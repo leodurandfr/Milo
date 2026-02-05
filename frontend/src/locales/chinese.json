@@ -226,8 +226,10 @@
     "title": "屏幕",
     "brightness": "亮度",
     "brightnessIntensity": "亮度强度",
-    "autoSleep": "自动休眠",
-    "sleepDelay": "休眠延迟时间:"
+    "autoSleep": "屏幕休眠",
+    "sleepDelay": "应用程序不活动时，关闭屏幕：",
+    "screensaver": "屏幕保护程序",
+    "screensaverDelay": "启动屏幕保护程序："
   },
   "spotifySettings": {
     "title": "Spotify",
@@ -380,9 +382,14 @@
     "unknownArtist": "未知艺术家"
   },
   "time": {
+    "5sec": "5 秒",
+    "10sec": "10 秒",
     "15sec": "15秒",
+    "30sec": "30 秒",
+    "1min": "1 分钟",
     "2min": "2分",
     "5min": "5分",
+    "10min": "10 分钟",
     "15min": "15分",
     "30min": "30分",
     "1h": "1小时",

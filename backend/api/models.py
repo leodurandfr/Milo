@@ -231,6 +231,12 @@ class ScreenBrightnessRequest(BaseModel):
     brightness_on: int = Field(..., ge=1, le=10)
 
 
+class ScreenScreensaverRequest(BaseModel):
+    """Screen screensaver configuration request"""
+    screensaver_enabled: Optional[bool] = None
+    screensaver_delay_seconds: Optional[int] = Field(None, ge=5, le=1800)
+
+
 # =============================================================================
 # DSP (CamillaDSP)
 # =============================================================================

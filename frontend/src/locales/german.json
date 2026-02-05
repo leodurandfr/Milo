@@ -226,8 +226,10 @@
     "title": "Bildschirm",
     "brightness": "Helligkeit",
     "brightnessIntensity": "Helligkeitsintensität",
-    "autoSleep": "Automatischer Ruhezustand",
-    "sleepDelay": "Ruhezustandsverzögerung nach:"
+    "autoSleep": "Bildschirm-Ruhemodus",
+    "sleepDelay": "Bei Inaktivität der App den Bildschirm ausschalten nach:",
+    "screensaver": "Bildschirmschoner",
+    "screensaverDelay": "Bildschirmschoner starten nach:"
   },
   "spotifySettings": {
     "title": "Spotify",
@@ -380,9 +382,14 @@
     "unknownArtist": "Unbekannter Künstler"
   },
   "time": {
+    "5sec": "5 Sek",
+    "10sec": "10 Sek",
     "15sec": "15 Sek",
+    "30sec": "30 Sek",
+    "1min": "1 Min",
     "2min": "2 Min",
     "5min": "5 Min",
+    "10min": "10 Min",
     "15min": "15 Min",
     "30min": "30 Min",
     "1h": "1 Std",

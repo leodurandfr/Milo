@@ -43,6 +43,7 @@ import { computed, ref, watch, onUnmounted, defineAsyncComponent } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useRadioStore } from '@/stores/radioStore';
 import { usePodcastStore } from '@/stores/podcastStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 import AudioSourceView from '@/components/audio/AudioSourceView.vue';
 import Logo from '@/components/ui/Logo.vue';
@@ -57,6 +58,7 @@ const AudioScreensaver = defineAsyncComponent(() =>
 );
 
 const unifiedStore = useUnifiedAudioStore();
+const settingsStore = useSettingsStore();
 const radioStore = useRadioStore();
 const podcastStore = usePodcastStore();
 
@@ -71,10 +73,14 @@ const disconnectingStates = ref({
 // === Audio Screensaver ===
 const isScreensaverVisible = ref(false);
 let inactivityTimer = null;
-const SCREENSAVER_DELAY = 15000; // 15 seconds
+// Screensaver delay from settings (in ms)
+const screensaverDelay = computed(() =>
+  (settingsStore.screenScreensaver.screensaver_delay_seconds ?? 15) * 1000
+);
 
-// Check if the screensaver should be active (radio or podcast playing)
+// Check if the screensaver should be active (enabled + radio or podcast playing)
 const shouldMonitorInactivity = computed(() => {
+  if (!settingsStore.screenScreensaver.screensaver_enabled) return false;
   const source = unifiedStore.systemState.active_source;
   const state = unifiedStore.systemState.plugin_state;
   return (source === 'radio' || source === 'podcast') && state === 'connected';
@@ -156,7 +162,7 @@ function resetInactivityTimer() {
 
   inactivityTimer = setTimeout(() => {
     isScreensaverVisible.value = true;
-  }, SCREENSAVER_DELAY);
+  }, screensaverDelay.value);
 }
 
 // Clear the inactivity timer
@@ -209,6 +215,13 @@ watch(shouldMonitorInactivity, (shouldMonitor) => {
     isScreensaverVisible.value = false;
   }
 }, { immediate: true });
+
+// Reset timer when delay setting changes
+watch(() => settingsStore.screenScreensaver.screensaver_delay_seconds, () => {
+  if (shouldMonitorInactivity.value && !isScreensaverVisible.value) {
+    resetInactivityTimer();
+  }
+});
 
 // === LOGO STATE ===
 const lastVisiblePosition = ref('center');

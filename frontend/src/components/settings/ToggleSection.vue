@@ -1,7 +1,7 @@
 <!-- frontend/src/components/settings/ToggleSection.vue -->
 <!-- Reusable settings section with toggle in header and optional expand/collapse content -->
 <template>
-  <SettingsSection>
+  <SettingsSection :class="{ 'toggle-section--has-content': hasContent }">
     <template #header>
       <div class="toggle-section-header">
         <div class="toggle-section-header__text">
@@ -12,11 +12,11 @@
       </div>
     </template>
 
-    <Transition v-if="hasContent" name="expand">
-      <div v-if="enabled">
+    <div v-if="hasContent" class="toggle-section-expand" :class="{ 'is-open': enabled }">
+      <div class="toggle-section-expand__inner">
         <slot />
       </div>
-    </Transition>
+    </div>
   </SettingsSection>
 </template>
 
@@ -58,28 +58,32 @@ const hasContent = computed(() => !!slots.default);
   margin-top: var(--space-02);
 }
 
-/* Expand transition */
-.expand-enter-active {
-  transition: all 400ms ease;
-  overflow: hidden;
-}
-
-.expand-leave-active {
-  transition: all 300ms ease;
-  overflow: hidden;
-}
-
-.expand-enter-from,
-.expand-leave-to {
+/* Expand/collapse via CSS grid (no DOM add/remove = no layout jump) */
+.toggle-section-expand {
+  display: grid;
+  grid-template-rows: 0fr;
   opacity: 0;
-  max-height: 0;
+  margin-top: calc(-1 * var(--space-04));
+  transition:
+    grid-template-rows var(--transition-in-out),
+    opacity var(--transition-in-out),
+    margin-top var(--transition-in-out);
+}
+
+.toggle-section-expand.is-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
   margin-top: 0;
 }
 
-.expand-enter-to,
-.expand-leave-from {
-  opacity: 1;
-  max-height: 300px;
+/* Remove parent's bottom padding — moved inside __inner for smooth collapse */
+.settings-section.toggle-section--has-content {
+  padding-bottom: 0;
+}
+
+.toggle-section-expand__inner {
+  overflow: hidden;
+  padding-bottom: var(--space-05-fixed);
 }
 
 /* Mobile: description takes full width */
