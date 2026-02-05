@@ -1080,6 +1080,9 @@ server {
     listen 80;
     server_name milo.local localhost _;
 
+    # Allow file uploads up to 10MB (images are limited to 5MB by the backend)
+    client_max_body_size 10M;
+
     # Serve frontend static files directly from /dist
     root /home/milo/milo/frontend/dist;
     index index.html;
