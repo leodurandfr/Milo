@@ -1,80 +1,75 @@
 <!-- frontend/src/components/settings/categories/DspSettings.vue -->
 <!-- DSP settings wrapper - imports DSP components from frontend/src/components/dsp -->
 <template>
-  <div class="dsp-settings">
-    <!-- Main content -->
-    <div class="content-wrapper">
-      <Transition name="fade-slide" mode="out-in">
-        <!-- State 1: DSP disabled -->
-        <MessageContent
-          v-if="!dspStore.isDspEffectsEnabled"
-          key="disabled"
-          icon="equalizer"
-          :title="$t('dsp.effects_disabled', 'DSP Effects are disabled')"
-        />
+  <Transition name="fade-slide" mode="out-in">
+    <!-- State 1: DSP disabled -->
+    <MessageContent
+      v-if="!dspStore.isDspEffectsEnabled"
+      key="disabled"
+      icon="equalizer"
+      :title="$t('dsp.effects_disabled', 'DSP Effects are disabled')"
+    />
 
-        <!-- State 2: DSP enabled but loading/connecting -->
-        <MessageContent
-          v-else-if="!dspStore.isConnected"
-          key="loading"
-          :loading="true"
-          :loading-delay="0"
-          :title="$t('dsp.connecting', 'Connecting to DSP...')"
-        />
+    <!-- State 2: DSP enabled but loading/connecting -->
+    <MessageContent
+      v-else-if="!dspStore.isConnected"
+      key="loading"
+      :loading="true"
+      :loading-delay="0"
+      :title="$t('dsp.connecting', 'Connecting to DSP...')"
+    />
 
-        <!-- State 3: DSP connected - controls -->
-        <div v-else key="controls" class="dsp-controls">
-          <!-- Propagation Error Banner -->
-          <div v-if="dspStore.propagationErrors.length > 0" class="error-banner" @click="dspStore.clearPropagationErrors">
-            <span class="error-icon">⚠</span>
-            <span class="error-text">
-              {{ $t('dsp.syncError', 'Failed to sync settings to') }}:
-              {{ dspStore.propagationErrors.map(e => dspStore.getClientDisplayName(e.clientId)).join(', ') }}
-            </span>
-            <span class="error-dismiss">×</span>
-          </div>
+    <!-- State 3: DSP connected - controls -->
+    <SettingsContainer v-else key="controls">
+      <!-- Propagation Error Banner -->
+      <div v-if="dspStore.propagationErrors.length > 0" class="error-banner" @click="dspStore.clearPropagationErrors">
+        <span class="error-icon">⚠</span>
+        <span class="error-text">
+          {{ $t('dsp.syncError', 'Failed to sync settings to') }}:
+          {{ dspStore.propagationErrors.map(e => dspStore.getClientDisplayName(e.clientId)).join(', ') }}
+        </span>
+        <span class="error-dismiss">×</span>
+      </div>
 
-          <!-- Section 1: Zones (tabs + volumes) -->
-          <ItemSelector
-            ref="zoneTabsRef"
-            :disabled="dspStore.isUpdating"
-            @configure-zone="handleConfigureZone"
-          />
+      <!-- Section 1: Zones (tabs + volumes) -->
+      <ItemSelector
+        ref="zoneTabsRef"
+        :disabled="dspStore.isUpdating"
+        @configure-zone="handleConfigureZone"
+      />
 
-          <!-- Section 2: 10 Bands Equalizer with presets dropdown -->
-          <SettingsSection>
-            <template #header>
-              <SectionHeader :title="$t('dsp.equalizer.title', '10 Bands Equalizer')" :subtitle="selectedZoneName">
-                <template #actions>
-                  <Dropdown
-                    :model-value="currentPresetValue"
-                    :options="presetOptions"
-                    :placeholder="$t('dsp.selectPreset', 'Preset')"
-                    :disabled="dspStore.isUpdating"
-                    @update:model-value="handlePresetChange"
-                  />
-                </template>
-              </SectionHeader>
+      <!-- Section 2: 10 Bands Equalizer with presets dropdown -->
+      <SettingsSection>
+        <template #header>
+          <SectionHeader :title="$t('dsp.equalizer.title', '10 Bands Equalizer')" :subtitle="selectedZoneName">
+            <template #actions>
+              <Dropdown
+                :model-value="currentPresetValue"
+                :options="presetOptions"
+                :placeholder="$t('dsp.selectPreset', 'Preset')"
+                :disabled="dspStore.isUpdating"
+                @update:model-value="handlePresetChange"
+              />
             </template>
-            <ParametricEQ
-              :filters="dspStore.filters"
-              :filters-loaded="dspStore.filtersLoaded"
-              :disabled="dspStore.isUpdating"
-              :is-mobile="isMobile"
-              @update:filter="handleFilterUpdate"
-              @change="handleFilterChange"
-            />
-          </SettingsSection>
+          </SectionHeader>
+        </template>
+        <ParametricEQ
+          :filters="dspStore.filters"
+          :filters-loaded="dspStore.filtersLoaded"
+          :disabled="dspStore.isUpdating"
+          :is-mobile="isMobile"
+          @update:filter="handleFilterUpdate"
+          @change="handleFilterChange"
+        />
+      </SettingsSection>
 
-          <!-- Section 3: Advanced DSP (Compressor, Loudness, Delay) -->
-          <AdvancedDsp :zone-name="selectedZoneName" />
+      <!-- Section 3: Advanced DSP (Compressor, Loudness, Delay) -->
+      <AdvancedDsp :zone-name="selectedZoneName" />
 
-          <!-- Level Meters -->
-          <LevelMeters :client-ids="selectedClientIds" />
-        </div>
-      </Transition>
-    </div>
-  </div>
+      <!-- Level Meters -->
+      <LevelMeters :client-ids="selectedClientIds" />
+    </SettingsContainer>
+  </Transition>
 </template>
 
 <script setup>
@@ -84,6 +79,7 @@ import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import Dropdown from '@/components/ui/Dropdown.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
+import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SectionHeader from '@/components/settings/SectionHeader.vue';
 import ItemSelector from './dsp/ItemSelector.vue';
@@ -232,23 +228,6 @@ defineExpose({
 </script>
 
 <style scoped>
-.dsp-settings {
-  display: flex;
-  flex-direction: column;
-}
-
-.content-wrapper {
-  display: flex;
-  flex-direction: column;
-  position: relative;
-}
-
-.dsp-controls {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-03);
-}
-
 /* Error banner for propagation failures */
 .error-banner {
   display: flex;
@@ -284,24 +263,8 @@ defineExpose({
 }
 
 /* SectionHeader dropdown constraint */
-:deep(.section-header__actions .dropdown) {
-  max-width: 260px;
-}
-
-/* Transitions */
-.fade-slide-enter-active,
-.fade-slide-leave-active {
-  transition: opacity var(--transition-normal), transform var(--transition-normal);
-}
-
-.fade-slide-enter-from {
-  opacity: 0;
-  transform: translateY(8px);
-}
-
-.fade-slide-leave-to {
-  opacity: 0;
-  transform: translateY(-8px);
+:deep(.section-header__actions .dropdown-trigger) {
+  min-width: 260px;
 }
 
 /* Mobile adjustments */

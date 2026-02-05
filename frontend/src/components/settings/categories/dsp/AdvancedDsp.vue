@@ -95,7 +95,7 @@ async function handleCompressorToggle(enabled) {
 }
 
 async function handleCompressorChange(field, value) {
-  await dspStore.updateCompressor({ [field]: value });
+  await dspStore.updateCompressor({ [field]: value, enabled: dspStore.compressor.enabled });
 }
 
 // === LOUDNESS ===
@@ -104,7 +104,7 @@ async function handleLoudnessToggle(enabled) {
 }
 
 async function handleLoudnessChange(field, value) {
-  await dspStore.updateLoudness({ [field]: value });
+  await dspStore.updateLoudness({ [field]: value, enabled: dspStore.loudness.enabled });
 }
 </script>
 

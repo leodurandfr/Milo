@@ -210,6 +210,19 @@ export const useDspStore = defineStore('dsp', () => {
     }
   }
 
+  async function fetchZoneDsp(zoneId, signal = null) {
+    try {
+      const response = await axios.get(`/api/dsp/zone/${zoneId}`, { signal });
+      return response.data;
+    } catch (error) {
+      if (axios.isCancel(error) || error.name === 'CanceledError') {
+        return null;
+      }
+      console.error('Error fetching zone DSP:', error);
+      return null;
+    }
+  }
+
   async function fetchFilters(signal = null) {
     try {
       const response = await axios.get(`${getApiBase()}/filters`, { signal });
@@ -654,6 +667,23 @@ export const useDspStore = defineStore('dsp', () => {
       if (statusData?.loudness) {
         loudness.value = { ...loudness.value, ...statusData.loudness };
       }
+
+      // When in a zone, the zone registry is the source of truth for DSP settings.
+      // The local CamillaDSP cache may be stale (zone operations use persist=False).
+      // Override loudness/compressor with zone data to prevent state desync.
+      const zoneId = getSelectedZoneId();
+      if (zoneId) {
+        const zoneDsp = await fetchZoneDsp(zoneId, signal);
+        if (zoneDsp) {
+          if (zoneDsp.loudness) {
+            loudness.value = { ...loudness.value, ...zoneDsp.loudness };
+          }
+          if (zoneDsp.compressor) {
+            compressor.value = { ...compressor.value, ...zoneDsp.compressor };
+          }
+        }
+      }
+
       // Volume data comes from unifiedAudioStore.volumeState via WebSocket
       // No need to update local cache here
 

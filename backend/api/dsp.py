@@ -351,6 +351,20 @@ def create_dsp_router(
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
+    @router.get("/zone/{zone_id}")
+    async def get_zone_dsp(zone_id: str):
+        """Get DSP settings for a zone (source of truth for zone context)."""
+        try:
+            settings = await multiroom_dsp_service.get_dsp("zone", zone_id)
+            if not settings:
+                raise HTTPException(status_code=404, detail=f"Zone not found: {zone_id}")
+            return settings.to_dict()
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except Exception as e:
+            logger.error(f"Error getting DSP for zone {zone_id}: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
     @router.post("/zone/{zone_id}/preset")
     async def load_preset_for_zone(zone_id: str, payload: DspPresetRequest):
         """
