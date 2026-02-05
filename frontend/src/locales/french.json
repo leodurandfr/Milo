@@ -227,7 +227,7 @@
     "brightness": "Luminosité",
     "brightnessIntensity": "Intensité de la luminosité",
     "autoSleep": "Mise en veille automatique",
-    "sleepDelay": "Délai de la mise en veille après :"
+    "sleepDelay": "Délai de la mise en veille de l'écran après :"
   },
   "spotifySettings": {
     "title": "Spotify",

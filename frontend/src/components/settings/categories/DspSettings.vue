@@ -63,8 +63,72 @@
         />
       </SettingsSection>
 
-      <!-- Section 3: Advanced DSP (Compressor, Loudness, Delay) -->
-      <AdvancedDsp :zone-name="selectedZoneName" />
+      <!-- Section 3: Loudness -->
+      <ToggleSection
+        :title="$t('dsp.loudness.title', 'Loudness')"
+        :enabled="dspStore.loudness.enabled"
+        @change="handleLoudnessToggle"
+      >
+        <div class="effect-controls">
+          <div class="control-item">
+            <label class="text-mono-small">{{ $t('dsp.loudness.lowBoost', 'Bass Boost') }}</label>
+            <RangeSlider :model-value="dspStore.loudness.low_boost" :min="0" :max="15" :step="0.5" value-unit=" dB"
+              @update:model-value="(v) => dspStore.loudness.low_boost = v"
+              @change="handleLoudnessChange('low_boost', $event)" />
+          </div>
+
+          <div class="control-item">
+            <label class="text-mono-small">{{ $t('dsp.loudness.highBoost', 'Treble Boost') }}</label>
+            <RangeSlider :model-value="dspStore.loudness.high_boost" :min="0" :max="15" :step="0.5" value-unit=" dB"
+              @update:model-value="(v) => dspStore.loudness.high_boost = v"
+              @change="handleLoudnessChange('high_boost', $event)" />
+          </div>
+        </div>
+      </ToggleSection>
+
+      <!-- Section 4: Compressor -->
+      <ToggleSection
+        :title="$t('dsp.compressor.title', 'Compressor')"
+        :enabled="dspStore.compressor.enabled"
+        @change="handleCompressorToggle"
+      >
+        <div class="effect-controls">
+          <div class="control-item">
+            <label class="text-mono-small">{{ $t('dsp.compressor.ratio', 'Ratio') }}</label>
+            <RangeSlider :model-value="dspStore.compressor.ratio" :min="1" :max="20" :step="0.5" value-unit=":1"
+              @update:model-value="(v) => dspStore.compressor.ratio = v"
+              @change="handleCompressorChange('ratio', $event)" />
+          </div>
+
+          <div class="control-item">
+            <label class="text-mono-small">{{ $t('dsp.compressor.threshold', 'Threshold') }}</label>
+            <RangeSlider :model-value="dspStore.compressor.threshold" :min="-60" :max="0" :step="1" value-unit=" dB"
+              @update:model-value="(v) => dspStore.compressor.threshold = v"
+              @change="handleCompressorChange('threshold', $event)" />
+          </div>
+
+          <div class="control-item">
+            <label class="text-mono-small">{{ $t('dsp.compressor.attack', 'Attack') }}</label>
+            <RangeSlider :model-value="dspStore.compressor.attack" :min="0.1" :max="100" :step="0.1" value-unit=" ms"
+              @update:model-value="(v) => dspStore.compressor.attack = v"
+              @change="handleCompressorChange('attack', $event)" />
+          </div>
+
+          <div class="control-item">
+            <label class="text-mono-small">{{ $t('dsp.compressor.release', 'Release') }}</label>
+            <RangeSlider :model-value="dspStore.compressor.release" :min="10" :max="1000" :step="10" value-unit=" ms"
+              @update:model-value="(v) => dspStore.compressor.release = v"
+              @change="handleCompressorChange('release', $event)" />
+          </div>
+
+          <div class="control-item">
+            <label class="text-mono-small">{{ $t('dsp.compressor.makeup', 'Makeup Gain') }}</label>
+            <RangeSlider :model-value="dspStore.compressor.makeup_gain" :min="0" :max="30" :step="0.5" value-unit=" dB"
+              @update:model-value="(v) => dspStore.compressor.makeup_gain = v"
+              @change="handleCompressorChange('makeup_gain', $event)" />
+          </div>
+        </div>
+      </ToggleSection>
 
       <!-- Level Meters -->
       <LevelMeters :client-ids="selectedClientIds" />
@@ -82,9 +146,10 @@ import MessageContent from '@/components/ui/MessageContent.vue';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SectionHeader from '@/components/settings/SectionHeader.vue';
+import RangeSlider from '@/components/ui/RangeSlider.vue';
+import ToggleSection from '@/components/settings/ToggleSection.vue';
 import ItemSelector from './dsp/ItemSelector.vue';
 import ParametricEQ from './dsp/ParametricEQ.vue';
-import AdvancedDsp from './dsp/AdvancedDsp.vue';
 import LevelMeters from './dsp/LevelMeters.vue';
 
 const emit = defineEmits(['configure-zone']);
@@ -164,6 +229,24 @@ function handleConfigureZone(groupId) {
 async function handlePresetChange(value) {
   if (!value) return;
   await dspStore.loadPreset(value);
+}
+
+// === LOUDNESS ===
+async function handleLoudnessToggle(enabled) {
+  await dspStore.updateLoudness({ enabled });
+}
+
+async function handleLoudnessChange(field, value) {
+  await dspStore.updateLoudness({ [field]: value, enabled: dspStore.loudness.enabled });
+}
+
+// === COMPRESSOR ===
+async function handleCompressorToggle(enabled) {
+  await dspStore.updateCompressor({ enabled });
+}
+
+async function handleCompressorChange(field, value) {
+  await dspStore.updateCompressor({ [field]: value, enabled: dspStore.compressor.enabled });
 }
 
 // === WEBSOCKET HANDLERS ===
@@ -267,10 +350,31 @@ defineExpose({
   min-width: 260px;
 }
 
+/* Loudness / Compressor controls grid */
+.effect-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-03);
+}
+
+.control-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
+.control-item label {
+  color: var(--color-text-secondary);
+}
+
 /* Mobile adjustments */
 @media (max-aspect-ratio: 4/3) {
   :deep(.section-header__actions .dropdown) {
     max-width: none;
+  }
+
+  .effect-controls {
+    grid-template-columns: 1fr;
   }
 }
 </style>

@@ -10,17 +10,20 @@
     </SettingsSection>
 
     <!-- Auto sleep -->
-    <SettingsSection :title="t('screenSettings.autoSleep')">
+    <ToggleSection
+      :title="t('screenSettings.autoSleep')"
+      :enabled="config.timeout_enabled"
+      @change="handleAutoSleepToggle"
+    >
       <SettingItem :label="t('screenSettings.sleepDelay')">
         <ButtonGroup
           :model-value="config.timeout_seconds"
           :options="timeoutPresets"
           mobile-layout="grid-3"
-          :last-full-width="true"
           @change="setScreenTimeout"
         />
       </SettingItem>
-    </SettingsSection>
+    </ToggleSection>
   </SettingsContainer>
 </template>
 
@@ -36,6 +39,7 @@ import RangeSlider from '@/components/ui/RangeSlider.vue';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
+import ToggleSection from '@/components/settings/ToggleSection.vue';
 
 const { t } = useI18n();
 const { on } = useWebSocket();
@@ -49,11 +53,18 @@ const config = ref({
   timeout_seconds: 900
 });
 
+// Remembers last non-zero timeout for restore on toggle ON
+const lastNonZeroTimeout = ref(900);
+
 // Sync local refs with the store on mount
 function syncFromStore() {
   config.value.brightness_on = settingsStore.screenBrightness.brightness_on;
   config.value.timeout_enabled = settingsStore.screenTimeout.screen_timeout_enabled;
   config.value.timeout_seconds = settingsStore.screenTimeout.screen_timeout_seconds;
+
+  if (config.value.timeout_seconds > 0) {
+    lastNonZeroTimeout.value = config.value.timeout_seconds;
+  }
 }
 
 const timeoutPresets = computed(() => [
@@ -62,8 +73,7 @@ const timeoutPresets = computed(() => [
   { value: 300, label: t('time.5min') },
   { value: 900, label: t('time.15min') },
   { value: 1800, label: t('time.30min') },
-  { value: 3600, label: t('time.1h') },
-  { value: 0, label: t('time.never') }
+  { value: 3600, label: t('time.1h') }
 ]);
 
 let brightnessInstantTimeout = null;
@@ -83,7 +93,31 @@ function handleBrightnessChange(value) {
   }, 50);
 }
 
+function handleAutoSleepToggle(enabled) {
+  if (enabled) {
+    config.value.timeout_enabled = true;
+    config.value.timeout_seconds = lastNonZeroTimeout.value;
+    updateSetting('screen-timeout', {
+      screen_timeout_enabled: true,
+      screen_timeout_seconds: lastNonZeroTimeout.value
+    });
+  } else {
+    if (config.value.timeout_seconds > 0) {
+      lastNonZeroTimeout.value = config.value.timeout_seconds;
+    }
+    config.value.timeout_enabled = false;
+    config.value.timeout_seconds = 0;
+    updateSetting('screen-timeout', {
+      screen_timeout_enabled: false,
+      screen_timeout_seconds: 0
+    });
+  }
+}
+
 function setScreenTimeout(value) {
+  if (value > 0) {
+    lastNonZeroTimeout.value = value;
+  }
   updateSetting('screen-timeout', {
     screen_timeout_enabled: value !== 0,
     screen_timeout_seconds: value
@@ -94,12 +128,17 @@ function setScreenTimeout(value) {
 const wsListeners = {
   screen_timeout_changed: (msg) => {
     if (msg.data?.config) {
+      const seconds = msg.data.config.screen_timeout_seconds;
       settingsStore.updateScreenTimeout({
-        screen_timeout_seconds: msg.data.config.screen_timeout_seconds,
-        screen_timeout_enabled: msg.data.config.screen_timeout_seconds !== 0
+        screen_timeout_seconds: seconds,
+        screen_timeout_enabled: seconds !== 0
       });
-      config.value.timeout_seconds = msg.data.config.screen_timeout_seconds;
-      config.value.timeout_enabled = msg.data.config.screen_timeout_seconds !== 0;
+      config.value.timeout_seconds = seconds;
+      config.value.timeout_enabled = seconds !== 0;
+
+      if (seconds > 0) {
+        lastNonZeroTimeout.value = seconds;
+      }
     }
   },
   screen_brightness_changed: (msg) => {
