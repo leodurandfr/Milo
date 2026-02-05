@@ -1,15 +1,12 @@
 <template>
   <SettingsContainer>
     <!-- Track Recognition Toggle -->
-    <SettingsSection>
-      <div class="track-recognition">
-        <span class="heading-2">{{ $t('radioSettings.trackRecognition') }}</span>
-        <div class="track-recognition__toggle">
-          <Toggle :model-value="shazamEnabled" @change="handleShazamToggle" />
-        </div>
-        <span class="text-mono track-recognition__description">{{ $t('radioSettings.trackRecognitionDescription') }}</span>
-      </div>
-    </SettingsSection>
+    <ToggleSection
+      :title="$t('radioSettings.trackRecognition')"
+      :description="$t('radioSettings.trackRecognitionDescription')"
+      :enabled="shazamEnabled"
+      @change="handleShazamToggle"
+    />
 
     <!-- Stations Management -->
     <SettingsSection>
@@ -56,7 +53,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import useWebSocket from '@/services/websocket';
 import Button from '@/components/ui/Button.vue';
-import Toggle from '@/components/ui/Toggle.vue';
+import ToggleSection from '@/components/settings/ToggleSection.vue';
 import StationCard from '@/components/radio/StationCard.vue';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
@@ -158,30 +155,6 @@ on('settings', 'radio_settings_changed', (msg) => {
 </script>
 
 <style scoped>
-/* Track recognition setting */
-.track-recognition {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  row-gap: var(--space-02);
-  column-gap: var(--space-04);
-}
-
-.track-recognition__toggle {
-  grid-column: 2;
-  grid-row: 1 / span 2;
-}
-
-.track-recognition__description {
-  color: var(--color-text-secondary);
-}
-
-@media (max-aspect-ratio: 4/3) {
-  .track-recognition__description {
-    grid-column: 1 / -1;
-  }
-}
-
 /* Stations list */
 .stations-list {
   display: grid;
@@ -203,9 +176,6 @@ on('settings', 'radio_settings_changed', (msg) => {
 @media (max-aspect-ratio: 4/3) {
   .stations-list {
     grid-template-columns: repeat(1, minmax(0, 1fr));
-  }
-  .track-recognition {
-    row-gap: var(--space-01);
   }
 }
 </style>
