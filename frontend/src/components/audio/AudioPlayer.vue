@@ -15,8 +15,8 @@
         <!-- Info section with slot for flexible content -->
         <div class="player-info">
           <slot name="info">
-            <p v-if="subtitle" class="player-subtitle text-mono">{{ subtitle }}</p>
             <p :class="['player-title', source === 'radio' ? 'heading-1' : 'heading-4']">{{ title }}</p>
+            <p v-if="subtitle" class="player-subtitle text-mono">{{ subtitle }}</p>
           </slot>
           <slot name="progress"></slot>
 
@@ -264,13 +264,16 @@ const playerStyle = computed(() => {
 }
 
 :deep(.player-subtitle) {
-  color: var(--color-text-contrast-50);
+  color: var(--color-text-contrast);
   cursor: pointer;
   margin: 0;
   display: -webkit-box;
   -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+:deep(.player-subtitle.text-mono) {
+  color: var(--color-text-contrast-50);
 }
 
 
