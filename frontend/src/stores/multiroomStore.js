@@ -278,7 +278,9 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * Handle multiroom category events from WebSocket.
    * This is the new standardized event format (Story 6.1/6.2).
    * @param {Object} event - WebSocket event with { type, data }
-   *   - client_state_changed: { mac_id, client: { complete client object } }
+   *   - client_state_changed:
+   *       Update/offline: { mac_id, client: { complete client object } }
+   *       Deletion: { mac_id } (no client object)
    *   - zone_changed: { zone_id, zone: { enriched zone object } | null }
    */
   function handleMultiroomEvent(event) {
@@ -286,10 +288,14 @@ export const useMultiroomStore = defineStore('multiroom', () => {
 
     switch (type) {
       case 'client_state_changed':
-        // Complete client object in data.client
         if (data.client && data.mac_id) {
+          // Client updated or went offline — has complete client object
           const clientData = stripRuntimeFields(data.client);
           clients.value.set(data.mac_id, clientData);
+          saveCache();
+        } else if (data.mac_id && !data.client) {
+          // Client deleted — no client object means removal from registry
+          clients.value.delete(data.mac_id);
           saveCache();
         }
         break;
@@ -316,25 +322,6 @@ export const useMultiroomStore = defineStore('multiroom', () => {
   }
 
   // === API ACTIONS ===
-
-  /**
-   * Fetch a specific zone from backend.
-   * Uses canonical /api/multiroom/zones endpoint.
-   */
-  async function fetchZone(zoneId) {
-    try {
-      const response = await axios.get(`/api/multiroom/zones/${zoneId}`);
-      zones.value.set(zoneId, response.data);
-      saveCache();
-    } catch (error) {
-      if (error.response?.status === 404) {
-        zones.value.delete(zoneId);
-        saveCache();
-      } else {
-        console.error(`Error fetching zone ${zoneId}:`, error);
-      }
-    }
-  }
 
   /**
    * Create a new zone.
@@ -484,7 +471,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
   async function deleteClient(macId) {
     try {
       const response = await axios.delete(`/api/multiroom/clients/${macId}`);
-      // State update will come via WebSocket (client_disconnected)
+      // State update will come via WebSocket (client_state_changed without client object)
       return response.data.status === 'success';
     } catch (error) {
       console.error('Error deleting client:', error);
