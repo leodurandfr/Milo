@@ -22,7 +22,7 @@ logging.getLogger("symphonia_core").setLevel(logging.ERROR)
 
 # Recognition timing
 INITIAL_DELAY_SECONDS = 10
-RECOGNITION_INTERVAL_SECONDS = 45
+RECOGNITION_INTERVAL_SECONDS = 30
 AUDIO_CAPTURE_DURATION_SECONDS = 5
 RECOGNITION_TIMEOUT_SECONDS = 25
 
@@ -93,13 +93,17 @@ class ShazamRecognitionService:
         self._stream_url = stream_url
         self._running = True
         self._current_track = None
+
+        # Start recognition loop
         self._loop_task = asyncio.create_task(self._recognition_loop())
-        logger.info("Shazam recognition started for stream")
+
+        logger.info(f"Shazam recognition started for stream: {stream_url}")
 
     async def stop(self) -> None:
         """Stop the recognition loop and clear state."""
         self._running = False
 
+        # Cancel recognition loop
         if self._loop_task:
             self._loop_task.cancel()
             try:
@@ -137,7 +141,7 @@ class ShazamRecognitionService:
             logger.error(f"Recognition loop error: {e}")
 
     async def _try_recognize(self) -> None:
-        """Capture audio and attempt recognition. Never raises."""
+        """Capture audio and attempt recognition."""
         if not self._stream_url:
             return
 
@@ -157,7 +161,7 @@ class ShazamRecognitionService:
                 logger.warning("No audio captured, skipping recognition")
                 return
 
-            logger.debug(f"Captured {len(audio_bytes)} bytes, sending to Shazam")
+            logger.debug(f"Captured {len(audio_bytes)} bytes for Shazam recognition")
 
             # Recognize
             result = await asyncio.wait_for(
@@ -169,8 +173,7 @@ class ShazamRecognitionService:
             if track:
                 logger.info(f"Track recognized: {track['title']} - {track['artist']}")
             else:
-                matches = result.get("matches", []) if result else []
-                logger.info(f"No track recognized (matches: {len(matches)})")
+                logger.debug("No track recognized")
 
             # Check if track changed and notify
             if self._track_changed(track):
@@ -181,7 +184,7 @@ class ShazamRecognitionService:
         except asyncio.CancelledError:
             raise
         except asyncio.TimeoutError:
-            logger.warning("Shazam recognition timed out, will retry next cycle")
+            logger.warning("Shazam recognition timed out")
         except Exception as e:
             logger.warning(f"Recognition attempt failed: {e}")
 
