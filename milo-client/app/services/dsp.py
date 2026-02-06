@@ -50,6 +50,7 @@ class DSPService:
 
         self._client = None
         self._connected = False
+        self._reconnect_lock = asyncio.Lock()
 
         # Cached state
         self._filters: List[Dict[str, Any]] = []
@@ -136,6 +137,29 @@ class DSPService:
             self._connected = False
             return False
 
+    async def _exec(self, func):
+        """
+        Execute a CamillaDSP operation with auto-reconnect on connection loss.
+
+        On first failure, resets connection state and retries once after reconnecting.
+        Uses lambdas to ensure the new client is used after reconnection.
+        """
+        for attempt in range(2):
+            if not self._connected:
+                async with self._reconnect_lock:
+                    if not self._connected:
+                        await self.connect()
+            if not self._connected:
+                raise ConnectionError("Not connected to CamillaDSP")
+            try:
+                return await asyncio.get_event_loop().run_in_executor(None, func)
+            except Exception:
+                self._connected = False
+                if attempt == 0:
+                    self.logger.warning("CamillaDSP connection lost, reconnecting...")
+                    continue
+                raise
+
     async def _load_state_from_config(self):
         """Load compressor/loudness/delay state from current CamillaDSP config."""
         try:
@@ -199,16 +223,8 @@ class DSPService:
 
     async def get_status(self) -> Dict[str, Any]:
         """Get DSP status."""
-        if not self._connected:
-            await self.connect()
-
-        if not self._connected:
-            return {"available": False, "message": "CamillaDSP not connected"}
-
         try:
-            state = await asyncio.get_event_loop().run_in_executor(
-                None, self._client.general.state
-            )
+            state = await self._exec(lambda: self._client.general.state())
             state_str = str(state).split('.')[-1].lower()
 
             return {
@@ -225,18 +241,19 @@ class DSPService:
 
     async def _get_config(self) -> Optional[Dict[str, Any]]:
         """Get CamillaDSP config."""
-        config = await asyncio.get_event_loop().run_in_executor(
-            None, self._client.config.active
-        )
+        config = await self._exec(lambda: self._client.config.active())
         if config is None:
-            config_path = await asyncio.get_event_loop().run_in_executor(
-                None, self._client.config.file_path
-            )
+            config_path = await self._exec(lambda: self._client.config.file_path())
             if config_path:
-                config = await asyncio.get_event_loop().run_in_executor(
-                    None, lambda p=config_path: self._client.config.read_and_parse_file(p)
+                config = await self._exec(
+                    lambda: self._client.config.read_and_parse_file(config_path)
                 )
         return config
+
+    async def _apply_config(self, config: Dict[str, Any]) -> None:
+        """Apply config to CamillaDSP and save to disk."""
+        await self._exec(lambda: self._client.config.set_active(config))
+        await self._save_config_to_file(config)
 
     async def _save_config_to_file(self, config: Dict[str, Any]) -> bool:
         """Save config to disk for persistence."""
@@ -282,9 +299,6 @@ class DSPService:
     async def set_filter(self, filter_id: str, gain: float,
                          freq: float = None, q: float = None) -> bool:
         """Update a filter band."""
-        if not self._connected:
-            return False
-
         try:
             config = await self._get_config()
             if not config:
@@ -300,13 +314,7 @@ class DSPService:
             if q is not None:
                 params["q"] = q
 
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda c=config: self._client.config.set_active(c)
-            )
-
-            # Save to disk for persistence
-            await self._save_config_to_file(config)
-
+            await self._apply_config(config)
             return True
         except Exception as e:
             self.logger.error(f"Error setting filter {filter_id}: {e}")
@@ -322,9 +330,6 @@ class DSPService:
         Returns:
             dict with success status and number of filters applied
         """
-        if not self._connected:
-            return {"success": False, "applied": 0}
-
         try:
             config = await self._get_config()
             if not config or "filters" not in config:
@@ -343,14 +348,7 @@ class DSPService:
                         params["q"] = f["q"]
                     applied += 1
 
-            # Apply to CamillaDSP
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda c=config: self._client.config.set_active(c)
-            )
-
-            # Single disk save
-            await self._save_config_to_file(config)
-
+            await self._apply_config(config)
             return {"success": True, "applied": applied}
         except Exception as e:
             self.logger.error(f"Error in batch filter update: {e}")
@@ -372,14 +370,6 @@ class DSPService:
             self._compressor["release"] = release
         if makeup_gain is not None:
             self._compressor["makeup_gain"] = makeup_gain
-
-        # Try to connect if not connected
-        if not self._connected:
-            await self.connect()
-
-        if not self._connected:
-            self.logger.warning("Cannot set compressor: CamillaDSP not connected")
-            return False
 
         try:
             config = await self._get_config()
@@ -407,13 +397,7 @@ class DSPService:
                     del config["processors"]["compressor"]
                 self._remove_processor_from_pipeline(config, "compressor")
 
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda c=config: self._client.config.set_active(c)
-            )
-
-            # Save to disk for persistence
-            await self._save_config_to_file(config)
-
+            await self._apply_config(config)
             return True
         except Exception as e:
             self.logger.error(f"Error setting compressor: {e}")
@@ -428,14 +412,6 @@ class DSPService:
             self._loudness["high_boost"] = high_boost
         if low_boost is not None:
             self._loudness["low_boost"] = low_boost
-
-        # Try to connect if not connected
-        if not self._connected:
-            await self.connect()
-
-        if not self._connected:
-            self.logger.warning("Cannot set loudness: CamillaDSP not connected")
-            return False
 
         try:
             config = await self._get_config()
@@ -472,9 +448,7 @@ class DSPService:
                         del config["filters"][name]
                     self._remove_filter_from_pipeline(config, name)
 
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda c=config: self._client.config.set_active(c)
-            )
+            await self._exec(lambda: self._client.config.set_active(config))
             return True
         except Exception as e:
             self.logger.error(f"Error setting loudness: {e}")
@@ -486,14 +460,6 @@ class DSPService:
             self._delay["left"] = max(0, min(50, left))
         if right is not None:
             self._delay["right"] = max(0, min(50, right))
-
-        # Try to connect if not connected
-        if not self._connected:
-            await self.connect()
-
-        if not self._connected:
-            self.logger.warning("Cannot set delay: CamillaDSP not connected")
-            return False
 
         try:
             config = await self._get_config()
@@ -529,9 +495,7 @@ class DSPService:
                     del config["filters"]["delay_right"]
                 self._remove_filter_from_pipeline(config, "delay_right")
 
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda c=config: self._client.config.set_active(c)
-            )
+            await self._exec(lambda: self._client.config.set_active(config))
             return True
         except Exception as e:
             self.logger.error(f"Error setting delay: {e}")
@@ -541,12 +505,8 @@ class DSPService:
         """Get current DSP volume settings."""
         if self._connected and self._client:
             try:
-                volume = await asyncio.get_event_loop().run_in_executor(
-                    None, self._client.volume.main_volume
-                )
-                mute = await asyncio.get_event_loop().run_in_executor(
-                    None, self._client.volume.main_mute
-                )
+                volume = await self._exec(lambda: self._client.volume.main_volume())
+                mute = await self._exec(lambda: self._client.volume.main_mute())
                 self._volume["main"] = volume
                 self._volume["mute"] = mute
             except Exception as e:
@@ -555,20 +515,9 @@ class DSPService:
 
     async def get_levels(self) -> Dict[str, Any]:
         """Get current audio levels (peak values for input/output)."""
-        # Try to connect if not connected
-        if not self._connected:
-            await self.connect()
-
-        if not self._connected or not self._client:
-            return {"available": False}
-
         try:
-            capture_levels = await asyncio.get_event_loop().run_in_executor(
-                None, self._client.levels.capture_peak
-            )
-            playback_levels = await asyncio.get_event_loop().run_in_executor(
-                None, self._client.levels.playback_peak
-            )
+            capture_levels = await self._exec(lambda: self._client.levels.capture_peak())
+            playback_levels = await self._exec(lambda: self._client.levels.playback_peak())
             return {
                 "available": True,
                 "input_peak": capture_levels,
@@ -582,17 +531,9 @@ class DSPService:
         """Set DSP volume in dB."""
         self._volume["main"] = max(-80, min(0, volume))
 
-        # Try to connect if not connected
-        if not self._connected:
-            await self.connect()
-
-        if not self._connected:
-            self.logger.warning("Cannot set volume: CamillaDSP not connected")
-            return False
-
         try:
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda v=self._volume["main"]: self._client.volume.set_main_volume(v)
+            await self._exec(
+                lambda: self._client.volume.set_main_volume(self._volume["main"])
             )
             self.logger.info(f"[{time.time():.3f}] VOLUME_SET: Volume set to {self._volume['main']:.1f} dB")
             return True
@@ -604,18 +545,8 @@ class DSPService:
         """Set DSP mute state."""
         self._volume["mute"] = muted
 
-        # Try to connect if not connected
-        if not self._connected:
-            await self.connect()
-
-        if not self._connected:
-            self.logger.warning("Cannot set mute: CamillaDSP not connected")
-            return False
-
         try:
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda m=muted: self._client.volume.set_main_mute(m)
-            )
+            await self._exec(lambda: self._client.volume.set_main_mute(muted))
             self.logger.info(f"[{time.time():.3f}] MUTE_SET: Mute set to {muted}")
             return True
         except Exception as e:
@@ -640,14 +571,6 @@ class DSPService:
         self._crossover["enabled"] = enabled
         self._crossover["frequency"] = frequency
         self._crossover["q"] = q
-
-        # Try to connect if not connected
-        if not self._connected:
-            await self.connect()
-
-        if not self._connected:
-            self.logger.warning("Cannot set crossover: CamillaDSP not connected")
-            return False
 
         try:
             config = await self._get_config()
@@ -676,13 +599,7 @@ class DSPService:
                 self._remove_filter_from_pipeline(config, "crossover_highpass")
                 self.logger.info("Crossover highpass filter disabled")
 
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda c=config: self._client.config.set_active(c)
-            )
-
-            # Save to disk for persistence
-            await self._save_config_to_file(config)
-
+            await self._apply_config(config)
             return True
 
         except Exception as e:
@@ -708,14 +625,6 @@ class DSPService:
         self._lowpass["enabled"] = enabled
         self._lowpass["frequency"] = frequency
         self._lowpass["q"] = q
-
-        # Try to connect if not connected
-        if not self._connected:
-            await self.connect()
-
-        if not self._connected:
-            self.logger.warning("Cannot set lowpass: CamillaDSP not connected")
-            return False
 
         try:
             config = await self._get_config()
@@ -744,13 +653,7 @@ class DSPService:
                 self._remove_filter_from_pipeline(config, "crossover_lowpass")
                 self.logger.info("Lowpass filter disabled")
 
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda c=config: self._client.config.set_active(c)
-            )
-
-            # Save to disk for persistence
-            await self._save_config_to_file(config)
-
+            await self._apply_config(config)
             return True
 
         except Exception as e:
