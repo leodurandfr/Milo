@@ -74,7 +74,11 @@ case "$INTERFACE" in
             up)
                 # WiFi is now up - only use it if eth0 is not available
                 # Check both IP AND carrier (cable connected = eth0 is coming up)
-                if ! has_ip eth0 && ! eth0_has_carrier; then
+                if has_ip eth0 || eth0_has_carrier; then
+                    # Ethernet is active or coming up - disconnect WiFi
+                    nmcli device disconnect wlan0 2>/dev/null
+                else
+                    # Ethernet not available - use WiFi
                     set_avahi_interface "wlan0"
                 fi
                 ;;
