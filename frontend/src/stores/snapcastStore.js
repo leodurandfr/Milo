@@ -68,7 +68,8 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     buffer: 1000,
     codec: 'flac',
     chunk_ms: 20,
-    sampleformat: '48000:32:2'
+    sampleformat: '48000:32:2',
+    snapclient_buffer_time: 80
   };
   const serverConfig = ref({ ...DEFAULT_SERVER_CONFIG });
   const originalServerConfig = ref({ ...DEFAULT_SERVER_CONFIG });
@@ -137,12 +138,14 @@ export const useSnapcastStore = defineStore('snapcast', () => {
       if (response.data.config) {
         const fileConfig = response.data.config.file_config?.parsed_config?.stream || {};
         const streamConfig = response.data.config.stream_config || {};
+        const snapclientBufferTime = response.data.config.snapclient_buffer_time;
 
         return {
           buffer: parseInt(fileConfig.buffer || streamConfig.buffer_ms || '1000'),
           codec: fileConfig.codec || streamConfig.codec || 'flac',
           chunk_ms: parseInt(fileConfig.chunk_ms || streamConfig.chunk_ms) || 20,
-          sampleformat: '48000:32:2'
+          sampleformat: '48000:32:2',
+          snapclient_buffer_time: snapclientBufferTime !== undefined ? snapclientBufferTime : 80
         };
       }
       return null;
@@ -243,6 +246,9 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     serverConfig.value.buffer = preset.config.buffer;
     serverConfig.value.codec = preset.config.codec;
     serverConfig.value.chunk_ms = preset.config.chunk_ms;
+    if (preset.config.snapclient_buffer_time !== undefined) {
+      serverConfig.value.snapclient_buffer_time = preset.config.snapclient_buffer_time;
+    }
   }
 
   // Note: WebSocket handlers for client events removed

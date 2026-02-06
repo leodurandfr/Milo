@@ -10,11 +10,12 @@ from backend.api.models import (
     SnapcastClientNameRequest,
     SnapcastServerConfigRequest
 )
+from backend.core.multiroom.routing import RoutingEnvironment
 
 logger = logging.getLogger(__name__)
 
 
-def create_snapcast_router(routing_service, snapcast_service, state_machine, dsp_service=None, proxy_service=None):
+def create_snapcast_router(routing_service, snapcast_service, state_machine, dsp_service=None, proxy_service=None, settings_service=None):
     """Create Snapcast router with all endpoints."""
     router = APIRouter(prefix="/api/routing/snapcast", tags=["snapcast"])
 
@@ -124,6 +125,14 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine, dsp
                 return {"config": None, "error": "Snapcast server not available"}
 
             config = await snapcast_service.get_server_config()
+
+            # Add snapclient_buffer_time from settings
+            if settings_service and config:
+                snapclient_buffer_time = await settings_service.get_setting('multiroom.snapclient_buffer_time')
+                if snapclient_buffer_time is None:
+                    snapclient_buffer_time = 80  # Default value
+                config["snapclient_buffer_time"] = snapclient_buffer_time
+
             return {"config": config}
         except Exception as e:
             logger.error(f"Error getting server config: {e}")
@@ -135,31 +144,63 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine, dsp
     async def update_server_config(payload: SnapcastServerConfigRequest):
         """Update server configuration."""
         try:
-            success = await snapcast_service.update_server_config(payload.config)
+            config = payload.config.copy()
+
+            # Extract snapclient config (not part of snapserver.conf)
+            snapclient_buffer_time = config.pop("snapclient_buffer_time", None)
+            snapclient_fragments = config.pop("snapclient_fragments", None)
+
+            # Update snapserver.conf and restart snapserver
+            success = await snapcast_service.update_server_config(config)
 
             if success:
+                # Update snapclient buffer settings if provided
+                if snapclient_buffer_time is not None:
+                    # Update routing.env with new snapclient config
+                    snapclient_config = {
+                        "buffer_time": snapclient_buffer_time,
+                        "fragments": snapclient_fragments if snapclient_fragments is not None else 4
+                    }
+                    RoutingEnvironment.update_snapclient_config(snapclient_config)
+
+                    # Save to settings for persistence
+                    if settings_service:
+                        await settings_service.set_setting('multiroom.snapclient_buffer_time', snapclient_buffer_time)
+                        if snapclient_fragments is not None:
+                            await settings_service.set_setting('multiroom.snapclient_fragments', snapclient_fragments)
+
+                    # Restart snapclient to apply new buffer settings
+                    if routing_service and routing_service.service_manager:
+                        try:
+                            await routing_service.service_manager.restart("milo-snapclient-multiroom.service")
+                            logger.info(f"Snapclient restarted with buffer_time={snapclient_buffer_time}ms")
+                        except Exception as e:
+                            logger.error(f"Failed to restart snapclient: {e}")
+
                 await _publish_snapcast_update()
                 return {
                     "status": "success",
-                    "message": "Configuration updated and server restarted"
+                    "message": "Configuration updated and services restarted"
                 }
             else:
                 return {"status": "error", "message": "Update failed"}
 
         except Exception as e:
+            logger.error(f"Error updating server config: {e}")
             return {"status": "error", "message": str(e)}
 
     return router
 
 
-def setup_multiroom_routes(app, routing_service, snapcast_service, state_machine, dsp_service=None, proxy_service=None):
+def setup_multiroom_routes(app, routing_service, snapcast_service, state_machine, dsp_service=None, proxy_service=None, settings_service=None):
     """Set up all multiroom routes on the FastAPI app."""
     router = create_snapcast_router(
         routing_service=routing_service,
         snapcast_service=snapcast_service,
         state_machine=state_machine,
         dsp_service=dsp_service,
-        proxy_service=proxy_service
+        proxy_service=proxy_service,
+        settings_service=settings_service
     )
     app.include_router(router)
     return router

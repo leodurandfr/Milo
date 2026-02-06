@@ -74,12 +74,17 @@
             <h2 class="heading-2">{{ t('multiroomSettings.advanced') }}</h2>
 
             <SettingItem :label="t('multiroomSettings.globalBuffer')">
-              <RangeSlider v-model="snapcastStore.serverConfig.buffer" :min="100" :max="2000" :step="50"
+              <RangeSlider v-model="snapcastStore.serverConfig.buffer" :min="20" :max="2000" :step="10"
                 value-unit="ms" />
             </SettingItem>
 
             <SettingItem :label="t('multiroomSettings.chunkSize')">
               <RangeSlider v-model="snapcastStore.serverConfig.chunk_ms" :min="10" :max="100" :step="5"
+                value-unit="ms" />
+            </SettingItem>
+
+            <SettingItem :label="t('multiroomSettings.snapclientBuffer')">
+              <RangeSlider v-model="snapcastStore.serverConfig.snapclient_buffer_time" :min="10" :max="200" :step="10"
                 value-unit="ms" />
             </SettingItem>
 
@@ -199,19 +204,19 @@ function handleEditClient(macId) {
 
 const audioPresets = computed(() => [
   {
-    id: 'reactivity',
-    name: t('multiroomSettings.reactivity'),
-    config: { buffer: 150, codec: 'opus', chunk_ms: 10 }
+    id: 'lan',
+    name: t('multiroomSettings.lanLowLatency'),
+    config: { buffer: 40, codec: 'pcm', chunk_ms: 10, snapclient_buffer_time: 20 }
   },
   {
     id: 'balanced',
     name: t('multiroomSettings.balanced'),
-    config: { buffer: 1000, codec: 'opus', chunk_ms: 20 }
+    config: { buffer: 200, codec: 'opus', chunk_ms: 20, snapclient_buffer_time: 40 }
   },
   {
     id: 'quality',
     name: t('multiroomSettings.optimalQuality'),
-    config: { buffer: 1500, codec: 'flac', chunk_ms: 40 }
+    config: { buffer: 1000, codec: 'flac', chunk_ms: 20, snapclient_buffer_time: 80 }
   }
 ]);
 
@@ -229,7 +234,8 @@ const activePresetId = computed(() => {
   const active = audioPresets.value.find(preset =>
     current.buffer === preset.config.buffer &&
     current.codec === preset.config.codec &&
-    current.chunk_ms === preset.config.chunk_ms
+    current.chunk_ms === preset.config.chunk_ms &&
+    current.snapclient_buffer_time === preset.config.snapclient_buffer_time
   );
   return active?.id || null;
 });

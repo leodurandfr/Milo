@@ -23,6 +23,8 @@ class RoutingEnvironment:
     Environment variables written:
     - MILO_MODE: "direct" or "multiroom"
     - MILO_SNAPCLIENT_SOUNDCARD: always "camilladsp"
+    - MILO_SNAPCLIENT_BUFFER_TIME: Snapclient ALSA buffer time in ms (default 80)
+    - MILO_SNAPCLIENT_FRAGMENTS: Snapclient ALSA buffer fragments (default 4)
     - ROC_TARGET_LATENCY: ROC target latency (e.g., "10ms")
     - ROC_LATENCY_PROFILE: ROC latency profile (responsive/gradual/intact)
     - ROC_FRAME_LENGTH: ROC frame length (e.g., "4ms")
@@ -44,11 +46,20 @@ class RoutingEnvironment:
         "frame_length_ms": 7
     }
 
+    # Default Snapclient settings
+    DEFAULT_SNAPCLIENT_CONFIG = {
+        "buffer_time": 80,
+        "fragments": 4
+    }
+
     # Class-level ROC config cache (updated via update_roc_config)
     _roc_config = None
 
+    # Class-level Snapclient config cache
+    _snapclient_config = None
+
     @classmethod
-    def update(cls, multiroom_enabled: bool, roc_config: Dict[str, Any] = None) -> None:
+    def update(cls, multiroom_enabled: bool, roc_config: Dict[str, Any] = None, snapclient_config: Dict[str, Any] = None) -> None:
         """
         Update routing environment file atomically.
 
@@ -58,6 +69,9 @@ class RoutingEnvironment:
                 - target_latency_ms: int (5-500)
                 - latency_profile: str (responsive/gradual/intact)
                 - frame_length_ms: int (2/4/7/8/12)
+            snapclient_config: Optional Snapclient configuration dict with:
+                - buffer_time: int (10-200)
+                - fragments: int (2-8)
         """
         logger = logging.getLogger(__name__)
         mode_value = "multiroom" if multiroom_enabled else "direct"
@@ -83,12 +97,24 @@ class RoutingEnvironment:
                 frame_length = 7
             target_latency = max(5, min(500, target_latency))
 
+            # Use provided Snapclient config, cached config, or defaults
+            snapclient = snapclient_config or cls._snapclient_config or cls.DEFAULT_SNAPCLIENT_CONFIG
+            buffer_time = snapclient.get("buffer_time", 80)
+            fragments = snapclient.get("fragments", 4)
+
+            # Validate Snapclient settings
+            buffer_time = max(10, min(200, buffer_time))
+            fragments = max(2, min(8, fragments))
+
             with open(temp_file, 'w') as f:
                 f.write("# Milo Audio Routing Environment Variables\n")
                 f.write("# This file is automatically modified by Milo backend\n")
                 f.write("# Do not edit manually\n\n")
                 f.write(f"MILO_MODE={mode_value}\n")
                 f.write(f"MILO_SNAPCLIENT_SOUNDCARD={snapclient_soundcard}\n")
+                f.write("\n# Snapclient ALSA Buffer Configuration\n")
+                f.write(f"MILO_SNAPCLIENT_BUFFER_TIME={buffer_time}\n")
+                f.write(f"MILO_SNAPCLIENT_FRAGMENTS={fragments}\n")
                 f.write("\n# ROC Streaming Configuration\n")
                 f.write(f"ROC_TARGET_LATENCY={target_latency}ms\n")
                 f.write(f"ROC_LATENCY_PROFILE={latency_profile}\n")
@@ -99,7 +125,7 @@ class RoutingEnvironment:
             os.replace(temp_file, cls.ENVIRONMENT_FILE)
             os.environ["MILO_MODE"] = mode_value
 
-            logger.info(f"Updated routing.env: MODE={mode_value}, ROC latency={target_latency}ms/{latency_profile}")
+            logger.info(f"Updated routing.env: MODE={mode_value}, SNAPCLIENT buffer_time={buffer_time}ms/fragments={fragments}, ROC latency={target_latency}ms/{latency_profile}")
 
         except Exception as e:
             logger.error(f"Failed to update environment file: {e}")
@@ -121,7 +147,22 @@ class RoutingEnvironment:
         cls._roc_config = roc_config
         # Read current mode and regenerate file with new ROC config
         current_mode = cls.get_mode()
-        cls.update(current_mode == "multiroom", roc_config)
+        cls.update(current_mode == "multiroom", roc_config, cls._snapclient_config)
+
+    @classmethod
+    def update_snapclient_config(cls, snapclient_config: Dict[str, Any]) -> None:
+        """
+        Update Snapclient configuration and regenerate routing.env.
+
+        Args:
+            snapclient_config: Snapclient configuration dict with:
+                - buffer_time: int (10-200)
+                - fragments: int (2-8)
+        """
+        cls._snapclient_config = snapclient_config
+        # Read current mode and regenerate file with new Snapclient config
+        current_mode = cls.get_mode()
+        cls.update(current_mode == "multiroom", cls._roc_config, snapclient_config)
 
     @classmethod
     def get_mode(cls) -> Literal["direct", "multiroom"]:
