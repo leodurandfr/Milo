@@ -8,7 +8,7 @@ BindsTo=milo-backend.service
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/bluealsa -S -p a2dp-sink
+ExecStart=/usr/bin/bluealsa -S -p a2dp-sink -c sbc -c aptx -c ldac
 User=milo
 Group=audio
 Restart=on-failure
