@@ -83,6 +83,7 @@ const hasContent = computed(() => !!slots.default);
 
 .toggle-section-expand__inner {
   overflow: hidden;
+  min-height: 0;  /* Fixes iOS collapse */
   padding-bottom: var(--space-05-fixed);
 }
 
