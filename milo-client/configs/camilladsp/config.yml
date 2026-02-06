@@ -8,6 +8,7 @@ devices:
   enable_rate_adjust: true
   target_level: 1024
   adjust_period: 10.0
+  silence_timeout: 0
   capture:
     type: Alsa
     channels: 2
