@@ -12,7 +12,7 @@ import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue';
  * @param {boolean} options.skipFirstResize - Skip animation on first resize (default: true)
  * @param {Function} options.getExtraHeight - Function that returns extra height to add (e.g., padding)
  * @param {Function} options.getMaxHeight - Function that returns the max available height
- * @returns {Object} - { containerHeight, resetFirstResize, setupObserver, disconnectObserver }
+ * @returns {Object} - { containerHeight, resetFirstResize, requestHeightDelta, setupObserver, disconnectObserver }
  */
 export function useAnimatedHeight(contentRef, options = {}) {
   const {
@@ -27,6 +27,10 @@ export function useAnimatedHeight(contentRef, options = {}) {
   let resizeObserver = null;
   let isFirstResize = skipFirstResize;
 
+  // Height lock: prevents ResizeObserver updates during child animations
+  let isHeightLocked = false;
+  let unlockTimer = null;
+
   function setupObserver() {
     if (resizeObserver) {
       resizeObserver.disconnect();
@@ -34,6 +38,9 @@ export function useAnimatedHeight(contentRef, options = {}) {
 
     resizeObserver = new ResizeObserver(entries => {
       if (!entries[0]) return;
+
+      // Skip updates while height is locked (child animation in progress)
+      if (isHeightLocked) return;
 
       // Get content height
       let newHeight = entries[0].contentRect.height;
@@ -81,6 +88,63 @@ export function useAnimatedHeight(contentRef, options = {}) {
     isFirstResize = true;
   }
 
+  /**
+   * Request a height change before a child animation starts.
+   * Locks the ResizeObserver and sets the target height immediately,
+   * allowing the Modal to animate smoothly while child animates visually.
+   *
+   * @param {number} delta - Height change in pixels (positive for expand, negative for collapse)
+   * @param {number} duration - Animation duration in ms (default: 400)
+   */
+  function requestHeightDelta(delta, duration = 400) {
+    // Clear any pending unlock
+    if (unlockTimer) clearTimeout(unlockTimer);
+
+    // Calculate target height
+    const currentHeight = parseFloat(containerHeight.value) || 0;
+    let targetHeight = currentHeight + delta;
+
+    // Get max height constraint
+    let maxAvailable = Infinity;
+    if (getMaxHeight) {
+      const max = getMaxHeight();
+      if (max && max < Infinity) {
+        maxAvailable = max;
+        targetHeight = Math.min(targetHeight, maxAvailable);
+      }
+    }
+
+    // Ensure non-negative height
+    targetHeight = Math.max(0, targetHeight);
+
+    // Smart detection: if modal is already at max height, don't lock ResizeObserver
+    // Let it handle the height change naturally (avoids wrong predictions when content overflows)
+    const isAtMaxHeight = Math.abs(currentHeight - maxAvailable) < 2; // 2px threshold
+    const shouldLock = !isAtMaxHeight;
+
+    if (shouldLock) {
+      // Lock ResizeObserver and use delta prediction
+      isHeightLocked = true;
+      containerHeight.value = `${targetHeight}px`;
+
+      // Unlock after animation completes and force height recalculation
+      unlockTimer = setTimeout(() => {
+        isHeightLocked = false;
+        // Force recalculation to correct any delta discrepancies
+        if (contentRef.value) {
+          let actualHeight = contentRef.value.getBoundingClientRect().height;
+          if (getExtraHeight) actualHeight += getExtraHeight();
+          if (maxAvailable < Infinity) {
+            actualHeight = Math.min(actualHeight, maxAvailable);
+          }
+          containerHeight.value = `${actualHeight}px`;
+        }
+      }, duration);
+    }
+    // else: Modal at max height - don't lock, let ResizeObserver handle it naturally
+    // This avoids wrong predictions when content overflows/shifts
+  }
+
   // Watch for ref changes (e.g., when v-if toggles the element)
   watch(contentRef, (newRef) => {
     if (newRef) {
@@ -105,6 +169,7 @@ export function useAnimatedHeight(contentRef, options = {}) {
   return {
     containerHeight,
     resetFirstResize,
+    requestHeightDelta,
     setupObserver,
     disconnectObserver
   };

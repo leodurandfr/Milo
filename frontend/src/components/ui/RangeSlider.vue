@@ -8,7 +8,6 @@
       :class="{ dragging: isDragging }"
       :style="thumbStyle"
       @pointerdown="startDrag"
-      @touchstart.prevent
     ></div>
 
     <div v-if="orientation === 'horizontal' && !hideInlineValue" class="slider-value text-mono" :class="{ dragging: isDragging, muted: muted }">
@@ -241,6 +240,7 @@ onUnmounted(() => {
   border: 2px solid var(--color-text-secondary);
   cursor: pointer;
   z-index: 2;
+  touch-action: none; /* Prevent browser touch handling (scroll/pan) during drag */
 }
 
 .slider-container.horizontal .range-thumb {
