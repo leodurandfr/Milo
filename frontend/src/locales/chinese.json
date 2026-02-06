@@ -276,11 +276,12 @@
   },
   "multiroomSettings": {
     "presets": "预设",
-    "reactivity": "响应速度",
+    "lanLowLatency": "LAN",
     "balanced": "均衡",
     "optimalQuality": "最佳质量",
     "advanced": "高级设置",
     "globalBuffer": "全局缓冲区 (ms)",
+    "snapclientBuffer": "播放器缓冲区 (ms)",
     "codec": "音频编码",
     "chunkSize": "块大小 (ms)",
     "serverName": "服务器名称",

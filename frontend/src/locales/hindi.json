@@ -276,11 +276,12 @@
   },
   "multiroomSettings": {
     "presets": "प्रीसेट्स",
-    "reactivity": "प्रतिक्रिया",
+    "lanLowLatency": "LAN",
     "balanced": "संतुलित",
     "optimalQuality": "सर्वोत्तम गुणवत्ता",
     "advanced": "उन्नत सेटिंग्स",
     "globalBuffer": "ग्लोबल बफर (ms)",
+    "snapclientBuffer": "प्लेयर बफर (ms)",
     "codec": "ऑडियो कोडेक",
     "chunkSize": "चंक आकार (ms)",
     "serverName": "सर्वर नाम",

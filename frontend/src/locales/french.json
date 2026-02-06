@@ -276,11 +276,12 @@
   },
   "multiroomSettings": {
     "presets": "Pré-réglages",
-    "reactivity": "Réactivité",
+    "lanLowLatency": "LAN",
     "balanced": "Équilibré",
     "optimalQuality": "Qualité optimale",
     "advanced": "Paramètres avancés",
     "globalBuffer": "Buffer global (ms)",
+    "snapclientBuffer": "Buffer lecteur (ms)",
     "codec": "Codec audio",
     "chunkSize": "Taille des chunks (ms)",
     "serverName": "Nom du serveur",

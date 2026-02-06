@@ -128,7 +128,8 @@ app.include_router(routing_router)
 
 snapcast_router = create_snapcast_router(
     routing_service, snapcast_service, state_machine,
-    dsp_service=dsp_service, proxy_service=dsp_proxy_service
+    dsp_service=dsp_service, proxy_service=dsp_proxy_service,
+    settings_service=settings_service
 )
 app.include_router(snapcast_router)
 
