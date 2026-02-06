@@ -12,10 +12,12 @@ downloads/
 eggs/
 .eggs/
 lib/
+!rootfs/var/lib/
 lib64/
 parts/
 sdist/
 var/
+!rootfs/var/
 *.egg-info/
 .installed.cfg
 *.egg

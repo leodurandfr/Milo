@@ -349,7 +349,7 @@ class SnapcastService:
                 stream_config = {
                     "chunk_ms": query.get("chunk_ms", "20"),
                     "codec": query.get("codec", "flac"),
-                    "sampleformat": query.get("sampleformat", "48000:16:2")
+                    "sampleformat": query.get("sampleformat", "48000:32:2")
                 }
 
             return {
@@ -408,8 +408,8 @@ class SnapcastService:
             if not self._validate_config(config):
                 return False
 
-            # Force sampleformat
-            config["sampleformat"] = "48000:16:2"
+            # Force sampleformat to 32-bit for high-quality audio pipeline
+            config["sampleformat"] = "48000:32:2"
 
             success = await self._update_config_file(config)
             if not success:
@@ -504,7 +504,7 @@ class SnapcastService:
                 if key in param_mapping and param_mapping[key] in config:
                     param_key = param_mapping[key]
                     if param_key == "sampleformat":
-                        updated_lines.append("sampleformat = 48000:16:2")
+                        updated_lines.append("sampleformat = 48000:32:2")
                     else:
                         updated_lines.append(f"{key} = {config[param_key]}")
                 else:

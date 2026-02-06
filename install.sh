@@ -518,6 +518,9 @@ install_bluez_alsa() {
       libdbus-1-dev \
       libglib2.0-dev \
       libsbc-dev \
+      libfreeaptx-dev \
+      libldacbt-abr-dev \
+      libldacbt-enc-dev \
       bluez \
       bluez-tools \
       pkg-config \
@@ -539,10 +542,13 @@ install_bluez_alsa() {
     mkdir build && cd build
     
     # FIX: Use --disable-systemd because we manage our own systemd services
+    # Enable high-quality Bluetooth codecs: aptX, LDAC (AAC requires libfdk-aac)
     ../configure --prefix=/usr --disable-systemd \
       --with-alsaplugindir=/usr/lib/aarch64-linux-gnu/alsa-lib \
       --with-bluealsauser="$MILO_USER" --with-bluealsaaplayuser="$MILO_USER" \
-      --enable-cli
+      --enable-cli \
+      --enable-aptx --enable-aptx-hd \
+      --enable-ldac
     
     make -j$(nproc)
     sudo make install
@@ -943,10 +949,10 @@ configure_snapserver() {
 [stream]
 default = Multiroom
 
-buffer = 150
-codec = opus
-chunk_ms = 10
-sampleformat = 48000:16:2
+buffer = 250
+codec = flac
+chunk_ms = 15
+sampleformat = 48000:32:2
 
 source = meta:///Bluetooth/ROC/Spotify/Radio/Podcast?name=Multiroom
 

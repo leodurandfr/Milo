@@ -1,17 +1,15 @@
-# CamillaDSP Configuration for Milo Client
+# CamillaDSP Configuration for Milo
 # 10-Band Parametric Equalizer
 # Frequencies: 32Hz, 64Hz, 125Hz, 250Hz, 500Hz, 1kHz, 2kHz, 4kHz, 8kHz, 16kHz
 
 devices:
   samplerate: 48000
   chunksize: 1024
-  enable_rate_adjust: true
-  target_level: 1024
-  adjust_period: 10.0
+  silence_timeout: 0
   capture:
     type: Alsa
     channels: 2
-    device: "plughw:Loopback,1,0"
+    device: "plughw:Loopback,1,5"
     format: S32LE
   playback:
     type: Alsa

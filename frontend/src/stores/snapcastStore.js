@@ -68,7 +68,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     buffer: 1000,
     codec: 'flac',
     chunk_ms: 20,
-    sampleformat: '48000:16:2'
+    sampleformat: '48000:32:2'
   };
   const serverConfig = ref({ ...DEFAULT_SERVER_CONFIG });
   const originalServerConfig = ref({ ...DEFAULT_SERVER_CONFIG });
@@ -142,7 +142,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
           buffer: parseInt(fileConfig.buffer || streamConfig.buffer_ms || '1000'),
           codec: fileConfig.codec || streamConfig.codec || 'flac',
           chunk_ms: parseInt(fileConfig.chunk_ms || streamConfig.chunk_ms) || 20,
-          sampleformat: '48000:16:2'
+          sampleformat: '48000:32:2'
         };
       }
       return null;
