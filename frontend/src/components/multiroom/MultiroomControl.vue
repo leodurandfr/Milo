@@ -1,7 +1,7 @@
 <!-- frontend/src/components/multiroom/MultiroomControl.vue -->
 <template>
   <div class="clients-container">
-    <div ref="clientsListRef" class="clients-list" :style="clientsListStyle">
+    <div class="clients-list">
       <!-- Single Transition for both states -->
       <Transition name="fade-slide" mode="out-in">
         <!-- MESSAGE: Multiroom disabled or error -->
@@ -30,7 +30,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, inject } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useSnapcastStore } from '@/stores/snapcastStore';
@@ -52,16 +52,8 @@ const { on } = useWebSocket();
 const transitionState = ref('idle');
 const errorMessage = ref('');
 
-// Ref for clients-list to pre-allocate height during zone expansion
-const clientsListRef = ref(null);
-// Explicit height for pre-allocation (null = auto height)
-const clientsListHeight = ref(null);
-
-// Computed style for clients-list
-const clientsListStyle = computed(() => {
-  if (clientsListHeight.value === null) return {};
-  return { height: clientsListHeight.value };
-});
+// Inject Modal's height request function for smooth height animations
+const requestHeightDelta = inject('modalRequestHeightDelta', null);
 
 // Timeout for transition (15 seconds)
 const TRANSITION_TIMEOUT_MS = 15000;
@@ -313,18 +305,18 @@ const displayClients = computed(() => {
 
 // === HEIGHT PRE-ALLOCATION HANDLERS ===
 // Called by MultiroomItem BEFORE zone expansion starts
-// Pre-allocates space on clients-list so Modal sees ONE height change
+// Notifies Modal of the height delta so it can animate smoothly
 function handleBeforeExpand(heightDelta) {
-  if (!clientsListRef.value) return;
-  const currentHeight = clientsListRef.value.offsetHeight;
-  clientsListHeight.value = `${currentHeight + heightDelta}px`;
+  if (requestHeightDelta) {
+    requestHeightDelta(heightDelta);
+  }
 }
 
 // Called by MultiroomItem BEFORE zone collapse starts
 function handleBeforeCollapse(heightDelta) {
-  if (!clientsListRef.value) return;
-  const currentHeight = clientsListRef.value.offsetHeight;
-  clientsListHeight.value = `${currentHeight - heightDelta}px`;
+  if (requestHeightDelta) {
+    requestHeightDelta(-heightDelta);
+  }
 }
 
 // === HANDLERS ===

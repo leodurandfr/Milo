@@ -8,12 +8,12 @@
           <h2 class="heading-2" :class="{ 'toggle-section-active': enabled && hasContent }">{{ title }}</h2>
           <p v-if="description" class="text-mono toggle-section-header__description">{{ description }}</p>
         </div>
-        <Toggle :model-value="enabled" @change="$emit('change', $event)" />
+        <Toggle :model-value="enabled" @change="handleToggle" />
       </div>
     </template>
 
     <div v-if="hasContent" class="toggle-section-expand" :class="{ 'is-open': enabled }">
-      <div class="toggle-section-expand__inner">
+      <div ref="innerRef" class="toggle-section-expand__inner">
         <slot />
       </div>
     </div>
@@ -21,7 +21,7 @@
 </template>
 
 <script setup>
-import { computed, useSlots } from 'vue';
+import { ref, computed, useSlots, inject } from 'vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 
@@ -31,10 +31,32 @@ defineProps({
   enabled: { type: Boolean, required: true }
 });
 
-defineEmits(['change']);
+const emit = defineEmits(['change']);
 
 const slots = useSlots();
 const hasContent = computed(() => !!slots.default);
+
+// Ref to measure inner content height
+const innerRef = ref(null);
+
+// Inject Modal's height request function (null if not in Modal)
+const requestHeightDelta = inject('modalRequestHeightDelta', null);
+
+/**
+ * Handle toggle with pre-announced height change.
+ * Notifies Modal of the height delta BEFORE the CSS animation starts,
+ * so Modal can animate smoothly to the target height.
+ */
+function handleToggle(newEnabled) {
+  if (requestHeightDelta && innerRef.value) {
+    // Smart requestHeightDelta: auto-detects when modal is at max height
+    // and skips lock to avoid wrong predictions when content overflows
+    const contentHeight = innerRef.value.scrollHeight;
+    const delta = newEnabled ? contentHeight : -contentHeight;
+    requestHeightDelta(delta);
+  }
+  emit('change', newEnabled);
+}
 </script>
 
 <style scoped>
@@ -58,7 +80,9 @@ const hasContent = computed(() => !!slots.default);
   margin-top: var(--space-02);
 }
 
-/* Expand/collapse via CSS grid (no DOM add/remove = no layout jump) */
+/* Expand/collapse via CSS grid with pre-announced height change to Modal.
+   Modal is notified of the target height BEFORE animation starts via requestHeightDelta(),
+   so Modal animates smoothly while this content animates visually. */
 .toggle-section-expand {
   display: grid;
   grid-template-rows: 0fr;

@@ -58,7 +58,7 @@ const closeButtonWrapper = ref(null);
 const contentInner = ref(null);
 
 // Animated height composable - observe contentInner, add modal-content padding
-const { containerHeight, resetFirstResize } = useAnimatedHeight(contentInner, {
+const { containerHeight, resetFirstResize, requestHeightDelta } = useAnimatedHeight(contentInner, {
   threshold: 2,
   skipFirstResize: true,
   getExtraHeight: () => {
@@ -92,6 +92,9 @@ provide('modalContentRef', modalContent);
 
 // Provide resetFirstResize for children to signal data loaded
 provide('modalResetFirstResize', resetFirstResize);
+
+// Provide requestHeightDelta for children to pre-announce height changes before animations
+provide('modalRequestHeightDelta', requestHeightDelta);
 
 // Variables to cancel ongoing timeouts
 let animationTimeouts = [];
