@@ -10,7 +10,6 @@ import asyncio
 import logging
 from typing import Any, Callable, Coroutine, Dict, Optional
 
-import aiohttp
 from shazamio import Shazam
 
 logger = logging.getLogger(__name__)
@@ -25,9 +24,6 @@ INITIAL_DELAY_SECONDS = 10
 RECOGNITION_INTERVAL_SECONDS = 30
 AUDIO_CAPTURE_DURATION_SECONDS = 5
 RECOGNITION_TIMEOUT_SECONDS = 25
-
-# Audio capture limits (~40KB/s covers most stream bitrates up to 320kbps)
-BYTES_PER_SECOND = 40_000
 
 
 class ShazamRecognitionService:
@@ -161,7 +157,7 @@ class ShazamRecognitionService:
                 logger.warning("No audio captured, skipping recognition")
                 return
 
-            logger.debug(f"Captured {len(audio_bytes)} bytes for Shazam recognition")
+            logger.debug(f"Captured {len(audio_bytes)} bytes for recognition")
 
             # Recognize
             result = await asyncio.wait_for(
@@ -173,7 +169,7 @@ class ShazamRecognitionService:
             if track:
                 logger.info(f"Track recognized: {track['title']} - {track['artist']}")
             else:
-                logger.debug("No track recognized")
+                logger.info("No track recognized")
 
             # Check if track changed and notify
             if self._track_changed(track):
@@ -190,59 +186,42 @@ class ShazamRecognitionService:
 
     async def _capture_audio(self, url: str) -> Optional[bytes]:
         """
-        Download a short audio snippet from the stream URL.
+        Capture audio from stream using ffmpeg for reliable codec conversion.
 
-        Opens a separate HTTP connection to the stream (independent of mpv)
-        and reads data in chunks over AUDIO_CAPTURE_DURATION_SECONDS seconds
-        to accumulate enough audio for reliable recognition.
+        Uses ffmpeg to connect to the stream URL, decode any audio format
+        (AAC, MP3, OGG, etc.), and output a clean WAV suitable for
+        ShazamIO fingerprinting.
         """
-        max_bytes = BYTES_PER_SECOND * AUDIO_CAPTURE_DURATION_SECONDS
-        timeout = aiohttp.ClientTimeout(
-            total=AUDIO_CAPTURE_DURATION_SECONDS + 10,
-            sock_read=AUDIO_CAPTURE_DURATION_SECONDS + 5
-        )
-
+        process = None
         try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                headers = {
-                    "Icy-MetaData": "0",
-                    "User-Agent": "Milo/1.0"
-                }
-                async with session.get(url, headers=headers) as resp:
-                    if resp.status != 200:
-                        logger.debug(f"Stream returned status {resp.status}")
-                        return None
-
-                    # Read in chunks to accumulate data from live stream
-                    chunks = []
-                    total = 0
-                    deadline = asyncio.get_running_loop().time() + AUDIO_CAPTURE_DURATION_SECONDS
-
-                    while total < max_bytes:
-                        remaining_time = deadline - asyncio.get_running_loop().time()
-                        if remaining_time <= 0:
-                            break
-
-                        try:
-                            chunk = await asyncio.wait_for(
-                                resp.content.read(8192),
-                                timeout=remaining_time
-                            )
-                        except asyncio.TimeoutError:
-                            break
-
-                        if not chunk:
-                            break
-
-                        chunks.append(chunk)
-                        total += len(chunk)
-
-                    return b"".join(chunks) if chunks else None
+            process = await asyncio.create_subprocess_exec(
+                "ffmpeg",
+                "-i", url,
+                "-t", str(AUDIO_CAPTURE_DURATION_SECONDS),
+                "-f", "wav",
+                "-acodec", "pcm_s16le",
+                "-ac", "1",
+                "-ar", "16000",
+                "-v", "quiet",
+                "pipe:1",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(
+                process.communicate(),
+                timeout=AUDIO_CAPTURE_DURATION_SECONDS + 10
+            )
+            if process.returncode != 0 or not stdout:
+                logger.debug(f"ffmpeg capture failed (exit {process.returncode})")
+                return None
+            return stdout
 
         except asyncio.TimeoutError:
+            if process:
+                process.kill()
             logger.debug("Audio capture timed out")
             return None
-        except aiohttp.ClientError as e:
+        except Exception as e:
             logger.debug(f"Audio capture failed: {e}")
             return None
 
