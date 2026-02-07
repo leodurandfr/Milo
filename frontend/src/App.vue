@@ -64,7 +64,6 @@ import { useHardwareConfig } from '@/composables/useHardwareConfig';
 // === Constants ===
 const BOOT_TIMEOUT_MS = 2000;        // Show "connecting" after 2s (roughly when attempt 2 starts)
 const BOOT_FAILED_MS = 12000;        // Show "unavailable" after 12s total
-const BACKEND_ERROR_DISMISS_MS = 8000; // Auto-dismiss backend errors after 8 seconds
 const LOGO_FADE_DELAY = 700;
 const SCREEN_FADE_DELAY = 800;
 const DOM_REMOVE_DELAY = 400;
@@ -88,7 +87,6 @@ const isBootComplete = ref(false);
 const currentError = ref(null);
 const showConnectionLost = ref(false);
 let connectionLostTimeout = null;
-let backendErrorTimeout = null;
 
 // iOS delay constant for connection lost notification
 const IOS_CONNECTION_LOST_DELAY_MS = 1200;
@@ -307,14 +305,6 @@ onMounted(async () => {
     on('system', 'backend_error', (event) => {
       const message = event.data?.message || 'Backend error';
       currentError.value = { title: t('notification.backendErrorTitle'), detail: message, source: 'backend' };
-      // Auto-dismiss backend errors
-      if (backendErrorTimeout) clearTimeout(backendErrorTimeout);
-      backendErrorTimeout = setTimeout(() => {
-        if (currentError.value?.source === 'backend') {
-          currentError.value = null;
-        }
-        backendErrorTimeout = null;
-      }, BACKEND_ERROR_DISMISS_MS);
     }),
     on('plugin', 'metadata', (event) => {
       unifiedStore.updateState(event);
@@ -372,10 +362,6 @@ onUnmounted(() => {
   if (connectionLostTimeout) {
     clearTimeout(connectionLostTimeout);
     connectionLostTimeout = null;
-  }
-  if (backendErrorTimeout) {
-    clearTimeout(backendErrorTimeout);
-    backendErrorTimeout = null;
   }
   cleanupFunctions.forEach(cleanup => cleanup());
 });
