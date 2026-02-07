@@ -31,6 +31,7 @@
           <div
             v-else-if="!isZone"
             class="client-icon"
+            :class="{ 'muted': client.dspMuted, 'offline': !client.online }"
           >
             <SvgIcon :name="getSpeakerIcon(clientSpeakerType)" :size="24" />
           </div>
@@ -115,11 +116,12 @@
           :class="{ 'visible': !isLoading }"
         >
           <Toggle
+            v-if="client.online || isZone"
             :model-value="!client.dspMuted"
             variant="secondary"
-            :disabled="!client.online && !isZone"
             @change="handleMuteToggle"
           />
+          <div v-else class="toggle-offline-placeholder"></div>
         </div>
       </div>
     </div>
@@ -143,7 +145,7 @@
           :style="{ '--row-delay': `${100 + index * 80}ms` }"
         >
           <!-- Speaker icon -->
-          <div class="client-icon">
+          <div class="client-icon" :class="{ 'muted': zoneClient.dspMuted, 'offline': !zoneClient.online }">
             <SvgIcon :name="getSpeakerIcon(zoneClient.speakerType)" :size="24" />
           </div>
 
@@ -176,13 +178,14 @@
             {{ t('multiroom.offline') }}
           </div>
 
-          <!-- Client mute toggle -->
+          <!-- Client mute toggle (online) or offline placeholder -->
           <Toggle
+            v-if="zoneClient.online"
             :model-value="!zoneClient.dspMuted"
             variant="secondary"
-            :disabled="!zoneClient.online"
             @change="(enabled) => handleClientMuteToggle(zoneClient.mac_id, !enabled)"
           />
+          <div v-else class="toggle-offline-placeholder"></div>
         </div>
       </div>
     </div>
@@ -633,8 +636,8 @@ function handleClientMuteToggle(clientMacId, muted) {
   transition: opacity 300ms ease 0ms;
 }
 
-.volume-control.muted :deep(.slider-value) {
-  color: var(--color-text-light);
+.volume-control.muted :deep(.slider-container) {
+  --slider-accent: var(--color-text-light);
 }
 
 /* === TOGGLE WRAPPER === */
@@ -747,6 +750,12 @@ function handleClientMuteToggle(clientMacId, muted) {
   border-radius: var(--radius-03);
   color: var(--color-text-secondary);
   flex-shrink: 0;
+  transition: color var(--transition-fast);
+}
+
+.client-icon.muted,
+.client-icon.offline {
+  color: var(--color-text-light);
 }
 
 .client-row-name {
@@ -771,7 +780,7 @@ function handleClientMuteToggle(clientMacId, muted) {
   display: flex;
   align-items: center;
   height: 40px;
-  background: var(--color-background);
+  background: var(--color-background-strong);
   border-radius: var(--radius-full);
   color: var(--color-text-secondary);
   padding-left: var(--space-04);
@@ -788,6 +797,14 @@ function handleClientMuteToggle(clientMacId, muted) {
 
 .volume-wrapper .client-offline.visible {
   opacity: 1;
+}
+
+/* === TOGGLE OFFLINE PLACEHOLDER === */
+.toggle-offline-placeholder {
+  width: 70px;
+  height: 40px;
+  background: var(--color-background-strong);
+  border-radius: var(--radius-full);
 }
 
 /* Staggered fade-in animation for client rows (when parent is visible) */
@@ -886,6 +903,11 @@ function handleClientMuteToggle(clientMacId, muted) {
   .client-row .client-offline {
     grid-column: 1 / -1;
     grid-row: 2;
+  }
+
+  .toggle-offline-placeholder {
+    width: 56px;
+    height: 32px;
   }
 }
 </style>
