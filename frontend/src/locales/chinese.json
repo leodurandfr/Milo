@@ -5,7 +5,8 @@
   },
   "notification": {
     "connectionLostTitle": "连接丢失",
-    "connectionLostDescription": "可用时自动重新连接"
+    "connectionLostDescription": "可用时自动重新连接",
+    "backendErrorTitle": "系统错误"
   },
   "settings": {
     "title": "Milō 配置",

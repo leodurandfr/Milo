@@ -441,11 +441,6 @@ class AudioRoutingService:
                     await self._set_multiroom_state(old_state)
                     await self._update_systemd_environment()
                     self.logger.error(f"Failed to transition multiroom to {enabled}, reverting to {old_state}")
-                    # Broadcast error event to frontend
-                    if self.state_machine:
-                        await self.state_machine.broadcast_event("routing", "multiroom_error", {
-                            "message": f"Failed to {'enable' if enabled else 'disable'} multiroom"
-                        })
                     return False
 
                 if enabled and success:
@@ -496,11 +491,6 @@ class AudioRoutingService:
                 await self._set_multiroom_state(old_state)
                 await self._update_systemd_environment()
                 self.logger.error(f"Error changing multiroom state: {e}")
-                # Broadcast error event to frontend
-                if self.state_machine:
-                    await self.state_machine.broadcast_event("routing", "multiroom_error", {
-                        "message": str(e)
-                    })
                 return False
     
     async def _auto_configure_multiroom(self):

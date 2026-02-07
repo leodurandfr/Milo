@@ -42,7 +42,7 @@ class DSPController:
             client_proxy_service: Service for controlling remote clients
             client_registry: Registry for looking up client IPs
         """
-        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger = logging.getLogger(__name__)
         self._dsp_service = camilladsp_service
         self._proxy_service = client_proxy_service
         self._registry = client_registry
@@ -115,6 +115,7 @@ class DSPController:
             if retry < self.RETRY_ATTEMPTS:
                 await asyncio.sleep(self.RETRY_DELAY)
                 return await self.set_dsp_volume(mac_id, volume_db, retry + 1)
+            self.logger.error(f"Timeout setting volume for {mac_id}")
             return False
         except Exception as e:
             self.logger.error(f"Error setting volume for {mac_id}: {e}")

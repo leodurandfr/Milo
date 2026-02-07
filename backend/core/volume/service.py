@@ -95,14 +95,10 @@ class VolumeService:
             return False
 
     async def _check_dsp_or_error(self) -> bool:
-        """Check DSP availability, broadcast error if unavailable. Returns True if OK."""
+        """Check DSP availability. Returns True if OK."""
         if self._is_multiroom_enabled() or self._is_dsp_available():
             return True
         self.logger.warning("DSP not available, volume change blocked")
-        await self.state_machine.broadcast_event("volume", "volume_error", {
-            "error": "CamillaDSP not available",
-            "dsp_available": False
-        })
         return False
 
     async def _apply_to_multiroom_clients(self, updates: Dict[str, float]) -> bool:

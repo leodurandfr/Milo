@@ -5,7 +5,8 @@
   },
   "notification": {
     "connectionLostTitle": "Verbindung verloren",
-    "connectionLostDescription": "Automatische Wiederverbindung sobald verfügbar"
+    "connectionLostDescription": "Automatische Wiederverbindung sobald verfügbar",
+    "backendErrorTitle": "Systemfehler"
   },
   "settings": {
     "title": "Milō Einstellungen",
