@@ -481,6 +481,13 @@ class CrossoverService:
                 if not client or not client.ip:
                     self.logger.error(f"Cannot proxy crossover: client {client_id} has no IP address")
                     return False
+                # Skip HTTP for offline clients - queue settings for when they reconnect
+                if self._registry and not self._registry.is_client_online(client_id):
+                    await self.queue_pending_settings(client_id, "crossover", {
+                        "enabled": enabled,
+                        "frequency": frequency
+                    })
+                    return False
                 return await self._proxy_crossover_to_client(
                     client.ip, enabled, frequency, client_id=client_id
                 )
@@ -513,6 +520,13 @@ class CrossoverService:
                 # Use client IP for remote requests
                 if not client or not client.ip:
                     self.logger.error(f"Cannot proxy lowpass: client {client_id} has no IP address")
+                    return False
+                # Skip HTTP for offline clients - queue settings for when they reconnect
+                if self._registry and not self._registry.is_client_online(client_id):
+                    await self.queue_pending_settings(client_id, "lowpass", {
+                        "enabled": enabled,
+                        "frequency": frequency
+                    })
                     return False
                 return await self._proxy_lowpass_to_client(
                     client.ip, enabled, frequency, client_id=client_id
