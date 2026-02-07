@@ -35,7 +35,7 @@ class SettingsService:
                 "timeout_seconds": 10,
                 "brightness_on": 5,
                 "screensaver_enabled": True,
-                "screensaver_delay_seconds": 15
+                "screensaver_delay_seconds": 30
             },
             "spotify": {
                 "auto_disconnect_delay": 10.0
@@ -169,7 +169,7 @@ class SettingsService:
             'timeout_seconds': 0 if timeout_seconds_raw == 0 else max(3, min(9999, timeout_seconds_raw)),
             'brightness_on': max(1, min(10, int(screen_input.get('brightness_on', 5)))),
             'screensaver_enabled': bool(screen_input.get('screensaver_enabled', True)),
-            'screensaver_delay_seconds': max(5, min(1800, int(screen_input.get('screensaver_delay_seconds', 15))))
+            'screensaver_delay_seconds': max(5, min(1800, int(screen_input.get('screensaver_delay_seconds', 30))))
         }
         
         # Spotify - MODIFIED: Accept 0 for auto_disconnect_delay (disabled)
