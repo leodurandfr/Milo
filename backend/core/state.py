@@ -198,12 +198,6 @@ class AudioStateMachine:
                     "source": target_source.value,
                     "error": "Transition timeout"
                 })
-
-                await self._broadcast_websocket("system", "error", {
-                    "error": "timeout",
-                    "attempted_source": target_source.value,
-                    "source": "system"
-                })
                 return False
 
             except Exception as e:
@@ -217,12 +211,6 @@ class AudioStateMachine:
                 await self.event_bus.emit(Events.SOURCE_ERROR, {
                     "source": target_source.value,
                     "error": str(e)
-                })
-
-                await self._broadcast_websocket("system", "error", {
-                    "error": str(e),
-                    "attempted_source": target_source.value,
-                    "source": "system"
                 })
                 return False
 

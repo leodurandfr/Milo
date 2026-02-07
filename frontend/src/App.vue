@@ -64,6 +64,7 @@ import { useHardwareConfig } from '@/composables/useHardwareConfig';
 // === Constants ===
 const BOOT_TIMEOUT_MS = 2000;        // Show "connecting" after 2s (roughly when attempt 2 starts)
 const BOOT_FAILED_MS = 12000;        // Show "unavailable" after 12s total
+const BACKEND_ERROR_DISMISS_MS = 8000; // Auto-dismiss backend errors after 8 seconds
 const LOGO_FADE_DELAY = 700;
 const SCREEN_FADE_DELAY = 800;
 const DOM_REMOVE_DELAY = 400;
@@ -87,6 +88,7 @@ const isBootComplete = ref(false);
 const currentError = ref(null);
 const showConnectionLost = ref(false);
 let connectionLostTimeout = null;
+let backendErrorTimeout = null;
 
 // iOS delay constant for connection lost notification
 const IOS_CONNECTION_LOST_DELAY_MS = 1200;
@@ -288,12 +290,6 @@ onMounted(async () => {
     on('system', 'state_changed', (event) => unifiedStore.updateState(event)),
     on('system', 'transition_start', (event) => unifiedStore.updateState(event)),
     on('system', 'transition_complete', (event) => unifiedStore.updateState(event)),
-    on('system', 'error', (event) => {
-      unifiedStore.updateState(event);
-      // Display system error in notification banner
-      const errorMessage = event.data?.error || 'System error';
-      currentError.value = { title: 'System Error', detail: errorMessage };
-    }),
     on('plugin', 'state_changed', (event) => {
       unifiedStore.updateState(event);
       podcastStore.handlePluginEvent(event);
@@ -307,6 +303,18 @@ onMounted(async () => {
     on('plugin', 'error_cleared', () => {
       // Auto-dismiss error notification when the error condition is resolved
       currentError.value = null;
+    }),
+    on('system', 'backend_error', (event) => {
+      const message = event.data?.message || 'Backend error';
+      currentError.value = { title: t('notification.backendErrorTitle'), detail: message, source: 'backend' };
+      // Auto-dismiss backend errors
+      if (backendErrorTimeout) clearTimeout(backendErrorTimeout);
+      backendErrorTimeout = setTimeout(() => {
+        if (currentError.value?.source === 'backend') {
+          currentError.value = null;
+        }
+        backendErrorTimeout = null;
+      }, BACKEND_ERROR_DISMISS_MS);
     }),
     on('plugin', 'metadata', (event) => {
       unifiedStore.updateState(event);
@@ -364,6 +372,10 @@ onUnmounted(() => {
   if (connectionLostTimeout) {
     clearTimeout(connectionLostTimeout);
     connectionLostTimeout = null;
+  }
+  if (backendErrorTimeout) {
+    clearTimeout(backendErrorTimeout);
+    backendErrorTimeout = null;
   }
   cleanupFunctions.forEach(cleanup => cleanup());
 });

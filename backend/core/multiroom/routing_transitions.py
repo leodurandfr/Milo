@@ -172,11 +172,6 @@ class RoutingTransitions:
 
         if not start_success:
             logger.error(f"Plugin {active_source.value} start failed after {mode_label} transition")
-            if self.state_machine:
-                await self.state_machine.broadcast_event("routing", "plugin_restart_failed", {
-                    "source": active_source.value,
-                    "message": f"Failed to start {active_source.value} after {mode_label} transition"
-                })
 
     async def _resume_playback(
         self,

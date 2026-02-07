@@ -39,6 +39,11 @@ _log_level = getattr(logging, _log_level_name, logging.INFO)
 logging.basicConfig(level=_log_level)
 logger = logging.getLogger(__name__)
 
+# Broadcast backend errors/warnings to frontend via WebSocket
+from backend.core.log_handler import WebSocketLogHandler
+_ws_log_handler = WebSocketLogHandler(level=logging.WARNING)
+logging.getLogger("backend").addHandler(_ws_log_handler)
+
 limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
 
 # Get services from registry
@@ -74,6 +79,9 @@ async def lifespan(app: FastAPI):
         if init_task:
             await init_task
         logger.info("Services initialization completed")
+
+        # Enable WebSocket broadcasting for backend errors/warnings
+        _ws_log_handler.set_state_machine(state_machine)
 
         for source, plugin in state_machine.plugins.items():
             if plugin:
