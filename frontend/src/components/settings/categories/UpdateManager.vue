@@ -1,50 +1,8 @@
 <!-- frontend/src/components/settings/categories/UpdateManager.vue -->
 <template>
   <SettingsContainer>
-    <!-- Loading skeleton -->
-    <template v-if="localProgramsLoading">
-      <!-- Section OS skeleton -->
-      <SettingsSection>
-        <div class="skeleton-text skeleton-heading"></div>
-        <div class="programs-list">
-          <div class="program-item-skeleton">
-            <div class="skeleton-icon"></div>
-            <div class="skeleton-text skeleton-name"></div>
-            <div class="skeleton-text skeleton-version"></div>
-            <div class="skeleton-button"></div>
-          </div>
-        </div>
-      </SettingsSection>
-
-      <!-- Section Programs skeleton -->
-      <SettingsSection>
-        <div class="skeleton-text skeleton-heading"></div>
-        <div class="programs-list">
-          <div v-for="n in 4" :key="n" class="program-item-skeleton">
-            <div class="skeleton-icon"></div>
-            <div class="skeleton-text skeleton-name"></div>
-            <div class="skeleton-text skeleton-version"></div>
-            <div class="skeleton-button"></div>
-          </div>
-        </div>
-      </SettingsSection>
-
-      <!-- Section Satellites skeleton -->
-      <SettingsSection v-if="isMultiroomEnabled">
-        <div class="skeleton-text skeleton-heading"></div>
-        <div class="programs-list">
-          <div v-for="n in 1" :key="n" class="program-item-skeleton">
-            <div class="skeleton-icon"></div>
-            <div class="skeleton-text skeleton-name"></div>
-            <div class="skeleton-text skeleton-version"></div>
-            <div class="skeleton-button"></div>
-          </div>
-        </div>
-      </SettingsSection>
-    </template>
-
     <!-- Error state -->
-    <template v-else-if="localProgramsError">
+    <template v-if="localProgramsError">
       <div class="error-state">
         <div class="error-message text-mono">
           {{ $t('updates.error') }}
@@ -55,11 +13,21 @@
       </div>
     </template>
 
-    <!-- Content -->
     <template v-else>
-          <!-- Section 1: Operating System (Milo OS only) -->
-          <SettingsSection v-if="localPrograms.milo" :title="$t('updates.osTitle')">
-            <div class="programs-list">
+      <!-- Section 1: Operating System (Milo OS only) -->
+      <SettingsSection v-if="localProgramsLoading || localPrograms.milo" :title="$t('updates.osTitle')">
+        <div class="crossfade-wrapper">
+          <Transition name="crossfade">
+            <div v-if="localProgramsLoading" key="skeleton" class="programs-list">
+              <div class="program-item-skeleton">
+                <div class="skeleton-icon"></div>
+                <div class="skeleton-text skeleton-name"></div>
+                <div class="skeleton-text skeleton-version"></div>
+                <div class="skeleton-button"></div>
+              </div>
+            </div>
+
+            <div v-else key="content" class="programs-list">
               <div class="program-item">
                 <div class="program-info">
                   <AppIcon :name="getProgramIcon('milo')" :size="48" class="program-icon" />
@@ -93,11 +61,24 @@
                 </Button>
               </div>
             </div>
-          </SettingsSection>
+          </Transition>
+        </div>
+      </SettingsSection>
 
-          <!-- Section 2: Milo Programs -->
-          <SettingsSection :title="$t('updates.programsTitle')">
-            <div class="programs-list">
+      <!-- Section 2: Milo Programs -->
+      <SettingsSection :title="$t('updates.programsTitle')">
+        <div class="crossfade-wrapper">
+          <Transition name="crossfade">
+            <div v-if="localProgramsLoading" key="skeleton" class="programs-list">
+              <div v-for="n in 4" :key="n" class="program-item-skeleton">
+                <div class="skeleton-icon"></div>
+                <div class="skeleton-text skeleton-name"></div>
+                <div class="skeleton-text skeleton-version"></div>
+                <div class="skeleton-button"></div>
+              </div>
+            </div>
+
+            <div v-else key="content" class="programs-list">
               <template v-for="(program, key) in localPrograms" :key="key">
                 <div v-if="key !== 'milo'" class="program-item">
                   <div class="program-info">
@@ -133,28 +114,32 @@
                 </div>
               </template>
             </div>
-          </SettingsSection>
+          </Transition>
+        </div>
+      </SettingsSection>
 
-          <!-- Section 3: Satellite Programs -->
-          <SettingsSection v-if="isMultiroomEnabled && (satellitesLoading || satellitesError || satellites.length > 0)" :title="$t('updates.satelliteProgramsTitle')">
-            <div v-if="satellitesLoading" class="programs-list">
-              <div v-for="n in 1" :key="n" class="program-item-skeleton">
+      <!-- Section 3: Satellite Programs -->
+      <SettingsSection v-if="isMultiroomEnabled && (satellitesLoading || satellitesError || satellites.length > 0)" :title="$t('updates.satelliteProgramsTitle')">
+        <div v-if="satellitesError" class="error-state">
+          <div class="error-message text-mono">
+            {{ $t('updates.errorDetectingSatellites') }}
+          </div>
+          <Button size="small" variant="background-strong" @click="loadSatellites">
+            {{ $t('updates.retry') }}
+          </Button>
+        </div>
+
+        <div v-else class="crossfade-wrapper">
+          <Transition name="crossfade">
+            <div v-if="satellitesLoading" key="skeleton" class="programs-list">
+              <div class="program-item-skeleton">
                 <div class="skeleton-icon"></div>
                 <div class="skeleton-text skeleton-name"></div>
                 <div class="skeleton-text skeleton-version"></div>
               </div>
             </div>
 
-            <div v-else-if="satellitesError" class="error-state">
-              <div class="error-message text-mono">
-                {{ $t('updates.errorDetectingSatellites') }}
-              </div>
-              <Button size="small" variant="background-strong" @click="loadSatellites">
-                {{ $t('updates.retry') }}
-              </Button>
-            </div>
-
-            <div v-else class="programs-list">
+            <div v-else key="content" class="programs-list">
               <div v-for="satellite in satellites" :key="satellite.hostname" class="program-item">
                 <div class="program-info">
                   <AppIcon name="multiroom" :size="48" class="program-icon" />
@@ -189,7 +174,9 @@
                 </Button>
               </div>
             </div>
-          </SettingsSection>
+          </Transition>
+        </div>
+      </SettingsSection>
     </template>
   </SettingsContainer>
 </template>
@@ -577,6 +564,25 @@ onMounted(async () => {
   transition: width var(--transition-normal);
 }
 
+/* Crossfade transition */
+.crossfade-wrapper {
+  display: grid;
+}
+
+.crossfade-wrapper > * {
+  grid-area: 1 / 1;
+}
+
+.crossfade-enter-active,
+.crossfade-leave-active {
+  transition: opacity var(--transition-normal);
+}
+
+.crossfade-enter-from,
+.crossfade-leave-to {
+  opacity: 0;
+}
+
 /* Skeleton shimmer */
 @keyframes shimmer {
   0% {
@@ -627,24 +633,18 @@ onMounted(async () => {
 
 .skeleton-name {
   grid-area: name;
-  width: 60%;
+  width: 120px;
   height: calc(var(--font-size-h4) * 1.2);
   border-radius: var(--radius-02);
 }
 
 .skeleton-version {
   grid-area: version;
-  width: 40%;
+  width: 180px;
   height: calc(var(--font-size-mono) * 1.4);
   border-radius: var(--radius-02);
 }
 
-
-.skeleton-heading {
-  width: 200px;
-  height: calc(var(--font-size-h2) * 1.2);
-  border-radius: var(--radius-02);
-}
 
 .skeleton-button {
   grid-area: button;
@@ -699,6 +699,14 @@ onMounted(async () => {
   .skeleton-icon {
     width: 44px;
     height: 44px;
+  }
+
+  .skeleton-name {
+    width: 100px;
+  }
+
+  .skeleton-version {
+    width: 160px;
   }
 
 }
