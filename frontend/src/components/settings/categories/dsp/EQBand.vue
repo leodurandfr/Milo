@@ -138,6 +138,7 @@ function handleTypeChange(value) {
   flex-direction: column;
   align-items: center;
   gap: var(--space-02);
+  max-width: 40px;
 }
 
 .eq-band.horizontal {
@@ -145,6 +146,7 @@ function handleTypeChange(value) {
   min-width: unset;
   width: 100%;
   gap: var(--space-03);
+  max-width: none;
 }
 
 .eq-band.compact {
