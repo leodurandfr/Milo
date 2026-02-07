@@ -87,7 +87,8 @@ img {
 
   /* Center components */
 
-  .now-playing-spotify {
+  .now-playing-spotify,
+  .now-playing-screensaver {
     padding-bottom: calc(var(--space-05) + 8px) !important;
   }
 
