@@ -185,8 +185,18 @@ onUnmounted(() => {
 });
 </script>
 
+<style>
+@property --slider-accent {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: transparent;
+}
+</style>
+
 <style scoped>
 .slider-container {
+  --slider-accent: var(--color-text-secondary);
+  transition: --slider-accent var(--transition-fast);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -207,7 +217,6 @@ onUnmounted(() => {
 /* Track */
 .range-track {
   border-radius: 20px;
-  transition: opacity 300ms ease;
   pointer-events: none;
 }
 
@@ -215,8 +224,8 @@ onUnmounted(() => {
   width: 100%;
   height: 40px;
   background: linear-gradient(to right,
-      var(--color-text-secondary) 0%,
-      var(--color-text-secondary) var(--progress),
+      var(--slider-accent) 0%,
+      var(--slider-accent) var(--progress),
       var(--color-background) var(--progress),
       var(--color-background) 100%);
 }
@@ -226,8 +235,8 @@ onUnmounted(() => {
   min-height: 260px;
   flex: 1;
   background: linear-gradient(to top,
-      var(--color-text-secondary) 0%,
-      var(--color-text-secondary) var(--progress),
+      var(--slider-accent) 0%,
+      var(--slider-accent) var(--progress),
       var(--color-background) var(--progress),
       var(--color-background) 100%);
 }
@@ -237,7 +246,7 @@ onUnmounted(() => {
   position: absolute;
   border-radius: 20px;
   background: var(--color-background-neutral);
-  border: 2px solid var(--color-text-secondary);
+  border: 2px solid var(--slider-accent);
   cursor: pointer;
   z-index: 2;
   touch-action: none; /* Prevent browser touch handling (scroll/pan) during drag */
@@ -258,9 +267,8 @@ onUnmounted(() => {
 }
 
 /* Disabled state */
-.slider-container.disabled .range-track,
-.slider-container.disabled .range-thumb {
-  opacity: 0.5;
+.slider-container.disabled {
+  --slider-accent: color-mix(in srgb, var(--color-text-secondary) 50%, transparent);
 }
 
 .slider-container.disabled .range-thumb {
@@ -268,21 +276,16 @@ onUnmounted(() => {
 }
 
 /* Muted state: visual disabled appearance but still interactive */
-.slider-container.muted .range-track,
-.slider-container.muted .range-thumb {
-  opacity: 0.5;
-}
-
-.slider-value.muted {
-  opacity: 0.5;
+.slider-container.muted {
+  --slider-accent: color-mix(in srgb, var(--color-text-secondary) 50%, transparent);
 }
 
 /* Inline value */
 .slider-value {
   position: absolute;
   right: var(--space-04);
-  color: var(--color-text-secondary);
-  transition: color 300ms ease;
+  color: var(--slider-accent);
+  transition: color var(--transition-fast);
   pointer-events: none;
   z-index: 3;
 }
