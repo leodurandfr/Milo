@@ -226,8 +226,8 @@ onUnmounted(() => {
   background: linear-gradient(to right,
       var(--slider-accent) 0%,
       var(--slider-accent) var(--progress),
-      var(--color-background) var(--progress),
-      var(--color-background) 100%);
+      var(--color-background-strong) var(--progress),
+      var(--color-background-strong) 100%);
 }
 
 .slider-container.vertical .range-track {
@@ -237,8 +237,8 @@ onUnmounted(() => {
   background: linear-gradient(to top,
       var(--slider-accent) 0%,
       var(--slider-accent) var(--progress),
-      var(--color-background) var(--progress),
-      var(--color-background) 100%);
+      var(--color-background-strong) var(--progress),
+      var(--color-background-strong) 100%);
 }
 
 /* Thumb */
@@ -285,7 +285,6 @@ onUnmounted(() => {
   position: absolute;
   right: var(--space-04);
   color: var(--slider-accent);
-  transition: color var(--transition-fast);
   pointer-events: none;
   z-index: 3;
 }
