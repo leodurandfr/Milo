@@ -1,6 +1,6 @@
 <template>
-  <div v-if="isVisible" class="screensaver-overlay" :class="{ closing: isClosing }" @click.stop="handleClose"
-    @touchstart.stop="handleClose">
+  <div v-if="isVisible" class="screensaver-overlay" :class="{ closing: isClosing }"
+    @pointerdown.stop="handleClose">
     <!-- Full-screen blurred background -->
     <div class="artwork-background">
       <img v-if="displayArtwork" :src="displayArtwork" alt="" class="background-image" />
@@ -79,9 +79,8 @@ const isClosing = ref(false);
 const displayArtwork = computed(() => props.artwork || null);
 const showBottomBar = computed(() => !!props.stationFavicon && !!props.stationName);
 
-function handleClose(event) {
-  event.preventDefault();
-  event.stopPropagation();
+function handleClose() {
+  if (isClosing.value) return;
 
   // Trigger closing animation
   isClosing.value = true;
