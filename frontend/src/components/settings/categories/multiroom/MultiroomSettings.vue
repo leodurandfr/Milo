@@ -74,23 +74,23 @@
             <h2 class="heading-2">{{ t('multiroomSettings.advanced') }}</h2>
 
             <SettingItem :label="t('multiroomSettings.globalBuffer')">
-              <RangeSlider v-model="snapcastStore.serverConfig.buffer" :min="20" :max="2000" :step="10"
-                value-unit="ms" />
+              <RangeSlider v-model="snapcastStore.serverConfig.buffer" :min="100" :max="2000" :step="50"
+                value-unit="ms" :disabled="snapcastStore.isApplyingServerConfig" />
             </SettingItem>
 
             <SettingItem :label="t('multiroomSettings.chunkSize')">
               <RangeSlider v-model="snapcastStore.serverConfig.chunk_ms" :min="10" :max="100" :step="5"
-                value-unit="ms" />
+                value-unit="ms" :disabled="snapcastStore.isApplyingServerConfig" />
             </SettingItem>
 
             <SettingItem :label="t('multiroomSettings.snapclientBuffer')">
-              <RangeSlider v-model="snapcastStore.serverConfig.snapclient_buffer_time" :min="10" :max="200" :step="10"
-                value-unit="ms" />
+              <RangeSlider v-model="snapcastStore.serverConfig.snapclient_buffer_time" :min="20" :max="200" :step="10"
+                value-unit="ms" :disabled="snapcastStore.isApplyingServerConfig" />
             </SettingItem>
 
             <SettingItem :label="t('multiroomSettings.codec')">
               <ButtonGroup :model-value="snapcastStore.serverConfig.codec" :options="codecOptions"
-                mobile-layout="column" @change="selectCodec" />
+                :disabled="snapcastStore.isApplyingServerConfig" mobile-layout="column" @change="selectCodec" />
             </SettingItem>
           </SettingsSection>
 
@@ -206,17 +206,17 @@ const audioPresets = computed(() => [
   {
     id: 'lan',
     name: t('multiroomSettings.lanLowLatency'),
-    config: { buffer: 40, codec: 'pcm', chunk_ms: 10, snapclient_buffer_time: 20 }
+    config: { buffer: 200, codec: 'pcm', chunk_ms: 20, snapclient_buffer_time: 40 }
   },
   {
     id: 'balanced',
     name: t('multiroomSettings.balanced'),
-    config: { buffer: 200, codec: 'opus', chunk_ms: 20, snapclient_buffer_time: 40 }
+    config: { buffer: 500, codec: 'opus', chunk_ms: 20, snapclient_buffer_time: 80 }
   },
   {
     id: 'quality',
     name: t('multiroomSettings.optimalQuality'),
-    config: { buffer: 1000, codec: 'flac', chunk_ms: 20, snapclient_buffer_time: 80 }
+    config: { buffer: 1000, codec: 'flac', chunk_ms: 20, snapclient_buffer_time: 100 }
   }
 ]);
 

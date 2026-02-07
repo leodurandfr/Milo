@@ -69,3 +69,9 @@ class FiltersBatchUpdate(BaseModel):
 class DspEnabledUpdate(BaseModel):
     """Model for DSP enabled state update."""
     enabled: bool
+
+
+class SnapclientConfigUpdate(BaseModel):
+    """Model for snapclient ALSA buffer configuration update."""
+    buffer_time: int
+    fragments: Optional[int] = 4

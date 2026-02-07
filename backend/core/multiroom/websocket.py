@@ -17,6 +17,7 @@ import aiohttp
 from backend.core.events import EventBus, get_event_bus
 from backend.core.multiroom.models import ReconnectionContext
 from backend.core.multiroom.client_registry import ClientRegistryService
+from backend.config.constants import CLIENT_API_PORT
 
 
 class SnapcastWebSocketService:
@@ -512,6 +513,10 @@ class SnapcastWebSocketService:
                         {"zone_id": zone.id, "zone": self.registry.zone_to_enriched_dict(zone)}
                     )
 
+            # Push snapclient buffer config to remote clients (fire-and-forget)
+            if not is_local:
+                asyncio.create_task(self._push_snapclient_config(client_ip))
+
             await self._broadcast_snapcast_event("client_connected", {
                 "client_id": client_id,
                 "client_name": client_name,
@@ -909,6 +914,31 @@ class SnapcastWebSocketService:
         except Exception as e:
             self.logger.error(f"Error applying volume to {mac_id}: {e}", exc_info=True)
             return False
+
+    async def _push_snapclient_config(self, client_ip: str):
+        """Push current snapclient buffer config to a remote client on reconnection."""
+        try:
+            buffer_time = 80
+            fragments = 4
+            if self.settings_service:
+                val = await self.settings_service.get_setting('multiroom.snapclient_buffer_time')
+                if val is not None:
+                    buffer_time = val
+                val = await self.settings_service.get_setting('multiroom.snapclient_fragments')
+                if val is not None:
+                    fragments = val
+
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                url = f"http://{client_ip}:{CLIENT_API_PORT}/snapclient/config"
+                async with session.put(url, json={"buffer_time": buffer_time, "fragments": fragments}) as resp:
+                    if resp.status == 200:
+                        self.logger.info(f"Snapclient config synced to {client_ip} (buffer_time={buffer_time}ms)")
+                    else:
+                        body = await resp.text()
+                        self.logger.warning(f"Failed to sync snapclient config to {client_ip}: {resp.status} {body}")
+        except Exception as e:
+            self.logger.warning(f"Could not push snapclient config to {client_ip}: {e}")
 
     async def _sync_zone_dsp_to_client(self, mac_id: str, zone) -> bool:
         """

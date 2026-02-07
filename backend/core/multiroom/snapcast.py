@@ -424,10 +424,10 @@ class SnapcastService:
     def _validate_config(self, config: Dict[str, Any]) -> bool:
         """Validate configuration parameters."""
         validators = {
-            "buffer": lambda x: isinstance(x, int) and 20 <= x <= 2000,
+            "buffer": lambda x: isinstance(x, int) and 100 <= x <= 2000,
             "codec": lambda x: x in ["flac", "pcm", "opus", "ogg"],
             "chunk_ms": lambda x: isinstance(x, int) and 10 <= x <= 100,
-            "snapclient_buffer_time": lambda x: isinstance(x, int) and 10 <= x <= 200,
+            "snapclient_buffer_time": lambda x: isinstance(x, int) and 20 <= x <= 200,
             "snapclient_fragments": lambda x: isinstance(x, int) and 2 <= x <= 8
         }
 
