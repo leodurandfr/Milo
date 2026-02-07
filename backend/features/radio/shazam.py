@@ -10,25 +10,20 @@ import asyncio
 import logging
 from typing import Any, Callable, Coroutine, Dict, Optional
 
-import aiohttp
 from aiohttp_retry import ExponentialRetry
 from shazamio import Shazam, HTTPClient
 
 logger = logging.getLogger(__name__)
 
-# Suppress noisy symphonia warnings from ShazamIO's internal MP3 decoder
-# (expected when decoding raw chunks captured from live audio streams)
-logging.getLogger("symphonia_bundle_mp3").setLevel(logging.ERROR)
-logging.getLogger("symphonia_core").setLevel(logging.ERROR)
-
 # Recognition timing
 INITIAL_DELAY_SECONDS = 10
 RECOGNITION_INTERVAL_SECONDS = 30
-SEGMENT_DURATION_SECONDS = 10
+SEGMENT_DURATION_SECONDS = 12
 RECOGNITION_TIMEOUT_SECONDS = 25
+MAX_RETRIES = 3
 
-# Audio capture limits (~40KB/s covers most stream bitrates up to 320kbps)
-BYTES_PER_SECOND = 40_000
+# ffmpeg capture timeout (capture duration + buffer for connection/codec init)
+FFMPEG_TIMEOUT_SECONDS = SEGMENT_DURATION_SECONDS + 15
 
 
 class ShazamRecognitionService:
@@ -136,13 +131,27 @@ class ShazamRecognitionService:
         logger.info("Shazam recognition stopped")
 
     async def _recognition_loop(self) -> None:
-        """Main recognition loop: wait, capture, recognize, repeat."""
+        """Main recognition loop with immediate retries on failure.
+
+        On failure, retries up to MAX_RETRIES times with fresh audio segments
+        (the stream advances, so each capture covers different audio).
+        On success or after exhausting retries, waits RECOGNITION_INTERVAL_SECONDS.
+        """
         try:
-            # Initial delay to let buffering complete
             await asyncio.sleep(INITIAL_DELAY_SECONDS)
 
             while self._running:
-                await self._try_recognize()
+                recognized = await self._try_recognize()
+
+                if not recognized:
+                    for retry in range(MAX_RETRIES):
+                        if not self._running:
+                            break
+                        logger.info(f"Retrying recognition ({retry + 1}/{MAX_RETRIES})...")
+                        recognized = await self._try_recognize()
+                        if recognized:
+                            break
+
                 await asyncio.sleep(RECOGNITION_INTERVAL_SECONDS)
 
         except asyncio.CancelledError:
@@ -150,10 +159,14 @@ class ShazamRecognitionService:
         except Exception as e:
             logger.error(f"Recognition loop error: {e}")
 
-    async def _try_recognize(self) -> None:
-        """Capture audio and attempt recognition."""
+    async def _try_recognize(self) -> bool:
+        """Capture audio and attempt recognition.
+
+        Returns:
+            True if a track was recognized, False otherwise.
+        """
         if not self._stream_url:
-            return
+            return False
 
         try:
             # Check if shazam is still enabled in settings
@@ -163,13 +176,13 @@ class ShazamRecognitionService:
                     self._current_track = None
                     if self._on_track_changed:
                         await self._on_track_changed(None)
-                return
+                return False
 
             # Capture audio from stream
             audio_bytes = await self._capture_audio(self._stream_url)
             if not audio_bytes:
                 logger.warning("No audio captured, skipping recognition")
-                return
+                return False
 
             logger.debug(f"Captured {len(audio_bytes)} bytes for recognition")
 
@@ -181,7 +194,8 @@ class ShazamRecognitionService:
             track = self._parse_result(result)
 
             if track:
-                logger.info(f"Track recognized: {track['title']} - {track['artist']}")
+                match_count = len(result.get("matches", []))
+                logger.info(f"Track recognized ({match_count} matches): {track['title']} - {track['artist']}")
             else:
                 logger.info("No track recognized")
 
@@ -191,66 +205,64 @@ class ShazamRecognitionService:
                 if self._on_track_changed:
                     await self._on_track_changed(track)
 
+            return track is not None
+
         except asyncio.CancelledError:
             raise
         except asyncio.TimeoutError:
             logger.warning("Shazam recognition timed out")
+            return False
         except Exception as e:
             logger.warning(f"Recognition attempt failed: {e}")
+            return False
 
     async def _capture_audio(self, url: str) -> Optional[bytes]:
         """
-        Download a short audio snippet from the stream URL.
+        Capture audio from stream using ffmpeg for reliable codec handling.
 
-        Opens a separate HTTP connection to the stream (independent of mpv)
-        and reads raw bytes for ShazamIO's Rust-based decoder to process.
+        Uses ffmpeg to connect to the stream URL, decode any audio format
+        (MP3, AAC, OGG, FLAC, HLS, etc.), and output clean WAV data with
+        proper headers. This produces higher quality input for ShazamIO
+        compared to raw HTTP byte capture, which lacks file headers and
+        starts mid-frame.
         """
-        max_bytes = BYTES_PER_SECOND * SEGMENT_DURATION_SECONDS
-        timeout = aiohttp.ClientTimeout(
-            total=SEGMENT_DURATION_SECONDS + 10,
-            sock_read=SEGMENT_DURATION_SECONDS + 5
-        )
-
+        process = None
         try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                headers = {
-                    "Icy-MetaData": "0",
-                    "User-Agent": "Milo/1.0"
-                }
-                async with session.get(url, headers=headers) as resp:
-                    if resp.status != 200:
-                        logger.debug(f"Stream returned status {resp.status}")
-                        return None
+            process = await asyncio.create_subprocess_exec(
+                "ffmpeg",
+                "-i", url,
+                "-t", str(SEGMENT_DURATION_SECONDS),
+                "-f", "wav",
+                "-acodec", "pcm_s16le",
+                "-ac", "1",
+                "-ar", "16000",
+                "-v", "quiet",
+                "pipe:1",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
 
-                    chunks = []
-                    total = 0
-                    deadline = asyncio.get_running_loop().time() + SEGMENT_DURATION_SECONDS
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=FFMPEG_TIMEOUT_SECONDS,
+            )
 
-                    while total < max_bytes:
-                        remaining_time = deadline - asyncio.get_running_loop().time()
-                        if remaining_time <= 0:
-                            break
+            if process.returncode != 0 or not stdout:
+                logger.debug(f"ffmpeg capture failed (exit {process.returncode})")
+                return None
 
-                        try:
-                            chunk = await asyncio.wait_for(
-                                resp.content.read(8192),
-                                timeout=remaining_time
-                            )
-                        except asyncio.TimeoutError:
-                            break
-
-                        if not chunk:
-                            break
-
-                        chunks.append(chunk)
-                        total += len(chunk)
-
-                    return b"".join(chunks) if chunks else None
+            return stdout
 
         except asyncio.TimeoutError:
+            if process:
+                process.kill()
+                await process.wait()
             logger.debug("Audio capture timed out")
             return None
-        except aiohttp.ClientError as e:
+        except Exception as e:
+            if process and process.returncode is None:
+                process.kill()
+                await process.wait()
             logger.debug(f"Audio capture failed: {e}")
             return None
 
