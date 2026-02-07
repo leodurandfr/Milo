@@ -8,21 +8,19 @@
     ></div>
     
     <!-- Minimum thumb -->
-    <div 
+    <div
       class="range-thumb thumb-min"
       :class="{ dragging: isDraggingMin }"
       :style="{ left: minPosition }"
       @pointerdown="startDrag($event, 'min')"
-      @touchstart.prevent
     ></div>
-    
+
     <!-- Maximum thumb -->
-    <div 
+    <div
       class="range-thumb thumb-max"
       :class="{ dragging: isDraggingMax }"
       :style="{ left: maxPosition }"
       @pointerdown="startDrag($event, 'max')"
-      @touchstart.prevent
     ></div>
     
     <!-- Minimum value (left) -->
@@ -279,6 +277,7 @@ function updateTrackWidth() {
   border: 2px solid var(--color-text-secondary);
   cursor: pointer;
   transform: translateX(-50%);
+  touch-action: none;
 }
 
 /* Z-index for thumbs */
