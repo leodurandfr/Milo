@@ -11,7 +11,8 @@ import logging
 from typing import Any, Callable, Coroutine, Dict, Optional
 
 import aiohttp
-from shazamio import Shazam
+from aiohttp_retry import ExponentialRetry
+from shazamio import Shazam, HTTPClient
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ logging.getLogger("symphonia_core").setLevel(logging.ERROR)
 # Recognition timing
 INITIAL_DELAY_SECONDS = 10
 RECOGNITION_INTERVAL_SECONDS = 30
-AUDIO_CAPTURE_DURATION_SECONDS = 12  # slightly more than ShazamIO's 10s segment default
+SEGMENT_DURATION_SECONDS = 10
 RECOGNITION_TIMEOUT_SECONDS = 25
 
 # Audio capture limits (~40KB/s covers most stream bitrates up to 320kbps)
@@ -53,7 +54,16 @@ class ShazamRecognitionService:
         """
         self._settings_service = settings_service
         self._on_track_changed = on_track_changed
-        self._shazam = Shazam()
+        self._shazam = Shazam(
+            http_client=HTTPClient(
+                retry_options=ExponentialRetry(
+                    attempts=5,
+                    max_timeout=30,
+                    statuses={500, 502, 503, 504, 429},
+                ),
+            ),
+            segment_duration_seconds=SEGMENT_DURATION_SECONDS,
+        )
 
         # State
         self._stream_url: Optional[str] = None
@@ -195,10 +205,10 @@ class ShazamRecognitionService:
         Opens a separate HTTP connection to the stream (independent of mpv)
         and reads raw bytes for ShazamIO's Rust-based decoder to process.
         """
-        max_bytes = BYTES_PER_SECOND * AUDIO_CAPTURE_DURATION_SECONDS
+        max_bytes = BYTES_PER_SECOND * SEGMENT_DURATION_SECONDS
         timeout = aiohttp.ClientTimeout(
-            total=AUDIO_CAPTURE_DURATION_SECONDS + 10,
-            sock_read=AUDIO_CAPTURE_DURATION_SECONDS + 5
+            total=SEGMENT_DURATION_SECONDS + 10,
+            sock_read=SEGMENT_DURATION_SECONDS + 5
         )
 
         try:
@@ -214,7 +224,7 @@ class ShazamRecognitionService:
 
                     chunks = []
                     total = 0
-                    deadline = asyncio.get_running_loop().time() + AUDIO_CAPTURE_DURATION_SECONDS
+                    deadline = asyncio.get_running_loop().time() + SEGMENT_DURATION_SECONDS
 
                     while total < max_bytes:
                         remaining_time = deadline - asyncio.get_running_loop().time()
