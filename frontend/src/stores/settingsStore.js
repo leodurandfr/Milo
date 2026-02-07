@@ -73,7 +73,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
   const screenScreensaver = ref({
     screensaver_enabled: true,
-    screensaver_delay_seconds: 15
+    screensaver_delay_seconds: 30
   });
 
   // === ACTIONS ===
@@ -200,7 +200,7 @@ export const useSettingsStore = defineStore('settings', () => {
       if (screenScreensaverResponse.data.config) {
         screenScreensaver.value = {
           screensaver_enabled: screenScreensaverResponse.data.config.screensaver_enabled ?? true,
-          screensaver_delay_seconds: screenScreensaverResponse.data.config.screensaver_delay_seconds ?? 15
+          screensaver_delay_seconds: screenScreensaverResponse.data.config.screensaver_delay_seconds ?? 30
         };
       }
 

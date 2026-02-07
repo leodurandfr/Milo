@@ -62,17 +62,19 @@ const { on } = useWebSocket();
 const { updateSetting, clearAllTimers } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 
+const DEFAULT_DELAY = 30;
+
 // Local refs for instant responsiveness
 const config = ref({
   brightness_on: 5,
   timeout_enabled: true,
-  timeout_seconds: 900,
+  timeout_seconds: DEFAULT_DELAY,
   screensaver_enabled: true,
-  screensaver_delay_seconds: 15
+  screensaver_delay_seconds: DEFAULT_DELAY
 });
 
 // Remembers last non-zero timeout for restore on toggle ON
-const lastNonZeroTimeout = ref(900);
+const lastNonZeroTimeout = ref(DEFAULT_DELAY);
 
 // Sync local refs with the store on mount
 function syncFromStore() {
@@ -146,7 +148,13 @@ function setScreenTimeout(value) {
 
 function handleScreensaverToggle(enabled) {
   config.value.screensaver_enabled = enabled;
-  updateSetting('screen-screensaver', { screensaver_enabled: enabled });
+  if (enabled && !sharedDelayPresets.value.some(p => p.value === config.value.screensaver_delay_seconds)) {
+    config.value.screensaver_delay_seconds = DEFAULT_DELAY;
+  }
+  updateSetting('screen-screensaver', {
+    screensaver_enabled: enabled,
+    screensaver_delay_seconds: config.value.screensaver_delay_seconds
+  });
 }
 
 function setScreensaverDelay(value) {
