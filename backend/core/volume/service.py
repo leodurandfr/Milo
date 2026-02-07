@@ -277,17 +277,16 @@ class VolumeService:
 
     async def _update_startup_volume_if_needed(self, volume_db: float) -> None:
         """
-        Auto-update startup_volume_db when restore_last_volume is disabled (FR11).
+        Auto-update startup_volume_db to track current volume (FR11).
 
-        This ensures that when the user changes volume and restart behavior is set to
-        "use startup volume" (not restore last), the startup volume follows the current
-        volume so users don't get surprised by unexpected volume after restart.
+        When restore_last_volume is enabled, startup_volume_db tracks the current volume
+        so it can be restored correctly at startup/restart (direct and multiroom).
+        When disabled, startup_volume_db stays at the user-configured fixed value.
 
         Args:
             volume_db: The new volume level in dB to potentially save as startup volume
         """
-        # Only update when restore is disabled (user wants explicit startup volume)
-        if self.config.config.restore_last_volume:
+        if not self.config.config.restore_last_volume:
             return
 
         current_startup = self.config.config.startup_volume_db
@@ -619,17 +618,11 @@ class VolumeService:
                     self.logger.warning("FR12: CamillaDSP not connected after 10s, startup volume not applied")
                     return
 
-            # Determine target volume based on restore_last_volume setting (FR12)
-            restore_enabled = self.config.config.restore_last_volume
-            if restore_enabled:
-                # Use persisted local volume from state store
-                target_volume = self._state_store._local_volume_db
-                volume_source = "persisted (last_volume.json)"
-                self.logger.info(f"FR12: Restoring {volume_source}: {target_volume:.1f} dB")
-            else:
-                target_volume = self.config.config.startup_volume_db
-                volume_source = "startup_volume_db (settings.json)"
-                self.logger.info(f"FR12: Using {volume_source}: {target_volume:.1f} dB")
+            # startup_volume_db is the single source of truth:
+            # - restore_last_volume=true: auto-updated by FR11 to track current volume
+            # - restore_last_volume=false: user-configured fixed value
+            target_volume = self.config.config.startup_volume_db
+            self.logger.info(f"FR12: Applying startup_volume_db: {target_volume:.1f} dB")
 
             # Get persisted mute state (local mute from state store)
             local_mute = self._state_store._local_mute if hasattr(self._state_store, '_local_mute') else False
@@ -638,7 +631,7 @@ class VolumeService:
             if target_volume is not None and self._dsp_service:
                 await self._dsp_service.set_volume(target_volume)
                 await self._dsp_service.set_mute(local_mute)
-                self.logger.info(f"FR12: Startup state applied - volume={target_volume:.1f}dB, mute={local_mute}, source={volume_source}")
+                self.logger.info(f"FR12: Startup state applied - volume={target_volume:.1f}dB, mute={local_mute}")
             elif self._dsp_service:
                 await self._dsp_service.set_mute(False)
                 self.logger.warning("FR12: No target volume, only unmuted DSP")
