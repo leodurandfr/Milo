@@ -143,7 +143,7 @@ const isSubwoofer = computed(() => selectedSpeakerType.value === 'subwoofer');
 // Check if zone contains a subwoofer
 const zoneHasSubwoofer = computed(() => {
   if (!clientZone.value?.id) return false;
-  return dspStore.hasSubwooferInZone(clientZone.value.id);
+  return multiroomClientStore.hasOnlineSubwoofer(clientZone.value.id);
 });
 
 // Get zone crossover frequency (computed from speaker types in registry)
