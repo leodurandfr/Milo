@@ -50,7 +50,7 @@ const volumeFillStyle = computed(() => ({
   padding: var(--space-04);
   border-radius: var(--radius-full);
   background: var(--color-background-medium-16);
-  backdrop-filter: blur(12px);
+  backdrop-filter: blur(var(--blur-02));
   transition: all var(--transition-spring);
   z-index: 8000;
 }

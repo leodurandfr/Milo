@@ -185,11 +185,13 @@ const isPlaying = computed(() => unifiedStore.systemState.metadata?.is_playing |
   z-index: 2;
   background-size: cover;
   background-position: center;
-  filter: blur(var(--space-07)) saturate(1.5);
+  filter: blur(var(--blur-04)) saturate(1.5);
   transform: scale(1.1) translateZ(0);
   opacity: .25;
-  will-change: transform, filter;
+  will-change: transform;
+  -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
+  contain: strict;
 }
 
 /* Main cover art with border radius */

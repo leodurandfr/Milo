@@ -216,29 +216,32 @@ function clearInactivityTimer() {
   }
 }
 
-// User activity handler
+// User activity handler (throttled to avoid excessive calls from high-frequency events)
+let lastActivityTime = 0;
+const ACTIVITY_THROTTLE_MS = 500;
+
 function handleUserActivity() {
+  const now = Date.now();
+  if (now - lastActivityTime < ACTIVITY_THROTTLE_MS) return;
+  lastActivityTime = now;
+
   if (!isScreensaverVisible.value) {
     resetInactivityTimer();
   }
 }
 
-// Add activity listeners
+// Add activity listeners (pointerdown/touchstart sufficient for screensaver reset)
 function addActivityListeners() {
-  document.addEventListener('pointermove', handleUserActivity, { passive: true });
   document.addEventListener('pointerdown', handleUserActivity, { passive: true });
   document.addEventListener('wheel', handleUserActivity, { passive: true });
   document.addEventListener('touchstart', handleUserActivity, { passive: true });
-  document.addEventListener('touchmove', handleUserActivity, { passive: true });
 }
 
 // Remove activity listeners
 function removeActivityListeners() {
-  document.removeEventListener('pointermove', handleUserActivity, { passive: true });
-  document.removeEventListener('pointerdown', handleUserActivity, { passive: true });
-  document.removeEventListener('wheel', handleUserActivity, { passive: true });
-  document.removeEventListener('touchstart', handleUserActivity, { passive: true });
-  document.removeEventListener('touchmove', handleUserActivity, { passive: true });
+  document.removeEventListener('pointerdown', handleUserActivity);
+  document.removeEventListener('wheel', handleUserActivity);
+  document.removeEventListener('touchstart', handleUserActivity);
 }
 
 // Close the screensaver

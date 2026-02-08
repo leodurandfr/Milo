@@ -136,6 +136,7 @@ watch(() => props.isVisible, (visible) => {
   cursor: pointer;
   z-index: 7000;
   animation: fadeIn 400ms ease-out;
+  contain: layout paint;
 }
 
 /* Closing animation */
@@ -190,12 +191,24 @@ watch(() => props.isVisible, (visible) => {
   max-height: none;
   width: auto;
   height: auto;
-  min-width: 200%;
-  min-height: 200%;
+  min-width: 150%;
+  min-height: 150%;
   object-fit: contain;
-  transform: scale(2);
-  filter: blur(64px) saturate(1.5) contrast(1.5) brightness(0.5);
+  transform: scale(1.5) translateZ(0);
+  filter: blur(var(--blur-05)) saturate(1.5);
   opacity: 0.16;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+/* Dark overlay to replicate contrast(1.5) brightness(0.5) effect without extra GPU filter passes */
+.artwork-background::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 1;
+  pointer-events: none;
 }
 
 /* === LAYOUT === */
@@ -233,10 +246,12 @@ watch(() => props.isVisible, (visible) => {
   z-index: 1;
   background-size: cover;
   background-position: center;
-  filter: blur(64px) saturate(1.5);
+  filter: blur(var(--blur-05)) saturate(1.5);
   opacity: .12;
-  will-change: transform, filter;
+  will-change: transform;
+  -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
+  contain: strict;
 }
 
 .album-art {

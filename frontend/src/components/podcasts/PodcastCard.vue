@@ -232,7 +232,7 @@ onMounted(() => {
   inset: 0;
   background: var(--color-background-contrast-32);
   border-radius: var(--radius-02);
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(var(--blur-01));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -305,7 +305,7 @@ onMounted(() => {
   inset: 0;
   background: var(--color-background-contrast-32);
   border-radius: var(--radius-02);
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(var(--blur-01));
   display: flex;
   align-items: center;
   justify-content: center;

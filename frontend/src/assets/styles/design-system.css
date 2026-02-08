@@ -97,6 +97,13 @@
     /* === SHADOWS === */
     --shadow-02: 0 8px 32px rgba(0, 0, 0, 0.04);
 
+    /* === BLUR === */
+    --blur-01: 4px;
+    --blur-02: 16px;
+    --blur-03: 24px;
+    --blur-04: 40px;
+    --blur-05: 64px;
+
     /* === TRANSITIONS === */
     --transition-ultra-fast: 150ms ease;
     --transition-fast: 200ms ease;

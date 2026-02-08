@@ -151,11 +151,13 @@ function handleClick(event) {
 .icon-button--rounded {
   background: var(--color-background-neutral-50);
   border-radius: 50% !important;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(var(--blur-02));
+  -webkit-backdrop-filter: blur(var(--blur-02));
   width: fit-content;
   aspect-ratio: 1 / 1;
   color: var(--color-text);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
 }
 
 /* Glass border effect for rounded type */

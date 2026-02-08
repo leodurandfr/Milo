@@ -342,7 +342,6 @@ onBeforeUnmount(() => {
   .filters-bar {
     flex-wrap: nowrap;
     overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
 
     /* Full-bleed: compense le padding du parent AudioSourceLayout */
     margin-left: calc(-1 * var(--space-05));

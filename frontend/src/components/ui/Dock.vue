@@ -764,8 +764,8 @@ onUnmounted(() => {
   border-radius: var(--radius-07);
   padding: var(--space-04);
   background: var(--color-background-medium-16);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(var(--blur-03));
+  -webkit-backdrop-filter: blur(var(--blur-03));
   display: flex;
   flex-direction: column;
   gap: var(--space-01);
@@ -835,6 +835,8 @@ onUnmounted(() => {
   z-index: 4000;
   transition: transform var(--transition-spring);
   width: fit-content;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
 }
 
 .dock-container.visible {
@@ -846,8 +848,8 @@ onUnmounted(() => {
   border-radius: var(--radius-07);
   padding: var(--space-04);
   background: var(--color-background-medium-16);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(var(--blur-03));
+  -webkit-backdrop-filter: blur(var(--blur-03));
   display: flex;
   flex-direction: column;
   align-items: center;
