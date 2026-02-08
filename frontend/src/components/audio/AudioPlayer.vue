@@ -165,7 +165,10 @@ const playerStyle = computed(() => {
   padding: var(--space-04);
   background: var(--color-background-neutral);
   border-radius: var(--radius-07);
-  backdrop-filter: blur(16px);
+  backdrop-filter: blur(var(--blur-02));
+  -webkit-backdrop-filter: blur(var(--blur-02));
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
   position: relative;
   overflow: hidden;
   z-index: 50;
@@ -213,11 +216,13 @@ const playerStyle = computed(() => {
 }
 
 .background-image {
-  filter: blur(40px) saturate(1.6);
-  transform: scale(1.5);
+  filter: blur(var(--blur-04)) saturate(1.6);
+  transform: scale(1.5) translateZ(0);
   width: 100%;
   height: 100%;
   object-fit: cover;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
 }
 
 /* Player content (sits above background) */

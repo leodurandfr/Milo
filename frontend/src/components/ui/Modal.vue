@@ -274,8 +274,14 @@ async function closeModal() {
   animationTimeouts.push(finalCloseTimeout);
 }
 
-// User activity handler
+// User activity handler (throttled - auto-close is 120s so 1s granularity is plenty)
+let lastModalActivity = 0;
+const MODAL_ACTIVITY_THROTTLE_MS = 1000;
+
 function handleUserActivity() {
+  const now = Date.now();
+  if (now - lastModalActivity < MODAL_ACTIVITY_THROTTLE_MS) return;
+  lastModalActivity = now;
   resetInactivityTimer();
 }
 
@@ -295,26 +301,22 @@ function toggleBodyScroll(isOpen) {
   }
 }
 
-// Add user activity listeners
+// Add user activity listeners (pointerdown/touchstart sufficient for 120s auto-close)
 function addActivityListeners() {
   if (!modalOverlay.value) return;
 
-  modalOverlay.value.addEventListener('pointermove', handleUserActivity, { passive: true });
   modalOverlay.value.addEventListener('pointerdown', handleUserActivity, { passive: true });
   modalOverlay.value.addEventListener('wheel', handleUserActivity, { passive: true });
   modalOverlay.value.addEventListener('touchstart', handleUserActivity, { passive: true });
-  modalOverlay.value.addEventListener('touchmove', handleUserActivity, { passive: true });
 }
 
 // Remove user activity listeners
 function removeActivityListeners() {
   if (!modalOverlay.value) return;
 
-  modalOverlay.value.removeEventListener('pointermove', handleUserActivity);
   modalOverlay.value.removeEventListener('pointerdown', handleUserActivity);
   modalOverlay.value.removeEventListener('wheel', handleUserActivity);
   modalOverlay.value.removeEventListener('touchstart', handleUserActivity);
-  modalOverlay.value.removeEventListener('touchmove', handleUserActivity);
 }
 
 // Watcher for animations
@@ -353,7 +355,8 @@ onUnmounted(() => {
   right: 0;
   bottom: 0;
   background: var(--color-background-medium-32);
-  backdrop-filter: blur(32px);
+  backdrop-filter: blur(var(--blur-03));
+  -webkit-backdrop-filter: blur(var(--blur-03));
   display: flex;
   align-items: flex-start;
   justify-content: center;

@@ -14,6 +14,8 @@
         :alt="station.name"
         class="station-img"
         :class="{ loaded: imageLoaded }"
+        loading="lazy"
+        decoding="async"
         @load="handleImageLoad"
         @error="handleImageError"
       />
@@ -53,6 +55,8 @@
         :alt="station.name"
         class="station-favicon"
         :class="{ loaded: imageLoaded }"
+        loading="lazy"
+        decoding="async"
         @load="handleImageLoad"
         @error="handleImageError"
       />
@@ -260,7 +264,7 @@ onMounted(() => {
   position: absolute;
   inset: 0;
   background: var(--color-background-contrast-32);
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(var(--blur-01));
   display: flex;
   align-items: center;
   justify-content: center;
