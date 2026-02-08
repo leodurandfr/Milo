@@ -53,7 +53,7 @@ show_banner() {
     echo " | |  | | | | (_) || |___| | |  __/ | | | |_ "
     echo " |_|  |_|_|_|\___/  \____|_|_|\___|_| |_|\__|"
     echo ""
-    echo "Client Installation Script v1.3"
+    echo "Client Installation Script v1.4"
     echo -e "${NC}"
 }
 
@@ -258,6 +258,22 @@ install_dependencies() {
     sudo rm -f /etc/apt/apt.conf.d/local
 
     log_success "Dependencies installed"
+}
+
+suppress_pulseaudio() {
+    log_info "Removing PulseAudio/PipeWire..."
+    sudo apt remove -y pulseaudio pipewire || true
+    sudo apt autoremove -y
+    log_success "PulseAudio/PipeWire removed"
+}
+
+configure_journald() {
+    log_info "Configuring journald limits..."
+
+    sudo sed -i 's/^#RuntimeMaxUse=$/RuntimeMaxUse=100M/' /etc/systemd/journald.conf
+    sudo sed -i 's/^#MaxRetentionSec=$/MaxRetentionSec=7d/' /etc/systemd/journald.conf
+
+    log_success "Journald configured (100MB max, 7 days retention)"
 }
 
 create_milo_client_user() {
@@ -804,6 +820,8 @@ main() {
     collect_user_choices
 
     install_dependencies
+    suppress_pulseaudio
+    configure_journald
     setup_hostname
     configure_audio_hardware
 
