@@ -24,9 +24,11 @@
       <SettingsModal @close="closeSettings" />
     </Modal>
 
-    <!-- Audio Screensaver (Radio + Podcast) -->
+    <!-- Audio Screensaver -->
     <AudioScreensaver
       :is-visible="isScreensaverVisible"
+      :mode="screensaverData.mode || 'media'"
+      :plugin-type="screensaverData.pluginType"
       :artwork="screensaverData.artwork"
       :title="screensaverData.title"
       :subtitle="screensaverData.subtitle"
@@ -45,6 +47,7 @@ import { useRadioStore } from '@/stores/radioStore';
 import { usePodcastStore } from '@/stores/podcastStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 
+import { useI18n } from '@/services/i18n';
 import AudioSourceView from '@/components/audio/AudioSourceView.vue';
 import Logo from '@/components/ui/Logo.vue';
 import Modal from '@/components/ui/Modal.vue';
@@ -57,6 +60,7 @@ const AudioScreensaver = defineAsyncComponent(() =>
   import('@/components/audio/AudioScreensaver.vue')
 );
 
+const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
 const settingsStore = useSettingsStore();
 const radioStore = useRadioStore();
@@ -78,12 +82,12 @@ const screensaverDelay = computed(() =>
   (settingsStore.screenScreensaver.screensaver_delay_seconds ?? 15) * 1000
 );
 
-// Check if the screensaver should be active (enabled + radio or podcast playing)
+// Check if the screensaver should be active (enabled + supported source connected)
 const shouldMonitorInactivity = computed(() => {
   if (!settingsStore.screenScreensaver.screensaver_enabled) return false;
   const source = unifiedStore.systemState.active_source;
   const state = unifiedStore.systemState.plugin_state;
-  return (source === 'radio' || source === 'podcast') && state === 'connected';
+  return ['radio', 'podcast', 'bluetooth', 'mac'].includes(source) && state === 'connected';
 });
 
 // Resolve station favicon through backend proxy to avoid CORS
@@ -92,6 +96,21 @@ function stationArtworkUrl(station) {
   if (!favicon) return null;
   if (favicon.startsWith('/api/radio/images/')) return favicon;
   return `/api/radio/favicon?url=${encodeURIComponent(favicon)}`;
+}
+
+// Device name formatting for screensaver display
+function cleanDeviceName(name) {
+  if (!name) return '';
+  return name.replace('.local', '').replace(/-/g, ' ');
+}
+
+function formatDeviceNames(deviceName) {
+  if (!deviceName) return '';
+  if (Array.isArray(deviceName)) {
+    if (deviceName.length === 0) return '';
+    return deviceName.map(n => cleanDeviceName(n)).join('\n');
+  }
+  return cleanDeviceName(deviceName);
 }
 
 // Screensaver display data computed from active source
@@ -105,6 +124,7 @@ const screensaverData = computed(() => {
     if (track) {
       // Radio with Shazam track recognition: show track info + station bar
       return {
+        mode: 'media',
         artwork: track.artwork || stationArtworkUrl(station),
         title: track.title,
         subtitle: track.artist || null,
@@ -121,6 +141,7 @@ const screensaverData = computed(() => {
     const metaParts = [genre, bitrate].filter(Boolean);
 
     return {
+      mode: 'media',
       artwork: stationArtworkUrl(station),
       title: station?.name || 'Unknown station',
       subtitle: metaParts.length > 0 ? metaParts.join(' \u2022 ') : 'Live',
@@ -134,6 +155,7 @@ const screensaverData = computed(() => {
     const episode = podcastStore.displayEpisode;
 
     return {
+      mode: 'media',
       artwork: episode?.image_url || null,
       title: episode?.name || 'No episode',
       subtitle: episode?.podcast?.name || null,
@@ -142,8 +164,29 @@ const screensaverData = computed(() => {
     };
   }
 
+  if (source === 'bluetooth') {
+    const metadata = unifiedStore.systemState.metadata || {};
+    return {
+      mode: 'simple',
+      pluginType: 'bluetooth',
+      title: t('status.connectedTo'),
+      subtitle: formatDeviceNames(metadata.device_name),
+    };
+  }
+
+  if (source === 'mac') {
+    const metadata = unifiedStore.systemState.metadata || {};
+    return {
+      mode: 'simple',
+      pluginType: 'mac',
+      title: t('status.audioReceivedFrom'),
+      subtitle: formatDeviceNames(metadata.client_names || metadata.client_name),
+    };
+  }
+
   // Fallback (should not happen since shouldMonitorInactivity gates this)
   return {
+    mode: 'media',
     artwork: null,
     title: '',
     subtitle: null,

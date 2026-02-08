@@ -208,6 +208,7 @@
     "waiting": "Aguardando...",
     "connectedTo": "Conectado a",
     "connectedToMac": "Conectado a",
+    "audioReceivedFrom": "Áudio recebido de",
     "disconnect": "Desconectar",
     "disconnecting": "Desconectando..."
   },

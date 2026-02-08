@@ -1,50 +1,72 @@
 <template>
   <div v-if="isVisible" class="screensaver-overlay" :class="{ closing: isClosing }"
     @pointerdown.stop="handleClose">
-    <!-- Full-screen blurred background -->
-    <div class="artwork-background">
-      <img v-if="displayArtwork" :src="displayArtwork" alt="" class="background-image" />
-    </div>
+    <!-- ===== MEDIA MODE (radio, podcast) ===== -->
+    <template v-if="mode === 'media'">
+      <!-- Full-screen blurred background -->
+      <div class="artwork-background">
+        <img v-if="displayArtwork" :src="displayArtwork" alt="" class="background-image" />
+      </div>
 
-    <!-- Centered blur halo (positioned relative to overlay) -->
-    <div class="album-art-blur"
-      :style="{ backgroundImage: displayArtwork ? `url(${displayArtwork})` : 'none' }">
-    </div>
+      <!-- Centered blur halo (positioned relative to overlay) -->
+      <div class="album-art-blur"
+        :style="{ backgroundImage: displayArtwork ? `url(${displayArtwork})` : 'none' }">
+      </div>
 
-    <!-- Main content: full-width horizontal layout -->
-    <div class="now-playing-screensaver">
-      <!-- Left: Artwork -->
-      <div class="album-art-section stagger-1">
-        <div class="album-art-container">
-          <div class="album-art">
-            <img v-if="displayArtwork" :src="displayArtwork" :alt="title" />
+      <!-- Main content: full-width horizontal layout -->
+      <div class="now-playing-screensaver">
+        <!-- Left: Artwork -->
+        <div class="album-art-section stagger-1">
+          <div class="album-art-container">
+            <div class="album-art">
+              <img v-if="displayArtwork" :src="displayArtwork" :alt="title" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Title + subtitle centered, station bar at bottom -->
+        <div class="content-section stagger-2">
+          <div class="track-info stagger-3">
+            <h1 class="track-title heading-1">{{ title }}</h1>
+            <p v-if="subtitle" class="track-subtitle" :class="useMonoSubtitle ? 'text-mono' : 'heading-2'">{{ subtitle }}</p>
+          </div>
+
+          <div v-if="showBottomBar" class="station-bar stagger-4">
+            <img :src="stationFavicon" alt="" class="station-favicon" />
+            <span class="station-name heading-4">{{ stationName }}</span>
           </div>
         </div>
       </div>
+    </template>
 
-      <!-- Right: Title + subtitle centered, station bar at bottom -->
-      <div class="content-section stagger-2">
-        <div class="track-info stagger-3">
-          <h1 class="track-title heading-1">{{ title }}</h1>
-          <p v-if="subtitle" class="track-subtitle" :class="useMonoSubtitle ? 'text-mono' : 'heading-2'">{{ subtitle }}</p>
-        </div>
-
-        <div v-if="showBottomBar" class="station-bar stagger-4">
-          <img :src="stationFavicon" alt="" class="station-favicon" />
-          <span class="station-name heading-4">{{ stationName }}</span>
-        </div>
+    <!-- ===== SIMPLE MODE (bluetooth, mac) ===== -->
+    <template v-else>
+      <div class="simple-screensaver stagger-1">
+        <AppIcon :name="pluginType" size="medium" :class="{ 'simple-icon-invert': pluginType === 'mac' }" />
+        <p class="simple-status heading-1">{{ title }}</p>
+        <h1 class="simple-device-name heading-1">{{ subtitle }}</h1>
       </div>
-    </div>
+    </template>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, watch } from 'vue';
+import AppIcon from '@/components/ui/AppIcon.vue';
 
 const props = defineProps({
   isVisible: {
     type: Boolean,
     required: true
+  },
+  mode: {
+    type: String,
+    default: 'media',
+    validator: (value) => ['media', 'simple'].includes(value)
+  },
+  pluginType: {
+    type: String,
+    default: null
   },
   artwork: {
     type: String,
@@ -300,6 +322,35 @@ watch(() => props.isVisible, (visible) => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* === SIMPLE MODE (bluetooth, mac) === */
+
+.simple-screensaver {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  width: 100%;
+  height: 100%;
+}
+
+.simple-status {
+  color: var(--color-text-contrast-50);
+  margin-top: 24px;
+}
+
+.simple-icon-invert :deep(.app-icon-svg) {
+  filter: invert(1);
+}
+
+.simple-device-name {
+  color: var(--color-text-contrast);
+  white-space: pre-line;
+  margin-top: var(--space-01);
 }
 
 /* === STAGGER ANIMATIONS === */
