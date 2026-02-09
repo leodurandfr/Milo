@@ -55,3 +55,8 @@ yarn-error.log*
 .claude/
 _bmad-output/
 _bmad/
+
+
+# Ignore personal docs
+docs/website
+docs/plans
