@@ -456,7 +456,7 @@ const playerStyle = computed(() => {
   .audio-player-enter-active,
   .audio-player-leave-active {
     position: fixed;
-    bottom: var(--space-08);
+    bottom: calc(env(safe-area-inset-bottom, 0px) + var(--space-08));
     left: 50%;
   }
 
