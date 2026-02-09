@@ -8,6 +8,12 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+html {
+  /* Prevent bottom gap in iOS standalone PWA: viewport-fit=cover shifts content down
+     by safe-area-inset-top, so the page needs extra height to fill the bottom */
+  min-height: calc(100% + env(safe-area-inset-top, 0px));
+}
+
 html,
 body {
   overscroll-behavior: none;
@@ -15,6 +21,7 @@ body {
   padding: 0;
   width: 100%;
   height: 100%;
+  background-color: var(--color-background);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

@@ -303,7 +303,10 @@ const playerStyle = computed(() => {
 @media (max-aspect-ratio: 4/3) {
   .audio-player {
     position: fixed;
-    bottom: var(--space-08);
+    /* bottom: calc(max(var(--space-06), env(safe-area-inset-bottom, 0px)) + var(--space-05)); */
+    /* bottom: env(safe-area-inset-bottom, 0px); */
+    bottom: calc( env(safe-area-inset-bottom, 0px) + var(--space-08) );
+
     margin: 0;
     left: 50%;
     transform: translate(-50%, 0);

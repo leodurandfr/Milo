@@ -152,9 +152,10 @@ watch(isConnected, (connected) => {
   }
 
   if (!connected) {
-    const isIosApp = document.body.classList.contains('ios-app');
-    if (isIosApp) {
-      // iOS app: delay to avoid flash during quick background/foreground transitions
+    const isStandalone = window.navigator.standalone === true
+      || window.matchMedia('(display-mode: standalone)').matches;
+    if (isStandalone) {
+      // PWA standalone: delay to avoid flash during quick background/foreground transitions
       connectionLostTimeout = setTimeout(() => {
         if (!isConnected.value) {
           showConnectionLost.value = true;

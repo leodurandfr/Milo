@@ -247,13 +247,17 @@ const isPlaying = computed(() => unifiedStore.systemState.metadata?.is_playing |
 
 @media (max-aspect-ratio: 4/3) {
   .now-playing-spotify {
-    padding: var(--space-05) var(--space-05) 0 var(--space-05);
+    padding-left: var(--space-05);
+    padding-right: var(--space-05);
+    padding-top: max(var(--space-05), env(safe-area-inset-top, 0px));
+    padding-bottom: max(var(--space-08), env(safe-area-inset-bottom, 0px));
+
     flex-direction: column;
     gap: 0;
   }
 
   .controls-section {
-    margin-bottom: var(--space-06);
+    margin-bottom: calc(env(safe-area-inset-bottom, 0px));
   }
 
   .album-art-blur {
@@ -263,19 +267,5 @@ const isPlaying = computed(() => unifiedStore.systemState.metadata?.is_playing |
   .track-info {
     padding: var(--space-06) 0 var(--space-03) 0;
   }
-}
-
-/* iOS */
-.ios-app .now-playing-spotify {
-  padding: var(--space-08) var(--space-05) 0 var(--space-05);
-}
-
-.ios-app .controls-section {
-  margin-bottom: var(--space-09);
-}
-
-/* Android */
-.android-app .controls-section {
-  margin-bottom: var(--space-08);
 }
 </style>
