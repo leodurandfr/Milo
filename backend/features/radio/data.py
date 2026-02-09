@@ -395,22 +395,15 @@ class StationDataService:
         return success
 
     async def remove_favorite(self, station_id: str) -> bool:
-        """Remove station from favorites and clean up associated data."""
+        """Remove station from favorites.
+
+        Modified metadata (custom images, name overrides) and favorites cache
+        are preserved so they are restored if the station is re-added.
+        """
         if not station_id or station_id not in self._favorites:
             return True
 
         self._favorites.remove(station_id)
-
-        # Clean up modified metadata (delete custom image if exists)
-        if station_id in self._modified_metadata:
-            old_image = self._modified_metadata[station_id].get('image_filename')
-            if old_image:
-                await self.image_manager.delete_image(old_image)
-            del self._modified_metadata[station_id]
-
-        # Clean up favorites cache
-        if station_id in self._favorites_cache:
-            del self._favorites_cache[station_id]
 
         success = await self._save()
 
