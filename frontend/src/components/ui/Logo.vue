@@ -58,7 +58,7 @@ defineProps({
 
 /* === Position TOP === */
 .logo-top {
-  top: var(--space-06);
+  top: calc(var(--space-06) + env(safe-area-inset-top, 0px));
   transform: translateX(-50%);
 }
 
@@ -66,10 +66,5 @@ defineProps({
 .logo-hidden {
   opacity: 0;
   margin-top: -24px;
-}
-
-/* === iOS === */
-.ios-app .logo-top {
-  top: var(--space-09);
 }
 </style>

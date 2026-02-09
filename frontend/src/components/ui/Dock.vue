@@ -739,7 +739,7 @@ onUnmounted(() => {
 .drag-zone {
   position: fixed;
   width: 280px;
-  bottom: 0;
+  bottom:calc(0px + env(safe-area-inset-top, 0px));
   left: 50%;
   transform: translateX(-50%);
   height: 12%;
@@ -747,6 +747,7 @@ onUnmounted(() => {
   z-index: 3999;
   cursor: grab;
   user-select: none;
+
 }
 
 .drag-zone.dragging {
@@ -840,7 +841,7 @@ onUnmounted(() => {
 }
 
 .dock-container.visible {
-  transform: translateX(-50%) translateY(-29px) scale(1);
+  transform: translateX(-50%) translateY(calc(-29px - env(safe-area-inset-bottom, 0px))) scale(1);
 }
 
 .dock {
@@ -1018,7 +1019,7 @@ onUnmounted(() => {
 
   .dock-indicator {
     position: fixed;
-    bottom: var(--space-03);
+    bottom: calc(var(--space-06) + env(safe-area-inset-bottom, 0px));
     left: 50%;
     transform: translateX(-50%);
     width: var(--space-05);
@@ -1030,6 +1031,7 @@ onUnmounted(() => {
     pointer-events: none;
     /* transition: opacity 600ms ease-in-out; */
     cursor: pointer;
+    
   }
 
   .dock-indicator.visible {
@@ -1042,25 +1044,6 @@ onUnmounted(() => {
   }
 }
 
-.ios-app .drag-zone {
-  height: var(--space-09);
-}
-
-.ios-app .dock-indicator {
-  bottom: var(--space-08);
-}
-
-.ios-app .dock-container.visible {
-  transform: translate(-50%) translateY(-64px) scale(1);
-}
-
-.android-app .dock-indicator {
-  bottom: var(--space-07);
-}
-
-.android-app .dock-container.visible {
-  transform: translate(-50%) translateY(-48px) scale(1);
-}
 
 @media not (max-aspect-ratio: 4/3) {
   .mobile-only {

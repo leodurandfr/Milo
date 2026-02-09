@@ -458,7 +458,7 @@ onUnmounted(() => {
 
   .modal-overlay {
     align-items: flex-start;
-    padding: 80px var(--space-02) var(--space-02) var(--space-02);
+    padding: calc(80px + env(safe-area-inset-top, 0px)) var(--space-02) var(--space-02) var(--space-02);
   }
 
   .modal-wrapper {
@@ -471,11 +471,5 @@ onUnmounted(() => {
     border-radius: var(--radius-07);
   }
 
-}
-
-
-
-.ios-app .modal-overlay {
-  padding: 112px var(--space-02) var(--space-02) var(--space-02);
 }
 </style>
