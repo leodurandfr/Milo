@@ -76,13 +76,13 @@
       "disablePhysicalCrossover": "Réglez le crossover physique de votre caisson sur bypass/LFE pour éviter le cumul des filtres.",
       "highpassActive": "Filtre passe-haut actif",
       "highpassDescription": "Les basses en dessous de {freq} Hz sont retirées de cette enceinte et gérées par le caisson de la zone.",
-      "crossoverFrequency": "Fréquence de coupure :",
+      "crossoverFrequency": "Fréquence de coupure\u00a0:",
       "badgeActive": "Crossover actif",
       "badgeInactive": "Crossover inactif",
       "subwooferOffline": "Caisson hors ligne"
     },
-    "speakerOffline": "« {name} » est hors ligne",
-    "speakerOfflineDescription": "Ce système audio n'est actuellement pas connecté à Milō.<br>IP : {ip}",
+    "speakerOffline": "«\u00a0{name}\u00a0» est hors ligne",
+    "speakerOfflineDescription": "Ce système audio n'est actuellement pas connecté à Milō.<br>IP\u00a0: {ip}",
     "deleteSpeaker": "Supprimer ce système audio",
     "offline": "Hors ligne",
     "syncing": "Synchronisation...",
@@ -193,7 +193,7 @@
       "description": "Les clients liés partagent les mêmes réglages DSP. Les modifications s'appliquent à tous.",
       "linked": "Lié",
       "offline": "Hors ligne",
-      "currentGroup": "Actuellement liés :",
+      "currentGroup": "Actuellement liés\u00a0:",
       "link": "Lier la sélection",
       "unlink": "Délier"
     }
@@ -229,14 +229,14 @@
     "brightness": "Luminosité",
     "brightnessIntensity": "Intensité de la luminosité",
     "autoSleep": "Mise en veille de l'écran",
-    "sleepDelay": "En cas d'inactivité de l'application, éteindre l'écran après :",
+    "sleepDelay": "En cas d'inactivité de l'application, éteindre l'écran après\u00a0:",
     "screensaver": "Économiseur d'écran",
-    "screensaverDelay": "Démarrer l'économiseur d'écran, après :"
+    "screensaverDelay": "Démarrer l'économiseur d'écran, après\u00a0:"
   },
   "spotifySettings": {
     "title": "Spotify",
     "autoDisconnect": "Déconnexion automatique",
-    "disconnectDelay": "Délai de déconnexion après que la musique soit en pause pendant :"
+    "disconnectDelay": "Délai de déconnexion après que la musique soit en pause pendant\u00a0:"
   },
   "macSettings": {
     "title": "Streaming Mac",
@@ -266,7 +266,7 @@
     "validating": "Test en cours...",
     "saveSuccess": "Identifiants sauvegardés avec succès",
     "saveError": "Erreur lors de la sauvegarde",
-    "validationSuccess": "Identifiants valides !",
+    "validationSuccess": "Identifiants valides\u00a0!",
     "validationError": "Identifiants invalides",
     "validationEmpty": "Veuillez remplir les deux champs",
     "validationNetworkError": "Erreur réseau lors de la validation",
@@ -328,7 +328,7 @@
       "installingSnapclient": "Installation de snapclient...",
       "startingMultiroom": "Démarrage des services multiroom...",
       "cleaningUp": "Nettoyage...",
-      "completed": "Mise à jour terminée !",
+      "completed": "Mise à jour terminée\u00a0!",
       "startingUpdate": "Démarrage de la mise à jour...",
       "updateInitiated": "Mise à jour lancée...",
       "updateInProgress": "Mise à jour en cours...",
@@ -464,12 +464,12 @@
     "unmodifiedFavoritesTitle": "Favoris non modifiés",
     "modifiedStationsTitle": "Stations modifiées",
     "noModifiedStations": "Aucune station modifiée",
-    "restoreStationConfirm": "Restaurer la station originale ?",
+    "restoreStationConfirm": "Restaurer la station originale\u00a0?",
     "modificationsWillBeLost": "Toutes les modifications seront perdues et la station originale sera restaurée.",
     "addedStationsTitle": "Stations ajoutées",
     "noAddedStations": "Aucune station ajoutée. Cliquez sur \"Ajouter une station\" pour commencer.",
     "addStation": "Ajouter une station",
-    "deleteStationConfirm": "Supprimer la station ?",
+    "deleteStationConfirm": "Supprimer la station\u00a0?",
     "cancel": "Annuler",
     "delete": "Supprimer",
     "trackRecognition": "Reconnaissance des morceaux",
