@@ -231,6 +231,7 @@
     "autoSleep": "स्क्रीन स्लीप",
     "sleepDelay": "ऐप निष्क्रिय होने पर, स्क्रीन बंद करें:",
     "screensaver": "स्क्रीनसेवर",
+    "screensaverSourceNote": "केवल रेडियो, पॉडकास्ट, MacOS और ब्लूटूथ पर",
     "screensaverDelay": "स्क्रीनसेवर शुरू करें, इसके बाद:"
   },
   "spotifySettings": {

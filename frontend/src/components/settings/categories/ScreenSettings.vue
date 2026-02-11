@@ -15,14 +15,17 @@
       :enabled="config.screensaver_enabled"
       @change="handleScreensaverToggle"
     >
-      <SettingItem :label="t('screenSettings.screensaverDelay')">
-        <ButtonGroup
-          :model-value="config.screensaver_delay_seconds"
-          :options="sharedDelayPresets"
-          mobile-layout="grid-3"
-          @change="setScreensaverDelay"
-        />
-      </SettingItem>
+      <div class="screensaver-content">
+        <p class="screensaver-source-note text-mono">{{ t('screenSettings.screensaverSourceNote') }}</p>
+        <SettingItem :label="t('screenSettings.screensaverDelay')">
+          <ButtonGroup
+            :model-value="config.screensaver_delay_seconds"
+            :options="sharedDelayPresets"
+            mobile-layout="grid-3"
+            @change="setScreensaverDelay"
+          />
+        </SettingItem>
+      </div>
     </ToggleSection>
 
     <!-- Auto sleep -->
@@ -217,3 +220,19 @@ onUnmounted(() => {
   clearAllTimers();
 });
 </script>
+
+<style scoped>
+.screensaver-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
+.screensaver-source-note {
+  color: var(--color-brand);
+}
+
+.screensaver-content :deep(.setting-item) {
+  gap: var(--space-04);
+}
+</style>

@@ -231,6 +231,7 @@
     "autoSleep": "Suspensión de pantalla",
     "sleepDelay": "Si la aplicación está inactiva, apagar la pantalla después de:",
     "screensaver": "Protector de pantalla",
+    "screensaverSourceNote": "Solo en Radio, Podcasts, MacOS y Bluetooth",
     "screensaverDelay": "Iniciar el protector de pantalla después de:"
   },
   "spotifySettings": {

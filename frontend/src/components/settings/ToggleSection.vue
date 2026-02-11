@@ -71,9 +71,6 @@ function handleToggle(newEnabled) {
   transition: transform 300ms ease;
 }
 
-.toggle-section-header .heading-2.toggle-section-active {
-  transform: translateY(-8px);
-}
 
 .toggle-section-header__description {
   color: var(--color-text-secondary);
