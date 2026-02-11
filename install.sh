@@ -518,9 +518,6 @@ install_bluez_alsa() {
       libdbus-1-dev \
       libglib2.0-dev \
       libsbc-dev \
-      libfreeaptx-dev \
-      libldacbt-abr-dev \
-      libldacbt-enc-dev \
       bluez \
       bluez-tools \
       pkg-config \
@@ -528,27 +525,41 @@ install_bluez_alsa() {
       autotools-dev \
       automake \
       libtool
-    
+
+    # Install optional high-quality codec libraries (may not be available on all Debian versions)
+    local CODEC_FLAGS=""
+    if sudo apt install -y libfreeaptx-dev 2>/dev/null; then
+        CODEC_FLAGS="$CODEC_FLAGS --enable-aptx --enable-aptx-hd"
+        log_success "aptX codec libraries available"
+    else
+        log_warning "libfreeaptx-dev not available, building without aptX"
+    fi
+    if sudo apt install -y libldacbt-abr-dev libldacbt-enc-dev 2>/dev/null; then
+        CODEC_FLAGS="$CODEC_FLAGS --enable-ldac"
+        log_success "LDAC codec libraries available"
+    else
+        log_warning "libldacbt-dev not available, building without LDAC"
+    fi
+
     REBOOT_REQUIRED=true
-    
+
     local temp_dir=$(mktemp -d)
     cd "$temp_dir"
-    
+
     git clone https://github.com/arkq/bluez-alsa.git
     cd bluez-alsa
     git checkout v4.3.1
-    
+
     autoreconf --install
     mkdir build && cd build
-    
-    # FIX: Use --disable-systemd because we manage our own systemd services
-    # Enable high-quality Bluetooth codecs: aptX, LDAC (AAC requires libfdk-aac)
+
+    # Use --disable-systemd because we manage our own systemd services
+    # Codec flags are set dynamically based on available libraries
     ../configure --prefix=/usr --disable-systemd \
       --with-alsaplugindir=/usr/lib/aarch64-linux-gnu/alsa-lib \
       --with-bluealsauser="$MILO_USER" --with-bluealsaaplayuser="$MILO_USER" \
       --enable-cli \
-      --enable-aptx --enable-aptx-hd \
-      --enable-ldac
+      $CODEC_FLAGS
     
     make -j$(nproc)
     sudo make install
