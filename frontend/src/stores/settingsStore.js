@@ -62,6 +62,8 @@ export const useSettingsStore = defineStore('settings', () => {
   });
 
   // === SCREEN ===
+  const isScreenSleeping = ref(false);
+
   const screenTimeout = ref({
     screen_timeout_enabled: true,
     screen_timeout_seconds: 10
@@ -297,6 +299,13 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   /**
+   * Update screen sleep state (from WebSocket broadcast)
+   */
+  function updateScreenSleeping(sleeping) {
+    isScreenSleeping.value = sleeping;
+  }
+
+  /**
    * Update screen timeout
    */
   function updateScreenTimeout(config) {
@@ -339,6 +348,7 @@ export const useSettingsStore = defineStore('settings', () => {
     podcastApiUsage,
     podcastCredentialsValidatedAt,
     radioSettings,
+    isScreenSleeping,
     screenTimeout,
     screenBrightness,
     screenScreensaver,
@@ -354,6 +364,7 @@ export const useSettingsStore = defineStore('settings', () => {
     updatePodcastCredentials,
     refreshPodcastCredentialsStatus,
     updateRadioSettings,
+    updateScreenSleeping,
     updateScreenTimeout,
     updateScreenBrightness,
     updateScreenScreensaver
