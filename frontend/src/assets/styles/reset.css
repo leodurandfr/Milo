@@ -8,10 +8,6 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-html {
-  overflow: hidden;
-}
-
 html,
 body {
   overscroll-behavior: none;
@@ -24,11 +20,30 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+html {
+  height: 100dvh;
+  overflow: hidden;
+}
+
+body {
+  height: 100dvh;
+}
+
 #app {
   margin: 0;
   padding: 0;
   width: 100%;
   height: 100%;
+}
+
+/* Background layer that covers the full physical screen including iOS safe areas */
+#app::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-color: var(--color-background);
+  z-index: -1;
+  pointer-events: none;
 }
 
 /* Reset pour les éléments de texte */

@@ -17,7 +17,18 @@
   <meta name="apple-mobile-web-app-title" content="Milō">
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
 
-  <!-- Boot screen styles - visible immediately, fades out after WebSocket connects + delay -->
+  <!-- Boot mode: fast-boot (reload), PWA cold start (delayed logo), kiosk cold start (immediate logo) -->
+  <script>
+    if(sessionStorage.getItem('milo_booted')){
+      document.documentElement.classList.add('fast-boot')
+    } else if(window.navigator.standalone||matchMedia('(display-mode: standalone)').matches){
+      document.addEventListener('DOMContentLoaded',function(){requestAnimationFrame(function(){requestAnimationFrame(function(){setTimeout(function(){document.documentElement.classList.add('logo-ready')},100)})})})
+    } else {
+      document.documentElement.classList.add('logo-ready')
+    }
+  </script>
+
+  <!-- Boot screen styles - visible immediately, fades out after WebSocket connects -->
   <!-- Values aligned with design-system.css (inline because CSS not loaded at boot) -->
   <style>
     #boot-screen {
@@ -45,14 +56,17 @@
     .boot-logo {
       height: 48px;
       width: auto;
-      transition: opacity 200ms ease;
-      /* Fade in to smooth viewport-fit=cover adjustment */
+      transition: opacity 0.3s ease-out;
       opacity: 0;
-      animation: boot-logo-in 0.3s ease-out forwards;
     }
 
-    @keyframes boot-logo-in {
-      to { opacity: 1; }
+    .logo-ready .boot-logo {
+      opacity: 1;
+    }
+
+    /* Fast boot: hide logo (user already saw it this session) */
+    .fast-boot .boot-logo {
+      display: none;
     }
 
     /* Reconnection message - positioned at bottom */
@@ -86,7 +100,7 @@
 </head>
 
 <body>
-  <!-- Boot screen with logo - visible until WebSocket connects -->
+  <!-- Boot screen - shows logo on first load, skips it on refresh -->
   <div id="boot-screen">
     <svg xmlns="http://www.w3.org/2000/svg" class="boot-logo" viewBox="0 0 57 32">
       <g fill="#A6ACA6">

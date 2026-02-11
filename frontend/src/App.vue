@@ -76,10 +76,13 @@ import { useHardwareConfig } from '@/composables/useHardwareConfig';
 // === Constants ===
 const BOOT_TIMEOUT_MS = 2000;        // Show "connecting" after 2s (roughly when attempt 2 starts)
 const BOOT_FAILED_MS = 12000;        // Show "unavailable" after 12s total
-const LOGO_FADE_DELAY = 700;
-const SCREEN_FADE_DELAY = 800;
 const DOM_REMOVE_DELAY = 400;
-const DOCK_AUTO_SHOW_DELAY = 1000; // Show dock after
+const DOCK_AUTO_SHOW_DELAY = 1000;
+
+// Fast boot: skip logo animation on refresh (user already saw it this session)
+const isFastBoot = document.documentElement.classList.contains('fast-boot');
+const LOGO_FADE_DELAY = isFastBoot ? 0 : 400;
+const SCREEN_FADE_DELAY = isFastBoot ? 100 : 500;
 
 const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
@@ -237,13 +240,16 @@ watch(isReady, (ready) => {
     clearBootTimeout();
     hideBootMessage();
 
-    setTimeout(() => {
-      bootScreenEl.classList.add('logo-exit');
-    }, LOGO_FADE_DELAY);
+    if (!isFastBoot) {
+      setTimeout(() => {
+        bootScreenEl.classList.add('logo-exit');
+      }, LOGO_FADE_DELAY);
+    }
 
     setTimeout(() => {
       bootScreenEl.classList.add('fade-out');
       isBootComplete.value = true;
+      sessionStorage.setItem('milo_booted', '1');
 
       setTimeout(() => {
         if (bootScreenEl) bootScreenEl.style.display = 'none';
