@@ -526,21 +526,6 @@ install_bluez_alsa() {
       automake \
       libtool
 
-    # Install optional high-quality codec libraries (may not be available on all Debian versions)
-    local CODEC_FLAGS=""
-    if sudo apt install -y libfreeaptx-dev 2>/dev/null; then
-        CODEC_FLAGS="$CODEC_FLAGS --enable-aptx --enable-aptx-hd"
-        log_success "aptX codec libraries available"
-    else
-        log_warning "libfreeaptx-dev not available, building without aptX"
-    fi
-    if sudo apt install -y libldacbt-abr-dev libldacbt-enc-dev 2>/dev/null; then
-        CODEC_FLAGS="$CODEC_FLAGS --enable-ldac"
-        log_success "LDAC codec libraries available"
-    else
-        log_warning "libldacbt-dev not available, building without LDAC"
-    fi
-
     REBOOT_REQUIRED=true
 
     local temp_dir=$(mktemp -d)
@@ -554,12 +539,11 @@ install_bluez_alsa() {
     mkdir build && cd build
 
     # Use --disable-systemd because we manage our own systemd services
-    # Codec flags are set dynamically based on available libraries
+    # SBC codec is built-in and sufficient for Bluetooth audio
     ../configure --prefix=/usr --disable-systemd \
       --with-alsaplugindir=/usr/lib/aarch64-linux-gnu/alsa-lib \
       --with-bluealsauser="$MILO_USER" --with-bluealsaaplayuser="$MILO_USER" \
-      --enable-cli \
-      $CODEC_FLAGS
+      --enable-cli
     
     make -j$(nproc)
     sudo make install
