@@ -5,8 +5,9 @@
 # - Ethernet priority over WiFi (disconnects WiFi when Ethernet is up)
 # - Avahi mDNS interface management (switches to active interface)
 #
-# Avahi config is reset to eth0 at every boot via systemd ExecStartPre.
-# This dispatcher only handles runtime changes (cable plug/unplug).
+# Avahi interface state is persisted in AVAHI_STATE_FILE.
+# The systemd ExecStartPre reads this file to apply the correct interface.
+# This dispatcher handles runtime network changes (cable plug/unplug).
 #
 # Scenarios:
 # - Ethernet only: Avahi uses eth0
@@ -16,6 +17,7 @@
 INTERFACE=$1
 ACTION=$2
 AVAHI_CONF="/etc/avahi/avahi-daemon.conf"
+AVAHI_STATE_FILE="/var/lib/milo/avahi-interface"
 
 # Get current Avahi interface configuration
 get_avahi_interface() {
@@ -32,7 +34,7 @@ eth0_has_carrier() {
     [ "$(cat /sys/class/net/eth0/carrier 2>/dev/null)" = "1" ]
 }
 
-# Update Avahi interface - only restarts if config actually changes
+# Update Avahi interface - writes to state file then restarts Avahi
 set_avahi_interface() {
     local interface="$1"
     local current
@@ -41,9 +43,10 @@ set_avahi_interface() {
     # Skip if already configured correctly
     [ "$current" = "$interface" ] && return 0
 
-    sed -i "s/^allow-interfaces=.*/allow-interfaces=$interface/" "$AVAHI_CONF"
+    # Write desired interface to state file (will be applied by systemd ExecStartPre)
+    echo "$interface" > "$AVAHI_STATE_FILE"
 
-    # Restart Avahi to apply changes
+    # Restart Avahi - ExecStartPre will read state file and apply correct interface
     systemctl restart avahi-daemon.service
 }
 
