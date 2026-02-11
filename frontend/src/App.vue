@@ -30,6 +30,17 @@
     <!-- Global Virtual Keyboard -->
     <VirtualKeyboard />
 
+    <!-- Sleep shield: intercepts touch when screen is off to prevent accidental UI interaction -->
+    <div
+      v-if="settingsStore.isScreenSleeping"
+      class="sleep-shield"
+      @touchstart.stop.prevent="handleScreenWake"
+      @touchend.stop.prevent
+      @pointerdown.stop.prevent="handleScreenWake"
+      @pointerup.stop.prevent
+      @click.stop.prevent
+    />
+
   </div>
 </template>
 
@@ -51,6 +62,7 @@ const VirtualKeyboard = defineAsyncComponent(() =>
   import('@/components/ui/VirtualKeyboard.vue')
 );
 
+import axios from 'axios';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { usePodcastStore } from '@/stores/podcastStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -198,6 +210,27 @@ function dismissNotification() {
   currentError.value = null;
 }
 
+// === Sleep shield: wake screen on first touch ===
+let sleepShieldTimeout = null;
+let wakeInProgress = false;
+
+function handleScreenWake() {
+  if (wakeInProgress || !settingsStore.isScreenSleeping) return;
+  wakeInProgress = true;
+
+  // Send wake notification to backend (triggers on_touch_detected → broadcasts screen_sleep_changed: false)
+  axios.post('/api/settings/screen-activity').catch(() => {});
+
+  // Safety fallback: if WebSocket event doesn't arrive within 500ms, force-hide the shield
+  clearTimeout(sleepShieldTimeout);
+  sleepShieldTimeout = setTimeout(() => {
+    if (settingsStore.isScreenSleeping) {
+      settingsStore.updateScreenSleeping(false);
+    }
+    wakeInProgress = false;
+  }, 500);
+}
+
 // Watch isReady → trigger boot screen fade and dock auto-show
 watch(isReady, (ready) => {
   if (ready && bootScreenEl) {
@@ -316,6 +349,12 @@ onMounted(async () => {
         i18n.handleLanguageChanged(event.data.language);
       }
     }),
+    on('settings', 'screen_sleep_changed', (event) => {
+      if (event.data?.sleeping !== undefined) {
+        settingsStore.updateScreenSleeping(event.data.sleeping);
+        if (!event.data.sleeping) wakeInProgress = false;
+      }
+    }),
     // Multiroom events - new standardized format (Story 6.2)
     on('multiroom', 'client_state_changed', (event) => multiroomStore.handleMultiroomEvent(event)),
     on('multiroom', 'zone_changed', (event) => multiroomStore.handleMultiroomEvent(event)),
@@ -360,6 +399,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   clearBootTimeout();
+  clearTimeout(sleepShieldTimeout);
   if (connectionLostTimeout) {
     clearTimeout(connectionLostTimeout);
     connectionLostTimeout = null;
@@ -371,5 +411,14 @@ onUnmounted(() => {
 <style>
 .app-container {
   height: 100%;
+}
+
+.sleep-shield {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  cursor: default;
 }
 </style>

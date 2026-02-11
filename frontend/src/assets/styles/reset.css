@@ -9,9 +9,6 @@
 }
 
 html {
-  /* Prevent bottom gap in iOS standalone PWA: viewport-fit=cover shifts content down
-     by safe-area-inset-top, so the page needs extra height to fill the bottom */
-  min-height: calc(100% + env(safe-area-inset-top, 0px));
   overflow: hidden;
 }
 

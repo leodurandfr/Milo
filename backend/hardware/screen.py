@@ -171,22 +171,36 @@ class ScreenController:
         except Exception as e:
             self.logger.error(f"Screen command failed: {e}")
     
+    async def _broadcast_sleep_state(self, sleeping: bool):
+        """Broadcast screen sleep state change to frontend via WebSocket"""
+        try:
+            await self.state_machine.broadcast_event(
+                "settings",
+                "screen_sleep_changed",
+                {"sleeping": sleeping}
+            )
+        except Exception as e:
+            self.logger.error(f"Error broadcasting screen sleep state: {e}")
+
     async def _monitor_plugin_state(self):
         """Monitors plugin state"""
         while self.running:
             try:
                 system_state = await self.state_machine.get_current_state()
                 new_state = system_state.get("plugin_state", "ready")
-                
+
                 if self.current_plugin_state != "connected" and new_state == "connected":
+                    was_sleeping = not self.screen_on
                     await self._screen_cmd(self.screen_on_cmd)
                     self.last_activity_time = monotonic()
+                    if was_sleeping:
+                        await self._broadcast_sleep_state(False)
                 elif self.current_plugin_state == "connected" and new_state == "ready":
                     self.last_activity_time = monotonic()
-                
+
                 self.current_plugin_state = new_state
                 await asyncio.sleep(2)
-                
+
             except Exception as e:
                 self.logger.error(f"Plugin monitoring error: {e}")
                 await asyncio.sleep(5)
@@ -226,6 +240,7 @@ class ScreenController:
                 if should_turn_off:
                     self.logger.info(f"Screen turning OFF after {time_since_activity:.1f}s (timeout: {self.timeout_seconds}s)")
                     await self._screen_cmd(self.screen_off_cmd)
+                    await self._broadcast_sleep_state(True)
 
                 await asyncio.sleep(1)
 
@@ -235,8 +250,11 @@ class ScreenController:
     
     async def on_touch_detected(self):
         """Public interface for external touch"""
+        was_sleeping = not self.screen_on
         await self._screen_cmd(self.screen_on_cmd)
         self.last_activity_time = monotonic()
+        if was_sleeping:
+            await self._broadcast_sleep_state(False)
     
     def cleanup(self):
         """Cleans up resources"""
