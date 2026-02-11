@@ -249,7 +249,7 @@ async function closeModal() {
     if (!modalContainer.value) return;
     modalContainer.value.style.transition = `transform ${ANIMATION_TIMINGS.closeContainerDuration}ms ease-out, opacity ${ANIMATION_TIMINGS.closeContainerDuration}ms ease-out, height ${ANIMATION_TIMINGS.closeContainerDuration}ms ease-out`;
     modalContainer.value.style.opacity = '0';
-    modalContainer.value.style.transform = 'translateY(-80px) scale(0.95)';
+    modalContainer.value.style.transform = 'translateY(-76px) scale(0.95)';
   }, ANIMATION_TIMINGS.closeContainerDelay);
   animationTimeouts.push(containerCloseTimeout);
 
@@ -458,7 +458,7 @@ onUnmounted(() => {
 
   .modal-overlay {
     align-items: flex-start;
-    padding: calc(80px + env(safe-area-inset-top, 0px)) var(--space-02) var(--space-02) var(--space-02);
+    padding: calc(76px + env(safe-area-inset-top, 0px) - min(env(safe-area-inset-top, 0px), var(--space-03))) var(--space-02) var(--space-02) var(--space-02);
   }
 
   .modal-wrapper {
