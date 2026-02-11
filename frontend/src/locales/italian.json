@@ -231,6 +231,7 @@
     "autoSleep": "Sospensione schermo",
     "sleepDelay": "In caso di inattività dell'app, spegnere lo schermo dopo:",
     "screensaver": "Salvaschermo",
+    "screensaverSourceNote": "Solo su Radio, Podcasts, MacOS e Bluetooth",
     "screensaverDelay": "Avviare il salvaschermo dopo:"
   },
   "spotifySettings": {

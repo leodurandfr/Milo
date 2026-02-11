@@ -231,6 +231,7 @@
     "autoSleep": "Screen sleep",
     "sleepDelay": "When the app is inactive, turn off the screen after:",
     "screensaver": "Screensaver",
+    "screensaverSourceNote": "On Radio, Podcasts, MacOS and Bluetooth only",
     "screensaverDelay": "Start the screensaver after:"
   },
   "spotifySettings": {

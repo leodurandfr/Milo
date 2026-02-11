@@ -231,6 +231,7 @@
     "autoSleep": "Mise en veille de l'écran",
     "sleepDelay": "En cas d'inactivité de l'application, éteindre l'écran après\u00a0:",
     "screensaver": "Économiseur d'écran",
+    "screensaverSourceNote": "Sur Radio, Podcasts, MacOS et Bluetooth uniquement",
     "screensaverDelay": "Démarrer l'économiseur d'écran, après\u00a0:"
   },
   "spotifySettings": {

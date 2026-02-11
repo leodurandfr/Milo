@@ -145,7 +145,7 @@ const isPlaying = computed(() => unifiedStore.systemState.metadata?.is_playing |
 .now-playing-spotify {
   display: flex;
   height: 100%;
-  padding: var(--space-05);
+  padding: var(--space-05) var(--space-06) var(--space-05) var(--space-05);
   gap: var(--space-06);
   background: var(--color-background-neutral);
 }
