@@ -5,6 +5,7 @@ import router from './router'
 import { i18n } from './services/i18n'
 import { vPress } from './directives'
 import './assets/styles/reset.css'
+import './assets/styles/screen-corrections.css'
 import './assets/styles/design-system.css'
 
 async function initApp() {

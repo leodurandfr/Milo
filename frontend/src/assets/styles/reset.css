@@ -12,6 +12,7 @@ html {
   /* Prevent bottom gap in iOS standalone PWA: viewport-fit=cover shifts content down
      by safe-area-inset-top, so the page needs extra height to fill the bottom */
   min-height: calc(100% + env(safe-area-inset-top, 0px));
+  overflow: hidden;
 }
 
 html,
@@ -75,31 +76,3 @@ img {
   pointer-events: none;
 }
 
-/* Style pour pour corriger l'affichage de l'écran du raspberry 7" */
-@media screen and (width: 1024px) and (height: 600px) {
-
-  /* Warm filter to "calibrate" colors */
-  body::before {
-    content: "";
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    background-color: rgba(255, 119, 0, 0.36);
-    pointer-events: none;
-    mix-blend-mode: multiply;
-    z-index: 9999;
-  }
-
-  /* Center components */
-
-  .now-playing-spotify,
-  .now-playing-screensaver {
-    padding-bottom: calc(var(--space-05) + 8px) !important;
-  }
-
-  .modal-container {
-    margin-left: -20px;
-  }
-}

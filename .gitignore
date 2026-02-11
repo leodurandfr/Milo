@@ -57,6 +57,9 @@ _bmad-output/
 _bmad/
 
 
+# Screen-specific display corrections (personal to each installation)
+frontend/src/assets/styles/screen-corrections.css
+
 # Ignore personal docs
 docs/website
 docs/plans
