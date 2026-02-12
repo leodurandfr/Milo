@@ -449,7 +449,9 @@ const wsListeners = {
 
 onMounted(async () => {
   await loadLocalPrograms();
-  await loadSatellites();
+  if (isMultiroomEnabled.value) {
+    await loadSatellites();
+  }
 
   // Register WebSocket listeners
   Object.entries(wsListeners).forEach(([eventType, handler]) => {
