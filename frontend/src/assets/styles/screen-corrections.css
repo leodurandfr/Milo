@@ -2,3 +2,34 @@
 /* Edit this file to add CSS adjustments specific to your screen hardware */
 /* Example: color calibration, position offsets, etc. */
 /* Use @media queries to target your resolution (e.g. 1024x600, 1280x800) */
+/* Screen-specific corrections - /frontend/src/assets/styles/screen-corrections.css */
+/* Adjustments for the Raspberry Pi 7" display mounted in its enclosure */
+
+@media screen and (width: 1024px) and (height: 600px) {
+
+    /* Warm filter to "calibrate" colors */
+    body::before {
+        content: "";
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background-color: rgba(255, 119, 0, 0.36);
+        pointer-events: none;
+        mix-blend-mode: multiply;
+        z-index: 9999;
+    }
+
+    /* Center components */
+
+    .now-playing-spotify,
+    .now-playing-screensaver {
+        padding: var(--space-05) var(--space-07) calc(var(--space-05) + 8px) var(--space-05) !important;
+    }
+
+    .modal-wrapper {
+        margin-left: -20px !important;
+        ;
+    }
+}
