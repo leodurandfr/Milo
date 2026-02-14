@@ -80,7 +80,7 @@ class HardwareService:
 
     def get_screen_info(self) -> Dict:
         """
-        Retourne toutes les informations sur l'écran.
+        Returns all screen information.
 
         Returns:
             dict: {"type": "waveshare_8_dsi", "resolution": {"width": 1280, "height": 800}}
@@ -89,6 +89,19 @@ class HardwareService:
             "type": self.get_screen_type(),
             "resolution": self.get_screen_resolution()
         }
+
+    def get_alsa_control(self) -> Optional[str]:
+        """
+        Returns the ALSA mixer control name configured during installation.
+
+        Returns:
+            str or None: e.g. "Digital", "DAC", or None if not configured
+        """
+        if self._cache is None:
+            self._cache = self._load_hardware_config()
+
+        audio_config = self._cache.get('audio', {})
+        return audio_config.get('alsa_control') or None
 
     def reload(self):
         """Forces hardware configuration reload"""

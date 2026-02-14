@@ -133,7 +133,8 @@ def _create_service(name: str) -> Any:
             snapcast_service=get_service("snapcast_service"),
             settings_service=get_service("settings_service"),
             camilladsp_service=get_service("camilladsp_service"),
-            dsp_client_proxy_service=get_service("dsp_client_proxy_service")
+            dsp_client_proxy_service=get_service("dsp_client_proxy_service"),
+            hardware_service=get_service("hardware_service")
         ),
         "rotary_controller": lambda: RotaryVolumeController(
             volume_service=get_service("volume_service"),

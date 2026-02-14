@@ -42,7 +42,7 @@ class VolumeService:
 
     def __init__(self, state_machine, snapcast_service, settings_service=None,
                  camilladsp_service=None, dsp_client_proxy_service=None,
-                 event_bus: EventBus = None):
+                 hardware_service=None, event_bus: EventBus = None):
         """
         Initialize VolumeService.
 
@@ -52,6 +52,7 @@ class VolumeService:
             settings_service: SettingsService for configuration
             camilladsp_service: Service for local CamillaDSP control
             dsp_client_proxy_service: Service for remote client control
+            hardware_service: HardwareService for reading audio hardware config
             event_bus: EventBus for emitting volume events (optional, uses global singleton)
         """
         self.event_bus = event_bus or get_event_bus()
@@ -60,6 +61,7 @@ class VolumeService:
         self.settings_service = settings_service
         self._dsp_service = camilladsp_service
         self._proxy_service = dsp_client_proxy_service
+        self._hardware_service = hardware_service
         self.logger = logging.getLogger(__name__)
         self._volume_lock = asyncio.Lock()
 
@@ -151,18 +153,37 @@ class VolumeService:
     # ============================================================================
 
     async def _set_alsa_passthrough(self) -> bool:
-        """Set ALSA Digital mixer to 100% passthrough (volume is via CamillaDSP)."""
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "amixer", "-M", "set", "Digital", "100%",
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL
-            )
-            await proc.communicate()
-            return proc.returncode == 0
-        except Exception as e:
-            self.logger.error(f"Error setting ALSA passthrough: {e}")
-            return False
+        """Set ALSA mixer to 100% passthrough (volume is via CamillaDSP).
+
+        Reads the mixer control name from hardware.json (set during installation).
+        Falls back to trying common mixer names if not configured.
+        """
+        # Try configured mixer from hardware.json first
+        configured_control = None
+        if self._hardware_service:
+            configured_control = self._hardware_service.get_alsa_control()
+
+        if configured_control:
+            controls_to_try = [configured_control]
+        else:
+            controls_to_try = ["Digital", "DAC", "Master"]
+
+        for control in controls_to_try:
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "amixer", "-M", "set", control, "100%",
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL
+                )
+                await proc.communicate()
+                if proc.returncode == 0:
+                    self.logger.info(f"ALSA passthrough set via '{control}' mixer")
+                    return True
+            except Exception as e:
+                self.logger.warning(f"Failed to set ALSA passthrough via '{control}': {e}")
+
+        self.logger.error("Could not set ALSA passthrough (no working mixer control found)")
+        return False
 
     def _is_multiroom_enabled(self) -> bool:
         """Check if multiroom mode is currently enabled."""
