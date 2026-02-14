@@ -147,7 +147,7 @@ collect_user_choices() {
             2) HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Card selected: Amp4"; break;;
             3) HIFIBERRY_OVERLAY="hifiberry-amp4pro"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Card selected: Amp4 Pro"; break;;
             4) HIFIBERRY_OVERLAY="hifiberry-amp100"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Card selected: Amp100"; break;;
-            5) HIFIBERRY_OVERLAY="hifiberry-dacplushd"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Card selected: DAC2 HD"; break;;
+            5) HIFIBERRY_OVERLAY="hifiberry-dacplushd"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="DAC"; log_success "Card selected: DAC2 HD"; break;;
             6) HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Card selected: DAC+ (Standard)"; break;;
             7) HIFIBERRY_OVERLAY="hifiberry-dac"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="DAC"; log_success "Card selected: Beocreate 4CA"; break;;
             *) echo "Invalid choice. Please enter a number between 1 and 7.";;

@@ -138,26 +138,34 @@ collect_user_choices() {
     echo ""
     echo "Select your HiFiBerry audio card:"
     echo ""
-    echo "1) Amp2"
-    echo "2) Amp4"
-    echo "3) Amp4 Pro"
-    echo "4) Amp100"
-    echo "5) Beocreate 4CA"
-    echo "6) Skip (for manual installation)"
+    echo "  Amplifiers (connect speakers directly):"
+    echo "    1) Amp2"
+    echo "    2) Amp4"
+    echo "    3) Amp4 Pro"
+    echo "    4) Amp100"
+    echo "    5) Beocreate 4CA"
     echo ""
-    
+    echo "  DACs (connect to external amplifier):"
+    echo "    6) DAC2 HD"
+    echo "    7) DAC+ Pro"
+    echo ""
+    echo "    8) Skip (for manual installation)"
+    echo ""
+
     while true; do
         read -p "Your choice [1]: " USER_HIFIBERRY_CHOICE
         USER_HIFIBERRY_CHOICE=${USER_HIFIBERRY_CHOICE:-1}
-        
+
         case $USER_HIFIBERRY_CHOICE in
             1) HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Selected card: Amp2"; break;;
             2) HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Selected card: Amp4"; break;;
             3) HIFIBERRY_OVERLAY="hifiberry-amp4pro"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Selected card: Amp4 Pro"; break;;
             4) HIFIBERRY_OVERLAY="hifiberry-amp100"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Selected card: Amp100"; break;;
             5) HIFIBERRY_OVERLAY="hifiberry-dac"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="DAC"; log_success "Selected card: Beocreate 4CA"; break;;
-            6) HIFIBERRY_OVERLAY=""; CARD_NAME=""; ALSA_CONTROL=""; log_warning "HiFiBerry configuration skipped"; break;;
-            *) echo "Invalid choice. Please enter a number between 1 and 6.";;
+            6) HIFIBERRY_OVERLAY="hifiberry-dacplushd"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="DAC"; log_success "Selected card: DAC2 HD"; break;;
+            7) HIFIBERRY_OVERLAY="hifiberry-dacplus"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Selected card: DAC+ Pro"; break;;
+            8) HIFIBERRY_OVERLAY=""; CARD_NAME=""; ALSA_CONTROL=""; log_warning "HiFiBerry configuration skipped"; break;;
+            *) echo "Invalid choice. Please enter a number between 1 and 8.";;
         esac
     done
     
@@ -1244,15 +1252,6 @@ optimize_boot_performance() {
 install_screen_brightness_control() {
     if [[ "$SCREEN_TYPE" == "none" ]]; then
         log_info "No brightness control to install"
-        # Still save the "none" type in hardware.json
-        sudo tee "$MILO_DATA_DIR/hardware.json" > /dev/null << EOF
-{
-  "screen": {
-    "type": "none"
-  }
-}
-EOF
-        sudo chown "$MILO_USER:$MILO_USER" "$MILO_DATA_DIR/hardware.json"
         return
     fi
 
@@ -1305,46 +1304,46 @@ EOF
             log_info "Use: echo VALUE | sudo tee /sys/class/backlight/*/brightness (VALUE: 0-255)"
             ;;
     esac
+}
 
-    # Save screen type with resolution in hardware.json (new format)
-    log_info "Saving screen configuration in $MILO_DATA_DIR/hardware.json..."
+save_hardware_config() {
+    log_info "Saving hardware configuration to $MILO_DATA_DIR/hardware.json..."
 
+    # Build screen section based on screen type
+    local screen_json
     case "$SCREEN_TYPE" in
         "waveshare_7_usb")
-            sudo tee "$MILO_DATA_DIR/hardware.json" > /dev/null << 'EOF'
-{
-  "screen": {
-    "waveshare_7_usb": {
-      "resolution": "1024x600"
-    }
-  }
-}
-EOF
+            screen_json='"waveshare_7_usb": {"resolution": "1024x600"}'
             ;;
         "waveshare_8_dsi")
-            sudo tee "$MILO_DATA_DIR/hardware.json" > /dev/null << 'EOF'
-{
-  "screen": {
-    "waveshare_8_dsi": {
-      "resolution": "1280x800"
-    }
-  }
-}
-EOF
+            screen_json='"waveshare_8_dsi": {"resolution": "1280x800"}'
             ;;
-        "none"|*)
-            sudo tee "$MILO_DATA_DIR/hardware.json" > /dev/null << 'EOF'
-{
-  "screen": {
-    "none": {}
-  }
-}
-EOF
+        *)
+            screen_json='"none": {}'
             ;;
     esac
 
+    # Build audio section based on HiFiBerry card selection
+    local audio_json
+    if [[ -n "$CARD_NAME" ]]; then
+        audio_json="\"card_name\": \"$CARD_NAME\", \"alsa_control\": \"$ALSA_CONTROL\""
+    else
+        audio_json=""
+    fi
+
+    sudo tee "$MILO_DATA_DIR/hardware.json" > /dev/null << EOF
+{
+  "screen": {
+    $screen_json
+  },
+  "audio": {
+    $audio_json
+  }
+}
+EOF
+
     sudo chown "$MILO_USER:$MILO_USER" "$MILO_DATA_DIR/hardware.json"
-    log_success "Screen configuration saved: $SCREEN_TYPE"
+    log_success "Hardware configuration saved (screen: $SCREEN_TYPE, audio: ${CARD_NAME:-none})"
 }
 
 enable_services() {
@@ -1586,6 +1585,7 @@ main() {
    optimize_boot_performance
 
    install_screen_brightness_control
+   save_hardware_config
 
    enable_services
    finalize_installation
