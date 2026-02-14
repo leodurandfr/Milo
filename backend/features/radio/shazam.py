@@ -7,7 +7,9 @@ to identify the playing track. Provides track title, artist, and artwork
 to enrich the radio player display.
 """
 import asyncio
+import io
 import logging
+import wave
 from typing import Any, Callable, Coroutine, Dict, Optional
 
 from aiohttp_retry import ExponentialRetry
@@ -218,13 +220,11 @@ class ShazamRecognitionService:
 
     async def _capture_audio(self, url: str) -> Optional[bytes]:
         """
-        Capture audio from stream using ffmpeg for reliable codec handling.
+        Capture audio from stream using ffmpeg and produce a valid WAV buffer.
 
-        Uses ffmpeg to connect to the stream URL, decode any audio format
-        (MP3, AAC, OGG, FLAC, HLS, etc.), and output clean WAV data with
-        proper headers. This produces higher quality input for ShazamIO
-        compared to raw HTTP byte capture, which lacks file headers and
-        starts mid-frame.
+        Outputs raw PCM from ffmpeg (avoiding the piped WAV header size issue
+        where ffmpeg writes 0xFFFFFFFF as RIFF size, which rodio/hound rejects)
+        and wraps it with Python's wave module to produce correct RIFF headers.
         """
         process = None
         try:
@@ -232,7 +232,7 @@ class ShazamRecognitionService:
                 "ffmpeg",
                 "-i", url,
                 "-t", str(SEGMENT_DURATION_SECONDS),
-                "-f", "wav",
+                "-f", "s16le",
                 "-acodec", "pcm_s16le",
                 "-ac", "1",
                 "-ar", "16000",
@@ -251,7 +251,15 @@ class ShazamRecognitionService:
                 logger.debug(f"ffmpeg capture failed (exit {process.returncode})")
                 return None
 
-            return stdout
+            # Wrap raw PCM in a proper WAV container with correct headers
+            wav_buffer = io.BytesIO()
+            with wave.open(wav_buffer, "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(16000)
+                wf.writeframes(stdout)
+
+            return wav_buffer.getvalue()
 
         except asyncio.TimeoutError:
             if process:
