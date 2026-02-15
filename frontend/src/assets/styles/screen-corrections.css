@@ -30,6 +30,9 @@
 
     .modal-wrapper {
         margin-left: -20px !important;
-        ;
+    }
+
+    .dock-indicator {
+        bottom: calc(var(--space-05) - 4px + env(safe-area-inset-bottom, 0px)) !important
     }
 }

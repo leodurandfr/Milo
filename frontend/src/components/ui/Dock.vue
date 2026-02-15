@@ -14,8 +14,8 @@
       class="additional-apps-container mobile-only" :class="{ visible: showAdditionalApps }">
 
       <button v-for="(app, index) in additionalDockApps.slice().reverse()" :key="app.id"
-        @click="() => handleAdditionalAppClick(app.id)"
-        v-press class="additional-app-content button-interactive-subtle">
+        @click="() => handleAdditionalAppClick(app.id)" v-press
+        class="additional-app-content button-interactive-subtle">
         <AppIcon :name="app.icon" :size="32" />
         <div class="app-title heading-2">{{ getAppTitle(app.id) }}</div>
       </button>
@@ -24,10 +24,10 @@
     <div ref="dock" class="dock">
       <!-- Volume Controls - Mobile only -->
       <div class="volume-controls mobile-only" :style="{ transitionDelay: getDockItemDelay(0) }">
-        <button v-for="{ icon, handler, delta } in volumeControlsWithSteps" :key="icon"
+        <button v-for="{ icon, delta } in volumeControlsWithSteps" :key="icon"
           @pointerdown="(e) => onVolumeHoldStart(delta, e)" @pointerup="onVolumeHoldEnd"
-          @pointercancel="onVolumeHoldEnd" @pointerleave="onVolumeHoldEnd"
-          v-press class="volume-btn button-interactive-subtle">
+          @pointercancel="onVolumeHoldEnd" @pointerleave="onVolumeHoldEnd" v-press
+          class="volume-btn button-interactive-subtle">
           <SvgIcon :name="icon" :size="32" />
         </button>
       </div>
@@ -35,51 +35,37 @@
       <!-- App Container -->
       <div class="app-container">
         <!-- Mobile: first 3 dock apps (audio mix + features) -->
-        <button
-          v-for="({ id, icon }, index) in dockApps"
-          :key="`mobile-${id}`"
-          :ref="el => { if (el) mobileDockItems[index] = el }"
-          @click="() => handleAppClick(id, index)"
-          :disabled="unifiedStore.systemState.transitioning"
-          :style="{ transitionDelay: getDockItemDelay(index) }"
+        <button v-for="({ id, icon }, index) in dockApps" :key="`mobile-${id}`"
+          :ref="el => { if (el) mobileDockItems[index] = el }" @click="() => handleAppClick(id, index)"
+          :disabled="unifiedStore.systemState.transitioning" :style="{ transitionDelay: getDockItemDelay(index) }"
           v-press class="dock-item button-interactive-subtle mobile-only">
           <AppIcon :name="icon" size="large" class="dock-item-icon" />
         </button>
 
         <!-- Desktop: Audio Plugins -->
-        <button
-          v-for="({ id, icon }, index) in enabledAudioPlugins"
-          :key="`desktop-audio-${id}`"
-          :ref="el => { if (el) desktopDockItems[index] = el }"
-          @click="() => handleAppClick(id, index)"
-          :disabled="unifiedStore.systemState.transitioning"
-          :style="{ transitionDelay: getDockItemDelay(index) }"
+        <button v-for="({ id, icon }, index) in enabledAudioPlugins" :key="`desktop-audio-${id}`"
+          :ref="el => { if (el) desktopDockItems[index] = el }" @click="() => handleAppClick(id, index)"
+          :disabled="unifiedStore.systemState.transitioning" :style="{ transitionDelay: getDockItemDelay(index) }"
           v-press class="dock-item button-interactive-subtle desktop-only">
           <AppIcon :name="icon" size="large" class="dock-item-icon" />
         </button>
 
         <!-- Separator - Desktop only, always shown if we have features -->
-        <div
-          v-if="enabledFeatures.length > 0"
+        <div v-if="enabledFeatures.length > 0"
           :style="{ transitionDelay: getDockItemDelay(enabledAudioPlugins.length) }"
           class="dock-separator desktop-only">
         </div>
 
         <!-- Mobile: Toggle Additional Apps (if more than 3 apps) -->
-        <button
-          v-if="additionalDockApps.length > 0"
-          @click="handleToggleClick"
-          :style="{ transitionDelay: getDockItemDelay(dockApps.length) }"
-          v-press class="dock-item toggle-btn mobile-only button-interactive">
+        <button v-if="additionalDockApps.length > 0" @click="handleToggleClick"
+          :style="{ transitionDelay: getDockItemDelay(dockApps.length) }" v-press
+          class="dock-item toggle-btn mobile-only button-interactive">
           <SvgIcon :name="showAdditionalApps ? 'closeDots' : 'threeDots'" :size="32" class="toggle-icon" />
         </button>
 
         <!-- Desktop: Features -->
-        <button
-          v-for="({ id, icon, handler }, index) in enabledFeatures"
-          :key="`desktop-feature-${id}`"
-          @click="handler"
-          :style="{ transitionDelay: getDockItemDelay(enabledAudioPlugins.length + 1 + index) }"
+        <button v-for="({ id, icon, handler }, index) in enabledFeatures" :key="`desktop-feature-${id}`"
+          @click="handler" :style="{ transitionDelay: getDockItemDelay(enabledAudioPlugins.length + 1 + index) }"
           v-press class="dock-item desktop-only button-interactive-subtle">
           <AppIcon :name="icon" size="large" class="dock-item-icon" />
         </button>
@@ -92,7 +78,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch, nextTick, getCurrentInstance, inject } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick, inject } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
@@ -100,8 +86,6 @@ import AppIcon from '@/components/ui/AppIcon.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const { t } = useI18n();
-const instance = getCurrentInstance();
-const $t = instance.appContext.config.globalProperties.$t;
 const { on } = useWebSocket();
 const registerDockControl = inject('registerDockControl', null);
 
@@ -156,8 +140,8 @@ const unifiedStore = useUnifiedAudioStore();
 const volumeControlsWithSteps = computed(() => {
   const step = unifiedStore.volumeState.step_mobile_db;
   return [
-    { icon: 'minus', handler: () => unifiedStore.adjustVolume(-step), delta: -step },
-    { icon: 'plus', handler: () => unifiedStore.adjustVolume(step), delta: step }
+    { icon: 'minus', delta: -step },
+    { icon: 'plus', delta: step }
   ];
 });
 
@@ -200,7 +184,7 @@ const volumeActionTaken = ref(false);
 const volumePointerType = ref(null);
 
 // === TIMERS ===
-let hideTimeout = null, additionalHideTimeout = null, clickTimeout = null, dragGraceTimeout = null;
+let hideTimeout = null, additionalHideTimeout = null, dragGraceTimeout = null;
 
 // === COMPUTED ===
 const activeSourceIndex = computed(() => {
@@ -222,7 +206,6 @@ const activeSourceIndex = computed(() => {
 const indicatorStyle = ref({
   opacity: '0',
   transform: 'translateX(0px)',
-  // transition: 'all var(--transition-normal)'
 });
 
 // === UTILITIES ===
@@ -237,7 +220,7 @@ const isDesktop = () => window.matchMedia('not (max-aspect-ratio: 4/3)').matches
 const getDockItemDelay = (index) => `${DOCK_ANIM_INITIAL_DELAY + index * DOCK_ANIM_STAGGER}s`;
 
 const clearAllTimers = () => {
-  [hideTimeout, additionalHideTimeout, clickTimeout, volumeStartTimer.value, volumeRepeatTimer.value, dragGraceTimeout]
+  [hideTimeout, additionalHideTimeout, volumeStartTimer.value, volumeRepeatTimer.value, dragGraceTimeout]
     .forEach(timer => timer && clearTimeout(timer));
   volumeStartTimer.value = volumeRepeatTimer.value = dragGraceTimeout = null;
   dragActionTaken.value = volumeActionTaken.value = false;
@@ -428,7 +411,6 @@ const onDragMove = (e) => {
 };
 
 const onDragEnd = () => {
-  clearTimeout(clickTimeout);
   if (isDraggingAdditional) {
     isDraggingAdditional = false;
     additionalDragMoved = false;
@@ -460,7 +442,7 @@ const onDragZoneClick = () => {
 };
 
 const onIndicatorClick = () => {
-  if (!isDesktop() && !isDragging.value && !isVisible.value) {
+  if (!isDragging.value && !isVisible.value) {
     showDock();
   }
 };
@@ -551,7 +533,6 @@ const updateActiveIndicator = () => {
       indicatorStyle.value = {
         opacity: '1',
         transform: `translateX(${offsetX}px)`,
-        // transition: 'opacity var(--transition-normal), transform var(--transition-spring)'
       };
     }, 50);
   });
@@ -569,7 +550,6 @@ const moveIndicatorTo = (index) => {
     indicatorStyle.value = {
       opacity: '1',
       transform: `translateX(${offsetX}px)`,
-      // transition: 'all var(--transition-spring)'
     };
   });
 };
@@ -739,7 +719,7 @@ onUnmounted(() => {
 .drag-zone {
   position: fixed;
   width: 280px;
-  bottom:calc(0px + env(safe-area-inset-top, 0px));
+  bottom: calc(0px + env(safe-area-inset-top, 0px));
   left: 50%;
   transform: translateX(-50%);
   height: 12%;
@@ -747,7 +727,6 @@ onUnmounted(() => {
   z-index: 3999;
   cursor: grab;
   user-select: none;
-
 }
 
 .drag-zone.dragging {
@@ -781,8 +760,6 @@ onUnmounted(() => {
   transform: translateY(calc(-1 * var(--space-03)));
   pointer-events: auto;
 }
-
-
 
 .additional-app-content {
   display: flex;
@@ -876,7 +853,7 @@ onUnmounted(() => {
   pointer-events: none;
 }
 
-.additional-app-content.button-interactive-subtle::before{
+.additional-app-content.button-interactive-subtle::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -961,7 +938,6 @@ onUnmounted(() => {
   transform: translateY(0) scale(1);
 }
 
-
 .dock-container.visible.fully-visible .dock-item,
 .dock-container.visible.fully-visible .dock-separator,
 .dock-container.visible.fully-visible .volume-controls {
@@ -1000,6 +976,33 @@ onUnmounted(() => {
   cursor: not-allowed;
 }
 
+.dock-indicator {
+  position: fixed;
+  bottom: calc(var(--space-03) - 2px + env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  width: 96px;
+  height: var(--space-01);
+  background: var(--color-background-medium-16);
+  border-radius: var(--radius-full);
+  z-index: 998;
+  opacity: 0;
+  pointer-events: none;
+  cursor: pointer;
+  transition: opacity var(--transition-normal), transform var(--transition-spring);
+}
+
+.dock-indicator.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.dock-indicator.hidden {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-20px);
+  pointer-events: none;
+}
+
 .mobile-only {
   display: flex;
 }
@@ -1018,32 +1021,9 @@ onUnmounted(() => {
   }
 
   .dock-indicator {
-    position: fixed;
-    bottom: calc(var(--space-06) + env(safe-area-inset-bottom, 0px));
-    left: 50%;
-    transform: translateX(-50%);
-    width: var(--space-05);
-    height: var(--space-01);
-    background: var(--color-background-medium-16);
-    border-radius: var(--radius-full);
-    z-index: 998;
-    opacity: 0;
-    pointer-events: none;
-    /* transition: opacity 600ms ease-in-out; */
-    cursor: pointer;
-    
-  }
-
-  .dock-indicator.visible {
-    opacity: 1;
-    pointer-events: auto;
-  }
-
-  .dock-indicator.hidden {
-    opacity: 0;
+    width: 64px;
   }
 }
-
 
 @media not (max-aspect-ratio: 4/3) {
   .mobile-only {
@@ -1056,10 +1036,6 @@ onUnmounted(() => {
 
   .dock {
     flex-direction: row;
-  }
-
-  .dock-indicator {
-    display: none;
   }
 }
 </style>
