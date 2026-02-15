@@ -1,125 +1,161 @@
 <!-- frontend/src/components/ui/VirtualKeyboard.vue -->
 <template>
-  <!-- Component always mounted for computed to work -->
   <div>
     <Transition name="keyboard">
       <div v-if="isKeyboardVisible && shouldShowKeyboard" ref="keyboardRef" class="virtual-keyboard">
-        <!-- Header: Input display + Cancel + Close buttons -->
+
+        <!-- Header: Input display + Backspace -->
         <div class="keyboard-header">
           <div class="keyboard-input-display">
             <input ref="displayInput" type="text" v-model="keyboardValue" :placeholder="keyboardPlaceholder"
               class="keyboard-display-input heading-3" readonly />
           </div>
-          <button class="keyboard-cancel-btn" :class="{ 'disabled': !hasChanges }" :disabled="!hasChanges"
-            @click="handleCancel">
-            <SvgIcon name="reset" :size="24" />
-          </button>
-          <button class="keyboard-close-btn" @click="handleClose">
-            <SvgIcon name="close" :size="24" />
+          <button class="keyboard-key key-backspace"
+            @pointerdown.prevent="startBackspaceRepeat"
+            @pointerup.prevent="stopBackspaceRepeat"
+            @pointerleave="stopBackspaceRepeat">
+            <SvgIcon name="keyboardDelete" :size="24" />
           </button>
         </div>
 
         <div class="keyboard-keys">
-          <!-- Row 1: [tab] + 10 keys + [backspace] -->
+          <!-- Row 1: 10 character keys -->
           <div class="keyboard-row">
-            <button class="keyboard-key key-tab text-mono" @click="addChar('\t')">
-              ⇥
-            </button>
-            <button v-for="key in currentRow1" :key="'r1-' + key" class="keyboard-key text-mono" @click="addChar(key)">
+            <button v-for="key in currentRow1" :key="'r1-' + key"
+              class="keyboard-key text-body"
+              @pointerdown.prevent="onKeyPointerDown($event, key)"
+              @pointerup.prevent="onKeyPointerUp($event, key)"
+              @pointerleave="onKeyPointerLeave"
+              @pointermove="onKeyPointerMove">
               {{ key }}
-            </button>
-            <button class="keyboard-key key-backspace text-mono" @click="backspace">
-              ⌫
             </button>
           </div>
 
-          <!-- Row 2: [caps] + 9-10 keys + [enter] -->
+          <!-- Row 2: 10 character keys -->
           <div class="keyboard-row">
-            <button class="keyboard-key key-caps text-mono" :class="{ 'caps-active': isCapsLock }"
-              @click="toggleCapsLock">
-              ⇪
-              <span v-if="isCapsLock" class="caps-indicator"></span>
-            </button>
-            <button v-for="key in currentRow2" :key="'r2-' + key" class="keyboard-key text-mono" @click="addChar(key)">
+            <button v-for="key in currentRow2" :key="'r2-' + key"
+              class="keyboard-key text-body"
+              @pointerdown.prevent="onKeyPointerDown($event, key)"
+              @pointerup.prevent="onKeyPointerUp($event, key)"
+              @pointerleave="onKeyPointerLeave"
+              @pointermove="onKeyPointerMove">
               {{ key }}
-            </button>
-            <button class="keyboard-key key-enter text-mono" @click="addChar('\n')">
-              ↵
             </button>
           </div>
 
-          <!-- Row 3: [shift] + 9 keys + [shift] -->
+          <!-- Row 3: [caps/#+=/123] + character keys + [submit →] -->
           <div class="keyboard-row">
-            <button class="keyboard-key key-shift text-mono" :class="{ 'shift-active': isShiftHeld }"
+            <button class="keyboard-key key-caps"
+              :class="{ 'caps-active': isCapsLock && keyboardMode === 'abc' }"
+              @pointerdown.prevent
+              @click="handleRow3Left">
+              <template v-if="keyboardMode === 'abc'">
+                <SvgIcon :name="isCapsLock ? 'keyboardCapsLockFilled' : 'keyboardCapsLock'" :size="24" />
+              </template>
+              <template v-else-if="keyboardMode === 'numbers'"><span class="text-body">#+=</span></template>
+              <template v-else><span class="text-body">123</span></template>
+            </button>
+
+            <button v-for="key in currentRow3" :key="'r3-' + key"
+              class="keyboard-key text-body"
+              @pointerdown.prevent="onKeyPointerDown($event, key)"
+              @pointerup.prevent="onKeyPointerUp($event, key)"
+              @pointerleave="onKeyPointerLeave"
+              @pointermove="onKeyPointerMove">
+              {{ key }}
+            </button>
+
+            <button class="keyboard-key key-enter"
+              @pointerdown.prevent
+              @click="handleSubmit">
+              <SvgIcon name="keyboardEnter" :size="24" />
+            </button>
+          </div>
+
+          <!-- Row 4: [shift] + [mode toggle] + [space] + [dismiss ⌨] -->
+          <div class="keyboard-row">
+            <button class="keyboard-key key-shift"
+              :class="{ 'shift-active': isShiftHeld }"
+              @pointerdown.prevent
               @click="toggleShift">
-              ⇧
+              <SvgIcon name="keyboardShift" :size="24" />
             </button>
-            <button v-for="key in currentRow3" :key="'r3-' + key" class="keyboard-key text-mono" @click="addChar(key)">
-              {{ key }}
-            </button>
-            <button class="keyboard-key key-shift text-mono" :class="{ 'shift-active': isShiftHeld }"
-              @click="toggleShift">
-              ⇧
-            </button>
-          </div>
-
-          <!-- Row 4: [mode-toggle] + [space] + [submit] -->
-          <div class="keyboard-row">
-            <button class="keyboard-key key-mode text-mono" @click="toggleMode">
+            <button class="keyboard-key key-mode text-body"
+              @pointerdown.prevent
+              @click="toggleMode">
               {{ modeToggleLabel }}
             </button>
-            <button class="keyboard-key key-space" @click="addChar(' ')">
+            <button class="keyboard-key key-space"
+              @pointerdown.prevent
+              @click="addChar(' ')">
             </button>
-            <button class="keyboard-key key-submit text-mono" @click="handleSubmit">
-              ✓
+            <button class="keyboard-key key-dot text-body"
+              @pointerdown.prevent="onKeyPointerDown($event, '.')"
+              @pointerup.prevent="onKeyPointerUp($event, '.')"
+              @pointerleave="onKeyPointerLeave"
+              @pointermove="onKeyPointerMove">
+              .
+            </button>
+            <button class="keyboard-key key-dismiss"
+              @pointerdown.prevent
+              @click="handleClose">
+              <SvgIcon name="keyboardHide" :size="24" />
             </button>
           </div>
         </div>
+
+        <!-- Key press popup (shows enlarged character above pressed key) -->
+        <div v-if="pressPopup.visible" class="key-press-popup"
+          :style="pressPopup.style">
+          {{ pressPopup.char }}
+        </div>
+
+        <!-- Long press accent popup (shows row of accent variants) -->
+        <div v-if="accentPopup.visible" class="accent-popup"
+          :style="accentPopup.style">
+          <div v-for="(accent, i) in accentPopup.variants" :key="accent"
+            class="accent-option text-body"
+            :class="{ 'accent-selected': accentPopup.selectedIndex === i }">
+            {{ accent }}
+          </div>
+        </div>
+
       </div>
     </Transition>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, reactive, computed, onUnmounted, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useVirtualKeyboard } from '@/composables/useVirtualKeyboard';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
-import SvgIcon from './SvgIcon.vue';
+import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const { getCurrentLanguage } = useI18n();
 const keyboardState = useVirtualKeyboard();
 const { screenResolution } = useHardwareConfig();
 
-// Ref for the keyboard element to detect outside clicks
 const keyboardRef = ref(null);
 
-// Create local computed refs for reactivity in template
+// Computed bindings from composable
 const isKeyboardVisible = computed(() => keyboardState.isVisible.value);
 const keyboardValue = computed({
   get: () => keyboardState.currentValue.value,
   set: (val) => keyboardState.updateValue(val)
 });
 const keyboardPlaceholder = computed(() => keyboardState.placeholder.value);
-const keyboardInitialValue = computed(() => keyboardState.initialValue.value);
 
-// Check if the value has been modified
-const hasChanges = computed(() => keyboardValue.value !== keyboardInitialValue.value);
-
-// Keyboard state
+// Keyboard internal state
 const keyboardMode = ref('abc'); // 'abc', 'numbers', 'symbols'
 const isCapsLock = ref(false);
 const isShiftHeld = ref(false);
-
-// Computed: is uppercase active (caps lock OR shift held)
 const isUppercase = computed(() => isCapsLock.value || isShiftHeld.value);
 
-// Detect if keyboard should be shown based on screen resolution
+// Screen resolution detection
 const shouldShowKeyboard = computed(() => {
   const urlParams = new URLSearchParams(window.location.search);
-  if (urlParams.get('virtualKeyboard') === 'true') {
-    return true;
-  }
+  if (urlParams.get('virtualKeyboard') === 'true') return true;
 
   const configuredResolution = screenResolution.value;
   const currentWidth = window.innerWidth;
@@ -127,123 +163,157 @@ const shouldShowKeyboard = computed(() => {
   const configWidth = configuredResolution?.width;
   const configHeight = configuredResolution?.height;
 
-  if (!configWidth || !configHeight) {
-    return false;
-  }
-
+  if (!configWidth || !configHeight) return false;
   return currentWidth === configWidth && currentHeight === configHeight;
 });
 
-// Keyboard layouts - iPad style (3 languages x 3 modes)
+// ===== KEYBOARD LAYOUTS =====
 const keyboardLayouts = {
-  // AZERTY French layout
   french: {
     abc: {
       row1: ['a', 'z', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
       row2: ['q', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'm'],
-      row3: ['w', 'x', 'c', 'v', 'b', 'n', "'", '?', '!'],
+      row3: ['w', 'x', 'c', 'v', 'b', 'n', '?', ','],
     },
     numbers: {
       row1: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
-      row2: ['@', '#', '&', '"', '€', '(', '!', ')', '-', '*'],
-      row3: ['%', '_', '+', '=', '/', ':', ';', "'", '?'],
+      row2: ['-', '/', ':', ';', '(', ')', '€', '&', '@', '"'],
+      row3: [',', '?', '!', "'", '\u2026', '\u014D', '\u30FB', '\u2014'],
     },
     symbols: {
-      row1: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
-      row2: ['~', '°', '[', ']', '{', '}', '^', '$', '£', '¥'],
-      row3: ['§', '<', '>', '|', '\\', '…', '.', "'", '?'],
+      row1: ['[', ']', '{', '}', '#', '%', '^', '*', '+', '='],
+      row2: ['_', '\\', '|', '~', '<', '>', '$', '£', '¥', '\u2E31'],
+      row3: [',', '?', '!', "'", '\u2026', '\u014D', '\u30FB', '\u2014'],
     }
   },
-
-  // QWERTY English layout (default)
   english: {
     abc: {
       row1: ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
-      row2: ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'],
-      row3: ['z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '!', '?'],
+      row2: ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', "'"],
+      row3: ['z', 'x', 'c', 'v', 'b', 'n', 'm', ','],
     },
     numbers: {
       row1: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
-      row2: ['@', '#', '€', '&', '*', '(', ')', "'", '"'],
-      row3: ['%', '-', '+', '=', '/', ';', ':', '!', '?'],
+      row2: ['-', '/', ':', ';', '(', ')', '$', '&', '@', '"'],
+      row3: [',', '?', '!', "'", '\u2026', '\u014D', '\u30FB', '\u2014'],
     },
     symbols: {
-      row1: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
-      row2: ['$', '£', '¥', '_', '^', '[', ']', '{', '}'],
-      row3: ['§', '|', '~', '…', '\\', '<', '>', '!', '?'],
+      row1: ['[', ']', '{', '}', '#', '%', '^', '*', '+', '='],
+      row2: ['_', '\\', '|', '~', '<', '>', '€', '£', '¥', '\u2E31'],
+      row3: [',', '?', '!', "'", '\u2026', '\u014D', '\u30FB', '\u2014'],
     }
   },
-
-  // QWERTY Spanish layout
   spanish: {
     abc: {
       row1: ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
       row2: ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'ñ'],
-      row3: ['z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '!', '?'],
+      row3: ['z', 'x', 'c', 'v', 'b', 'n', 'm', ','],
     },
     numbers: {
       row1: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
-      row2: ['@', '#', '€', '&', '*', '(', ')', '¿', '¡'],
-      row3: ['%', '-', '+', '=', '/', ';', ':', '!', '?'],
+      row2: ['-', '/', ':', ';', '(', ')', '€', '&', '@', '"'],
+      row3: [',', '?', '!', "'", '\u2026', '\u014D', '\u30FB', '\u2014'],
     },
     symbols: {
+      row1: ['[', ']', '{', '}', '#', '%', '^', '*', '+', '='],
+      row2: ['_', '\\', '|', '~', '<', '>', '$', '£', '¥', '\u2E31'],
+      row3: [',', '?', '!', "'", '\u2026', '\u014D', '\u30FB', '\u2014'],
+    }
+  },
+  german: {
+    abc: {
+      row1: ['q', 'w', 'e', 'r', 't', 'z', 'u', 'i', 'o', 'p'],
+      row2: ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'ü'],
+      row3: ['y', 'x', 'c', 'v', 'b', 'n', 'm', ','],
+    },
+    numbers: {
       row1: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
-      row2: ['$', '£', '¥', '_', '^', '[', ']', '{', '}'],
-      row3: ['§', '|', '~', '…', '\\', '<', '>', 'á', 'é'],
+      row2: ['-', '/', ':', ';', '(', ')', '€', '&', '@', '"'],
+      row3: [',', '?', '!', "'", '\u2026', '\u014D', '\u30FB', '\u2014'],
+    },
+    symbols: {
+      row1: ['[', ']', '{', '}', '#', '%', '^', '*', '+', '='],
+      row2: ['_', '\\', '|', '~', '<', '>', '$', '£', '¥', '\u2E31'],
+      row3: [',', '?', '!', "'", '\u2026', '\u014D', '\u30FB', '\u2014'],
     }
   }
 };
 
-// Get current layout based on language
+// ===== ACCENT MAPS (per-language, native accents only) =====
+const accentMaps = {
+  french: {
+    'a': ['à', 'â', 'æ'],
+    'e': ['è', 'é', 'ê', 'ë'],
+    'i': ['î', 'ï'],
+    'o': ['ô', 'œ'],
+    'u': ['ù', 'û', 'ü'],
+    'y': ['ÿ'],
+    'c': ['ç'],
+  },
+  english: {
+    // English has no native accents
+  },
+  spanish: {
+    'a': ['á'],
+    'e': ['é'],
+    'i': ['í'],
+    'o': ['ó'],
+    'u': ['ú', 'ü'],
+    'n': ['ñ'],
+    '?': ['¿'],
+    '!': ['¡'],
+  },
+  german: {
+    'a': ['ä'],
+    'o': ['ö'],
+    'u': ['ü'],
+    's': ['ß'],
+  },
+};
+
+const accentMap = computed(() => {
+  const lang = getCurrentLanguage();
+  return accentMaps[lang] || accentMaps.english;
+});
+
+// ===== COMPUTED: layout selection =====
 const currentLayoutData = computed(() => {
   const lang = getCurrentLanguage();
-
-  if (lang === 'french') {
-    return keyboardLayouts.french;
-  } else if (lang === 'spanish') {
-    return keyboardLayouts.spanish;
-  } else {
-    // english, german, italian, portuguese, hindi, chinese - use english QWERTY
-    return keyboardLayouts.english;
-  }
+  if (lang === 'french') return keyboardLayouts.french;
+  if (lang === 'spanish') return keyboardLayouts.spanish;
+  if (lang === 'german') return keyboardLayouts.german;
+  return keyboardLayouts.english;
 });
 
-// Get current mode layout
-const currentModeLayout = computed(() => {
-  return currentLayoutData.value[keyboardMode.value];
-});
+const currentModeLayout = computed(() => currentLayoutData.value[keyboardMode.value]);
 
-// Transform keys based on uppercase state (only for abc mode)
 const transformKey = (key) => {
-  if (keyboardMode.value === 'abc' && isUppercase.value) {
-    return key.toUpperCase();
-  }
+  if (keyboardMode.value === 'abc' && isUppercase.value) return key.toUpperCase();
   return key;
 };
 
-// Current rows with uppercase transformation
 const currentRow1 = computed(() => currentModeLayout.value.row1.map(transformKey));
 const currentRow2 = computed(() => currentModeLayout.value.row2.map(transformKey));
 const currentRow3 = computed(() => currentModeLayout.value.row3.map(transformKey));
 
-// Mode toggle label
 const modeToggleLabel = computed(() => {
-  if (keyboardMode.value === 'abc') {
-    return '.?123';
-  } else if (keyboardMode.value === 'numbers') {
-    return '#+=';
-  } else {
-    return 'ABC';
-  }
+  if (keyboardMode.value === 'abc') return '?123';
+  return 'ABC';
 });
 
-// Functions
+// ===== POPUP STATE =====
+const pressPopup = reactive({ visible: false, char: '', style: {} });
+const accentPopup = reactive({ visible: false, variants: [], selectedIndex: -1, style: {} });
+let longPressTimer = null;
+const LONG_PRESS_DURATION = 500;
+
+// ===== BACKSPACE REPEAT STATE =====
+let backspaceInterval = null;
+
+// ===== CORE FUNCTIONS =====
 function addChar(char) {
   keyboardValue.value += char;
-  // Reset shift after typing (but not caps lock)
-  if (isShiftHeld.value) {
-    isShiftHeld.value = false;
-  }
+  if (isShiftHeld.value) isShiftHeld.value = false;
 }
 
 function backspace() {
@@ -258,68 +328,248 @@ function toggleShift() {
   isShiftHeld.value = !isShiftHeld.value;
 }
 
+// Row 3 left: Caps Lock in abc mode, #+=  toggle in numbers/symbols
+function handleRow3Left() {
+  if (keyboardMode.value === 'abc') {
+    toggleCapsLock();
+  } else if (keyboardMode.value === 'numbers') {
+    keyboardMode.value = 'symbols';
+  } else {
+    keyboardMode.value = 'numbers';
+  }
+}
+
+// Row 4 mode: .?123 / ABC toggle between abc and numbers
 function toggleMode() {
   if (keyboardMode.value === 'abc') {
     keyboardMode.value = 'numbers';
-  } else if (keyboardMode.value === 'numbers') {
-    keyboardMode.value = 'symbols';
   } else {
     keyboardMode.value = 'abc';
   }
 }
 
-function handleCancel() {
-  keyboardState.cancel();
-}
-
-function handleClose() {
-  keyboardState.close();
-  // Reset state when closing
+function resetState() {
   keyboardMode.value = 'abc';
   isCapsLock.value = false;
   isShiftHeld.value = false;
+  pressPopup.visible = false;
+  cleanupAccentListeners();
+  clearTimeout(longPressTimer);
+  clearInterval(backspaceInterval);
 }
 
 function handleSubmit() {
   keyboardState.submit();
-  // Reset state when submitting
-  keyboardMode.value = 'abc';
-  isCapsLock.value = false;
-  isShiftHeld.value = false;
+  resetState();
 }
 
-// Handle clicks outside the keyboard and InputText fields
+function handleClose() {
+  keyboardState.close();
+  resetState();
+}
+
+// ===== KEY PRESS POPUP =====
+function showPressPopup(event, key) {
+  if (!keyboardRef.value) return;
+
+  const keyRect = event.target.getBoundingClientRect();
+  const kbRect = keyboardRef.value.getBoundingClientRect();
+
+  const popupWidth = Math.max(keyRect.width + 12, 48);
+  const left = keyRect.left - kbRect.left + (keyRect.width / 2) - (popupWidth / 2);
+  const bottom = kbRect.bottom - keyRect.top + 6;
+
+  pressPopup.char = key;
+  pressPopup.style = {
+    left: `${left}px`,
+    bottom: `${bottom}px`,
+    width: `${popupWidth}px`
+  };
+  pressPopup.visible = true;
+}
+
+// ===== ACCENT POPUP =====
+function showAccentPopup(event, key) {
+  const lowerKey = key.toLowerCase();
+  const variants = accentMap.value[lowerKey];
+  if (!variants || variants.length === 0 || !keyboardRef.value) return;
+
+  const mappedVariants = isUppercase.value
+    ? variants.map(v => v.toUpperCase())
+    : [...variants];
+
+  const keyRect = event.target.getBoundingClientRect();
+  const kbRect = keyboardRef.value.getBoundingClientRect();
+
+  const optionWidth = 44;
+  const gap = 2;
+  const padding = 8;
+  const totalWidth = (mappedVariants.length * (optionWidth + gap)) - gap + padding;
+
+  let left = keyRect.left - kbRect.left + (keyRect.width / 2) - (totalWidth / 2);
+  left = Math.max(4, Math.min(left, kbRect.width - totalWidth - 4));
+
+  const bottom = kbRect.bottom - keyRect.top + 6;
+
+  accentPopup.variants = mappedVariants;
+  accentPopup.selectedIndex = -1;
+  accentPopup.style = {
+    left: `${left}px`,
+    bottom: `${bottom}px`
+  };
+  accentPopup.visible = true;
+  pressPopup.visible = false;
+}
+
+// ===== POINTER EVENT HANDLERS =====
+let activeKey = null;
+
+function onKeyPointerDown(event, key) {
+  activeKey = key;
+  showPressPopup(event, key);
+
+  const lowerKey = key.toLowerCase();
+  if (accentMap.value[lowerKey]) {
+    longPressTimer = setTimeout(() => {
+      showAccentPopup(event, key);
+      // Once accent popup is shown, listen on document for slide-to-select
+      document.addEventListener('pointermove', onDocumentPointerMove);
+      document.addEventListener('pointerup', onDocumentPointerUp);
+      document.addEventListener('pointercancel', onDocumentPointerUp);
+    }, LONG_PRESS_DURATION);
+  }
+}
+
+function onKeyPointerUp(event, key) {
+  clearTimeout(longPressTimer);
+  longPressTimer = null;
+
+  // If accent popup is visible, let the document-level handler manage selection
+  if (accentPopup.visible) return;
+
+  addChar(activeKey || key);
+  pressPopup.visible = false;
+  activeKey = null;
+}
+
+function onKeyPointerLeave() {
+  // Don't cancel if accent popup is active (finger sliding to popup)
+  if (accentPopup.visible) return;
+
+  clearTimeout(longPressTimer);
+  longPressTimer = null;
+  pressPopup.visible = false;
+}
+
+function onKeyPointerMove() {
+  // Individual key move — not used for accent selection (document handles that)
+}
+
+function onDocumentPointerMove(event) {
+  if (!accentPopup.visible || !keyboardRef.value) return;
+
+  const kbRect = keyboardRef.value.getBoundingClientRect();
+  const popupLeft = parseFloat(accentPopup.style.left);
+  const padding = 4;
+  const optionWidth = 44;
+  const gap = 2;
+
+  const x = event.clientX - kbRect.left - popupLeft - padding;
+  const index = Math.floor(x / (optionWidth + gap));
+  accentPopup.selectedIndex = Math.max(0, Math.min(index, accentPopup.variants.length - 1));
+}
+
+function onDocumentPointerUp() {
+  if (!accentPopup.visible) return;
+
+  // Only insert if user has slid to an accent (selectedIndex >= 0)
+  if (accentPopup.selectedIndex >= 0) {
+    const selected = accentPopup.variants[accentPopup.selectedIndex];
+    if (selected) addChar(selected);
+  }
+  cleanupAccentListeners();
+  pressPopup.visible = false;
+  activeKey = null;
+}
+
+function cleanupAccentListeners() {
+  accentPopup.visible = false;
+  document.removeEventListener('pointermove', onDocumentPointerMove);
+  document.removeEventListener('pointerup', onDocumentPointerUp);
+  document.removeEventListener('pointercancel', onDocumentPointerUp);
+}
+
+// ===== BACKSPACE REPEAT =====
+function startBackspaceRepeat() {
+  backspace();
+  backspaceInterval = setInterval(backspace, 100);
+}
+
+function stopBackspaceRepeat() {
+  if (backspaceInterval) {
+    clearInterval(backspaceInterval);
+    backspaceInterval = null;
+  }
+}
+
+// ===== OUTSIDE CLICK HANDLER =====
 function handleOutsideClick(event) {
-  // Check if click is inside the keyboard
-  if (keyboardRef.value && keyboardRef.value.contains(event.target)) {
-    return;
-  }
-
-  // Check if click is on an InputText (has input-container class or is inside one)
-  const inputContainer = event.target.closest('.input-container');
-  if (inputContainer) {
-    return;
-  }
-
-  // Click is outside both keyboard and InputText - close the keyboard
+  if (keyboardRef.value && keyboardRef.value.contains(event.target)) return;
+  if (event.target.closest('.input-container')) return;
   handleClose();
 }
 
-// Add/remove global click listener when keyboard visibility changes
+// ===== ORIGIN ELEMENT VISIBILITY CHECK =====
+// Detects when the element that opened the keyboard becomes hidden
+// (e.g. parent modal closing with opacity animation, component removed from DOM)
+let originCheckInterval = null;
+
+function isAncestorHidden(el) {
+  let current = el;
+  while (current && current !== document.documentElement) {
+    const opacity = parseFloat(getComputedStyle(current).opacity);
+    if (opacity < 0.1) return true;
+    current = current.parentElement;
+  }
+  return false;
+}
+
+function startOriginCheck() {
+  stopOriginCheck();
+  originCheckInterval = setInterval(() => {
+    const el = keyboardState.originElement.value;
+    if (!el) return;
+    if (!el.isConnected || isAncestorHidden(el)) {
+      handleClose();
+    }
+  }, 200);
+}
+
+function stopOriginCheck() {
+  if (originCheckInterval) {
+    clearInterval(originCheckInterval);
+    originCheckInterval = null;
+  }
+}
+
 watch(isKeyboardVisible, (visible) => {
   if (visible) {
-    // Use setTimeout to avoid catching the click that opened the keyboard
+    startOriginCheck();
     setTimeout(() => {
       document.addEventListener('pointerdown', handleOutsideClick);
     }, 0);
   } else {
+    stopOriginCheck();
     document.removeEventListener('pointerdown', handleOutsideClick);
   }
 });
 
-// Cleanup on unmount
 onUnmounted(() => {
+  stopOriginCheck();
   document.removeEventListener('pointerdown', handleOutsideClick);
+  cleanupAccentListeners();
+  clearTimeout(longPressTimer);
+  clearInterval(backspaceInterval);
 });
 </script>
 
@@ -331,174 +581,234 @@ onUnmounted(() => {
   transform: translateX(-50%);
   z-index: 6000;
   width: 100%;
-  max-width: 1024px;
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-05) var(--radius-05) 0 0;
-  padding: var(--space-06);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  max-width: 884px;
+  background: var(--color-background-medium-32);
+  backdrop-filter: blur(var(--blur-04));
+  -webkit-backdrop-filter: blur(var(--blur-04));
+  border-radius: var(--radius-07) var(--radius-07) 0 0;
+  padding: var(--space-05);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-01);
+  overflow: hidden;
+  touch-action: none;
 }
 
+.virtual-keyboard::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 1.5px;
+  background: var(--stroke-glass);
+  border-radius: var(--radius-07) var(--radius-07) 0 0;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* Header: Input + Backspace — same 10-column grid as rows */
 .keyboard-header {
-  display: flex;
-  gap: var(--space-03);
-  margin-bottom: var(--space-04);
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: var(--space-01);
+  align-items: stretch;
 }
 
 .keyboard-input-display {
-  flex: 1;
+  grid-column: span 9;
 }
 
 .keyboard-display-input {
   width: 100%;
+  height: 100%;
   padding: var(--space-03) var(--space-04);
   border: 0px;
   box-shadow: inset 0 0 0 1px var(--color-border);
   border-radius: var(--radius-04);
   background: var(--color-background);
   color: var(--color-text);
-  font-size: var(--font-size-large);
+  font-size: var(--font-size-h3);
   text-align: center;
 }
 
-.keyboard-close-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 48px;
-  height: 48px;
-  background: var(--color-background-strong);
-  border: none;
-  border-radius: var(--radius-04);
-  color: var(--color-text);
-  cursor: pointer;
-  transition: background var(--transition-fast);
-}
-
-.keyboard-close-btn:hover {
-  background: var(--color-background-medium-16);
-}
-
-.keyboard-cancel-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 48px;
-  height: 48px;
-  background: var(--color-background-strong);
-  border: none;
-  border-radius: var(--radius-04);
-  color: var(--color-text);
-  cursor: pointer;
-  transition: background var(--transition-fast);
-}
-
-.keyboard-cancel-btn:hover:not(:disabled) {
-  background: var(--color-background-medium-16);
-}
-
-.keyboard-cancel-btn.disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
-
+/* Keyboard rows */
 .keyboard-keys {
   display: flex;
   flex-direction: column;
-  gap: var(--space-02);
+  gap: var(--space-01);
 }
 
 .keyboard-row {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: var(--space-01);
+}
+
+/* Base key style — character keys (solo) */
+.keyboard-key {
+  min-width: 0;
+  height: 48px;
+  box-sizing: border-box;
+  padding: var(--space-02);
+  overflow: hidden;
+  background: var(--color-background-neutral);
+  box-shadow: 0px 1px 0px rgba(0, 0, 0, 0.12);
+  border: none;
+  border-radius: var(--radius-04);
+  color: var(--color-text);
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
   display: flex;
-  gap: var(--space-02);
+  align-items: center;
   justify-content: center;
 }
 
-.keyboard-key {
-  flex: 1;
-  min-width: 0;
-  height: 48px;
-  background: var(--color-background-strong);
-  border: none;
-  border-radius: var(--radius-03);
-  color: var(--color-text);
-  font-size: var(--font-size-base);
-  font-weight: 500;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  user-select: none;
-  -webkit-tap-highlight-color: transparent;
-}
-
 .keyboard-key:active {
-  background: var(--color-brand);
-  transform: scale(0.95);
+  background: var(--color-background-medium-16);
+  box-shadow: none;
 }
 
-/* Special keys sizing */
-.key-tab,
-.key-backspace {
-  flex: 1.2;
-  font-size: var(--font-size-large);
-}
-
+/* Special keys — shared "button" style */
+.key-backspace,
 .key-caps,
-.key-enter {
-  flex: 1.4;
-  font-size: var(--font-size-large);
-  position: relative;
+.key-enter,
+.key-shift,
+.key-mode,
+.key-dismiss {
+  background: var(--color-background-contrast-32);
+  box-shadow: none;
+  color: var(--color-text-contrast);
 }
 
-.key-shift {
-  flex: 1.5;
-  font-size: var(--font-size-large);
-}
-
+/* Left-side keys: align bottom-left */
+.key-caps,
+.key-shift,
 .key-mode {
-  flex: 1.5;
-  font-size: var(--font-size-small);
+  align-items: flex-end;
+  justify-content: flex-start;
 }
 
-.key-space {
-  flex: 5;
+/* Right-side keys: align bottom-right */
+.key-backspace,
+.key-enter,
+.key-dismiss {
+  align-items: flex-end;
+  justify-content: flex-end;
 }
 
-.key-submit {
-  flex: 1.5;
-  background: var(--color-brand);
-  color: white;
-  font-size: var(--font-size-large);
+.key-backspace:active,
+.key-caps:active,
+.key-shift:active,
+.key-mode:active,
+.key-dismiss:active {
+  background: var(--color-background-medium-32);
 }
 
-.key-submit:active {
-  transform: scale(0.95);
-}
+/* Backspace */
 
-/* Caps Lock indicator */
+/* Caps Lock / #+= / 123 */
 .key-caps {
   position: relative;
 }
 
-.caps-indicator {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 6px;
-  height: 6px;
-  background: var(--color-success, #22c55e);
-  border-radius: 50%;
+/* Enter / Submit arrow */
+.key-enter {
+  background: var(--color-brand);
+  color: var(--color-text-contrast);
 }
 
+.key-enter:active {
+  opacity: 0.8;
+}
+
+/* Space bar — spans 6 columns in the 10-column grid */
+.key-space {
+  grid-column: span 6;
+}
+
+/* Caps Lock active state */
 .caps-active {
-  background: var(--color-background-medium-16);
+  background: var(--color-background-neutral);
+  box-shadow: 0px 1px 0px rgba(0, 0, 0, 0.12);
 }
 
 /* Shift active state */
 .shift-active {
-  background: var(--color-background-medium-16);
+  background: var(--color-background-neutral);
+  box-shadow: 0px 1px 0px rgba(0, 0, 0, 0.12);
 }
 
-/* Transitions */
-.keyboard-enter-active,
+/* ===== KEY PRESS POPUP ===== */
+.key-press-popup {
+  position: absolute;
+  pointer-events: none;
+  height: 64px;
+  background: var(--color-background-neutral);
+  border-radius: var(--radius-03);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Neue Montreal Regular';
+  font-size: var(--font-size-h2);
+  color: var(--color-text);
+  z-index: 10;
+}
+
+/* Stem connecting popup to key below */
+.key-press-popup::after {
+  content: '';
+  position: absolute;
+  bottom: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 16px;
+  height: 8px;
+  background: var(--color-background-neutral);
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+}
+
+/* ===== ACCENT POPUP ===== */
+.accent-popup {
+  position: absolute;
+  display: flex;
+  gap: 2px;
+  background: var(--color-background-neutral);
+  border-radius: var(--radius-03);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  padding: 4px;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.accent-option {
+  width: 44px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-02);
+  font-size: var(--font-size-h3);
+  color: var(--color-text);
+}
+
+.accent-selected {
+  background: var(--color-brand);
+  color: white;
+  border-radius: var(--radius-02);
+}
+
+/* ===== TRANSITIONS ===== */
+.keyboard-enter-active {
+  transition: transform var(--transition-normal);
+}
+
 .keyboard-leave-active {
   transition: transform 300ms ease, opacity 300ms ease;
 }
@@ -509,16 +819,15 @@ onUnmounted(() => {
   transform: translateX(-50%) translateY(100%);
 }
 
-/* Mobile adjustments */
+/* ===== MOBILE ADJUSTMENTS ===== */
 @media (max-aspect-ratio: 4/3) {
   .virtual-keyboard {
     max-width: 100%;
-    border-radius: var(--radius-05) var(--radius-05) 0 0;
+    border-radius: var(--radius-07) var(--radius-07) 0 0;
   }
 
   .keyboard-key {
-    height: 56px;
-    font-size: var(--font-size-large);
+    height: 52px;
   }
 }
 </style>

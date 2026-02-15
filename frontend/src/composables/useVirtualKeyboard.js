@@ -1,5 +1,5 @@
 // frontend/src/composables/useVirtualKeyboard.js
-import { ref, watch } from 'vue';
+import { ref } from 'vue';
 
 // Global state (shared across all components)
 const isVisible = ref(false);
@@ -9,6 +9,7 @@ const placeholder = ref('');
 const onSubmitCallback = ref(null);
 const onCloseCallback = ref(null);
 const onChangeCallback = ref(null);
+const originElement = ref(null);
 
 export function useVirtualKeyboard() {
   /**
@@ -32,6 +33,7 @@ export function useVirtualKeyboard() {
     onSubmitCallback.value = options.onSubmit || null;
     onCloseCallback.value = options.onClose || null;
     onChangeCallback.value = options.onChange || null;
+    originElement.value = options.originElement || null;
     isVisible.value = true;
   }
 
@@ -47,6 +49,7 @@ export function useVirtualKeyboard() {
     onSubmitCallback.value = null;
     onCloseCallback.value = null;
     onChangeCallback.value = null;
+    originElement.value = null;
   }
 
   /**
@@ -61,6 +64,7 @@ export function useVirtualKeyboard() {
     onSubmitCallback.value = null;
     onCloseCallback.value = null;
     onChangeCallback.value = null;
+    originElement.value = null;
   }
 
   /**
@@ -89,6 +93,7 @@ export function useVirtualKeyboard() {
     currentValue,
     initialValue,
     placeholder,
+    originElement,
 
     // Methods
     open,

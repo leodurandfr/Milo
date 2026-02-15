@@ -54,6 +54,12 @@ import speakerSubIcon from '@/assets/icons/speaker-sub.svg?raw'
 import speakerShelfIcon from '@/assets/icons/speaker-shelf.svg?raw'
 import speakerColumnIcon from '@/assets/icons/speaker-column.svg?raw'
 import speakerSatelliteIcon from '@/assets/icons/speaker-satellite.svg?raw'
+import keyboardCapsLockIcon from '@/assets/icons/keyboard/caps-lock.svg?raw'
+import keyboardCapsLockFilledIcon from '@/assets/icons/keyboard/caps-lock-filled.svg?raw'
+import keyboardEnterIcon from '@/assets/icons/keyboard/enter.svg?raw'
+import keyboardHideIcon from '@/assets/icons/keyboard/hide-keyboard.svg?raw'
+import keyboardShiftIcon from '@/assets/icons/keyboard/shift.svg?raw'
+import keyboardDeleteIcon from '@/assets/icons/keyboard/delete.svg?raw'
 
 const icons = {
   play: playIcon,
@@ -87,7 +93,13 @@ const icons = {
   speakerSub: speakerSubIcon,
   speakerShelf: speakerShelfIcon,
   speakerColumn: speakerColumnIcon,
-  speakerSatellite: speakerSatelliteIcon
+  speakerSatellite: speakerSatelliteIcon,
+  keyboardCapsLock: keyboardCapsLockIcon,
+  keyboardCapsLockFilled: keyboardCapsLockFilledIcon,
+  keyboardEnter: keyboardEnterIcon,
+  keyboardHide: keyboardHideIcon,
+  keyboardShift: keyboardShiftIcon,
+  keyboardDelete: keyboardDeleteIcon
 }
 
 const props = defineProps({
