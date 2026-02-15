@@ -250,7 +250,7 @@ const isPlaying = computed(() => unifiedStore.systemState.metadata?.is_playing |
     padding-left: var(--space-05);
     padding-right: var(--space-05);
     padding-top: max(var(--space-05), env(safe-area-inset-top, 0px));
-    padding-bottom: max(var(--space-08), env(safe-area-inset-bottom, 0px));
+    padding-bottom: max(var(--space-06), env(safe-area-inset-bottom, 0px));
 
     flex-direction: column;
     gap: 0;
