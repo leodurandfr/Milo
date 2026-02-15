@@ -8,7 +8,7 @@
         <div class="keyboard-header">
           <div class="keyboard-input-display">
             <input ref="displayInput" type="text" v-model="keyboardValue" :placeholder="keyboardPlaceholder"
-              class="keyboard-display-input heading-3" readonly />
+              class="keyboard-display-input heading-3" inputmode="none" />
           </div>
           <button class="keyboard-key key-backspace"
             @pointerdown.prevent="startBackspaceRepeat"
@@ -126,7 +126,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onUnmounted, watch } from 'vue';
+import { ref, reactive, computed, nextTick, onUnmounted, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useVirtualKeyboard } from '@/composables/useVirtualKeyboard';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
@@ -137,6 +137,7 @@ const keyboardState = useVirtualKeyboard();
 const { screenResolution } = useHardwareConfig();
 
 const keyboardRef = ref(null);
+const displayInput = ref(null);
 
 // Computed bindings from composable
 const isKeyboardVisible = computed(() => keyboardState.isVisible.value);
@@ -314,10 +315,12 @@ let backspaceInterval = null;
 function addChar(char) {
   keyboardValue.value += char;
   if (isShiftHeld.value) isShiftHeld.value = false;
+  focusDisplayInput();
 }
 
 function backspace() {
   keyboardValue.value = keyboardValue.value.slice(0, -1);
+  focusDisplayInput();
 }
 
 function toggleCapsLock() {
@@ -552,9 +555,20 @@ function stopOriginCheck() {
   }
 }
 
+function focusDisplayInput() {
+  nextTick(() => {
+    if (displayInput.value) {
+      displayInput.value.focus();
+      const len = displayInput.value.value.length;
+      displayInput.value.setSelectionRange(len, len);
+    }
+  });
+}
+
 watch(isKeyboardVisible, (visible) => {
   if (visible) {
     startOriginCheck();
+    focusDisplayInput();
     setTimeout(() => {
       document.addEventListener('pointerdown', handleOutsideClick);
     }, 0);
@@ -633,6 +647,19 @@ onUnmounted(() => {
   color: var(--color-text);
   font-size: var(--font-size-h3);
   text-align: center;
+  caret-color: var(--color-text);
+  animation: none;
+}
+
+.keyboard-display-input:focus {
+  outline: none;
+  caret-color: var(--color-text);
+  animation: caret-blink 1.2s ease-in-out infinite;
+}
+
+@keyframes caret-blink {
+  0%, 100% { caret-color: var(--color-text); }
+  50% { caret-color: transparent; }
 }
 
 /* Keyboard rows */
