@@ -104,10 +104,14 @@
     --blur-04: 40px;
     --blur-05: 64px;
 
+
+    /* === EASING PRESETS === */
+    --easeOutQuint: cubic-bezier(0.22, 1, 0.36, 1);
+
     /* === TRANSITIONS === */
     --transition-ultra-fast: 150ms ease;
-    --transition-fast: 200ms ease;
-    --transition-normal: 400ms ease;
+    --transition-fast: 200ms var(--easeOutQuint);
+    --transition-normal: 400ms var(--easeOutQuint);
     --transition-slow: 600ms ease;
 
     --transition-in-out: 400ms cubic-bezier(0.5,0,0.1,1);
