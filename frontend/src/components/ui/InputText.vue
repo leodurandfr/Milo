@@ -119,6 +119,7 @@ function openKeyboard() {
   keyboard.open({
     value: props.modelValue,
     placeholder: props.placeholder,
+    originElement: inputRef.value,
     onChange: (newValue) => {
       emit('update:modelValue', newValue);
     },
