@@ -28,6 +28,24 @@
           <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
         </span>
       </div>
+
+      <div class="info-item">
+        <span class="info-label text-mono">{{ t('info.cpu') }}</span>
+        <span class="info-value text-mono">
+          <span v-if="resourcesLoading && cpuPercent === null">...</span>
+          <span v-else-if="cpuPercent !== null">{{ cpuPercent }}%</span>
+          <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
+        </span>
+      </div>
+
+      <div class="info-item">
+        <span class="info-label text-mono">{{ t('info.ram') }}</span>
+        <span class="info-value text-mono">
+          <span v-if="resourcesLoading && ram === null">...</span>
+          <span v-else-if="ram !== null">{{ ram.used_mb }} / {{ ram.total_mb }} MB</span>
+          <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
+        </span>
+      </div>
     </div>
   </SettingsSection>
 </template>
@@ -46,6 +64,9 @@ const systemTemperature = ref(null);
 const temperatureLoading = ref(false);
 const ipAddress = ref(null);
 const ipLoading = ref(false);
+const cpuPercent = ref(null);
+const ram = ref(null);
+const resourcesLoading = ref(false);
 
 async function loadMiloVersion() {
   if (versionLoading.value) return;
@@ -102,18 +123,38 @@ async function loadNetworkInfo() {
   }
 }
 
-let temperatureInterval = null;
+async function loadSystemResources() {
+  if (resourcesLoading.value) return;
+
+  try {
+    resourcesLoading.value = true;
+    const response = await axios.get('/api/settings/system-resources');
+
+    if (response.data.status === 'success') {
+      cpuPercent.value = response.data.cpu_percent;
+      ram.value = response.data.ram;
+    }
+  } catch (error) {
+    console.error('Error loading system resources:', error);
+  } finally {
+    resourcesLoading.value = false;
+  }
+}
+
+let pollingInterval = null;
+
+async function pollDynamicData() {
+  await Promise.all([loadSystemTemperature(), loadSystemResources()]);
+}
 
 onMounted(async () => {
-  await loadMiloVersion();
-  await loadSystemTemperature();
-  await loadNetworkInfo();
-  temperatureInterval = setInterval(loadSystemTemperature, 5000);
+  await Promise.all([loadMiloVersion(), loadNetworkInfo(), pollDynamicData()]);
+  pollingInterval = setInterval(pollDynamicData, 5000);
 });
 
 onUnmounted(() => {
-  if (temperatureInterval) {
-    clearInterval(temperatureInterval);
+  if (pollingInterval) {
+    clearInterval(pollingInterval);
   }
 });
 </script>

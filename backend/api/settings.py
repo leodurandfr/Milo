@@ -875,6 +875,56 @@ def create_settings_router(
                 "ip": None
             }
 
+    # System resources (CPU + RAM)
+    @router.get("/system-resources")
+    async def get_system_resources():
+        """Retrieve CPU usage percentage and RAM usage"""
+        result = {"status": "success", "cpu_percent": None, "ram": None}
+
+        try:
+            # CPU usage: read two snapshots of /proc/stat 100ms apart
+            def read_cpu_stats():
+                with open("/proc/stat", "r") as f:
+                    line = f.readline()  # First line: cpu total
+                fields = line.split()[1:]  # Skip "cpu" label
+                fields = [int(x) for x in fields]
+                idle = fields[3] + (fields[4] if len(fields) > 4 else 0)  # idle + iowait
+                total = sum(fields)
+                return idle, total
+
+            idle1, total1 = read_cpu_stats()
+            await asyncio.sleep(0.1)
+            idle2, total2 = read_cpu_stats()
+
+            total_diff = total2 - total1
+            idle_diff = idle2 - idle1
+            if total_diff > 0:
+                result["cpu_percent"] = round((1 - idle_diff / total_diff) * 100, 1)
+        except Exception as e:
+            logger.warning(f"Failed to read CPU stats: {e}")
+
+        try:
+            # RAM usage: read /proc/meminfo
+            meminfo = {}
+            with open("/proc/meminfo", "r") as f:
+                for line in f:
+                    parts = line.split()
+                    key = parts[0].rstrip(":")
+                    meminfo[key] = int(parts[1])  # Value in kB
+
+            total_kb = meminfo.get("MemTotal", 0)
+            available_kb = meminfo.get("MemAvailable", 0)
+            used_kb = total_kb - available_kb
+
+            result["ram"] = {
+                "used_mb": round(used_kb / 1024),
+                "total_mb": round(total_kb / 1024),
+            }
+        except Exception as e:
+            logger.warning(f"Failed to read memory stats: {e}")
+
+        return result
+
     # Hardware info
     @router.get("/hardware-info")
     async def get_hardware_info():

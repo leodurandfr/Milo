@@ -352,7 +352,9 @@
     "title": "Informações",
     "miloVersion": "Versão do Milō",
     "temperature": "Temperatura",
-    "ipAddress": "IP do Milō"
+    "ipAddress": "IP do Milō",
+    "cpu": "CPU",
+    "ram": "RAM"
   },
   "applications": {
     "title": "Aplicações",
