@@ -352,7 +352,9 @@
     "title": "जानकारी",
     "miloVersion": "Milō संस्करण",
     "temperature": "तापमान",
-    "ipAddress": "Milō आईपी"
+    "ipAddress": "Milō आईपी",
+    "cpu": "CPU",
+    "ram": "RAM"
   },
   "applications": {
     "title": "एप्लिकेशन",
