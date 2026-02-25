@@ -232,7 +232,7 @@
     "autoSleep": "Bildschirm-Ruhemodus",
     "sleepDelay": "Bei Inaktivität der App den Bildschirm ausschalten nach:",
     "screensaver": "Bildschirmschoner",
-    "screensaverSourceNote": "Nur bei Radio, Podcasts, MacOS und Bluetooth",
+    "screensaverSourceNote": "Nur bei Radio, Podcasts und Bluetooth",
     "screensaverDelay": "Bildschirmschoner starten nach:"
   },
   "spotifySettings": {
