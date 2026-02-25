@@ -25,6 +25,7 @@
     "rocReception": "Mac ऑडियो रिसेप्शन",
     "radio": "रेडियो",
     "podcasts": "पॉडकास्ट",
+    "airplay": "AirPlay",
     "radioSource": {
       "favoritesTitle": "पसंदीदा रेडियो",
       "discoverTitle": "रेडियो खोजें",
@@ -361,7 +362,8 @@
     "features": "सुविधाएं",
     "spotify": "Spotify",
     "bluetooth": "ब्लूटूथ",
-    "macOS": "macOS"
+    "macOS": "macOS",
+    "airplay": "AirPlay"
   },
   "applicationsSettings": {
     "inactivityTimeout": "स्वचालित बंद",

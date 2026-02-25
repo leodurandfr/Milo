@@ -1,6 +1,6 @@
-<!-- SpotifySource.vue - Spotify Connect player -->
+<!-- AirPlaySource.vue - AirPlay 2 player -->
 <template>
-  <AudioPlayerFull source="spotify" />
+  <AudioPlayerFull source="airplay" :showControls="false" />
 </template>
 
 <script setup>

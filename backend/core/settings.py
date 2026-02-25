@@ -49,7 +49,7 @@ class SettingsService:
                 "dsp_effects_enabled": False
             },
             "dock": {
-                "enabled_apps": ["spotify", "bluetooth", "mac", "radio", "podcast", "multiroom", "dsp", "settings"]
+                "enabled_apps": ["spotify", "bluetooth", "mac", "radio", "podcast", "airplay", "multiroom", "dsp", "settings"]
             },
             "radio": {
                 "shazam_enabled": True
@@ -193,8 +193,8 @@ class SettingsService:
 
         # Dock with validation for at least one audio source
         dock_input = settings.get('dock', {})
-        all_valid_apps = ["spotify", "bluetooth", "mac", "radio", "podcast", "multiroom", "equalizer", "settings"]
-        audio_sources = ["spotify", "bluetooth", "mac", "radio", "podcast"]
+        all_valid_apps = ["spotify", "bluetooth", "mac", "radio", "podcast", "airplay", "multiroom", "equalizer", "settings"]
+        audio_sources = ["spotify", "bluetooth", "mac", "radio", "podcast", "airplay"]
         other_apps = ["multiroom", "equalizer", "settings"]
 
         enabled_apps = dock_input.get('enabled_apps', [])

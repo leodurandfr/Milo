@@ -35,6 +35,7 @@ export const useSettingsStore = defineStore('settings', () => {
     mac: true,
     radio: true,
     podcast: true,
+    airplay: true,
     multiroom: true,
     dsp: true,
     settings: true
@@ -162,6 +163,7 @@ export const useSettingsStore = defineStore('settings', () => {
           mac: enabledApps.includes('mac'),
           radio: enabledApps.includes('radio'),
           podcast: enabledApps.includes('podcast'),
+          airplay: enabledApps.includes('airplay'),
           multiroom: enabledApps.includes('multiroom'),
           dsp: enabledApps.includes('dsp'),
           settings: enabledApps.includes('settings')
@@ -275,6 +277,7 @@ export const useSettingsStore = defineStore('settings', () => {
       mac: enabledApps.includes('mac'),
       radio: enabledApps.includes('radio'),
       podcast: enabledApps.includes('podcast'),
+      airplay: enabledApps.includes('airplay'),
       multiroom: enabledApps.includes('multiroom'),
       dsp: enabledApps.includes('dsp'),
       settings: enabledApps.includes('settings')

@@ -153,8 +153,8 @@ class RotaryStepsRequest(BaseModel):
 # SETTINGS - DOCK APPS
 # =============================================================================
 
-VALID_DOCK_APPS = {'spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'multiroom', 'dsp', 'settings'}
-AUDIO_SOURCE_APPS = {'spotify', 'bluetooth', 'mac', 'radio', 'podcast'}
+VALID_DOCK_APPS = {'spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'airplay', 'multiroom', 'dsp', 'settings'}
+AUDIO_SOURCE_APPS = {'spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'airplay'}
 
 class DockAppsRequest(BaseModel):
     """Dock apps configuration request"""

@@ -569,6 +569,18 @@ install_bluez_alsa() {
     log_success "bluez-alsa installed"
 }
 
+install_airplay() {
+    log_info "Installing AirPlay 2 (shairport-sync + NQPTP)..."
+
+    source "$MILO_APP_DIR/install/airplay.sh"
+
+    install_nqptp
+    install_shairport_sync
+    configure_shairport_sync
+
+    log_success "AirPlay 2 installed"
+}
+
 install_snapcast() {
     log_info "Installing Snapcast..."
 
@@ -1381,6 +1393,7 @@ enable_services() {
    # - milo-spotify.service
    # - milo-mac.service
    # - milo-radio.service
+   # - milo-airplay.service
    # - milo-snapserver-multiroom.service
    # - milo-snapclient-multiroom.service
    # These services should NOT be "enabled" at boot
@@ -1485,6 +1498,8 @@ uninstall_milo() {
    sudo rm -f /etc/nginx/sites-enabled/milo
    sudo rm -f /etc/nginx/sites-available/milo
    sudo rm -f /etc/snapserver.conf
+   sudo rm -f /etc/shairport-sync.conf
+   sudo rm -f /etc/dbus-1/system.d/shairport-sync-dbus.conf
    sudo rm -f /etc/asound.conf
    sudo rm -f /etc/modules-load.d/snd-aloop.conf
    sudo rm -f /etc/modprobe.d/snd-aloop.conf
@@ -1558,6 +1573,7 @@ main() {
    install_go_librespot
    install_roc_toolkit
    install_bluez_alsa
+   install_airplay
    install_snapcast
 
    install_readiness_script

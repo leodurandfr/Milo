@@ -182,7 +182,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       });
 
       // Fallback to safe defaults for invalid fields
-      const validSources = ['none', 'spotify', 'bluetooth', 'mac', 'radio', 'podcast'];
+      const validSources = ['none', 'spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'airplay'];
       const validStates = ['starting', 'ready', 'connected', 'error'];
 
       systemState.value = {
