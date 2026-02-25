@@ -32,12 +32,11 @@ export const useSettingsStore = defineStore('settings', () => {
   const dockApps = ref({
     spotify: true,
     bluetooth: true,
-    mac: true,
     radio: true,
     podcast: true,
     airplay: true,
+    mac: true,
     multiroom: true,
-    dsp: true,
     settings: true
   });
 
@@ -114,7 +113,7 @@ export const useSettingsStore = defineStore('settings', () => {
         axios.get('/api/settings/volume-limits').catch(() => ({ data: { limits: { min_db: -80.0, max_db: -21.0 } } })),
         axios.get('/api/settings/volume-startup').catch(() => ({ data: { config: { startup_volume_db: -30.0, restore_last_volume: false } } })),
         axios.get('/api/settings/rotary-steps').catch(() => ({ data: { config: { step_rotary_db: 2.0 } } })),
-        axios.get('/api/settings/dock-apps').catch(() => ({ data: { config: { enabled_apps: ['spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'multiroom', 'dsp', 'settings'] } } })),
+        axios.get('/api/settings/dock-apps').catch(() => ({ data: { config: { enabled_apps: ['spotify', 'bluetooth', 'radio', 'podcast', 'airplay', 'mac', 'multiroom', 'settings'] } } })),
         axios.get('/api/settings/spotify-disconnect').catch(() => ({ data: { config: { auto_disconnect_delay: 10.0 } } })),
         axios.get('/api/settings/podcast-credentials').catch(() => ({ data: { config: { taddy_user_id: '', taddy_api_key: '' } } })),
         axios.get('/api/settings/podcast-credentials/status').catch(() => ({ data: { status: 'error' } })),
@@ -160,12 +159,11 @@ export const useSettingsStore = defineStore('settings', () => {
         dockApps.value = {
           spotify: enabledApps.includes('spotify'),
           bluetooth: enabledApps.includes('bluetooth'),
-          mac: enabledApps.includes('mac'),
           radio: enabledApps.includes('radio'),
           podcast: enabledApps.includes('podcast'),
           airplay: enabledApps.includes('airplay'),
+          mac: enabledApps.includes('mac'),
           multiroom: enabledApps.includes('multiroom'),
-          dsp: enabledApps.includes('dsp'),
           settings: enabledApps.includes('settings')
         };
       }
@@ -274,12 +272,11 @@ export const useSettingsStore = defineStore('settings', () => {
     dockApps.value = {
       spotify: enabledApps.includes('spotify'),
       bluetooth: enabledApps.includes('bluetooth'),
-      mac: enabledApps.includes('mac'),
       radio: enabledApps.includes('radio'),
       podcast: enabledApps.includes('podcast'),
       airplay: enabledApps.includes('airplay'),
+      mac: enabledApps.includes('mac'),
       multiroom: enabledApps.includes('multiroom'),
-      dsp: enabledApps.includes('dsp'),
       settings: enabledApps.includes('settings')
     };
   }
