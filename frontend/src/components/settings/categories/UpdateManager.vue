@@ -70,7 +70,7 @@
         <div class="crossfade-wrapper">
           <Transition name="crossfade">
             <div v-if="localProgramsLoading" key="skeleton" class="programs-list">
-              <div v-for="n in 4" :key="n" class="program-item-skeleton">
+              <div v-for="n in 5" :key="n" class="program-item-skeleton">
                 <div class="skeleton-icon"></div>
                 <div class="skeleton-text skeleton-name"></div>
                 <div class="skeleton-text skeleton-version"></div>
