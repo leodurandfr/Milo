@@ -27,7 +27,7 @@ class TestAudioRoutingService:
     @pytest.fixture
     def routing_service(self, mock_settings_service, mock_systemd_manager):
         """Fixture to create a routing service"""
-        service = AudioRoutingService(settings_service=mock_settings_service)
+        service = AudioRoutingService(settings_service=mock_settings_service, systemd_manager=mock_systemd_manager)
         # Initialize _initial_detection_done to avoid automatic detection
         service._initial_detection_done = True
         # Set up transition callbacks (normally done in initialize())
@@ -366,8 +366,10 @@ class TestAudioRoutingService:
         mock_snapcast.is_available = AsyncMock(return_value=False)  # Never available
         routing_service.set_snapcast_service(mock_snapcast)
 
-        # Should timeout after 10 attempts
-        await routing_service._auto_configure_multiroom()
+        # Mock asyncio.sleep to avoid real 10s delay
+        with patch('asyncio.sleep', new_callable=AsyncMock):
+            # Should timeout after 10 attempts
+            await routing_service._auto_configure_multiroom()
 
         # Check that we tried multiple times
         assert mock_snapcast.is_available.call_count == 10

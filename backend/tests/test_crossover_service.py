@@ -392,9 +392,9 @@ class TestSubwooferOnlineOfflineToggle:
         result = await service.apply_zone_crossover("zone-1")
 
         assert result is True
-        # Highpass should be applied to satellite
+        # Highpass should be applied to satellite at zone frequency (80Hz)
         mock_dsp_service.set_crossover_filter.assert_called_with(
-            enabled=True, frequency=120, q=0.707
+            enabled=True, frequency=80, q=0.707
         )
 
 

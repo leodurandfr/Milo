@@ -116,9 +116,10 @@ class TestSpotifySourceLifecycle:
             mock_session_class.return_value = mock_session
             mock_session.close = AsyncMock()
 
-            # Mock WebSocket
+            # Mock WebSocket and log monitor to avoid real subprocess
             with patch.object(spotify_source, '_start_websocket', new_callable=AsyncMock):
-                result = await spotify_source.start()
+                with patch.object(spotify_source, '_start_log_monitor'):
+                    result = await spotify_source.start()
 
         assert result is True
 
@@ -262,7 +263,8 @@ class TestSpotifySourceEventBus:
             mock_session.close = AsyncMock()
 
             with patch.object(spotify_source, '_start_websocket', new_callable=AsyncMock):
-                await spotify_source.start()
+                with patch.object(spotify_source, '_start_log_monitor'):
+                    await spotify_source.start()
 
         assert len(received) == 1
         assert received[0]["source"] == "spotify"
@@ -334,10 +336,15 @@ class TestWebSocketEvents:
 
     @pytest.mark.asyncio
     async def test_seek_event(self, spotify_source):
-        """Test handling seek event."""
+        """Test handling seek event refreshes metadata."""
         spotify_source._metadata = {"title": "Test", "position": 0}
 
-        await spotify_source._on_seek(45000)
+        with patch.object(spotify_source, '_refresh_metadata', new_callable=AsyncMock) as mock_refresh:
+            async def set_position():
+                spotify_source._metadata["position"] = 45000
+            mock_refresh.side_effect = set_position
+
+            await spotify_source._on_seek()
 
         assert spotify_source._metadata["position"] == 45000
 

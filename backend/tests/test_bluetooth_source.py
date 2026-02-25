@@ -132,14 +132,6 @@ class TestBluetoothSourceLifecycle:
 
             result = await bluetooth_source.start()
 
-            # Cancel monitor task
-            if bluetooth_source._monitor_task:
-                bluetooth_source._monitor_task.cancel()
-                try:
-                    await bluetooth_source._monitor_task
-                except asyncio.CancelledError:
-                    pass
-
         assert result is True
         bluetooth_source.agent.register.assert_called_once()
         bluetooth_source.monitor.start.assert_called_once()
@@ -156,7 +148,6 @@ class TestBluetoothSourceLifecycle:
     @pytest.mark.asyncio
     async def test_stop_success(self, bluetooth_source):
         """Test successful stop."""
-        bluetooth_source._monitor_task = None
         bluetooth_source.connected_device = {"address": "AA:BB:CC:DD:EE:FF", "name": "Test"}
 
         with patch('asyncio.create_subprocess_exec') as mock_exec:
@@ -172,12 +163,9 @@ class TestBluetoothSourceLifecycle:
         bluetooth_source.monitor.stop.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_stop_cancels_monitor_task(self, bluetooth_source):
-        """Test stop cancels monitoring task."""
-        mock_task = AsyncMock()
-        mock_task.done = Mock(return_value=False)
-        mock_task.cancel = Mock()
-        bluetooth_source._monitor_task = mock_task
+    async def test_stop_calls_monitor_stop(self, bluetooth_source):
+        """Test stop calls monitor.stop()."""
+        bluetooth_source.connected_device = {"address": "AA:BB:CC:DD:EE:FF", "name": "Test"}
 
         with patch('asyncio.create_subprocess_exec') as mock_exec:
             mock_proc = AsyncMock()
@@ -187,7 +175,7 @@ class TestBluetoothSourceLifecycle:
 
             await bluetooth_source.stop()
 
-        mock_task.cancel.assert_called_once()
+        bluetooth_source.monitor.stop.assert_called_once()
 
 
 class TestBluetoothSourceStatus:
@@ -247,48 +235,8 @@ class TestBluetoothSourceCommands:
 
         assert result["success"] is True
 
-    @pytest.mark.asyncio
-    async def test_restart_audio_command(self, bluetooth_source):
-        """Test restart_audio command."""
-        bluetooth_source.connected_device = {
-            "address": "AA:BB:CC:DD:EE:FF",
-            "name": "iPhone"
-        }
-
-        with patch.object(bluetooth_source, '_do_restart', return_value=True):
-            result = await bluetooth_source.command("restart_audio", {})
-
-        assert result["success"] is True
-
-    @pytest.mark.asyncio
-    async def test_restart_bluealsa_command(self, bluetooth_source):
-        """Test restart_bluealsa command."""
-        result = await bluetooth_source.command("restart_bluealsa", {})
-
-        assert result["success"] is True
-        bluetooth_source._service_manager.restart.assert_called()
-
-    @pytest.mark.asyncio
-    async def test_toggle_agent_disable(self, bluetooth_source):
-        """Test toggle_agent command to disable."""
-        bluetooth_source.auto_agent = True
-
-        result = await bluetooth_source.command("toggle_agent", {})
-
-        assert result["success"] is True
-        assert result["auto_agent"] is False
-        bluetooth_source.agent.unregister.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_toggle_agent_enable(self, bluetooth_source):
-        """Test toggle_agent command to enable."""
-        bluetooth_source.auto_agent = False
-
-        result = await bluetooth_source.command("toggle_agent", {})
-
-        assert result["success"] is True
-        assert result["auto_agent"] is True
-        bluetooth_source.agent.register.assert_called_once()
+    # Note: restart_audio, restart_bluealsa, and toggle_agent commands
+    # are not part of the current BluetoothSource API (only "disconnect" is supported)
 
     @pytest.mark.asyncio
     async def test_unknown_command(self, bluetooth_source):
@@ -319,13 +267,6 @@ class TestBluetoothSourceEventBus:
             mock_exec.return_value = mock_proc
 
             await bluetooth_source.start()
-
-            if bluetooth_source._monitor_task:
-                bluetooth_source._monitor_task.cancel()
-                try:
-                    await bluetooth_source._monitor_task
-                except asyncio.CancelledError:
-                    pass
 
         assert len(received) == 1
         assert received[0]["source"] == "bluetooth"

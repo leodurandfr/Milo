@@ -50,6 +50,7 @@ def mock_dsp_service():
     dsp.set_filter = AsyncMock(return_value=True)
     dsp.set_compressor = AsyncMock(return_value=True)
     dsp.set_loudness = AsyncMock(return_value=True)
+    dsp.settings_service = None  # Prevent Mock auto-creation for await
     return dsp
 
 
@@ -210,6 +211,7 @@ class TestZoneDspMethods:
             zone_id="zone-123",
         )
         mock_registry.get_online_zone_clients.return_value = [online_client]
+        mock_registry.get_client.return_value = online_client  # For _is_local_client()
 
         # Execute
         result = await multiroom_dsp_service.apply_zone_dsp("zone-123", sample_dsp_settings)
@@ -422,9 +424,13 @@ class TestCamillaDspApplication:
 
     @pytest.mark.asyncio
     async def test_apply_to_camilladsp_success(
-        self, multiroom_dsp_service, mock_dsp_service, sample_dsp_settings
+        self, multiroom_dsp_service, mock_registry, mock_dsp_service, sample_dsp_settings
     ):
         """Should apply all settings to CamillaDSP"""
+        # Set up registry to recognize "local" as local client
+        local_client = Client(mac_id="local", name="Main", ip="127.0.0.1", online=True, zone_id=None)
+        mock_registry.get_client.return_value = local_client
+
         result = await multiroom_dsp_service._apply_to_camilladsp("local", sample_dsp_settings)
 
         assert result is True
@@ -435,10 +441,12 @@ class TestCamillaDspApplication:
 
     @pytest.mark.asyncio
     async def test_apply_to_camilladsp_disconnected(
-        self, multiroom_dsp_service, mock_dsp_service, sample_dsp_settings
+        self, multiroom_dsp_service, mock_registry, mock_dsp_service, sample_dsp_settings
     ):
         """Should return False when CamillaDSP disconnected (AC4)"""
         mock_dsp_service.connected = False
+        local_client = Client(mac_id="local", name="Main", ip="127.0.0.1", online=True, zone_id=None)
+        mock_registry.get_client.return_value = local_client
 
         result = await multiroom_dsp_service._apply_to_camilladsp("local", sample_dsp_settings)
 
@@ -449,6 +457,11 @@ class TestCamillaDspApplication:
     async def test_apply_to_camilladsp_no_service(self, sample_dsp_settings):
         """Should return False when DSP service not available"""
         service = MultiroomDspService()
+        # Set up registry to recognize "local" as local, but no DSP service
+        mock_reg = Mock()
+        local_client = Client(mac_id="local", name="Main", ip="127.0.0.1", online=True, zone_id=None)
+        mock_reg.get_client.return_value = local_client
+        service.set_registry(mock_reg)
 
         result = await service._apply_to_camilladsp("local", sample_dsp_settings)
 
@@ -480,10 +493,12 @@ class TestCamillaDspApplication:
 
     @pytest.mark.asyncio
     async def test_apply_to_camilladsp_exception(
-        self, multiroom_dsp_service, mock_dsp_service, sample_dsp_settings
+        self, multiroom_dsp_service, mock_registry, mock_dsp_service, sample_dsp_settings
     ):
         """Should handle exceptions gracefully (AC4)"""
         mock_dsp_service.set_filter.side_effect = Exception("Connection lost")
+        local_client = Client(mac_id="local", name="Main", ip="127.0.0.1", online=True, zone_id=None)
+        mock_registry.get_client.return_value = local_client
 
         result = await multiroom_dsp_service._apply_to_camilladsp("local", sample_dsp_settings)
 

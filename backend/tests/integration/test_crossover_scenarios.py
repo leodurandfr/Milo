@@ -88,6 +88,11 @@ async def crossover_with_registry(mock_settings_service, mock_dsp_service, mock_
     )
     await crossover.initialize()
     crossover.set_registry(registry)
+
+    # Mock remote HTTP proxy methods to prevent real network calls
+    crossover._proxy_crossover_to_client = AsyncMock(return_value=True)
+    crossover._proxy_lowpass_to_client = AsyncMock(return_value=True)
+
     return crossover, registry
 
 
@@ -795,6 +800,8 @@ class TestFilterApplicationE2E:
         await registry.set_client_online("sub-1", True)
 
         zone = await registry.create_zone(generate_zone_id(), "Living Room", ["local", "sub-1"])
+        # Enable auto-frequency mode (zone default is 80Hz, override to None for auto-calc)
+        zone.crossover_frequency = None
 
         mock_dsp_service.reset_mock()
 
@@ -965,6 +972,8 @@ class TestMixedSpeakerTypeZones:
         await registry.set_client_online("sub-1", True)
 
         zone = await registry.create_zone(generate_zone_id(), "Mixed Zone", ["sat-1", "local", "sub-1"])
+        # Enable auto-frequency mode (zone default is 80Hz, override to None for auto-calc)
+        zone.crossover_frequency = None
 
         # Auto crossover should be 50Hz (minimum of satellite=120, tower=50)
         freq = await crossover.get_zone_auto_crossover(zone.id)

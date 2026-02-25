@@ -3,17 +3,9 @@
 Pytest configuration - Shared fixtures for all tests
 """
 import pytest
-import asyncio
 from unittest.mock import Mock, AsyncMock
 from backend.core.models.audio_state import AudioSource, PluginState
 
-
-@pytest.fixture
-def event_loop():
-    """Fixture to create an asyncio event loop for each test"""
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
 
 
 @pytest.fixture

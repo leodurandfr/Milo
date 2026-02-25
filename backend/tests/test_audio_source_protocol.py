@@ -397,34 +397,34 @@ class TestBaseAudioSourceServiceManager:
     async def test_start_service(self, event_bus):
         """Test _start_service helper."""
         source = ConcreteAudioSource(event_bus)
+        source._service_manager = Mock()
+        source._service_manager.start = AsyncMock(return_value=True)
 
-        with patch.object(source._service_manager, 'start', new_callable=AsyncMock) as mock_start:
-            mock_start.return_value = True
-            result = await source._start_service()
+        result = await source._start_service()
 
         assert result is True
-        mock_start.assert_called_once_with("milo-test")
+        source._service_manager.start.assert_called_once_with("milo-test")
 
     @pytest.mark.asyncio
     async def test_stop_service(self, event_bus):
         """Test _stop_service helper."""
         source = ConcreteAudioSource(event_bus)
+        source._service_manager = Mock()
+        source._service_manager.stop = AsyncMock(return_value=True)
 
-        with patch.object(source._service_manager, 'stop', new_callable=AsyncMock) as mock_stop:
-            mock_stop.return_value = True
-            result = await source._stop_service()
+        result = await source._stop_service()
 
         assert result is True
-        mock_stop.assert_called_once_with("milo-test")
+        source._service_manager.stop.assert_called_once_with("milo-test")
 
     @pytest.mark.asyncio
     async def test_is_service_active(self, event_bus):
         """Test _is_service_active helper."""
         source = ConcreteAudioSource(event_bus)
+        source._service_manager = Mock()
+        source._service_manager.is_active = AsyncMock(return_value=True)
 
-        with patch.object(source._service_manager, 'is_active', new_callable=AsyncMock) as mock_active:
-            mock_active.return_value = True
-            result = await source._is_service_active()
+        result = await source._is_service_active()
 
         assert result is True
 

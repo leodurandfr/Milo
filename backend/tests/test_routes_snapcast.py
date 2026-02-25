@@ -111,87 +111,8 @@ class TestSnapcastRoutes:
         assert response.json()["clients"] == []
         assert "message" in response.json()
 
-    # ===================
-    # VOLUME TESTS
-    # ===================
-
-    def test_set_client_volume_valid(self, client):
-        """Test POST /api/routing/snapcast/client/{id}/volume with valid volume"""
-        response = client.post(
-            "/api/routing/snapcast/client/client1/volume",
-            json={"volume": 75}
-        )
-        assert response.status_code == 200
-        assert response.json()["status"] == "success"
-        client._mock_snapcast.set_volume.assert_called_once()
-
-    def test_set_client_volume_min(self, client):
-        """Test POST /api/routing/snapcast/client/{id}/volume with minimum volume"""
-        response = client.post(
-            "/api/routing/snapcast/client/client1/volume",
-            json={"volume": 0}
-        )
-        assert response.status_code == 200
-
-    def test_set_client_volume_max(self, client):
-        """Test POST /api/routing/snapcast/client/{id}/volume with maximum volume"""
-        response = client.post(
-            "/api/routing/snapcast/client/client1/volume",
-            json={"volume": 100}
-        )
-        assert response.status_code == 200
-
-    def test_set_client_volume_out_of_range(self, client):
-        """Test POST /api/routing/snapcast/client/{id}/volume with out of range volume"""
-        response = client.post(
-            "/api/routing/snapcast/client/client1/volume",
-            json={"volume": 150}
-        )
-        assert response.status_code == 422
-
-    def test_set_client_volume_service_failure(self, client):
-        """Test POST /api/routing/snapcast/client/{id}/volume when service fails"""
-        client._mock_snapcast.set_volume = AsyncMock(return_value=False)
-        response = client.post(
-            "/api/routing/snapcast/client/client1/volume",
-            json={"volume": 50}
-        )
-        assert response.status_code == 200
-        assert response.json()["status"] == "error"
-
-    # ===================
-    # MUTE TESTS
-    # ===================
-
-    def test_set_client_mute_true(self, client):
-        """Test POST /api/routing/snapcast/client/{id}/mute with muted=true"""
-        response = client.post(
-            "/api/routing/snapcast/client/client1/mute",
-            json={"muted": True}
-        )
-        assert response.status_code == 200
-        assert response.json()["status"] == "success"
-        # DSP-only mute strategy: mute via CamillaDSP, not Snapcast
-        client._mock_dsp_service.set_mute.assert_called_once_with(True)
-
-    def test_set_client_mute_false(self, client):
-        """Test POST /api/routing/snapcast/client/{id}/mute with muted=false"""
-        response = client.post(
-            "/api/routing/snapcast/client/client1/mute",
-            json={"muted": False}
-        )
-        assert response.status_code == 200
-        assert response.json()["status"] == "success"
-        # DSP-only mute strategy: mute via CamillaDSP, not Snapcast
-        client._mock_dsp_service.set_mute.assert_called_once_with(False)
-
-    def test_set_client_mute_missing_field(self, client):
-        """Test POST /api/routing/snapcast/client/{id}/mute without muted field"""
-        response = client.post(
-            "/api/routing/snapcast/client/client1/mute",
-            json={}
-        )
-        assert response.status_code == 422
+    # Note: Volume and mute endpoints were moved to /api/volume/ routes
+    # and are tested in test_volume_api.py
 
     # ===================
     # NAME TESTS

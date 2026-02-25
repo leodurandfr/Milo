@@ -154,6 +154,11 @@ async def volume_service(
         # Initialize service
         await service.initialize()
 
+        # Register "local" client so tests can use it (simulates what
+        # ClientRegistryService does in production when local Snapcast client connects)
+        service._state_store._local_mac_id = "local"
+        await service._state_store.register_client("local", volume_db=DEFAULT_VOLUME_DB, available=True)
+
         yield service
 
         # Cleanup
@@ -1421,18 +1426,18 @@ class TestStartupVolumeIntegration:
         FR11 End-to-End: Volume change → settings update → WebSocket broadcast.
 
         Validates complete flow:
-        1. Set volume when restore_last_volume=false
+        1. Set volume when restore_last_volume=true (FR11 tracks current volume)
         2. startup_volume_db auto-updated in settings
         3. WebSocket event broadcast with new value
         """
-        # Create settings with restore_last_volume=False (FR11 active)
+        # Create settings with restore_last_volume=True (FR11 active: auto-track volume)
         settings = Mock()
         settings.invalidate_cache = Mock()
         settings_data = {
             "limit_min_db": -80.0,
             "limit_max_db": -21.0,
             "startup_volume_db": -60.0,  # Initial value
-            "restore_last_volume": False,  # FR11 active
+            "restore_last_volume": True,  # FR11 active: auto-track current volume
             "step_mobile_db": 3.0,
             "step_rotary_db": 2.0
         }
@@ -1481,12 +1486,12 @@ class TestStartupVolumeIntegration:
             assert len(events) >= 1
             assert events[0]["category"] == "settings"
             assert events[0]["data"]["startup_volume_db"] == -45.0
-            assert events[0]["data"]["restore_last_volume"] is False
+            assert events[0]["data"]["restore_last_volume"] is True
 
             await service.cleanup()
 
     @pytest.mark.asyncio
-    async def test_fr11_restore_enabled_does_not_update_startup_volume(
+    async def test_fr11_restore_disabled_does_not_update_startup_volume(
         self,
         mock_state_machine,
         mock_snapcast_service,
@@ -1495,20 +1500,20 @@ class TestStartupVolumeIntegration:
         temp_storage_path
     ):
         """
-        FR11 AC2: When restore_last_volume=true, startup_volume_db remains unchanged.
+        FR11 AC2: When restore_last_volume=false, startup_volume_db remains unchanged.
 
         Validates:
         - Volume changes do NOT update startup_volume_db
         - No settings WebSocket event is broadcast
         """
-        # Create settings with restore_last_volume=True
+        # Create settings with restore_last_volume=False (FR11 NOT active: fixed startup volume)
         settings = Mock()
         settings.invalidate_cache = Mock()
         settings_data = {
             "limit_min_db": -80.0,
             "limit_max_db": -21.0,
             "startup_volume_db": -60.0,
-            "restore_last_volume": True,  # FR11 NOT active
+            "restore_last_volume": False,  # FR11 NOT active
             "step_mobile_db": 3.0,
             "step_rotary_db": 2.0
         }
@@ -1635,13 +1640,17 @@ class TestStartupVolumeIntegration:
         temp_storage_path
     ):
         """
-        FR12 AC3: Backend startup applies persisted volume when restore=true.
+        FR12 AC3: Backend startup applies startup_volume_db when restore=true.
+
+        When restore_last_volume=true, FR11 keeps startup_volume_db in sync with
+        current volume during runtime. At restart, startup_volume_db already contains
+        the correct last volume, so it's the single source of truth.
 
         Validates:
-        - On initialize(), DSP receives volume from last_volume.json
-        - NOT the startup_volume_db from settings
+        - On initialize(), DSP receives startup_volume_db from settings
+        - startup_volume_db was pre-synced by FR11 before shutdown
         """
-        # Create settings
+        # Create settings: startup_volume_db already synced by FR11 to -42.0
         settings = Mock()
         settings.invalidate_cache = Mock()
         persisted_volume = -42.0
@@ -1651,8 +1660,8 @@ class TestStartupVolumeIntegration:
                 return {
                     "limit_min_db": -80.0,
                     "limit_max_db": -21.0,
-                    "startup_volume_db": -60.0,  # Should NOT be used
-                    "restore_last_volume": True,  # Restore persisted
+                    "startup_volume_db": persisted_volume,  # FR11 synced this before shutdown
+                    "restore_last_volume": True,
                     "step_mobile_db": 3.0,
                     "step_rotary_db": 2.0
                 }
@@ -1665,7 +1674,7 @@ class TestStartupVolumeIntegration:
         settings.get_setting = AsyncMock(side_effect=mock_get_setting)
         settings.set_setting = AsyncMock()
 
-        # Create persisted volume file
+        # Create persisted volume file (also matches startup_volume_db)
         persist_data = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "local_volume_db": persisted_volume,
@@ -1689,7 +1698,7 @@ class TestStartupVolumeIntegration:
             # Action: Initialize service
             await service.initialize()
 
-            # Assert: DSP was set to persisted volume
+            # Assert: DSP was set to startup_volume_db (which FR11 synced to persisted_volume)
             mock_dsp_service.set_volume.assert_called()
             calls = mock_dsp_service.set_volume.call_args_list
             volume_calls = [c for c in calls if c[0][0] == persisted_volume]
@@ -1766,14 +1775,13 @@ class TestStartupVolumeIntegration:
             assert service._state_store._local_volume_db == DEFAULT_VOLUME_DB
 
             # Assert: DSP was NOT set to stale volume (-50dB)
-            # It should use DEFAULT_VOLUME_DB since stale data was discarded
             calls = mock_dsp_service.set_volume.call_args_list
             stale_volume_calls = [c for c in calls if c[0][0] == -50.0]
             assert len(stale_volume_calls) == 0, f"DSP should not receive stale volume -50dB, got {calls}"
 
-            # Assert: DSP received DEFAULT_VOLUME_DB (from _local_volume_db fallback)
-            default_volume_calls = [c for c in calls if c[0][0] == DEFAULT_VOLUME_DB]
-            assert len(default_volume_calls) >= 1, f"DSP should receive DEFAULT_VOLUME_DB, got {calls}"
+            # Assert: DSP received startup_volume_db from settings (single source of truth)
+            startup_calls = [c for c in calls if c[0][0] == startup_volume]
+            assert len(startup_calls) >= 1, f"DSP should receive startup_volume_db ({startup_volume}), got {calls}"
 
             await service.cleanup()
 
