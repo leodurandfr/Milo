@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Milō is a multiroom audio system for Raspberry Pi that supports Spotify Connect, Bluetooth, Mac streaming (ROC), Internet Radio, and Podcasts. Built with FastAPI (Python) backend and Vue 3 frontend, using ALSA for audio without Pipewire/PulseAudio.
+Milō is a multiroom audio system for Raspberry Pi that supports Spotify Connect, AirPlay 2, Bluetooth, Mac streaming (ROC), Internet Radio, and Podcasts. Built with FastAPI (Python) backend and Vue 3 frontend, using ALSA for audio without Pipewire/PulseAudio.
 
 ## Common Development Commands
 
@@ -55,11 +55,11 @@ sudo journalctl -u milo-backend -f
 
 # Restart services after code changes
 sudo systemctl restart milo-backend
-sudo systemctl restart milo-frontend
 
 # Check service status
 sudo systemctl status milo-backend
 sudo systemctl status milo-spotify
+sudo systemctl status milo-airplay
 sudo systemctl status milo-radio
 sudo systemctl status milo-podcast
 ```
@@ -73,6 +73,7 @@ milo/
 ├── system/               # Systemd service files (.service)
 ├── install.sh            # Main installation script
 ├── install/              # Installation helper scripts (run only during install)
+│   ├── airplay.sh
 │   ├── boot-common.sh
 │   ├── screen-waveshare-7-usb.sh
 │   └── screen-waveshare-8-dsi.sh
@@ -106,9 +107,10 @@ backend/
 │   ├── volume/               # Volume service + handlers
 │   ├── dsp/                  # CamillaDSP service + proxy + sync
 │   ├── multiroom/            # Snapcast + routing + crossover
-│   └── programs/             # Update services
+│   └── updates/              # Update + version services
 ├── features/                  # Audio source implementations
 │   ├── spotify/              # SpotifySource + routes
+│   ├── airplay/              # AirPlaySource + metadata_reader + routes
 │   ├── mac/                  # MacSource + routes
 │   ├── bluetooth/            # BluetoothSource + routes
 │   ├── radio/                # RadioSource + routes + browser_api + genres
@@ -135,10 +137,11 @@ backend/
 ```
 frontend/src/
 ├── components/
-│   ├── audio/         # General audio player (AudioPlayer.vue, AudioScreensaver.vue, AudioSourceLayout.vue, AudioSourceStatus.vue, AudioSourceView.vue)
+│   ├── audio/         # Shared audio player (AudioPlayer.vue, AudioPlayerFull.vue, PlaybackControls.vue, ConnectProgressBar.vue, AudioScreensaver.vue, AudioSourceLayout.vue, AudioSourceStatus.vue, AudioSourceView.vue)
+│   ├── airplay/       # AirPlay UI (AirPlaySource.vue)
 │   ├── podcasts/      # Podcast-specific UI (PodcastSource.vue, HomeView.vue, etc.)
 │   ├── radio/         # Radio-specific UI (RadioSource.vue)
-│   ├── spotify/       # Spotify-specific UI (SpotifySource.vue, PlaybackControls.vue)
+│   ├── spotify/       # Spotify UI (SpotifySource.vue)
 │   ├── dsp/           # CamillaDSP controls (parametric EQ, compressor, loudness)
 │   ├── multiroom/     # Multiroom controls (Snapcast management)
 │   ├── navigation/    # Navigation components
@@ -159,6 +162,7 @@ frontend/src/
 - `settingsStore.js` - Settings management
 - `dspStore.js` - DSP/equalizer state (CamillaDSP)
 - `multiroomStore.js` - Multiroom/Snapcast state
+- `snapcastStore.js` - Snapcast server configuration
 - `podcastStore.js` - Podcast data and playback
 - `radioStore.js` - Radio stations and playback
 
@@ -168,11 +172,10 @@ frontend/src/
 - `useNavigationStack.js` - Navigation state management
 - `useScreenActivity.js` - Screen activity tracking
 - `useSettingsAPI.js` - Settings API interactions
+- `useSourceControl.js` - Generic playback control (play/pause, next, previous)
+- `useSourceProgress.js` - Playback progress tracking with local interpolation and seek
 - `useVirtualKeyboard.js` - Virtual keyboard state
-
-**Component-specific composables** (in `components/spotify/`):
-- `usePlaybackProgress.js` - Spotify playback progress tracking
-- `useSpotifyControl.js` - Spotify control actions
+- `useVolumeThrottle.js` - Volume control throttling
 
 **State synchronization**: Backend state changes → WebSocket event → Pinia store update → Reactive UI update
 
@@ -211,6 +214,7 @@ class AudioSourceProtocol(Protocol):
 **Reference implementations**:
 - **Radio plugin** (`backend/features/radio/`) - Demonstrates multi-component architecture, external API integration, file uploads, and complex data persistence
 - **Podcast plugin** (`backend/features/podcast/`) - Demonstrates external API integration (Taddy API), playback progress tracking with resume functionality, subscription management, and advanced playback controls (speed, seek)
+- **AirPlay plugin** (`backend/features/airplay/`) - Demonstrates metadata pipe parsing, binary artwork handling, and external process integration (shairport-sync)
 
 #### Podcast Plugin Architecture
 
@@ -257,7 +261,7 @@ The Podcast plugin demonstrates several advanced patterns:
 - `SkeletonPodcastCard.vue`, `SkeletonPodcastDetails.vue` - Loading skeletons for podcasts
 - `SkeletonEpisodeCard.vue`, `SkeletonEpisodeDetails.vue` - Loading skeletons for episodes
 
-**API Routes** (`backend/presentation/api/routes/podcast.py`):
+**API Routes** (`backend/features/podcast/routes.py`):
 - Search podcasts by query
 - Get trending podcasts by genre/language
 - Get podcast details and episodes
@@ -265,11 +269,11 @@ The Podcast plugin demonstrates several advanced patterns:
 - Playback controls (play, pause, resume, seek, stop, speed)
 - Progress tracking and retrieval
 
-**Health API Routes** (`backend/presentation/api/routes/health.py`):
+**Health API Routes** (`backend/api/health.py`):
 - `GET /api/health` - Comprehensive health check with all service statuses
 - `GET /api/ping` - Simple liveness probe for monitoring
 
-**Programs API Routes** (`backend/presentation/api/routes/programs.py`):
+**Programs API Routes** (`backend/api/programs.py`):
 - Get current program versions
 - Check for available updates from GitHub
 - Execute program updates (local and satellite devices)
@@ -295,12 +299,31 @@ The Radio plugin (`backend/features/radio/`) manages internet radio playback wit
 
 The Spotify plugin (`backend/features/spotify/`) integrates with go-librespot for Spotify Connect functionality.
 
-**Frontend Components** (`frontend/src/components/spotify/`):
-- `SpotifySource.vue` - Main Spotify interface with album art and track info
-- `PlaybackControls.vue` - Play/pause/skip controls
-- `ProgressBar.vue` - Track progress with seek capability
-- `usePlaybackProgress.js` - Composable for progress tracking
-- `useSpotifyControl.js` - Composable for Spotify control actions
+**Frontend**: `SpotifySource.vue` is a thin wrapper around the shared `AudioPlayerFull.vue` component with playback controls enabled.
+
+#### AirPlay Plugin Architecture
+
+The AirPlay plugin (`backend/features/airplay/`) provides AirPlay 2 support via shairport-sync + NQPTP.
+
+**Metadata Pipe**: `MetadataReader` reads the shairport-sync named pipe (`/tmp/shairport-sync-metadata`) for:
+- Track metadata (`core` items: title, artist, album, genre)
+- Artwork (`PICT` code: cover art as JPEG/PNG binary)
+- Play state (`ssnc` items: `pbeg`/`pend` for play/stop)
+- Client name (`snam` code: X-Apple-Client-Name, e.g. "iPhone de Léo")
+
+**Key differences from other plugins**:
+- No remote playback control (AirPlay 2 doesn't support it) — `showControls=false`
+- Metadata comes from a named pipe, not an API or IPC socket
+- Artwork is binary data read directly from the pipe
+- Uses `shairport-sync` systemd service (not mpv)
+
+**Frontend**: `AirPlaySource.vue` is a thin wrapper around the shared `AudioPlayerFull.vue` component with controls disabled and a source-bar showing the connected device name instead.
+
+#### Shared Audio Player (AudioPlayerFull.vue)
+
+`AudioPlayerFull.vue` in `frontend/src/components/audio/` is the full-screen player shared by Spotify and AirPlay. It accepts:
+- `source` prop — audio source identifier
+- `showControls` prop — displays `PlaybackControls` + `ConnectProgressBar` when true (Spotify), shows source-bar with icon + device name when false (AirPlay)
 
 ### 3. State Management Flow
 
@@ -382,6 +405,7 @@ These are auto-generated in `/var/lib/milo/routing.env` based on settings.json.
 **Reference implementations**:
 - **Radio plugin** (`backend/features/radio/`) - Local station management, file uploads, custom stations with image storage
 - **Podcast plugin** (`backend/features/podcast/`) - External API integration (Taddy), playback progress tracking with resume, speed control, complex multi-view frontend with navigation
+- **AirPlay plugin** (`backend/features/airplay/`) - Metadata pipe parsing, binary artwork, external process integration (shairport-sync)
 
 ### Adding a New Service
 
@@ -414,6 +438,7 @@ All persistent data in `/var/lib/milo/`:
 - `podcast_data.json` - Podcast subscriptions, favorites, playback progress, and user preferences
 - `routing.env` - ALSA routing environment variables (auto-generated)
 - `last_volume.json` - Last volume for restoration
+- `errors.log` - Persisted backend + frontend errors
 - `backups/` - Binary backups during updates
 
 ## Important Constraints
@@ -431,10 +456,12 @@ All components managed by systemd:
 
 - `milo-backend` - FastAPI backend
 - `milo-spotify` - Spotify Connect (go-librespot)
+- `milo-airplay` - AirPlay 2 (shairport-sync)
 - `milo-bluealsa` + `milo-bluealsa-aplay` - Bluetooth
 - `milo-mac` - Mac streaming (ROC receiver)
 - `milo-radio` - mpv radio player
 - `milo-podcast` - mpv podcast player (separate from radio)
+- `milo-camilladsp` - CamillaDSP audio processing
 - `milo-snapserver-multiroom` + `milo-snapclient-multiroom` - Multiroom audio
 - `milo-kiosk` - Chromium kiosk mode for touchscreen
 - `milo-disable-wifi-power-management` - WiFi power management optimization
