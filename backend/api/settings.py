@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from typing import Any, Callable, Dict, Optional
 from backend.core.models.audio_state import AudioSource
 from backend.features.podcast.taddy_api import TaddyAPI
-from backend.config.constants import DEFAULT_VOLUME_DB
+from backend.config.constants import DEFAULT_VOLUME_DB, DEFAULT_DOCK_APPS, AUDIO_SOURCE_APPS
 from backend.api.models import (
     LanguageRequest,
     VolumeLimitsRequest,
@@ -219,7 +219,7 @@ def create_settings_router(
     @router.get("/dock-apps")
     async def get_dock_apps():
         dock = await settings.get_setting('dock') or {}
-        enabled_apps = dock.get('enabled_apps', ["librespot", "bluetooth", "roc", "radio", "multiroom", "dsp", "settings"])
+        enabled_apps = dock.get('enabled_apps', DEFAULT_DOCK_APPS)
 
         return {
             "status": "success",
@@ -269,7 +269,7 @@ def create_settings_router(
                     logger.info(f"Processing disable for app: {app}")
                     
                     # === AUDIO SOURCES ===
-                    if app in ['spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'airplay']:
+                    if app in AUDIO_SOURCE_APPS:
                         current_source = state_machine.system_state.active_source.value
 
                         if app == current_source:
@@ -349,7 +349,7 @@ def create_settings_router(
                     logger.info(f"Processing enable for app: {app}")
                     
                     # === AUDIO SOURCES: DO NOTHING ===
-                    if app in ['spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'airplay']:
+                    if app in AUDIO_SOURCE_APPS:
                         operations_log.append(f"App {app} enabled (no service start needed)")
                         logger.info(f"App {app} enabled in dock (services will start on source change)")
                     
