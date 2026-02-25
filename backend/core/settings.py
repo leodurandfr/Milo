@@ -9,7 +9,7 @@ import aiofiles
 import asyncio
 from typing import Dict, Any
 
-from backend.config.constants import DEFAULT_VOLUME_DB
+from backend.config.constants import DEFAULT_VOLUME_DB, VALID_DOCK_APPS, AUDIO_SOURCE_APPS, UTILITY_DOCK_APPS, DEFAULT_DOCK_APPS
 
 class SettingsService:
     """Simplified settings manager with support for 0 = disabled"""
@@ -49,7 +49,7 @@ class SettingsService:
                 "dsp_effects_enabled": False
             },
             "dock": {
-                "enabled_apps": ["spotify", "bluetooth", "mac", "radio", "podcast", "airplay", "multiroom", "dsp", "settings"]
+                "enabled_apps": list(DEFAULT_DOCK_APPS)
             },
             "radio": {
                 "shazam_enabled": True
@@ -193,18 +193,15 @@ class SettingsService:
 
         # Dock with validation for at least one audio source
         dock_input = settings.get('dock', {})
-        all_valid_apps = ["spotify", "bluetooth", "mac", "radio", "podcast", "airplay", "multiroom", "equalizer", "settings"]
-        audio_sources = ["spotify", "bluetooth", "mac", "radio", "podcast", "airplay"]
-        other_apps = ["multiroom", "equalizer", "settings"]
 
         enabled_apps = dock_input.get('enabled_apps', [])
-        filtered_apps = [app for app in enabled_apps if app in all_valid_apps]
+        filtered_apps = [app for app in enabled_apps if app in VALID_DOCK_APPS]
 
         # Check that at least one audio source is enabled
-        enabled_audio_sources = [app for app in filtered_apps if app in audio_sources]
+        enabled_audio_sources = [app for app in filtered_apps if app in AUDIO_SOURCE_APPS]
         if not enabled_audio_sources:
             # Force at least spotify if no audio source
-            filtered_apps = ['spotify'] + [app for app in filtered_apps if app in other_apps]
+            filtered_apps = ['spotify'] + [app for app in filtered_apps if app in UTILITY_DOCK_APPS]
         
         validated['dock'] = {
             'enabled_apps': filtered_apps if filtered_apps else self.defaults['dock']['enabled_apps'].copy()

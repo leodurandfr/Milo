@@ -4,6 +4,7 @@ Centralized constants for the Milo backend.
 All hardcoded values should be defined here to avoid duplication.
 """
 from pathlib import Path
+from backend.core.models.audio_state import AudioSource
 
 # =============================================================================
 # BASE PATHS
@@ -62,3 +63,20 @@ SNAPCAST_CACHE_MS = 5000        # Client cache duration in milliseconds
 DEFAULT_VOLUME_DB = -60.0       # Default volume for new clients and startup
 MIN_VOLUME_DB = -80.0           # Technical minimum (silent)
 MAX_VOLUME_DB = 0.0             # Technical maximum
+
+# =============================================================================
+# DOCK APPS & AUDIO SOURCES
+# =============================================================================
+# Derived from AudioSource enum — always in sync
+AUDIO_SOURCE_APPS = frozenset(
+    s.value for s in AudioSource if s != AudioSource.NONE
+)
+
+# Non-audio dock apps
+UTILITY_DOCK_APPS = frozenset({'multiroom', 'dsp', 'settings'})
+
+# All valid dock apps
+VALID_DOCK_APPS = AUDIO_SOURCE_APPS | UTILITY_DOCK_APPS
+
+# Default dock apps (ordered for UI)
+DEFAULT_DOCK_APPS = ["spotify", "bluetooth", "mac", "radio", "podcast", "airplay", "multiroom", "dsp", "settings"]
