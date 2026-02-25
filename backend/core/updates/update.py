@@ -258,33 +258,25 @@ class UpdateService(VersionService):
                 await proc.communicate()
 
             if progress_callback:
-                await progress_callback("updates.progress.restartingBackend", 75)
+                await progress_callback("updates.progress.rebooting", 95)
 
-            # 9. Restart the backend service
-            restart_result = await self._restart_service(config["service_name"])
-            if not restart_result:
-                raise Exception("Failed to restart backend service")
+            # 9. Reboot the system to reload all services and configs
+            # Small delay to ensure the WebSocket message is sent
+            await asyncio.sleep(1)
 
-            if progress_callback:
-                await progress_callback("updates.progress.restartingKiosk", 90)
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", "reboot",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL
+            )
+            await proc.communicate()
 
-            # 10. Restart kiosk service to reload frontend
-            kiosk_restart_result = await self._restart_service("milo-kiosk.service")
-            if not kiosk_restart_result:
-                self.update_logger.warning("Failed to restart kiosk service, but update was successful")
-
-            if progress_callback:
-                await progress_callback("updates.progress.completed", 100)
-
-            # 11. Get the new version
-            new_status = await self.get_installed_version("milo")
-            new_version = list(new_status.get("versions", {}).values())[0] if new_status.get("versions") else "unknown"
-
+            # The process will be killed by the reboot, but return success in case it somehow continues
             return {
                 "success": True,
-                "message": f"Milo application updated successfully",
+                "message": "Milo application updated, rebooting...",
                 "old_version": status["installed"]["versions"].get("main", "unknown"),
-                "new_version": new_version
+                "new_version": latest_version
             }
 
         except Exception as e:

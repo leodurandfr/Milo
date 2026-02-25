@@ -346,7 +346,9 @@
       "rollingBack": "Rolling back to previous version...",
       "rollbackRebuilding": "Rebuilding after rollback...",
       "rollbackRestarting": "Restarting services after rollback...",
-      "rollbackComplete": "Rollback complete"
+      "rollbackComplete": "Rollback complete",
+      "stoppingActiveSource": "Stopping active audio source...",
+      "rebooting": "Rebooting..."
     }
   },
   "info": {
