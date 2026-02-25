@@ -315,6 +315,7 @@
     "multiroom": "मल्टीरूम ऑडियो",
     "bluetoothAudio": "ब्लूटूथ ऑडियो",
     "macStreaming": "macOS से ऑडियो स्ट्रीमिंग",
+    "airplay": "AirPlay ऑडियो",
     "upToDate": "अप टू डेट",
     "progress": {
       "creatingBackup": "बैकअप बनाया जा रहा है...",
@@ -346,7 +347,12 @@
       "rollingBack": "पिछले संस्करण पर वापस जा रहे हैं...",
       "rollbackRebuilding": "रोलबैक के बाद पुनः संकलन...",
       "rollbackRestarting": "रोलबैक के बाद सेवाएं पुनः आरंभ...",
-      "rollbackComplete": "रोलबैक पूर्ण"
+      "rollbackComplete": "रोलबैक पूर्ण",
+      "stoppingActiveSource": "सक्रिय ऑडियो स्रोत बंद किया जा रहा है...",
+      "rebooting": "रीबूट हो रहा है...",
+      "downloadingSource": "स्रोत डाउनलोड...",
+      "configuringSource": "कॉन्फ़िगर...",
+      "compilingSource": "कंपाइल..."
     }
   },
   "info": {

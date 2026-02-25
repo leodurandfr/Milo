@@ -35,6 +35,16 @@ class UpdateService(VersionService):
                 "github_asset_pattern": "go-librespot_linux_arm64.tar.gz",
                 "backup_path": "/var/lib/milo/backups/go-librespot"
             },
+            "shairport-sync": {
+                "binary_path": "/usr/local/bin/shairport-sync",
+                "service_name": "milo-airplay.service",
+                "backup_path": "/var/lib/milo/backups/shairport-sync",
+                "configure_flags": [
+                    "--sysconfdir=/etc", "--with-alsa", "--with-avahi",
+                    "--with-ssl=openssl", "--with-soxr", "--with-metadata",
+                    "--with-airplay-2", "--with-dbus-interface"
+                ]
+            },
             "multiroom": {
                 "services": [
                     "milo-snapserver-multiroom.service",
@@ -66,6 +76,8 @@ class UpdateService(VersionService):
                 return await self._update_go_librespot(status, progress_callback)
             elif program_key == "multiroom":
                 return await self._update_multiroom(status, progress_callback)
+            elif program_key == "shairport-sync":
+                return await self._update_shairport_sync(status, progress_callback)
             else:
                 return {"success": False, "error": f"Update handler not implemented for {program_key}"}
 
@@ -506,6 +518,343 @@ class UpdateService(VersionService):
             if client_download:
                 await self._cleanup_temp_files(client_download.get("temp_dir"))
             return {"success": False, "error": str(e)}
+
+    # === SHAIRPORT-SYNC (compile from source) ===
+
+    async def _update_shairport_sync(self, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
+        """Updates shairport-sync by compiling from source"""
+        config = self.update_config["shairport-sync"]
+        latest_version = status["latest"]["version"]
+        tag_name = status["latest"]["tag_name"]
+
+        service_was_active = await self._is_service_active(config["service_name"])
+        self.update_logger.info(f"Service {config['service_name']} was {'active' if service_was_active else 'inactive'} before update")
+
+        temp_dir = None
+
+        try:
+            # Phase 1: Backup (5%)
+            if progress_callback:
+                await progress_callback("updates.progress.creatingBackup", 5)
+
+            backup_result = await self._backup_shairport_sync(config)
+            if not backup_result["success"]:
+                return backup_result
+
+            # Phase 2: Download source (10%)
+            if progress_callback:
+                await progress_callback("updates.progress.downloadingSource", 10)
+
+            download_result = await self._download_shairport_sync_source(tag_name)
+            if not download_result["success"]:
+                return download_result
+            temp_dir = download_result["temp_dir"]
+            source_dir = download_result["source_dir"]
+
+            # Phase 3: Configure (20%)
+            if progress_callback:
+                await progress_callback("updates.progress.configuringSource", 20)
+
+            configure_result = await self._configure_shairport_sync(source_dir, config["configure_flags"])
+            if not configure_result["success"]:
+                await self._cleanup_temp_files(temp_dir)
+                return configure_result
+
+            # Phase 4: Compile (30%)
+            if progress_callback:
+                await progress_callback("updates.progress.compilingSource", 30)
+
+            compile_result = await self._compile_shairport_sync(source_dir)
+            if not compile_result["success"]:
+                await self._cleanup_temp_files(temp_dir)
+                return compile_result
+
+            # Phase 5: Stop service only if active (75%)
+            if service_was_active:
+                if progress_callback:
+                    await progress_callback("updates.progress.stoppingService", 75)
+
+                stop_result = await self._stop_service(config["service_name"])
+                if not stop_result:
+                    await self._cleanup_temp_files(temp_dir)
+                    return {"success": False, "error": "Failed to stop service"}
+
+            # Phase 6: Install (80%)
+            if progress_callback:
+                await progress_callback("updates.progress.installingVersion", 80)
+
+            install_result = await self._install_shairport_sync(source_dir)
+            if not install_result["success"]:
+                await self._rollback_shairport_sync(config, service_was_active)
+                await self._cleanup_temp_files(temp_dir)
+                return install_result
+
+            # Phase 7: Restart service if it was active (85%)
+            if service_was_active:
+                if progress_callback:
+                    await progress_callback("updates.progress.startingService", 85)
+
+                start_result = await self._start_service(config["service_name"])
+                if not start_result:
+                    await self._rollback_shairport_sync(config, service_was_active)
+                    await self._cleanup_temp_files(temp_dir)
+                    return {"success": False, "error": "Failed to start service after update"}
+
+            # Phase 8: Verify (90%)
+            if progress_callback:
+                await progress_callback("updates.progress.verifyingUpdate", 90)
+
+            verify_result = await self._verify_shairport_sync_update(config, service_was_active)
+            if not verify_result["success"]:
+                await self._rollback_shairport_sync(config, service_was_active)
+                await self._cleanup_temp_files(temp_dir)
+                return verify_result
+
+            # Phase 9: Cleanup (95-100%)
+            if progress_callback:
+                await progress_callback("updates.progress.cleaningUp", 95)
+
+            await self._cleanup_temp_files(temp_dir)
+
+            if progress_callback:
+                await progress_callback("updates.progress.completed", 100)
+
+            return {
+                "success": True,
+                "message": f"shairport-sync updated to {latest_version}",
+                "old_version": status["installed"]["versions"].get("main"),
+                "new_version": latest_version,
+                "service_restarted": service_was_active
+            }
+
+        except Exception as e:
+            self.update_logger.error(f"shairport-sync update failed: {e}")
+            await self._rollback_shairport_sync(config, service_was_active)
+            if temp_dir:
+                await self._cleanup_temp_files(temp_dir)
+            return {"success": False, "error": str(e)}
+
+    async def _backup_shairport_sync(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Backs up the shairport-sync binary"""
+        try:
+            backup_dir = Path(config["backup_path"])
+            backup_dir.mkdir(parents=True, exist_ok=True)
+
+            binary_path = Path(config["binary_path"])
+            if binary_path.exists():
+                binary_backup = backup_dir / "shairport-sync.backup"
+                shutil.copy2(config["binary_path"], binary_backup)
+
+            return {"success": True, "backup_dir": str(backup_dir)}
+
+        except Exception as e:
+            return {"success": False, "error": f"Backup failed: {e}"}
+
+    async def _download_shairport_sync_source(self, tag_name: str) -> Dict[str, Any]:
+        """Downloads and extracts shairport-sync source tarball from GitHub"""
+        try:
+            temp_dir = tempfile.mkdtemp()
+            url = f"https://github.com/mikebrady/shairport-sync/archive/refs/tags/{tag_name}.tar.gz"
+
+            self.update_logger.info(f"Downloading shairport-sync source from {url}...")
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        return {"success": False, "error": f"Download failed: HTTP {response.status}"}
+
+                    archive_path = Path(temp_dir) / "shairport-sync-source.tar.gz"
+                    async with aiofiles.open(archive_path, 'wb') as f:
+                        async for chunk in response.content.iter_chunked(8192):
+                            await f.write(chunk)
+
+            # Extract the archive
+            proc = await asyncio.create_subprocess_exec(
+                "tar", "-xzf", str(archive_path), "-C", temp_dir,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            _, stderr = await proc.communicate()
+
+            if proc.returncode != 0:
+                return {"success": False, "error": f"Failed to extract archive: {stderr.decode()}"}
+
+            # Find the extracted directory (shairport-sync-{tag})
+            extracted_dirs = [d for d in Path(temp_dir).iterdir() if d.is_dir()]
+            if not extracted_dirs:
+                return {"success": False, "error": "No directory found in archive"}
+
+            source_dir = str(extracted_dirs[0])
+            self.update_logger.info(f"Source extracted to {source_dir}")
+
+            return {
+                "success": True,
+                "source_dir": source_dir,
+                "temp_dir": temp_dir
+            }
+
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def _configure_shairport_sync(self, source_dir: str, configure_flags: list) -> Dict[str, Any]:
+        """Runs autoreconf and configure for shairport-sync"""
+        try:
+            # Step 1: autoreconf -fi
+            self.update_logger.info("Running autoreconf -fi...")
+            proc = await asyncio.create_subprocess_exec(
+                "autoreconf", "-fi",
+                cwd=source_dir,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            try:
+                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                return {"success": False, "error": "autoreconf timed out (5 min)"}
+
+            if proc.returncode != 0:
+                return {"success": False, "error": f"autoreconf failed: {stderr.decode()}"}
+
+            # Step 2: ./configure with flags
+            self.update_logger.info(f"Running ./configure with flags: {configure_flags}")
+            proc = await asyncio.create_subprocess_exec(
+                "./configure", *configure_flags,
+                cwd=source_dir,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            try:
+                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                return {"success": False, "error": "configure timed out (5 min)"}
+
+            if proc.returncode != 0:
+                return {"success": False, "error": f"configure failed: {stderr.decode()}"}
+
+            return {"success": True}
+
+        except Exception as e:
+            return {"success": False, "error": f"Configure failed: {e}"}
+
+    async def _compile_shairport_sync(self, source_dir: str) -> Dict[str, Any]:
+        """Compiles shairport-sync with make"""
+        try:
+            # Get number of CPU cores for parallel build
+            nproc_proc = await asyncio.create_subprocess_exec(
+                "nproc",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            nproc_stdout, _ = await nproc_proc.communicate()
+            num_cores = nproc_stdout.decode().strip() or "2"
+
+            self.update_logger.info(f"Compiling shairport-sync with make -j{num_cores}...")
+            proc = await asyncio.create_subprocess_exec(
+                "make", f"-j{num_cores}",
+                cwd=source_dir,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            try:
+                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=900)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                return {"success": False, "error": "Compilation timed out (15 min)"}
+
+            if proc.returncode != 0:
+                return {"success": False, "error": f"Compilation failed: {stderr.decode()[-500:]}"}
+
+            return {"success": True}
+
+        except Exception as e:
+            return {"success": False, "error": f"Compilation failed: {e}"}
+
+    async def _install_shairport_sync(self, source_dir: str) -> Dict[str, Any]:
+        """Installs compiled shairport-sync with sudo make install"""
+        try:
+            self.update_logger.info("Installing shairport-sync with sudo make install...")
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", "make", "install",
+                cwd=source_dir,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            _, stderr = await proc.communicate()
+
+            if proc.returncode != 0:
+                return {"success": False, "error": f"Installation failed: {stderr.decode()}"}
+
+            # Force filesystem sync
+            proc = await asyncio.create_subprocess_exec("sync")
+            await proc.wait()
+
+            return {"success": True}
+
+        except Exception as e:
+            return {"success": False, "error": f"Installation failed: {e}"}
+
+    async def _verify_shairport_sync_update(self, config: Dict[str, Any], service_was_active: bool) -> Dict[str, Any]:
+        """Verifies that shairport-sync was updated successfully"""
+        try:
+            # Check binary exists
+            binary_path = Path(config["binary_path"])
+            if not binary_path.exists():
+                return {"success": False, "error": "shairport-sync binary not found after update"}
+
+            # Check service is running (only if it was active before)
+            if service_was_active:
+                is_active = await self._is_service_active(config["service_name"])
+                if not is_active:
+                    return {"success": False, "error": "shairport-sync service not running after update"}
+
+            return {"success": True}
+
+        except Exception as e:
+            return {"success": False, "error": f"Verification failed: {e}"}
+
+    async def _rollback_shairport_sync(self, config: Dict[str, Any], service_was_active: bool = True) -> bool:
+        """Rollback shairport-sync to the backed up version"""
+        try:
+            backup_dir = Path(config["backup_path"])
+            binary_backup = backup_dir / "shairport-sync.backup"
+
+            if not binary_backup.exists():
+                self.update_logger.error("No backup found for rollback")
+                return False
+
+            # Stop the service if currently running
+            await self._stop_service(config["service_name"])
+
+            # Restore the binary
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", "cp", str(binary_backup), config["binary_path"],
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE
+            )
+            await proc.communicate()
+
+            # Force filesystem sync
+            proc = await asyncio.create_subprocess_exec("sync")
+            await proc.wait()
+
+            # Only restart service if it was originally active
+            if service_was_active:
+                await self._start_service(config["service_name"])
+
+            self.update_logger.info(f"shairport-sync rollback completed (service {'restarted' if service_was_active else 'left stopped'})")
+            return True
+
+        except Exception as e:
+            self.update_logger.error(f"shairport-sync rollback failed: {e}")
+            return False
 
     # === UTILITY METHODS ===
 

@@ -315,6 +315,7 @@
     "multiroom": "多房间音频",
     "bluetoothAudio": "蓝牙音频",
     "macStreaming": "来自 macOS 的音频流",
+    "airplay": "AirPlay 音频",
     "upToDate": "已是最新",
     "progress": {
       "creatingBackup": "正在创建备份...",
@@ -346,7 +347,12 @@
       "rollingBack": "正在回滚到之前版本...",
       "rollbackRebuilding": "回滚后重新编译...",
       "rollbackRestarting": "回滚后重启服务...",
-      "rollbackComplete": "回滚完成"
+      "rollbackComplete": "回滚完成",
+      "stoppingActiveSource": "正在停止活动音频源...",
+      "rebooting": "正在重启...",
+      "downloadingSource": "下载源代码...",
+      "configuringSource": "配置中...",
+      "compilingSource": "编译中..."
     }
   },
   "info": {

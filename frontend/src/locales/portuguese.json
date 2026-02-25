@@ -315,6 +315,7 @@
     "multiroom": "Áudio multiroom",
     "bluetoothAudio": "Áudio bluetooth",
     "macStreaming": "Transmissão de áudio do macOS",
+    "airplay": "Áudio AirPlay",
     "upToDate": "Atualizado",
     "progress": {
       "creatingBackup": "Criando backup...",
@@ -346,7 +347,12 @@
       "rollingBack": "Voltando para versão anterior...",
       "rollbackRebuilding": "Recompilando após rollback...",
       "rollbackRestarting": "Reiniciando serviços após rollback...",
-      "rollbackComplete": "Rollback concluído"
+      "rollbackComplete": "Rollback concluído",
+      "stoppingActiveSource": "Parando fonte de áudio ativa...",
+      "rebooting": "Reiniciando...",
+      "downloadingSource": "Baixando fontes...",
+      "configuringSource": "Configurando...",
+      "compilingSource": "Compilando..."
     }
   },
   "info": {
