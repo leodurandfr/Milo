@@ -32,19 +32,6 @@
           </ListItemButton>
 
           <ListItemButton
-            :title="t('applications.macOS')"
-            :model-value="config.mac"
-            variant="background"
-            action="toggle"
-            :disabled="!canDisableAudioSource('mac')"
-            @update:model-value="(val) => handleToggle('mac', val)"
-          >
-            <template #icon>
-              <AppIcon name="mac" :size="40" />
-            </template>
-          </ListItemButton>
-
-          <ListItemButton
             :title="t('audioSources.radio')"
             :model-value="config.radio"
             variant="background"
@@ -80,6 +67,19 @@
           >
             <template #icon>
               <AppIcon name="airplay" :size="40" />
+            </template>
+          </ListItemButton>
+
+          <ListItemButton
+            :title="t('applications.macOS')"
+            :model-value="config.mac"
+            variant="background"
+            action="toggle"
+            :disabled="!canDisableAudioSource('mac')"
+            @update:model-value="(val) => handleToggle('mac', val)"
+          >
+            <template #icon>
+              <AppIcon name="mac" :size="40" />
             </template>
           </ListItemButton>
         </div>
@@ -159,7 +159,7 @@ const { dockApps: config } = storeToRefs(settingsStore);
 // === Dock Apps ===
 
 function canDisableAudioSource(sourceId) {
-  const audioSources = ['spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'airplay'];
+  const audioSources = ['spotify', 'bluetooth', 'radio', 'podcast', 'airplay', 'mac'];
   const enabledAudioSources = audioSources.filter(source =>
     config.value[source] && source !== sourceId
   );

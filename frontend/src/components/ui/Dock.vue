@@ -90,7 +90,7 @@ const { on } = useWebSocket();
 const registerDockControl = inject('registerDockControl', null);
 
 // === STATIC CONFIGURATION ===
-const ALL_AUDIO_SOURCES = ['spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'airplay'];
+const ALL_AUDIO_SOURCES = ['spotify', 'bluetooth', 'radio', 'podcast', 'airplay', 'mac'];
 
 // === ANIMATION TIMING ===
 const DOCK_ANIM_INITIAL_DELAY = 0.16;  // Initial delay in seconds
@@ -104,7 +104,7 @@ const ALL_ADDITIONAL_ACTIONS = computed(() => [
 ]);
 
 // === DYNAMIC CONFIGURATION ===
-const enabledApps = ref(["spotify", "bluetooth", "mac", "radio", "podcast", "multiroom", "settings"]);
+const enabledApps = ref(["spotify", "bluetooth", "radio", "podcast", "airplay", "mac", "multiroom", "settings"]);
 // Volume step comes from unifiedAudioStore.volumeState (single source of truth)
 
 // Computed to separate audio plugins and features
@@ -614,7 +614,7 @@ const loadDockConfig = async () => {
     const response = await fetch('/api/settings/dock-apps');
     const data = await response.json();
     if (data.status === 'success') {
-      enabledApps.value = data.config.enabled_apps || ["spotify", "bluetooth", "mac", "radio", "podcast", "multiroom", "settings"];
+      enabledApps.value = data.config.enabled_apps || ["spotify", "bluetooth", "radio", "podcast", "airplay", "mac", "multiroom", "settings"];
     }
   } catch (error) {
     console.error('Error loading dock config:', error);

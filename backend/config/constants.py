@@ -73,10 +73,10 @@ AUDIO_SOURCE_APPS = frozenset(
 )
 
 # Non-audio dock apps
-UTILITY_DOCK_APPS = frozenset({'multiroom', 'dsp', 'settings'})
+UTILITY_DOCK_APPS = frozenset({'multiroom', 'settings'})
 
 # All valid dock apps
 VALID_DOCK_APPS = AUDIO_SOURCE_APPS | UTILITY_DOCK_APPS
 
 # Default dock apps (ordered for UI)
-DEFAULT_DOCK_APPS = ["spotify", "bluetooth", "mac", "radio", "podcast", "airplay", "multiroom", "dsp", "settings"]
+DEFAULT_DOCK_APPS = ["spotify", "bluetooth", "radio", "podcast", "airplay", "mac", "multiroom", "settings"]

@@ -12,10 +12,10 @@ class AudioSource(Enum):
     NONE = "none"
     SPOTIFY = "spotify"
     BLUETOOTH = "bluetooth"
-    MAC = "mac"
     RADIO = "radio"
     PODCAST = "podcast"
     AIRPLAY = "airplay"
+    MAC = "mac"
 
 
 class PluginState(Enum):
