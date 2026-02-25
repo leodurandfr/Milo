@@ -315,6 +315,7 @@
     "multiroom": "Multiroom audio",
     "bluetoothAudio": "Bluetooth audio",
     "macStreaming": "Audio streaming from macOS",
+    "airplay": "AirPlay audio",
     "upToDate": "Up to date",
     "progress": {
       "creatingBackup": "Creating backup...",
@@ -348,7 +349,10 @@
       "rollbackRestarting": "Restarting services after rollback...",
       "rollbackComplete": "Rollback complete",
       "stoppingActiveSource": "Stopping active audio source...",
-      "rebooting": "Rebooting..."
+      "rebooting": "Rebooting...",
+      "downloadingSource": "Downloading sources...",
+      "configuringSource": "Configuring...",
+      "compilingSource": "Compiling..."
     }
   },
   "info": {

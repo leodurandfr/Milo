@@ -198,7 +198,8 @@ function getProgramIcon(programKey) {
     'go-librespot': 'spotify',
     'multiroom': 'multiroom',
     'bluez-alsa': 'bluetooth',
-    'roc-toolkit': 'mac'
+    'roc-toolkit': 'mac',
+    'shairport-sync': 'airplay'
   };
   return iconMap[programKey] || 'settings';
 }
@@ -208,14 +209,16 @@ function getProgramDisplayName(program, key) {
     'go-librespot': 'Spotify Connect',
     'multiroom': 'Multiroom',
     'bluez-alsa': 'Bluetooth',
-    'roc-toolkit': 'Récepteur audio macOS'
+    'roc-toolkit': 'Récepteur audio macOS',
+    'shairport-sync': 'AirPlay'
   };
   return nameOverrides[key] || program.name;
 }
 
 function getVersionLabel(key) {
   const labelOverrides = {
-    'multiroom': 'snapcast'
+    'multiroom': 'snapcast',
+    'shairport-sync': 'shairport-sync'
   };
   return labelOverrides[key] || key;
 }
@@ -242,7 +245,7 @@ const localCompletedUpdates = ref(new Set());
 const satelliteUpdateStates = ref({});
 const satelliteCompletedUpdates = ref(new Set());
 
-const supportedLocalUpdates = ['milo', 'go-librespot', 'multiroom'];
+const supportedLocalUpdates = ['milo', 'go-librespot', 'shairport-sync', 'multiroom'];
 
 // === LOCAL PROGRAMS ===
 

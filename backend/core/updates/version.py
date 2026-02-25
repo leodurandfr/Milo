@@ -46,6 +46,15 @@ class VersionService:
                 "repo": "devgianlu/go-librespot",
                 "version_regex": r"(\d+\.\d+\.\d+)"
             },
+            "shairport-sync": {
+                "name": "AirPlay",
+                "description": "updates.airplay",
+                "commands": {
+                    "main": ["shairport-sync", "--version"]
+                },
+                "repo": "mikebrady/shairport-sync",
+                "version_regex": r"(\d+\.\d+(?:\.\d+)?)"
+            },
             "multiroom": {
                 "name": "Multiroom",
                 "description": "updates.multiroom",

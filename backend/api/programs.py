@@ -9,6 +9,7 @@ from backend.core.models.audio_state import AudioSource
 # Mapping from program key to AudioSource for pre-update deactivation
 PROGRAM_TO_AUDIO_SOURCE = {
     'go-librespot': AudioSource.SPOTIFY,
+    'shairport-sync': AudioSource.AIRPLAY,
 }
 
 def create_programs_router(ws_manager, version_service, update_service, satellite_update_service, state_machine):
