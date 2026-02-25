@@ -101,11 +101,27 @@
         </div>
       </SettingItem>
     </SettingsSection>
+
+    <!-- Inactivity timeout -->
+    <ToggleSection
+      :title="t('applicationsSettings.inactivityTimeout')"
+      :enabled="inactivityEnabled"
+      @change="handleInactivityToggle"
+    >
+      <SettingItem :label="t('applicationsSettings.inactivityDelay')">
+        <ButtonGroup
+          :model-value="inactivityConfig.inactivity_timeout"
+          :options="inactivityPresets"
+          mobile-layout="grid-3"
+          @change="setInactivityTimeout"
+        />
+      </SettingItem>
+    </ToggleSection>
   </SettingsContainer>
 </template>
 
 <script setup>
-import { onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
@@ -113,17 +129,21 @@ import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
+import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
+import ToggleSection from '@/components/settings/ToggleSection.vue';
 
 const { t } = useI18n();
 const { on } = useWebSocket();
-const { debouncedUpdate } = useSettingsAPI();
+const { debouncedUpdate, updateSetting } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 
 // Using storeToRefs for proper reactivity
 const { dockApps: config } = storeToRefs(settingsStore);
+
+// === Dock Apps ===
 
 function canDisableAudioSource(sourceId) {
   const audioSources = ['spotify', 'bluetooth', 'mac', 'radio', 'podcast'];
@@ -147,18 +167,79 @@ function handleToggle(appName, value) {
   updateDockApps();
 }
 
-// WebSocket listener
+// === Inactivity Timeout ===
+
+const inactivityConfig = ref({
+  inactivity_timeout: 7200
+});
+
+const inactivityEnabled = computed(() => inactivityConfig.value.inactivity_timeout !== 0);
+
+const lastNonZeroTimeout = ref(7200);
+
+function syncInactivityFromStore() {
+  const timeout = settingsStore.inactivityTimeout.inactivity_timeout;
+  inactivityConfig.value.inactivity_timeout = timeout;
+  if (timeout > 0) {
+    lastNonZeroTimeout.value = timeout;
+  }
+}
+
+const inactivityPresets = computed(() => [
+  { value: 300, label: t('time.5min') },
+  { value: 900, label: t('time.15min') },
+  { value: 3600, label: t('time.1h') },
+  { value: 7200, label: t('time.2h') },
+  { value: 14400, label: t('time.4h') }
+]);
+
+function handleInactivityToggle(enabled) {
+  if (enabled) {
+    inactivityConfig.value.inactivity_timeout = lastNonZeroTimeout.value;
+    settingsStore.updateInactivityTimeout({ inactivity_timeout: lastNonZeroTimeout.value });
+    updateSetting('inactivity-timeout', { inactivity_timeout: lastNonZeroTimeout.value });
+  } else {
+    if (inactivityConfig.value.inactivity_timeout > 0) {
+      lastNonZeroTimeout.value = inactivityConfig.value.inactivity_timeout;
+    }
+    inactivityConfig.value.inactivity_timeout = 0;
+    settingsStore.updateInactivityTimeout({ inactivity_timeout: 0 });
+    updateSetting('inactivity-timeout', { inactivity_timeout: 0 });
+  }
+}
+
+function setInactivityTimeout(value) {
+  if (value > 0) {
+    lastNonZeroTimeout.value = value;
+  }
+  inactivityConfig.value.inactivity_timeout = value;
+  settingsStore.updateInactivityTimeout({ inactivity_timeout: value });
+  updateSetting('inactivity-timeout', { inactivity_timeout: value });
+}
+
+// === WebSocket listeners ===
+
 const handleDockAppsChanged = (msg) => {
   if (msg.data?.config?.enabled_apps) {
-    const enabledApps = msg.data.config.enabled_apps;
-    // Update the store
-    settingsStore.updateDockApps(enabledApps);
+    settingsStore.updateDockApps(msg.data.config.enabled_apps);
+  }
+};
+
+const handleInactivityTimeoutChanged = (msg) => {
+  if (msg.data?.config?.inactivity_timeout !== undefined) {
+    const timeout = msg.data.config.inactivity_timeout;
+    settingsStore.updateInactivityTimeout({ inactivity_timeout: timeout });
+    inactivityConfig.value.inactivity_timeout = timeout;
+    if (timeout > 0) {
+      lastNonZeroTimeout.value = timeout;
+    }
   }
 };
 
 onMounted(() => {
-  // No need to load the config here; it's already in the store
+  syncInactivityFromStore();
   on('settings', 'dock_apps_changed', handleDockAppsChanged);
+  on('settings', 'inactivity_timeout_changed', handleInactivityTimeoutChanged);
 });
 </script>
 

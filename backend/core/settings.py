@@ -232,6 +232,15 @@ class SettingsService:
             # Preserve equalizer section as-is (no strict validation)
             validated['equalizer'] = equalizer_input
 
+        # Audio (inactivity timeout)
+        audio_input = settings.get('audio', {})
+        if audio_input:
+            inactivity_raw = int(audio_input.get('inactivity_timeout', 7200))
+            validated['audio'] = {
+                # 0 = disabled, otherwise minimum 300s (5 min)
+                'inactivity_timeout': 0 if inactivity_raw == 0 else max(300, min(86400, inactivity_raw))
+            }
+
         # Radio settings
         radio_input = settings.get('radio', {})
         validated['radio'] = {

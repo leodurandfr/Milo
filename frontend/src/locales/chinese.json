@@ -363,6 +363,10 @@
     "bluetooth": "蓝牙",
     "macOS": "macOS"
   },
+  "applicationsSettings": {
+    "inactivityTimeout": "自动关闭",
+    "inactivityDelay": "在一段时间不活动后停用音频源："
+  },
   "clientDetails": {
     "editClient": "编辑客户端",
     "viewDetails": "查看客户端详情",
@@ -399,6 +403,8 @@
     "15min": "15分",
     "30min": "30分",
     "1h": "1小时",
+    "2h": "2 h",
+    "4h": "4 h",
     "never": "从不"
   },
   "common": {

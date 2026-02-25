@@ -21,6 +21,7 @@ Usage:
 import asyncio
 import time
 import logging
+from time import monotonic
 from typing import Dict, Any, Optional
 
 from backend.core.models.audio_state import AudioSource, PluginState, SystemAudioState
@@ -45,6 +46,7 @@ class AudioStateMachine:
     """
 
     TRANSITION_TIMEOUT = 5.0
+    INACTIVITY_TIMEOUT = 7200  # 2 hours in seconds
 
     def __init__(self, event_bus: EventBus):
         self.event_bus = event_bus
@@ -55,6 +57,11 @@ class AudioStateMachine:
         }
         self._transition_lock = asyncio.Lock()
         self._state_lock = asyncio.Lock()
+
+        # Inactivity monitor
+        self._inactivity_timeout: int = self.INACTIVITY_TIMEOUT
+        self._last_activity_time: float = monotonic()
+        self._inactivity_monitor_task: Optional[asyncio.Task] = None
 
         # Backward compatibility: optional websocket handler
         self.websocket_handler = None
@@ -183,6 +190,9 @@ class AudioStateMachine:
                         "source": "system"
                     })
 
+                    # Reset inactivity timer on source change
+                    self._last_activity_time = monotonic()
+
                     logger.info(f"Transition completed: {target_source.value}")
                     return True
 
@@ -240,6 +250,10 @@ class AudioStateMachine:
                 self.system_state.error = metadata.get("error") if metadata else "Unknown"
             else:
                 self.system_state.error = None
+
+            # Reset inactivity timer when plugin becomes active
+            if new_state == PluginState.CONNECTED:
+                self._last_activity_time = monotonic()
 
         # Emit via EventBus
         await self.event_bus.emit(Events.SOURCE_STATE_CHANGED, {
@@ -352,6 +366,61 @@ class AudioStateMachine:
             self.system_state.plugin_state = PluginState.READY
             self.system_state.metadata = {}
             self.system_state.error = None
+
+    # === Inactivity Monitor ===
+
+    def start_inactivity_monitor(self, timeout: int = INACTIVITY_TIMEOUT) -> None:
+        """Start the background task that deactivates idle sources."""
+        self._inactivity_timeout = timeout
+        if self._inactivity_monitor_task is None:
+            self._inactivity_monitor_task = asyncio.create_task(
+                self._monitor_inactivity()
+            )
+            logger.info(
+                "Inactivity monitor started (timeout: %s)",
+                f"{self._inactivity_timeout}s" if self._inactivity_timeout > 0 else "disabled"
+            )
+
+    async def reload_inactivity_config(self, timeout: int) -> bool:
+        """Update inactivity timeout (called by settings API)."""
+        self._inactivity_timeout = timeout
+        self._last_activity_time = monotonic()
+        logger.info(
+            "Inactivity timeout updated: %s",
+            f"{timeout}s" if timeout > 0 else "disabled"
+        )
+        return True
+
+    async def _monitor_inactivity(self) -> None:
+        """Deactivate source after inactivity timeout without CONNECTED state."""
+        try:
+            while True:
+                await asyncio.sleep(60)
+
+                if (
+                    self._inactivity_timeout > 0
+                    and self.system_state.active_source != AudioSource.NONE
+                    and self.system_state.plugin_state == PluginState.READY
+                    and not self.system_state.transitioning
+                    and (monotonic() - self._last_activity_time) >= self._inactivity_timeout
+                ):
+                    source = self.system_state.active_source
+                    elapsed = monotonic() - self._last_activity_time
+                    logger.info(
+                        "Deactivating idle source %s after %.0fs of inactivity",
+                        source.value,
+                        elapsed
+                    )
+                    await self.deactivate_source()
+
+        except asyncio.CancelledError:
+            pass
+
+    def cleanup(self) -> None:
+        """Cancel background tasks."""
+        if self._inactivity_monitor_task:
+            self._inactivity_monitor_task.cancel()
+            self._inactivity_monitor_task = None
 
     # === Backward Compatibility Methods ===
 

@@ -363,6 +363,10 @@
     "bluetooth": "ब्लूटूथ",
     "macOS": "macOS"
   },
+  "applicationsSettings": {
+    "inactivityTimeout": "स्वचालित बंद",
+    "inactivityDelay": "निष्क्रियता की अवधि के बाद ऑडियो स्रोत को निष्क्रिय करें:"
+  },
   "clientDetails": {
     "editClient": "क्लाइंट संपादित करें",
     "viewDetails": "क्लाइंट विवरण देखें",
@@ -399,6 +403,8 @@
     "15min": "15 मिन",
     "30min": "30 मिन",
     "1h": "1 घंटा",
+    "2h": "2 h",
+    "4h": "4 h",
     "never": "कभी नहीं"
   },
   "common": {

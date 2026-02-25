@@ -361,7 +361,12 @@
     "features": "Fonctionnalités",
     "spotify": "Spotify",
     "bluetooth": "Bluetooth",
-    "macOS": "macOS"  },
+    "macOS": "macOS"
+  },
+  "applicationsSettings": {
+    "inactivityTimeout": "Fermeture automatique",
+    "inactivityDelay": "Désactiver la source audio après une période d'inactivité\u00a0:"
+  },
   "clientDetails": {
     "editClient": "Modifier le client",
     "viewDetails": "Voir les détails du client",
@@ -398,6 +403,8 @@
     "15min": "15 min",
     "30min": "30 min",
     "1h": "1 h",
+    "2h": "2 h",
+    "4h": "4 h",
     "never": "Jamais"
   },
   "common": {
