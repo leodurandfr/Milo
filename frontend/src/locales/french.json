@@ -346,7 +346,9 @@
       "rollingBack": "Restauration de la version précédente...",
       "rollbackRebuilding": "Reconstruction après restauration...",
       "rollbackRestarting": "Redémarrage des services après restauration...",
-      "rollbackComplete": "Restauration terminée"
+      "rollbackComplete": "Restauration terminée",
+      "stoppingActiveSource": "Arrêt de la source audio active...",
+      "rebooting": "Redémarrage..."
     }
   },
   "info": {

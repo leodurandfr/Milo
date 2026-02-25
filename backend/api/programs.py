@@ -4,8 +4,14 @@ API routes for program management — Full version with satellites
 """
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from typing import Dict, Any
+from backend.core.models.audio_state import AudioSource
 
-def create_programs_router(ws_manager, version_service, update_service, satellite_update_service):
+# Mapping from program key to AudioSource for pre-update deactivation
+PROGRAM_TO_AUDIO_SOURCE = {
+    'go-librespot': AudioSource.SPOTIFY,
+}
+
+def create_programs_router(ws_manager, version_service, update_service, satellite_update_service, state_machine):
     """Router for local and satellite programs
 
     Args:
@@ -13,6 +19,7 @@ def create_programs_router(ws_manager, version_service, update_service, satellit
         version_service: Singleton service for version checks
         update_service: Singleton service for updates
         satellite_update_service: Singleton service for satellite updates
+        state_machine: AudioStateMachine for deactivating active sources before update
     """
     router = APIRouter(prefix="/api/programs", tags=["programs"])
 
@@ -321,6 +328,12 @@ def create_programs_router(ws_manager, version_service, update_service, satellit
 
         async def do_update():
             try:
+                # Stop active audio source if it corresponds to the program being updated
+                audio_source = PROGRAM_TO_AUDIO_SOURCE.get(program_key)
+                if audio_source and state_machine.system_state.active_source == audio_source:
+                    await progress_callback("updates.progress.stoppingActiveSource", 2)
+                    await state_machine.deactivate_source()
+
                 result = await update_service.update_program(program_key, progress_callback)
 
                 if result["success"]:
