@@ -8,6 +8,36 @@ import './assets/styles/reset.css'
 import './assets/styles/screen-corrections.css'
 import './assets/styles/design-system.css'
 
+// Rate-limited error reporter to backend (max 1 per second)
+let lastErrorTime = 0
+function reportError(source, error, info = '') {
+  const now = Date.now()
+  if (now - lastErrorTime < 1000) return
+  lastErrorTime = now
+
+  const payload = {
+    source,
+    error: typeof error === 'string' ? error : (error?.message || String(error)),
+    info: info || (error?.stack || '')
+  }
+  fetch('/api/errors', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).catch(() => {}) // Never let reporting itself throw
+}
+
+// Capture uncaught JS errors
+window.addEventListener('error', (event) => {
+  reportError('window.onerror', event.message, `${event.filename}:${event.lineno}:${event.colno}`)
+})
+
+// Capture unhandled promise rejections
+window.addEventListener('unhandledrejection', (event) => {
+  const reason = event.reason
+  reportError('unhandledrejection', reason)
+})
+
 async function initApp() {
   const app = createApp(App)
 
@@ -18,6 +48,13 @@ async function initApp() {
   app.config.globalProperties.$t = i18n.t.bind(i18n)
 
   app.config.devtools = true
+
+  // Capture Vue component errors (render, lifecycle, watchers)
+  app.config.errorHandler = (err, instance, info) => {
+    const component = instance?.$options?.name || instance?.$.type?.name || 'unknown'
+    reportError(`vue:${component}`, err, info)
+    console.error(`[Vue Error] ${component} - ${info}:`, err)
+  }
 
   await i18n.initializeLanguage()
 

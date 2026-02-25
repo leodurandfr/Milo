@@ -20,6 +20,7 @@ RADIO_DATA_FILE = MILO_DATA_DIR / "radio_data.json"
 PODCAST_DATA_FILE = MILO_DATA_DIR / "podcast_data.json"
 CLIENT_DSP_FILE = MILO_DATA_DIR / "client_dsp.json"
 ROUTING_ENV_FILE = MILO_DATA_DIR / "routing.env"
+ERROR_LOG_FILE = MILO_DATA_DIR / "errors.log"
 
 # =============================================================================
 # DIRECTORIES (derived from MILO_DATA_DIR)

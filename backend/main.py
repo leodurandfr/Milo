@@ -8,6 +8,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import logging
+from logging.handlers import RotatingFileHandler
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,6 +29,7 @@ from backend.features.podcast.routes import setup_podcast_routes
 from backend.api.settings import create_settings_router
 from backend.api.programs import create_programs_router
 from backend.api.health import create_health_router
+from backend.api.errors import create_errors_router
 from backend.api.multiroom import create_multiroom_router
 from backend.ws import WebSocketServer
 from backend.core.models.audio_state import AudioSource
@@ -38,6 +40,13 @@ _log_level_name = os.environ.get('MILO_LOG_LEVEL', 'INFO').upper()
 _log_level = getattr(logging, _log_level_name, logging.INFO)
 logging.basicConfig(level=_log_level)
 logger = logging.getLogger(__name__)
+
+# Persist errors/warnings to rotating log file
+from backend.config.constants import ERROR_LOG_FILE
+_file_handler = RotatingFileHandler(ERROR_LOG_FILE, maxBytes=2*1024*1024, backupCount=3)
+_file_handler.setLevel(logging.WARNING)
+_file_handler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s %(name)s - %(message)s'))
+logging.getLogger().addHandler(_file_handler)
 
 # Broadcast backend errors/warnings to frontend via WebSocket
 from backend.core.log_handler import WebSocketLogHandler
@@ -199,6 +208,9 @@ app.include_router(programs_router)
 
 health_router = create_health_router(state_machine, routing_service, snapcast_service)
 app.include_router(health_router)
+
+errors_router = create_errors_router()
+app.include_router(errors_router)
 
 multiroom_router = create_multiroom_router(client_registry_service, multiroom_dsp_service)
 app.include_router(multiroom_router)
