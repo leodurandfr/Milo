@@ -1,0 +1,25 @@
+[Unit]
+Description=Milo AirPlay 2 receiver (shairport-sync)
+After=network-online.target sound.service milo-backend.service nqptp.service
+Wants=network-online.target
+Requires=nqptp.service
+BindsTo=milo-backend.service
+
+[Service]
+Type=simple
+User=milo
+Group=audio
+
+ExecStart=/usr/local/bin/shairport-sync -c /etc/shairport-sync.conf
+EnvironmentFile=/var/lib/milo/routing.env
+Environment=HOME=/home/milo
+WorkingDirectory=/var/lib/milo
+Restart=always
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=milo-airplay
+
+[Install]
+WantedBy=multi-user.target

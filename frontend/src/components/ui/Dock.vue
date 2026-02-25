@@ -90,7 +90,7 @@ const { on } = useWebSocket();
 const registerDockControl = inject('registerDockControl', null);
 
 // === STATIC CONFIGURATION ===
-const ALL_AUDIO_SOURCES = ['spotify', 'bluetooth', 'mac', 'radio', 'podcast'];
+const ALL_AUDIO_SOURCES = ['spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'airplay'];
 
 // === ANIMATION TIMING ===
 const DOCK_ANIM_INITIAL_DELAY = 0.16;  // Initial delay in seconds
@@ -492,11 +492,12 @@ const handleAdditionalAppClick = (appId) => {
 const getAppTitle = (appId) => {
   // Translations for audio sources
   const audioSourceTitles = {
-    'spotify': t('applications.spotify'),
-    'bluetooth': t('applications.bluetooth'),
+    'spotify': t('audioSources.spotify'),
+    'bluetooth': t('audioSources.bluetooth'),
     'mac': t('applications.macOS'),
     'radio': t('audioSources.radio'),
-    'podcast': 'Podcasts'
+    'podcast': t('audioSources.podcasts'),
+    'airplay': t('audioSources.airplay')
   };
 
   // If it's an audio source, return the translation

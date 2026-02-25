@@ -25,6 +25,7 @@
     "rocReception": "Mac 音频接收",
     "radio": "广播",
     "podcasts": "播客",
+    "airplay": "AirPlay",
     "radioSource": {
       "favoritesTitle": "喜爱的广播",
       "discoverTitle": "发现广播",
@@ -361,7 +362,8 @@
     "features": "功能",
     "spotify": "Spotify",
     "bluetooth": "蓝牙",
-    "macOS": "macOS"
+    "macOS": "macOS",
+    "airplay": "AirPlay"
   },
   "applicationsSettings": {
     "inactivityTimeout": "自动关闭",

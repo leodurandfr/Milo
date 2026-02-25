@@ -1,7 +1,7 @@
 <template>
   <div class="progress-bar" v-if="duration > 0 && isReady">
     <span class="text-mono time">{{ formatTime(currentPosition) }}</span>
-    <div ref="progressContainer" class="progress-container" @click="onProgressClick">
+    <div ref="progressContainer" class="progress-container" :class="{ interactive }" @click="onProgressClick">
       <div class="progress" :style="progressStyle"></div>
     </div>
     <span class="text-mono time">{{ formatTime(duration) }}</span>
@@ -27,6 +27,10 @@ const props = defineProps({
   isReady: {
     type: Boolean,
     default: true
+  },
+  interactive: {
+    type: Boolean,
+    default: true
   }
 });
 
@@ -45,10 +49,10 @@ const progressPercent = computed(() => {
 const progressStyle = computed(() => {
   const percent = progressPercent.value;
   const height = 8;
-  
+
   // Actual width the bar should have at this percentage
   const actualWidth = (percent / 100) * containerWidth.value;
-  
+
   if (actualWidth <= height) {
     // Circle mode: movement from -8px to 0px
     return {
@@ -79,7 +83,7 @@ function formatTime(ms) {
 }
 
 function onProgressClick(event) {
-  if (!props.duration) return;
+  if (!props.interactive || !props.duration) return;
 
   const container = event.currentTarget;
   const rect = container.getBoundingClientRect();
@@ -104,9 +108,13 @@ function onProgressClick(event) {
   height: 8px;
   background-color: var(--color-background-strong);
   border-radius: 4px;
-  cursor: pointer;
+  cursor: default;
   position: relative;
   overflow: hidden;
+}
+
+.progress-container.interactive {
+  cursor: pointer;
 }
 
 .progress {

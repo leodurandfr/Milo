@@ -7,7 +7,7 @@ and _transition_to_direct() methods into a single unified transition flow.
 """
 import asyncio
 import logging
-from typing import Dict, Any, Optional, Callable, Literal
+from typing import Optional, Callable, Literal
 
 from backend.core.models.audio_state import AudioSource, PluginState
 
@@ -19,11 +19,10 @@ class RoutingTransitions:
     Handles routing mode transitions between direct and multiroom.
 
     Transition flow:
-    1. Save current playback state
-    2. Notify STARTING state to show loading UI
+    1. Notify STARTING state to show loading UI
+    2. Stop plugin to release ALSA device
     3. Start/stop Snapcast services based on target mode
-    4. Restart plugin with new routing
-    5. Resume playback if it was active
+    4. Restart plugin with new routing (returns to READY state)
     """
 
     def __init__(
@@ -81,17 +80,11 @@ class RoutingTransitions:
         """
         try:
             plugin = None
-            was_playing = False
-            playback_metadata = {}
 
             if active_source and self.get_plugin:
                 plugin = self.get_plugin(active_source)
 
-            # Step 1: Save current playback state
-            if plugin and self.state_machine:
-                was_playing, playback_metadata = self._capture_playback_state(active_source)
-
-            # Step 2: Notify STARTING state to show loading UI
+            # Step 1: Notify STARTING state to show loading UI
             if plugin and self.state_machine:
                 await self.state_machine.update_plugin_state(
                     source=active_source,
@@ -99,7 +92,7 @@ class RoutingTransitions:
                     metadata={"reason": "routing_change"}
                 )
 
-            # Step 3: Stop plugin FIRST to release ALSA device before routing change
+            # Step 2: Stop plugin FIRST to release ALSA device before routing change
             # This is critical: in direct mode, the plugin holds camilladsp device
             # which snapclient needs in multiroom mode
             if plugin:
@@ -107,7 +100,7 @@ class RoutingTransitions:
                 await plugin.stop()
                 await asyncio.sleep(0.5)  # Wait for ALSA to release
 
-            # Step 4: Start/stop Snapcast services based on target mode
+            # Step 3: Start/stop Snapcast services based on target mode
             if target_mode == "multiroom":
                 snapcast_success = await self._handle_multiroom_snapcast()
                 if not snapcast_success:
@@ -119,32 +112,15 @@ class RoutingTransitions:
             else:
                 await self._stop_snapcast()
 
-            # Step 5: Restart plugin with new routing
+            # Step 4: Restart plugin with new routing
             if plugin:
                 await self._restart_plugin(plugin, active_source, target_mode)
-
-            # Step 6: Resume playback if it was active
-            if was_playing and plugin and playback_metadata:
-                await asyncio.sleep(2.0)  # Wait for plugin to be ready
-                await self._resume_playback(active_source, plugin, playback_metadata)
 
             return True
 
         except Exception as e:
             logger.error(f"Error in {target_mode} transition: {e}")
             return False
-
-    def _capture_playback_state(self, active_source: AudioSource) -> tuple[bool, Dict[str, Any]]:
-        """Capture current playback state before transition."""
-        current_state = self.state_machine.system_state.plugin_state
-        current_metadata = self.state_machine.system_state.metadata.copy()
-        was_playing = current_state == PluginState.CONNECTED or current_metadata.get("is_playing", False)
-
-        if was_playing:
-            logger.info(f"Saving playback state: {active_source.value} was playing")
-            return True, current_metadata
-
-        return False, {}
 
     async def _handle_multiroom_snapcast(self) -> bool:
         """Start snapcast services for multiroom mode."""
@@ -173,21 +149,3 @@ class RoutingTransitions:
         if not start_success:
             logger.error(f"Plugin {active_source.value} start failed after {mode_label} transition")
 
-    async def _resume_playback(
-        self,
-        source: AudioSource,
-        plugin,
-        metadata: Dict[str, Any],
-    ) -> None:
-        """Resume playback after routing change."""
-        try:
-            if source == AudioSource.RADIO:
-                station_id = metadata.get("station_id")
-                if station_id:
-                    logger.info(f"Resuming radio playback: {metadata.get('station_name', station_id)}")
-                    result = await plugin.handle_command("play_station", {"station_id": station_id})
-                    logger.info(f"Resume result: {result}")
-            # Podcast: playback stops cleanly during routing change, user can restart manually
-            # Spotify and Bluetooth manage their own playback state
-        except Exception as e:
-            logger.warning(f"Could not resume playback for {source.value}: {e}")

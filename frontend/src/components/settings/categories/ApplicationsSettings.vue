@@ -69,6 +69,19 @@
               <AppIcon name="podcast" :size="40" />
             </template>
           </ListItemButton>
+
+          <ListItemButton
+            :title="t('applications.airplay')"
+            :model-value="config.airplay"
+            variant="background"
+            action="toggle"
+            :disabled="!canDisableAudioSource('airplay')"
+            @update:model-value="(val) => handleToggle('airplay', val)"
+          >
+            <template #icon>
+              <AppIcon name="airplay" :size="40" />
+            </template>
+          </ListItemButton>
         </div>
       </SettingItem>
 
@@ -146,7 +159,7 @@ const { dockApps: config } = storeToRefs(settingsStore);
 // === Dock Apps ===
 
 function canDisableAudioSource(sourceId) {
-  const audioSources = ['spotify', 'bluetooth', 'mac', 'radio', 'podcast'];
+  const audioSources = ['spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'airplay'];
   const enabledAudioSources = audioSources.filter(source =>
     config.value[source] && source !== sourceId
   );

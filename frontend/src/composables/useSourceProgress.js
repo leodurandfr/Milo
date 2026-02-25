@@ -1,8 +1,9 @@
-// frontend/src/components/spotify/usePlaybackProgress.js
+// frontend/src/composables/useSourceProgress.js
+// Playback progress tracking composable with local interpolation and seek
 import { ref, computed, watch, onUnmounted } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 
-export function usePlaybackProgress() {
+export function useSourceProgress(source) {
   const unifiedStore = useUnifiedAudioStore();
 
   const localPosition = ref(null);
@@ -55,7 +56,7 @@ export function usePlaybackProgress() {
     localPosition.value = position;
 
     try {
-      await unifiedStore.sendCommand('spotify', 'seek', { position_ms: position });
+      await unifiedStore.sendCommand(source, 'seek', { position_ms: position });
     } finally {
       // Small delay to let WebSocket event arrive first
       await new Promise(resolve => setTimeout(resolve, 50));

@@ -91,6 +91,7 @@ def _create_service(name: str) -> Any:
     from backend.features.bluetooth import BluetoothSource
     from backend.features.radio import RadioSource
     from backend.features.podcast import PodcastSource
+    from backend.features.airplay import AirPlaySource
 
     creators = {
         # Core services (no dependencies or simple deps)
@@ -208,6 +209,13 @@ def _create_service(name: str) -> Any:
             systemd_manager=get_service("systemd_manager")
         ),
         "podcast_source": lambda: _create_podcast_source(),
+        "airplay_source": lambda: AirPlaySource(
+            event_bus=get_service("event_bus"),
+            config={"metadata_pipe": "/tmp/shairport-sync-metadata"},
+            state_machine=get_service("audio_state_machine"),
+            settings_service=get_service("settings_service"),
+            systemd_manager=get_service("systemd_manager")
+        ),
     }
 
     if name not in creators:
@@ -355,6 +363,7 @@ def initialize_services() -> None:
     state_machine.register_plugin(AudioSource.MAC, get_service("mac_source"))
     state_machine.register_plugin(AudioSource.RADIO, get_service("radio_source"))
     state_machine.register_plugin(AudioSource.PODCAST, get_service("podcast_source"))
+    state_machine.register_plugin(AudioSource.AIRPLAY, get_service("airplay_source"))
 
     # =========================================================================
     # STEP 4: Parallel async initialization

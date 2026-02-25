@@ -280,8 +280,8 @@ const logoVisible = computed(() => {
     return true;
   }
 
-  // Hidden: Spotify connected with track info
-  if (active_source === 'spotify' && plugin_state === 'connected' && metadata?.title) {
+  // Hidden: Spotify/AirPlay connected with track info
+  if ((active_source === 'spotify' || active_source === 'airplay') && plugin_state === 'connected' && metadata?.title) {
     return false;
   }
 

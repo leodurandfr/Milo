@@ -25,6 +25,7 @@
     "rocReception": "Ricezione audio Mac",
     "radio": "Radio",
     "podcasts": "Podcast",
+    "airplay": "AirPlay",
     "radioSource": {
       "favoritesTitle": "Radio preferite",
       "discoverTitle": "Scopri radio",
@@ -361,7 +362,8 @@
     "features": "Funzionalità",
     "spotify": "Spotify",
     "bluetooth": "Bluetooth",
-    "macOS": "macOS"
+    "macOS": "macOS",
+    "airplay": "AirPlay"
   },
   "applicationsSettings": {
     "inactivityTimeout": "Chiusura automatica",

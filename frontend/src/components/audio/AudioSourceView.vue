@@ -15,6 +15,11 @@
       <!-- PodcastView -->
       <PodcastSource v-else-if="shouldShowPodcast" :key="contentKey" />
 
+      <!-- AirPlayView -->
+      <div v-else-if="shouldShowAirPlay" :key="contentKey" class="connect-container">
+        <AirPlaySource />
+      </div>
+
       <!-- PluginStatus -->
       <div v-else-if="shouldShowPluginStatus" :key="contentKey" class="plugin-status-container">
         <AudioSourceStatus :plugin-type="currentPluginType" :plugin-state="currentPluginState"
@@ -36,6 +41,9 @@ const RadioSource = defineAsyncComponent(() =>
 );
 const PodcastSource = defineAsyncComponent(() =>
   import('../podcasts/PodcastSource.vue')
+);
+const AirPlaySource = defineAsyncComponent(() =>
+  import('../airplay/AirPlaySource.vue')
 );
 import AudioSourceStatus from './AudioSourceStatus.vue';
 
@@ -96,6 +104,13 @@ const shouldShowPodcast = computed(() => {
     !props.transitioning;
 });
 
+const shouldShowAirPlay = computed(() => {
+  return displayedSource.value === 'airplay' &&
+    props.pluginState === 'connected' &&
+    hasCompleteTrackInfo.value &&
+    !props.transitioning;
+});
+
 const shouldShowPluginStatus = computed(() => {
   // Don't show status during transition to "none" (deactivation)
   if (props.transitioning && props.activeSource === 'none') {
@@ -110,6 +125,11 @@ const shouldShowPluginStatus = computed(() => {
 
   // Spotify without complete conditions
   if (displayedSource.value === 'spotify') {
+    return !hasCompleteTrackInfo.value || props.pluginState !== 'connected';
+  }
+
+  // AirPlay without complete conditions
+  if (displayedSource.value === 'airplay') {
     return !hasCompleteTrackInfo.value || props.pluginState !== 'connected';
   }
 
@@ -135,6 +155,8 @@ const currentDeviceName = computed(() => {
     case 'mac':
       // Support multiple clients: return the array or a single string
       return metadata.client_names || metadata.client_name || [];
+    case 'airplay':
+      return metadata.client_name || '';
     default:
       return '';
   }
@@ -166,8 +188,9 @@ const contentKey = computed(() => {
 
 /* === SIMPLIFIED CONTAINERS === */
 
-/* SpotifyView: natural full-screen */
-.spotify-container {
+/* Connect-style sources: natural full-screen */
+.spotify-container,
+.connect-container {
   width: 100%;
   height: 100%;
 }
