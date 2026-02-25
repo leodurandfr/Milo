@@ -361,7 +361,8 @@
     "temperature": "Temperatura",
     "ipAddress": "IP Milō",
     "cpu": "CPU",
-    "ram": "RAM"
+    "ram": "RAM",
+    "credits": "Crediti"
   },
   "applications": {
     "title": "Applicazioni",

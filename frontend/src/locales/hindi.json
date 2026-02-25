@@ -361,7 +361,8 @@
     "temperature": "तापमान",
     "ipAddress": "Milō आईपी",
     "cpu": "CPU",
-    "ram": "RAM"
+    "ram": "RAM",
+    "credits": "श्रेय"
   },
   "applications": {
     "title": "एप्लिकेशन",
