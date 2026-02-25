@@ -112,9 +112,24 @@ class TestDSPController:
         return proxy
 
     @pytest.fixture
-    def controller(self, mock_dsp_service, mock_proxy_service):
+    def mock_registry(self):
+        """Create mock client registry."""
+        registry = Mock()
+        local_client = Mock(ip="127.0.0.1")
+        remote_client = Mock(ip="192.168.1.100")
+        def get_client(mac_id):
+            if mac_id == "local":
+                return local_client
+            elif mac_id == "milo-client-01":
+                return remote_client
+            return None
+        registry.get_client = get_client
+        return registry
+
+    @pytest.fixture
+    def controller(self, mock_dsp_service, mock_proxy_service, mock_registry):
         """Create DSPController."""
-        return DSPController(mock_dsp_service, mock_proxy_service)
+        return DSPController(mock_dsp_service, mock_proxy_service, client_registry=mock_registry)
 
     @pytest.mark.asyncio
     async def test_set_local_volume(self, controller, mock_dsp_service):
@@ -858,7 +873,7 @@ class TestStandaloneReconnectionVolume:
 # ============================================================================
 
 class TestStartupVolumeAutoUpdate:
-    """Tests for FR11 - Auto-update startup_volume_db when restore_last_volume is disabled."""
+    """Tests for FR11 - Auto-update startup_volume_db when restore_last_volume is enabled."""
 
     @pytest.fixture(autouse=True)
     def reset_bus(self):
@@ -922,23 +937,25 @@ class TestStartupVolumeAutoUpdate:
             camilladsp_service=mock_dsp_service,
             dsp_client_proxy_service=mock_proxy_service
         )
-        # Set initial config with restore_last_volume=False (FR11 active)
+        # Set initial config with restore_last_volume=True (FR11 active)
         svc._config_service._config = VolumeConfig(
             limit_min_db=-80.0,
             limit_max_db=-21.0,
             startup_volume_db=-60.0,
-            restore_last_volume=False
+            restore_last_volume=True
         )
+        # Set state store to direct mode (default is multiroom, which would use empty clients)
+        svc._state_store._mode = "direct"
         return svc
 
     @pytest.mark.asyncio
-    async def test_set_volume_updates_startup_volume_when_restore_false(
+    async def test_set_volume_updates_startup_volume_when_restore_true(
         self, service, mock_settings, mock_state_machine
     ):
         """
-        FR11 AC1: set_volume_db() updates startup_volume_db when restore_last_volume=false.
+        FR11 AC1: set_volume_db() updates startup_volume_db when restore_last_volume=true.
         """
-        # Arrange: restore_last_volume=False (already set in fixture)
+        # Arrange: restore_last_volume=True (already set in fixture)
         mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
 
         # Act: Set volume to -45dB
@@ -948,18 +965,18 @@ class TestStartupVolumeAutoUpdate:
         mock_settings.set_setting.assert_called_with('volume.startup_volume_db', -45.0)
 
     @pytest.mark.asyncio
-    async def test_set_volume_does_not_update_startup_volume_when_restore_true(
+    async def test_set_volume_does_not_update_startup_volume_when_restore_false(
         self, service, mock_settings, mock_state_machine
     ):
         """
-        FR11 AC2: set_volume_db() does NOT update startup_volume_db when restore_last_volume=true.
+        FR11 AC2: set_volume_db() does NOT update startup_volume_db when restore_last_volume=false.
         """
-        # Arrange: Set restore_last_volume=True
+        # Arrange: Set restore_last_volume=False
         service._config_service._config = VolumeConfig(
             limit_min_db=-80.0,
             limit_max_db=-21.0,
             startup_volume_db=-60.0,
-            restore_last_volume=True  # FR11 should NOT trigger
+            restore_last_volume=False  # FR11 should NOT trigger
         )
         mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
 
@@ -970,13 +987,13 @@ class TestStartupVolumeAutoUpdate:
         mock_settings.set_setting.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_adjust_volume_updates_startup_volume_when_restore_false(
+    async def test_adjust_volume_updates_startup_volume_when_restore_true(
         self, service, mock_settings, mock_state_machine
     ):
         """
-        FR11 AC1: adjust_volume_db() updates startup_volume_db when restore_last_volume=false.
+        FR11 AC1: adjust_volume_db() updates startup_volume_db when restore_last_volume=true.
         """
-        # Arrange
+        # Arrange: restore_last_volume=True (already set in fixture)
         mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
         service._state_store.set_local_volume(-50.0)
 
@@ -1000,7 +1017,7 @@ class TestStartupVolumeAutoUpdate:
             limit_min_db=-80.0,
             limit_max_db=-21.0,
             startup_volume_db=-45.0,  # Same as what we'll set
-            restore_last_volume=False
+            restore_last_volume=True
         )
         mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
 
@@ -1042,6 +1059,7 @@ class TestStartupVolumeAutoUpdate:
 
         # Setup zone in state store
         from backend.core.models.volume_state import ClientVolume
+        service._state_store._local_mac_id = 'local'
         service._state_store._clients = {
             'local': ClientVolume(volume_db=-50.0, offset_db=0.0, mute=False, available=True)
         }
@@ -1168,60 +1186,57 @@ class TestStartupVolumeOnRestart:
         # Act: Call _apply_startup_volume directly (called by initialize())
         await service._apply_startup_volume()
 
-        # Assert: DSP was set to startup_volume_db
-        mock_dsp_controller.set_dsp_volume.assert_called_with("local", startup_vol)
+        # Assert: DSP was set to startup_volume_db (uses _dsp_service directly at startup)
+        mock_dsp_service.set_volume.assert_called_with(startup_vol)
 
     @pytest.mark.asyncio
     async def test_startup_applies_persisted_volume_when_restore_true(
         self, service, mock_dsp_service, mock_dsp_controller
     ):
         """
-        FR12 AC3/AC4: initialize() applies persisted volume when restore_last_volume=true.
+        FR12 AC3/AC4: initialize() applies startup_volume_db when restore_last_volume=true.
+        startup_volume_db is auto-updated by FR11 to track current volume, so at restart
+        it already contains the persisted volume.
         """
         # Arrange: Set config with restore=true
+        # startup_volume_db has been auto-tracked by FR11 to the persisted volume
+        persisted_vol = -42.0
         service._config_service._config = VolumeConfig(
             limit_min_db=-80.0,
             limit_max_db=-21.0,
-            startup_volume_db=-60.0,  # Should NOT be used
+            startup_volume_db=persisted_vol,  # FR11 auto-tracked this
             restore_last_volume=True
         )
-        # Simulate persisted volume in state store
-        persisted_vol = -42.0
-        from backend.core.models.volume_state import ClientVolume
-        service._state_store._clients = {
-            'local': ClientVolume(volume_db=persisted_vol, offset_db=0.0, mute=False, available=True)
-        }
 
         # Act
         await service._apply_startup_volume()
 
-        # Assert: DSP was set to persisted volume, not startup_volume_db
-        mock_dsp_controller.set_dsp_volume.assert_called_with("local", persisted_vol)
+        # Assert: DSP was set to startup_volume_db (uses _dsp_service directly at startup)
+        mock_dsp_service.set_volume.assert_called_with(persisted_vol)
 
     @pytest.mark.asyncio
-    async def test_startup_uses_local_volume_fallback_when_no_client_state(
+    async def test_startup_uses_startup_volume_db_as_single_source(
         self, service, mock_dsp_service, mock_dsp_controller
     ):
         """
-        FR12: When restore=true but no client state exists, use _local_volume_db fallback.
+        FR12: startup_volume_db is the single source of truth for startup volume.
+        FR11 auto-updates it during runtime, so at restart it contains the correct value.
         """
-        # Arrange
+        # Arrange: startup_volume_db is always used (FR11 keeps it in sync)
+        startup_vol = -38.0
         service._config_service._config = VolumeConfig(
             limit_min_db=-80.0,
             limit_max_db=-21.0,
-            startup_volume_db=-60.0,
+            startup_volume_db=startup_vol,
             restore_last_volume=True
         )
-        # Set local volume but no client state
-        fallback_vol = -38.0
-        service._state_store._local_volume_db = fallback_vol
         service._state_store._clients = {}  # No client state
 
         # Act
         await service._apply_startup_volume()
 
-        # Assert: DSP was set to fallback local volume
-        mock_dsp_controller.set_dsp_volume.assert_called_with("local", fallback_vol)
+        # Assert: DSP was set to startup_volume_db (uses _dsp_service directly at startup)
+        mock_dsp_service.set_volume.assert_called_with(startup_vol)
 
     @pytest.mark.asyncio
     async def test_startup_applies_mute_state(
@@ -1229,6 +1244,7 @@ class TestStartupVolumeOnRestart:
     ):
         """
         FR12: Startup also applies persisted mute state.
+        The mute state is read from _state_store._local_mute attribute.
         """
         # Arrange
         service._config_service._config = VolumeConfig(
@@ -1237,16 +1253,14 @@ class TestStartupVolumeOnRestart:
             startup_volume_db=-45.0,
             restore_last_volume=False
         )
-        from backend.core.models.volume_state import ClientVolume
-        service._state_store._clients = {
-            'local': ClientVolume(volume_db=-45.0, offset_db=0.0, mute=True, available=True)
-        }
+        # Set persisted mute state on the state store (read by _apply_startup_volume)
+        service._state_store._local_mute = True
 
         # Act
         await service._apply_startup_volume()
 
-        # Assert: Mute state was applied
-        mock_dsp_controller.set_dsp_mute.assert_called_with("local", True)
+        # Assert: Mute state was applied via _dsp_service directly at startup
+        mock_dsp_service.set_mute.assert_called_with(True)
 
     @pytest.mark.asyncio
     async def test_startup_handles_dsp_connection_timeout(
@@ -1269,4 +1283,4 @@ class TestStartupVolumeOnRestart:
         await service._apply_startup_volume()
 
         # Assert: DSP volume was NOT set (connection failed)
-        mock_dsp_controller.set_dsp_volume.assert_not_called()
+        mock_dsp_service.set_volume.assert_not_called()

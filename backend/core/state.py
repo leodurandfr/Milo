@@ -202,6 +202,13 @@ class AudioStateMachine:
                     self.system_state.transitioning = False
                     self.system_state.error = "Transition timeout"
 
+                # Broadcast error to WebSocket before emergency_stop clears state
+                await self._broadcast_websocket("system", "error", {
+                    "source": target_source.value,
+                    "error": "Transition timeout",
+                    "message": f"Transition timeout after {self.TRANSITION_TIMEOUT}s"
+                })
+
                 await self._emergency_stop()
 
                 await self.event_bus.emit(Events.SOURCE_ERROR, {
@@ -215,6 +222,13 @@ class AudioStateMachine:
                 async with self._state_lock:
                     self.system_state.transitioning = False
                     self.system_state.error = str(e)
+
+                # Broadcast error to WebSocket before emergency_stop clears state
+                await self._broadcast_websocket("system", "error", {
+                    "source": target_source.value,
+                    "error": str(e),
+                    "message": str(e)
+                })
 
                 await self._emergency_stop()
 

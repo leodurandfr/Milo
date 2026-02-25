@@ -13,7 +13,7 @@ AC Coverage:
 import pytest
 import asyncio
 import time
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.websocket import SnapcastWebSocketService
@@ -116,6 +116,8 @@ class TestSnapcastDetectionIntegration:
         """
         registry.set_state_machine(mock_state_machine)
 
+        mac_addr = "aa:bb:cc:dd:ee:01"
+
         # Simulate Snapcast Client.OnConnect notification
         snapcast_notification = {
             "client": {
@@ -126,7 +128,8 @@ class TestSnapcastDetectionIntegration:
                 },
                 "host": {
                     "name": "milo-client-kitchen",
-                    "ip": "192.168.1.150"
+                    "ip": "192.168.1.150",
+                    "mac": mac_addr
                 }
             }
         }
@@ -134,8 +137,8 @@ class TestSnapcastDetectionIntegration:
         # Process the notification
         await ws_service._handle_client_connect(snapcast_notification)
 
-        # Verify 1: Client is registered in registry
-        client = registry.get_client("milo-client-kitchen")
+        # Verify 1: Client is registered in registry (by mac_id)
+        client = registry.get_client(mac_addr)
         assert client is not None, "Client should be registered in registry"
         assert client.name == "Kitchen Speakers"
         assert client.ip == "192.168.1.150"
@@ -146,12 +149,12 @@ class TestSnapcastDetectionIntegration:
         # Verify 3: WebSocket broadcasts were made
         assert len(mock_state_machine.broadcasts) >= 1, "Should have broadcast events"
 
-        # Verify 4: Registry event was broadcast
+        # Verify 4: Registry event was broadcast (category="multiroom" via ClientRegistryService._emit_event)
         registry_events = [
             b for b in mock_state_machine.broadcasts
-            if b["category"] == "registry"
+            if b["category"] == "multiroom"
         ]
-        assert len(registry_events) >= 1, "Should have registry event"
+        assert len(registry_events) >= 1, "Should have multiroom registry event"
 
         # Verify 5: Snapcast event was broadcast
         snapcast_events = [
@@ -171,13 +174,15 @@ class TestSnapcastDetectionIntegration:
         """
         registry.set_state_machine(mock_state_machine)
 
+        mac_addr = "aa:bb:cc:dd:ee:02"
+
         # First connect a client
         await registry.register_client(
-            mac_id="milo-client-living",
+            mac_id=mac_addr,
             name="Living Room",
             ip="192.168.1.151"
         )
-        await registry.set_client_online("milo-client-living", True)
+        await registry.set_client_online(mac_addr, True)
 
         # Clear broadcasts
         mock_state_machine.broadcasts.clear()
@@ -189,7 +194,8 @@ class TestSnapcastDetectionIntegration:
                 "config": {"name": "Living Room"},
                 "host": {
                     "name": "milo-client-living",
-                    "ip": "192.168.1.151"
+                    "ip": "192.168.1.151",
+                    "mac": mac_addr
                 }
             }
         }
@@ -198,17 +204,17 @@ class TestSnapcastDetectionIntegration:
         await ws_service._handle_client_disconnect(snapcast_notification)
 
         # Verify 1: Client is now offline
-        client = registry.get_client("milo-client-living")
+        client = registry.get_client(mac_addr)
         assert client is not None, "Client should still exist"
         assert client.online is False, "Client should be offline"
 
         # Verify 2: Disconnect events were broadcast
         assert len(mock_state_machine.broadcasts) >= 1, "Should have broadcast events"
 
-        # Verify 3: Registry disconnect event
+        # Verify 3: Registry disconnect event (category="multiroom", type="client_state_changed")
         registry_events = [
             b for b in mock_state_machine.broadcasts
-            if b["category"] == "registry" and b["type"] == "client_disconnected"
+            if b["category"] == "multiroom" and b["type"] == "client_state_changed"
         ]
         assert len(registry_events) >= 1, "Should have registry disconnect event"
 
@@ -223,8 +229,10 @@ class TestSnapcastDetectionIntegration:
         """
         registry.set_state_machine(mock_state_machine)
 
+        mac_addr = "aa:bb:cc:dd:ee:03"
+
         # Verify client doesn't exist
-        assert registry.get_client("milo-client-new") is None
+        assert registry.get_client(mac_addr) is None
 
         # Simulate new client connecting
         snapcast_notification = {
@@ -236,7 +244,8 @@ class TestSnapcastDetectionIntegration:
                 },
                 "host": {
                     "name": "milo-client-new",
-                    "ip": "192.168.1.200"
+                    "ip": "192.168.1.200",
+                    "mac": mac_addr
                 }
             }
         }
@@ -244,7 +253,7 @@ class TestSnapcastDetectionIntegration:
         await ws_service._handle_client_connect(snapcast_notification)
 
         # Verify client was created with correct defaults
-        client = registry.get_client("milo-client-new")
+        client = registry.get_client(mac_addr)
         assert client is not None
 
         # AC3 specified defaults
@@ -269,11 +278,13 @@ class TestSnapcastDetectionIntegration:
         """
         registry.set_state_machine(mock_state_machine)
 
+        mac_addr = "aa:bb:cc:dd:ee:04"
+
         snapcast_notification = {
             "client": {
                 "id": "timing-test-client",
                 "config": {"name": "Timing Test", "volume": {"percent": 100}},
-                "host": {"name": "milo-client-timing", "ip": "192.168.1.250"}
+                "host": {"name": "milo-client-timing", "ip": "192.168.1.250", "mac": mac_addr}
             }
         }
 
@@ -299,15 +310,17 @@ class TestSnapcastDetectionIntegration:
         """
         registry.set_state_machine(mock_state_machine)
 
+        mac_addr = "aa:bb:cc:dd:ee:05"
+
         # Setup: register client first
-        await registry.register_client("timing-disconnect", "Test", "192.168.1.251")
-        await registry.set_client_online("timing-disconnect", True)
+        await registry.register_client(mac_addr, "Test", "192.168.1.251")
+        await registry.set_client_online(mac_addr, True)
 
         snapcast_notification = {
             "client": {
                 "id": "timing-disconnect-id",
                 "config": {"name": "Test"},
-                "host": {"name": "timing-disconnect", "ip": "192.168.1.251"}
+                "host": {"name": "timing-disconnect", "ip": "192.168.1.251", "mac": mac_addr}
             }
         }
 
@@ -333,24 +346,24 @@ class TestSnapcastDetectionIntegration:
         registry.set_state_machine(mock_state_machine)
 
         clients_data = [
-            ("milo-client-1", "Speaker 1", "192.168.1.101"),
-            ("milo-client-2", "Speaker 2", "192.168.1.102"),
-            ("milo-client-3", "Speaker 3", "192.168.1.103"),
+            ("milo-client-1", "Speaker 1", "192.168.1.101", "aa:bb:cc:dd:01:01"),
+            ("milo-client-2", "Speaker 2", "192.168.1.102", "aa:bb:cc:dd:01:02"),
+            ("milo-client-3", "Speaker 3", "192.168.1.103", "aa:bb:cc:dd:01:03"),
         ]
 
-        for hostname, name, ip in clients_data:
+        for hostname, name, ip, mac in clients_data:
             notification = {
                 "client": {
                     "id": f"id-{hostname}",
                     "config": {"name": name, "volume": {"percent": 100}},
-                    "host": {"name": hostname, "ip": ip}
+                    "host": {"name": hostname, "ip": ip, "mac": mac}
                 }
             }
             await ws_service._handle_client_connect(notification)
 
-        # Verify all clients registered
-        for hostname, name, _ in clients_data:
-            client = registry.get_client(hostname)
+        # Verify all clients registered (by mac_id)
+        for hostname, name, _, mac in clients_data:
+            client = registry.get_client(mac)
             assert client is not None, f"Client {hostname} should be registered"
             assert client.name == name
             assert client.online is True
@@ -368,12 +381,13 @@ class TestSnapcastDetectionIntegration:
 
         hostname = "milo-client-rapid"
         ip = "192.168.1.199"
+        mac_addr = "aa:bb:cc:dd:ee:06"
 
         connect_notification = {
             "client": {
                 "id": "rapid-id",
                 "config": {"name": "Rapid Test", "volume": {"percent": 100}},
-                "host": {"name": hostname, "ip": ip}
+                "host": {"name": hostname, "ip": ip, "mac": mac_addr}
             }
         }
 
@@ -381,22 +395,22 @@ class TestSnapcastDetectionIntegration:
             "client": {
                 "id": "rapid-id",
                 "config": {"name": "Rapid Test"},
-                "host": {"name": hostname, "ip": ip}
+                "host": {"name": hostname, "ip": ip, "mac": mac_addr}
             }
         }
 
         # Rapid connect/disconnect cycles
         for _ in range(5):
             await ws_service._handle_client_connect(connect_notification)
-            client = registry.get_client(hostname)
+            client = registry.get_client(mac_addr)
             assert client.online is True
 
             await ws_service._handle_client_disconnect(disconnect_notification)
-            client = registry.get_client(hostname)
+            client = registry.get_client(mac_addr)
             assert client.online is False
 
         # Final state check
-        client = registry.get_client(hostname)
+        client = registry.get_client(mac_addr)
         assert client is not None
         assert client.online is False
 
@@ -409,6 +423,9 @@ class TestSnapcastDetectionIntegration:
         """Test local client (127.0.0.1) is handled correctly."""
         registry.set_state_machine(mock_state_machine)
 
+        # Read the actual local MAC that compute_mac_id will return
+        local_mac = ClientRegistryService.compute_mac_id("milo", "127.0.0.1", "")
+
         notification = {
             "client": {
                 "id": "local-client-id",
@@ -419,10 +436,10 @@ class TestSnapcastDetectionIntegration:
 
         await ws_service._handle_client_connect(notification)
 
-        # Local client should get mac_id "local"
-        client = registry.get_client("local")
+        # Local client should get the system's actual MAC as mac_id
+        client = registry.get_client(local_mac)
         assert client is not None
-        assert client.mac_id == "local"
+        assert client.mac_id == local_mac
         assert client.online is True
 
     # === Event Format Verification ===
@@ -434,10 +451,13 @@ class TestSnapcastDetectionIntegration:
         """
         Verify broadcast events match AC4 format specification.
 
+        The registry broadcasts with category="multiroom" and maps
+        CLIENT_CONNECTED/CLIENT_UPDATED to type="client_state_changed".
+
         Expected format:
         {
-            "category": "registry",
-            "type": "client_connected|client_disconnected|client_updated",
+            "category": "multiroom",
+            "type": "client_state_changed",
             "data": {
                 "mac_id": "...",
                 "client": { /* full client state */ }
@@ -446,20 +466,22 @@ class TestSnapcastDetectionIntegration:
         """
         registry.set_state_machine(mock_state_machine)
 
+        mac_addr = "aa:bb:cc:dd:ee:07"
+
         notification = {
             "client": {
                 "id": "format-test",
                 "config": {"name": "Format Test", "volume": {"percent": 100}},
-                "host": {"name": "milo-client-format", "ip": "192.168.1.180"}
+                "host": {"name": "milo-client-format", "ip": "192.168.1.180", "mac": mac_addr}
             }
         }
 
         await ws_service._handle_client_connect(notification)
 
-        # Find registry event
+        # Find registry event (category="multiroom", type="client_state_changed")
         registry_events = [
             b for b in mock_state_machine.broadcasts
-            if b["category"] == "registry"
+            if b["category"] == "multiroom" and b["type"] == "client_state_changed"
         ]
 
         assert len(registry_events) >= 1
@@ -471,11 +493,8 @@ class TestSnapcastDetectionIntegration:
         assert "type" in event
         assert "data" in event
 
-        assert event["category"] == "registry"
-        assert event["type"] in [
-            RegistryEventType.CLIENT_CONNECTED,
-            RegistryEventType.CLIENT_UPDATED
-        ]
+        assert event["category"] == "multiroom"
+        assert event["type"] == "client_state_changed"
 
         data = event["data"]
         assert "mac_id" in data

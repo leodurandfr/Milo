@@ -5,7 +5,7 @@ Unit tests for Settings API routes
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import Mock, AsyncMock
 from backend.api.settings import create_settings_router
 
 
@@ -99,29 +99,28 @@ class TestSettingsRoutes:
         """Fixture to create a TestClient with mocks"""
         app = FastAPI()
 
-        with patch('backend.api.settings.SettingsService') as mock_settings_class:
-            mock_settings = Mock()
-            mock_settings.get_setting = AsyncMock(return_value=None)
-            mock_settings.set_setting = AsyncMock(return_value=True)
-            mock_settings.load_settings = AsyncMock(return_value={})
-            mock_settings._cache = None
-            mock_settings_class.return_value = mock_settings
+        mock_settings = Mock()
+        mock_settings.get_setting = AsyncMock(return_value=None)
+        mock_settings.set_setting = AsyncMock(return_value=True)
+        mock_settings.load_settings = AsyncMock(return_value={})
+        mock_settings._cache = None
 
-            router = create_settings_router(
-                ws_manager=mock_ws_manager,
-                volume_service=mock_volume_service,
-                state_machine=mock_state_machine,
-                screen_controller=mock_screen_controller,
-                systemd_manager=mock_systemd_manager,
-                routing_service=mock_routing_service,
-                hardware_service=mock_hardware_service
-            )
+        router = create_settings_router(
+            ws_manager=mock_ws_manager,
+            volume_service=mock_volume_service,
+            state_machine=mock_state_machine,
+            screen_controller=mock_screen_controller,
+            systemd_manager=mock_systemd_manager,
+            routing_service=mock_routing_service,
+            hardware_service=mock_hardware_service,
+            settings_service=mock_settings
+        )
 
-            app.include_router(router, prefix="/api/settings")
+        app.include_router(router, prefix="/api/settings")
 
-            client = TestClient(app)
-            client._mock_settings = mock_settings
-            return client
+        client = TestClient(app)
+        client._mock_settings = mock_settings
+        return client
 
     # ===================
     # LANGUAGE TESTS

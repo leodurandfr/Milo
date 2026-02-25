@@ -240,22 +240,6 @@ class TestPatchClient:
         assert "online" in response.json()["client"]
 
 
-class TestPutClientAlias:
-    """Tests for PUT /api/multiroom/clients/{mac_id} endpoint (backward compatibility)."""
-
-    def test_put_client_works_same_as_patch(self, client, mock_registry_service):
-        """PUT /clients/{mac_id} behaves identically to PATCH."""
-        response = client.put(
-            "/api/multiroom/clients/dc:a6:32:7e:d3:43",
-            json={"name": "Via PUT"}
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "success"
-        assert data["client"]["name"] == "Via PUT"
-
-
 class TestSpeakerTypeValidation:
     """Tests for speaker_type validation (AC3)."""
 

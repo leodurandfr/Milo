@@ -844,13 +844,22 @@ class TestInZoneReconnectionSyncIntegration:
         sm.dsp_settings_sync_service = None
         sm.camilladsp_service = None
 
-        # Mock volume service with config
+        # Mock volume service with config and state store
         volume_service = AsyncMock()
         volume_config = MagicMock()
         volume_config.config.startup_volume_db = -45.0
         volume_service.config = volume_config
         volume_service.update_client_volume_db = AsyncMock()
         volume_service._broadcast_volume_state = AsyncMock()
+        # Mock _state_store._clients to return proper client state objects
+        mock_client_state = MagicMock()
+        mock_client_state.mute = False
+        volume_service._state_store._clients = {
+            "client-1": mock_client_state,
+            "client-2": mock_client_state,
+            "client-3": mock_client_state,
+        }
+        volume_service._dsp_controller = AsyncMock()
         sm.volume_service = volume_service
 
         return sm
@@ -1060,17 +1069,23 @@ class TestInZoneReconnectionSyncIntegration:
         )
         ws_service._sync_zone_dsp_to_client = AsyncMock(return_value=True)
 
-        # Simulate reconnection
+        # Mock _state_store._clients to return a proper client state object
+        volume_service = mock_state_machine.volume_service
+        mock_client_state = MagicMock()
+        mock_client_state.mute = False
+        volume_service._state_store._clients = {"client-1": mock_client_state}
+        volume_service._dsp_controller = AsyncMock()
+
+        # Simulate reconnection (include mac matching registered mac_id)
         client_data = {
             "id": "snapcast-client-123",
             "config": {"name": "Client 1", "volume": {"percent": 100}},
-            "host": {"name": "milo-client-01", "ip": "192.168.1.1"}
+            "host": {"name": "milo-client-01", "ip": "192.168.1.1", "mac": "client-1"}
         }
 
         sync_status = await ws_service._sync_existing_client_volume("snapcast-client-123", client_data)
 
         # Verify broadcast was called
-        volume_service = mock_state_machine.volume_service
         volume_service._broadcast_volume_state.assert_called()
 
     @pytest.mark.asyncio
@@ -1147,13 +1162,21 @@ class TestAC4SyncTimeCompliance:
         snapcast.set_volume = AsyncMock()
         sm.snapcast_service = snapcast
 
-        # Mock volume service with config
+        # Mock volume service with config and state store
         volume_service = AsyncMock()
         volume_config = MagicMock()
         volume_config.config.startup_volume_db = -45.0
         volume_service.config = volume_config
         volume_service.update_client_volume_db = AsyncMock()
         volume_service._broadcast_volume_state = AsyncMock()
+        # Mock _state_store._clients to return proper client state objects
+        mock_client_state = MagicMock()
+        mock_client_state.mute = False
+        volume_service._state_store._clients = {
+            "client-1": mock_client_state,
+            "client-2": mock_client_state,
+        }
+        volume_service._dsp_controller = AsyncMock()
         sm.volume_service = volume_service
 
         # Mock DSP services
@@ -1204,11 +1227,11 @@ class TestAC4SyncTimeCompliance:
         )
         ws_service._sync_zone_dsp_to_client = AsyncMock(return_value=True)
 
-        # Simulate reconnection with timing
+        # Simulate reconnection with timing (include mac matching registered mac_id)
         client_data = {
             "id": "snapcast-client-123",
             "config": {"name": "Client 1", "volume": {"percent": 100}},
-            "host": {"name": "milo-client-01", "ip": "192.168.1.1"}
+            "host": {"name": "milo-client-01", "ip": "192.168.1.1", "mac": "client-1"}
         }
 
         start_time = time.perf_counter()
@@ -1276,10 +1299,11 @@ class TestAC4SyncTimeCompliance:
 
         ws_service._sync_zone_dsp_to_client = mock_dsp_sync
 
+        # Include mac matching registered mac_id
         client_data = {
             "id": "snapcast-client-123",
             "config": {"name": "Client 1", "volume": {"percent": 100}},
-            "host": {"name": "milo-client-01", "ip": "192.168.1.1"}
+            "host": {"name": "milo-client-01", "ip": "192.168.1.1", "mac": "client-1"}
         }
 
         start_time = time.perf_counter()
@@ -1608,13 +1632,23 @@ class TestStandaloneReconnectionSyncIntegration:
         sm.dsp_settings_sync_service = None
         sm.camilladsp_service = None
 
-        # Mock volume service with config
+        # Mock volume service with config and state store
         volume_service = AsyncMock()
         volume_config = MagicMock()
         volume_config.config.startup_volume_db = -45.0
         volume_service.config = volume_config
         volume_service.update_client_volume_db = AsyncMock()
         volume_service._broadcast_volume_state = AsyncMock()
+        # Mock _state_store._clients to return proper client state objects
+        mock_client_state = MagicMock()
+        mock_client_state.mute = False
+        volume_service._state_store._clients = {
+            "local-main": mock_client_state,
+            "client-1": mock_client_state,
+            "client-2": mock_client_state,
+            "client-3": mock_client_state,
+        }
+        volume_service._dsp_controller = AsyncMock()
         sm.volume_service = volume_service
 
         return sm
@@ -1883,10 +1917,10 @@ class TestStandaloneReconnectionSyncIntegration:
         mock_state_machine.client_registry = registry
         registry.set_state_machine(mock_state_machine)
 
-        # Register standalone client
-        await registry.register_client("local", "Main", "127.0.0.1")
+        # Register standalone clients with explicit MAC-based mac_ids
+        await registry.register_client("local-main", "Main", "192.168.1.10")
         await registry.register_client("client-1", "Client 1", "192.168.1.1")
-        await registry.set_client_online("local", False)
+        await registry.set_client_online("local-main", False)
         await registry.set_client_online("client-1", True)
         await registry.update_volume("client-1", volume_db=-30.0)
 
@@ -1905,18 +1939,17 @@ class TestStandaloneReconnectionSyncIntegration:
 
         # Track broadcast calls
         broadcast_events = []
-        original_broadcast = ws_service._broadcast_snapcast_event
 
         async def mock_broadcast(event_type, data):
             broadcast_events.append({"type": event_type, "data": data})
 
         ws_service._broadcast_snapcast_event = mock_broadcast
 
-        # Simulate reconnection
+        # Simulate reconnection (use mac matching registered mac_id)
         client_data = {
             "id": "snapcast-client-123",
             "config": {"name": "Main", "volume": {"percent": 100}},
-            "host": {"name": "milo", "ip": "127.0.0.1"}
+            "host": {"name": "milo", "ip": "192.168.1.10", "mac": "local-main"}
         }
 
         sync_status = await ws_service._sync_existing_client_volume("snapcast-client-123", client_data)
@@ -1951,12 +1984,12 @@ class TestStandaloneReconnectionSyncIntegration:
         mock_state_machine.client_registry = registry
         registry.set_state_machine(mock_state_machine)
 
-        # Register standalone clients
-        await registry.register_client("local", "Main", "127.0.0.1")
+        # Register standalone clients with explicit MAC-based mac_ids
+        await registry.register_client("local-main", "Main", "192.168.1.10")
         await registry.register_client("client-1", "Client 1", "192.168.1.1")
         await registry.update_volume("client-1", volume_db=-25.0)
 
-        await registry.set_client_online("local", False)  # Reconnecting
+        await registry.set_client_online("local-main", False)  # Reconnecting
         await registry.set_client_online("client-1", True)  # Online
 
         # Setup mocks
@@ -1972,11 +2005,11 @@ class TestStandaloneReconnectionSyncIntegration:
         )
         ws_service._sync_standalone_dsp_to_client = AsyncMock(return_value=True)
 
-        # Simulate reconnection with timing
+        # Simulate reconnection with timing (use mac matching registered mac_id)
         client_data = {
             "id": "snapcast-client-123",
             "config": {"name": "Main", "volume": {"percent": 100}},
-            "host": {"name": "milo", "ip": "127.0.0.1"}
+            "host": {"name": "milo", "ip": "192.168.1.10", "mac": "local-main"}
         }
 
         start_time = time.perf_counter()

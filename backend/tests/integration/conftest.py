@@ -78,14 +78,6 @@ def create_mock_plugin(source: AudioSource, start_success: bool = True) -> Mock:
 
 
 @pytest.fixture
-def event_loop():
-    """Create an asyncio event loop for each test."""
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
-
-
-@pytest.fixture
 def websocket_collector() -> WebSocketEventCollector:
     """
     Fixture providing a WebSocket event collector.

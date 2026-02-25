@@ -95,8 +95,8 @@ class TestClient:
         # Runtime fields are now included by default for complete WebSocket events
         assert data["online"] is True
 
-        # Verify all 10 expected fields are present (including is_local)
-        expected_fields = {"mac_id", "name", "ip", "speaker_type", "zone_id",
+        # Verify all 11 expected fields are present (including is_local and host)
+        expected_fields = {"mac_id", "name", "ip", "host", "speaker_type", "zone_id",
                           "volume_db", "mute", "crossover_frequency", "online", "is_local"}
         assert set(data.keys()) == expected_fields
 
@@ -104,7 +104,7 @@ class TestClient:
         data_persist = client.to_dict(include_runtime=False)
         assert "online" not in data_persist
         assert "is_local" not in data_persist
-        assert len(data_persist) == 8  # All fields except 'online' and 'is_local'
+        assert len(data_persist) == 9  # All fields except 'online' and 'is_local'
 
     def test_client_from_dict(self):
         """Test creating client from dictionary."""
@@ -2287,9 +2287,9 @@ class TestSnapcastClientDetection:
         await registry.initialize()
         registry.set_state_machine(mock_state_machine)
 
-        # First register and connect a client
-        await registry.register_client("milo-client-test", "Test Speaker", "192.168.1.100")
-        await registry.set_client_online("milo-client-test", True)
+        # First register and connect a client (using MAC as mac_id)
+        await registry.register_client("aa:bb:cc:dd:ee:ff", "Test Speaker", "192.168.1.100")
+        await registry.set_client_online("aa:bb:cc:dd:ee:ff", True)
 
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
@@ -2297,19 +2297,19 @@ class TestSnapcastClientDetection:
             event_bus=mock_event_bus
         )
 
-        # Simulate Client.OnDisconnect params
+        # Simulate Client.OnDisconnect params (with MAC address as required)
         params = {
             "client": {
                 "id": "abc123",
                 "config": {"name": "Test Speaker"},
-                "host": {"name": "milo-client-test", "ip": "192.168.1.100"}
+                "host": {"name": "milo-client-test", "ip": "192.168.1.100", "mac": "aa:bb:cc:dd:ee:ff"}
             }
         }
 
         await ws_service._handle_client_disconnect(params)
 
         # Verify client is now offline
-        client = registry.get_client("milo-client-test")
+        client = registry.get_client("aa:bb:cc:dd:ee:ff")
         assert client is not None
         assert client.online is False
 
@@ -2321,8 +2321,8 @@ class TestSnapcastClientDetection:
         await registry.initialize()
         registry.set_state_machine(mock_state_machine)
 
-        await registry.register_client("milo-client-test", "Test Speaker", "192.168.1.100")
-        await registry.set_client_online("milo-client-test", True)
+        await registry.register_client("aa:bb:cc:dd:ee:ff", "Test Speaker", "192.168.1.100")
+        await registry.set_client_online("aa:bb:cc:dd:ee:ff", True)
 
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
@@ -2334,7 +2334,7 @@ class TestSnapcastClientDetection:
             "client": {
                 "id": "abc123",
                 "config": {"name": "Test Speaker"},
-                "host": {"name": "milo-client-test", "ip": "192.168.1.100"}
+                "host": {"name": "milo-client-test", "ip": "192.168.1.100", "mac": "aa:bb:cc:dd:ee:ff"}
             }
         }
 
@@ -2365,18 +2365,18 @@ class TestSnapcastClientDetection:
             event_bus=mock_event_bus
         )
 
-        # New client never seen before
+        # New client never seen before (with MAC address as required by compute_mac_id)
         params = {
             "client": {
                 "id": "new-client-123",
                 "config": {"name": "New Client", "volume": {"percent": 100, "muted": False}},
-                "host": {"name": "milo-client-new", "ip": "192.168.1.200"}
+                "host": {"name": "milo-client-new", "ip": "192.168.1.200", "mac": "aa:bb:cc:dd:ee:ff"}
             }
         }
 
         await ws_service._handle_client_connect(params)
 
-        client = registry.get_client("milo-client-new")
+        client = registry.get_client("aa:bb:cc:dd:ee:ff")
         assert client is not None
 
         # Verify AC3 default values
@@ -2403,13 +2403,13 @@ class TestSnapcastClientDetection:
             "client": {
                 "id": "client-456",
                 "config": {"name": "Living Room Speakers", "volume": {"percent": 100}},
-                "host": {"name": "milo-client-living", "ip": "192.168.1.201"}
+                "host": {"name": "milo-client-living", "ip": "192.168.1.201", "mac": "11:22:33:44:55:66"}
             }
         }
 
         await ws_service._handle_client_connect(params)
 
-        client = registry.get_client("milo-client-living")
+        client = registry.get_client("11:22:33:44:55:66")
         assert client.name == "Living Room Speakers"
 
     # === AC4: WebSocket Event Format ===
@@ -2478,22 +2478,28 @@ class TestSnapcastClientDetection:
     # === compute_mac_id Tests for Snapcast Integration ===
 
     def test_compute_mac_id_for_local_client(self):
-        """Test compute_mac_id returns 'local' for localhost."""
-        mac_id = ClientRegistryService.compute_mac_id("milo", "127.0.0.1")
-        assert mac_id == "local"
+        """Test compute_mac_id reads MAC from system interface for localhost."""
+        from unittest.mock import mock_open, patch
+        mock_file = mock_open(read_data="aa:bb:cc:dd:ee:ff\n")
+        with patch("builtins.open", mock_file):
+            mac_id = ClientRegistryService.compute_mac_id("milo", "127.0.0.1")
+        assert mac_id == "aa:bb:cc:dd:ee:ff"
 
     def test_compute_mac_id_for_milo_client(self):
-        """Test compute_mac_id uses hostname for milo-client devices."""
-        mac_id = ClientRegistryService.compute_mac_id("milo-client-kitchen", "192.168.1.100")
-        assert mac_id == "milo-client-kitchen"
+        """Test compute_mac_id returns MAC address for remote clients."""
+        mac_id = ClientRegistryService.compute_mac_id("milo-client-kitchen", "192.168.1.100", "aa:bb:cc:dd:ee:ff")
+        assert mac_id == "aa:bb:cc:dd:ee:ff"
 
     def test_compute_mac_id_strips_ipv6_prefix(self):
-        """Test compute_mac_id handles IPv6-mapped IPv4 addresses."""
+        """Test compute_mac_id handles IPv6-mapped IPv4 addresses for localhost."""
+        from unittest.mock import mock_open, patch
         # Snapcast sometimes returns ::ffff:192.168.1.100 format
         # The websocket.py code strips this: .replace("::ffff:", "")
         ip = "::ffff:127.0.0.1".replace("::ffff:", "")
-        mac_id = ClientRegistryService.compute_mac_id("milo", ip)
-        assert mac_id == "local"
+        mock_file = mock_open(read_data="aa:bb:cc:dd:ee:ff\n")
+        with patch("builtins.open", mock_file):
+            mac_id = ClientRegistryService.compute_mac_id("milo", ip)
+        assert mac_id == "aa:bb:cc:dd:ee:ff"
 
     # === Event Timing (NFR2) is tested via integration tests ===
 
@@ -3520,6 +3526,14 @@ class TestApplyTargetVolumeToClient:
         state_machine = MagicMock()
         volume_service = AsyncMock()
         volume_service.update_client_volume_db = AsyncMock()
+        # Mock internal state store access: volume_service._state_store._clients.get(mac_id)
+        mock_client_state = MagicMock(mute=False)
+        volume_service._state_store = MagicMock()
+        volume_service._state_store._clients = MagicMock()
+        volume_service._state_store._clients.get = MagicMock(return_value=mock_client_state)
+        # Mock DSP controller for mute operation
+        volume_service._dsp_controller = MagicMock()
+        volume_service._dsp_controller.set_dsp_mute = AsyncMock()
         state_machine.volume_service = volume_service
         return state_machine
 

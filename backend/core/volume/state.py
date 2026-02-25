@@ -586,8 +586,14 @@ class VolumeStateStore:
                 await self._persist_state()
                 self.logger.debug(f"Client volume: {mac_id} -> {volume_db:.1f}dB")
             else:
-                # Auto-register client if not exists
-                await self.register_client(mac_id, volume_db=volume_db, available=True)
+                # Auto-register client inline (avoid deadlock with register_client's lock)
+                self._clients[mac_id] = ClientVolume(
+                    volume_db=volume_db,
+                    offset_db=0.0,
+                    mute=False,
+                    available=True
+                )
+                self.logger.info(f"Auto-registered client: {mac_id} at {volume_db:.1f}dB")
 
         # Sync to ClientRegistry for reconnection context (FR7)
         if self._registry:

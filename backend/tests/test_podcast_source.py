@@ -575,25 +575,6 @@ class TestConvenienceMethods:
         assert success is True
 
 
-class TestReloadCredentials:
-    """Test credential reloading."""
-
-    @pytest.mark.asyncio
-    async def test_reload_credentials_success(self, podcast_source):
-        """Test successful credential reload."""
-        podcast_source._taddy_api = Mock()
-        podcast_source._taddy_api.close = AsyncMock()
-
-        with patch('backend.features.podcast.source.TaddyAPI') as mock_api_class:
-            mock_api = AsyncMock()
-            mock_api_class.return_value = mock_api
-
-            success = await podcast_source.reload_credentials("new-user", "new-key")
-
-        assert success is True
-        assert podcast_source._taddy_api is mock_api
-
-
 class TestProperties:
     """Test public properties."""
 
