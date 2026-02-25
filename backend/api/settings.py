@@ -20,7 +20,8 @@ from backend.api.models import (
     ScreenBrightnessRequest,
     ScreenScreensaverRequest,
     MacRocConfigRequest,
-    RadioSettingsRequest
+    RadioSettingsRequest,
+    InactivityTimeoutRequest
 )
 from backend.core.multiroom.routing import RoutingEnvironment
 import logging
@@ -1051,6 +1052,27 @@ def create_settings_router(
             event_type="radio_settings_changed",
             event_data={"config": radio_config},
             reload_callback=apply_to_radio
+        )
+
+    # Audio inactivity timeout
+    @router.get("/inactivity-timeout")
+    async def get_inactivity_timeout():
+        audio = await settings.get_setting('audio') or {}
+        timeout = audio.get("inactivity_timeout", 7200)
+        return {
+            "status": "success",
+            "config": {"inactivity_timeout": timeout}
+        }
+
+    @router.post("/inactivity-timeout")
+    async def set_inactivity_timeout(payload: InactivityTimeoutRequest):
+        return await _handle_setting_update(
+            payload,
+            validator=lambda p: True,
+            setter=lambda: settings.set_setting('audio.inactivity_timeout', payload.inactivity_timeout),
+            event_type="inactivity_timeout_changed",
+            event_data={"config": {"inactivity_timeout": payload.inactivity_timeout}},
+            reload_callback=lambda: state_machine.reload_inactivity_config(payload.inactivity_timeout)
         )
 
     return router

@@ -56,6 +56,11 @@ export const useSettingsStore = defineStore('settings', () => {
   const podcastApiUsage = ref(null); // requests_used (null if no valid credentials)
   const podcastCredentialsValidatedAt = ref(null); // Unix timestamp when credentials were validated
 
+  // === AUDIO INACTIVITY ===
+  const inactivityTimeout = ref({
+    inactivity_timeout: 7200
+  });
+
   // === RADIO ===
   const radioSettings = ref({
     shazam_enabled: true
@@ -98,6 +103,7 @@ export const useSettingsStore = defineStore('settings', () => {
         spotifyResponse,
         podcastResponse,
         podcastStatusResponse,
+        inactivityResponse,
         screenTimeoutResponse,
         screenBrightnessResponse,
         screenScreensaverResponse,
@@ -111,6 +117,7 @@ export const useSettingsStore = defineStore('settings', () => {
         axios.get('/api/settings/spotify-disconnect').catch(() => ({ data: { config: { auto_disconnect_delay: 10.0 } } })),
         axios.get('/api/settings/podcast-credentials').catch(() => ({ data: { config: { taddy_user_id: '', taddy_api_key: '' } } })),
         axios.get('/api/settings/podcast-credentials/status').catch(() => ({ data: { status: 'error' } })),
+        axios.get('/api/settings/inactivity-timeout').catch(() => ({ data: { config: { inactivity_timeout: 7200 } } })),
         axios.get('/api/settings/screen-timeout').catch(() => ({ data: { config: { screen_timeout_enabled: true, screen_timeout_seconds: 10 } } })),
         axios.get('/api/settings/screen-brightness').catch(() => ({ data: { config: { brightness_on: 5 } } })),
         axios.get('/api/settings/screen-screensaver').catch(() => ({ data: { config: { screensaver_enabled: true } } })),
@@ -181,6 +188,13 @@ export const useSettingsStore = defineStore('settings', () => {
         podcastCredentialsStatus.value = podcastStatusResponse.data.status ?? 'error';
         podcastApiUsage.value = podcastStatusResponse.data.requests_used ?? null;
         podcastCredentialsValidatedAt.value = podcastStatusResponse.data.credentials_validated_at ?? null;
+      }
+
+      // Inactivity timeout
+      if (inactivityResponse.data.config) {
+        inactivityTimeout.value = {
+          inactivity_timeout: inactivityResponse.data.config.inactivity_timeout ?? 7200
+        };
       }
 
       // Screen timeout
@@ -327,6 +341,13 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   /**
+   * Update inactivity timeout
+   */
+  function updateInactivityTimeout(config) {
+    inactivityTimeout.value = { ...inactivityTimeout.value, ...config };
+  }
+
+  /**
    * Update radio settings
    */
   function updateRadioSettings(config) {
@@ -347,6 +368,7 @@ export const useSettingsStore = defineStore('settings', () => {
     podcastCredentialsStatus,
     podcastApiUsage,
     podcastCredentialsValidatedAt,
+    inactivityTimeout,
     radioSettings,
     isScreenSleeping,
     screenTimeout,
@@ -363,6 +385,7 @@ export const useSettingsStore = defineStore('settings', () => {
     updateSpotifyDisconnect,
     updatePodcastCredentials,
     refreshPodcastCredentialsStatus,
+    updateInactivityTimeout,
     updateRadioSettings,
     updateScreenSleeping,
     updateScreenTimeout,

@@ -363,6 +363,10 @@
     "bluetooth": "Bluetooth",
     "macOS": "macOS"
   },
+  "applicationsSettings": {
+    "inactivityTimeout": "Chiusura automatica",
+    "inactivityDelay": "Disattivare la sorgente audio dopo un periodo di inattività:"
+  },
   "clientDetails": {
     "editClient": "Modifica client",
     "viewDetails": "Visualizza dettagli client",
@@ -399,6 +403,8 @@
     "15min": "15 min",
     "30min": "30 min",
     "1h": "1 h",
+    "2h": "2 h",
+    "4h": "4 h",
     "never": "Mai"
   },
   "common": {

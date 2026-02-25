@@ -431,6 +431,19 @@ ROC_LATENCY_PROFILES = Literal['responsive', 'gradual', 'intact']
 ROC_FRAME_LENGTHS = Literal[2, 4, 7, 8, 12]
 
 
+class InactivityTimeoutRequest(BaseModel):
+    """Audio inactivity timeout request"""
+    inactivity_timeout: int = Field(..., ge=0, le=86400)
+
+    @field_validator('inactivity_timeout')
+    @classmethod
+    def validate_timeout(cls, v: int) -> int:
+        # 0 means disabled, otherwise must be >= 300 (5 min)
+        if v != 0 and v < 300:
+            raise ValueError('Timeout must be 0 (disabled) or >= 300 seconds (5 min)')
+        return v
+
+
 class RadioSettingsRequest(BaseModel):
     """Radio settings request"""
     shazam_enabled: bool

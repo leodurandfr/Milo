@@ -100,6 +100,11 @@ async def lifespan(app: FastAPI):
                 except Exception as e:
                     logger.error(f"Plugin {source.value} initialization failed: {e}")
 
+        # Load inactivity timeout from settings (0 = disabled, default 7200s = 2h)
+        audio_settings = await settings_service.get_setting('audio') or {}
+        inactivity_timeout = audio_settings.get('inactivity_timeout', 7200)
+        state_machine.start_inactivity_monitor(inactivity_timeout)
+
         logger.info("Milo backend startup completed with unified settings")
 
     except Exception as e:
@@ -110,6 +115,7 @@ async def lifespan(app: FastAPI):
 
     logger.info("Milo backend shutting down...")
     try:
+        state_machine.cleanup()
         await snapcast_websocket_service.cleanup()
         await volume_service.cleanup()
         rotary_controller.cleanup()
