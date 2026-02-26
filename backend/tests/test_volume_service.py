@@ -86,19 +86,21 @@ class TestVolumeService:
         assert service.config.config.step_mobile_db == 4.0
         assert service.config.config.step_rotary_db == 3.0
 
-    def test_is_multiroom_enabled_true(self, service, mock_state_machine):
+    def test_is_multiroom_enabled_true(self, service):
         """Multiroom enabled check test"""
-        mock_state_machine.routing_service.get_state = Mock(return_value={'multiroom_enabled': True})
+        service._routing_service = Mock()
+        service._routing_service.get_state.return_value = {'multiroom_enabled': True}
         assert service._is_multiroom_enabled() is True
 
-    def test_is_multiroom_enabled_false(self, service, mock_state_machine):
+    def test_is_multiroom_enabled_false(self, service):
         """Multiroom disabled check test"""
-        mock_state_machine.routing_service.get_state = Mock(return_value={'multiroom_enabled': False})
+        service._routing_service = Mock()
+        service._routing_service.get_state.return_value = {'multiroom_enabled': False}
         assert service._is_multiroom_enabled() is False
 
-    def test_is_multiroom_enabled_no_routing_service(self, service, mock_state_machine):
+    def test_is_multiroom_enabled_no_routing_service(self, service):
         """Multiroom check test without routing_service"""
-        mock_state_machine.routing_service = None
+        service._routing_service = None
         assert service._is_multiroom_enabled() is False
 
     def test_config_rotary_steps(self, service):

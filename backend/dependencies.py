@@ -342,6 +342,9 @@ def initialize_services() -> None:
     # 2.11b - volume_service → client_registry (for DSPController IP lookup)
     volume_service.set_client_registry(client_registry_service)
 
+    # 2.11c - volume_service → routing_service (for multiroom mode detection)
+    volume_service.set_routing_service(routing_service)
+
     # 2.12 - crossover_service → client_registry_service
     crossover_service.set_registry(client_registry_service)
 

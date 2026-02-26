@@ -72,15 +72,22 @@ class VolumeService:
         self._state_store = VolumeStateStore(self.settings_service)
         self._dsp_controller = DSPController(self._dsp_service, self._proxy_service)
 
-        # Snapcast WebSocket service (set via setter to resolve circular dependency)
+        # Injected via setters to resolve circular dependencies
         self._snapcast_websocket_service = None
+        self._client_registry = None
+        self._routing_service = None
 
         # Event to signal when client availability has been initialized (for WebSocket handshake)
         self._availability_ready = asyncio.Event()
 
     def set_client_registry(self, registry):
-        """Set client registry on DSPController (for dependency injection after init)."""
+        """Set client registry (for dependency injection after init)."""
+        self._client_registry = registry
         self._dsp_controller.set_registry(registry)
+
+    def set_routing_service(self, routing_service) -> None:
+        """Set routing service reference (circular dependency resolution)."""
+        self._routing_service = routing_service
 
     # ============================================================================
     # HELPERS
@@ -188,10 +195,9 @@ class VolumeService:
     def _is_multiroom_enabled(self) -> bool:
         """Check if multiroom mode is currently enabled."""
         try:
-            if not self.state_machine or not hasattr(self.state_machine, 'routing_service'):
+            if not self._routing_service:
                 return False
-            routing_state = self.state_machine.routing_service.get_state()
-            return routing_state.get('multiroom_enabled', False)
+            return self._routing_service.get_state().get('multiroom_enabled', False)
         except Exception:
             return False
 
@@ -217,7 +223,7 @@ class VolumeService:
         """
         if multiroom_enabled:
             # Switching TO multiroom: get current local volume BEFORE mode change
-            current_local = self._state_store._local_volume_db
+            current_local = self._state_store.local_volume_db
             self.logger.info(f"Switching to multiroom: using local volume {current_local:.1f} dB for all clients")
 
             await self._state_store.set_mode("multiroom")
@@ -407,9 +413,7 @@ class VolumeService:
             await self._dsp_controller.set_dsp_volume(client_id, expected_volume)
 
             # Apply persisted mute state
-            client_state = self._state_store._clients.get(client_id)
-            persisted_mute = client_state.mute if client_state else False
-            await self._dsp_controller.set_dsp_mute(client_id, persisted_mute)
+            await self._dsp_controller.set_dsp_mute(client_id, self._state_store.get_client_mute(client_id))
 
             await self._state_store.register_client(client_id, volume_db=expected_volume, available=True)
             await self._broadcast_volume_state(show_bar=False)
@@ -432,7 +436,7 @@ class VolumeService:
         if not self._is_multiroom_enabled():
             return True
         try:
-            registry = getattr(self.state_machine, 'client_registry', None)
+            registry = self._client_registry
             clients = await self.snapcast_service.get_clients()
             for client in clients:
                 cid = client.get("dsp_id", "")
@@ -486,8 +490,9 @@ class VolumeService:
 
                 local_volume = None  # Lazy-loaded if needed
                 for cid in client_ids:
-                    if restore_enabled and cid in self._state_store._clients:
-                        updates[cid] = self._state_store._clients[cid].volume_db
+                    persisted = self._state_store.get_client_volume(cid) if restore_enabled else None
+                    if persisted is not None:
+                        updates[cid] = persisted
                     elif restore_enabled:
                         if local_volume is None:
                             dsp_state = await self._dsp_service.get_volume()
@@ -509,9 +514,9 @@ class VolumeService:
 
             # Apply persisted mute states
             for cid in client_ids:
-                if cid in self._state_store._clients:
+                if self._state_store.has_client(cid):
                     try:
-                        await self._dsp_controller.set_dsp_mute(cid, self._state_store._clients[cid].mute)
+                        await self._dsp_controller.set_dsp_mute(cid, self._state_store.get_client_mute(cid))
                     except Exception as e:
                         self.logger.warning(f"Failed to apply mute to {cid}: {e}")
 
@@ -572,9 +577,9 @@ class VolumeService:
                     self.logger.warning(f"Failed to update clients: {failures}")
 
                 # FR11: Update startup volume using local client's new volume
-                local_mac_id = self._state_store._local_mac_id
+                local_mac_id = self._state_store.local_mac_id
                 local_volume = updates.get(local_mac_id) if local_mac_id else None
-                local_volume = local_volume or self._state_store._local_volume_db
+                local_volume = local_volume or self._state_store.local_volume_db
                 await self._update_startup_volume_if_needed(local_volume)
 
                 await self._broadcast_volume_state(show_bar=False)
@@ -641,8 +646,9 @@ class VolumeService:
             target_volume = self.config.config.startup_volume_db
             self.logger.info(f"FR12: Applying startup_volume_db: {target_volume:.1f} dB")
 
-            # Get persisted mute state (local mute from state store)
-            local_mute = self._state_store._local_mute if hasattr(self._state_store, '_local_mute') else False
+            # Get persisted mute state from local client (False if no client registered yet)
+            local_mac_id = self._state_store.local_mac_id
+            local_mute = self._state_store.get_client_mute(local_mac_id) if local_mac_id else False
 
             # Apply directly to local DSP (at startup, registry not yet populated)
             if target_volume is not None and self._dsp_service:

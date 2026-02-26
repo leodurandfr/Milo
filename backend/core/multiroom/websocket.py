@@ -853,8 +853,7 @@ class SnapcastWebSocketService:
 
             # Unmute DSP (CamillaDSP starts muted with -m flag)
             # Use persisted mute state (defaults to False = unmuted)
-            client_state = self._volume_service._state_store._clients.get(mac_id)
-            persisted_mute = client_state.mute if client_state else False
+            persisted_mute = self._volume_service._state_store.get_client_mute(mac_id)
             await self._volume_service._dsp_controller.set_dsp_mute(mac_id, persisted_mute)
             self.logger.info(f"[{time.time():.3f}] MUTE_APPLY: Set {mac_id} mute={persisted_mute}")
 
