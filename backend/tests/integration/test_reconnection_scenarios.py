@@ -732,16 +732,18 @@ class TestReconnectionContextDetectionIntegration:
             routing_service=MagicMock(),
             event_bus=mock_event_bus
         )
+        ws_service._snapcast_service = mock_snapcast
+        ws_service._volume_service = mock_volume
 
         # Mock the DSP sync methods to avoid errors
         ws_service._sync_client_volume_and_broadcast = AsyncMock(return_value=True)
         ws_service._sync_standalone_dsp_to_client = AsyncMock(return_value=True)
 
-        # Simulate reconnection
+        # Simulate reconnection (include mac matching registered mac_id)
         client_data = {
             "id": "snapcast-client-123",
             "config": {"name": "Main", "volume": {"percent": 100}},
-            "host": {"name": "milo", "ip": "127.0.0.1"}
+            "host": {"name": "milo", "ip": "127.0.0.1", "mac": "local"}
         }
 
         sync_status = await ws_service._sync_existing_client_volume("snapcast-client-123", client_data)
@@ -917,13 +919,15 @@ class TestInZoneReconnectionSyncIntegration:
             routing_service=MagicMock(),
             event_bus=mock_event_bus
         )
+        ws_service._snapcast_service = mock_snapcast
+        ws_service._volume_service = mock_state_machine.volume_service
 
         # Mock DSP sync to avoid errors
         ws_service._sync_zone_dsp_to_client = AsyncMock(return_value=True)
 
-        # Get target volume using the new method
+        # Get target volume using the unified method
         context = registry.get_reconnection_context("client-1")
-        target_volume = ws_service._get_inzone_target_volume("client-1", context)
+        target_volume = ws_service._resolve_target_volume("client-1", context)
 
         # Should use zone average from online clients (client-2, client-3)
         # Zone average = (-30 + -40) / 2 = -35
@@ -972,12 +976,13 @@ class TestInZoneReconnectionSyncIntegration:
             routing_service=MagicMock(),
             event_bus=mock_event_bus
         )
+        ws_service._volume_service = mock_state_machine.volume_service
 
-        # Get target volume using the new method
+        # Get target volume using the unified method
         context = registry.get_reconnection_context("client-1")
         assert context == ReconnectionContext.IN_ZONE_ALL_OFFLINE
 
-        target_volume = ws_service._get_inzone_target_volume("client-1", context)
+        target_volume = ws_service._resolve_target_volume("client-1", context)
 
         # Should use startup_volume_db from config
         assert target_volume == -45.0
@@ -1067,6 +1072,8 @@ class TestInZoneReconnectionSyncIntegration:
             routing_service=MagicMock(),
             event_bus=mock_event_bus
         )
+        ws_service._snapcast_service = mock_snapcast
+        ws_service._volume_service = mock_state_machine.volume_service
         ws_service._sync_zone_dsp_to_client = AsyncMock(return_value=True)
 
         # Mock _state_store._clients to return a proper client state object
@@ -1225,6 +1232,8 @@ class TestAC4SyncTimeCompliance:
             routing_service=MagicMock(),
             event_bus=mock_event_bus
         )
+        ws_service._snapcast_service = mock_state_machine.snapcast_service
+        ws_service._volume_service = mock_state_machine.volume_service
         ws_service._sync_zone_dsp_to_client = AsyncMock(return_value=True)
 
         # Simulate reconnection with timing (include mac matching registered mac_id)
@@ -1292,6 +1301,8 @@ class TestAC4SyncTimeCompliance:
             routing_service=MagicMock(),
             event_bus=mock_event_bus
         )
+        ws_service._snapcast_service = mock_state_machine.snapcast_service
+        ws_service._volume_service = mock_state_machine.volume_service
 
         async def mock_dsp_sync(*args, **kwargs):
             await asyncio.sleep(0.1)  # Simulate 100ms for DSP operations
@@ -1405,6 +1416,8 @@ class TestAC6PendingSettingsQueue:
             routing_service=MagicMock(),
             event_bus=mock_event_bus
         )
+        ws_service._dsp_client_proxy_service = mock_state_machine_with_crossover.dsp_client_proxy_service
+        ws_service._crossover_service = mock_state_machine_with_crossover.crossover_service
 
         # Call _sync_zone_dsp_to_client - compressor sync will fail
         zone = registry.get_zone("zone-1")
@@ -1460,6 +1473,8 @@ class TestAC6PendingSettingsQueue:
             routing_service=MagicMock(),
             event_bus=mock_event_bus
         )
+        ws_service._dsp_client_proxy_service = mock_state_machine_with_crossover.dsp_client_proxy_service
+        ws_service._crossover_service = mock_state_machine_with_crossover.crossover_service
 
         # Call _sync_zone_dsp_to_client - loudness sync will fail
         zone = registry.get_zone("zone-1")
@@ -1515,6 +1530,8 @@ class TestAC6PendingSettingsQueue:
             routing_service=MagicMock(),
             event_bus=mock_event_bus
         )
+        ws_service._dsp_client_proxy_service = mock_state_machine_with_crossover.dsp_client_proxy_service
+        ws_service._crossover_service = mock_state_machine_with_crossover.crossover_service
 
         # Call _sync_zone_dsp_to_client - filter sync will fail
         zone = registry.get_zone("zone-1")
@@ -1583,6 +1600,8 @@ class TestAC6PendingSettingsQueue:
             routing_service=MagicMock(),
             event_bus=mock_event_bus
         )
+        ws_service._dsp_client_proxy_service = sm.dsp_client_proxy_service
+        ws_service._crossover_service = sm.crossover_service
 
         # Call _sync_zone_dsp_to_client - should succeed
         zone = registry.get_zone("zone-1")
@@ -1703,15 +1722,17 @@ class TestStandaloneReconnectionSyncIntegration:
             routing_service=MagicMock(),
             event_bus=mock_event_bus
         )
+        ws_service._snapcast_service = mock_snapcast
+        ws_service._volume_service = mock_state_machine.volume_service
 
         # Mock DSP sync to avoid errors
         ws_service._sync_standalone_dsp_to_client = AsyncMock(return_value=True)
 
-        # Get target volume using the new method
+        # Get target volume using the unified method
         context = registry.get_reconnection_context("client-1")
         assert context == ReconnectionContext.STANDALONE_OTHERS_ONLINE
 
-        target_volume = ws_service._get_standalone_target_volume("client-1", context)
+        target_volume = ws_service._resolve_target_volume("client-1", context)
 
         # Should use global average from online clients (client-2, client-3)
         # Global average = (-30 + -40) / 2 = -35
@@ -1757,12 +1778,13 @@ class TestStandaloneReconnectionSyncIntegration:
             routing_service=MagicMock(),
             event_bus=mock_event_bus
         )
+        ws_service._volume_service = mock_state_machine.volume_service
 
-        # Get target volume using the new method
+        # Get target volume using the unified method
         context = registry.get_reconnection_context("client-1")
         assert context == ReconnectionContext.STANDALONE_ALONE
 
-        target_volume = ws_service._get_standalone_target_volume("client-1", context)
+        target_volume = ws_service._resolve_target_volume("client-1", context)
 
         # Should use startup_volume_db from config
         assert target_volume == -45.0
@@ -1935,6 +1957,8 @@ class TestStandaloneReconnectionSyncIntegration:
             routing_service=MagicMock(),
             event_bus=mock_event_bus
         )
+        ws_service._snapcast_service = mock_snapcast
+        ws_service._volume_service = mock_state_machine.volume_service
         ws_service._sync_standalone_dsp_to_client = AsyncMock(return_value=True)
 
         # Track broadcast calls
@@ -2003,6 +2027,8 @@ class TestStandaloneReconnectionSyncIntegration:
             routing_service=MagicMock(),
             event_bus=mock_event_bus
         )
+        ws_service._snapcast_service = mock_snapcast
+        ws_service._volume_service = mock_state_machine.volume_service
         ws_service._sync_standalone_dsp_to_client = AsyncMock(return_value=True)
 
         # Simulate reconnection with timing (use mac matching registered mac_id)

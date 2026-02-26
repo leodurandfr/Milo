@@ -42,6 +42,9 @@ BUILTIN_PRESETS: List[Dict] = [
 # Default gains for manual preset (flat)
 DEFAULT_MANUAL_GAINS = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
+# Standard 10-band EQ frequencies (Hz)
+DEFAULT_EQ_FREQS = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
+
 
 def get_builtin_presets() -> List[Dict]:
     """Return all builtin presets."""

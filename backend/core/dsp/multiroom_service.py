@@ -214,10 +214,7 @@ class MultiroomDspService:
         Raises:
             ValueError: If zone or preset not found
         """
-        from backend.core.dsp.presets import get_preset_by_id, DEFAULT_MANUAL_GAINS
-
-        # Standard 10-band frequencies
-        frequencies = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
+        from backend.core.dsp.presets import get_preset_by_id, DEFAULT_MANUAL_GAINS, DEFAULT_EQ_FREQS
 
         # Get preset gains
         if preset_id == "manual":
@@ -241,7 +238,7 @@ class MultiroomDspService:
         new_filters = [
             EqFilter(
                 id=f"eq_band_{i:02d}",
-                frequency=frequencies[i],
+                frequency=DEFAULT_EQ_FREQS[i],
                 gain=gains[i],
                 q=1.41,
                 filter_type=FilterType.PEAKING,
@@ -274,10 +271,7 @@ class MultiroomDspService:
         Raises:
             ValueError: If client not found, client is in a zone, or preset not found
         """
-        from backend.core.dsp.presets import get_preset_by_id, DEFAULT_MANUAL_GAINS
-
-        # Standard 10-band frequencies
-        frequencies = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
+        from backend.core.dsp.presets import get_preset_by_id, DEFAULT_MANUAL_GAINS, DEFAULT_EQ_FREQS
 
         # Get preset gains
         if preset_id == "manual":
@@ -305,7 +299,7 @@ class MultiroomDspService:
         new_filters = [
             EqFilter(
                 id=f"eq_band_{i:02d}",
-                frequency=frequencies[i],
+                frequency=DEFAULT_EQ_FREQS[i],
                 gain=gains[i],
                 q=1.41,
                 filter_type=FilterType.PEAKING,

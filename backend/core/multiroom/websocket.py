@@ -10,14 +10,14 @@ import asyncio
 import json
 import logging
 import time
-from typing import Dict, Any, Optional, TYPE_CHECKING
+from typing import Dict, Any, Optional
 
 import aiohttp
 
 from backend.core.events import EventBus, get_event_bus
 from backend.core.multiroom.models import ReconnectionContext
 from backend.core.multiroom.client_registry import ClientRegistryService
-from backend.config.constants import CLIENT_API_PORT
+from backend.config.constants import CLIENT_API_PORT, DEFAULT_VOLUME_DB
 
 
 class SnapcastWebSocketService:
@@ -69,6 +69,14 @@ class SnapcastWebSocketService:
 
         # Ready event - signaled when WebSocket is connected and initialized
         self._ready_event = asyncio.Event()
+
+        # Services injected post-construction via setters (resolved in initialize_services)
+        self._snapcast_service = None
+        self._volume_service = None
+        self._crossover_service = None
+        self._dsp_client_proxy_service = None
+        self._dsp_settings_sync_service = None
+        self._camilladsp_service = None
 
     @property
     def registry(self) -> Optional["ClientRegistryService"]:
@@ -181,6 +189,32 @@ class SnapcastWebSocketService:
         if self.session:
             await self.session.close()
 
+    # === Service setters (circular dependency resolution) ===
+
+    def set_snapcast_service(self, service) -> None:
+        """Set SnapcastService dependency."""
+        self._snapcast_service = service
+
+    def set_volume_service(self, service) -> None:
+        """Set VolumeService dependency."""
+        self._volume_service = service
+
+    def set_crossover_service(self, service) -> None:
+        """Set CrossoverService dependency."""
+        self._crossover_service = service
+
+    def set_dsp_client_proxy_service(self, service) -> None:
+        """Set DspClientProxyService dependency."""
+        self._dsp_client_proxy_service = service
+
+    def set_dsp_settings_sync_service(self, service) -> None:
+        """Set DspSettingsSyncService dependency."""
+        self._dsp_settings_sync_service = service
+
+    def set_camilladsp_service(self, service) -> None:
+        """Set CamillaDSPService dependency."""
+        self._camilladsp_service = service
+
     async def _connection_loop(self) -> None:
         """Connection loop with intelligent reconnection."""
         reconnect_delay = 5
@@ -254,12 +288,11 @@ class SnapcastWebSocketService:
         try:
             self.logger.info(f"[{time.time():.3f}] INIT_CLIENTS: Starting initialization")
 
-            snapcast_service = getattr(self.state_machine, 'snapcast_service', None)
-            if not snapcast_service:
+            if not self._snapcast_service:
                 self.logger.warning("SnapcastService not available")
                 return
 
-            status = await snapcast_service.get_server_status()
+            status = await self._snapcast_service.get_server_status()
             if not status:
                 self.logger.warning("Could not get Snapcast status")
                 return
@@ -367,93 +400,87 @@ class SnapcastWebSocketService:
     async def _handle_server_update(self, params: Dict[str, Any]) -> None:
         """Handle Server.OnUpdate - detects new clients, disconnections, and online status changes."""
         try:
-            snapcast_service = getattr(self.state_machine, 'snapcast_service', None)
-            if not snapcast_service:
+            if not self._snapcast_service:
                 self.logger.warning("SnapcastService not available for online status detection")
                 return
 
-            all_clients = await snapcast_service.get_clients()
-
-            current_snapcast_ids = {c["id"] for c in all_clients}
+            all_clients = await self._snapcast_service.get_clients()
             current_mac_ids = {c["mac_id"] for c in all_clients}
-
             known_mac_ids = set(self.registry.get_client_ids()) if self.registry else set()
 
-            # Detect new clients
-            for client in all_clients:
-                mac_id = client["mac_id"]
-                snapcast_id = client["id"]
-
-                if mac_id not in known_mac_ids:
-                    self.logger.info(f"NEW CLIENT detected: {mac_id} (snapcast_id: {snapcast_id})")
-
-                    if snapcast_id in self._processing_client_ids:
-                        self.logger.debug(f"Skipping Server.OnUpdate init for {snapcast_id} - already being processed")
-                        continue
-
-                    self._processing_client_ids.add(snapcast_id)
-
-                    try:
-                        # Register client using new API
-                        if self.registry:
-                            await self.registry.register_client(mac_id, client["name"], client["ip"], host=client["host"])
-                            await self.registry.set_client_online(mac_id, client["online"])
-
-                        await self._broadcast_snapcast_event("client_connected", {
-                            "client_id": snapcast_id,
-                            "client_name": client["name"],
-                            "client_host": client["host"],
-                            "client_ip": client["ip"],
-                            "mac_id": mac_id,
-                            "online": client["online"]
-                        })
-
-                        await self._notify_volume_service_client_connected(snapcast_id, {"id": snapcast_id})
-                    finally:
-                        self._processing_client_ids.discard(snapcast_id)
-
-            # Detect disconnected clients
-            for mac_id in known_mac_ids:
-                if mac_id not in current_mac_ids:
-                    self.logger.info(f"CLIENT DISCONNECTED: {mac_id}")
-                    if self.registry:
-                        await self.registry.set_client_online(mac_id, False)
-                    await self._broadcast_snapcast_event("client_disconnected", {
-                        "client_id": mac_id,
-                        "mac_id": mac_id
-                    })
-
-            # Detect online status changes
-            for client in all_clients:
-                mac_id = client["mac_id"]
-                online = client["online"]
-
-                registry_client = self.registry.get_client(mac_id) if self.registry else None
-                previous_online = registry_client.online if registry_client else True
-
-                if online != previous_online:
-                    self.logger.info(f"Client {mac_id} online status: {previous_online} -> {online}")
-
-                    if self.registry:
-                        await self.registry.set_client_online(mac_id, online)
-
-                    await self._broadcast_snapcast_event("client_availability_changed", {
-                        "client_id": client["id"],
-                        "mac_id": mac_id,
-                        "online": online,
-                        "last_seen_age": client.get("last_seen_age", 0)
-                    })
-
-                    # Recalculate crossover for zones containing this client
-                    if self.registry and hasattr(self.state_machine, 'crossover_service'):
-                        crossover_service = self.state_machine.crossover_service
-                        zone = self.registry.get_zone_for_client(mac_id)
-                        if zone:
-                            self.logger.info(f"Recalculating crossover for zone {zone.id}")
-                            await crossover_service.apply_zone_crossover(zone.id)
+            await self._process_new_clients(all_clients, known_mac_ids)
+            await self._process_disconnected_clients(current_mac_ids, known_mac_ids)
+            await self._process_online_status_changes(all_clients)
 
         except Exception as e:
             self.logger.error(f"Error handling Server.OnUpdate: {e}", exc_info=True)
+
+    async def _process_new_clients(self, all_clients: list, known_mac_ids: set) -> None:
+        """Register clients present in Snapcast but not yet in the registry."""
+        for client in all_clients:
+            mac_id = client["mac_id"]
+            snapcast_id = client["id"]
+
+            if mac_id not in known_mac_ids:
+                self.logger.info(f"NEW CLIENT detected: {mac_id} (snapcast_id: {snapcast_id})")
+
+                if snapcast_id in self._processing_client_ids:
+                    self.logger.debug(f"Skipping Server.OnUpdate init for {snapcast_id} - already being processed")
+                    continue
+
+                self._processing_client_ids.add(snapcast_id)
+                try:
+                    if self.registry:
+                        await self.registry.register_client(mac_id, client["name"], client["ip"], host=client["host"])
+                        await self.registry.set_client_online(mac_id, client["online"])
+
+                    await self._broadcast_snapcast_event("client_connected", {
+                        "client_id": snapcast_id, "client_name": client["name"],
+                        "client_host": client["host"], "client_ip": client["ip"],
+                        "mac_id": mac_id, "online": client["online"]
+                    })
+                    await self._notify_volume_service_client_connected(snapcast_id, {"id": snapcast_id})
+                finally:
+                    self._processing_client_ids.discard(snapcast_id)
+
+    async def _process_disconnected_clients(self, current_mac_ids: set, known_mac_ids: set) -> None:
+        """Mark registry clients as offline when they no longer appear in Snapcast."""
+        for mac_id in known_mac_ids:
+            if mac_id not in current_mac_ids:
+                self.logger.info(f"CLIENT DISCONNECTED: {mac_id}")
+                if self.registry:
+                    await self.registry.set_client_online(mac_id, False)
+                await self._broadcast_snapcast_event("client_disconnected", {
+                    "client_id": mac_id, "mac_id": mac_id
+                })
+
+    async def _process_online_status_changes(self, all_clients: list) -> None:
+        """Detect and apply online/offline transitions for known clients."""
+        for client in all_clients:
+            mac_id = client["mac_id"]
+            online = client["online"]
+
+            registry_client = self.registry.get_client(mac_id) if self.registry else None
+            if not registry_client:
+                continue
+            previous_online = registry_client.online
+
+            if online != previous_online:
+                self.logger.info(f"Client {mac_id} online status: {previous_online} -> {online}")
+                if self.registry:
+                    await self.registry.set_client_online(mac_id, online)
+
+                await self._broadcast_snapcast_event("client_availability_changed", {
+                    "client_id": client["id"], "mac_id": mac_id,
+                    "online": online, "last_seen_age": client.get("last_seen_age", 0)
+                })
+
+                # Recalculate crossover for zones containing this client
+                if self.registry and self._crossover_service:
+                    zone = self.registry.get_zone_for_client(mac_id)
+                    if zone:
+                        self.logger.info(f"Recalculating crossover for zone {zone.id}")
+                        await self._crossover_service.apply_zone_crossover(zone.id)
 
     async def _handle_response(self, response: Dict[str, Any]) -> None:
         """Process a response to a request."""
@@ -500,13 +527,12 @@ class SnapcastWebSocketService:
                 await self.registry.set_client_online(mac_id, True)
 
             # Recalculate crossover for zones containing this client
-            if self.registry and hasattr(self.state_machine, 'crossover_service'):
+            if self.registry and self._crossover_service:
                 from backend.core.multiroom.models import RegistryEventType
-                crossover_service = self.state_machine.crossover_service
                 zone = self.registry.get_zone_for_client(mac_id)
                 if zone:
                     self.logger.info(f"Recalculating crossover for zone {zone.id} (client {mac_id} connected)")
-                    await crossover_service.apply_zone_crossover(zone.id)
+                    await self._crossover_service.apply_zone_crossover(zone.id)
                     # Broadcast zone update with computed crossover_enabled
                     await self.registry._emit_event(
                         RegistryEventType.ZONE_UPDATED,
@@ -562,22 +588,23 @@ class SnapcastWebSocketService:
         """Handle client name changed event."""
         client_id = params.get("id")
         name = params.get("name")
+        mac_id = client_id  # fallback if lookup fails
 
-        mac_id = client_id  # fallback
-
-        try:
-            status = await self._request("Server.GetStatus")
-            for group in status.get("server", {}).get("groups", []):
-                for client in group.get("clients", []):
-                    if client.get("id") == client_id:
-                        host_info = client.get("host", {})
-                        host = host_info.get("name", "")
-                        ip = host_info.get("ip", "").replace("::ffff:", "")
-                        mac = host_info.get("mac", "")
-                        mac_id = ClientRegistryService.compute_mac_id(host, ip, mac)
-                        break
-        except Exception as e:
-            self.logger.warning(f"Could not get client info for mac_id: {e}")
+        if self._snapcast_service:
+            try:
+                status = await self._snapcast_service.get_server_status()
+                for group in status.get("server", {}).get("groups", []):
+                    for client in group.get("clients", []):
+                        if client.get("id") == client_id:
+                            host_info = client.get("host", {})
+                            mac_id = ClientRegistryService.compute_mac_id(
+                                host_info.get("name", ""),
+                                host_info.get("ip", "").replace("::ffff:", ""),
+                                host_info.get("mac", "")
+                            )
+                            break
+            except Exception as e:
+                self.logger.warning(f"Could not resolve mac_id for {client_id}: {e}")
 
         await self._broadcast_snapcast_event("client_name_changed", {
             "client_id": client_id,
@@ -632,14 +659,13 @@ class SnapcastWebSocketService:
             sync_status = await self._sync_existing_client_volume(client_id, client)
 
             # Apply pending settings
-            crossover_service = getattr(self.state_machine, 'crossover_service', None)
-            if crossover_service:
+            if self._crossover_service:
                 client_ip = client.get("host", {}).get("ip", "").replace("::ffff:", "") if isinstance(client.get("host"), dict) else ""
                 if client_ip:
-                    has_pending = crossover_service.has_pending_settings(client_ip)
+                    has_pending = self._crossover_service.has_pending_settings(client_ip)
                     if has_pending:
                         self.logger.info(f"  - Applying pending settings for reconnected client {client_ip}")
-                        pending_success = await crossover_service.apply_pending_settings(client_ip)
+                        pending_success = await self._crossover_service.apply_pending_settings(client_ip)
                         sync_status["pending_applied"] = pending_success
 
         except Exception as e:
@@ -670,8 +696,7 @@ class SnapcastWebSocketService:
         try:
             self.logger.info(f"[{time.time():.3f}] SYNC_VOLUME: Starting for {client_id}")
 
-            snapcast_service = getattr(self.state_machine, 'snapcast_service', None)
-            if not snapcast_service:
+            if not self._snapcast_service:
                 self.logger.warning("SnapcastService not available")
                 return sync_status
 
@@ -691,33 +716,20 @@ class SnapcastWebSocketService:
             )
 
             # 2. Join to multiroom group
-            await snapcast_service.set_client_group_to_multiroom(client_id)
+            await self._snapcast_service.set_client_group_to_multiroom(client_id)
             self.logger.info(f"[{time.time():.3f}] SYNC_VOLUME: Client {client_id} joined multiroom group")
 
             # 3. Set Snapcast volume to 100% passthrough
-            await snapcast_service.set_volume(client_id, 100)
+            await self._snapcast_service.set_volume(client_id, 100)
             self.logger.info(f"[{time.time():.3f}] SYNC_VOLUME: Snapcast volume set to 100% for {client_id}")
 
-            # 4. Apply correct DSP volume based on context
-            volume_synced = False
-            if context in (ReconnectionContext.IN_ZONE_OTHERS_ONLINE, ReconnectionContext.IN_ZONE_ALL_OFFLINE):
-                # IN_ZONE contexts (FR7, FR8) - use context-aware volume calculation
-                target_volume = self._get_inzone_target_volume(mac_id, context)
-                if target_volume is not None:
-                    self.logger.info(
-                        f"[{time.time():.3f}] SYNC_VOLUME: Applying IN_ZONE target volume "
-                        f"{target_volume:.1f} dB for {mac_id} (context: {context.value})"
-                    )
-                    volume_synced = await self._apply_target_volume_to_client(mac_id, target_volume)
-            else:
-                # STANDALONE contexts (FR9, FR10) - use context-aware volume calculation
-                target_volume = self._get_standalone_target_volume(mac_id, context)
-                if target_volume is not None:
-                    self.logger.info(
-                        f"[{time.time():.3f}] SYNC_VOLUME: Applying STANDALONE target volume "
-                        f"{target_volume:.1f} dB for {mac_id} (context: {context.value})"
-                    )
-                    volume_synced = await self._apply_target_volume_to_client(mac_id, target_volume)
+            # 4. Apply correct DSP volume based on context (FR7-FR10)
+            target_volume = self._resolve_target_volume(mac_id, context)
+            self.logger.info(
+                f"[{time.time():.3f}] SYNC_VOLUME: Applying target volume "
+                f"{target_volume:.1f} dB for {mac_id} (context: {context.value})"
+            )
+            volume_synced = await self._apply_target_volume_to_client(mac_id, target_volume)
             sync_status["volume_synced"] = volume_synced
 
             # 5. Sync DSP settings based on context
@@ -748,10 +760,9 @@ class SnapcastWebSocketService:
             # 6. Broadcast volume state to frontend (AC5)
             # This notifies UI about the reconnected client with its synced volume
             if volume_synced:
-                volume_service = getattr(self.state_machine, 'volume_service', None)
-                if volume_service:
+                if self._volume_service:
                     try:
-                        await volume_service._broadcast_volume_state(show_bar=False)
+                        await self._volume_service._broadcast_volume_state(show_bar=False)
                         self.logger.info(
                             f"[{time.time():.3f}] SYNC_BROADCAST: Volume state broadcast for {mac_id}"
                         )
@@ -780,95 +791,41 @@ class SnapcastWebSocketService:
 
         return sync_status
 
-    def _get_inzone_target_volume(
-        self,
-        mac_id: str,
-        context: ReconnectionContext
-    ) -> Optional[float]:
+    def _resolve_target_volume(self, mac_id: str, context: ReconnectionContext) -> float:
         """
-        Get target volume for IN_ZONE reconnection contexts (FR7, FR8).
+        Resolve target reconnection volume for any context (FR7-FR10).
 
-        Determines the appropriate volume for a client reconnecting to a zone:
-        - FR7 (IN_ZONE_OTHERS_ONLINE): Use zone average from online members
-        - FR8 (IN_ZONE_ALL_OFFLINE): Use startup_volume_db (first client of the day)
-
-        Args:
-            mac_id: Reconnecting client's mac_id
-            context: IN_ZONE_OTHERS_ONLINE or IN_ZONE_ALL_OFFLINE
-
-        Returns:
-            Target volume in dB, or None if unable to determine
+        Resolution order:
+        1. If others are online: zone average (IN_ZONE) or global average (STANDALONE)
+        2. Configured startup_volume_db
+        3. DEFAULT_VOLUME_DB constant
         """
+        # Level 1: peer average when others are online
         if context == ReconnectionContext.IN_ZONE_OTHERS_ONLINE:
-            # FR7: Use zone average from online members
             client = self.registry.get_client(mac_id) if self.registry else None
             if client and client.zone_id:
                 avg = self.registry.get_zone_average_volume(client.zone_id, exclude_mac_id=mac_id)
                 if avg is not None:
-                    self.logger.info(
-                        f"[{time.time():.3f}] IN_ZONE_VOLUME: FR7 - Using zone average {avg:.1f} dB for {mac_id}"
-                    )
+                    self.logger.info(f"FR7 - Using zone average {avg:.1f} dB for {mac_id}")
                     return avg
-            # Fallback to startup volume if zone average unavailable
             self.logger.warning(f"Zone average unavailable for {mac_id}, falling back to startup volume")
 
-        # FR8: IN_ZONE_ALL_OFFLINE or fallback - use startup_volume_db
-        volume_service = getattr(self.state_machine, 'volume_service', None)
-        if volume_service:
-            startup_volume = volume_service.config.config.startup_volume_db
-            self.logger.info(
-                f"[{time.time():.3f}] IN_ZONE_VOLUME: FR8 - Using startup volume {startup_volume:.1f} dB for {mac_id}"
-            )
-            return startup_volume
-
-        # Ultimate fallback to constant
-        from backend.config.constants import DEFAULT_VOLUME_DB
-        self.logger.warning(f"No volume service, using DEFAULT_VOLUME_DB for {mac_id}")
-        return DEFAULT_VOLUME_DB
-
-    def _get_standalone_target_volume(
-        self,
-        mac_id: str,
-        context: ReconnectionContext
-    ) -> Optional[float]:
-        """
-        Get target volume for STANDALONE reconnection contexts (FR9, FR10).
-
-        Determines the appropriate volume for a standalone client reconnecting:
-        - FR9 (STANDALONE_OTHERS_ONLINE): Use global average from all online clients
-        - FR10 (STANDALONE_ALONE): Use startup_volume_db (first client of the day)
-
-        Args:
-            mac_id: Reconnecting client's mac_id
-            context: STANDALONE_OTHERS_ONLINE or STANDALONE_ALONE
-
-        Returns:
-            Target volume in dB, or None if unable to determine
-        """
-        if context == ReconnectionContext.STANDALONE_OTHERS_ONLINE:
-            # FR9: Use global average from all online clients
+        elif context == ReconnectionContext.STANDALONE_OTHERS_ONLINE:
             if self.registry:
                 avg = self.registry.get_global_average_volume(exclude_mac_id=mac_id)
                 if avg is not None:
-                    self.logger.info(
-                        f"[{time.time():.3f}] STANDALONE_VOLUME: FR9 - Using global average {avg:.1f} dB for {mac_id}"
-                    )
+                    self.logger.info(f"FR9 - Using global average {avg:.1f} dB for {mac_id}")
                     return avg
-            # Fallback to startup volume if global average unavailable
             self.logger.warning(f"Global average unavailable for {mac_id}, falling back to startup volume")
 
-        # FR10: STANDALONE_ALONE or fallback - use startup_volume_db
-        volume_service = getattr(self.state_machine, 'volume_service', None)
-        if volume_service:
-            startup_volume = volume_service.config.config.startup_volume_db
-            self.logger.info(
-                f"[{time.time():.3f}] STANDALONE_VOLUME: FR10 - Using startup volume {startup_volume:.1f} dB for {mac_id}"
-            )
+        # Level 2: startup_volume_db from VolumeService configuration
+        if self._volume_service:
+            startup_volume = self._volume_service.config.config.startup_volume_db
+            self.logger.info(f"FR8/FR10 - Using startup volume {startup_volume:.1f} dB for {mac_id}")
             return startup_volume
 
-        # Ultimate fallback to constant
-        from backend.config.constants import DEFAULT_VOLUME_DB
-        self.logger.warning(f"No volume service, using DEFAULT_VOLUME_DB for {mac_id}")
+        # Level 3: constant fallback
+        self.logger.warning(f"No volume service available, using DEFAULT_VOLUME_DB for {mac_id}")
         return DEFAULT_VOLUME_DB
 
     async def _apply_target_volume_to_client(
@@ -887,19 +844,18 @@ class SnapcastWebSocketService:
             True if volume applied successfully, False otherwise
         """
         try:
-            volume_service = getattr(self.state_machine, 'volume_service', None)
-            if not volume_service:
+            if not self._volume_service:
                 self.logger.warning(f"No volume_service available to apply volume for {mac_id}")
                 return False
 
             # Update client volume in state and apply to DSP
-            await volume_service.update_client_volume_db(mac_id, target_volume_db, broadcast=False)
+            await self._volume_service.update_client_volume_db(mac_id, target_volume_db, broadcast=False)
 
             # Unmute DSP (CamillaDSP starts muted with -m flag)
             # Use persisted mute state (defaults to False = unmuted)
-            client_state = volume_service._state_store._clients.get(mac_id)
+            client_state = self._volume_service._state_store._clients.get(mac_id)
             persisted_mute = client_state.mute if client_state else False
-            await volume_service._dsp_controller.set_dsp_mute(mac_id, persisted_mute)
+            await self._volume_service._dsp_controller.set_dsp_mute(mac_id, persisted_mute)
             self.logger.info(f"[{time.time():.3f}] MUTE_APPLY: Set {mac_id} mute={persisted_mute}")
 
             # Update registry if available
@@ -940,223 +896,183 @@ class SnapcastWebSocketService:
         except Exception as e:
             self.logger.warning(f"Could not push snapclient config to {client_ip}: {e}")
 
-    async def _sync_zone_dsp_to_client(self, mac_id: str, zone) -> bool:
+    async def _apply_dsp_setting(
+        self, hostname: str, mac_id: str, setting_type: str, data: Any, is_local: bool = False
+    ) -> bool:
         """
-        Apply zone DSP settings (filters, compressor, loudness) to a reconnected client.
-
-        This ensures clients rejoin zones with the correct DSP configuration,
-        not just the correct volume. If sync fails, settings are queued for
-        retry via the pending settings mechanism.
+        Apply a single DSP setting to a client. Routes to local CamillaDSP or remote proxy.
 
         Args:
-            mac_id: Client identifier (mac address)
-            zone: Zone object containing dsp_settings
+            hostname: Client IP address
+            mac_id: Client identifier for logging
+            setting_type: "filter/<id>", "compressor", or "loudness"
+            data: Setting payload dict
+            is_local: Route to local CamillaDSP service instead of proxy
 
         Returns:
-            True if sync succeeded, False otherwise
+            True if applied successfully, False on failure
         """
         try:
-            proxy_service = getattr(self.state_machine, 'dsp_client_proxy_service', None)
-            crossover_service = getattr(self.state_machine, 'crossover_service', None)
+            if is_local:
+                if not self._camilladsp_service:
+                    return False
+                if setting_type.startswith("filter/"):
+                    filter_id = setting_type.split("/", 1)[1]
+                    await self._camilladsp_service.set_filter(filter_id, **data)
+                elif setting_type == "compressor":
+                    await self._camilladsp_service.set_compressor(**data)
+                elif setting_type == "loudness":
+                    await self._camilladsp_service.set_loudness(**data)
+            else:
+                if not self._dsp_client_proxy_service:
+                    return False
+                await self._dsp_client_proxy_service.request(hostname, "PUT", f"/dsp/{setting_type}", data)
+            return True
+        except Exception as e:
+            self.logger.warning(f"Failed to apply DSP {setting_type} to {mac_id}: {e}")
+            return False
 
-            if not proxy_service:
-                self.logger.warning(f"No dsp_client_proxy_service available for DSP sync to {mac_id}")
-                return False
-
-            dsp_settings = zone.dsp_settings
-            synced_items = []
-            failed_items = []
-
-            # Get client info for proxy requests - must have IP address
+    async def _sync_zone_dsp_to_client(self, mac_id: str, zone) -> bool:
+        """Apply zone DSP settings (filters, compressor, loudness) to a reconnected client."""
+        try:
             client = self.registry.get_client(mac_id) if self.registry else None
             if not client or not client.ip:
-                self.logger.warning(f"Cannot sync to {mac_id}: client not found or has no IP address")
+                self.logger.warning(f"Cannot sync to {mac_id}: no IP address")
                 return False
 
             hostname = client.ip
+            is_local = (client.ip == "127.0.0.1")
 
-            # Sync filters (EQ bands) - dsp_settings.filters is List[EqFilter]
+            # Guard: need the appropriate service for the routing path
+            if is_local and not self._camilladsp_service:
+                self.logger.warning(f"No camilladsp_service for local DSP sync to {mac_id}")
+                return False
+            if not is_local and not self._dsp_client_proxy_service:
+                self.logger.warning(f"No dsp_client_proxy_service for DSP sync to {mac_id}")
+                return False
+
+            dsp = zone.dsp_settings
+            synced = []
+            failed = []
             filters_failed = []
-            if dsp_settings.filters:
-                for flt in dsp_settings.filters:
-                    filter_id = flt.id
-                    if not filter_id:
+
+            # Sync filters
+            if dsp.filters:
+                for flt in dsp.filters:
+                    if not flt.id:
                         continue
                     filter_data = {
-                        'freq': flt.frequency,
-                        'gain': flt.gain,
-                        'q': flt.q,
+                        'freq': flt.frequency, 'gain': flt.gain, 'q': flt.q,
                         'filter_type': flt.filter_type.value if hasattr(flt.filter_type, 'value') else flt.filter_type
                     }
-                    try:
-                        await proxy_service.request(hostname, "PUT", f"/dsp/filter/{filter_id}", filter_data)
-                        synced_items.append(f"filter:{filter_id}")
-                    except Exception as e:
-                        self.logger.warning(f"Failed to sync filter {filter_id} to {mac_id}: {e}")
-                        filters_failed.append(flt.to_dict())  # Convert to dict for pending queue
-                        failed_items.append(f"filter:{filter_id}")
+                    if await self._apply_dsp_setting(hostname, mac_id, f"filter/{flt.id}", filter_data, is_local):
+                        synced.append(f"filter:{flt.id}")
+                    else:
+                        failed.append(f"filter:{flt.id}")
+                        filters_failed.append(flt.to_dict())
 
-            # Sync compressor - dsp_settings.compressor is CompressorSettings dataclass
-            if dsp_settings.compressor:
-                compressor_dict = dsp_settings.compressor.to_dict()
-                try:
-                    await proxy_service.request(hostname, "PUT", "/dsp/compressor", compressor_dict)
-                    synced_items.append("compressor")
-                except Exception as e:
-                    self.logger.warning(f"Failed to sync compressor to {mac_id}: {e}")
-                    failed_items.append("compressor")
-                    # Queue for retry
-                    if crossover_service:
-                        await crossover_service.queue_pending_settings(hostname, "compressor", compressor_dict)
+            # Sync compressor
+            if dsp.compressor:
+                data = dsp.compressor.to_dict()
+                if await self._apply_dsp_setting(hostname, mac_id, "compressor", data, is_local):
+                    synced.append("compressor")
+                else:
+                    failed.append("compressor")
+                    if self._crossover_service:
+                        await self._crossover_service.queue_pending_settings(hostname, "compressor", data)
 
-            # Sync loudness - dsp_settings.loudness is LoudnessSettings dataclass
-            if dsp_settings.loudness:
-                loudness_dict = dsp_settings.loudness.to_dict()
-                try:
-                    await proxy_service.request(hostname, "PUT", "/dsp/loudness", loudness_dict)
-                    synced_items.append("loudness")
-                except Exception as e:
-                    self.logger.warning(f"Failed to sync loudness to {mac_id}: {e}")
-                    failed_items.append("loudness")
-                    # Queue for retry
-                    if crossover_service:
-                        await crossover_service.queue_pending_settings(hostname, "loudness", loudness_dict)
+            # Sync loudness
+            if dsp.loudness:
+                data = dsp.loudness.to_dict()
+                if await self._apply_dsp_setting(hostname, mac_id, "loudness", data, is_local):
+                    synced.append("loudness")
+                else:
+                    failed.append("loudness")
+                    if self._crossover_service:
+                        await self._crossover_service.queue_pending_settings(hostname, "loudness", data)
 
             # Queue failed filters for retry
-            if filters_failed and crossover_service:
-                await crossover_service.queue_pending_settings(hostname, "filters", filters_failed)
+            if filters_failed and self._crossover_service:
+                await self._crossover_service.queue_pending_settings(hostname, "filters", filters_failed)
 
-            if synced_items:
-                self.logger.info(f"[{time.time():.3f}] SYNC_DSP: Synced {synced_items} to {mac_id} from zone {zone.id}")
-            if failed_items:
-                self.logger.warning(f"[{time.time():.3f}] SYNC_DSP: Queued failed settings {failed_items} for retry to {mac_id}")
+            if synced:
+                self.logger.info(f"SYNC_DSP: Synced {synced} to {mac_id} from zone {zone.id}")
+            if failed:
+                self.logger.warning(f"SYNC_DSP: Queued failed {failed} for retry to {mac_id}")
 
-            return len(failed_items) == 0
+            return len(failed) == 0
 
         except Exception as e:
             self.logger.error(f"Error syncing zone DSP to {mac_id}: {e}", exc_info=True)
             return False
 
     async def _sync_standalone_dsp_to_client(self, mac_id: str) -> bool:
-        """
-        Apply standalone DSP settings to a reconnected client.
-
-        Loads saved DSP settings from client_dsp.json for this mac_id.
-        If no settings exist, applies defaults and saves them.
-
-        Args:
-            mac_id: Client identifier (mac address)
-
-        Returns:
-            True if sync succeeded, False otherwise
-        """
+        """Apply saved standalone DSP settings to a reconnected client."""
         try:
-            proxy_service = getattr(self.state_machine, 'dsp_client_proxy_service', None)
-            dsp_sync_service = getattr(self.state_machine, 'dsp_settings_sync_service', None)
-            crossover_service = getattr(self.state_machine, 'crossover_service', None)
-
-            if not dsp_sync_service:
-                self.logger.warning(f"No dsp_settings_sync_service available for standalone DSP sync to {mac_id}")
+            if not self._dsp_settings_sync_service:
+                self.logger.warning(f"No dsp_settings_sync_service for standalone DSP sync to {mac_id}")
                 return True  # Not a failure, just no sync service
 
-            # Get client info for proxy requests - must have IP address
             client = self.registry.get_client(mac_id) if self.registry else None
             if not client or not client.ip:
-                self.logger.warning(f"Cannot sync standalone DSP to {mac_id}: client not found or has no IP address")
+                self.logger.warning(f"Cannot sync standalone DSP to {mac_id}: no IP address")
                 return False
 
             hostname = client.ip
             is_local = (client.ip == "127.0.0.1")
+            saved = await self._dsp_settings_sync_service.get_client_settings(mac_id)
 
-            # Load saved standalone DSP settings
-            saved_settings = await dsp_sync_service.get_client_settings(mac_id)
+            if not saved:
+                self.logger.info(f"SYNC_STANDALONE: No saved settings for {mac_id}, defaults apply")
+                return True
 
-            synced_items = []
-            failed_items = []
+            self.logger.info(f"SYNC_STANDALONE: Applying saved settings for {mac_id}")
+            synced = []
+            failed = []
+            filters_failed = []
 
-            if saved_settings:
-                # Apply saved settings
-                self.logger.info(f"[{time.time():.3f}] SYNC_STANDALONE: Applying saved settings for {mac_id}")
+            # Sync filters (stored as dict: {filter_id: {freq, gain, q, ...}})
+            for filter_id, flt in saved.get('filters', {}).items():
+                if not filter_id or not isinstance(flt, dict):
+                    continue
+                filter_data = {
+                    'freq': flt.get('freq'), 'gain': flt.get('gain'), 'q': flt.get('q'),
+                    'filter_type': flt.get('filter_type') or flt.get('type')
+                }
+                if await self._apply_dsp_setting(hostname, mac_id, f"filter/{filter_id}", filter_data, is_local):
+                    synced.append(f"filter:{filter_id}")
+                else:
+                    failed.append(f"filter:{filter_id}")
+                    filters_failed.append({filter_id: filter_data})
 
-                # Sync filters (stored as dict: {filter_id: {freq, gain, q, ...}})
-                filters = saved_settings.get('filters', {})
-                filters_failed = []
-                for filter_id, flt in filters.items():
-                    if not filter_id or not isinstance(flt, dict):
-                        continue
-                    filter_data = {
-                        'freq': flt.get('freq'),
-                        'gain': flt.get('gain'),
-                        'q': flt.get('q'),
-                        # Handle both 'filter_type' and 'type' keys for compatibility
-                        'filter_type': flt.get('filter_type') or flt.get('type')
-                    }
-                    try:
-                        if is_local:
-                            dsp_service = getattr(self.state_machine, 'camilladsp_service', None)
-                            if dsp_service:
-                                await dsp_service.set_filter(filter_id, **filter_data)
-                                synced_items.append(f"filter:{filter_id}")
-                        elif proxy_service:
-                            await proxy_service.request(hostname, "PUT", f"/dsp/filter/{filter_id}", filter_data)
-                            synced_items.append(f"filter:{filter_id}")
-                    except Exception as e:
-                        self.logger.warning(f"Failed to sync filter {filter_id} to {mac_id}: {e}")
-                        failed_items.append(f"filter:{filter_id}")
-                        filters_failed.append({filter_id: filter_data})
+            # Queue failed filters for retry
+            if filters_failed and self._crossover_service:
+                await self._crossover_service.queue_pending_settings(hostname, "filters", filters_failed)
 
-                # Queue failed filters for retry (AC6)
-                if filters_failed and crossover_service:
-                    await crossover_service.queue_pending_settings(hostname, "filters", filters_failed)
+            # Sync compressor
+            if compressor := saved.get('compressor'):
+                if await self._apply_dsp_setting(hostname, mac_id, "compressor", compressor, is_local):
+                    synced.append("compressor")
+                else:
+                    failed.append("compressor")
+                    if self._crossover_service:
+                        await self._crossover_service.queue_pending_settings(hostname, "compressor", compressor)
 
-                # Sync compressor
-                compressor = saved_settings.get('compressor')
-                if compressor:
-                    try:
-                        if is_local:
-                            dsp_service = getattr(self.state_machine, 'camilladsp_service', None)
-                            if dsp_service:
-                                await dsp_service.set_compressor(**compressor)
-                                synced_items.append("compressor")
-                        elif proxy_service:
-                            await proxy_service.request(hostname, "PUT", "/dsp/compressor", compressor)
-                            synced_items.append("compressor")
-                    except Exception as e:
-                        self.logger.warning(f"Failed to sync compressor to {mac_id}: {e}")
-                        failed_items.append("compressor")
-                        if crossover_service:
-                            await crossover_service.queue_pending_settings(hostname, "compressor", compressor)
+            # Sync loudness
+            if loudness := saved.get('loudness'):
+                if await self._apply_dsp_setting(hostname, mac_id, "loudness", loudness, is_local):
+                    synced.append("loudness")
+                else:
+                    failed.append("loudness")
+                    if self._crossover_service:
+                        await self._crossover_service.queue_pending_settings(hostname, "loudness", loudness)
 
-                # Sync loudness
-                loudness = saved_settings.get('loudness')
-                if loudness:
-                    try:
-                        if is_local:
-                            dsp_service = getattr(self.state_machine, 'camilladsp_service', None)
-                            if dsp_service:
-                                await dsp_service.set_loudness(**loudness)
-                                synced_items.append("loudness")
-                        elif proxy_service:
-                            await proxy_service.request(hostname, "PUT", "/dsp/loudness", loudness)
-                            synced_items.append("loudness")
-                    except Exception as e:
-                        self.logger.warning(f"Failed to sync loudness to {mac_id}: {e}")
-                        failed_items.append("loudness")
-                        if crossover_service:
-                            await crossover_service.queue_pending_settings(hostname, "loudness", loudness)
+            if synced:
+                self.logger.info(f"SYNC_STANDALONE: Synced {synced} to {mac_id}")
+            if failed:
+                self.logger.warning(f"SYNC_STANDALONE: Failed to sync {failed} to {mac_id}")
 
-            else:
-                # AC3: No saved settings - apply defaults (flat EQ, compressor off, loudness off)
-                self.logger.info(f"[{time.time():.3f}] SYNC_STANDALONE: No saved settings for {mac_id}, defaults will be used")
-                # Default DSP is already flat in CamillaDSP - no action needed
-                # Settings will be saved when user modifies them
-
-            if synced_items:
-                self.logger.info(f"[{time.time():.3f}] SYNC_STANDALONE: Synced {synced_items} to {mac_id}")
-            if failed_items:
-                self.logger.warning(f"[{time.time():.3f}] SYNC_STANDALONE: Failed to sync {failed_items} to {mac_id}")
-
-            return len(failed_items) == 0
+            return len(failed) == 0
 
         except Exception as e:
             self.logger.error(f"Error syncing standalone DSP to {mac_id}: {e}", exc_info=True)

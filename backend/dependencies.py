@@ -355,6 +355,14 @@ def initialize_services() -> None:
     # 2.15 - multiroom_dsp_service → dsp_router (for targeted filter updates)
     multiroom_dsp_service.set_dsp_router(get_service("dsp_router"))
 
+    # 2.16 - snapcast_websocket_service → direct service references
+    snapcast_websocket_service.set_snapcast_service(get_service("snapcast_service"))
+    snapcast_websocket_service.set_volume_service(volume_service)
+    snapcast_websocket_service.set_crossover_service(crossover_service)
+    snapcast_websocket_service.set_dsp_client_proxy_service(dsp_client_proxy_service)
+    snapcast_websocket_service.set_dsp_settings_sync_service(dsp_settings_sync_service)
+    snapcast_websocket_service.set_camilladsp_service(camilladsp_service)
+
     # =========================================================================
     # STEP 3: Register sources (MUST be done BEFORE init_async)
     # =========================================================================

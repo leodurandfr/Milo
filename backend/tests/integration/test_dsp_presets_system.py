@@ -19,6 +19,7 @@ from unittest.mock import Mock, AsyncMock, patch
 from backend.core.dsp import CamillaDSPService, DspState
 from backend.core.dsp.presets import (
     BUILTIN_PRESETS,
+    DEFAULT_EQ_FREQS,
     DEFAULT_MANUAL_GAINS,
     get_builtin_presets,
     get_preset_by_id
@@ -88,8 +89,6 @@ def connected_dsp_service(mock_settings_service, mock_event_bus, mock_state_mach
     service._connected = True
     service._state = DspState.RUNNING
 
-    # Set up 10-band EQ filters with default frequencies
-    DEFAULT_EQ_FREQS = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
     service._filters = [
         {"id": f"eq_band_{i:02d}", "freq": freq, "gain": 0, "q": 1.41, "type": "Peaking", "enabled": True}
         for i, freq in enumerate(DEFAULT_EQ_FREQS)
@@ -658,8 +657,6 @@ class TestAC6StartupRestoration:
         service._connected = True
         service._state = DspState.RUNNING
 
-        # Initialize default filters
-        DEFAULT_EQ_FREQS = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
         service._filters = [
             {"id": f"eq_band_{i:02d}", "freq": freq, "gain": 0, "q": 1.41, "type": "Peaking", "enabled": True}
             for i, freq in enumerate(DEFAULT_EQ_FREQS)

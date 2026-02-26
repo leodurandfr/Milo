@@ -2931,6 +2931,8 @@ class TestSyncZoneDspToClient:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
+        ws_service._dsp_client_proxy_service = mock_state_machine.dsp_client_proxy_service
+        ws_service._crossover_service = mock_state_machine.crossover_service
 
         # Execute sync
         result = await ws_service._sync_zone_dsp_to_client("test-client", mock_zone_with_dsp)
@@ -2962,6 +2964,8 @@ class TestSyncZoneDspToClient:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
+        ws_service._dsp_client_proxy_service = mock_state_machine.dsp_client_proxy_service
+        ws_service._crossover_service = mock_state_machine.crossover_service
 
         # Execute sync
         await ws_service._sync_zone_dsp_to_client("test-client", mock_zone_with_dsp)
@@ -2987,6 +2991,8 @@ class TestSyncZoneDspToClient:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
+        ws_service._dsp_client_proxy_service = mock_state_machine.dsp_client_proxy_service
+        ws_service._crossover_service = mock_state_machine.crossover_service
 
         # Execute sync
         await ws_service._sync_zone_dsp_to_client("test-client", mock_zone_with_dsp)
@@ -3017,6 +3023,8 @@ class TestSyncZoneDspToClient:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
+        ws_service._dsp_client_proxy_service = mock_state_machine.dsp_client_proxy_service
+        ws_service._crossover_service = mock_state_machine.crossover_service
 
         # Execute sync (should fail but queue settings)
         result = await ws_service._sync_zone_dsp_to_client("test-client", mock_zone_with_dsp)
@@ -3045,6 +3053,8 @@ class TestSyncZoneDspToClient:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
+        ws_service._dsp_client_proxy_service = mock_state_machine.dsp_client_proxy_service
+        ws_service._crossover_service = mock_state_machine.crossover_service
 
         result = await ws_service._sync_zone_dsp_to_client("test-client", mock_zone_with_dsp)
         assert result is True
@@ -3062,6 +3072,8 @@ class TestSyncZoneDspToClient:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
+        ws_service._dsp_client_proxy_service = mock_state_machine.dsp_client_proxy_service
+        ws_service._crossover_service = mock_state_machine.crossover_service
 
         mock_zone = MagicMock()
         mock_zone.dsp_settings = DspSettings()
@@ -3114,6 +3126,10 @@ class TestSyncStandaloneDspToClient:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
+        ws_service._dsp_client_proxy_service = mock_state_machine.dsp_client_proxy_service
+        ws_service._dsp_settings_sync_service = mock_state_machine.dsp_settings_sync_service
+        ws_service._crossover_service = mock_state_machine.crossover_service
+        ws_service._camilladsp_service = mock_state_machine.camilladsp_service
 
         result = await ws_service._sync_standalone_dsp_to_client("test-client")
         assert result is True
@@ -3140,6 +3156,10 @@ class TestSyncStandaloneDspToClient:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
+        ws_service._dsp_client_proxy_service = mock_state_machine.dsp_client_proxy_service
+        ws_service._dsp_settings_sync_service = mock_state_machine.dsp_settings_sync_service
+        ws_service._crossover_service = mock_state_machine.crossover_service
+        ws_service._camilladsp_service = mock_state_machine.camilladsp_service
 
         result = await ws_service._sync_standalone_dsp_to_client("test-client")
 
@@ -3174,6 +3194,10 @@ class TestSyncStandaloneDspToClient:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
+        ws_service._dsp_client_proxy_service = mock_state_machine.dsp_client_proxy_service
+        ws_service._dsp_settings_sync_service = mock_state_machine.dsp_settings_sync_service
+        ws_service._crossover_service = mock_state_machine.crossover_service
+        ws_service._camilladsp_service = mock_state_machine.camilladsp_service
 
         result = await ws_service._sync_standalone_dsp_to_client("local")
 
@@ -3200,6 +3224,7 @@ class TestSyncStandaloneDspToClient:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
+        ws_service._dsp_settings_sync_service = mock_state_machine.dsp_settings_sync_service
 
         result = await ws_service._sync_standalone_dsp_to_client("unknown-client")
         assert result is False
@@ -3230,6 +3255,10 @@ class TestSyncStandaloneDspToClient:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
+        ws_service._dsp_client_proxy_service = mock_state_machine.dsp_client_proxy_service
+        ws_service._dsp_settings_sync_service = mock_state_machine.dsp_settings_sync_service
+        ws_service._crossover_service = mock_state_machine.crossover_service
+        ws_service._camilladsp_service = mock_state_machine.camilladsp_service
 
         result = await ws_service._sync_standalone_dsp_to_client("test-client")
 
@@ -3253,7 +3282,7 @@ class TestSyncStandaloneDspToClient:
 # =============================================================================
 
 class TestInZoneTargetVolume:
-    """Tests for _get_inzone_target_volume() method (Story 5.2, AC1-AC2)."""
+    """Tests for _resolve_target_volume() with IN_ZONE contexts (Story 5.2, AC1-AC2)."""
 
     @pytest.fixture
     def mock_state_machine(self):
@@ -3291,9 +3320,10 @@ class TestInZoneTargetVolume:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
+        ws_service._volume_service = mock_state_machine.volume_service
 
         # Test
-        target = ws_service._get_inzone_target_volume("client-1", ReconnectionContext.IN_ZONE_OTHERS_ONLINE)
+        target = ws_service._resolve_target_volume("client-1", ReconnectionContext.IN_ZONE_OTHERS_ONLINE)
 
         # Should use zone average
         assert target == -25.0
@@ -3314,9 +3344,10 @@ class TestInZoneTargetVolume:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
+        ws_service._volume_service = mock_state_machine.volume_service
 
         # Test
-        target = ws_service._get_inzone_target_volume("client-1", ReconnectionContext.IN_ZONE_ALL_OFFLINE)
+        target = ws_service._resolve_target_volume("client-1", ReconnectionContext.IN_ZONE_ALL_OFFLINE)
 
         # Should use startup_volume_db from config (-40.0)
         assert target == -40.0
@@ -3337,9 +3368,10 @@ class TestInZoneTargetVolume:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
+        ws_service._volume_service = mock_state_machine.volume_service
 
         # Test
-        target = ws_service._get_inzone_target_volume("client-1", ReconnectionContext.IN_ZONE_OTHERS_ONLINE)
+        target = ws_service._resolve_target_volume("client-1", ReconnectionContext.IN_ZONE_OTHERS_ONLINE)
 
         # Should fallback to startup_volume_db
         assert target == -40.0
@@ -3352,7 +3384,6 @@ class TestInZoneTargetVolume:
 
         # Setup: no volume_service
         mock_state_machine = MagicMock()
-        mock_state_machine.volume_service = None
 
         mock_client = MagicMock()
         mock_client.zone_id = "zone-1"
@@ -3363,9 +3394,10 @@ class TestInZoneTargetVolume:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
+        ws_service._volume_service = None
 
         # Test
-        target = ws_service._get_inzone_target_volume("client-1", ReconnectionContext.IN_ZONE_ALL_OFFLINE)
+        target = ws_service._resolve_target_volume("client-1", ReconnectionContext.IN_ZONE_ALL_OFFLINE)
 
         # Should use DEFAULT_VOLUME_DB from constants
         assert target == DEFAULT_VOLUME_DB
@@ -3385,16 +3417,17 @@ class TestInZoneTargetVolume:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
+        ws_service._volume_service = mock_state_machine.volume_service
 
         # Test - calling with IN_ZONE context but client has no zone
-        target = ws_service._get_inzone_target_volume("client-1", ReconnectionContext.IN_ZONE_OTHERS_ONLINE)
+        target = ws_service._resolve_target_volume("client-1", ReconnectionContext.IN_ZONE_OTHERS_ONLINE)
 
         # Should fallback to startup_volume_db since zone average not available
         assert target == -40.0
 
 
 class TestStandaloneTargetVolume:
-    """Tests for _get_standalone_target_volume() method (Story 5.3, AC1-AC2)."""
+    """Tests for _resolve_target_volume() with STANDALONE contexts (Story 5.3, AC1-AC2)."""
 
     @pytest.fixture
     def mock_state_machine(self):
@@ -3429,9 +3462,10 @@ class TestStandaloneTargetVolume:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
+        ws_service._volume_service = mock_state_machine.volume_service
 
         # Test
-        target = ws_service._get_standalone_target_volume("client-1", ReconnectionContext.STANDALONE_OTHERS_ONLINE)
+        target = ws_service._resolve_target_volume("client-1", ReconnectionContext.STANDALONE_OTHERS_ONLINE)
 
         # Should use global average
         assert target == -25.0
@@ -3447,9 +3481,10 @@ class TestStandaloneTargetVolume:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
+        ws_service._volume_service = mock_state_machine.volume_service
 
         # Test
-        target = ws_service._get_standalone_target_volume("client-1", ReconnectionContext.STANDALONE_ALONE)
+        target = ws_service._resolve_target_volume("client-1", ReconnectionContext.STANDALONE_ALONE)
 
         # Should use startup_volume_db from config (-40.0)
         assert target == -40.0
@@ -3467,9 +3502,10 @@ class TestStandaloneTargetVolume:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
+        ws_service._volume_service = mock_state_machine.volume_service
 
         # Test
-        target = ws_service._get_standalone_target_volume("client-1", ReconnectionContext.STANDALONE_OTHERS_ONLINE)
+        target = ws_service._resolve_target_volume("client-1", ReconnectionContext.STANDALONE_OTHERS_ONLINE)
 
         # Should fallback to startup_volume_db
         assert target == -40.0
@@ -3482,16 +3518,16 @@ class TestStandaloneTargetVolume:
 
         # Setup: no volume_service
         mock_state_machine = MagicMock()
-        mock_state_machine.volume_service = None
 
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
+        ws_service._volume_service = None
 
         # Test
-        target = ws_service._get_standalone_target_volume("client-1", ReconnectionContext.STANDALONE_ALONE)
+        target = ws_service._resolve_target_volume("client-1", ReconnectionContext.STANDALONE_ALONE)
 
         # Should use DEFAULT_VOLUME_DB from constants
         assert target == DEFAULT_VOLUME_DB
@@ -3509,9 +3545,10 @@ class TestStandaloneTargetVolume:
             routing_service=MagicMock()
         )
         ws_service._registry = None
+        ws_service._volume_service = mock_state_machine.volume_service
 
         # Test - calling with STANDALONE_OTHERS_ONLINE but no registry
-        target = ws_service._get_standalone_target_volume("client-1", ReconnectionContext.STANDALONE_OTHERS_ONLINE)
+        target = ws_service._resolve_target_volume("client-1", ReconnectionContext.STANDALONE_OTHERS_ONLINE)
 
         # Should fallback to startup_volume_db since registry not available
         assert target == -40.0
@@ -3554,6 +3591,7 @@ class TestApplyTargetVolumeToClient:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
+        ws_service._volume_service = mock_state_machine.volume_service
 
         result = await ws_service._apply_target_volume_to_client("client-1", -30.0)
 
@@ -3569,13 +3607,13 @@ class TestApplyTargetVolumeToClient:
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         mock_state_machine = MagicMock()
-        mock_state_machine.volume_service = None
 
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
+        ws_service._volume_service = None
 
         result = await ws_service._apply_target_volume_to_client("client-1", -30.0)
 
@@ -3595,6 +3633,7 @@ class TestApplyTargetVolumeToClient:
             routing_service=MagicMock()
         )
         ws_service._registry = None
+        ws_service._volume_service = mock_state_machine.volume_service
 
         result = await ws_service._apply_target_volume_to_client("client-1", -30.0)
 
@@ -3607,8 +3646,8 @@ class TestApplyTargetVolumeToClient:
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         mock_state_machine = MagicMock()
-        mock_state_machine.volume_service = AsyncMock()
-        mock_state_machine.volume_service.update_client_volume_db = AsyncMock(
+        volume_service = AsyncMock()
+        volume_service.update_client_volume_db = AsyncMock(
             side_effect=Exception("DSP connection failed")
         )
 
@@ -3617,6 +3656,7 @@ class TestApplyTargetVolumeToClient:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
+        ws_service._volume_service = volume_service
 
         result = await ws_service._apply_target_volume_to_client("client-1", -30.0)
 
@@ -3641,6 +3681,7 @@ class TestApplyTargetVolumeToClient:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
+        ws_service._volume_service = mock_state_machine.volume_service
 
         # The method returns False on any exception (including registry errors)
         result = await ws_service._apply_target_volume_to_client("client-1", -30.0)
