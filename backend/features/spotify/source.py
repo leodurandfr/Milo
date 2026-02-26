@@ -419,6 +419,9 @@ class SpotifySource(BaseAudioSource):
 
                 return True
 
+        except (aiohttp.ClientConnectorError, aiohttp.ClientOSError):
+            self._logger.debug("Metadata refresh skipped: go-librespot not reachable")
+            return False
         except Exception as e:
             self._logger.error(f"Metadata refresh failed: {e}")
             return False
