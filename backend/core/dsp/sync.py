@@ -275,15 +275,17 @@ class DspSettingsSyncService:
         self,
         target: str,
         category: str,
-        data: Dict[str, Any]
+        data: Dict[str, Any],
+        filter_id: str = None
     ) -> bool:
         """
-        Push a single setting category to a target client.
+        Push a single setting to a target client (local or remote).
 
         Args:
             target: MAC address of target client
-            category: Setting category
+            category: Setting category (compressor, loudness, or filter)
             data: Setting data
+            filter_id: Filter ID (required when category is 'filter')
 
         Returns:
             True if successful, False otherwise
@@ -296,15 +298,24 @@ class DspSettingsSyncService:
                     await self.dsp_service.set_compressor(**data)
                 elif category == 'loudness':
                     await self.dsp_service.set_loudness(**data)
+                elif category == 'filter' and filter_id:
+                    await self.dsp_service.set_filter(filter_id, **data)
+                elif category == 'volume':
+                    await self.dsp_service.set_volume(data.get("volume", data.get("main", 0)))
+                elif category == 'mute':
+                    await self.dsp_service.set_mute(data.get("muted", False))
             else:
                 client_ip = self._get_client_ip(target)
                 if not self.proxy_service or not client_ip:
                     return False
-                await self.proxy_service.request(client_ip, "PUT", f"/dsp/{category}", data)
-                await self.update_client_settings(target, category, data)
+                path = f"/dsp/filter/{filter_id}" if filter_id else f"/dsp/{category}"
+                await self.proxy_service.request(client_ip, "PUT", path, data)
+                if not filter_id:
+                    await self.update_client_settings(target, category, data)
             return True
         except Exception as e:
-            self.logger.warning(f"Failed to push {category} to {target}: {e}")
+            label = f"filter {filter_id}" if filter_id else category
+            self.logger.warning(f"Failed to push {label} to {target}: {e}")
             return False
 
     async def sync_settings(
@@ -335,95 +346,54 @@ class DspSettingsSyncService:
             self.logger.error(f"Error getting settings from source {source_client}: {e}")
             return {"synced": [], "errors": [f"Failed to get source settings: {e}"]}
 
-        is_source_local = self._is_local_client(source_client)
-
         # Push settings to each target client
         for target in target_clients:
             if target == source_client:
                 continue
 
-            is_target_local = self._is_local_client(target)
-
-            # Look up IP for remote targets
-            target_ip = self._get_client_ip(target) if not is_target_local else None
-            if not is_target_local and not target_ip:
-                continue  # Skip remote clients without IP
+            # Skip remote clients without IP (local clients are always reachable)
+            if not self._is_local_client(target) and not self._get_client_ip(target):
+                continue
 
             target_synced = []
 
-            # Sync compressor
-            if source_settings.get('compressor'):
-                if await self._push_setting_to_target(target, 'compressor', source_settings['compressor']):
-                    target_synced.append("compressor")
-                else:
-                    errors.append(f"{target}/compressor")
-
-            # Sync loudness
-            if source_settings.get('loudness'):
-                if await self._push_setting_to_target(target, 'loudness', source_settings['loudness']):
-                    target_synced.append("loudness")
-                else:
-                    errors.append(f"{target}/loudness")
+            # Sync compressor and loudness
+            for category in ('compressor', 'loudness'):
+                if source_settings.get(category):
+                    if await self._push_setting_to_target(target, category, source_settings[category]):
+                        target_synced.append(category)
+                    else:
+                        errors.append(f"{target}/{category}")
 
             # Sync filters
-            if source_settings.get('filters'):
-                for flt in source_settings['filters']:
-                    filter_id = flt.get('id')
-                    if not filter_id:
-                        continue
-                    filter_data = {
-                        'freq': flt.get('freq'),
-                        'gain': flt.get('gain'),
-                        'q': flt.get('q'),
-                        'filter_type': flt.get('type')
-                    }
-                    try:
-                        if is_target_local:
-                            if self.dsp_service:
-                                await self.dsp_service.set_filter(filter_id, **filter_data)
-                                target_synced.append(f"filter:{filter_id}")
-                        else:
-                            if self.proxy_service and target_ip:
-                                await self.proxy_service.request(
-                                    target_ip, "PUT", f"/dsp/filter/{filter_id}", filter_data
-                                )
-                                target_synced.append(f"filter:{filter_id}")
-                    except Exception as e:
-                        errors.append(f"{target}/filter:{filter_id}: {e}")
+            for flt in source_settings.get('filters', []):
+                filter_id = flt.get('id')
+                if not filter_id:
+                    continue
+                filter_data = {
+                    'freq': flt.get('freq'),
+                    'gain': flt.get('gain'),
+                    'q': flt.get('q'),
+                    'filter_type': flt.get('type')
+                }
+                if await self._push_setting_to_target(target, "filter", filter_data, filter_id=filter_id):
+                    target_synced.append(f"filter:{filter_id}")
+                else:
+                    errors.append(f"{target}/filter:{filter_id}")
 
             # Sync volume/mute
             vol = source_settings.get('volume', {})
             if vol.get('main') is not None:
-                try:
-                    if is_target_local:
-                        if self.dsp_service:
-                            await self.dsp_service.set_volume(vol['main'])
-                            target_synced.append("volume")
-                    else:
-                        if self.proxy_service and target_ip:
-                            await self.proxy_service.request(
-                                target_ip, "PUT", "/dsp/volume", {"volume": vol['main']}
-                            )
-                            # Save settings using mac_id as key (not IP)
-                            await self.update_client_settings(target, "volume", {"main": vol['main']})
-                            target_synced.append("volume")
-                except Exception as e:
-                    errors.append(f"{target}/volume: {e}")
+                if await self._push_setting_to_target(target, 'volume', {"volume": vol['main']}):
+                    target_synced.append("volume")
+                else:
+                    errors.append(f"{target}/volume")
 
             if vol.get('mute') is not None:
-                try:
-                    if is_target_local:
-                        if self.dsp_service:
-                            await self.dsp_service.set_mute(vol['mute'])
-                            target_synced.append("mute")
-                    else:
-                        if self.proxy_service and target_ip:
-                            await self.proxy_service.request(
-                                target_ip, "PUT", "/dsp/mute", {"muted": vol['mute']}
-                            )
-                            target_synced.append("mute")
-                except Exception as e:
-                    errors.append(f"{target}/mute: {e}")
+                if await self._push_setting_to_target(target, 'mute', {"muted": vol['mute']}):
+                    target_synced.append("mute")
+                else:
+                    errors.append(f"{target}/mute")
 
             if target_synced:
                 synced.append({"target": target, "settings": target_synced})
@@ -500,7 +470,7 @@ class DspSettingsSyncService:
         # Apply filters
         filters = dsp_settings.get("filters", {})
         for filter_id, filter_data in filters.items():
-            if not await self._push_filter_to_client(client_id, filter_id, filter_data):
+            if not await self._push_setting_to_target(client_id, "filter", filter_data, filter_id=filter_id):
                 success = False
 
         # Apply compressor
@@ -517,34 +487,3 @@ class DspSettingsSyncService:
 
         return success
 
-    async def _push_filter_to_client(
-        self,
-        client_id: str,
-        filter_id: str,
-        filter_data: Dict[str, Any]
-    ) -> bool:
-        """
-        Push a single filter setting to a client.
-
-        Args:
-            client_id: The client MAC address
-            filter_id: The filter ID
-            filter_data: Filter settings
-
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            if self._is_local_client(client_id):
-                if self.dsp_service:
-                    await self.dsp_service.set_filter(filter_id, **filter_data)
-                    return True
-            else:
-                client_ip = self._get_client_ip(client_id)
-                if self.proxy_service and client_ip:
-                    await self.proxy_service.request(client_ip, "PUT", f"/dsp/filter/{filter_id}", filter_data)
-                    return True
-            return False
-        except Exception as e:
-            self.logger.warning(f"Failed to push filter {filter_id} to {client_id}: {e}")
-            return False
