@@ -28,6 +28,21 @@ from backend.core.multiroom.models import (
     DEFAULT_CROSSOVER_FREQUENCIES,
 )
 
+# Map registry event types to standardized multiroom WebSocket event types
+_EVENT_TYPE_MAP = {
+    RegistryEventType.CLIENT_CONNECTED: "client_state_changed",
+    RegistryEventType.CLIENT_DISCONNECTED: "client_state_changed",
+    RegistryEventType.CLIENT_UPDATED: "client_state_changed",
+    RegistryEventType.SPEAKER_TYPE_CHANGED: "client_state_changed",
+    RegistryEventType.VOLUME_CHANGED: "client_state_changed",
+    RegistryEventType.ZONE_CREATED: "zone_changed",
+    RegistryEventType.ZONE_UPDATED: "zone_changed",
+    RegistryEventType.ZONE_DELETED: "zone_changed",
+    RegistryEventType.ZONE_CLIENT_ADDED: "zone_changed",
+    RegistryEventType.ZONE_CLIENT_REMOVED: "zone_changed",
+    RegistryEventType.DSP_SETTINGS_CHANGED: "dsp_changed",
+}
+
 
 class ClientRegistryService:
     """
@@ -465,6 +480,17 @@ class ClientRegistryService:
         self.logger.info(f"Zone created: {zone_id} with clients {client_ids}")
         return zone
 
+    def _make_clients_standalone(self, mac_ids, zone: Zone) -> None:
+        """Make clients standalone, keeping zone DSP as their individual DSP.
+
+        Must be called inside self._lock.
+        """
+        zone_dsp_dict = zone.dsp_settings.to_dict()
+        for mac_id in mac_ids:
+            if mac_id in self._clients:
+                self._clients[mac_id].zone_id = None
+                self._standalone_dsp[mac_id] = DspSettings.from_dict(zone_dsp_dict)
+
     async def delete_zone(self, zone_id: str) -> bool:
         """
         Delete a zone. Clients become standalone and keep current DSP.
@@ -482,14 +508,7 @@ class ClientRegistryService:
             zone = self._zones[zone_id]
             zone_dict = self.zone_to_enriched_dict(zone)
 
-            # Clients keep zone DSP as their standalone DSP
-            for mac_id in zone.client_ids:
-                if mac_id in self._clients:
-                    self._clients[mac_id].zone_id = None
-                    self._standalone_dsp[mac_id] = DspSettings.from_dict(
-                        zone.dsp_settings.to_dict()
-                    )
-
+            self._make_clients_standalone(zone.client_ids, zone)
             del self._zones[zone_id]
 
         await self._persist_state()
@@ -613,26 +632,14 @@ class ClientRegistryService:
                 return False
 
             # Client keeps zone DSP as standalone
-            client = self._clients.get(mac_id)
-            if client:
-                client.zone_id = None
-                self._standalone_dsp[mac_id] = DspSettings.from_dict(
-                    zone.dsp_settings.to_dict()
-                )
-
+            self._make_clients_standalone([mac_id], zone)
             zone.client_ids.remove(mac_id)
 
             # Delete zone if less than 2 clients
             if not zone.is_valid():
                 zone_deleted = True
                 zone_dict = self.zone_to_enriched_dict(zone)
-                # Remaining clients also become standalone
-                for remaining_mac_id in zone.client_ids:
-                    if remaining_mac_id in self._clients:
-                        self._clients[remaining_mac_id].zone_id = None
-                        self._standalone_dsp[remaining_mac_id] = DspSettings.from_dict(
-                            zone.dsp_settings.to_dict()
-                        )
+                self._make_clients_standalone(zone.client_ids, zone)
                 del self._zones[zone_id]
 
         await self._persist_state()
@@ -697,28 +704,19 @@ class ClientRegistryService:
             joining = new_client_ids - old_client_ids
 
             # Handle clients leaving zone - keep DSP as standalone
-            for mac_id in leaving:
-                if mac_id in self._clients:
-                    self._clients[mac_id].zone_id = None
-                    self._standalone_dsp[mac_id] = DspSettings.from_dict(
-                        zone.dsp_settings.to_dict()
-                    )
+            self._make_clients_standalone(leaving, zone)
 
             # Handle clients joining zone - DSP replaced by zone's
             for mac_id in joining:
                 if mac_id in self._clients:
                     self._clients[mac_id].zone_id = zone_id
-                    # Clear standalone DSP (zone takes over)
                     self._standalone_dsp.pop(mac_id, None)
 
             # Update zone
             zone.client_ids = client_ids
             zone_dict = self.zone_to_enriched_dict(zone)
 
-        # Persist all changes
-        await self._persist_zones()
-        await self._persist_clients()
-        await self._persist_standalone_dsp()
+        await self._persist_state()
 
         # Emit event
         await self._emit_event(RegistryEventType.ZONE_UPDATED, {
@@ -1118,53 +1116,21 @@ class ClientRegistryService:
         if callback in self._subscribers:
             self._subscribers.remove(callback)
 
-    def _map_event_type(self, event_type: str) -> str:
-        """
-        Map registry event types to standardized multiroom event types.
-
-        This mapping aligns with the architecture spec for WebSocket events:
-        - Client events → client_state_changed
-        - Zone events → zone_changed
-        - DSP events → dsp_changed
-        """
-        client_events = {
-            RegistryEventType.CLIENT_CONNECTED,
-            RegistryEventType.CLIENT_DISCONNECTED,
-            RegistryEventType.CLIENT_UPDATED,
-            RegistryEventType.SPEAKER_TYPE_CHANGED,
-            RegistryEventType.VOLUME_CHANGED,
-        }
-        zone_events = {
-            RegistryEventType.ZONE_CREATED,
-            RegistryEventType.ZONE_UPDATED,
-            RegistryEventType.ZONE_DELETED,
-            RegistryEventType.ZONE_CLIENT_ADDED,
-            RegistryEventType.ZONE_CLIENT_REMOVED,
-        }
-        dsp_events = {
-            RegistryEventType.DSP_SETTINGS_CHANGED,
-        }
-
-        if event_type in client_events:
-            return "client_state_changed"
-        elif event_type in zone_events:
-            return "zone_changed"
-        elif event_type in dsp_events:
-            return "dsp_changed"
-        else:
-            # Fallback: use original event type in snake_case
-            return event_type.lower()
+    @staticmethod
+    def _map_event_type(event_type: str) -> str:
+        """Map registry event type to standardized multiroom WebSocket event type."""
+        return _EVENT_TYPE_MAP.get(event_type, event_type.lower())
 
     async def _emit_event(self, event_type: str, data: Dict[str, Any]) -> None:
         """Emit event to all subscribers and broadcast via WebSocket."""
+        mapped_type = self._map_event_type(event_type)
+
         # Broadcast via state machine (WebSocket to frontend)
         if self._state_machine:
-            mapped_type = self._map_event_type(event_type)
             await self._state_machine.broadcast_event("multiroom", mapped_type, data)
 
         # Emit via EventBus
         if self.event_bus:
-            mapped_type = self._map_event_type(event_type)
             await self.event_bus.emit(f"multiroom.{mapped_type}", data)
 
         # Notify local subscribers
