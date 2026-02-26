@@ -3563,11 +3563,9 @@ class TestApplyTargetVolumeToClient:
         state_machine = MagicMock()
         volume_service = AsyncMock()
         volume_service.update_client_volume_db = AsyncMock()
-        # Mock internal state store access: volume_service._state_store._clients.get(mac_id)
-        mock_client_state = MagicMock(mute=False)
+        # Mock state store public accessors
         volume_service._state_store = MagicMock()
-        volume_service._state_store._clients = MagicMock()
-        volume_service._state_store._clients.get = MagicMock(return_value=mock_client_state)
+        volume_service._state_store.get_client_mute = MagicMock(return_value=False)
         # Mock DSP controller for mute operation
         volume_service._dsp_controller = MagicMock()
         volume_service._dsp_controller.set_dsp_mute = AsyncMock()

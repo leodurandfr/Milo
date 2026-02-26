@@ -377,14 +377,16 @@ class TestVolumeService:
         )
         assert service.event_bus is custom_bus
 
-    def test_is_multiroom_enabled_false(self, service, mock_state_machine):
+    def test_is_multiroom_enabled_false(self, service):
         """Test multiroom disabled check."""
-        mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
+        service._routing_service = Mock()
+        service._routing_service.get_state.return_value = {'multiroom_enabled': False}
         assert service._is_multiroom_enabled() is False
 
-    def test_is_multiroom_enabled_true(self, service, mock_state_machine):
+    def test_is_multiroom_enabled_true(self, service):
         """Test multiroom enabled check."""
-        mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': True}
+        service._routing_service = Mock()
+        service._routing_service.get_state.return_value = {'multiroom_enabled': True}
         assert service._is_multiroom_enabled() is True
 
     def test_is_dsp_available(self, service, mock_dsp_service):
@@ -1055,7 +1057,8 @@ class TestStartupVolumeAutoUpdate:
         FR11 AC5: apply_zone_volume_delta() updates startup_volume_db using local client volume.
         """
         # Arrange: Multiroom mode with a zone
-        mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': True}
+        service._routing_service = Mock()
+        service._routing_service.get_state.return_value = {'multiroom_enabled': True}
 
         # Setup zone in state store
         from backend.core.models.volume_state import ClientVolume
@@ -1244,7 +1247,7 @@ class TestStartupVolumeOnRestart:
     ):
         """
         FR12: Startup also applies persisted mute state.
-        The mute state is read from _state_store._local_mute attribute.
+        The mute state is read from the local client's ClientVolume.
         """
         # Arrange
         service._config_service._config = VolumeConfig(
@@ -1253,8 +1256,12 @@ class TestStartupVolumeOnRestart:
             startup_volume_db=-45.0,
             restore_last_volume=False
         )
-        # Set persisted mute state on the state store (read by _apply_startup_volume)
-        service._state_store._local_mute = True
+        # Set persisted mute state via local client in state store
+        from backend.core.models.volume_state import ClientVolume
+        service._state_store._local_mac_id = "local-mac"
+        service._state_store._clients["local-mac"] = ClientVolume(
+            volume_db=-45.0, offset_db=0.0, mute=True, available=True
+        )
 
         # Act
         await service._apply_startup_volume()

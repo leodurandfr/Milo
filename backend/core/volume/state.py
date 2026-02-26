@@ -607,6 +607,25 @@ class VolumeStateStore:
             return self._clients[hostname].volume_db
         return None
 
+    def get_client_mute(self, hostname: str) -> bool:
+        """Get mute state for a client. Returns False if not registered."""
+        client = self._clients.get(hostname)
+        return client.mute if client else False
+
+    def has_client(self, hostname: str) -> bool:
+        """Check if a client is registered in the volume state."""
+        return hostname in self._clients
+
+    @property
+    def local_volume_db(self) -> float:
+        """Current local volume in dB (direct mode)."""
+        return self._local_volume_db
+
+    @property
+    def local_mac_id(self) -> Optional[str]:
+        """Cached local client MAC ID (set when local client connects)."""
+        return self._local_mac_id
+
     # ========== Zone Operations ==========
 
     async def apply_zone_delta(self, zone_id: str, delta_db: float) -> Dict[str, float]:
