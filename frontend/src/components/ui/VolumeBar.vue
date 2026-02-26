@@ -41,8 +41,7 @@ const volumeFillStyle = computed(() => ({
 
 <style scoped>
 .volume-bar {
-  /* top: calc(env(safe-area-inset-top,0px) + var(--space-05)); */
-  top: env(safe-area-inset-top,0px);
+  top: calc(env(safe-area-inset-top,0px) + var(--space-05));
   position: fixed;
   left: 50%;
   transform: translate(-50%, -80px);
@@ -119,7 +118,7 @@ const volumeFillStyle = computed(() => ({
 @media (max-aspect-ratio: 4/3) {
   .volume-bar {
     width: calc(100% - 2*(var(--space-04)));
+    top: env(safe-area-inset-top, 0px);
   }
 }
-
 </style>
