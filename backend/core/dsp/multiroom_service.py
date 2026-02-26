@@ -197,45 +197,25 @@ class MultiroomDspService:
             return zone.dsp_settings
         return None
 
-    async def load_zone_preset(self, zone_id: str, preset_id: str) -> bool:
-        """
-        Load an EQ preset for a zone.
+    async def _resolve_preset_gains(self, preset_id: str) -> list:
+        """Resolve gain values for a preset ID (builtin or manual)."""
+        from backend.core.dsp.presets import get_preset_by_id, DEFAULT_MANUAL_GAINS
 
-        Converts the preset gains to EqFilter objects, preserves existing
-        compressor/loudness settings, and applies to all zone clients.
-
-        Args:
-            zone_id: The zone ID
-            preset_id: The preset ID (e.g., "rock", "classical", "manual")
-
-        Returns:
-            True if successful
-
-        Raises:
-            ValueError: If zone or preset not found
-        """
-        from backend.core.dsp.presets import get_preset_by_id, DEFAULT_MANUAL_GAINS, DEFAULT_EQ_FREQS
-
-        # Get preset gains
         if preset_id == "manual":
-            # Manual preset: use saved manual gains or defaults
             if self._dsp_service and hasattr(self._dsp_service, 'get_manual_gains'):
-                gains = await self._dsp_service.get_manual_gains()
-            else:
-                gains = DEFAULT_MANUAL_GAINS
-        else:
-            preset = get_preset_by_id(preset_id)
-            if not preset:
-                raise ValueError(f"Preset not found: {preset_id}")
-            gains = preset["gains"]
+                return await self._dsp_service.get_manual_gains()
+            return DEFAULT_MANUAL_GAINS
 
-        # Get current zone settings to preserve compressor/loudness
-        current = await self.get_zone_dsp(zone_id)
-        if not current:
-            raise ValueError(f"Zone not found: {zone_id}")
+        preset = get_preset_by_id(preset_id)
+        if not preset:
+            raise ValueError(f"Preset not found: {preset_id}")
+        return preset["gains"]
 
-        # Build new filters from preset gains
-        new_filters = [
+    def _build_preset_filters(self, gains: list) -> list:
+        """Build EqFilter objects from gain values using standard frequencies."""
+        from backend.core.dsp.presets import DEFAULT_EQ_FREQS
+
+        return [
             EqFilter(
                 id=f"eq_band_{i:02d}",
                 frequency=DEFAULT_EQ_FREQS[i],
@@ -247,72 +227,46 @@ class MultiroomDspService:
             for i in range(10)
         ]
 
-        # Update settings with new filters, preserve compressor/loudness
-        current.filters = new_filters
-        current.active_preset = preset_id  # Track which preset was loaded
+    async def load_zone_preset(self, zone_id: str, preset_id: str) -> bool:
+        """
+        Load an EQ preset for a zone.
 
-        # Apply to zone
+        Preserves existing compressor/loudness settings and applies to all zone clients.
+
+        Raises:
+            ValueError: If zone or preset not found
+        """
+        gains = await self._resolve_preset_gains(preset_id)
+
+        current = await self.get_zone_dsp(zone_id)
+        if not current:
+            raise ValueError(f"Zone not found: {zone_id}")
+
+        current.filters = self._build_preset_filters(gains)
+        current.active_preset = preset_id
         return await self.apply_zone_dsp(zone_id, current)
 
     async def load_client_preset(self, mac_id: str, preset_id: str) -> bool:
         """
         Load an EQ preset for a standalone client.
 
-        Converts the preset gains to EqFilter objects, preserves existing
-        compressor/loudness settings, and applies to the client.
-
-        Args:
-            mac_id: The client's MAC ID
-            preset_id: The preset ID (e.g., "rock", "classical", "manual")
-
-        Returns:
-            True if successful
+        Preserves existing compressor/loudness settings and applies to the client.
 
         Raises:
             ValueError: If client not found, client is in a zone, or preset not found
         """
-        from backend.core.dsp.presets import get_preset_by_id, DEFAULT_MANUAL_GAINS, DEFAULT_EQ_FREQS
+        gains = await self._resolve_preset_gains(preset_id)
 
-        # Get preset gains
-        if preset_id == "manual":
-            if self._dsp_service and hasattr(self._dsp_service, 'get_manual_gains'):
-                gains = await self._dsp_service.get_manual_gains()
-            else:
-                gains = DEFAULT_MANUAL_GAINS
-        else:
-            preset = get_preset_by_id(preset_id)
-            if not preset:
-                raise ValueError(f"Preset not found: {preset_id}")
-            gains = preset["gains"]
-
-        # Get current client settings to preserve compressor/loudness
         current = await self.get_client_dsp(mac_id)
         if not current:
-            # Client not found or in a zone - check which case
             if self._registry:
                 client = self._registry.get_client(mac_id)
                 if client and client.zone_id:
                     raise ValueError(f"Client {mac_id} is in a zone. Use load_zone_preset() instead.")
             raise ValueError(f"Client not found: {mac_id}")
 
-        # Build new filters from preset gains
-        new_filters = [
-            EqFilter(
-                id=f"eq_band_{i:02d}",
-                frequency=DEFAULT_EQ_FREQS[i],
-                gain=gains[i],
-                q=1.41,
-                filter_type=FilterType.PEAKING,
-                enabled=True
-            )
-            for i in range(10)
-        ]
-
-        # Update settings with new filters, preserve compressor/loudness
-        current.filters = new_filters
-        current.active_preset = preset_id  # Track which preset was loaded
-
-        # Apply to client
+        current.filters = self._build_preset_filters(gains)
+        current.active_preset = preset_id
         return await self.apply_client_dsp(mac_id, current)
 
     # =========================================================================
