@@ -4,7 +4,7 @@
 
 # Milō (⚠️WIP⚠️)
 
-> Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, Bluetooth, Internet Radio, Podcasts, and Mac streaming.
+> Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, AirPlay 2, Bluetooth, Internet Radio, Podcasts, and Mac streaming.
 
 <!-- TODO: Add screenshot or GIF of the interface -->
 <!-- ![Milō Interface](docs/assets/screenshot.png) -->
@@ -14,6 +14,7 @@
 | Source | Description |
 |--------|-------------|
 | 🎵 **Spotify Connect** | Native Spotify Connect receiver — control playback directly |
+| 🍎 **AirPlay** | Stream from any Apple device (iPhone, iPad, Mac) |
 | 📱 **Bluetooth** | Pair any device and stream audio |
 | 📻 **Radio** | Browse 50,000+ stations, save favorites, add custom stations, and identify tracks with Shazam |
 | 🎙️ **Podcasts** | Search, subscribe, and resume episodes with variable speed (0.5x–2x) |
@@ -28,7 +29,7 @@
 | 🎤 **Shazam Recognition** | Automatic track identification on radio streams — see artist, title, and album art |
 | 🖥️ **Now Playing Display** | Fullscreen screensaver with album art during playback on touchscreen |
 | 🔈 **Volume Management** | Rotary encoder support, volume limits, startup volume mode (fixed or restore last) |
-| 🔄 **OTA Updates** | Check and install updates from GitHub, including satellite speakers |
+| 🔄 **OTA Updates** | Check and install updates from GitHub, including multi-room client speakers |
 | 🌍 **8 Languages** | English, French, German, Spanish, Portuguese, Italian, Chinese, Hindi |
 
 ## Hardware
@@ -36,7 +37,7 @@
 | Component | Requirement |
 |-----------|-------------|
 | **Board** | Raspberry Pi 4 or 5 (64-bit) |
-| **Audio** | HiFiBerry HAT (Amp2, Amp4, Amp4 Pro, Amp100, Beocreate) |
+| **Audio** | HiFiBerry HAT — Amplifiers (Amp2, Amp4, Amp4 Pro, Amp100, Beocreate) or DACs (DAC2 HD, DAC+ Pro) |
 | **Display** | Waveshare 7" USB or 8" DSI *(optional)* |
 | **Volume** | Rotary encoder *(optional)* |
 
@@ -64,6 +65,7 @@ The script guides you through audio card and screen selection. Once complete:
 
 - **Web interface** → http://milo.local
 - **Spotify** → Select "Milō" in Spotify app
+- **AirPlay** → Select "Milō" in your iPhone/iPad/Mac AirPlay outputs
 - **Bluetooth** → Connect to "Milō · Bluetooth"
 - **Mac** → Install [Milō Mac](https://github.com/leodurandfr/Milo-Mac), then select "Milō" in audio outputs
 
@@ -102,7 +104,7 @@ Control Milō from your other devices:
 |-------|-------------|
 | **Backend** | Python, FastAPI, asyncio |
 | **Frontend** | Vue 3, Pinia, Vite |
-| **Audio** | ALSA, CamillaDSP, Snapcast, mpv |
+| **Audio** | ALSA, CamillaDSP, Snapcast, mpv, go-librespot, shairport-sync, bluez-alsa, ROC |
 | **Platform** | Raspberry Pi OS (64-bit), systemd |
 
 ## Documentation
