@@ -108,7 +108,7 @@ def mock_state_machine(websocket_collector: WebSocketEventCollector):
             "type": event_type,
             "source": "volume",
             "data": data,
-            "timestamp": asyncio.get_event_loop().time()
+            "timestamp": asyncio.get_running_loop().time()
         })
 
     sm.broadcast_event = AsyncMock(side_effect=mock_broadcast)

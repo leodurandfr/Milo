@@ -50,6 +50,7 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import ModalHeader from '@/components/ui/ModalHeader.vue'
+import { useIsMobile } from '@/composables/useIsMobile'
 
 const layoutRef = ref(null)
 
@@ -167,20 +168,7 @@ function resetScroll() {
 const playerWidth = 278
 
 // Mobile detection for padding-bottom
-const isMobile = ref(false)
-
-function updateMediaQuery() {
-  isMobile.value = window.matchMedia('(max-aspect-ratio: 4/3)').matches
-}
-
-onMounted(() => {
-  updateMediaQuery()
-  window.addEventListener('resize', updateMediaQuery)
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener('resize', updateMediaQuery)
-})
+const { isMobile } = useIsMobile()
 
 // Computed padding for mobile player
 const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)

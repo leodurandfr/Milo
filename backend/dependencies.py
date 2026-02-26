@@ -348,17 +348,21 @@ def initialize_services() -> None:
     # 2.12 - crossover_service → client_registry_service
     crossover_service.set_registry(client_registry_service)
 
-    # 2.13 - multiroom_dsp_service → state_machine (for event broadcasting)
+    # 2.13 - state_machine → volume_service + snapcast_service (moved from main.py)
+    state_machine.volume_service = volume_service
+    state_machine.snapcast_service = get_service("snapcast_service")
+
+    # 2.14 - multiroom_dsp_service → state_machine (for event broadcasting)
     multiroom_dsp_service.set_state_machine(state_machine)
 
-    # 2.14 - multiroom_dsp_service → proxy_service + routing_service (for remote client control)
+    # 2.15 - multiroom_dsp_service → proxy_service + routing_service (for remote client control)
     multiroom_dsp_service.set_proxy_service(dsp_client_proxy_service)
     multiroom_dsp_service.set_routing_service(routing_service)
 
-    # 2.15 - multiroom_dsp_service → dsp_router (for targeted filter updates)
+    # 2.16 - multiroom_dsp_service → dsp_router (for targeted filter updates)
     multiroom_dsp_service.set_dsp_router(get_service("dsp_router"))
 
-    # 2.16 - snapcast_websocket_service → direct service references
+    # 2.17 - snapcast_websocket_service → direct service references
     snapcast_websocket_service.set_snapcast_service(get_service("snapcast_service"))
     snapcast_websocket_service.set_volume_service(volume_service)
     snapcast_websocket_service.set_crossover_service(crossover_service)

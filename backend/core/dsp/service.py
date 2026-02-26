@@ -100,7 +100,7 @@ class CamillaDSPService:
     async def _run(self, func):
         """Run sync pycamilladsp call in executor"""
         if not self._loop:
-            self._loop = asyncio.get_event_loop()
+            self._loop = asyncio.get_running_loop()
         return await self._loop.run_in_executor(None, func)
 
     @property

@@ -20,14 +20,13 @@ class RadioBrowserAPI:
 
     BASE_URL = "https://all.api.radio-browser.info/json"
 
+    MAX_FAVICON_CACHE = 500
+
     def __init__(self, cache_duration_minutes: int = 60, station_manager=None):
         self.logger = logging.getLogger(__name__)
         self.session: Optional[aiohttp.ClientSession] = None
         self.cache_duration = timedelta(minutes=cache_duration_minutes)
         self.station_manager = station_manager
-
-        # Cache by country for dynamic searches (country_name -> (timestamp, stations))
-        self._country_cache: Dict[str, tuple[datetime, List[Dict[str, Any]]]] = {}
 
         # Cache for the list of available countries (valid 24h)
         self._countries_cache: List[Dict[str, Any]] = []
@@ -51,6 +50,13 @@ class RadioBrowserAPI:
         if self.session and not self.session.closed:
             await self.session.close()
             self.session = None
+
+    def _set_favicon_cache(self, url: str, score: int, size: int) -> None:
+        """Store favicon quality in cache, evicting oldest entry if over limit."""
+        self._favicon_quality_cache[url] = (score, size, datetime.now())
+        if len(self._favicon_quality_cache) > self.MAX_FAVICON_CACHE:
+            oldest = min(self._favicon_quality_cache, key=lambda k: self._favicon_quality_cache[k][2])
+            del self._favicon_quality_cache[oldest]
 
     async def _fetch_stations_by_country(self, country_code: str) -> List[Dict[str, Any]]:
         """
@@ -335,7 +341,7 @@ class RadioBrowserAPI:
         url_quality = self._get_favicon_quality(favicon_url)
         if url_quality < 10:
             # Problematic URL, don't make request
-            self._favicon_quality_cache[favicon_url] = (-1, 0, datetime.now())
+            self._set_favicon_cache(favicon_url, -1, 0)
             return (-1, 0)
 
         await self._ensure_session()
@@ -350,14 +356,14 @@ class RadioBrowserAPI:
                 # Check status code
                 if resp.status != 200:
                     self.logger.debug(f"Favicon HEAD failed (HTTP {resp.status}): {favicon_url}")
-                    self._favicon_quality_cache[favicon_url] = (-1, 0, datetime.now())
+                    self._set_favicon_cache(favicon_url, -1, 0)
                     return (-1, 0)
 
                 # Check Content-Type
                 content_type = resp.headers.get('Content-Type', '').lower()
                 if not content_type.startswith('image/'):
                     self.logger.debug(f"Favicon not an image (Content-Type: {content_type}): {favicon_url}")
-                    self._favicon_quality_cache[favicon_url] = (-1, 0, datetime.now())
+                    self._set_favicon_cache(favicon_url, -1, 0)
                     return (-1, 0)
 
                 # Get the size
@@ -382,7 +388,7 @@ class RadioBrowserAPI:
                 # else: image/x-icon or other = no bonus (file_size only)
 
                 # Cache
-                self._favicon_quality_cache[favicon_url] = (quality_score, file_size, datetime.now())
+                self._set_favicon_cache(favicon_url, quality_score, file_size)
 
                 self.logger.debug(
                     f"✅ Favicon evaluated: {favicon_url[:50]}... "
@@ -393,11 +399,11 @@ class RadioBrowserAPI:
 
         except asyncio.TimeoutError:
             self.logger.debug(f"Favicon HEAD timeout: {favicon_url}")
-            self._favicon_quality_cache[favicon_url] = (-1, 0, datetime.now())
+            self._set_favicon_cache(favicon_url, -1, 0)
             return (-1, 0)
         except Exception as e:
             self.logger.debug(f"Favicon HEAD error for {favicon_url}: {e}")
-            self._favicon_quality_cache[favicon_url] = (-1, 0, datetime.now())
+            self._set_favicon_cache(favicon_url, -1, 0)
             return (-1, 0)
 
     async def find_alternative_urls(self, station_name: str, exclude_url: str = "") -> List[Dict[str, Any]]:

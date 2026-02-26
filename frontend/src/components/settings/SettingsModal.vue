@@ -172,6 +172,7 @@ import { useRadioStore } from '@/stores/radioStore';
 import { useDspStore } from '@/stores/dspStore';
 import { useNavigationStack } from '@/composables/useNavigationStack';
 import useWebSocket from '@/services/websocket';
+import { logger } from '@/services/logger';
 import axios from 'axios';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
 import Toggle from '@/components/ui/Toggle.vue';
@@ -372,7 +373,7 @@ async function handleDeleteStation() {
     const success = await radioStore.removeCustomStation(stationToEdit.value.id);
 
     if (success) {
-      console.log('Station deleted');
+      logger.info('settings', 'Station deleted');
 
       // Wait a bit for backend to save
       await new Promise(resolve => setTimeout(resolve, 200));
@@ -398,7 +399,7 @@ async function handleDeleteStation() {
 }
 
 function handleRadioStationAdded(station) {
-  console.log('Station added:', station);
+  logger.info('settings', 'Station added', station);
   // Reload RadioSettings data
   if (radioSettingsRef.value) {
     radioSettingsRef.value.loadCustomStations();
@@ -433,7 +434,7 @@ function handleClientSaved() {
 }
 
 async function handleRadioStationEdited(station) {
-  console.log('Station edited:', station);
+  logger.info('settings', 'Station edited', station);
 
   // Reload favorites in radioStore to update RadioSource
   await radioStore.loadStations(true);

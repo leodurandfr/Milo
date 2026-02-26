@@ -16,6 +16,7 @@
 import { ref, onMounted, watch } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
+import { logger } from '@/services/logger'
 import PodcastCard from './PodcastCard.vue'
 import MessageContent from '@/components/ui/MessageContent.vue'
 
@@ -69,7 +70,7 @@ async function loadData() {
     // Update podcasts (from iTunes RSS with Taddy UUIDs)
     topPodcasts.value = data.podcasts || []
 
-    console.log(`Loaded ${topPodcasts.value.length} podcasts for genre ${props.genre} in ${data.language}/${data.country}`)
+    logger.debug('podcast', `Loaded ${topPodcasts.value.length} podcasts for genre ${props.genre} in ${data.language}/${data.country}`)
   } catch (error) {
     console.error('Error loading genre content:', error)
     topPodcasts.value = []

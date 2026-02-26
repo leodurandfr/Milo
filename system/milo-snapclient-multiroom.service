@@ -11,6 +11,7 @@ User=milo
 Group=audio
 Restart=on-failure
 RestartSec=5
+MemoryMax=128M
 
 [Install]
 WantedBy=multi-user.target

@@ -14,6 +14,7 @@
 import { ref, computed, onUnmounted } from 'vue';
 import { useVirtualKeyboard } from '@/composables/useVirtualKeyboard';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
+import { logger } from '@/services/logger';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const props = defineProps({
@@ -66,7 +67,7 @@ const shouldShowKeyboard = computed(() => {
   // Force mode via URL parameter (for development/testing)
   const urlParams = new URLSearchParams(window.location.search);
   if (urlParams.get('virtualKeyboard') === 'true') {
-    console.log('[InputText] Force mode enabled via URL');
+    logger.debug('hardware', 'Virtual keyboard force mode enabled via URL');
     return true;
   }
 
@@ -77,7 +78,7 @@ const shouldShowKeyboard = computed(() => {
   const configWidth = configuredResolution?.width;
   const configHeight = configuredResolution?.height;
 
-  console.log('[InputText] Resolution check:', {
+  logger.debug('hardware', 'Resolution check', {
     configWidth,
     configHeight,
     browserWidth: currentWidth,
@@ -86,14 +87,14 @@ const shouldShowKeyboard = computed(() => {
 
   // If no valid resolution configured, no virtual keyboard
   if (!configWidth || !configHeight) {
-    console.log('[InputText] ❌ No valid resolution configured');
+    logger.debug('hardware', 'No valid resolution configured');
     return false;
   }
 
   // Check if resolutions match exactly
   const matches = currentWidth === configWidth && currentHeight === configHeight;
 
-  console.log(`[InputText] Resolution ${matches ? '✅ MATCH' : '❌ NO MATCH'} (${currentWidth}x${currentHeight} vs ${configWidth}x${configHeight})`);
+  logger.debug('hardware', `Resolution ${matches ? 'MATCH' : 'NO MATCH'} (${currentWidth}x${currentHeight} vs ${configWidth}x${configHeight})`);
 
   return matches;
 });

@@ -40,25 +40,12 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { computed } from 'vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import episodePlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
+import { useIsMobile } from '@/composables/useIsMobile'
 
-// Mobile detection for Teleport
-const isMobile = ref(false)
-
-const checkMobile = () => {
-  isMobile.value = window.matchMedia('(max-aspect-ratio: 4/3)').matches
-}
-
-onMounted(() => {
-  checkMobile()
-  window.addEventListener('resize', checkMobile)
-})
-
-onUnmounted(() => {
-  window.removeEventListener('resize', checkMobile)
-})
+const { isMobile } = useIsMobile()
 
 const props = defineProps({
   /**

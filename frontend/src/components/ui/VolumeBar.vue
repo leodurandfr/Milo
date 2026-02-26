@@ -1,6 +1,6 @@
 <!-- frontend/src/components/ui/VolumeBar.vue -->
 <template>
-  <div class="volume-bar" :class="{ visible: unifiedStore.showVolumeBar }">
+  <div class="volume-bar glass-surface glass-border" :class="{ visible: unifiedStore.showVolumeBar }">
     <div class="volume-slider">
       <div class="volume-fill" :style="volumeFillStyle"></div>
       <div class="text-mono">{{ volumeDisplay }}</div>
@@ -42,6 +42,8 @@ const volumeFillStyle = computed(() => ({
 <style scoped>
 .volume-bar {
   top: calc(env(safe-area-inset-top,0px) + var(--space-05));
+  --glass-bg: var(--color-background-medium-16);
+  --glass-radius: var(--radius-full);
   position: fixed;
   left: 50%;
   transform: translate(-50%, -80px);
@@ -49,26 +51,8 @@ const volumeFillStyle = computed(() => ({
   width: 472px;
   padding: var(--space-04);
   border-radius: var(--radius-full);
-  background: var(--color-background-medium-16);
-  backdrop-filter: blur(var(--blur-02));
   transition: all var(--transition-spring);
   z-index: 8000;
-}
-
-.volume-bar::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  padding: 2px;
-  background: var(--stroke-glass);
-  border-radius: var(--radius-07);
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  z-index: -1;
-  pointer-events: none;
 }
 
 .volume-bar.visible {

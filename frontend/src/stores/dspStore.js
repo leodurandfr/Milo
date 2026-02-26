@@ -8,6 +8,7 @@ import { ref, computed } from 'vue';
 import axios from 'axios';
 import { useUnifiedAudioStore } from './unifiedAudioStore';
 import { useMultiroomStore } from './multiroomStore';
+import { logger } from '@/services/logger';
 
 // Default 10-band parametric EQ frequencies
 const DEFAULT_FREQUENCIES = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
@@ -549,7 +550,7 @@ export const useDspStore = defineStore('dsp', () => {
     const skippedClients = otherClients.filter(id => !registryStore.isClientOnline(id));
 
     if (skippedClients.length > 0) {
-      console.log(`Skipping offline clients for ${endpoint}:`, skippedClients);
+      logger.debug('store', `Skipping offline clients for ${endpoint}`, skippedClients);
     }
 
     const errors = [];
@@ -962,7 +963,7 @@ export const useDspStore = defineStore('dsp', () => {
     try {
       const response = await axios.post(`/api/dsp/client/${hostname}/restore`);
       if (response.data.restored && response.data.restored.length > 0) {
-        console.log(`Restored DSP settings for ${hostname}:`, response.data.restored);
+        logger.info('store', `Restored DSP settings for ${hostname}`, response.data.restored);
       }
       return response.data;
     } catch (error) {

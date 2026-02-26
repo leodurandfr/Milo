@@ -134,31 +134,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   // State is now received exclusively via WebSocket (initial_state and state_changed events)
   // The WebSocket handshake ensures initial state is sent when the client is ready
 
-  // === VISIBILITY MANAGEMENT ===
-  // Note: No need for polling when returning to focus – WebSocket keeps state up to date
-  function setupVisibilityListener() {
-    let lastVisibilityLog = 0;
-    const DEBOUNCE_MS = 100; // Prevent duplicate logs from visibilitychange + focus firing together
-
-    const visibilityHandler = () => {
-      if (!document.hidden) {
-        const now = Date.now();
-        if (now - lastVisibilityLog > DEBOUNCE_MS) {
-          lastVisibilityLog = now;
-          logger.debug('system', 'App visible - state synchronized via WebSocket');
-        }
-      }
-    };
-
-    document.addEventListener('visibilitychange', visibilityHandler, { passive: true });
-    window.addEventListener('focus', visibilityHandler, { passive: true });
-
-    return () => {
-      document.removeEventListener('visibilitychange', visibilityHandler, { passive: true });
-      window.removeEventListener('focus', visibilityHandler, { passive: true });
-    };
-  }
-
   // === STATE UPDATE ===
   function updateSystemState(newState, source = 'unknown') {
     // Validate incoming state using zod schema
@@ -266,7 +241,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     increaseVolume,
     decreaseVolume,
     handleVolumeEvent,
-    hideVolumeBar,
-    setupVisibilityListener
+    hideVolumeBar
   };
 });

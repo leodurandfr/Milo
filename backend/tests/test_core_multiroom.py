@@ -2512,9 +2512,9 @@ class TestSnapcastClientDetection:
         registry.set_state_machine(mock_state_machine)
 
         # Measure time for registration (should be fast due to async)
-        start = asyncio.get_event_loop().time()
+        start = asyncio.get_running_loop().time()
         await registry.register_client("perf-test", "Performance Test", "192.168.1.99")
-        end = asyncio.get_event_loop().time()
+        end = asyncio.get_running_loop().time()
 
         # Registration + event emission should be fast (< 50ms)
         assert (end - start) < 0.05

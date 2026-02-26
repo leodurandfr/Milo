@@ -88,6 +88,7 @@ class TaddyAPI:
     """
 
     BASE_URL = "https://api.taddy.org"
+    MAX_CACHE_ENTRIES = 200
 
     def __init__(self, user_id: str, api_key: str, cache_duration_minutes: int = 120):
         self.logger = logging.getLogger(__name__)
@@ -175,8 +176,11 @@ class TaddyAPI:
         return None
 
     def _set_cache(self, cache: Dict, key: str, data: Any) -> None:
-        """Store data in cache"""
+        """Store data in cache, evicting oldest entries if over limit."""
         cache[key] = (datetime.now(), data)
+        if len(cache) > self.MAX_CACHE_ENTRIES:
+            oldest_key = min(cache, key=lambda k: cache[k][0])
+            del cache[oldest_key]
 
     # ========== DISCOVERY QUERIES ==========
 

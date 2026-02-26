@@ -3,6 +3,7 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
 import { useUnifiedAudioStore } from './unifiedAudioStore';
+import { logger } from '@/services/logger';
 
 export const useRadioStore = defineStore('radio', () => {
   // === STATE ===
@@ -158,11 +159,11 @@ export const useRadioStore = defineStore('radio', () => {
         });
 
         favoriteStations.value = response.data.stations;
-        console.log(`✅ Loaded ${favoriteStations.value.length} favorites`);
+        logger.debug('radio', `Loaded ${favoriteStations.value.length} favorites`);
         favoritesInitialized.value = true;
         return true;
       } catch (error) {
-        console.error('❌ Error loading favorites:', error);
+        logger.error('radio', 'Error loading favorites:', error);
         hasError.value = true;
         return false;
       } finally {
@@ -176,7 +177,7 @@ export const useRadioStore = defineStore('radio', () => {
     // Use cache for top stations if valid
     if (isTopStationsRequest && isTopStationsCacheValid()) {
       const cacheAge = Math.round((Date.now() - topStationsCacheTimestamp.value) / 1000);
-      console.log(`✅ Using cached top stations (age: ${cacheAge}s)`);
+      logger.debug('radio', `Using cached top stations (age: ${cacheAge}s)`);
 
       searchResults.value = topStationsCache.value;
       totalResults.value = topStationsCache.value.length;
@@ -187,7 +188,7 @@ export const useRadioStore = defineStore('radio', () => {
 
     // Cancel previous request if exists
     if (currentAbortController) {
-      console.log('🚫 Cancelling previous search request');
+      logger.debug('radio', 'Cancelling previous search request');
       currentAbortController.abort();
     }
 
@@ -206,7 +207,7 @@ export const useRadioStore = defineStore('radio', () => {
       if (countryFilter.value) params.country = countryFilter.value;
       if (genreFilter.value) params.genre = genreFilter.value;
 
-      console.log('📻 Fetching stations from API');
+      logger.debug('radio', 'Fetching stations from API');
       const response = await axios.get('/api/radio/stations', { params, signal });
 
       searchResults.value = response.data.stations;
@@ -217,18 +218,18 @@ export const useRadioStore = defineStore('radio', () => {
       if (isTopStationsRequest) {
         topStationsCache.value = response.data.stations;
         topStationsCacheTimestamp.value = Date.now();
-        console.log(`💾 Cached ${response.data.stations.length} top stations`);
+        logger.debug('radio', `Cached ${response.data.stations.length} top stations`);
       }
 
-      console.log(`✅ Loaded ${response.data.stations.length} stations`);
+      logger.debug('radio', `Loaded ${response.data.stations.length} stations`);
       return true;
     } catch (error) {
       if (axios.isCancel(error) || error.name === 'CanceledError') {
-        console.log('🚫 Search request cancelled');
+        logger.debug('radio', 'Search request cancelled');
         return false;
       }
 
-      console.error('❌ Error loading stations:', error);
+      logger.error('radio', 'Error loading stations:', error);
       hasError.value = true;
       searchResults.value = [];
       totalResults.value = 0;
@@ -248,7 +249,7 @@ export const useRadioStore = defineStore('radio', () => {
     const added = newCount - displayedCount.value;
 
     displayedCount.value = newCount;
-    console.log(`📻 Load more: displaying ${displayedCount.value} / ${searchResults.value.length} stations (added ${added})`);
+    logger.debug('radio', `Load more: displaying ${displayedCount.value} / ${searchResults.value.length} stations (added ${added})`);
   }
 
   /**
@@ -269,7 +270,7 @@ export const useRadioStore = defineStore('radio', () => {
       const response = await axios.post('/api/radio/play', payload);
       return response.data.success;
     } catch (error) {
-      console.error('Error playing station:', error);
+      logger.error('radio', 'Error playing station:', error);
       return false;
     }
   }
@@ -282,7 +283,7 @@ export const useRadioStore = defineStore('radio', () => {
       const response = await axios.post('/api/radio/stop');
       return response.data.success;
     } catch (error) {
-      console.error('Error stopping playback:', error);
+      logger.error('radio', 'Error stopping playback:', error);
       return false;
     }
   }
@@ -304,7 +305,7 @@ export const useRadioStore = defineStore('radio', () => {
       const response = await axios.post('/api/radio/favorites/add', payload);
       return response.data.success;
     } catch (error) {
-      console.error('Error adding favorite:', error);
+      logger.error('radio', 'Error adding favorite:', error);
       return false;
     }
   }
@@ -317,7 +318,7 @@ export const useRadioStore = defineStore('radio', () => {
       const response = await axios.post('/api/radio/favorites/remove', { station_id: stationId });
       return response.data.success;
     } catch (error) {
-      console.error('Error removing favorite:', error);
+      logger.error('radio', 'Error removing favorite:', error);
       return false;
     }
   }
@@ -355,13 +356,13 @@ export const useRadioStore = defineStore('radio', () => {
       });
 
       if (response.data.success) {
-        console.log('📻 Custom station added:', response.data.station);
+        logger.info('radio', 'Custom station added', response.data.station);
         return { success: true, station: response.data.station };
       } else {
         return { success: false, error: response.data.error || 'Failed to add station' };
       }
     } catch (error) {
-      console.error('Error adding custom station:', error);
+      logger.error('radio', 'Error adding custom station:', error);
       const errorMessage = error.response?.data?.detail || error.message || 'Unknown error';
       return { success: false, error: errorMessage };
     }
@@ -375,7 +376,7 @@ export const useRadioStore = defineStore('radio', () => {
       const response = await axios.post('/api/radio/custom/remove', { station_id: stationId });
 
       if (response.data.success) {
-        console.log('📻 Custom station removed:', stationId);
+        logger.info('radio', `Custom station removed: ${stationId}`);
 
         // Remove from search results
         searchResults.value = searchResults.value.filter(s => s.id !== stationId);
@@ -385,7 +386,7 @@ export const useRadioStore = defineStore('radio', () => {
       }
       return false;
     } catch (error) {
-      console.error('Error removing custom station:', error);
+      logger.error('radio', 'Error removing custom station:', error);
       return false;
     }
   }
@@ -403,7 +404,7 @@ export const useRadioStore = defineStore('radio', () => {
       });
 
       if (response.data.success) {
-        console.log('🖼️ Image removed:', stationId);
+        logger.info('radio', `Station image removed: ${stationId}`);
 
         // Update in search results
         const index = searchResults.value.findIndex(s => s.id === stationId);
@@ -416,25 +417,17 @@ export const useRadioStore = defineStore('radio', () => {
         return { success: false, error: response.data.error || 'Failed to remove image' };
       }
     } catch (error) {
-      console.error('Error removing station image:', error);
+      logger.error('radio', 'Error removing station image:', error);
       const errorMessage = error.response?.data?.detail || error.message || 'Unknown error';
       return { success: false, error: errorMessage };
     }
   }
 
   /**
-   * Update from WebSocket metadata (legacy - kept for compatibility)
-   * No longer needs to store state as currentStation reads directly from unifiedStore
-   */
-  function updateFromWebSocket(metadata) {
-    // No-op: currentStation now reads directly from unifiedStore.systemState.metadata
-  }
-
-  /**
    * Handle favorite added/removed event from WebSocket
    */
   async function handleFavoriteEvent(stationId, isFavoriteNow) {
-    console.log(`🔄 Syncing favorite status: ${stationId} = ${isFavoriteNow}`);
+    logger.info('radio', `Syncing favorite status: ${stationId} = ${isFavoriteNow}`);
 
     if (isFavoriteNow) {
       // Find station and add to favorites
@@ -443,12 +436,12 @@ export const useRadioStore = defineStore('radio', () => {
         favoriteStations.value = [...favoriteStations.value, { ...station, is_favorite: true }];
       } else if (!station) {
         // Station not in search results, reload favorites
-        console.log('📻 New favorite not in cache, reloading favorites');
+        logger.debug('radio', 'New favorite not in cache, reloading favorites');
         await loadStations(true);
       }
     } else {
       // Remove from favorites - reload to get animation and ensure consistency
-      console.log('📻 Favorite removed, reloading favorites');
+      logger.debug('radio', 'Favorite removed, reloading favorites');
       await loadStations(true);
     }
   }
@@ -457,7 +450,7 @@ export const useRadioStore = defineStore('radio', () => {
    * Handle metadata modified event from WebSocket
    */
   function handleMetadataModified(updatedStation) {
-    console.log('📻 Station metadata modified:', updatedStation.id);
+    logger.debug('radio', `Station metadata modified: ${updatedStation.id}`);
 
     // Update in favoriteStations
     const favIndex = favoriteStations.value.findIndex(s => s.id === updatedStation.id);
@@ -478,14 +471,6 @@ export const useRadioStore = defineStore('radio', () => {
         ...searchResults.value.slice(searchIndex + 1)
       ];
     }
-  }
-
-  /**
-   * Clear current station (legacy - kept for compatibility)
-   * No longer needs to clear local state as currentStation reads from unifiedStore
-   */
-  function clearCurrentStation() {
-    // No-op: currentStation now reads directly from unifiedStore.systemState.metadata
   }
 
   return {
@@ -517,9 +502,7 @@ export const useRadioStore = defineStore('radio', () => {
     addCustomStation,
     removeCustomStation,
     removeStationImage,
-    updateFromWebSocket,
     handleFavoriteEvent,
-    handleMetadataModified,
-    clearCurrentStation
+    handleMetadataModified
   };
 });

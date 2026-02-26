@@ -12,6 +12,7 @@ ExecStart=/usr/bin/bluealsa -S -p a2dp-sink
 User=milo
 Group=audio
 Restart=on-failure
+MemoryMax=64M
 
 [Install]
 WantedBy=multi-user.target

@@ -6,7 +6,8 @@
     :class="[
       `icon-button--${variant}`,
       `icon-button--${size}`,
-      { 'icon-button--loading': loading }
+      { 'icon-button--loading': loading },
+      variant === 'rounded' ? 'glass-surface glass-border' : ''
     ]"
     :disabled="disabled"
     @click="handleClick"
@@ -149,10 +150,8 @@ function handleClick(event) {
 }
 
 .icon-button--rounded {
-  background: var(--color-background-neutral-50);
+  --glass-radius: 50%;
   border-radius: 50% !important;
-  backdrop-filter: blur(var(--blur-02));
-  -webkit-backdrop-filter: blur(var(--blur-02));
   width: fit-content;
   aspect-ratio: 1 / 1;
   color: var(--color-text);
@@ -160,22 +159,8 @@ function handleClick(event) {
   backface-visibility: hidden;
 }
 
-/* Glass border effect for rounded type */
 .icon-button--rounded::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  padding: 2px;
   opacity: 0.8;
-  background: var(--stroke-glass);
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  border-radius: 50%;
-  z-index: -1;
-  pointer-events: none;
 }
 
 /* Disable press opacity for semi-transparent backgrounds (scale only) */

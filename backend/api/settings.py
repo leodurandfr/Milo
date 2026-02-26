@@ -102,6 +102,55 @@ def create_settings_router(
         }
         return services_map.get(source, [])
     
+    # Bulk settings (all categories in one response)
+    @router.get("/bulk")
+    async def get_bulk_settings():
+        """Return all settings categories in a single response."""
+        all_settings = await settings.get_all_settings()
+
+        vol = all_settings.get('volume', {})
+        dock = all_settings.get('dock', {})
+        spotify = all_settings.get('spotify', {})
+        airplay = all_settings.get('airplay', {})
+        podcast = all_settings.get('podcast', {})
+        audio = all_settings.get('audio', {})
+        screen = all_settings.get('screen', {})
+        radio = all_settings.get('radio', {})
+
+        timeout_seconds = screen.get('timeout_seconds', 10)
+
+        return {
+            "status": "success",
+            "language": all_settings.get('language', 'english'),
+            "volume_limits": {
+                "min_db": vol.get('limit_min_db', -80.0),
+                "max_db": vol.get('limit_max_db', -21.0)
+            },
+            "volume_startup": {
+                "startup_volume_db": vol.get('startup_volume_db', DEFAULT_VOLUME_DB),
+                "restore_last_volume": vol.get('restore_last_volume', False)
+            },
+            "rotary_steps": {"step_rotary_db": vol.get('step_rotary_db', 2.0)},
+            "dock_apps": {"enabled_apps": dock.get('enabled_apps', DEFAULT_DOCK_APPS)},
+            "spotify_disconnect": {"auto_disconnect_delay": spotify.get('auto_disconnect_delay', 10.0)},
+            "airplay_disconnect": {"auto_disconnect_delay": airplay.get('auto_disconnect_delay', 10.0)},
+            "podcast_credentials": {
+                "taddy_user_id": podcast.get('taddy_user_id', ''),
+                "taddy_api_key": podcast.get('taddy_api_key', '')
+            },
+            "inactivity_timeout": {"inactivity_timeout": audio.get('inactivity_timeout', 7200)},
+            "screen_timeout": {
+                "screen_timeout_enabled": timeout_seconds != 0,
+                "screen_timeout_seconds": timeout_seconds
+            },
+            "screen_brightness": {"brightness_on": screen.get('brightness_on', 5)},
+            "screen_screensaver": {
+                "screensaver_enabled": screen.get('screensaver_enabled', True),
+                "screensaver_delay_seconds": screen.get('screensaver_delay_seconds', 30)
+            },
+            "radio_settings": {"shazam_enabled": radio.get('shazam_enabled', True)}
+        }
+
     # Language
     @router.get("/language")
     async def get_language():

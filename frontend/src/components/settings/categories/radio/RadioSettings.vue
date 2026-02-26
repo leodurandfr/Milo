@@ -52,6 +52,7 @@ import { useRadioStore } from '@/stores/radioStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import useWebSocket from '@/services/websocket';
+import { logger } from '@/services/logger';
 import Button from '@/components/ui/Button.vue';
 import ToggleSection from '@/components/settings/ToggleSection.vue';
 import StationCard from '@/components/radio/StationCard.vue';
@@ -142,7 +143,7 @@ onMounted(() => {
 
 // Listen for metadata modifications to auto-reload
 on('radio', 'favorite_modified', () => {
-  console.log('📻 Station modified, reloading RadioSettings data');
+  logger.debug('radio', 'Station modified, reloading RadioSettings data');
   loadAllData();
 });
 

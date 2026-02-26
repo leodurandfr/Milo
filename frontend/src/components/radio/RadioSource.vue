@@ -68,6 +68,7 @@ import { useRadioStore } from '@/stores/radioStore'
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore'
 import useWebSocket from '@/services/websocket'
 import { useI18n } from '@/services/i18n'
+import { logger } from '@/services/logger'
 import { genreOptions as createGenreOptions } from '@/constants/music_genres'
 import { countryOptions as createCountryOptions } from '@/constants/countries'
 import { PLAYER_HIDE_DELAY_MS } from '@/constants/audio_player'
@@ -192,7 +193,7 @@ const genreOptions = computed(() => {
 
 // === NAVIGATION ===
 async function openSearch() {
-  console.log('🔍 Opening search mode. Available countries:', availableCountries.value.length)
+  logger.debug('radio', `Opening search mode. Available countries: ${availableCountries.value.length}`)
 
   // Set loading AND switch mode immediately to prevent showing favorites
   radioStore.loading = true
@@ -334,7 +335,7 @@ async function loadAvailableCountries() {
 
 // === LIFECYCLE ===
 onMounted(async () => {
-  console.log('📻 RadioSource mounted')
+  logger.debug('radio', 'RadioSource mounted')
 
   await radioStore.loadStations(true) // Load only favorites at startup
   // currentStation now reads directly from unifiedStore - no manual sync needed

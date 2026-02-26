@@ -32,6 +32,7 @@ Standard Status Format:
 """
 from typing import Protocol, Dict, Any, Optional, runtime_checkable
 from abc import abstractmethod
+import asyncio
 import logging
 
 from backend.core.events import EventBus, Events
@@ -238,6 +239,11 @@ class BaseAudioSource:
         self._service_manager = systemd_manager
         self._logger = logging.getLogger(f"source.{source_id}")
 
+        # Auto-disconnect timer (opt-in, subclasses override _on_auto_disconnect)
+        self.auto_disconnect_enabled: bool = False
+        self.pause_disconnect_delay: float = 10.0
+        self._pause_timer: Optional[asyncio.Task] = None
+
     @property
     def state(self) -> str:
         """Current state of the source (string)."""
@@ -329,6 +335,7 @@ class BaseAudioSource:
             True if stop successful
         """
         self._logger.info(f"Stopping {self.source_id}")
+        self._cancel_pause_timer()
 
         try:
             success = await self._do_stop()
@@ -495,6 +502,124 @@ class BaseAudioSource:
             Response dict
         """
         return self.error_response(f"Unknown command: {cmd}")
+
+    # === Auto-Disconnect Timer ===
+
+    def _cancel_pause_timer(self) -> None:
+        """Cancel auto-disconnect timer."""
+        if self._pause_timer:
+            self._pause_timer.cancel()
+            self._pause_timer = None
+
+    def _start_pause_timer(self) -> None:
+        """Start auto-disconnect timer after pause/inactivity."""
+        if not self.auto_disconnect_enabled:
+            return
+
+        self._cancel_pause_timer()
+
+        async def disconnect_after_delay():
+            try:
+                await asyncio.sleep(self.pause_disconnect_delay)
+                self._logger.info(
+                    f"Auto-disconnecting after {self.pause_disconnect_delay}s pause"
+                )
+                await self._on_auto_disconnect()
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                self._logger.error(f"Auto-disconnect failed: {e}")
+
+        self._pause_timer = asyncio.create_task(disconnect_after_delay())
+
+    async def _on_auto_disconnect(self) -> None:
+        """
+        Called when the auto-disconnect timer fires.
+
+        Default: restart the source. Override for custom behavior.
+        """
+        await self._do_restart()
+
+    async def _load_auto_disconnect_config(self, settings_key: str) -> None:
+        """
+        Load auto-disconnect config from settings.
+
+        Args:
+            settings_key: Settings path (e.g., 'spotify.auto_disconnect_delay')
+        """
+        if not hasattr(self, '_settings_service') or not self._settings_service:
+            return
+
+        try:
+            delay = await self._settings_service.get_setting(settings_key)
+            if delay is not None:
+                if delay == 0:
+                    self.auto_disconnect_enabled = False
+                    self.pause_disconnect_delay = 10.0
+                else:
+                    self.auto_disconnect_enabled = True
+                    self.pause_disconnect_delay = float(delay)
+
+            self._logger.info(
+                f"Auto-disconnect: enabled={self.auto_disconnect_enabled}, "
+                f"delay={self.pause_disconnect_delay}s"
+            )
+        except Exception as e:
+            self._logger.error(f"Auto-disconnect settings load failed: {e}")
+
+    async def set_auto_disconnect_config(
+        self,
+        enabled: bool,
+        delay: Optional[float] = None,
+        settings_key: Optional[str] = None,
+        save_to_settings: bool = True
+    ) -> bool:
+        """
+        Update auto-disconnect configuration.
+
+        Args:
+            enabled: Whether auto-disconnect is enabled
+            delay: Disconnect delay in seconds (0 = disabled)
+            settings_key: Settings path for persistence
+            save_to_settings: Whether to persist to settings
+
+        Returns:
+            True if configuration succeeded
+        """
+        old_enabled = self.auto_disconnect_enabled
+        old_delay = self.pause_disconnect_delay
+
+        if delay is not None and delay == 0:
+            self.auto_disconnect_enabled = False
+            self.pause_disconnect_delay = 10.0
+        elif delay is not None:
+            self.auto_disconnect_enabled = enabled
+            self.pause_disconnect_delay = max(1.0, delay)
+        else:
+            self.auto_disconnect_enabled = enabled
+
+        # Persist to settings
+        if save_to_settings and settings_key and hasattr(self, '_settings_service') and self._settings_service:
+            try:
+                save_value = 0.0 if not self.auto_disconnect_enabled else self.pause_disconnect_delay
+                success = await self._settings_service.set_setting(settings_key, save_value)
+                if not success:
+                    self.auto_disconnect_enabled = old_enabled
+                    self.pause_disconnect_delay = old_delay
+                    return False
+            except Exception as e:
+                self._logger.error(f"Auto-disconnect settings save failed: {e}")
+                self.auto_disconnect_enabled = old_enabled
+                self.pause_disconnect_delay = old_delay
+                return False
+
+        # Manage running timer
+        if self._pause_timer and not self._pause_timer.done():
+            self._cancel_pause_timer()
+            if self.auto_disconnect_enabled:
+                self._start_pause_timer()
+
+        return True
 
     # === Helper methods ===
 
