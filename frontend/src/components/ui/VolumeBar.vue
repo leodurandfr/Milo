@@ -41,7 +41,8 @@ const volumeFillStyle = computed(() => ({
 
 <style scoped>
 .volume-bar {
-  top: calc(env(safe-area-inset-top,0px) + var(--space-05));
+  /* top: calc(env(safe-area-inset-top,0px) + var(--space-05)); */
+  top: env(safe-area-inset-top,0px);
   position: fixed;
   left: 50%;
   transform: translate(-50%, -80px);
