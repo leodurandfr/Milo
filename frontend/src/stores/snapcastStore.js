@@ -106,7 +106,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
       if (!cached) return null;
       return JSON.parse(cached);
     } catch (error) {
-      console.warn('Error loading display cache:', error);
+      logger.warn('store', 'Error loading display cache', error);
       return null;
     }
   }
@@ -119,7 +119,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
       localStorage.setItem(DISPLAY_CACHE_KEY, JSON.stringify(items));
       lastKnownDisplayItems.value = items;
     } catch (error) {
-      console.error('Error saving display cache:', error);
+      logger.error('store', 'Error saving display cache', error);
     }
   }
 
@@ -154,7 +154,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
       if (axios.isCancel(error) || error.name === 'CanceledError') {
         return null; // Request was cancelled
       }
-      console.error('Error fetching server config:', error);
+      logger.error('store', 'Error fetching server config', error);
       return null;
     }
   }
@@ -228,7 +228,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
       }
       return false;
     } catch (error) {
-      console.error('Error applying multiroom server config:', error);
+      logger.error('store', 'Error applying multiroom server config', error);
       return false;
     } finally {
       isApplyingServerConfig.value = false;

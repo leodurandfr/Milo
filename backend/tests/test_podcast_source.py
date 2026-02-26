@@ -80,7 +80,7 @@ class TestPodcastSourceConfig:
         source = PodcastSource(event_bus)
 
         assert source._mpv_socket == "/run/milo/podcast-ipc.sock"
-        assert source._taddy_user_id == "3671"
+        assert source._taddy_user_id == ""
         assert source._taddy_api_key == ""
 
     def test_custom_config(self, event_bus):

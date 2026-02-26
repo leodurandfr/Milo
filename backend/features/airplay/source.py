@@ -56,10 +56,9 @@ class AirPlaySource(BaseAudioSource):
         self._progress_current = 0
         self._progress_end = 0
 
-        # Auto-disconnect
+        # Auto-disconnect (uses BaseAudioSource timer infrastructure)
         self.auto_disconnect_enabled = True
         self.pause_disconnect_delay = 10.0
-        self._pause_timer: Optional[asyncio.Task] = None
 
     async def _do_start(self) -> bool:
         """Start shairport-sync service and metadata reader."""
@@ -75,6 +74,9 @@ class AirPlaySource(BaseAudioSource):
             self._client_name = None
             self._cancel_pause_timer()
 
+            # Load auto-disconnect config from settings
+            await self._load_auto_disconnect_config('airplay.auto_disconnect_delay')
+
             await self._ensure_metadata_pipe()
 
             self._metadata_reader = MetadataReader(
@@ -84,6 +86,7 @@ class AirPlaySource(BaseAudioSource):
                 on_artwork=self._on_artwork,
                 on_progress=self._on_progress,
                 on_client_name=self._on_client_name,
+                on_connection=self._on_connection,
             )
             await self._metadata_reader.start()
 
@@ -132,6 +135,7 @@ class AirPlaySource(BaseAudioSource):
                 on_artwork=self._on_artwork,
                 on_progress=self._on_progress,
                 on_client_name=self._on_client_name,
+                on_connection=self._on_connection,
             )
             await self._metadata_reader.start()
 
@@ -180,7 +184,13 @@ class AirPlaySource(BaseAudioSource):
         self._update_connection_state()
 
     async def _on_play_state(self, state: str) -> None:
-        """Handle play state change from pipe reader."""
+        """Handle play state change from pipe reader.
+
+        Note: pend (stop) only means the playback stream ended, NOT that the
+        device disconnected.  The device remains connected until we receive a
+        'disc' event via _on_connection.  We start the auto-disconnect timer
+        on both pause and stop so the UI resets to READY after a timeout.
+        """
         if state == "play":
             self._is_playing = True
             self._device_connected = True
@@ -190,10 +200,9 @@ class AirPlaySource(BaseAudioSource):
             self._start_pause_timer()
         elif state == "stop":
             self._is_playing = False
-            self._device_connected = False
-            self._metadata = {}
-            self._client_name = None
-            self._cancel_pause_timer()
+            # Device may still be connected — don't reset _device_connected.
+            # Start auto-disconnect timer as session idle timeout.
+            self._start_pause_timer()
 
         self._metadata["is_playing"] = self._is_playing
         self._update_connection_state()
@@ -201,8 +210,13 @@ class AirPlaySource(BaseAudioSource):
     async def _on_artwork(self, data: bytes) -> None:
         """Handle artwork from pipe: encode as base64 data URI in metadata."""
         try:
+            # Detect image format from magic bytes (shairport-sync sends JPEG or PNG)
+            if data[:8] == b'\x89PNG\r\n\x1a\n':
+                mime_type = "image/png"
+            else:
+                mime_type = "image/jpeg"
             b64 = base64.b64encode(data).decode("ascii")
-            self._metadata["album_art_url"] = f"data:image/jpeg;base64,{b64}"
+            self._metadata["album_art_url"] = f"data:{mime_type};base64,{b64}"
             self._update_connection_state()
         except Exception as e:
             self._logger.error(f"Failed to encode artwork: {e}")
@@ -212,6 +226,26 @@ class AirPlaySource(BaseAudioSource):
         self._client_name = name
         self._device_connected = True
         self._update_connection_state()
+
+    async def _on_connection(self, state: str, client_ip: Optional[str] = None) -> None:
+        """Handle AirPlay 2 connection/disconnection events.
+
+        'conn' is sent as soon as a client selects this AirPlay output,
+        before any audio flows.  'disc' is sent when the client disconnects.
+        """
+        if state == "connected":
+            self._logger.info(f"AirPlay client connected (IP: {client_ip})")
+            self._device_connected = True
+            self._cancel_pause_timer()
+            self._update_connection_state()
+        elif state == "disconnected":
+            self._logger.info(f"AirPlay client disconnected (IP: {client_ip})")
+            self._cancel_pause_timer()
+            self._device_connected = False
+            self._is_playing = False
+            self._metadata = {}
+            self._client_name = None
+            self._update_connection_state()
 
     async def _on_progress(self, start: int, current: int, end: int) -> None:
         """Handle progress update from pipe reader (RTP frames at 44100Hz)."""
@@ -248,9 +282,24 @@ class AirPlaySource(BaseAudioSource):
                 )
 
     def _update_connection_state(self) -> None:
-        """Update state based on device connection."""
+        """Update state based on device connection.
+
+        Always include all metadata keys so that state_machine.metadata.update()
+        overwrites stale values (e.g. clearing title/artist after auto-disconnect).
+        """
+        # Base keys ensure old values are always overwritten during merge
+        base_metadata = {
+            "title": "",
+            "artist": "",
+            "album": "",
+            "album_art_url": "",
+            "duration": 0,
+            "position": 0,
+        }
+
         if self._device_connected:
             self.set_state(SourceState.CONNECTED, {
+                **base_metadata,
                 **self._metadata,
                 "device_connected": True,
                 "is_playing": self._is_playing,
@@ -258,8 +307,10 @@ class AirPlaySource(BaseAudioSource):
             })
         else:
             self.set_state(SourceState.READY, {
+                **base_metadata,
                 "device_connected": False,
                 "is_playing": False,
+                "client_name": None,
             })
 
     async def _cleanup(self) -> None:
@@ -275,37 +326,17 @@ class AirPlaySource(BaseAudioSource):
         self._metadata = {}
         self._client_name = None
 
-    # === Auto-Disconnect Timer ===
+    async def _on_auto_disconnect(self) -> None:
+        """After pause/stop timeout: clear metadata but stay connected.
 
-    def _cancel_pause_timer(self) -> None:
-        """Cancel auto-disconnect timer."""
-        if self._pause_timer:
-            self._pause_timer.cancel()
-            self._pause_timer = None
-
-    def _start_pause_timer(self) -> None:
-        """Start auto-disconnect timer after pause."""
-        if not self.auto_disconnect_enabled:
-            return
-
-        self._cancel_pause_timer()
-
-        async def disconnect_after_delay():
-            try:
-                await asyncio.sleep(self.pause_disconnect_delay)
-                self._logger.info(
-                    f"Auto-disconnecting after {self.pause_disconnect_delay}s pause"
-                )
-                self._device_connected = False
-                self._is_playing = False
-                self._metadata = {}
-                self._update_connection_state()
-            except asyncio.CancelledError:
-                pass
-            except Exception as e:
-                self._logger.error(f"Auto-disconnect failed: {e}")
-
-        self._pause_timer = asyncio.create_task(disconnect_after_delay())
+        The device is still connected to the AirPlay output — only 'disc'
+        should reset to READY.  Clearing metadata makes the frontend
+        transition from the full player to "Connecté à [device]".
+        """
+        self._is_playing = False
+        self._metadata = {}
+        # Keep _device_connected = True and _client_name intact
+        self._update_connection_state()
 
     # === Public API ===
 

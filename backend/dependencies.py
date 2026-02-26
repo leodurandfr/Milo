@@ -72,6 +72,10 @@ def _create_service(name: str) -> Any:
     Circular dependencies are resolved in initialize_services().
     """
     # Import here to avoid circular imports at module load
+    from backend.config.constants import (
+        ROTARY_CLK_PIN, ROTARY_DT_PIN, ROTARY_SW_PIN,
+        MAC_RTP_PORT, MAC_RS8M_PORT, MAC_RTCP_PORT, MAC_AUDIO_OUTPUT,
+    )
     from backend.core.events import get_event_bus
     from backend.core.state import AudioStateMachine
     from backend.core.settings import SettingsService
@@ -139,9 +143,9 @@ def _create_service(name: str) -> Any:
         ),
         "rotary_controller": lambda: RotaryVolumeController(
             volume_service=get_service("volume_service"),
-            clk_pin=22,
-            dt_pin=27,
-            sw_pin=23
+            clk_pin=ROTARY_CLK_PIN,
+            dt_pin=ROTARY_DT_PIN,
+            sw_pin=ROTARY_SW_PIN
         ),
         "screen_controller": lambda: ScreenController(
             state_machine=get_service("audio_state_machine"),
@@ -182,10 +186,10 @@ def _create_service(name: str) -> Any:
         "mac_source": lambda: MacSource(
             event_bus=get_service("event_bus"),
             config={
-                "rtp_port": 10001,
-                "rs8m_port": 10002,
-                "rtcp_port": 10003,
-                "audio_output": "hw:1,0"
+                "rtp_port": MAC_RTP_PORT,
+                "rs8m_port": MAC_RS8M_PORT,
+                "rtcp_port": MAC_RTCP_PORT,
+                "audio_output": MAC_AUDIO_OUTPUT
             },
             state_machine=get_service("audio_state_machine"),
             systemd_manager=get_service("systemd_manager")
@@ -203,7 +207,7 @@ def _create_service(name: str) -> Any:
         ),
         "radio_source": lambda: RadioSource(
             event_bus=get_service("event_bus"),
-            config={"ipc_socket": "/run/milo/radio-ipc.sock"},
+            config={"mpv_socket": "/run/milo/radio-ipc.sock"},
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service"),
             systemd_manager=get_service("systemd_manager")
@@ -232,7 +236,7 @@ def _create_podcast_source():
     return PodcastSource(
         event_bus=get_service("event_bus"),
         config={
-            "ipc_socket": "/run/milo/podcast-ipc.sock",
+            "mpv_socket": "/run/milo/podcast-ipc.sock",
             "taddy_user_id": creds["taddy_user_id"],
             "taddy_api_key": creds["taddy_api_key"]
         },

@@ -1,13 +1,13 @@
 <!-- frontend/src/components/ui/ModalHeader.vue -->
 <template>
   <div class="modal-header" :class="{
-    'has-back': displayedShowBack,
+    'has-back': showBack,
     'variant-background-neutral': variant === 'background-neutral',
-    'has-icon': displayedIcon
+    'has-icon': icon
   }">
     <!-- Content container with fixed height -->
     <div class="header-content">
-      <Transition name="header-fade" mode="out-in" @after-leave="onAfterLeave">
+      <Transition name="header-fade">
         <div v-if="showBack" :key="'back-' + title + '-' + subtitle" class="back-modal-header">
           <IconButton icon="caretLeft" :variant="variant === 'contrast' ? 'on-dark' : 'background-strong'" @click="handleBack" />
           <h2 v-if="!subtitle" class="heading-1">{{ title }}</h2>
@@ -36,7 +36,7 @@
 
     <!-- Actions container -->
     <div class="actions-container">
-      <Transition name="actions-fade" mode="out-in">
+      <Transition name="actions-fade">
         <div v-if="$slots.actions" :key="actionsKey" class="actions-wrapper">
           <slot name="actions" :iconVariant="variant === 'contrast' ? 'on-dark' : 'background-strong'"></slot>
         </div>
@@ -47,7 +47,6 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from 'vue';
 import IconButton from './IconButton.vue';
 import AppIcon from './AppIcon.vue';
 
@@ -81,22 +80,6 @@ const props = defineProps({
 
 const emit = defineEmits(['back']);
 
-// Delayed state for CSS classes - only updates after fade-out completes
-const displayedShowBack = ref(props.showBack);
-const displayedIcon = ref(props.icon);
-
-// Initialize on mount
-onMounted(() => {
-  displayedShowBack.value = props.showBack;
-  displayedIcon.value = props.icon;
-});
-
-// Update displayed state after leave transition completes
-function onAfterLeave() {
-  displayedShowBack.value = props.showBack;
-  displayedIcon.value = props.icon;
-}
-
 function handleBack() {
   emit('back');
 }
@@ -112,6 +95,7 @@ function handleBack() {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-03);
+  transition: padding var(--transition-ultra-fast);
 }
 
 .modal-header.variant-background-neutral {
@@ -132,12 +116,17 @@ function handleBack() {
   margin: 0;
 }
 
-/* Header content - takes remaining space */
+/* Header content - grid stacking ensures both entering/leaving elements overlap cleanly */
 .header-content {
   flex: 1;
   min-width: 0;
-  display: flex;
+  display: grid;
   align-items: center;
+}
+
+.header-content > * {
+  grid-row: 1;
+  grid-column: 1;
 }
 
 .back-modal-header {
@@ -162,11 +151,16 @@ function handleBack() {
   flex-shrink: 0;
 }
 
-/* Actions container - fixed width when empty to prevent layout shift */
+/* Actions container - grid stacking for cross-fade overlay */
 .actions-container {
   flex-shrink: 0;
-  display: flex;
+  display: grid;
   align-items: center;
+}
+
+.actions-container > * {
+  grid-row: 1;
+  grid-column: 1;
 }
 
 .actions-wrapper {
@@ -192,11 +186,16 @@ function handleBack() {
   color: var(--color-text);
 }
 
-/* Header content fade transition */
+/* Header content cross-fade transition - aligned with fade-slide body transition */
 /* iOS WebKit requires transform to properly animate opacity */
-.header-fade-enter-active,
 .header-fade-leave-active {
-  transition: opacity var(--transition-fast);
+  transition: opacity var(--transition-ultra-fast);
+  transform: translate3d(0, 0, 0);
+  -webkit-backface-visibility: hidden;
+}
+
+.header-fade-enter-active {
+  transition: opacity var(--transition-in-out);
   transform: translate3d(0, 0, 0);
   -webkit-backface-visibility: hidden;
 }
@@ -206,11 +205,16 @@ function handleBack() {
   opacity: 0;
 }
 
-/* Actions fade transition */
+/* Actions cross-fade transition - aligned with fade-slide body transition */
 /* iOS WebKit requires transform to properly animate opacity */
-.actions-fade-enter-active,
 .actions-fade-leave-active {
-  transition: opacity var(--transition-fast);
+  transition: opacity var(--transition-ultra-fast);
+  transform: translate3d(0, 0, 0);
+  -webkit-backface-visibility: hidden;
+}
+
+.actions-fade-enter-active {
+  transition: opacity var(--transition-in-out);
   transform: translate3d(0, 0, 0);
   -webkit-backface-visibility: hidden;
 }

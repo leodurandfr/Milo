@@ -65,6 +65,7 @@ async function loadEpisode() {
   loading.value = true
   try {
     const response = await fetch(`/api/podcast/episode/${props.uuid}`)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
     episode.value = await response.json()
 
     // Enrich with progress cache if available

@@ -66,8 +66,7 @@ def create_settings_router(
             if not success:
                 raise HTTPException(status_code=500, detail="Failed to save")
 
-            # NEW: Explicitly invalidate the cache before the reload_callback
-            settings._cache = None
+            settings.invalidate_cache()
 
             reload_success = True
             if reload_callback:

@@ -31,7 +31,6 @@ class SettingsService:
                 "step_rotary_db": 2.0
             },
             "screen": {
-                "timeout_enabled": True,
                 "timeout_seconds": 10,
                 "brightness_on": 5,
                 "screensaver_enabled": True,

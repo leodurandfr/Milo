@@ -71,7 +71,7 @@ import { useI18n } from '@/services/i18n'
 import { logger } from '@/services/logger'
 import { genreOptions as createGenreOptions } from '@/constants/music_genres'
 import { countryOptions as createCountryOptions } from '@/constants/countries'
-import { PLAYER_HIDE_DELAY_MS } from '@/constants/audio_player'
+import { RADIO_PLAYER_HIDE_DELAY_MS } from '@/constants/audio_player'
 import IconButton from '@/components/ui/IconButton.vue'
 import Button from '@/components/ui/Button.vue'
 import AudioPlayer from '@/components/audio/AudioPlayer.vue'
@@ -296,7 +296,7 @@ watch(isCurrentlyPlaying, (isPlaying) => {
   if (!isPlaying && shouldShowNowPlayingLayout.value) {
     stopTimer.value = setTimeout(() => {
       shouldShowNowPlayingLayout.value = false
-    }, PLAYER_HIDE_DELAY_MS)
+    }, RADIO_PLAYER_HIDE_DELAY_MS)
   }
 }, { immediate: true })
 

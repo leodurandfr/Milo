@@ -32,7 +32,7 @@ const MetadataSchema = z.object({
   position: z.number().optional(),
   is_playing: z.boolean().optional(),
   is_buffering: z.boolean().optional(),
-  artwork_url: z.string().optional(),
+  album_art_url: z.string().optional(),
 
   // Spotify-specific
   track_uri: z.string().optional(),

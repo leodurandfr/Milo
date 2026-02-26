@@ -182,7 +182,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import axios from 'axios';
 import useWebSocket from '@/services/websocket';
 import Button from '@/components/ui/Button.vue';
@@ -209,7 +209,7 @@ function getProgramDisplayName(program, key) {
     'go-librespot': 'Spotify Connect',
     'multiroom': 'Multiroom',
     'bluez-alsa': 'Bluetooth',
-    'roc-toolkit': 'Récepteur audio macOS',
+    'roc-toolkit': t('sources.macReceiver'),
     'shairport-sync': 'AirPlay'
   };
   return nameOverrides[key] || program.name;
@@ -270,10 +270,6 @@ async function loadLocalPrograms() {
   }
 }
 
-function getLocalInstallStatus(program) {
-  return program.installed?.status || 'unknown';
-}
-
 function getLocalInstalledVersion(program) {
   const versions = program.installed?.versions || {};
   const versionValues = Object.values(versions);
@@ -282,10 +278,6 @@ function getLocalInstalledVersion(program) {
 
 function getLocalLatestVersion(program) {
   return program.latest?.version || null;
-}
-
-function getLocalGitHubStatus(program) {
-  return program.latest?.status || 'unknown';
 }
 
 function canUpdateLocal(programKey) {

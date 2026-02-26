@@ -61,11 +61,11 @@ def setup_radio_routes(source_provider: Callable[[], RadioSource]) -> APIRouter:
 def get_source() -> RadioSource:
     """Dependency to get RadioSource instance."""
     if _source_provider is None:
-        raise HTTPException(
-            status_code=500,
-            detail="Radio source not initialized. Call setup_radio_routes first."
-        )
-    return _source_provider()
+        raise HTTPException(status_code=503, detail="Radio source not configured")
+    source = _source_provider()
+    if source is None:
+        raise HTTPException(status_code=503, detail="Radio source not available")
+    return source
 
 
 # === Status Routes ===

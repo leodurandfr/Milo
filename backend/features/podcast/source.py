@@ -71,7 +71,7 @@ class PodcastSource(BaseAudioSource):
 
         config = config or {}
         self._mpv_socket = config.get("mpv_socket", "/run/milo/podcast-ipc.sock")
-        self._taddy_user_id = config.get("taddy_user_id", "3671")
+        self._taddy_user_id = config.get("taddy_user_id", "")
         self._taddy_api_key = config.get("taddy_api_key", "")
         self._settings_service = settings_service
 
@@ -623,9 +623,8 @@ class PodcastSource(BaseAudioSource):
                     self._logger.warning("Stuck at 0.0 with pause=True! Forcing unpause...")
                     await self._mpv.set_property("pause", False)
 
-                # Check if episode ended
-                is_playing = await self._mpv.is_playing()
-                if (self._is_playing and not is_playing and
+                # Check if episode ended (position is None when mpv stops)
+                if (self._is_playing and position is None and
                     self._duration > 0 and
                     self._position >= self._duration - 5):  # Within 5 seconds of end
 

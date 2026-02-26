@@ -17,17 +17,6 @@ const DEFAULT_FREQUENCIES = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 1600
 const THROTTLE_DELAY = 50;
 const FINAL_DELAY = 200;
 
-// Filter type options (currently unused, kept for future UI use)
-const FILTER_TYPES = [
-  { value: 'Peaking', label: 'Peaking' },
-  { value: 'Lowshelf', label: 'Low Shelf' },
-  { value: 'Highshelf', label: 'High Shelf' },
-  { value: 'Lowpass', label: 'Low Pass' },
-  { value: 'Highpass', label: 'High Pass' },
-  { value: 'Notch', label: 'Notch' },
-  { value: 'Allpass', label: 'All Pass' }
-];
-
 export const useDspStore = defineStore('dsp', () => {
   // === STATE ===
   const filters = ref([]);
@@ -131,7 +120,6 @@ export const useDspStore = defineStore('dsp', () => {
   const filterThrottleMap = new Map();
 
   // === COMPUTED ===
-  const isAvailable = computed(() => state.value !== 'disconnected');
   const isConnected = computed(() => state.value !== 'disconnected');
   const isRunning = computed(() => state.value === 'running');
 
@@ -206,7 +194,7 @@ export const useDspStore = defineStore('dsp', () => {
       if (axios.isCancel(error) || error.name === 'CanceledError') {
         return null;
       }
-      console.error('Error fetching DSP status:', error);
+      logger.error('store', 'Error fetching DSP status', error);
       return null;
     }
   }
@@ -219,7 +207,7 @@ export const useDspStore = defineStore('dsp', () => {
       if (axios.isCancel(error) || error.name === 'CanceledError') {
         return null;
       }
-      console.error('Error fetching zone DSP:', error);
+      logger.error('store', 'Error fetching zone DSP', error);
       return null;
     }
   }
@@ -232,7 +220,7 @@ export const useDspStore = defineStore('dsp', () => {
       if (axios.isCancel(error) || error.name === 'CanceledError') {
         return null;
       }
-      console.error('Error fetching DSP filters:', error);
+      logger.error('store', 'Error fetching DSP filters', error);
       return [];
     }
   }
@@ -246,7 +234,7 @@ export const useDspStore = defineStore('dsp', () => {
       activePreset.value = response.data.active_preset || 'manual';
       return builtinPresets.value;
     } catch (error) {
-      console.error('Error fetching DSP presets:', error);
+      logger.error('store', 'Error fetching DSP presets', error);
       return [];
     }
   }
@@ -268,7 +256,7 @@ export const useDspStore = defineStore('dsp', () => {
         return response.data.status === 'success';
       }
     } catch (error) {
-      console.error('Error updating filter:', error);
+      logger.error('store', 'Error updating filter', error);
       return false;
     }
   }
@@ -278,7 +266,7 @@ export const useDspStore = defineStore('dsp', () => {
       const response = await axios.post(`${getApiBase()}/reset`);
       return response.data.status === 'success';
     } catch (error) {
-      console.error('Error resetting filters:', error);
+      logger.error('store', 'Error resetting filters', error);
       return false;
     }
   }
@@ -291,7 +279,7 @@ export const useDspStore = defineStore('dsp', () => {
       const response = await axios.get(`/api/dsp/links/${zoneId}/crossover`);
       return response.data || { frequency: 80, enabled: false, has_subwoofer: false };
     } catch (error) {
-      console.error('Error fetching zone crossover:', error);
+      logger.error('store', 'Error fetching zone crossover', error);
       return { frequency: 80, enabled: false, has_subwoofer: false };
     }
   }
@@ -301,7 +289,7 @@ export const useDspStore = defineStore('dsp', () => {
       const response = await axios.get('/api/dsp/enabled');
       return response.data.enabled ?? true;
     } catch (error) {
-      console.error('Error fetching DSP enabled state:', error);
+      logger.error('store', 'Error fetching DSP enabled state', error);
       return true;
     }
   }
@@ -311,7 +299,7 @@ export const useDspStore = defineStore('dsp', () => {
       const response = await axios.put('/api/dsp/enabled', { enabled });
       return response.data.status === 'success';
     } catch (error) {
-      console.error('Error setting DSP enabled state:', error);
+      logger.error('store', 'Error setting DSP enabled state', error);
       return false;
     }
   }
@@ -410,7 +398,7 @@ export const useDspStore = defineStore('dsp', () => {
       if (!isLocalClient(clientId)) {
         const audioStore = useUnifiedAudioStore();
         if (!audioStore.systemState.multiroom_enabled) {
-          console.warn(`Skipping volume update for ${clientId} - multiroom disabled`);
+          logger.warn('store', `Skipping volume update for ${clientId} - multiroom disabled`);
           return false;
         }
       }
@@ -419,7 +407,7 @@ export const useDspStore = defineStore('dsp', () => {
       await axios.patch(`/api/volume/client/mac/${macToUrlFormat(clientId)}`, { volume_db: volumeDb });
       return true;
     } catch (error) {
-      console.error(`Error updating DSP volume for ${clientId}:`, error);
+      logger.error('store', `Error updating DSP volume for ${clientId}`, error);
       return false;
     }
   }
@@ -440,7 +428,7 @@ export const useDspStore = defineStore('dsp', () => {
       // Check multiroom enabled
       const audioStore = useUnifiedAudioStore();
       if (!audioStore.systemState.multiroom_enabled) {
-        console.warn('Skipping zone delta - multiroom disabled');
+        logger.warn('store', 'Skipping zone delta - multiroom disabled');
         return { status: 'error', message: 'Multiroom disabled' };
       }
 
@@ -450,7 +438,7 @@ export const useDspStore = defineStore('dsp', () => {
       // Response includes: { status, zone_id, new_average_db, delta_db, applied_to, offline_clients }
       return response.data;
     } catch (error) {
-      console.error(`Error applying zone delta for ${zoneId}:`, error);
+      logger.error('store', `Error applying zone delta for ${zoneId}`, error);
       throw error;
     }
   }
@@ -494,7 +482,7 @@ export const useDspStore = defineStore('dsp', () => {
       if (!isLocalClient(clientId)) {
         const audioStore = useUnifiedAudioStore();
         if (!audioStore.systemState.multiroom_enabled) {
-          console.warn(`Skipping mute update for ${clientId} - multiroom disabled`);
+          logger.warn('store', `Skipping mute update for ${clientId} - multiroom disabled`);
           return false;
         }
       }
@@ -515,7 +503,7 @@ export const useDspStore = defineStore('dsp', () => {
               // All clients use MAC-based endpoint
               await axios.patch(`/api/volume/client/mac/${macToUrlFormat(targetId)}/mute`, { mute: muted });
             } catch (error) {
-              console.error(`Error propagating mute to ${targetId}:`, error);
+              logger.error('store', `Error propagating mute to ${targetId}`, error);
             }
           });
           await Promise.all(promises);
@@ -524,7 +512,7 @@ export const useDspStore = defineStore('dsp', () => {
 
       return true;
     } catch (error) {
-      console.error(`Error updating mute for ${clientId}:`, error);
+      logger.error('store', `Error updating mute for ${clientId}`, error);
       return false;
     }
   }
@@ -564,7 +552,7 @@ export const useDspStore = defineStore('dsp', () => {
         }
       } catch (error) {
         const errorMsg = error.response?.data?.detail || error.message || 'Unknown error';
-        console.error(`Error propagating ${endpoint} to ${targetId}:`, error);
+        logger.error('store', `Error propagating ${endpoint} to ${targetId}`, error);
         errors.push({ targetId, endpoint, error: errorMsg });
       }
     });
@@ -693,7 +681,7 @@ export const useDspStore = defineStore('dsp', () => {
       if (axios.isCancel(error) || error.name === 'CanceledError') {
         return;
       }
-      console.error('Error loading DSP data:', error);
+      logger.error('store', 'Error loading DSP data', error);
     } finally {
       isLoading.value = false;
       loadAbortController = null;
@@ -811,7 +799,7 @@ export const useDspStore = defineStore('dsp', () => {
             try {
               await axios.post(`${getApiBase(targetId)}/reset`);
             } catch (error) {
-              console.error(`Error resetting filters on ${targetId}:`, error);
+              logger.error('store', `Error resetting filters on ${targetId}`, error);
             }
           });
           await Promise.all(promises);
@@ -819,7 +807,7 @@ export const useDspStore = defineStore('dsp', () => {
       }
       return success;
     } catch (error) {
-      console.error('Error resetting filters:', error);
+      logger.error('store', 'Error resetting filters', error);
       return false;
     } finally {
       isResetting.value = false;
@@ -851,7 +839,7 @@ export const useDspStore = defineStore('dsp', () => {
       }
       return false;
     } catch (error) {
-      console.error('Error loading preset:', error);
+      logger.error('store', 'Error loading preset', error);
       return false;
     } finally {
       isLoadingPreset.value = false;
@@ -881,7 +869,7 @@ export const useDspStore = defineStore('dsp', () => {
       }
       return false;
     } catch (error) {
-      console.error('Error updating compressor:', error);
+      logger.error('store', 'Error updating compressor', error);
       return false;
     }
   }
@@ -907,7 +895,7 @@ export const useDspStore = defineStore('dsp', () => {
       }
       return false;
     } catch (error) {
-      console.error('Error updating loudness:', error);
+      logger.error('store', 'Error updating loudness', error);
       return false;
     }
   }
@@ -928,7 +916,7 @@ export const useDspStore = defineStore('dsp', () => {
       }
       return false;
     } catch (error) {
-      console.error('Error updating DSP mute:', error);
+      logger.error('store', 'Error updating DSP mute', error);
       return false;
     }
   }
@@ -967,7 +955,7 @@ export const useDspStore = defineStore('dsp', () => {
       }
       return response.data;
     } catch (error) {
-      console.error(`Error restoring settings for ${hostname}:`, error);
+      logger.error('store', `Error restoring settings for ${hostname}`, error);
       return null;
     }
   }
@@ -981,7 +969,7 @@ export const useDspStore = defineStore('dsp', () => {
       // Response includes zone data if successful
       return !!response.zone;
     } catch (error) {
-      console.error('Error linking clients:', error);
+      logger.error('store', 'Error linking clients', error);
       return false;
     }
   }
@@ -998,7 +986,7 @@ export const useDspStore = defineStore('dsp', () => {
       await registryStore.removeClientFromZone(zone.id, clientId);
       return true;
     } catch (error) {
-      console.error('Error unlinking client:', error);
+      logger.error('store', 'Error unlinking client', error);
       return false;
     }
   }
@@ -1012,7 +1000,7 @@ export const useDspStore = defineStore('dsp', () => {
       }
       return true;
     } catch (error) {
-      console.error('Error clearing links:', error);
+      logger.error('store', 'Error clearing links', error);
       return false;
     }
   }
@@ -1023,7 +1011,7 @@ export const useDspStore = defineStore('dsp', () => {
       await registryStore.deleteZone(groupId);
       return true;
     } catch (error) {
-      console.error('Error deleting zone:', error);
+      logger.error('store', 'Error deleting zone', error);
       return false;
     }
   }
@@ -1034,7 +1022,7 @@ export const useDspStore = defineStore('dsp', () => {
       await registryStore.updateZone(groupId, { name });
       return true;
     } catch (error) {
-      console.error('Error updating zone name:', error);
+      logger.error('store', 'Error updating zone name', error);
       return false;
     }
   }
@@ -1088,7 +1076,7 @@ export const useDspStore = defineStore('dsp', () => {
       await registryStore.updateClient(clientId, { speaker_type: speakerType });
       return true;
     } catch (error) {
-      console.error('Error setting client speaker type:', error);
+      logger.error('store', 'Error setting client speaker type', error);
       return false;
     }
   }
@@ -1107,7 +1095,7 @@ export const useDspStore = defineStore('dsp', () => {
       // State update happens via WebSocket (registry.speaker_type_changed)
       return response.data.status === 'success';
     } catch (error) {
-      console.error('Error setting client crossover frequency:', error);
+      logger.error('store', 'Error setting client crossover frequency', error);
       return false;
     }
   }
@@ -1142,7 +1130,7 @@ export const useDspStore = defineStore('dsp', () => {
       const response = await axios.get(`/api/dsp/links/${zoneId}/auto-crossover`);
       return response.data.frequency || 80;
     } catch (error) {
-      console.error('Error getting zone auto crossover:', error);
+      logger.error('store', 'Error getting zone auto crossover', error);
       return 80;
     }
   }
@@ -1167,7 +1155,7 @@ export const useDspStore = defineStore('dsp', () => {
       }
       return false;
     } catch (error) {
-      console.error('Error setting zone crossover:', error);
+      logger.error('store', 'Error setting zone crossover', error);
       return false;
     }
   }
@@ -1182,7 +1170,7 @@ export const useDspStore = defineStore('dsp', () => {
       const response = await axios.post(`/api/dsp/links/${zoneId}/crossover/apply`);
       return response.data.status === 'success';
     } catch (error) {
-      console.error('Error applying zone crossover:', error);
+      logger.error('store', 'Error applying zone crossover', error);
       return false;
     }
   }
@@ -1403,7 +1391,7 @@ export const useDspStore = defineStore('dsp', () => {
           const response = await axios.patch(`/api/dsp/zone/${zoneId}/enabled`, { enabled });
           success = response.data.status === 'success' || response.data.status === 'partial';
         } catch (error) {
-          console.error('Error updating zone DSP enabled:', error);
+          logger.error('store', 'Error updating zone DSP enabled', error);
           // Fall back to direct update
           success = await setEnabledState(enabled);
         }
@@ -1427,7 +1415,7 @@ export const useDspStore = defineStore('dsp', () => {
         return false;
       }
     } catch (error) {
-      console.error('Error toggling DSP effects:', error);
+      logger.error('store', 'Error toggling DSP effects', error);
       isDspEffectsEnabled.value = previousState;
       return false;
     } finally {
@@ -1468,7 +1456,6 @@ export const useDspStore = defineStore('dsp', () => {
     linkedGroups,
 
     // Computed
-    isAvailable,
     isConnected,
     isRunning,
 

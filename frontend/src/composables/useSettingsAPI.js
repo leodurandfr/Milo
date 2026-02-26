@@ -1,6 +1,7 @@
 // frontend/src/composables/useSettingsAPI.js
 import { ref } from 'vue';
 import axios from 'axios';
+import { logger } from '@/services/logger';
 
 /**
  * Composable to manage settings API calls with debouncing
@@ -17,7 +18,7 @@ export function useSettingsAPI() {
     try {
       await axios.post(`/api/settings/${endpoint}`, payload);
     } catch (error) {
-      console.error(`Error updating ${endpoint}:`, error);
+      logger.error('api', `Error updating ${endpoint}`, error);
       throw error;
     }
   }
@@ -60,7 +61,7 @@ export function useSettingsAPI() {
       const response = await axios.get(`/api/settings/${endpoint}`);
       return response.data;
     } catch (error) {
-      console.error(`Error loading config from ${endpoint}:`, error);
+      logger.error('api', `Error loading config from ${endpoint}`, error);
       throw error;
     }
   }

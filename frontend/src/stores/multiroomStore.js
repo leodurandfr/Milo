@@ -13,6 +13,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
+import { logger } from '@/services/logger';
 
 const CACHE_KEY = 'multiroom_cache';
 
@@ -92,7 +93,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
       if (!cached) return null;
       return JSON.parse(cached);
     } catch (error) {
-      console.warn('Error loading registry cache:', error);
+      logger.warn('store', 'Error loading registry cache', error);
       return null;
     }
   }
@@ -106,7 +107,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
       };
       localStorage.setItem(CACHE_KEY, JSON.stringify(data));
     } catch (error) {
-      console.error('Error saving registry cache:', error);
+      logger.error('store', 'Error saving registry cache', error);
     }
   }
 
@@ -114,7 +115,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     try {
       localStorage.removeItem(CACHE_KEY);
     } catch (error) {
-      console.error('Error clearing registry cache:', error);
+      logger.error('store', 'Error clearing registry cache', error);
     }
   }
 
@@ -168,7 +169,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
       // Save to cache
       saveCache();
     } catch (error) {
-      console.error('Error fetching registry state:', error);
+      logger.error('store', 'Error fetching registry state', error);
     } finally {
       isLoading.value = false;
     }
@@ -341,7 +342,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
       }
       return response.data;
     } catch (error) {
-      console.error('Error creating zone:', error);
+      logger.error('store', 'Error creating zone', error);
       throw error;
     }
   }
@@ -358,7 +359,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
       saveCache();
       return true;
     } catch (error) {
-      console.error('Error deleting zone:', error);
+      logger.error('store', 'Error deleting zone', error);
       throw error;
     }
   }
@@ -377,7 +378,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
       }
       return response.data;
     } catch (error) {
-      console.error('Error updating zone:', error);
+      logger.error('store', 'Error updating zone', error);
       throw error;
     }
   }
@@ -401,7 +402,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
       }
       return response.data;
     } catch (error) {
-      console.error('Error adding client to zone:', error);
+      logger.error('store', 'Error adding client to zone', error);
       throw error;
     }
   }
@@ -428,7 +429,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
       saveCache();
       return response.data;
     } catch (error) {
-      console.error('Error removing client from zone:', error);
+      logger.error('store', 'Error removing client from zone', error);
       throw error;
     }
   }
@@ -457,7 +458,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
       // State update will come via WebSocket (registry:client_updated)
       return response.data;
     } catch (error) {
-      console.error('Error updating client:', error);
+      logger.error('store', 'Error updating client', error);
       throw error;
     }
   }
@@ -474,7 +475,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
       // State update will come via WebSocket (client_state_changed without client object)
       return response.data.status === 'success';
     } catch (error) {
-      console.error('Error deleting client:', error);
+      logger.error('store', 'Error deleting client', error);
       return false;
     }
   }
