@@ -317,10 +317,10 @@ class AudioRoutingService:
                 asyncio.create_task(self._delayed_multiroom_sync())
 
         except Exception as e:
+            # Do NOT reset multiroom/dsp state here — routing.env was already
+            # written correctly from settings.json above. Resetting would overwrite
+            # MILO_MODE=multiroom with MILO_MODE=direct, causing ALSA device conflicts.
             self.logger.error(f"Error during initial state detection: {e}")
-            await self._set_multiroom_state(False)
-            await self._set_dsp_effects_state(False)
-            await self._update_systemd_environment()
             self._initial_detection_done = True
 
     async def _sync_snapcast_state(self) -> None:
