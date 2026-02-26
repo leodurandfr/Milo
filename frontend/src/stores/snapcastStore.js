@@ -10,6 +10,7 @@ import { ref, computed } from 'vue';
 import axios from 'axios';
 import { useMultiroomStore } from './multiroomStore';
 import { useUnifiedAudioStore } from './unifiedAudioStore';
+import { logger } from '@/services/logger';
 
 const DISPLAY_CACHE_KEY = 'multiroom_display_cache';
 
@@ -222,7 +223,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
 
       if (response.data.status === 'success') {
         originalServerConfig.value = { ...serverConfig.value };
-        console.log('Multiroom server config applied successfully');
+        logger.info('store', 'Multiroom server config applied successfully');
         return true;
       }
       return false;

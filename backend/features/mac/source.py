@@ -10,7 +10,7 @@ Features:
 - Multi-client support: Track multiple Macs by IP and hostname
 - mDNS resolution: Resolve Mac hostnames via avahi-resolve
 - Connection detection: Monitor journalctl for connect/disconnect events
-- Active detection: Use tcpdump to find existing connections on start
+- Active detection: Check recent journalctl logs for existing connections on start
 """
 import asyncio
 import re
@@ -231,7 +231,7 @@ class MacSource(BaseAudioSource):
                     if line.strip():
                         await self._process_log_line(line)
 
-            # If no connections found, try tcpdump
+            # If no connections found, scan recent logs for active sessions
             if not self.connected_clients:
                 await self._detect_active_connections()
 
@@ -239,39 +239,30 @@ class MacSource(BaseAudioSource):
             self._logger.error(f"Initial state check error: {e}")
 
     async def _detect_active_connections(self) -> None:
-        """Detect existing connections via tcpdump."""
+        """Detect existing connections via recent journalctl logs."""
         try:
-            self._logger.debug("Detecting active connections via tcpdump...")
+            self._logger.debug("Detecting active connections via recent logs...")
 
-            proc = await asyncio.create_subprocess_exec(
-                "sudo", "tcpdump",
-                "-i", "any", "-n", "-l", "-c", "15",
-                f"udp and dst port ({self.rtp_port} or {self.rs8m_port} or {self.rtcp_port})",
+            proc = await asyncio.create_subprocess_shell(
+                f"journalctl -u {self.service_name} --since '10 min ago' --no-pager"
+                " | grep -v '\\[trc\\]'",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL
             )
 
             try:
-                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=3.0)
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
             except asyncio.TimeoutError:
                 proc.kill()
                 await proc.wait()
                 return
 
-            # Parse source IPs
-            ip_pattern = re.compile(r'IP6?\s+([0-9a-fA-F:.]+)\.\d+\s+>')
-            detected_ips = set()
-
             for line in stdout.decode('utf-8', errors='ignore').split('\n'):
-                match = ip_pattern.search(line)
-                if match:
-                    detected_ips.add(match.group(1))
-
-            for ip in detected_ips:
-                await self._add_client(ip)
+                if line.strip():
+                    await self._process_log_line(line)
 
         except Exception as e:
-            self._logger.debug(f"tcpdump detection failed: {e}")
+            self._logger.debug(f"Active connection detection failed: {e}")
 
     async def _monitor_events(self) -> None:
         """Monitor journalctl for connection events."""

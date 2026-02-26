@@ -1,9 +1,10 @@
 [Unit]
 Description=Milo Radio Player (mpv)
 Documentation=https://mpv.io/manual/stable/
-After=sound.target
+After=sound.target milo-backend.service
 # Depends on ALSA environment configured by Milo
 Requires=sound.target
+BindsTo=milo-backend.service
 
 [Service]
 Type=simple

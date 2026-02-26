@@ -2,6 +2,7 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import axios from 'axios';
+import { logger } from '@/services/logger';
 
 export const useSettingsStore = defineStore('settings', () => {
   // === LOADING STATE ===
@@ -93,145 +94,86 @@ export const useSettingsStore = defineStore('settings', () => {
 
     isLoading.value = true;
     try {
-      // Note: step_mobile_db comes from unifiedAudioStore.volumeState via WebSocket initial_state
-      const [
-        langResponse,
-        volumeLimitsResponse,
-        volumeStartupResponse,
-        rotaryStepsResponse,
-        dockAppsResponse,
-        spotifyResponse,
-        podcastResponse,
-        podcastStatusResponse,
-        inactivityResponse,
-        screenTimeoutResponse,
-        screenBrightnessResponse,
-        screenScreensaverResponse,
-        radioSettingsResponse
-      ] = await Promise.all([
-        axios.get('/api/settings/language').catch(() => ({ data: { language: 'english' } })),
-        axios.get('/api/settings/volume-limits').catch(() => ({ data: { limits: { min_db: -80.0, max_db: -21.0 } } })),
-        axios.get('/api/settings/volume-startup').catch(() => ({ data: { config: { startup_volume_db: -30.0, restore_last_volume: false } } })),
-        axios.get('/api/settings/rotary-steps').catch(() => ({ data: { config: { step_rotary_db: 2.0 } } })),
-        axios.get('/api/settings/dock-apps').catch(() => ({ data: { config: { enabled_apps: ['spotify', 'bluetooth', 'radio', 'podcast', 'airplay', 'mac', 'multiroom', 'settings'] } } })),
-        axios.get('/api/settings/spotify-disconnect').catch(() => ({ data: { config: { auto_disconnect_delay: 10.0 } } })),
-        axios.get('/api/settings/podcast-credentials').catch(() => ({ data: { config: { taddy_user_id: '', taddy_api_key: '' } } })),
-        axios.get('/api/settings/podcast-credentials/status').catch(() => ({ data: { status: 'error' } })),
-        axios.get('/api/settings/inactivity-timeout').catch(() => ({ data: { config: { inactivity_timeout: 7200 } } })),
-        axios.get('/api/settings/screen-timeout').catch(() => ({ data: { config: { screen_timeout_enabled: true, screen_timeout_seconds: 10 } } })),
-        axios.get('/api/settings/screen-brightness').catch(() => ({ data: { config: { brightness_on: 5 } } })),
-        axios.get('/api/settings/screen-screensaver').catch(() => ({ data: { config: { screensaver_enabled: true } } })),
-        axios.get('/api/settings/radio-settings').catch(() => ({ data: { config: { shazam_enabled: true } } }))
+      // Single bulk request + podcast status (requires external API call)
+      const [bulkResponse, podcastStatusResponse] = await Promise.all([
+        axios.get('/api/settings/bulk').catch(() => ({ data: null })),
+        axios.get('/api/settings/podcast-credentials/status').catch(() => ({ data: { status: 'error' } }))
       ]);
 
-      // Language
-      if (langResponse.data.language) {
-        language.value = langResponse.data.language;
-      }
+      const d = bulkResponse.data;
+      if (d) {
+        language.value = d.language ?? 'english';
 
-      // Volume limits (in dB)
-      if (volumeLimitsResponse.data.limits) {
         volumeLimits.value = {
-          min_db: volumeLimitsResponse.data.limits.min_db ?? -80.0,
-          max_db: volumeLimitsResponse.data.limits.max_db ?? -21.0
+          min_db: d.volume_limits?.min_db ?? -80.0,
+          max_db: d.volume_limits?.max_db ?? -21.0
         };
-      }
 
-      // Volume startup (in dB)
-      if (volumeStartupResponse.data.config) {
         volumeStartup.value = {
-          startup_volume_db: volumeStartupResponse.data.config.startup_volume_db ?? -30.0,
-          restore_last_volume: volumeStartupResponse.data.config.restore_last_volume ?? false
+          startup_volume_db: d.volume_startup?.startup_volume_db ?? -30.0,
+          restore_last_volume: d.volume_startup?.restore_last_volume ?? false
         };
-      }
 
-      // Note: step_mobile_db comes from unifiedAudioStore.volumeState via WebSocket
-      // No need to load it here
+        volumeSteps.value.step_rotary_db = d.rotary_steps?.step_rotary_db ?? 2.0;
 
-      // Rotary steps (in dB)
-      if (rotaryStepsResponse.data.config) {
-        volumeSteps.value.step_rotary_db = rotaryStepsResponse.data.config.step_rotary_db ?? 2.0;
-      }
+        if (d.dock_apps?.enabled_apps) {
+          const enabledApps = d.dock_apps.enabled_apps;
+          dockApps.value = {
+            spotify: enabledApps.includes('spotify'),
+            bluetooth: enabledApps.includes('bluetooth'),
+            radio: enabledApps.includes('radio'),
+            podcast: enabledApps.includes('podcast'),
+            airplay: enabledApps.includes('airplay'),
+            mac: enabledApps.includes('mac'),
+            multiroom: enabledApps.includes('multiroom'),
+            settings: enabledApps.includes('settings')
+          };
+        }
 
-      // Dock apps
-      if (dockAppsResponse.data.config?.enabled_apps) {
-        const enabledApps = dockAppsResponse.data.config.enabled_apps;
-        dockApps.value = {
-          spotify: enabledApps.includes('spotify'),
-          bluetooth: enabledApps.includes('bluetooth'),
-          radio: enabledApps.includes('radio'),
-          podcast: enabledApps.includes('podcast'),
-          airplay: enabledApps.includes('airplay'),
-          mac: enabledApps.includes('mac'),
-          multiroom: enabledApps.includes('multiroom'),
-          settings: enabledApps.includes('settings')
-        };
-      }
-
-      // Spotify
-      if (spotifyResponse.data.config) {
         spotifyDisconnect.value = {
-          auto_disconnect_delay: spotifyResponse.data.config.auto_disconnect_delay ?? 10.0
+          auto_disconnect_delay: d.spotify_disconnect?.auto_disconnect_delay ?? 10.0
         };
-      }
 
-      // Podcast credentials
-      if (podcastResponse.data.config) {
         podcastCredentials.value = {
-          taddy_user_id: podcastResponse.data.config.taddy_user_id ?? '',
-          taddy_api_key: podcastResponse.data.config.taddy_api_key ?? ''
+          taddy_user_id: d.podcast_credentials?.taddy_user_id ?? '',
+          taddy_api_key: d.podcast_credentials?.taddy_api_key ?? ''
+        };
+
+        inactivityTimeout.value = {
+          inactivity_timeout: d.inactivity_timeout?.inactivity_timeout ?? 7200
+        };
+
+        screenTimeout.value = {
+          screen_timeout_enabled: d.screen_timeout?.screen_timeout_enabled ?? true,
+          screen_timeout_seconds: d.screen_timeout?.screen_timeout_seconds ?? 10
+        };
+
+        screenBrightness.value = {
+          brightness_on: d.screen_brightness?.brightness_on ?? 5
+        };
+
+        screenScreensaver.value = {
+          screensaver_enabled: d.screen_screensaver?.screensaver_enabled ?? true,
+          screensaver_delay_seconds: d.screen_screensaver?.screensaver_delay_seconds ?? 30
+        };
+
+        radioSettings.value = {
+          shazam_enabled: d.radio_settings?.shazam_enabled ?? true
         };
       }
 
-      // Podcast credentials status
+      // Podcast credentials status (separate — requires external API call)
       if (podcastStatusResponse.data) {
         podcastCredentialsStatus.value = podcastStatusResponse.data.status ?? 'error';
         podcastApiUsage.value = podcastStatusResponse.data.requests_used ?? null;
         podcastCredentialsValidatedAt.value = podcastStatusResponse.data.credentials_validated_at ?? null;
       }
 
-      // Inactivity timeout
-      if (inactivityResponse.data.config) {
-        inactivityTimeout.value = {
-          inactivity_timeout: inactivityResponse.data.config.inactivity_timeout ?? 7200
-        };
-      }
-
-      // Screen timeout
-      if (screenTimeoutResponse.data.config) {
-        screenTimeout.value = {
-          screen_timeout_enabled: screenTimeoutResponse.data.config.screen_timeout_enabled ?? true,
-          screen_timeout_seconds: screenTimeoutResponse.data.config.screen_timeout_seconds ?? 10
-        };
-      }
-
-      // Screen brightness
-      if (screenBrightnessResponse.data.config) {
-        screenBrightness.value = {
-          brightness_on: screenBrightnessResponse.data.config.brightness_on ?? 5
-        };
-      }
-
-      // Screen screensaver
-      if (screenScreensaverResponse.data.config) {
-        screenScreensaver.value = {
-          screensaver_enabled: screenScreensaverResponse.data.config.screensaver_enabled ?? true,
-          screensaver_delay_seconds: screenScreensaverResponse.data.config.screensaver_delay_seconds ?? 30
-        };
-      }
-
-      // Radio settings
-      if (radioSettingsResponse.data.config) {
-        radioSettings.value = {
-          shazam_enabled: radioSettingsResponse.data.config.shazam_enabled ?? true
-        };
-      }
-
       hasLoaded.value = true;
-      console.log('✅ All settings loaded successfully');
+      logger.info('settings', 'All settings loaded successfully');
 
     } catch (error) {
-      console.error('❌ Error loading settings:', error);
+      logger.error('settings', 'Error loading settings:', error);
     } finally {
       isLoading.value = false;
     }
@@ -305,7 +247,7 @@ export const useSettingsStore = defineStore('settings', () => {
       podcastApiUsage.value = response.data.requests_used ?? null;
       podcastCredentialsValidatedAt.value = response.data.credentials_validated_at ?? null;
     } catch (error) {
-      console.error('Error refreshing podcast credentials status:', error);
+      logger.error('settings', 'Error refreshing podcast credentials status:', error);
       podcastCredentialsStatus.value = 'error';
       podcastApiUsage.value = null;
       podcastCredentialsValidatedAt.value = null;

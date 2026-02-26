@@ -40,6 +40,9 @@ class SettingsService:
             "spotify": {
                 "auto_disconnect_delay": 10.0
             },
+            "airplay": {
+                "auto_disconnect_delay": 10.0
+            },
             "podcast": {
                 "taddy_user_id": "",
                 "taddy_api_key": ""
@@ -181,6 +184,14 @@ class SettingsService:
             'auto_disconnect_delay': 0.0 if disconnect_delay_raw == 0.0 else max(1.0, min(9999.0, disconnect_delay_raw))
         }
 
+        # AirPlay - same pattern as Spotify: 0 = disabled
+        airplay_input = settings.get('airplay', {})
+        airplay_delay_raw = float(airplay_input.get('auto_disconnect_delay', 10.0))
+
+        validated['airplay'] = {
+            'auto_disconnect_delay': 0.0 if airplay_delay_raw == 0.0 else max(1.0, min(9999.0, airplay_delay_raw))
+        }
+
         # Podcast credentials
         podcast_input = settings.get('podcast', {})
         validated['podcast'] = {
@@ -293,6 +304,12 @@ class SettingsService:
             return value
         except (KeyError, TypeError):
             return None
+
+    async def get_all_settings(self) -> Dict[str, Any]:
+        """Return the full settings dict."""
+        if not self._cache:
+            self._cache = await self.load_settings()
+        return dict(self._cache)
 
     def invalidate_cache(self) -> None:
         """Invalidates cache to force a reload"""

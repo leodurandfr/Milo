@@ -94,6 +94,7 @@
 <script setup>
 import { ref, reactive, onMounted, watch, computed } from 'vue';
 import { useI18n } from '@/services/i18n';
+import { logger } from '@/services/logger';
 import { useRadioStore } from '@/stores/radioStore';
 import { countryOptions as createCountryOptions } from '@/constants/countries';
 import Button from '@/components/ui/Button.vue';
@@ -164,7 +165,7 @@ async function loadAvailableCountries() {
   try {
     const response = await axios.get('/api/radio/countries');
     availableCountries.value = response.data;
-    console.log(`📍 Loaded ${availableCountries.value.length} countries`);
+    logger.debug('radio', `Loaded ${availableCountries.value.length} countries`);
   } catch (error) {
     console.error('❌ Error loading countries:', error);
     availableCountries.value = [];
@@ -352,7 +353,7 @@ async function handleSubmit() {
       const data = await response.json();
 
       if (data.success) {
-        console.log('✅ Station modifiée avec succès:', data.station);
+        logger.info('radio', 'Station modified successfully', data.station);
         emit('success', data.station);
       } else {
         errorMessage.value = data.error || t('radio.manageStation.editFailed');
@@ -372,7 +373,7 @@ async function handleSubmit() {
       const result = await radioStore.addCustomStation(stationData);
 
       if (result.success) {
-        console.log('✅ Station ajoutée avec succès:', result.station);
+        logger.info('radio', 'Station added successfully', result.station);
         emit('success', result.station);
       } else {
         errorMessage.value = result.error || t('radio.manageStation.addFailed');

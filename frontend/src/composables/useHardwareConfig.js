@@ -1,6 +1,7 @@
 // frontend/src/composables/useHardwareConfig.js
 import { ref, computed } from 'vue';
 import axios from 'axios';
+import { logger } from '@/services/logger';
 
 /**
  * Composable to manage system hardware information
@@ -49,7 +50,7 @@ export function useHardwareConfig() {
       });
       if (response.data.status === 'success') {
         hardwareInfo.value = response.data.hardware;
-        console.log('[HardwareConfig] Loaded:', response.data.hardware);
+        logger.debug('hardware', 'Hardware config loaded', response.data.hardware);
       } else {
         throw new Error(response.data.message || 'Failed to load hardware info');
       }

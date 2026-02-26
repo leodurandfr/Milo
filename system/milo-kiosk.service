@@ -63,6 +63,7 @@ ExecStart=/usr/bin/cage -- /usr/bin/chromium \
 
 Restart=always
 RestartSec=3
+MemoryMax=512M
 
 [Install]
 WantedBy=graphical.target

@@ -135,11 +135,12 @@ class UpdateService(VersionService):
                 )
                 await proc.communicate()
 
-            # Reinstall Python dependencies
+            # Reinstall Python dependencies in venv
             requirements_file = Path(config["git_path"]) / "backend" / "requirements.txt"
+            venv_pip = str(Path(config["git_path"]) / "venv" / "bin" / "pip3")
             if requirements_file.exists():
                 proc = await asyncio.create_subprocess_exec(
-                    "pip3", "install", "-r", str(requirements_file),
+                    venv_pip, "install", "-r", str(requirements_file),
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
@@ -259,11 +260,12 @@ class UpdateService(VersionService):
             if progress_callback:
                 await progress_callback("updates.progress.installingPythonDeps", 60)
 
-            # 8. Install Python dependencies if requirements.txt exists
+            # 8. Install Python dependencies in venv if requirements.txt exists
             requirements_file = Path(config["git_path"]) / "backend" / "requirements.txt"
+            venv_pip = str(Path(config["git_path"]) / "venv" / "bin" / "pip3")
             if requirements_file.exists():
                 proc = await asyncio.create_subprocess_exec(
-                    "pip3", "install", "-r", str(requirements_file),
+                    venv_pip, "install", "-r", str(requirements_file),
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )

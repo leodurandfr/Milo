@@ -122,7 +122,7 @@ class DSPService:
 
         try:
             self._client = CamillaClient(self.host, self.port)
-            await asyncio.get_event_loop().run_in_executor(
+            await asyncio.get_running_loop().run_in_executor(
                 None, self._client.connect
             )
             self._connected = True
@@ -152,7 +152,7 @@ class DSPService:
             if not self._connected:
                 raise ConnectionError("Not connected to CamillaDSP")
             try:
-                return await asyncio.get_event_loop().run_in_executor(None, func)
+                return await asyncio.get_running_loop().run_in_executor(None, func)
             except Exception:
                 self._connected = False
                 if attempt == 0:

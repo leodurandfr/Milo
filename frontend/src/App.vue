@@ -70,6 +70,7 @@ import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useDspStore } from '@/stores/dspStore';
 import { i18n, useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
+import { logger } from '@/services/logger';
 import { useScreenActivity } from '@/composables/useScreenActivity';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
 
@@ -367,7 +368,7 @@ onMounted(async () => {
     on('multiroom', 'dsp_changed', (event) => dspStore.handleDspChanged(event)),
     on('multiroom', 'crossover_changed', (event) => dspStore.handleZoneCrossoverChanged(event)),
     onReconnect(() => {
-      console.log('WebSocket reconnected');
+      logger.info('websocket', 'WebSocket reconnected');
       // Refresh registry state on reconnect (AC3: State Resync)
       multiroomStore.fetchState();
       // Refresh DSP state for current target
@@ -379,10 +380,6 @@ onMounted(async () => {
       dspStore.loadStatus();
     })
   );
-
-  // Setup visibility listener (synchronous)
-  const visibilityCleanup = unifiedStore.setupVisibilityListener();
-  cleanupFunctions.push(visibilityCleanup);
 
   // Now perform async initialization
   await loadHardwareInfo();

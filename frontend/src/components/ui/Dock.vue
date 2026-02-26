@@ -11,17 +11,17 @@
   <nav ref="dockContainer" class="dock-container" :class="{ visible: isVisible, 'fully-visible': isFullyVisible }">
     <!-- Additional Apps - Mobile only -->
     <div v-if="additionalAppsInDOM && additionalDockApps.length > 0" ref="additionalAppsContainer"
-      class="additional-apps-container mobile-only" :class="{ visible: showAdditionalApps }">
+      class="additional-apps-container glass-surface glass-border mobile-only" :class="{ visible: showAdditionalApps }">
 
       <button v-for="(app, index) in additionalDockApps.slice().reverse()" :key="app.id"
         @click="() => handleAdditionalAppClick(app.id)" v-press
-        class="additional-app-content button-interactive-subtle">
+        class="additional-app-content glass-border button-interactive-subtle">
         <AppIcon :name="app.icon" :size="32" />
         <div class="app-title heading-2">{{ getAppTitle(app.id) }}</div>
       </button>
     </div>
 
-    <div ref="dock" class="dock">
+    <div ref="dock" class="dock glass-surface glass-border">
       <!-- Volume Controls - Mobile only -->
       <div class="volume-controls mobile-only" :style="{ transitionDelay: getDockItemDelay(0) }">
         <button v-for="{ icon, delta } in volumeControlsWithSteps" :key="icon"
@@ -82,6 +82,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick, inject } from '
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
+import { useIsMobile } from '@/composables/useIsMobile';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 
@@ -215,7 +216,8 @@ const getEventY = (e) => e.type.includes('touch') || e.pointerType === 'touch'
 const getEventX = (e) => e.type.includes('touch') || e.pointerType === 'touch'
   ? (e.touches?.[0]?.clientX || e.changedTouches?.[0]?.clientX || e.clientX) : e.clientX;
 
-const isDesktop = () => window.matchMedia('not (max-aspect-ratio: 4/3)').matches;
+const { isMobile } = useIsMobile();
+const isDesktop = () => !isMobile.value;
 
 const getDockItemDelay = (index) => `${DOCK_ANIM_INITIAL_DELAY + index * DOCK_ANIM_STAGGER}s`;
 
@@ -720,7 +722,7 @@ onUnmounted(() => {
 .drag-zone {
   position: fixed;
   width: 280px;
-  bottom: calc(0px + env(safe-area-inset-top, 0px));
+  bottom: calc(0px + env(safe-area-inset-bottom, 0px));
   left: 50%;
   transform: translateX(-50%);
   height: 12%;
@@ -736,6 +738,10 @@ onUnmounted(() => {
 }
 
 .additional-apps-container {
+  --glass-bg: var(--color-background-medium-16);
+  --glass-blur: var(--blur-03);
+  --glass-radius: var(--radius-07);
+  --glass-stroke-width: 1.5px;
   position: absolute;
   bottom: 100%;
   left: 0;
@@ -744,9 +750,6 @@ onUnmounted(() => {
   z-index: 3998;
   border-radius: var(--radius-07);
   padding: var(--space-04);
-  background: var(--color-background-medium-16);
-  backdrop-filter: blur(var(--blur-03));
-  -webkit-backdrop-filter: blur(var(--blur-03));
   display: flex;
   flex-direction: column;
   gap: var(--space-01);
@@ -823,12 +826,13 @@ onUnmounted(() => {
 }
 
 .dock {
+  --glass-bg: var(--color-background-medium-16);
+  --glass-blur: var(--blur-03);
+  --glass-radius: var(--radius-07);
+  --glass-stroke-width: 1.5px;
   position: relative;
   border-radius: var(--radius-07);
   padding: var(--space-04);
-  background: var(--color-background-medium-16);
-  backdrop-filter: blur(var(--blur-03));
-  -webkit-backdrop-filter: blur(var(--blur-03));
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -837,37 +841,9 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
-.dock::before,
-.additional-apps-container::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  padding: 1.5px;
-  background: var(--stroke-glass);
-  border-radius: var(--radius-07);
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  z-index: -1;
-  pointer-events: none;
-}
-
-.additional-app-content.button-interactive-subtle::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  padding: 1.5px;
-  background: var(--stroke-glass);
-  border-radius: var(--radius-04);
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  z-index: -1;
-  pointer-events: none;
+.additional-app-content {
+  --glass-radius: var(--radius-04);
+  --glass-stroke-width: 1.5px;
 }
 
 .volume-controls {

@@ -92,10 +92,9 @@ class SpotifySource(BaseAudioSource):
         self._device_connected = False
         self._ws_connected = False
 
-        # Auto-disconnect
+        # Auto-disconnect (uses BaseAudioSource timer infrastructure)
         self.auto_disconnect_enabled = True
         self.pause_disconnect_delay = 10.0
-        self._pause_timer: Optional[asyncio.Task] = None
 
         # Log monitor for error detection
         self._log_monitor_task: Optional[asyncio.Task] = None
@@ -254,7 +253,7 @@ class SpotifySource(BaseAudioSource):
             self._ws_url = f"ws://{addr}:{port}/events"
 
             # Load auto-disconnect config from settings
-            await self._load_auto_disconnect_config()
+            await self._load_auto_disconnect_config('spotify.auto_disconnect_delay')
 
             self._logger.info(f"Config loaded: API={self._api_url}")
             return True
@@ -262,28 +261,6 @@ class SpotifySource(BaseAudioSource):
         except Exception as e:
             self._logger.error(f"Config load failed: {e}")
             return False
-
-    async def _load_auto_disconnect_config(self) -> None:
-        """Load auto-disconnect config from settings service."""
-        if not self._settings_service:
-            return
-
-        try:
-            delay = await self._settings_service.get_setting('spotify.auto_disconnect_delay')
-            if delay is not None:
-                if delay == 0:
-                    self.auto_disconnect_enabled = False
-                    self.pause_disconnect_delay = 10.0
-                else:
-                    self.auto_disconnect_enabled = True
-                    self.pause_disconnect_delay = float(delay)
-
-            self._logger.info(
-                f"Auto-disconnect: enabled={self.auto_disconnect_enabled}, "
-                f"delay={self.pause_disconnect_delay}s"
-            )
-        except Exception as e:
-            self._logger.error(f"Settings load failed: {e}")
 
     # === WebSocket ===
 
@@ -375,7 +352,7 @@ class SpotifySource(BaseAudioSource):
         """Handle stopped event - context ended, nothing more to play."""
         self._logger.info("Playback stopped - context ended")
         self._is_playing = False
-        self._cancel_pause_timer()
+        self._start_pause_timer()
         self._update_connection_state()
 
     async def _on_not_playing(self) -> None:
@@ -444,35 +421,6 @@ class SpotifySource(BaseAudioSource):
 
         except Exception as e:
             return self.error_response(str(e))
-
-    # === Auto-Disconnect Timer ===
-
-    def _cancel_pause_timer(self) -> None:
-        """Cancel auto-disconnect timer."""
-        if self._pause_timer:
-            self._pause_timer.cancel()
-            self._pause_timer = None
-
-    def _start_pause_timer(self) -> None:
-        """Start auto-disconnect timer after pause."""
-        if not self.auto_disconnect_enabled:
-            return
-
-        self._cancel_pause_timer()
-
-        async def disconnect_after_delay():
-            try:
-                await asyncio.sleep(self.pause_disconnect_delay)
-                self._logger.info(
-                    f"Auto-disconnecting after {self.pause_disconnect_delay}s pause"
-                )
-                await self._do_restart()
-            except asyncio.CancelledError:
-                pass
-            except Exception as e:
-                self._logger.error(f"Auto-disconnect failed: {e}")
-
-        self._pause_timer = asyncio.create_task(disconnect_after_delay())
 
     # === Log Monitor ===
 
@@ -635,51 +583,10 @@ class SpotifySource(BaseAudioSource):
         delay: Optional[float] = None,
         save_to_settings: bool = True
     ) -> bool:
-        """
-        Configure auto-disconnect behavior.
-
-        Args:
-            enabled: Whether auto-disconnect is enabled
-            delay: Delay in seconds (0 = disabled)
-            save_to_settings: Save to settings service
-
-        Returns:
-            True if configuration succeeded
-        """
-        old_enabled = self.auto_disconnect_enabled
-        old_delay = self.pause_disconnect_delay
-
-        # Handle delay = 0 as disabled
-        if delay is not None and delay == 0:
-            self.auto_disconnect_enabled = False
-            self.pause_disconnect_delay = 10.0
-        elif delay is not None:
-            self.auto_disconnect_enabled = enabled
-            self.pause_disconnect_delay = max(1.0, delay)
-        else:
-            self.auto_disconnect_enabled = enabled
-
-        # Save to settings
-        if save_to_settings and self._settings_service:
-            try:
-                save_value = 0.0 if not self.auto_disconnect_enabled else self.pause_disconnect_delay
-                success = await self._settings_service.set_setting(
-                    'spotify.auto_disconnect_delay', save_value
-                )
-                if not success:
-                    self.auto_disconnect_enabled = old_enabled
-                    self.pause_disconnect_delay = old_delay
-                    return False
-            except Exception as e:
-                self._logger.error(f"Settings save failed: {e}")
-                self.auto_disconnect_enabled = old_enabled
-                self.pause_disconnect_delay = old_delay
-                return False
-
-        # Manage running timer
-        if self._pause_timer and not self._pause_timer.done():
-            self._cancel_pause_timer()
-            if self.auto_disconnect_enabled and self._device_connected and not self._is_playing:
-                self._start_pause_timer()
-
-        return True
+        """Configure auto-disconnect behavior (delegates to base class)."""
+        return await super().set_auto_disconnect_config(
+            enabled=enabled,
+            delay=delay,
+            settings_key='spotify.auto_disconnect_delay',
+            save_to_settings=save_to_settings
+        )

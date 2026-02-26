@@ -75,8 +75,6 @@ client_registry_service = get_service("client_registry_service")
 dsp_router_service = get_service("dsp_router")
 ws_manager = get_service("websocket_manager")
 websocket_server = WebSocketServer(ws_manager, state_machine)
-state_machine.volume_service = volume_service
-state_machine.snapcast_service = snapcast_service
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -93,13 +91,8 @@ async def lifespan(app: FastAPI):
         # Enable WebSocket broadcasting for backend errors/warnings
         _ws_log_handler.set_state_machine(state_machine)
 
-        for source, plugin in state_machine.plugins.items():
-            if plugin:
-                try:
-                    await plugin.initialize()
-                    logger.info(f"Plugin {source.value} initialized successfully")
-                except Exception as e:
-                    logger.error(f"Plugin {source.value} initialization failed: {e}")
+        # Plugins are initialized on-demand when activated (state.py:_start_source)
+        # Radio is pre-initialized in init_async() for API access
 
         # Load inactivity timeout from settings (0 = disabled, default 7200s = 2h)
         audio_settings = await settings_service.get_setting('audio') or {}

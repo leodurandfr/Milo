@@ -80,6 +80,7 @@
 import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRadioStore } from '@/stores/radioStore'
 import { useI18n } from '@/services/i18n'
+import { logger } from '@/services/logger'
 import StationCard from './StationCard.vue'
 import InputText from '@/components/ui/InputText.vue'
 import Dropdown from '@/components/ui/Dropdown.vue'
@@ -243,7 +244,7 @@ function setupIntersectionObserver() {
     (entries) => {
       const [entry] = entries
       if (entry.isIntersecting && radioStore.hasMoreStations && !radioStore.loading) {
-        console.log('📻 Sentinel visible, loading more...')
+        logger.debug('radio', 'Sentinel visible, loading more')
         radioStore.loadMore()
       }
     },
