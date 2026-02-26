@@ -33,7 +33,8 @@ def create_dsp_router(
     sync_service=None,
     client_registry_service=None,
     dsp_router_service=None,
-    multiroom_dsp_service=None
+    multiroom_dsp_service=None,
+    volume_service=None
 ):
     """Creates DSP router with injected dependencies"""
     router = APIRouter(prefix="/api/dsp", tags=["dsp"])
@@ -59,13 +60,16 @@ def create_dsp_router(
                 return client.mac_id
         return None
 
-    def _get_volume_service():
-        """Get volume_service from state_machine or raise 500."""
-        if state_machine:
-            vs = getattr(state_machine, 'volume_service', None)
-            if vs:
-                return vs
+    def _require_volume_service():
+        """Return volume_service or raise HTTP 500 if unavailable."""
+        if volume_service:
+            return volume_service
         raise HTTPException(status_code=500, detail="Volume service not available")
+
+    async def _persist_remote(hostname: str, category: str, data: dict):
+        """Persist DSP setting for a remote client via sync_service."""
+        if dsp_router_service and not dsp_router_service.is_local_client(hostname) and sync_service:
+            await sync_service.update_client_settings(hostname, category, data)
 
     # === DSP Enable/Disable ===
 
@@ -533,10 +537,9 @@ def create_dsp_router(
             raise HTTPException(status_code=500, detail="Failed to set mute")
 
         # Update volume state store
-        if state_machine:
-            volume_service = getattr(state_machine, 'volume_service', None)
+        if volume_service:
             local_mac = _get_local_client_mac()
-            if volume_service and local_mac:
+            if local_mac:
                 await volume_service.set_client_mute(local_mac, payload.muted, broadcast=True)
 
         return {"status": "success", "mute": payload.muted}
@@ -625,15 +628,11 @@ def create_dsp_router(
     # === Speaker Type / Crossover Management ===
     # Note: Zone CRUD moved to /api/multiroom/zones, speaker-type to /api/multiroom/clients
 
-    def _get_crossover_svc():
-        from backend.dependencies import get_service
-        return get_service("crossover_service")
-
     @router.get("/client/{client_id}/type")
     async def get_client_type(client_id: str):
         """Get client speaker type"""
         try:
-            return {"client_id": client_id, **await _get_crossover_svc().get_client_type(client_id)}
+            return {"client_id": client_id, **await crossover_service.get_client_type(client_id)}
         except Exception as e:
             logger.error(f"Error getting client type: {e}")
             return {"client_id": client_id, "speaker_type": "bookshelf"}
@@ -647,7 +646,7 @@ def create_dsp_router(
             freq = payload.get("frequency")
             if freq is None:
                 raise HTTPException(status_code=400, detail="frequency is required")
-            cs = _get_crossover_svc()
+            cs = crossover_service
             if not await cs.set_client_crossover_frequency(client_id, float(freq)):
                 raise HTTPException(status_code=500, detail="Failed to update crossover frequency")
             ct = await cs.get_client_type(client_id)
@@ -663,7 +662,7 @@ def create_dsp_router(
     async def get_all_client_types():
         """Get all client type configurations"""
         try:
-            return {"client_types": await _get_crossover_svc().get_all_client_types()}
+            return {"client_types": await crossover_service.get_all_client_types()}
         except Exception as e:
             logger.error(f"Error getting client types: {e}")
             return {"client_types": {}}
@@ -672,7 +671,7 @@ def create_dsp_router(
     async def get_zone_crossover(zone_id: str):
         """Get crossover settings for a zone"""
         try:
-            return {"zone_id": zone_id, **await _get_crossover_svc().get_zone_crossover(zone_id)}
+            return {"zone_id": zone_id, **await crossover_service.get_zone_crossover(zone_id)}
         except Exception as e:
             logger.error(f"Error getting zone crossover: {e}")
             return {"zone_id": zone_id, "frequency": 80, "enabled": False, "has_subwoofer": False}
@@ -681,7 +680,7 @@ def create_dsp_router(
     async def get_zone_auto_crossover(zone_id: str):
         """Get automatic crossover frequency for a zone (MIN of speaker frequencies)"""
         try:
-            return {"zone_id": zone_id, "frequency": await _get_crossover_svc().get_zone_auto_crossover(zone_id)}
+            return {"zone_id": zone_id, "frequency": await crossover_service.get_zone_auto_crossover(zone_id)}
         except Exception as e:
             logger.error(f"Error getting zone auto crossover: {e}")
             return {"zone_id": zone_id, "frequency": 80}
@@ -690,7 +689,7 @@ def create_dsp_router(
     async def set_zone_crossover(zone_id: str, payload: ZoneCrossoverRequest):
         """Set crossover frequency for a zone"""
         try:
-            cs = _get_crossover_svc()
+            cs = crossover_service
             if not await cs.set_zone_crossover_frequency(zone_id, payload.frequency):
                 raise HTTPException(status_code=500, detail="Failed to update zone crossover")
             return {"status": "success", "zone_id": zone_id, **await cs.get_zone_crossover(zone_id)}
@@ -704,7 +703,7 @@ def create_dsp_router(
     async def apply_zone_crossover(zone_id: str):
         """Manually apply crossover settings to all clients in a zone"""
         try:
-            if not await _get_crossover_svc().apply_zone_crossover(zone_id):
+            if not await crossover_service.apply_zone_crossover(zone_id):
                 raise HTTPException(status_code=500, detail="Failed to apply crossover")
             return {"status": "success", "message": f"Crossover applied to zone {zone_id}"}
         except HTTPException:
@@ -754,14 +753,12 @@ def create_dsp_router(
         status = await dsp_router_service.get_status(hostname)
 
         # Inject volume from volume_service (source of truth)
-        if state_machine:
-            volume_service = getattr(state_machine, 'volume_service', None)
-            if volume_service:
-                vol = await volume_service.get_client_volume(hostname)
-                if 'volume' not in status:
-                    status['volume'] = {}
-                status['volume']['main'] = vol['main']
-                status['volume']['mute'] = vol['mute']
+        if volume_service:
+            vol = await volume_service.get_client_volume(hostname)
+            if 'volume' not in status:
+                status['volume'] = {}
+            status['volume']['main'] = vol['main']
+            status['volume']['mute'] = vol['mute']
 
         return status
 
@@ -778,13 +775,13 @@ def create_dsp_router(
 
         if result.get("status") == "success":
             if dsp_router_service.is_local_client(hostname):
-                # Local: return request body with status
                 return {"status": "success", "id": filter_id, **body}
-            # Remote: persist to sync_service
+            # Remote: merge filter into saved settings
             if sync_service:
-                settings = await sync_service.load_settings()
-                settings.setdefault(hostname, {}).setdefault("filters", {})[filter_id] = body
-                await sync_service.save_settings(settings)
+                saved = await sync_service.get_client_settings(hostname)
+                filters = saved.get("filters", {})
+                filters[filter_id] = body
+                await sync_service.update_client_settings(hostname, "filters", filters)
 
         return result
 
@@ -794,12 +791,7 @@ def create_dsp_router(
         result = await dsp_router_service.reset_filters(hostname)
 
         if result.get("status") == "success":
-            # Remote: clear saved filter settings
-            if not dsp_router_service.is_local_client(hostname) and sync_service:
-                settings = await sync_service.load_settings()
-                if hostname in settings:
-                    settings[hostname]["filters"] = {}
-                    await sync_service.save_settings(settings)
+            await _persist_remote(hostname, "filters", {})
 
         return result
 
@@ -816,12 +808,9 @@ def create_dsp_router(
 
         if result.get("status") == "success":
             if dsp_router_service.is_local_client(hostname):
-                # Local: return full compressor state
                 compressor = await dsp_service.get_compressor()
                 return {"status": "success", **compressor}
-            # Remote: persist to sync_service
-            if sync_service:
-                await sync_service.update_client_settings(hostname, "compressor", {k: v for k, v in result.items() if k != "status"})
+            await _persist_remote(hostname, "compressor", {k: v for k, v in result.items() if k != "status"})
 
         return result
 
@@ -838,12 +827,9 @@ def create_dsp_router(
 
         if result.get("status") == "success":
             if dsp_router_service.is_local_client(hostname):
-                # Local: return full loudness state
                 loudness = await dsp_service.get_loudness()
                 return {"status": "success", **loudness}
-            # Remote: persist to sync_service
-            if sync_service:
-                await sync_service.update_client_settings(hostname, "loudness", {k: v for k, v in result.items() if k != "status"})
+            await _persist_remote(hostname, "loudness", {k: v for k, v in result.items() if k != "status"})
 
         return result
 
@@ -864,9 +850,7 @@ def create_dsp_router(
         result = await dsp_router_service.set_dsp_enabled(hostname, enabled, routing_service)
 
         if result.get("status") == "success":
-            # Remote: persist to sync_service
-            if not dsp_router_service.is_local_client(hostname) and sync_service:
-                await sync_service.update_client_settings(hostname, "enabled", {"enabled": enabled})
+            await _persist_remote(hostname, "enabled", {"enabled": enabled})
 
         return result
 
@@ -874,10 +858,8 @@ def create_dsp_router(
     async def get_client_volume(hostname: str):
         """Get volume for a specific client (consistent with multiroom model)."""
         # Prefer volume_service as source of truth
-        if state_machine:
-            vs = getattr(state_machine, 'volume_service', None)
-            if vs:
-                return await vs.get_client_volume(hostname)
+        if volume_service:
+            return await volume_service.get_client_volume(hostname)
         # Fallback to DspRouter
         return await dsp_router_service.get_volume(hostname)
 
@@ -888,7 +870,7 @@ def create_dsp_router(
         volume_db = body.get("volume")
 
         if dsp_router_service.is_local_client(hostname):
-            vs = _get_volume_service()
+            vs = _require_volume_service()
             await vs.update_client_volume_db(hostname, volume_db, broadcast=True)
             return {"status": "success", "main": volume_db}
 
@@ -896,15 +878,12 @@ def create_dsp_router(
         result = await dsp_router_service.set_volume(hostname, volume_db)
 
         if result.get("status") == "success":
-            if sync_service:
-                await sync_service.update_client_settings(hostname, "volume", {k: v for k, v in result.items() if k != "status"})
+            await _persist_remote(hostname, "volume", {k: v for k, v in result.items() if k != "status"})
             actual = result.get("main", result.get("volume", volume_db))
-            if actual is not None:
-                vs = getattr(state_machine, 'volume_service', None) if state_machine else None
-                if vs:
-                    await vs.update_client_volume_db(hostname, actual)
-                    if actual != volume_db:
-                        logger.info(f"Client {hostname} volume clamped: {volume_db} -> {actual} dB")
+            if actual is not None and volume_service:
+                await volume_service.update_client_volume_db(hostname, actual)
+                if actual != volume_db:
+                    logger.info(f"Client {hostname} volume clamped: {volume_db} -> {actual} dB")
         return result
 
     @router.put("/client/{hostname}/mute")
@@ -914,7 +893,7 @@ def create_dsp_router(
         muted = body.get("muted")
 
         if dsp_router_service.is_local_client(hostname):
-            vs = _get_volume_service()
+            vs = _require_volume_service()
             if not await dsp_service.set_mute(muted):
                 raise HTTPException(status_code=500, detail="Failed to set local mute")
             await vs.set_client_mute(hostname, muted, broadcast=True)
@@ -923,10 +902,8 @@ def create_dsp_router(
         # Remote client via DspRouter
         result = await dsp_router_service.set_mute(hostname, muted)
 
-        if result.get("status") == "success":
-            vs = getattr(state_machine, 'volume_service', None) if state_machine else None
-            if vs:
-                await vs.set_client_mute(hostname, muted, broadcast=True)
+        if result.get("status") == "success" and volume_service:
+            await volume_service.set_client_mute(hostname, muted, broadcast=True)
         return result
 
     # === Client Settings Persistence ===
