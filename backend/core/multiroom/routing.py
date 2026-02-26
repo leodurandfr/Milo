@@ -201,15 +201,15 @@ class AudioRoutingService:
         self._transitions = RoutingTransitions()
     
     def set_snapcast_websocket_service(self, service) -> None:
-        """Sets reference to SnapcastWebSocketService"""
+        """Set SnapcastWebSocketService dependency."""
         self.snapcast_websocket_service = service
 
     def set_snapcast_service(self, service) -> None:
-        """Sets reference to SnapcastService"""
+        """Set SnapcastService dependency."""
         self.snapcast_service = service
 
     def set_state_machine(self, state_machine) -> None:
-        """Sets the reference to StateMachine"""
+        """Set state machine for event broadcasting."""
         self.state_machine = state_machine
         # Update transitions handler with callbacks
         self._transitions.set_callbacks(
@@ -219,11 +219,11 @@ class AudioRoutingService:
         )
 
     def set_camilladsp_service(self, service) -> None:
-        """Sets reference to CamillaDSPService for connect/disconnect management"""
+        """Set CamillaDSPService dependency."""
         self.camilladsp_service = service
 
     def set_plugin_callback(self, callback: Callable) -> None:
-        """Sets the callback to access plugins"""
+        """Set callback to access audio source plugins."""
         if not self.get_plugin:
             self.get_plugin = callback
             self._transitions.set_callbacks(get_plugin=callback)
@@ -298,65 +298,22 @@ class AudioRoutingService:
             if self.settings_service:
                 multiroom = await self.settings_service.get_setting('routing.multiroom_enabled')
                 dsp_effects = await self.settings_service.get_setting('dsp.effects_enabled')
-                # Explicit bool conversion for defensive programming
                 await self._set_multiroom_state(self._to_bool(multiroom))
                 await self._set_dsp_effects_state(self._to_bool(dsp_effects))
-                current_multiroom = await self._get_multiroom_enabled()
-                current_dsp_effects = await self._get_dsp_effects_enabled()
-                self.logger.info(f"Loaded state from settings: multiroom={current_multiroom}, dsp_effects={current_dsp_effects}")
+                self.logger.info(f"Loaded state from settings: multiroom={self.multiroom_enabled}, dsp_effects={self.dsp_effects_enabled}")
             else:
                 self.logger.warning("SettingsService not available, using defaults")
                 await self._set_multiroom_state(False)
                 await self._set_dsp_effects_state(False)
 
             await self._update_systemd_environment()
-            self.logger.info(f"ALSA environment initialized: MULTIROOM={self.multiroom_enabled}, DSP_EFFECTS={self.dsp_effects_enabled}")
-
-            snapcast_status = await self.get_snapcast_status()
-            services_running = snapcast_status.get("multiroom_available", False)
-
-            if self.multiroom_enabled and not services_running:
-                self.logger.info("Persisted state requires multiroom, starting snapcast services")
-                await self._start_snapcast()
-            elif not self.multiroom_enabled and services_running:
-                self.logger.info("Persisted state requires direct mode, stopping snapcast services")
-                await self._stop_snapcast()
-            else:
-                mode = "multiroom" if self.multiroom_enabled else "direct"
-                self.logger.info(f"Snapcast services already in correct state for {mode} mode")
-
-            # CamillaDSP ALWAYS runs - volume is always controlled via DSP
-            # The dsp.enabled setting only controls whether effects are bypassed
-            camilladsp_running = await self.service_manager.is_active("milo-camilladsp.service")
-            if not camilladsp_running:
-                self.logger.info("Starting CamillaDSP service (always required for volume control)")
-                await self.service_manager.start("milo-camilladsp.service")
-                await asyncio.sleep(1.0)  # Give daemon time to start
-
-            # Connect to CamillaDSP daemon
-            if self.camilladsp_service and not self.camilladsp_service.connected:
-                connected = await self.camilladsp_service.connect()
-                if connected:
-                    self.logger.info("Backend connected to CamillaDSP daemon")
-
-                    # Apply effect state based on dsp.effects_enabled setting
-                    current_dsp_effects = await self._get_dsp_effects_enabled()
-                    if current_dsp_effects:
-                        self.logger.info("DSP effects enabled, restoring from settings")
-                        await self.camilladsp_service.restore_effects()
-                    else:
-                        self.logger.info("DSP effects disabled, bypassing all effects")
-                        await self.camilladsp_service.bypass_effects()
-                else:
-                    self.logger.warning("Failed to connect to CamillaDSP daemon on startup")
+            await self._sync_snapcast_state()
+            await self._initialize_camilladsp()
 
             self._initial_detection_done = True
-            current_multiroom = await self._get_multiroom_enabled()
-            current_dsp_effects = await self._get_dsp_effects_enabled()
-            self.logger.info(f"Routing initialized with persisted state: multiroom={current_multiroom}, dsp_effects={current_dsp_effects}")
+            self.logger.info(f"Routing initialized: multiroom={self.multiroom_enabled}, dsp_effects={self.dsp_effects_enabled}")
 
-            # Schedule delayed DSP sync if multiroom is already enabled at startup
-            if current_multiroom:
+            if self.multiroom_enabled:
                 asyncio.create_task(self._delayed_multiroom_sync())
 
         except Exception as e:
@@ -365,6 +322,44 @@ class AudioRoutingService:
             await self._set_dsp_effects_state(False)
             await self._update_systemd_environment()
             self._initial_detection_done = True
+
+    async def _sync_snapcast_state(self) -> None:
+        """Reconcile running Snapcast services with persisted multiroom state."""
+        snapcast_status = await self.get_snapcast_status()
+        services_running = snapcast_status.get("multiroom_available", False)
+
+        if self.multiroom_enabled and not services_running:
+            self.logger.info("Persisted state requires multiroom, starting snapcast services")
+            await self._start_snapcast()
+        elif not self.multiroom_enabled and services_running:
+            self.logger.info("Persisted state requires direct mode, stopping snapcast services")
+            await self._stop_snapcast()
+        else:
+            mode = "multiroom" if self.multiroom_enabled else "direct"
+            self.logger.info(f"Snapcast services already in correct state for {mode} mode")
+
+    async def _initialize_camilladsp(self) -> None:
+        """Ensure CamillaDSP is running, connected, and effects state is applied."""
+        # CamillaDSP ALWAYS runs - volume is always controlled via DSP
+        camilladsp_running = await self.service_manager.is_active("milo-camilladsp.service")
+        if not camilladsp_running:
+            self.logger.info("Starting CamillaDSP service (always required for volume control)")
+            await self.service_manager.start("milo-camilladsp.service")
+            await asyncio.sleep(1.0)  # Give daemon time to start
+
+        if self.camilladsp_service and not self.camilladsp_service.connected:
+            connected = await self.camilladsp_service.connect()
+            if connected:
+                self.logger.info("Backend connected to CamillaDSP daemon")
+                current_dsp_effects = await self._get_dsp_effects_enabled()
+                if current_dsp_effects:
+                    self.logger.info("DSP effects enabled, restoring from settings")
+                    await self.camilladsp_service.restore_effects()
+                else:
+                    self.logger.info("DSP effects disabled, bypassing all effects")
+                    await self.camilladsp_service.bypass_effects()
+            else:
+                self.logger.warning("Failed to connect to CamillaDSP daemon on startup")
 
     async def _delayed_multiroom_sync(self):
         """Sync client volumes from DSP after startup delay (ensures all services ready)."""
@@ -408,33 +403,13 @@ class AudioRoutingService:
                 await self._set_multiroom_state(enabled)
                 await self._update_systemd_environment()
 
+                # Notify frontend before transition
+                await self._broadcast_transition_event(enabled)
+
+                # Execute routing transition
                 if enabled:
-                    # Send event BEFORE starting services
-                    if self.state_machine:
-                        self.logger.info("Broadcasting multiroom_enabling event")
-                        await self.state_machine.broadcast_event("routing", "multiroom_enabling", {
-                            "reason": "user_action"
-                        })
-
-                        # Small delay to let frontend react
-                        await asyncio.sleep(0.1)
-                    else:
-                        self.logger.warning("state_machine not available, cannot broadcast event")
-
                     success = await self._transition_to_multiroom(active_source)
                 else:
-                    # Send event BEFORE stopping services
-                    if self.state_machine:
-                        self.logger.info("Broadcasting multiroom_disabling event")
-                        await self.state_machine.broadcast_event("routing", "multiroom_disabling", {
-                            "reason": "user_action"
-                        })
-
-                        # Small delay to let frontend react
-                        await asyncio.sleep(0.1)
-                    else:
-                        self.logger.warning("state_machine not available, cannot broadcast event")
-
                     success = await self._transition_to_direct(active_source)
 
                 if not success:
@@ -443,48 +418,13 @@ class AudioRoutingService:
                     self.logger.error(f"Failed to transition multiroom to {enabled}, reverting to {old_state}")
                     return False
 
-                if enabled and success:
+                if enabled:
                     await self._auto_configure_multiroom()
 
-                if self.snapcast_websocket_service:
-                    if enabled:
-                        await self.snapcast_websocket_service.start_connection()
-                    else:
-                        await self.snapcast_websocket_service.stop_connection()
-
-                # Wait for WebSocket to actually connect and initialize
-                if enabled and self.snapcast_websocket_service:
-                    self.logger.info("Waiting for Snapcast WebSocket to be ready...")
-                    ws_ready = await self.snapcast_websocket_service.wait_for_ready(timeout=15.0)
-                    if ws_ready:
-                        self.logger.info("Snapcast WebSocket is ready")
-                    else:
-                        self.logger.warning("Snapcast WebSocket not ready after timeout, proceeding anyway")
-
-                # Post-transition operations
-                if self.state_machine:
-                    volume_service = getattr(self.state_machine, 'volume_service', None)
-
-                    # Update volume mode FIRST (returns target volume for mode sync)
-                    target_volume = None
-                    if volume_service:
-                        target_volume = await volume_service.update_volume_mode(enabled)
-
-                    # Multiroom-specific: push volume and broadcast ready event
-                    if enabled:
-                        if volume_service and target_volume is not None:
-                            self.logger.info(f"Pushing volume ({target_volume:.1f}dB) to all clients...")
-                            await volume_service.push_volume_to_all_clients(target_volume)
-
-                        self.logger.info("Broadcasting multiroom_ready event")
-                        await self.state_machine.broadcast_event("routing", "multiroom_ready", {})
-
-                # Save state via SettingsService
-                if self.settings_service:
-                    await self.settings_service.set_setting('routing.multiroom_enabled', enabled)
+                # Post-transition: WebSocket, volume, settings
+                await self._post_transition_setup(enabled)
 
                 self.logger.info(f"Multiroom state changed and saved: {enabled}")
-
                 return True
 
             except Exception as e:
@@ -492,6 +432,55 @@ class AudioRoutingService:
                 await self._update_systemd_environment()
                 self.logger.error(f"Error changing multiroom state: {e}")
                 return False
+
+    async def _broadcast_transition_event(self, enabled: bool) -> None:
+        """Broadcast pre-transition event to let frontend react."""
+        if not self.state_machine:
+            self.logger.warning("state_machine not available, cannot broadcast event")
+            return
+        event_type = "multiroom_enabling" if enabled else "multiroom_disabling"
+        self.logger.info(f"Broadcasting {event_type} event")
+        await self.state_machine.broadcast_event("routing", event_type, {"reason": "user_action"})
+        await asyncio.sleep(0.1)  # Let frontend react
+
+    async def _post_transition_setup(self, enabled: bool) -> None:
+        """Handle WebSocket lifecycle, volume sync, and settings persistence after transition.
+
+        Exceptions propagate to caller for proper rollback handling.
+        """
+        # WebSocket connection lifecycle
+        if self.snapcast_websocket_service:
+            if enabled:
+                await self.snapcast_websocket_service.start_connection()
+            else:
+                await self.snapcast_websocket_service.stop_connection()
+
+        # Wait for WebSocket readiness
+        if enabled and self.snapcast_websocket_service:
+            self.logger.info("Waiting for Snapcast WebSocket to be ready...")
+            ws_ready = await self.snapcast_websocket_service.wait_for_ready(timeout=15.0)
+            if ws_ready:
+                self.logger.info("Snapcast WebSocket is ready")
+            else:
+                self.logger.warning("Snapcast WebSocket not ready after timeout, proceeding anyway")
+
+        # Update volume mode and push to clients
+        if self.state_machine:
+            volume_service = getattr(self.state_machine, 'volume_service', None)
+            target_volume = None
+            if volume_service:
+                target_volume = await volume_service.update_volume_mode(enabled)
+
+            if enabled:
+                if volume_service and target_volume is not None:
+                    self.logger.info(f"Pushing volume ({target_volume:.1f}dB) to all clients...")
+                    await volume_service.push_volume_to_all_clients(target_volume)
+                self.logger.info("Broadcasting multiroom_ready event")
+                await self.state_machine.broadcast_event("routing", "multiroom_ready", {})
+
+        # Persist setting
+        if self.settings_service:
+            await self.settings_service.set_setting('routing.multiroom_enabled', enabled)
     
     async def _auto_configure_multiroom(self):
         """Automatically configures all groups to Multiroom"""

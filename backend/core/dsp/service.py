@@ -9,7 +9,7 @@ from typing import Dict, List, Any, Optional
 from enum import Enum
 
 from backend.core.events import EventBus, get_event_bus
-from backend.core.dsp.presets import get_builtin_presets, get_preset_by_id, DEFAULT_MANUAL_GAINS
+from backend.core.dsp.presets import get_builtin_presets, get_preset_by_id, DEFAULT_MANUAL_GAINS, DEFAULT_EQ_FREQS
 
 
 class DspState(str, Enum):
@@ -291,13 +291,17 @@ class CamillaDSPService:
 
     # === Config Helper ===
 
-    async def _get_config(self) -> Optional[Dict[str, Any]]:
-        """Get config from active or file if inactive"""
+    async def _get_config(self) -> Dict[str, Any]:
+        """Get config from active or file if inactive. Always returns a valid config dict."""
         config = await self._run(self._client.config.active)
         if config is None:
             path = await self._run(self._client.config.file_path)
             if path:
                 config = await self._run(lambda: self._client.config.read_and_parse_file(path))
+        if config is None:
+            config = {}
+        config.setdefault("filters", {})
+        config.setdefault("pipeline", [])
         return config
 
     async def _set_config(self, config: Dict) -> None:
@@ -312,10 +316,7 @@ class CamillaDSPService:
 
         try:
             config = await self._get_config()
-
-            if config and "filters" in config:
-                self._filters = self._parse_filters(config["filters"])
-
+            self._filters = self._parse_filters(config["filters"])
             return self._filters
 
         except Exception as e:
@@ -381,14 +382,9 @@ class CamillaDSPService:
                 }
             }
 
-            # Get config (from active or file if inactive)
             config = await self._get_config()
-
-            if config:
-                if "filters" not in config:
-                    config["filters"] = {}
-                config["filters"][filter_id] = filter_config
-                await self._set_config(config)
+            config["filters"][filter_id] = filter_config
+            await self._set_config(config)
 
             # Update local cache
             for f in self._filters:
@@ -451,15 +447,7 @@ class CamillaDSPService:
                 }
             }
 
-            # Get current config and add filter
             config = await self._get_config()
-
-            if config is None:
-                config = {"filters": {}, "pipeline": []}
-
-            if "filters" not in config:
-                config["filters"] = {}
-
             config["filters"][filter_id] = filter_config
 
             await self._set_config(config)
@@ -489,7 +477,7 @@ class CamillaDSPService:
         try:
             config = await self._get_config()
 
-            if config and "filters" in config and filter_id in config["filters"]:
+            if filter_id in config["filters"]:
                 del config["filters"][filter_id]
 
                 await self._set_config(config)
@@ -619,45 +607,25 @@ class CamillaDSPService:
             persist: Set to False during bypass operations
             broadcast: Set to False to suppress WebSocket event (for batch zone updates)
         """
+        # Update local cache
+        if enabled is not None:
+            self._compressor["enabled"] = enabled
+        if threshold is not None:
+            self._compressor["threshold"] = threshold
+        if ratio is not None:
+            self._compressor["ratio"] = ratio
+        if attack is not None:
+            self._compressor["attack"] = attack
+        if release is not None:
+            self._compressor["release"] = release
+        if makeup_gain is not None:
+            self._compressor["makeup_gain"] = makeup_gain
+
         if not self._connected:
-            # Update local cache even when not connected
-            if enabled is not None:
-                self._compressor["enabled"] = enabled
-            if threshold is not None:
-                self._compressor["threshold"] = threshold
-            if ratio is not None:
-                self._compressor["ratio"] = ratio
-            if attack is not None:
-                self._compressor["attack"] = attack
-            if release is not None:
-                self._compressor["release"] = release
-            if makeup_gain is not None:
-                self._compressor["makeup_gain"] = makeup_gain
             return True
 
         try:
-            # Update local cache
-            if enabled is not None:
-                self._compressor["enabled"] = enabled
-            if threshold is not None:
-                self._compressor["threshold"] = threshold
-            if ratio is not None:
-                self._compressor["ratio"] = ratio
-            if attack is not None:
-                self._compressor["attack"] = attack
-            if release is not None:
-                self._compressor["release"] = release
-            if makeup_gain is not None:
-                self._compressor["makeup_gain"] = makeup_gain
-
-            # Get config
             config = await self._get_config()
-
-            if config is None:
-                config = {"filters": {}, "pipeline": []}
-
-            if not config.get("filters"):
-                config["filters"] = {}
 
             # Compressor is a Processor in CamillaDSP, not a Filter
             if not config.get("processors"):
@@ -734,12 +702,6 @@ class CamillaDSPService:
         try:
             config = await self._get_config()
 
-            if config is None:
-                config = {"filters": {}, "pipeline": []}
-
-            if "filters" not in config:
-                config["filters"] = {}
-
             if self._loudness["enabled"]:
                 # Loudness is implemented via low and high shelf filters
                 # adjusted based on current volume vs reference level
@@ -798,9 +760,7 @@ class CamillaDSPService:
         if not self._connected:
             return False
         try:
-            config = await self._get_config() or {"filters": {}, "pipeline": []}
-            if "filters" not in config:
-                config["filters"] = {}
+            config = await self._get_config()
 
             if enabled:
                 config["filters"][filter_name] = {
@@ -825,7 +785,7 @@ class CamillaDSPService:
             return {"enabled": False, "frequency": 80, "q": 0.707}
         try:
             config = await self._get_config()
-            if config and "filters" in config and "crossover_highpass" in config["filters"]:
+            if "crossover_highpass" in config["filters"]:
                 params = config["filters"]["crossover_highpass"].get("parameters", {})
                 return {"enabled": True, "frequency": params.get("freq", 80), "q": params.get("q", 0.707)}
             return {"enabled": False, "frequency": 80, "q": 0.707}
@@ -837,37 +797,8 @@ class CamillaDSPService:
         return await self._set_passband_filter("crossover_highpass", "Highpass", enabled, frequency, q, "crossover_changed")
 
     async def set_lowpass_filter(self, enabled: bool, frequency: float = 80.0, q: float = 0.707) -> bool:
-        """
-        Apply lowpass filter to send only bass to subwoofer.
-
-        Also enables/disables dither to prevent amp settling during quiet passages.
-        """
-        if not self._connected:
-            return False
-        try:
-            config = await self._get_config() or {"filters": {}, "pipeline": []}
-            if "filters" not in config:
-                config["filters"] = {}
-
-            if enabled:
-                # Add lowpass filter
-                config["filters"]["crossover_lowpass"] = {
-                    "type": "Biquad",
-                    "parameters": {"type": "Lowpass", "freq": frequency, "q": q}
-                }
-                self._add_filter_to_pipeline(config, "crossover_lowpass")
-            else:
-                # Remove lowpass filter
-                if "crossover_lowpass" in config["filters"]:
-                    del config["filters"]["crossover_lowpass"]
-                self._remove_filter_from_pipeline(config, "crossover_lowpass")
-
-            await self._set_config(config)
-            await self._broadcast_event("lowpass_changed", {"enabled": enabled, "frequency": frequency, "q": q})
-            return True
-        except Exception as e:
-            self.logger.error(f"Error setting lowpass: {e}")
-            return False
+        """Apply lowpass filter to send only bass to subwoofer."""
+        return await self._set_passband_filter("crossover_lowpass", "Lowpass", enabled, frequency, q, "lowpass_changed")
 
     # === Level Monitoring ===
 
@@ -894,9 +825,6 @@ class CamillaDSPService:
         # Ensure filters are loaded from CamillaDSP before applying gains
         if not self._filters:
             await self.get_filters()
-
-        # Default EQ frequencies if filters still not available
-        DEFAULT_EQ_FREQS = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
 
         for i, gain in enumerate(gains):
             filter_id = f"eq_band_{i:02d}"
@@ -1056,10 +984,11 @@ class CamillaDSPService:
                 # 3. Restore loudness settings
                 saved_loudness = await self.settings_service.get_setting("dsp.loudness")
                 if saved_loudness:
-                    # Filter to valid parameters only (reference_level was removed)
-                    valid_keys = {"enabled", "high_boost", "low_boost"}
-                    filtered_loudness = {k: v for k, v in saved_loudness.items() if k in valid_keys}
-                    await self.set_loudness(**filtered_loudness)
+                    await self.set_loudness(
+                        enabled=saved_loudness.get("enabled"),
+                        high_boost=saved_loudness.get("high_boost"),
+                        low_boost=saved_loudness.get("low_boost")
+                    )
 
             self.logger.info("DSP effects restored from settings")
             await self._broadcast_event("effects_restored", {"bypassed": False})
