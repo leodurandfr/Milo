@@ -6,6 +6,7 @@ Manages WebSocket connection to go-librespot for real-time
 event notifications (playback state, metadata updates, etc).
 """
 import asyncio
+import json
 import logging
 from typing import Callable, Awaitable, Optional
 
@@ -101,7 +102,6 @@ class LibrespotWebSocket:
 
                     if msg.type == aiohttp.WSMsgType.TEXT:
                         try:
-                            import json
                             event = json.loads(msg.data)
                             await self._on_event(event)
                         except Exception as e:

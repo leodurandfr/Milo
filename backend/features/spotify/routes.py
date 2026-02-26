@@ -49,11 +49,11 @@ def setup_spotify_routes(source_provider: Callable[[], SpotifySource]) -> APIRou
 def get_source() -> SpotifySource:
     """Dependency to get SpotifySource instance."""
     if _source_provider is None:
-        raise HTTPException(
-            status_code=500,
-            detail="Spotify source not initialized. Call setup_spotify_routes first."
-        )
-    return _source_provider()
+        raise HTTPException(status_code=503, detail="Spotify source not configured")
+    source = _source_provider()
+    if source is None:
+        raise HTTPException(status_code=503, detail="Spotify source not available")
+    return source
 
 
 @router.get("/status")

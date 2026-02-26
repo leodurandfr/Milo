@@ -57,7 +57,7 @@ export function useHardwareConfig() {
       return hardwareInfo.value;
     } catch (err) {
       error.value = err.message;
-      console.error('Error loading hardware info:', err);
+      logger.error('component', 'Error loading hardware info', err);
       // Default value in case of error
       hardwareInfo.value = {
         screen_type: 'none',

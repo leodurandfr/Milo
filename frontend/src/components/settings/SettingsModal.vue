@@ -14,8 +14,9 @@
       </template>
     </ModalHeader>
 
-    <!-- Content area -->
-    <Transition name="fade-slide" mode="out-in" @before-leave="onBeforeLeave" @after-leave="onAfterLeave"
+    <!-- Content area (wrapper provides positioning context for cross-fade overlay) -->
+    <div class="transition-wrapper">
+    <Transition name="fade-slide" @before-leave="onBeforeLeave" @after-leave="onAfterLeave"
       @enter="onEnter">
       <!-- Home view: list of categories -->
       <div v-if="currentView === 'home'" key="home" class="view-content">
@@ -159,6 +160,7 @@
       <!-- Information view -->
       <InfoSettings v-else-if="currentView === 'info'" key="info" class="view-content" />
     </Transition>
+    </div>
   </div>
 </template>
 
@@ -300,25 +302,28 @@ function handleBack() {
 
 // Transition hooks for header hide/show (only when scrolled)
 function onBeforeLeave() {
-  // Check if scrolled and hide header immediately so it fades out with content
+  // Check if scrolled and hide header + reset scroll before cross-fade starts
   wasScrolled.value = modalContentRef?.value?.scrollTop > 0;
   if (wasScrolled.value) {
     headerHidden.value = true;
+    resetScroll();
   }
 }
 
 function onAfterLeave() {
-  // Reset scroll after content fade-out completes (header already hidden)
-  resetScroll();
+  // After leave completes, show header (for scrolled case)
+  if (wasScrolled.value) {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        headerHidden.value = false;
+      });
+    });
+  }
 }
 
 function onEnter() {
-  // Double RAF to ensure browser paints the hidden state before fading in
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      headerHidden.value = false;
-    });
-  });
+  // No-op: header cross-fades internally for non-scrolled case,
+  // scrolled case is handled in onAfterLeave
 }
 
 // Radio navigation handling
@@ -520,13 +525,29 @@ onUnmounted(() => {
 /* Header hide/show transition (only when scroll reset is needed) */
 :deep(.modal-header) {
   transition: opacity var(--transition-in-out);
-  /* Fade-in: 400ms cubic-bezier(0.5,0,0.1,1) */
 }
 
 :deep(.modal-header.header-hidden) {
   opacity: 0;
   transition: opacity var(--transition-ultra-fast);
-  /* Fade-out: 150ms ease */
+}
+
+/* Cross-fade wrapper: positioning context for leaving element overlay */
+.transition-wrapper {
+  position: relative;
+}
+
+/* Leaving content overlays absolutely during cross-fade (doesn't affect height) */
+:deep(.fade-slide-leave-active) {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
+
+/* Disable slide on leave for cleaner cross-fade (opacity only) */
+:deep(.fade-slide-leave-to) {
+  transform: none;
 }
 
 .view-content {

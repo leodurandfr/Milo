@@ -173,6 +173,7 @@ async function loadData() {
   loadingTopCharts.value = true
   try {
     const response = await fetch('/api/podcast/discover/top-charts?content_type=PODCASTSERIES&limit=10')
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const data = await response.json()
     topCharts.value = data.results || []
   } catch (error) {
@@ -185,6 +186,7 @@ async function loadData() {
   loadingTopEpisodes.value = true
   try {
     const response = await fetch('/api/podcast/discover/top-charts?content_type=PODCASTEPISODE&limit=10')
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const data = await response.json()
     topEpisodes.value = podcastStore.enrichEpisodesWithProgress(data.results || [])
   } catch (error) {

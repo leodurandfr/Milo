@@ -58,6 +58,7 @@ class MetadataReader:
         on_artwork: Callable[[bytes], Any],
         on_progress: Optional[Callable[[int, int, int], Any]] = None,
         on_client_name: Optional[Callable[[str], Any]] = None,
+        on_connection: Optional[Callable[[str, Optional[str]], Any]] = None,
     ):
         """
         Args:
@@ -67,6 +68,8 @@ class MetadataReader:
             on_artwork: Callback for artwork data (raw image bytes)
             on_progress: Optional callback for progress (start, current, end in frames)
             on_client_name: Optional callback for client name (X-Apple-Client-Name)
+            on_connection: Optional callback for AirPlay 2 connection events
+                           ("connected"/"disconnected", client_ip)
         """
         self._pipe_path = pipe_path
         self._on_metadata = on_metadata
@@ -74,6 +77,7 @@ class MetadataReader:
         self._on_artwork = on_artwork
         self._on_progress = on_progress
         self._on_client_name = on_client_name
+        self._on_connection = on_connection
         self._task: Optional[asyncio.Task] = None
         self._running = False
 
@@ -105,21 +109,22 @@ class MetadataReader:
                 # Open pipe (blocks until writer connects)
                 fd = os.open(self._pipe_path, os.O_RDONLY | os.O_NONBLOCK)
                 reader = asyncio.StreamReader()
-                transport, _ = await asyncio.get_event_loop().connect_read_pipe(
+                transport, _ = await asyncio.get_running_loop().connect_read_pipe(
                     lambda: asyncio.StreamReaderProtocol(reader), os.fdopen(fd, "rb")
                 )
 
-                buffer = b""
-                while self._running:
-                    data = await reader.read(65536)
-                    if not data:
-                        # Pipe closed by writer, reopen
-                        break
+                try:
+                    buffer = b""
+                    while self._running:
+                        data = await reader.read(65536)
+                        if not data:
+                            # Pipe closed by writer, reopen
+                            break
 
-                    buffer += data
-                    buffer = self._process_buffer(buffer)
-
-                transport.close()
+                        buffer += data
+                        buffer = await self._process_buffer(buffer)
+                finally:
+                    transport.close()
 
             except asyncio.CancelledError:
                 raise
@@ -130,7 +135,7 @@ class MetadataReader:
                 logger.error(f"MetadataReader error: {e}")
                 await asyncio.sleep(1)
 
-    def _process_buffer(self, buffer: bytes) -> bytes:
+    async def _process_buffer(self, buffer: bytes) -> bytes:
         """Extract complete XML items from buffer and process them."""
         text = buffer.decode("utf-8", errors="replace")
 
@@ -140,14 +145,14 @@ class MetadataReader:
         last_end = 0
         for match in pattern.finditer(text):
             last_end = match.end()
-            self._parse_item(match.group(1))
+            await self._parse_item(match.group(1))
 
         # Return unprocessed remainder
         if last_end > 0:
             return text[last_end:].encode("utf-8", errors="replace")
         return buffer
 
-    def _parse_item(self, item_xml: str) -> None:
+    async def _parse_item(self, item_xml: str) -> None:
         """Parse a single metadata item and dispatch to handlers."""
         type_match = re.search(r"<type>([0-9a-fA-F]+)</type>", item_xml)
         code_match = re.search(r"<code>([0-9a-fA-F]+)</code>", item_xml)
@@ -169,68 +174,48 @@ class MetadataReader:
             except Exception:
                 raw_data = None
 
-        self._handle_item(item_type, code, raw_data)
+        await self._handle_item(item_type, code, raw_data)
 
-    def _handle_item(self, item_type: str, code: str, data: Optional[bytes]) -> None:
+    async def _handle_item(self, item_type: str, code: str, data: Optional[bytes]) -> None:
         """Route parsed item to appropriate handler."""
         try:
             if item_type == "ssnc":
-                self._handle_ssnc(code, data)
+                await self._handle_ssnc(code, data)
             elif item_type == "core":
                 self._handle_core(code, data)
         except Exception as e:
             logger.error(f"Error handling metadata item {item_type}/{code}: {e}")
 
-    def _handle_ssnc(self, code: str, data: Optional[bytes]) -> None:
+    async def _handle_ssnc(self, code: str, data: Optional[bytes]) -> None:
         """Handle shairport-sync control codes."""
         if code == "pbeg":
-            # Play begin
-            asyncio.get_event_loop().call_soon(
-                lambda: asyncio.ensure_future(self._on_play_state("play"))
-            )
+            await self._on_play_state("play")
         elif code == "pend":
-            # Play end
-            asyncio.get_event_loop().call_soon(
-                lambda: asyncio.ensure_future(self._on_play_state("stop"))
-            )
+            await self._on_play_state("stop")
         elif code == "pfls":
-            # Play flush (pause)
-            asyncio.get_event_loop().call_soon(
-                lambda: asyncio.ensure_future(self._on_play_state("pause"))
-            )
+            await self._on_play_state("pause")
         elif code == "prsm":
-            # Play resume
-            asyncio.get_event_loop().call_soon(
-                lambda: asyncio.ensure_future(self._on_play_state("play"))
-            )
+            await self._on_play_state("play")
         elif code == "PICT" and data:
-            # Artwork
-            asyncio.get_event_loop().call_soon(
-                lambda d=data: asyncio.ensure_future(self._on_artwork(d))
-            )
+            await self._on_artwork(data)
         elif code == "prgr" and data:
-            # Progress: "start/current/end" in RTP frames (44100 Hz)
-            self._handle_progress(data)
+            await self._handle_progress(data)
         elif code == "mdst":
-            # Metadata stream start
             self._pending_metadata = {}
         elif code == "mden":
-            # Metadata stream end - flush accumulated metadata
             if self._pending_metadata:
-                asyncio.get_event_loop().call_soon(
-                    lambda m=dict(self._pending_metadata): asyncio.ensure_future(
-                        self._on_metadata(m)
-                    )
-                )
+                await self._on_metadata(dict(self._pending_metadata))
         elif code == "snam" and data:
-            # Client name (X-Apple-Client-Name, e.g. "Mac mini de Léo")
             if self._on_client_name:
                 name = data.decode("utf-8", errors="replace")
-                asyncio.get_event_loop().call_soon(
-                    lambda n=name: asyncio.ensure_future(self._on_client_name(n))
-                )
+                await self._on_client_name(name)
+        elif code == "conn" and self._on_connection:
+            client_ip = data.decode("utf-8", errors="replace") if data else None
+            await self._on_connection("connected", client_ip)
+        elif code == "disc" and self._on_connection:
+            client_ip = data.decode("utf-8", errors="replace") if data else None
+            await self._on_connection("disconnected", client_ip)
         elif code == "snua" and data:
-            # User agent (device info)
             logger.debug(f"AirPlay device: {data.decode('utf-8', errors='replace')}")
 
     def _handle_core(self, code: str, data: Optional[bytes]) -> None:
@@ -249,7 +234,7 @@ class MetadataReader:
         elif code == "asgn":
             self._pending_metadata["genre"] = text
 
-    def _handle_progress(self, data: bytes) -> None:
+    async def _handle_progress(self, data: bytes) -> None:
         """Parse progress data and invoke callback."""
         if not self._on_progress:
             return
@@ -261,10 +246,6 @@ class MetadataReader:
                 start = int(parts[0])
                 current = int(parts[1])
                 end = int(parts[2])
-                asyncio.get_event_loop().call_soon(
-                    lambda s=start, c=current, e=end: asyncio.ensure_future(
-                        self._on_progress(s, c, e)
-                    )
-                )
+                await self._on_progress(start, current, end)
         except (ValueError, IndexError):
             pass

@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import axios from 'axios'
 import { useUnifiedAudioStore } from './unifiedAudioStore'
+import { logger } from '@/services/logger'
 
 // Maximum progress entries to cache (prevents unbounded memory growth)
 const MAX_PROGRESS_ENTRIES = 200
@@ -39,6 +40,7 @@ export const usePodcastStore = defineStore('podcast', () => {
   })
   const subscriptionsListLoaded = ref(false) // True when subscriptions list is loaded (no Taddy call)
   const subscriptionsLoaded = ref(false) // True when latest episodes are also loaded (with Taddy call)
+  const subscriptionsFullLoading = ref(false) // Guard against concurrent loadSubscriptions calls
 
   // === SEARCH STATE ===
   // Persisted across navigation within Podcasts module
@@ -119,7 +121,7 @@ export const usePodcastStore = defineStore('podcast', () => {
       // pendingEpisodeUuid will be cleared in handleStateUpdate()
     } catch (error) {
       pendingEpisodeUuid.value = null
-      console.error('Error playing episode:', error)
+      logger.error('store', 'Error playing episode', error)
       throw error
     }
   }
@@ -129,7 +131,7 @@ export const usePodcastStore = defineStore('podcast', () => {
       await axios.post('/api/podcast/pause')
       // State will be updated via WebSocket broadcast from backend
     } catch (error) {
-      console.error('Error pausing:', error)
+      logger.error('store', 'Error pausing', error)
     }
   }
 
@@ -138,7 +140,7 @@ export const usePodcastStore = defineStore('podcast', () => {
       await axios.post('/api/podcast/resume')
       // State will be updated via WebSocket broadcast from backend
     } catch (error) {
-      console.error('Error resuming:', error)
+      logger.error('store', 'Error resuming', error)
     }
   }
 
@@ -147,26 +149,20 @@ export const usePodcastStore = defineStore('podcast', () => {
       await axios.post('/api/podcast/seek', { position: Math.floor(position) })
       currentPosition.value = position
     } catch (error) {
-      console.error('Error seeking:', error)
+      logger.error('store', 'Error seeking', error)
     }
   }
 
   async function stop() {
     try {
       await axios.post('/api/podcast/stop')
-      // State will be cleared via WebSocket broadcast from backend
+      // Don't clear displayEpisode, currentPosition, or currentDuration here —
+      // preserve all metadata during fade-out animation.
+      // clearDisplayEpisode() handles cleanup after animation completes,
+      // and clearState() handles cleanup on source switch.
       currentEpisode.value = null
-      displayEpisode.value = null
-      currentPosition.value = 0
-      currentDuration.value = 0
-
-      // Clear any pending delayed clear
-      if (delayedClearTimeout) {
-        clearTimeout(delayedClearTimeout)
-        delayedClearTimeout = null
-      }
     } catch (error) {
-      console.error('Error stopping:', error)
+      logger.error('store', 'Error stopping', error)
     }
   }
 
@@ -177,7 +173,7 @@ export const usePodcastStore = defineStore('podcast', () => {
         playbackSpeed.value = response.data.speed
       }
     } catch (error) {
-      console.error('Error setting speed:', error)
+      logger.error('store', 'Error setting speed', error)
     }
   }
 
@@ -191,7 +187,7 @@ export const usePodcastStore = defineStore('podcast', () => {
         playbackSpeed.value = response.data.settings.playbackSpeed || 1.0
       }
     } catch (error) {
-      console.error('Error loading settings:', error)
+      logger.error('store', 'Error loading settings', error)
     }
   }
 
@@ -200,7 +196,7 @@ export const usePodcastStore = defineStore('podcast', () => {
       await axios.post('/api/podcast/settings', newSettings)
       settings.value = { ...settings.value, ...newSettings }
     } catch (error) {
-      console.error('Error updating settings:', error)
+      logger.error('store', 'Error updating settings', error)
     }
   }
 
@@ -357,7 +353,7 @@ export const usePodcastStore = defineStore('podcast', () => {
       subscriptions.value = arrayToSubscriptionsMap(response.data.subscriptions || [])
       subscriptionsListLoaded.value = true
     } catch (error) {
-      console.error('Error preloading subscriptions list:', error)
+      logger.error('store', 'Error preloading subscriptions list', error)
     }
   }
 
@@ -369,23 +365,31 @@ export const usePodcastStore = defineStore('podcast', () => {
       return { subscriptions: subscriptionsList.value, latestEpisodes: latestSubscriptionEpisodes.value }
     }
 
-    // Reuse subscriptions list if already preloaded, otherwise fetch
-    if (!subscriptionsListLoaded.value) {
-      const response = await axios.get('/api/podcast/subscriptions')
-      subscriptions.value = arrayToSubscriptionsMap(response.data.subscriptions || [])
-      subscriptionsListLoaded.value = true
-    }
+    // Prevent concurrent calls (HomeView + SubscriptionsView mounting simultaneously)
+    if (subscriptionsFullLoading.value) return
+    subscriptionsFullLoading.value = true
 
-    // Fetch latest episodes (Taddy API call) if user has subscriptions
-    if (subscriptions.value.size > 0) {
-      const response = await axios.get('/api/podcast/subscriptions/latest-episodes', { params: { limit: 20 } })
-      latestSubscriptionEpisodes.value = enrichEpisodesWithProgress(response.data.results || [])
-    } else {
-      latestSubscriptionEpisodes.value = []
-    }
+    try {
+      // Reuse subscriptions list if already preloaded, otherwise fetch
+      if (!subscriptionsListLoaded.value) {
+        const response = await axios.get('/api/podcast/subscriptions')
+        subscriptions.value = arrayToSubscriptionsMap(response.data.subscriptions || [])
+        subscriptionsListLoaded.value = true
+      }
 
-    subscriptionsLoaded.value = true
-    return { subscriptions: subscriptionsList.value, latestEpisodes: latestSubscriptionEpisodes.value }
+      // Fetch latest episodes (Taddy API call) if user has subscriptions
+      if (subscriptions.value.size > 0) {
+        const response = await axios.get('/api/podcast/subscriptions/latest-episodes', { params: { limit: 20 } })
+        latestSubscriptionEpisodes.value = enrichEpisodesWithProgress(response.data.results || [])
+      } else {
+        latestSubscriptionEpisodes.value = []
+      }
+
+      subscriptionsLoaded.value = true
+      return { subscriptions: subscriptionsList.value, latestEpisodes: latestSubscriptionEpisodes.value }
+    } finally {
+      subscriptionsFullLoading.value = false
+    }
   }
 
   function addSubscription(subscription) {
@@ -475,9 +479,11 @@ export const usePodcastStore = defineStore('podcast', () => {
     // Keep progress cache for displaying "X min restantes" on paused episodes
   }
 
-  // Clear display episode after fade-out animation
+  // Clear display metadata after fade-out animation completes
   function clearDisplayEpisode() {
     displayEpisode.value = null
+    currentPosition.value = 0
+    currentDuration.value = 0
 
     // Clear any pending timeout
     if (delayedClearTimeout) {

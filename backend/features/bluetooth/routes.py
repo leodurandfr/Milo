@@ -46,11 +46,11 @@ def setup_bluetooth_routes(source_provider: Callable[[], BluetoothSource]) -> AP
 def get_source() -> BluetoothSource:
     """Dependency to get BluetoothSource instance."""
     if _source_provider is None:
-        raise HTTPException(
-            status_code=500,
-            detail="Bluetooth source not initialized. Call setup_bluetooth_routes first."
-        )
-    return _source_provider()
+        raise HTTPException(status_code=503, detail="Bluetooth source not configured")
+    source = _source_provider()
+    if source is None:
+        raise HTTPException(status_code=503, detail="Bluetooth source not available")
+    return source
 
 
 @router.get("/status")

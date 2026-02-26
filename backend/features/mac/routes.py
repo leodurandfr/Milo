@@ -47,11 +47,11 @@ def setup_mac_routes(source_provider: Callable[[], MacSource]) -> APIRouter:
 def get_source() -> MacSource:
     """Dependency to get MacSource instance."""
     if _source_provider is None:
-        raise HTTPException(
-            status_code=500,
-            detail="Mac source not initialized. Call setup_mac_routes first."
-        )
-    return _source_provider()
+        raise HTTPException(status_code=503, detail="Mac source not configured")
+    source = _source_provider()
+    if source is None:
+        raise HTTPException(status_code=503, detail="Mac source not available")
+    return source
 
 
 @router.get("/status")

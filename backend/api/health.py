@@ -47,7 +47,6 @@ def create_health_router(state_machine, routing_service, snapcast_service):
             checks["status"] = "unhealthy"
 
         try:
-            routing_state = routing_service.get_state()
             if routing_state.get('multiroom_enabled', False):
                 snapcast_status = await routing_service.get_snapcast_status()
                 checks["services"]["snapcast"] = {

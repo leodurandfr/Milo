@@ -49,11 +49,11 @@ def setup_podcast_routes(source_provider: Callable[[], PodcastSource]) -> APIRou
 def get_source() -> PodcastSource:
     """Dependency to get PodcastSource instance."""
     if _source_provider is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Podcast source not configured"
-        )
-    return _source_provider()
+        raise HTTPException(status_code=503, detail="Podcast source not configured")
+    source = _source_provider()
+    if source is None:
+        raise HTTPException(status_code=503, detail="Podcast source not available")
+    return source
 
 
 # === Language/Country Mappings ===

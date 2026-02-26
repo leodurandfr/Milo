@@ -107,7 +107,7 @@ import AudioPlayer from '@/components/audio/AudioPlayer.vue'
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue'
 import Dropdown from '@/components/ui/Dropdown.vue'
 import episodePlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
-import { PLAYER_HIDE_DELAY_MS } from '@/constants/audio_player'
+import { PODCAST_PLAYER_HIDE_DELAY_MS } from '@/constants/audio_player'
 
 // Views
 import HomeView from './HomeView.vue'
@@ -170,7 +170,7 @@ const shouldShowPlayerLayout = ref(false)
 // Auto-stop timer: stops playback after 5 seconds of pause
 const stopTimer = ref(null)
 
-// Watch plugin_state to show player when connected
+// Watch plugin_state to show/hide player
 watch(() => unifiedStore.systemState.plugin_state, (newState) => {
   const isPodcastActive = unifiedStore.systemState.active_source === 'podcast'
 
@@ -185,8 +185,14 @@ watch(() => unifiedStore.systemState.plugin_state, (newState) => {
         shouldShowPlayerLayout.value = true
       })
     })
+  } else if (isPodcastActive && newState === 'ready' && shouldShowPlayerLayout.value) {
+    // Episode ended or playback fully stopped - hide player with fade-out
+    if (stopTimer.value) {
+      clearTimeout(stopTimer.value)
+      stopTimer.value = null
+    }
+    shouldShowPlayerLayout.value = false
   }
-  // Note: Don't hide here when state becomes 'ready' - let the isCurrentlyPlaying watcher handle the delayed hide
 }, { immediate: true })
 
 // Watch active_source to hide immediately when switching to another source
@@ -230,7 +236,7 @@ watch(() => [isCurrentlyPlaying.value, isBuffering.value, podcastStore.hasCurren
         if (!isCurrentlyPlaying.value && !isBuffering.value) {
           await podcastStore.stop()
         }
-      }, PLAYER_HIDE_DELAY_MS)
+      }, PODCAST_PLAYER_HIDE_DELAY_MS)
     }
   }, { immediate: true })
 

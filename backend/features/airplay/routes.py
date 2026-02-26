@@ -30,11 +30,11 @@ def setup_airplay_routes(source_provider: Callable[[], AirPlaySource]) -> APIRou
 def get_source() -> AirPlaySource:
     """Dependency to get AirPlaySource instance."""
     if _source_provider is None:
-        raise HTTPException(
-            status_code=500,
-            detail="AirPlay source not initialized."
-        )
-    return _source_provider()
+        raise HTTPException(status_code=503, detail="AirPlay source not configured")
+    source = _source_provider()
+    if source is None:
+        raise HTTPException(status_code=503, detail="AirPlay source not available")
+    return source
 
 
 @router.get("/status")

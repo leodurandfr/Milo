@@ -53,6 +53,21 @@ CAMILLADSP_RECONNECT_DELAY = 5  # Seconds between reconnection attempts
 CAMILLADSP_COMMAND_TIMEOUT = 5  # Timeout for CamillaDSP commands
 
 # =============================================================================
+# GPIO PINS (rotary encoder)
+# =============================================================================
+ROTARY_CLK_PIN = 22
+ROTARY_DT_PIN = 27
+ROTARY_SW_PIN = 23
+
+# =============================================================================
+# MAC ROC STREAMING
+# =============================================================================
+MAC_RTP_PORT = 10001
+MAC_RS8M_PORT = 10002
+MAC_RTCP_PORT = 10003
+MAC_AUDIO_OUTPUT = "hw:1,0"
+
+# =============================================================================
 # MULTIROOM SETTINGS
 # =============================================================================
 SNAPCAST_CACHE_MS = 5000        # Client cache duration in milliseconds

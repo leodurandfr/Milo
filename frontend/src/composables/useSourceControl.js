@@ -1,6 +1,7 @@
 // frontend/src/composables/useSourceControl.js
 // Generic playback control composable (play/pause, next, previous)
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { logger } from '@/services/logger';
 
 export function useSourceControl(source) {
   const unifiedStore = useUnifiedAudioStore();
@@ -9,7 +10,7 @@ export function useSourceControl(source) {
     try {
       await unifiedStore.sendCommand(source, command);
     } catch (error) {
-      console.error(`Error executing command ${command} on ${source}:`, error);
+      logger.error('component', `Error executing command ${command} on ${source}`, error);
     }
   }
 
