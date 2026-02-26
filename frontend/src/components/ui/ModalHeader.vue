@@ -90,12 +90,11 @@ function handleBack() {
   display: flex;
   background: var(--color-background-contrast);
   border-radius: var(--radius-06);
-  padding: var(--space-03) var(--space-04) var(--space-03) var(--space-05);
+  padding: var(--space-03) var(--space-04) var(--space-03) var(--space-03);
   min-height: 72px;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-03);
-  transition: padding var(--transition-ultra-fast);
 }
 
 .modal-header.variant-background-neutral {
@@ -104,11 +103,6 @@ function handleBack() {
 
 .modal-header.variant-background-neutral h2 {
   color: var(--color-text);
-}
-
-.modal-header.has-icon,
-.modal-header.has-back {
-  padding: var(--space-03) var(--space-04) var(--space-03) var(--space-03);
 }
 
 .modal-header h2 {
@@ -145,6 +139,7 @@ function handleBack() {
 
 .title-only {
   width: 100%;
+  padding-left: calc(var(--space-05) - var(--space-03));
 }
 
 .header-icon {
@@ -189,7 +184,7 @@ function handleBack() {
 /* Header content cross-fade transition - aligned with fade-slide body transition */
 /* iOS WebKit requires transform to properly animate opacity */
 .header-fade-leave-active {
-  transition: opacity var(--transition-ultra-fast);
+  transition: opacity var(--transition-fast);
   transform: translate3d(0, 0, 0);
   -webkit-backface-visibility: hidden;
 }
@@ -208,7 +203,7 @@ function handleBack() {
 /* Actions cross-fade transition - aligned with fade-slide body transition */
 /* iOS WebKit requires transform to properly animate opacity */
 .actions-fade-leave-active {
-  transition: opacity var(--transition-ultra-fast);
+  transition: opacity var(--transition-fast);
   transform: translate3d(0, 0, 0);
   -webkit-backface-visibility: hidden;
 }
@@ -227,10 +222,13 @@ function handleBack() {
 @media (max-aspect-ratio: 4/3) {
   .modal-header {
     min-height: 64px;
-    padding: var(--space-04) var(--space-04) var(--space-04) var(--space-06);
+    padding: var(--space-04) var(--space-04) var(--space-04) var(--space-03);
     border-radius: var(--radius-05);
   }
 
+  .title-only {
+    padding-left: calc(var(--space-06) - var(--space-03));
+  }
 
   .header-icon {
     width: 40px !important;

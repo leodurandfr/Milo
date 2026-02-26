@@ -545,11 +545,6 @@ onUnmounted(() => {
   width: 100%;
 }
 
-/* Disable slide on leave for cleaner cross-fade (opacity only) */
-:deep(.fade-slide-leave-to) {
-  transform: none;
-}
-
 .view-content {
   display: flex;
   flex-direction: column;
