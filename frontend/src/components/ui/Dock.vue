@@ -15,7 +15,7 @@
 
       <button v-for="(app, index) in additionalDockApps.slice().reverse()" :key="app.id"
         @click="() => handleAdditionalAppClick(app.id)" v-press
-        :style="{ '--stagger': `${0.05 + index * 0.03}s` }"
+        :style="{ '--stagger': `${0.05 + (additionalDockApps.length - 1 - index) * 0.02}s` }"
         class="additional-app-content glass-border button-interactive-subtle">
         <AppIcon :name="app.icon" :size="32" />
         <div class="app-title heading-2">{{ getAppTitle(app.id) }}</div>
@@ -95,13 +95,13 @@ const registerDockControl = inject('registerDockControl', null);
 const ALL_AUDIO_SOURCES = ['spotify', 'bluetooth', 'radio', 'podcast', 'airplay', 'mac'];
 
 // === ANIMATION TIMING ===
-const DOCK_ANIM_INITIAL_DELAY = 0.16;  // Initial delay in seconds
-const DOCK_ANIM_STAGGER = 0.016;       // Stagger between items in seconds
+const DOCK_ANIM_INITIAL_DELAY = 0.08;  // Initial delay in seconds
+const DOCK_ANIM_STAGGER = 0.015;        // Stagger between items in seconds
 
 
 // Actions with reactive titles
 const ALL_ADDITIONAL_ACTIONS = computed(() => [
-  { id: 'equalizer', icon: 'equalizer', title: t('dsp.title'), handler: () => emit('open-equalizer') },
+  { id: 'equalizer', icon: 'equalizer', title: t('equalizer.title'), handler: () => emit('open-equalizer') },
   { id: 'multiroom', icon: 'multiroom', title: t('audioSources.multiroom'), handler: () => emit('open-multiroom') },
   { id: 'settings', icon: 'settings', title: t('common.settings'), handler: () => emit('open-settings') }
 ]);
@@ -306,17 +306,20 @@ const onVolumeHoldEnd = (event) => {
 // === DOCK MANAGEMENT ===
 const showDock = () => {
   if (isVisible.value) return;
+  isVisible.value = true;
+  isFullyVisible.value = false;
 
   // Reset items: disable transition, force reflow, re-enable
   dockContainer.value.classList.add('resetting');
   void dockContainer.value.offsetHeight;
   dockContainer.value.classList.remove('resetting');
 
-  isVisible.value = true;
-  isFullyVisible.value = false;
-  startHideTimer();
-  setTimeout(() => isFullyVisible.value = true, 400);
-  setTimeout(updateActiveIndicator, 500);
+  // Wait one frame so the reset state is painted before triggering visible transition
+  requestAnimationFrame(() => {
+    startHideTimer();
+    setTimeout(() => isFullyVisible.value = true, 400);
+    setTimeout(updateActiveIndicator, 500);
+  });
 };
 
 const hideDock = () => {
@@ -579,7 +582,7 @@ const closeAdditionalApps = () => {
   if (!showAdditionalApps.value) return;
   showAdditionalApps.value = false;
   clearTimeout(additionalHideTimeout);
-  additionalHideTimeout = setTimeout(() => additionalAppsInDOM.value = false, 600);
+  additionalHideTimeout = setTimeout(() => additionalAppsInDOM.value = false, 1200);
 };
 
 const handleToggleClick = (event) => {
@@ -757,7 +760,7 @@ onUnmounted(() => {
   gap: var(--space-01);
   opacity: 0;
   pointer-events: none;
-  transition: all var(--transition-spring-fast);
+  transition: opacity var(--transition-spring-fast), transform var(--transition-spring-fast);
   cursor: grab;
 }
 
@@ -777,7 +780,7 @@ onUnmounted(() => {
   border: none;
   cursor: pointer;
   border-radius: var(--radius-04);
-  transition: all var(--transition-spring-fast);
+  transition: opacity var(--transition-spring-fast), transform var(--transition-spring-fast);
   opacity: 0;
   transform: translateY(20px) scale(0.95);
 }
@@ -797,10 +800,11 @@ onUnmounted(() => {
   position: fixed;
   bottom: 0;
   left: 50%;
-  transform: translateX(-50%) translateY(148px) scale(0.85);
+  transform: translateX(-50%) translateY(164px) scale(0.9);
   z-index: 4000;
-  transition: transform var(--transition-spring);
+  transition: transform var(--transition-spring-light);
   width: fit-content;
+  will-change: transform;
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
 }
@@ -835,8 +839,9 @@ onUnmounted(() => {
   gap: var(--space-02);
   width: 100%;
   opacity: 0;
-  transform: translateY(20px) scale(0.8);
-  transition: all var(--transition-spring);
+  transform: translateY(20px) scale(0.8) translateZ(0);
+  transition: opacity var(--transition-spring), transform var(--transition-spring);
+  will-change: transform, opacity;
 }
 
 .volume-btn {
@@ -849,7 +854,7 @@ onUnmounted(() => {
   cursor: pointer;
   color: var(--color-text-secondary);
   padding: var(--space-02);
-  transition: all var(--transition-spring);
+  transition: opacity var(--transition-spring), transform var(--transition-spring);
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
@@ -868,35 +873,26 @@ onUnmounted(() => {
   background: var(--color-background-neutral-50);
   border-radius: var(--radius-full);
   opacity: 0;
-  transform: translateY(20px) scale(0.8);
-  transition: all var(--transition-spring);
+  transform: translateY(20px) scale(0.8) translateZ(0);
+  transition: opacity var(--transition-spring), transform var(--transition-spring);
+  will-change: transform, opacity;
 }
 
 .dock-item {
   cursor: pointer;
-  opacity: 0;
-  transform: translateY(20px) scale(0.8);
-  transition: all var(--transition-spring);
   background: none;
   border: none;
-}
-
-.toggle-btn {
-  height: 64px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--color-background-neutral-50);
-  border-radius: var(--radius-03);
-  padding: 0 var(--space-01);
-  color: var(--color-text-secondary);
+  opacity: 0;
+  transform: translateY(20px) scale(0.8) translateZ(0);
+  transition: opacity var(--transition-spring), transform var(--transition-spring);
+  will-change: transform, opacity;
 }
 
 .dock-container.visible .dock-item,
 .dock-container.visible .dock-separator,
 .dock-container.visible .volume-controls {
   opacity: 1;
-  transform: translateY(0) scale(1);
+  transform: translateY(0) scale(1) translateZ(0);
 }
 
 .dock-container.visible.fully-visible .dock-item,
@@ -910,6 +906,18 @@ onUnmounted(() => {
 .dock-container.resetting .volume-controls {
   transition: none !important;
 }
+
+.toggle-btn {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-background-neutral-50);
+  border-radius: var(--radius-03);
+  padding: 0 var(--space-01);
+  color: var(--color-text-secondary);
+}
+
 
 .dock-item-icon {
   width: 48px;
