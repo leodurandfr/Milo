@@ -109,13 +109,13 @@ const displayedStatusLines = computed(() => {
       case 'bluetooth':
         return [t('status.loadingOfMasculine'), t('audioSources.bluetooth')];
       case 'mac':
-        return [t('status.loadingOfMasculine'), t('audioSources.macReceiver')];
+        return [t('status.loadingOfMasculine'), t('audioSources.macOS')];
       case 'spotify':
         return [t('status.loadingOf'), t('audioSources.spotify')];
       case 'radio':
         return [t('status.loadingOfFeminine'), t('audioSources.radio')];
       case 'podcast':
-        return [t('status.loadingOf'), 'Podcasts'];
+        return [t('status.loadingOf'), t('audioSources.podcasts')];
       case 'airplay':
         return [t('status.loadingOf'), t('audioSources.airplay')];
       default:
@@ -129,13 +129,13 @@ const displayedStatusLines = computed(() => {
       case 'bluetooth':
         return [t('audioSources.bluetooth'), t('status.ready')];
       case 'mac':
-        return [t('audioSources.macReceiver'), t('status.readyToStream')];
+        return [t('audioSources.macOS'), t('status.readyToStream')];
       case 'spotify':
         return [t('audioSources.spotify'), t('status.ready')];
       case 'radio':
         return [t('audioSources.radio'), t('status.readyToStream')];
       case 'podcast':
-        return ['Podcasts', t('status.ready')];
+        return [t('audioSources.podcasts'), t('status.ready')];
       case 'airplay':
         return [t('audioSources.airplay'), t('status.readyToStream')];
       default:

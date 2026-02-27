@@ -206,11 +206,11 @@ function getProgramIcon(programKey) {
 
 function getProgramDisplayName(program, key) {
   const nameOverrides = {
-    'go-librespot': t('updates.spotifyConnect'),
-    'multiroom': t('updates.multiroom'),
-    'bluez-alsa': t('updates.bluetoothAudio'),
-    'roc-toolkit': t('updates.macStreaming'),
-    'shairport-sync': t('updates.airplay')
+    'go-librespot': t('audioSources.spotify'),
+    'multiroom': t('audioSources.multiroom'),
+    'bluez-alsa': t('audioSources.bluetooth'),
+    'roc-toolkit': t('audioSources.macOS'),
+    'shairport-sync': t('audioSources.airplay')
   };
   return nameOverrides[key] || program.name;
 }

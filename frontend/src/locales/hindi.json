@@ -21,11 +21,11 @@
     "title": "ऑडियो स्रोत",
     "spotify": "Spotify",
     "bluetooth": "ब्लूटूथ",
-    "macReceiver": "Mac ऑडियो रिसीवर",
-    "rocReception": "Mac ऑडियो रिसेप्शन",
     "radio": "रेडियो",
     "podcasts": "पॉडकास्ट",
     "airplay": "AirPlay",
+    "macOS": "macOS रिसीवर",
+    "multiroom": "Multiroom",
     "radioSource": {
       "favoritesTitle": "पसंदीदा रेडियो",
       "discoverTitle": "रेडियो खोजें",
@@ -47,7 +47,6 @@
     }
   },
   "multiroom": {
-    "title": "मल्टीरूम",
     "settings": "मल्टीरूम कॉन्फ़िगरेशन",
     "disabled": "मल्टीरूम सक्रिय नहीं है",
     "starting": "मल्टीरूम शुरू हो रहा है",
@@ -236,12 +235,10 @@
     "screensaverDelay": "स्क्रीनसेवर शुरू करें, इसके बाद:"
   },
   "spotifySettings": {
-    "title": "Spotify",
     "autoDisconnect": "ऑटो डिस्कनेक्ट",
     "disconnectDelay": "संगीत रुकने के बाद डिस्कनेक्ट देरी:"
   },
   "macSettings": {
-    "title": "Mac स्ट्रीमिंग",
     "latency": "विलंबता",
     "targetLatency": "लक्ष्य विलंबता",
     "latencyProfile": "विलंबता प्रोफ़ाइल",
@@ -256,7 +253,6 @@
     "warning": "कम विलंबता अस्थिर नेटवर्क पर ऑडियो में रुकावट पैदा कर सकती है।"
   },
   "podcastSettings": {
-    "title": "पॉडकास्ट",
     "taddyCredentials": "Taddy API क्रेडेंशियल",
     "credentialsDescription": "पॉडकास्ट सामग्री तक पहुंचने के लिए अपने Taddy API क्रेडेंशियल कॉन्फ़िगर करें। https://taddy.org/signup/developers पर अपने क्रेडेंशियल प्राप्त करें",
     "userId": "यूजर आईडी",
@@ -311,11 +307,6 @@
     "noSatellites": "नेटवर्क पर कोई सैटेलाइट का पता नहीं चला",
     "updatingInit": "अपडेट प्रारंभ हो रहा है...",
     "miloApp": "ऑपरेटिंग सिस्टम",
-    "spotifyConnect": "Spotify Connect",
-    "multiroom": "मल्टीरूम ऑडियो",
-    "bluetoothAudio": "ब्लूटूथ ऑडियो",
-    "macStreaming": "macOS से ऑडियो स्ट्रीमिंग",
-    "airplay": "AirPlay ऑडियो",
     "upToDate": "अप टू डेट",
     "progress": {
       "creatingBackup": "बैकअप बनाया जा रहा है...",
@@ -366,11 +357,7 @@
   },
   "applications": {
     "title": "एप्लिकेशन",
-    "features": "सुविधाएं",
-    "spotify": "Spotify",
-    "bluetooth": "ब्लूटूथ",
-    "macOS": "macOS",
-    "airplay": "AirPlay"
+    "features": "सुविधाएं"
   },
   "applicationsSettings": {
     "inactivityTimeout": "स्वचालित बंद",

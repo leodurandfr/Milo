@@ -21,11 +21,11 @@
     "title": "Fuentes de audio",
     "spotify": "Spotify",
     "bluetooth": "Bluetooth",
-    "macReceiver": "Receptor de audio Mac",
-    "rocReception": "Recepción de audio Mac",
     "radio": "Radio",
     "podcasts": "Podcasts",
     "airplay": "AirPlay",
+    "macOS": "Receptor macOS",
+    "multiroom": "Multiroom",
     "radioSource": {
       "favoritesTitle": "Radios favoritas",
       "discoverTitle": "Descubrir radios",
@@ -47,7 +47,6 @@
     }
   },
   "multiroom": {
-    "title": "Multiroom",
     "settings": "Configuración Multiroom",
     "disabled": "El multiroom no está activado",
     "starting": "Iniciando Multiroom",
@@ -236,12 +235,10 @@
     "screensaverDelay": "Iniciar el protector de pantalla después de:"
   },
   "spotifySettings": {
-    "title": "Spotify",
     "autoDisconnect": "Desconexión automática",
     "disconnectDelay": "Retraso de desconexión después de que la música esté en pausa durante:"
   },
   "macSettings": {
-    "title": "Streaming Mac",
     "latency": "Latencia",
     "targetLatency": "Latencia objetivo",
     "latencyProfile": "Perfil de latencia",
@@ -256,7 +253,6 @@
     "warning": "Una latencia baja puede causar cortes de audio en redes inestables."
   },
   "podcastSettings": {
-    "title": "Podcasts",
     "taddyCredentials": "Credenciales API de Taddy",
     "credentialsDescription": "Configure sus credenciales de Taddy API para acceder al contenido de podcasts. Obtenga sus credenciales en https://taddy.org/signup/developers",
     "userId": "User ID",
@@ -311,11 +307,6 @@
     "noSatellites": "Ningún satélite detectado en la red",
     "updatingInit": "Inicializando actualización...",
     "miloApp": "Sistema operativo",
-    "spotifyConnect": "Spotify Connect",
-    "multiroom": "Audio multiroom",
-    "bluetoothAudio": "Audio bluetooth",
-    "macStreaming": "Transmisión de audio desde macOS",
-    "airplay": "Audio AirPlay",
     "upToDate": "Actualizado",
     "progress": {
       "creatingBackup": "Creando copia de seguridad...",
@@ -366,11 +357,7 @@
   },
   "applications": {
     "title": "Aplicaciones",
-    "features": "Funcionalidades",
-    "spotify": "Spotify",
-    "bluetooth": "Bluetooth",
-    "macOS": "macOS",
-    "airplay": "AirPlay"
+    "features": "Funcionalidades"
   },
   "applicationsSettings": {
     "inactivityTimeout": "Cierre automático",

@@ -101,7 +101,7 @@ const DOCK_ANIM_STAGGER = 0.016;       // Stagger between items in seconds
 // Actions with reactive titles
 const ALL_ADDITIONAL_ACTIONS = computed(() => [
   { id: 'equalizer', icon: 'equalizer', title: t('dsp.title'), handler: () => emit('open-equalizer') },
-  { id: 'multiroom', icon: 'multiroom', title: t('multiroom.title'), handler: () => emit('open-multiroom') },
+  { id: 'multiroom', icon: 'multiroom', title: t('audioSources.multiroom'), handler: () => emit('open-multiroom') },
   { id: 'settings', icon: 'settings', title: t('common.settings'), handler: () => emit('open-settings') }
 ]);
 
@@ -497,7 +497,7 @@ const getAppTitle = (appId) => {
   const audioSourceTitles = {
     'spotify': t('audioSources.spotify'),
     'bluetooth': t('audioSources.bluetooth'),
-    'mac': t('applications.macOS'),
+    'mac': t('audioSources.macOS'),
     'radio': t('audioSources.radio'),
     'podcast': t('audioSources.podcasts'),
     'airplay': t('audioSources.airplay')

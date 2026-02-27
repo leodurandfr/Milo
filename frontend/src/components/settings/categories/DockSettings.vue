@@ -66,7 +66,7 @@
         </ListItemButton>
 
         <ListItemButton
-          :title="t('multiroom.title')"
+          :title="t('audioSources.multiroom')"
           :model-value="config.multiroom"
           variant="background"
           action="toggle"
@@ -139,12 +139,12 @@ const AUDIO_SOURCES = ['spotify', 'bluetooth', 'radio', 'podcast', 'airplay', 'm
 
 function getSourceTitle(source) {
   const titles = {
-    spotify: t('applications.spotify'),
-    bluetooth: t('applications.bluetooth'),
+    spotify: t('audioSources.spotify'),
+    bluetooth: t('audioSources.bluetooth'),
     radio: t('audioSources.radio'),
-    podcast: t('podcasts.podcasts'),
-    airplay: t('applications.airplay'),
-    mac: t('applications.macOS'),
+    podcast: t('audioSources.podcasts'),
+    airplay: t('audioSources.airplay'),
+    mac: t('audioSources.macOS'),
   };
   return titles[source] || source;
 }

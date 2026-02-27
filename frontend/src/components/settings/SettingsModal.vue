@@ -40,7 +40,7 @@
             </template>
           </ListItemButton>
           
-          <ListItemButton v-if="settingsStore.dockApps.multiroom" :title="t('multiroom.title')" action="caret"
+          <ListItemButton v-if="settingsStore.dockApps.multiroom" :title="t('audioSources.multiroom')" action="caret"
             @click="push('multiroom')">
             <template #icon>
               <img :src="multiroomIcon" alt="Multiroom" />
@@ -54,7 +54,7 @@
             </template>
           </ListItemButton>
 
-          <ListItemButton v-if="settingsStore.dockApps.mac" :title="t('macSettings.title')" action="caret"
+          <ListItemButton v-if="settingsStore.dockApps.mac" :title="t('audioSources.macOS')" action="caret"
             @click="push('macos')">
             <template #icon>
               <img :src="macosIcon" alt="Mac" />
@@ -233,17 +233,17 @@ const headerTitle = computed(() => {
     'apps': t('settings.dock'),
     'volume': t('settings.volume'),
     'screen': t('settings.screen'),
-    'spotify': t('spotifySettings.title'),
-    'multiroom': t('multiroom.title'),
+    'spotify': t('audioSources.spotify'),
+    'multiroom': t('audioSources.multiroom'),
     'multiroom-zone-edit': zoneGroupId.value
       ? t('dsp.zones.editZone', 'Edit Zone')
       : t('dsp.zones.createZone', 'Create Zone'),
     'multiroom-client-edit': t('multiroom.editSpeaker', 'Edit Speaker'),
-    'radio': 'Radio',
+    'radio': t('audioSources.radio'),
     'radio-add': t('radio.manageStation.addStationTitle'),
     'radio-edit': t('radio.manageStation.editStationTitle'),
-    'podcast': t('podcastSettings.title'),
-    'macos': t('macSettings.title'),
+    'podcast': t('audioSources.podcasts'),
+    'macos': t('audioSources.macOS'),
     'updates': t('settings.updates'),
     'info': t('settings.information')
   };
