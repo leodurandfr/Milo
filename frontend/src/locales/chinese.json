@@ -21,11 +21,11 @@
     "title": "音频源",
     "spotify": "Spotify",
     "bluetooth": "蓝牙",
-    "macReceiver": "Mac 音频接收器",
-    "rocReception": "Mac 音频接收",
     "radio": "广播",
     "podcasts": "播客",
     "airplay": "AirPlay",
+    "macOS": "macOS 接收器",
+    "multiroom": "Multiroom",
     "radioSource": {
       "favoritesTitle": "喜爱的广播",
       "discoverTitle": "发现广播",
@@ -47,7 +47,6 @@
     }
   },
   "multiroom": {
-    "title": "多房间",
     "settings": "多房间配置",
     "disabled": "多房间未启用",
     "starting": "正在启动多房间",
@@ -236,12 +235,10 @@
     "screensaverDelay": "启动屏幕保护程序："
   },
   "spotifySettings": {
-    "title": "Spotify",
     "autoDisconnect": "自动断开",
     "disconnectDelay": "音乐暂停后断开延迟时间:"
   },
   "macSettings": {
-    "title": "Mac 流媒体",
     "latency": "延迟",
     "targetLatency": "目标延迟",
     "latencyProfile": "延迟配置",
@@ -256,7 +253,6 @@
     "warning": "低延迟可能在不稳定的网络上导致音频中断。"
   },
   "podcastSettings": {
-    "title": "播客",
     "taddyCredentials": "Taddy API 凭证",
     "credentialsDescription": "配置您的 Taddy API 凭证以访问播客内容。在 https://taddy.org/signup/developers 获取您的凭证",
     "userId": "用户 ID",
@@ -311,11 +307,6 @@
     "noSatellites": "网络上未检测到卫星",
     "updatingInit": "正在初始化更新...",
     "miloApp": "操作系统",
-    "spotifyConnect": "Spotify Connect",
-    "multiroom": "多房间音频",
-    "bluetoothAudio": "蓝牙音频",
-    "macStreaming": "来自 macOS 的音频流",
-    "airplay": "AirPlay 音频",
     "upToDate": "已是最新",
     "progress": {
       "creatingBackup": "正在创建备份...",
@@ -366,11 +357,7 @@
   },
   "applications": {
     "title": "应用程序",
-    "features": "功能",
-    "spotify": "Spotify",
-    "bluetooth": "蓝牙",
-    "macOS": "macOS",
-    "airplay": "AirPlay"
+    "features": "功能"
   },
   "applicationsSettings": {
     "inactivityTimeout": "自动关闭",
