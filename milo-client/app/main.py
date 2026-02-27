@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Milo Client - API Service for Snapclient Management and DSP Control
+Milo Client - API Service for Snapclient Management and Equalizer Control
 Version: 2.0 - Feature-based architecture
 """
 import asyncio
@@ -11,8 +11,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 import uvicorn
 
-from services import DSPService, SnapclientService
-from routes import create_health_router, create_snapclient_router, create_dsp_router
+from services import EqualizerService, SnapclientService
+from routes import create_health_router, create_snapclient_router, create_equalizer_router
 from routes.health import get_hostname
 
 # Constants
@@ -26,7 +26,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Create service instances
-dsp_service = DSPService()
+equalizer_service = EqualizerService()
 snapclient_service = SnapclientService()
 
 
@@ -42,12 +42,12 @@ async def lifespan(app: FastAPI):
     logger.info("Milo Client API starting up...")
 
     # Connect to CamillaDSP (stays muted until backend pushes correct volume)
-    if dsp_service.available:
+    if equalizer_service.available:
         max_retries = 10
         retry_delay = 0.5  # seconds
 
         for attempt in range(max_retries):
-            connected = await dsp_service.connect()
+            connected = await equalizer_service.connect()
             if connected:
                 logger.info(
                     f"[{time.time():.3f}] STARTUP: CamillaDSP connected on attempt {attempt + 1}, "
@@ -82,9 +82,9 @@ app = FastAPI(
 )
 
 # Register routers
-app.include_router(create_health_router(dsp_service, snapclient_service))
+app.include_router(create_health_router(equalizer_service, snapclient_service))
 app.include_router(create_snapclient_router(snapclient_service))
-app.include_router(create_dsp_router(dsp_service))
+app.include_router(create_equalizer_router(equalizer_service))
 
 
 # Main entry point

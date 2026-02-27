@@ -1,30 +1,30 @@
-# backend/presentation/api/routes/dsp.py
+# backend/api/equalizer.py
 """
 API routes for CamillaDSP digital signal processing
-Full DSP capabilities including EQ, compressor, loudness, and volume control
-Supports multi-client DSP control for multiroom setups
+Full equalizer capabilities including EQ, compressor, loudness, and volume control
+Supports multi-client equalizer control for multiroom setups
 """
 import asyncio
 import logging
 from fastapi import APIRouter, HTTPException, Request
 
 from backend.api.models import (
-    DspFilterRequest,
-    DspFilterUpdateRequest,
-    DspVolumeRequest,
-    DspMuteRequest,
-    DspCompressorRequest,
-    DspLoudnessRequest,
+    EqualizerFilterRequest,
+    EqualizerFilterUpdateRequest,
+    EqualizerVolumeRequest,
+    EqualizerMuteRequest,
+    EqualizerCompressorRequest,
+    EqualizerLoudnessRequest,
     ZoneCrossoverRequest,
     CrossoverFilterRequest,
-    DspPresetRequest
+    EqualizerPresetRequest
 )
 
 logger = logging.getLogger(__name__)
 
 
-def create_dsp_router(
-    dsp_service,
+def create_equalizer_router(
+    camilladsp_service,
     state_machine,
     settings_service=None,
     routing_service=None,
@@ -32,12 +32,12 @@ def create_dsp_router(
     proxy_service=None,
     sync_service=None,
     client_registry_service=None,
-    dsp_router_service=None,
-    multiroom_dsp_service=None,
+    equalizer_router_service=None,
+    multiroom_equalizer_service=None,
     volume_service=None
 ):
-    """Creates DSP router with injected dependencies"""
-    router = APIRouter(prefix="/api/dsp", tags=["dsp"])
+    """Creates equalizer router with injected dependencies"""
+    router = APIRouter(prefix="/api/equalizer", tags=["equalizer"])
 
     # === Internal Helpers ===
 
@@ -67,27 +67,27 @@ def create_dsp_router(
         raise HTTPException(status_code=500, detail="Volume service not available")
 
     async def _persist_remote(hostname: str, category: str, data: dict):
-        """Persist DSP setting for a remote client via sync_service."""
-        if dsp_router_service and not dsp_router_service.is_local_client(hostname) and sync_service:
+        """Persist equalizer setting for a remote client via sync_service."""
+        if equalizer_router_service and not equalizer_router_service.is_local_client(hostname) and sync_service:
             await sync_service.update_client_settings(hostname, category, data)
 
-    # === DSP Enable/Disable ===
+    # === Equalizer Enable/Disable ===
 
     @router.get("/enabled")
-    async def get_dsp_effects_enabled():
-        """Get DSP effects enabled state from settings (EQ, compressor, loudness)"""
+    async def get_equalizer_effects_enabled():
+        """Get equalizer effects enabled state from settings (EQ, compressor, loudness)"""
         try:
             if settings_service:
-                enabled = await settings_service.get_setting("dsp.effects_enabled")
+                enabled = await settings_service.get_setting("equalizer.effects_enabled")
                 return {"enabled": enabled if enabled is not None else True}
             return {"enabled": True}
         except Exception as e:
-            logger.error(f"Error getting DSP effects enabled state: {e}")
+            logger.error(f"Error getting equalizer effects enabled state: {e}")
             return {"enabled": True}
 
     @router.put("/enabled")
-    async def set_dsp_effects_enabled(request: Request):
-        """Set DSP effects enabled state (EQ, compressor, loudness). Volume always works."""
+    async def set_equalizer_effects_enabled(request: Request):
+        """Set equalizer effects enabled state (EQ, compressor, loudness). Volume always works."""
         try:
             body = await request.json()
             enabled = body.get("enabled", True)
@@ -98,27 +98,27 @@ def create_dsp_router(
                 async with state_machine._state_lock:
                     active_source = state_machine.system_state.active_source
 
-            # Use routing_service to toggle DSP effects
+            # Use routing_service to toggle equalizer effects
             if not routing_service:
                 return {"status": "error", "message": "Routing service not available"}
 
-            success = await routing_service.set_dsp_effects_enabled(enabled, active_source)
+            success = await routing_service.set_equalizer_effects_enabled(enabled, active_source)
             if success:
-                logger.info(f"DSP effects enabled state set to: {enabled}")
+                logger.info(f"Equalizer effects enabled state set to: {enabled}")
                 return {"status": "success", "enabled": enabled}
             else:
-                return {"status": "error", "message": "Failed to change DSP effects state"}
+                return {"status": "error", "message": "Failed to change equalizer effects state"}
         except Exception as e:
-            logger.error(f"Error setting DSP effects enabled state: {e}")
+            logger.error(f"Error setting Equalizer effects enabled state: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     # === Status & Connection ===
 
     @router.get("/status")
-    async def get_dsp_status():
-        """Get complete DSP status including filters and state"""
+    async def get_equalizer_status():
+        """Get complete equalizer status including filters and state"""
         try:
-            status = await dsp_service.get_status()
+            status = await camilladsp_service.get_status()
             return status
         except Exception as e:
             return {
@@ -128,10 +128,10 @@ def create_dsp_router(
             }
 
     @router.get("/levels")
-    async def get_dsp_levels():
+    async def get_equalizer_levels():
         """Get real-time audio levels (peak/RMS)"""
         try:
-            levels = await dsp_service.get_levels()
+            levels = await camilladsp_service.get_levels()
             return levels
         except Exception as e:
             return {"available": False, "error": str(e)}
@@ -142,12 +142,12 @@ def create_dsp_router(
         ids = client_ids.split(",")
 
         async def get_client_levels(client_id: str):
-            """Get levels from a single client using dsp_router_service."""
+            """Get levels from a single client using equalizer_router_service."""
             try:
-                # dsp_router_service.get_levels handles MAC → IP routing automatically
-                return await dsp_router_service.get_levels(client_id)
+                # equalizer_router_service.get_levels handles MAC → IP routing automatically
+                return await equalizer_router_service.get_levels(client_id)
             except Exception as e:
-                logger.debug(f"Failed to get DSP levels for {client_id}: {e}")
+                logger.debug(f"Failed to get equalizer levels for {client_id}: {e}")
                 return None
 
         # Poll all clients in parallel
@@ -181,10 +181,10 @@ def create_dsp_router(
         return {"available": available, "input_peak": input_peak, "output_peak": output_peak}
 
     @router.post("/connect")
-    async def connect_dsp():
+    async def connect_equalizer():
         """Manually trigger connection to CamillaDSP daemon"""
         try:
-            success = await dsp_service.connect()
+            success = await camilladsp_service.connect()
             if success:
                 return {"status": "success", "message": "Connected to CamillaDSP"}
             return {"status": "error", "message": "Failed to connect"}
@@ -192,10 +192,10 @@ def create_dsp_router(
             raise HTTPException(status_code=500, detail=str(e))
 
     @router.post("/disconnect")
-    async def disconnect_dsp():
+    async def disconnect_equalizer():
         """Disconnect from CamillaDSP daemon"""
         try:
-            await dsp_service.disconnect()
+            await camilladsp_service.disconnect()
             return {"status": "success", "message": "Disconnected from CamillaDSP"}
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
@@ -206,21 +206,21 @@ def create_dsp_router(
     async def get_all_filters():
         """Get all filter bands with their current configuration"""
         try:
-            filters = await dsp_service.get_filters()
+            filters = await camilladsp_service.get_filters()
             return {"filters": filters}
         except Exception as e:
             return {"filters": [], "error": str(e)}
 
     @router.post("/filter")
-    async def add_filter(payload: DspFilterRequest):
+    async def add_filter(payload: EqualizerFilterRequest):
         """Add a new filter band"""
         try:
             # Generate unique filter ID
-            existing_filters = await dsp_service.get_filters()
+            existing_filters = await camilladsp_service.get_filters()
             filter_num = len(existing_filters)
             filter_id = f"eq_band_{filter_num:02d}"
 
-            success = await dsp_service.add_filter(
+            success = await camilladsp_service.add_filter(
                 filter_id=filter_id,
                 freq=payload.freq,
                 gain=payload.gain,
@@ -229,7 +229,7 @@ def create_dsp_router(
             )
 
             if success:
-                await state_machine.broadcast_event("dsp", "filter_added", {
+                await state_machine.broadcast_event("equalizer", "filter_added", {
                     "id": filter_id,
                     "freq": payload.freq,
                     "gain": payload.gain,
@@ -244,11 +244,11 @@ def create_dsp_router(
             raise HTTPException(status_code=500, detail=str(e))
 
     @router.put("/filter/{filter_id}")
-    async def update_filter(filter_id: str, payload: DspFilterUpdateRequest):
+    async def update_filter(filter_id: str, payload: EqualizerFilterUpdateRequest):
         """Update an existing filter band"""
         try:
             # Get current filter to merge with updates
-            filters = await dsp_service.get_filters()
+            filters = await camilladsp_service.get_filters()
             current_filter = next((f for f in filters if f["id"] == filter_id), None)
 
             if not current_filter:
@@ -261,7 +261,7 @@ def create_dsp_router(
             filter_type = payload.filter_type if payload.filter_type is not None else current_filter.get("type", "Peaking")
             enabled = payload.enabled if payload.enabled is not None else current_filter.get("enabled", True)
 
-            success = await dsp_service.set_filter(
+            success = await camilladsp_service.set_filter(
                 filter_id=filter_id,
                 freq=freq,
                 gain=gain,
@@ -271,7 +271,7 @@ def create_dsp_router(
             )
 
             if success:
-                # Note: dsp_service.set_filter() already broadcasts filter_changed event
+                # Note: camilladsp_service.set_filter() already broadcasts filter_changed event
                 # No need to broadcast again here (was causing duplicate events)
                 return {
                     "status": "success",
@@ -293,10 +293,10 @@ def create_dsp_router(
     async def delete_filter(filter_id: str):
         """Remove a filter band"""
         try:
-            success = await dsp_service.remove_filter(filter_id)
+            success = await camilladsp_service.remove_filter(filter_id)
 
             if success:
-                await state_machine.broadcast_event("dsp", "filter_removed", {"id": filter_id})
+                await state_machine.broadcast_event("equalizer", "filter_removed", {"id": filter_id})
                 return {"status": "success", "id": filter_id}
 
             raise HTTPException(status_code=404, detail=f"Filter {filter_id} not found")
@@ -310,10 +310,10 @@ def create_dsp_router(
     async def reset_all_filters():
         """Reset all filters to flat (0 dB gain)"""
         try:
-            success = await dsp_service.reset_filters()
+            success = await camilladsp_service.reset_filters()
 
             if success:
-                # Note: filters_reset event is already broadcast by dsp_service.reset_filters()
+                # Note: filters_reset event is already broadcast by camilladsp_service.reset_filters()
                 return {"status": "success", "message": "All filters reset to flat"}
 
             return {"status": "error", "message": "Failed to reset filters"}
@@ -327,9 +327,9 @@ def create_dsp_router(
     async def get_presets():
         """Get all builtin presets with their gains, manual gains, and active preset ID."""
         try:
-            presets = dsp_service.get_presets()
-            active_preset = await dsp_service.get_active_preset()
-            manual_gains = await dsp_service.get_manual_gains()
+            presets = camilladsp_service.get_presets()
+            active_preset = await camilladsp_service.get_active_preset()
+            manual_gains = await camilladsp_service.get_manual_gains()
             return {
                 "presets": presets,
                 "manual_gains": manual_gains,
@@ -342,10 +342,10 @@ def create_dsp_router(
     async def load_preset(preset_id: str):
         """Load a builtin preset by ID."""
         try:
-            success = await dsp_service.load_preset(preset_id)
+            success = await camilladsp_service.load_preset(preset_id)
 
             if success:
-                # Note: preset_loaded event is already broadcast by dsp_service.load_preset()
+                # Note: preset_loaded event is already broadcast by camilladsp_service.load_preset()
                 return {"status": "success", "id": preset_id}
 
             raise HTTPException(status_code=404, detail=f"Preset '{preset_id}' not found")
@@ -356,21 +356,21 @@ def create_dsp_router(
             raise HTTPException(status_code=500, detail=str(e))
 
     @router.get("/zone/{zone_id}")
-    async def get_zone_dsp(zone_id: str):
-        """Get DSP settings for a zone (source of truth for zone context)."""
+    async def get_zone_equalizer(zone_id: str):
+        """Get equalizer settings for a zone (source of truth for zone context)."""
         try:
-            settings = await multiroom_dsp_service.get_dsp("zone", zone_id)
+            settings = await multiroom_equalizer_service.get_equalizer("zone", zone_id)
             if not settings:
                 raise HTTPException(status_code=404, detail=f"Zone not found: {zone_id}")
             return settings.to_dict()
         except ValueError as e:
             raise HTTPException(status_code=404, detail=str(e))
         except Exception as e:
-            logger.error(f"Error getting DSP for zone {zone_id}: {e}")
+            logger.error(f"Error getting equalizer for zone {zone_id}: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     @router.post("/zone/{zone_id}/preset")
-    async def load_preset_for_zone(zone_id: str, payload: DspPresetRequest):
+    async def load_preset_for_zone(zone_id: str, payload: EqualizerPresetRequest):
         """
         Load a preset for all clients in a zone.
 
@@ -378,7 +378,7 @@ def create_dsp_router(
         receive settings on reconnection via sync service.
         """
         try:
-            success = await multiroom_dsp_service.load_zone_preset(zone_id, payload.preset_id)
+            success = await multiroom_equalizer_service.load_zone_preset(zone_id, payload.preset_id)
             return {
                 "status": "success" if success else "error",
                 "zone_id": zone_id,
@@ -391,7 +391,7 @@ def create_dsp_router(
             raise HTTPException(status_code=500, detail=str(e))
 
     @router.patch("/zone/{zone_id}/filter/{filter_id}")
-    async def update_zone_filter(zone_id: str, filter_id: str, payload: DspFilterUpdateRequest):
+    async def update_zone_filter(zone_id: str, filter_id: str, payload: EqualizerFilterUpdateRequest):
         """
         Update a filter for all clients in a zone.
 
@@ -399,7 +399,7 @@ def create_dsp_router(
         receive settings on reconnection via sync service.
         """
         try:
-            success = await multiroom_dsp_service.update_filter(
+            success = await multiroom_equalizer_service.update_filter(
                 target_type="zone",
                 target_id=zone_id,
                 filter_id=filter_id,
@@ -421,7 +421,7 @@ def create_dsp_router(
             raise HTTPException(status_code=500, detail=str(e))
 
     @router.patch("/zone/{zone_id}/compressor")
-    async def update_zone_compressor(zone_id: str, payload: DspCompressorRequest):
+    async def update_zone_compressor(zone_id: str, payload: EqualizerCompressorRequest):
         """
         Update compressor settings for all clients in a zone.
 
@@ -429,7 +429,7 @@ def create_dsp_router(
         receive settings on reconnection via sync service.
         """
         try:
-            success = await multiroom_dsp_service.update_compressor(
+            success = await multiroom_equalizer_service.update_compressor(
                 target_type="zone",
                 target_id=zone_id,
                 enabled=payload.enabled,
@@ -447,7 +447,7 @@ def create_dsp_router(
             raise HTTPException(status_code=500, detail=str(e))
 
     @router.patch("/zone/{zone_id}/loudness")
-    async def update_zone_loudness(zone_id: str, payload: DspLoudnessRequest):
+    async def update_zone_loudness(zone_id: str, payload: EqualizerLoudnessRequest):
         """
         Update loudness settings for all clients in a zone.
 
@@ -455,7 +455,7 @@ def create_dsp_router(
         receive settings on reconnection via sync service.
         """
         try:
-            success = await multiroom_dsp_service.update_loudness(
+            success = await multiroom_equalizer_service.update_loudness(
                 target_type="zone",
                 target_id=zone_id,
                 enabled=payload.enabled,
@@ -470,11 +470,11 @@ def create_dsp_router(
             raise HTTPException(status_code=500, detail=str(e))
 
     @router.patch("/zone/{zone_id}/enabled")
-    async def update_zone_dsp_enabled(zone_id: str, request: Request):
+    async def update_zone_equalizer_enabled(zone_id: str, request: Request):
         """
-        Enable/disable DSP effects for all clients in a zone.
+        Enable/disable equalizer effects for all clients in a zone.
 
-        When disabled, DSP effects (EQ, compressor, loudness) are bypassed but
+        When disabled, Equalizer effects (EQ, compressor, loudness) are bypassed but
         volume control remains active. Crossover filters are NOT affected.
         OFFLINE clients will receive settings on reconnection via sync service.
         """
@@ -485,7 +485,7 @@ def create_dsp_router(
             if enabled is None:
                 raise HTTPException(status_code=400, detail="'enabled' field is required")
 
-            success = await multiroom_dsp_service.set_zone_dsp_effects_enabled(zone_id, enabled)
+            success = await multiroom_equalizer_service.set_zone_equalizer_effects_enabled(zone_id, enabled)
             return {
                 "status": "success" if success else "error",
                 "zone_id": zone_id,
@@ -496,18 +496,18 @@ def create_dsp_router(
         except ValueError as e:
             raise HTTPException(status_code=404, detail=str(e))
         except Exception as e:
-            logger.error(f"Error updating DSP enabled for zone {zone_id}: {e}")
+            logger.error(f"Error updating equalizer enabled for zone {zone_id}: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     @router.post("/client/{mac_id}/preset")
-    async def load_preset_for_client(mac_id: str, payload: DspPresetRequest):
+    async def load_preset_for_client(mac_id: str, payload: EqualizerPresetRequest):
         """
         Load a preset for a standalone client by MAC ID.
 
         Applies the preset to the client. For zone clients, use the zone preset endpoint.
         """
         try:
-            success = await multiroom_dsp_service.load_client_preset(mac_id, payload.preset_id)
+            success = await multiroom_equalizer_service.load_client_preset(mac_id, payload.preset_id)
             return {
                 "status": "success" if success else "error",
                 "client_id": mac_id,
@@ -524,14 +524,14 @@ def create_dsp_router(
     # Use /api/volume/set for volume changes.
 
     @router.put("/mute")
-    async def set_mute(payload: DspMuteRequest):
+    async def set_mute(payload: EqualizerMuteRequest):
         """
         Mute/unmute local CamillaDSP.
 
         In multiroom mode, this only mutes the local client without affecting others.
         """
-        # Update local DSP hardware
-        result = await dsp_service.set_mute(payload.muted)
+        # Update local CamillaDSP hardware
+        result = await camilladsp_service.set_mute(payload.muted)
 
         if not result:
             raise HTTPException(status_code=500, detail="Failed to set mute")
@@ -550,16 +550,16 @@ def create_dsp_router(
     async def get_compressor():
         """Get compressor settings"""
         try:
-            compressor = await dsp_service.get_compressor()
+            compressor = await camilladsp_service.get_compressor()
             return compressor
         except Exception as e:
             return {"enabled": False, "error": str(e)}
 
     @router.put("/compressor")
-    async def set_compressor(payload: DspCompressorRequest):
+    async def set_compressor(payload: EqualizerCompressorRequest):
         """Update compressor settings"""
         try:
-            success = await dsp_service.set_compressor(
+            success = await camilladsp_service.set_compressor(
                 enabled=payload.enabled,
                 threshold=payload.threshold,
                 ratio=payload.ratio,
@@ -569,8 +569,8 @@ def create_dsp_router(
             )
 
             if success:
-                compressor = await dsp_service.get_compressor()
-                # Note: WebSocket broadcast is handled by dsp_service.set_compressor()
+                compressor = await camilladsp_service.get_compressor()
+                # Note: WebSocket broadcast is handled by camilladsp_service.set_compressor()
                 return {"status": "success", **compressor}
 
             return {"status": "error", "message": "Failed to update compressor"}
@@ -584,24 +584,24 @@ def create_dsp_router(
     async def get_loudness():
         """Get loudness compensation settings"""
         try:
-            loudness = await dsp_service.get_loudness()
+            loudness = await camilladsp_service.get_loudness()
             return loudness
         except Exception as e:
             return {"enabled": False, "error": str(e)}
 
     @router.put("/loudness")
-    async def set_loudness(payload: DspLoudnessRequest):
+    async def set_loudness(payload: EqualizerLoudnessRequest):
         """Update loudness compensation settings"""
         try:
-            success = await dsp_service.set_loudness(
+            success = await camilladsp_service.set_loudness(
                 enabled=payload.enabled,
                 high_boost=payload.high_boost,
                 low_boost=payload.low_boost
             )
 
             if success:
-                loudness = await dsp_service.get_loudness()
-                # Note: WebSocket broadcast is handled by dsp_service.set_loudness()
+                loudness = await camilladsp_service.get_loudness()
+                # Note: WebSocket broadcast is handled by camilladsp_service.set_loudness()
                 return {"status": "success", **loudness}
 
             return {"status": "error", "message": "Failed to update loudness"}
@@ -615,7 +615,7 @@ def create_dsp_router(
     async def save_configuration():
         """Save current configuration to disk"""
         try:
-            success = await dsp_service.save_current_config()
+            success = await camilladsp_service.save_current_config()
 
             if success:
                 return {"status": "success", "message": "Configuration saved"}
@@ -716,7 +716,7 @@ def create_dsp_router(
     async def get_local_crossover():
         """Get local crossover filter settings"""
         try:
-            crossover = await dsp_service.get_crossover_filter()
+            crossover = await camilladsp_service.get_crossover_filter()
             return crossover
         except Exception as e:
             logger.error(f"Error getting local crossover: {e}")
@@ -726,14 +726,14 @@ def create_dsp_router(
     async def set_local_crossover(payload: CrossoverFilterRequest):
         """Set local crossover filter (direct control)"""
         try:
-            success = await dsp_service.set_crossover_filter(
+            success = await camilladsp_service.set_crossover_filter(
                 enabled=payload.enabled,
                 frequency=payload.frequency,
                 q=payload.q
             )
 
             if success:
-                crossover = await dsp_service.get_crossover_filter()
+                crossover = await camilladsp_service.get_crossover_filter()
                 return {"status": "success", **crossover}
 
             raise HTTPException(status_code=500, detail="Failed to update crossover")
@@ -744,13 +744,13 @@ def create_dsp_router(
             logger.error(f"Error setting local crossover: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    # === Client DSP Proxy Routes ===
+    # === Client Equalizer Proxy Routes ===
 
     @router.get("/client/{hostname}/status")
-    async def get_client_dsp_status(hostname: str):
-        """Get DSP status for a specific client with consistent volume."""
-        # Get base status via DspRouter
-        status = await dsp_router_service.get_status(hostname)
+    async def get_client_equalizer_status(hostname: str):
+        """Get equalizer status for a specific client with consistent volume."""
+        # Get base status via EqualizerRouter
+        status = await equalizer_router_service.get_status(hostname)
 
         # Inject volume from volume_service (source of truth)
         if volume_service:
@@ -763,18 +763,18 @@ def create_dsp_router(
         return status
 
     @router.get("/client/{hostname}/filters")
-    async def get_client_dsp_filters(hostname: str):
-        """Proxy DSP filters request to client"""
-        return await dsp_router_service.get_filters(hostname)
+    async def get_client_equalizer_filters(hostname: str):
+        """Proxy equalizer filters request to client"""
+        return await equalizer_router_service.get_filters(hostname)
 
     @router.put("/client/{hostname}/filter/{filter_id}")
-    async def update_client_dsp_filter(hostname: str, filter_id: str, request: Request):
+    async def update_client_equalizer_filter(hostname: str, filter_id: str, request: Request):
         """Proxy filter update to client and persist settings"""
         body = await request.json()
-        result = await dsp_router_service.update_filter(hostname, filter_id, body)
+        result = await equalizer_router_service.update_filter(hostname, filter_id, body)
 
         if result.get("status") == "success":
-            if dsp_router_service.is_local_client(hostname):
+            if equalizer_router_service.is_local_client(hostname):
                 return {"status": "success", "id": filter_id, **body}
             # Remote: merge filter into saved settings
             if sync_service:
@@ -786,9 +786,9 @@ def create_dsp_router(
         return result
 
     @router.post("/client/{hostname}/reset")
-    async def reset_client_dsp_filters(hostname: str):
+    async def reset_client_equalizer_filters(hostname: str):
         """Proxy filter reset to client and clear saved filter settings"""
-        result = await dsp_router_service.reset_filters(hostname)
+        result = await equalizer_router_service.reset_filters(hostname)
 
         if result.get("status") == "success":
             await _persist_remote(hostname, "filters", {})
@@ -798,17 +798,17 @@ def create_dsp_router(
     @router.get("/client/{hostname}/compressor")
     async def get_client_compressor(hostname: str):
         """Proxy compressor GET to client"""
-        return await dsp_router_service.get_compressor(hostname)
+        return await equalizer_router_service.get_compressor(hostname)
 
     @router.put("/client/{hostname}/compressor")
     async def update_client_compressor(hostname: str, request: Request):
         """Proxy compressor update to client and persist settings"""
         body = await request.json()
-        result = await dsp_router_service.set_compressor(hostname, body)
+        result = await equalizer_router_service.set_compressor(hostname, body)
 
         if result.get("status") == "success":
-            if dsp_router_service.is_local_client(hostname):
-                compressor = await dsp_service.get_compressor()
+            if equalizer_router_service.is_local_client(hostname):
+                compressor = await camilladsp_service.get_compressor()
                 return {"status": "success", **compressor}
             await _persist_remote(hostname, "compressor", {k: v for k, v in result.items() if k != "status"})
 
@@ -817,37 +817,37 @@ def create_dsp_router(
     @router.get("/client/{hostname}/loudness")
     async def get_client_loudness(hostname: str):
         """Proxy loudness GET to client"""
-        return await dsp_router_service.get_loudness(hostname)
+        return await equalizer_router_service.get_loudness(hostname)
 
     @router.put("/client/{hostname}/loudness")
     async def update_client_loudness(hostname: str, request: Request):
         """Proxy loudness update to client and persist settings"""
         body = await request.json()
-        result = await dsp_router_service.set_loudness(hostname, body)
+        result = await equalizer_router_service.set_loudness(hostname, body)
 
         if result.get("status") == "success":
-            if dsp_router_service.is_local_client(hostname):
-                loudness = await dsp_service.get_loudness()
+            if equalizer_router_service.is_local_client(hostname):
+                loudness = await camilladsp_service.get_loudness()
                 return {"status": "success", **loudness}
             await _persist_remote(hostname, "loudness", {k: v for k, v in result.items() if k != "status"})
 
         return result
 
     @router.get("/client/{hostname}/enabled")
-    async def get_client_dsp_enabled(hostname: str):
-        """Get DSP effects enabled state for a specific client"""
-        return await dsp_router_service.get_dsp_enabled(hostname, routing_service)
+    async def get_client_equalizer_enabled(hostname: str):
+        """Get equalizer effects enabled state for a specific client"""
+        return await equalizer_router_service.get_equalizer_enabled(hostname, routing_service)
 
     @router.put("/client/{hostname}/enabled")
-    async def update_client_dsp_enabled(hostname: str, request: Request):
-        """Set DSP effects enabled state for a specific client (local or remote).
+    async def update_client_equalizer_enabled(hostname: str, request: Request):
+        """Set equalizer effects enabled state for a specific client (local or remote).
 
-        When enabled=False, DSP effects (EQ, compressor, loudness) are bypassed.
+        When enabled=False, Equalizer effects (EQ, compressor, loudness) are bypassed.
         Volume control remains active regardless of this setting.
         """
         body = await request.json()
         enabled = body.get("enabled")
-        result = await dsp_router_service.set_dsp_enabled(hostname, enabled, routing_service)
+        result = await equalizer_router_service.set_equalizer_enabled(hostname, enabled, routing_service)
 
         if result.get("status") == "success":
             await _persist_remote(hostname, "enabled", {"enabled": enabled})
@@ -860,8 +860,8 @@ def create_dsp_router(
         # Prefer volume_service as source of truth
         if volume_service:
             return await volume_service.get_client_volume(hostname)
-        # Fallback to DspRouter
-        return await dsp_router_service.get_volume(hostname)
+        # Fallback to EqualizerRouter
+        return await equalizer_router_service.get_volume(hostname)
 
     @router.put("/client/{hostname}/volume")
     async def update_client_volume(hostname: str, request: Request):
@@ -869,13 +869,13 @@ def create_dsp_router(
         body = await request.json()
         volume_db = body.get("volume")
 
-        if dsp_router_service.is_local_client(hostname):
+        if equalizer_router_service.is_local_client(hostname):
             vs = _require_volume_service()
             await vs.update_client_volume_db(hostname, volume_db, broadcast=True)
             return {"status": "success", "main": volume_db}
 
-        # Remote client via DspRouter
-        result = await dsp_router_service.set_volume(hostname, volume_db)
+        # Remote client via EqualizerRouter
+        result = await equalizer_router_service.set_volume(hostname, volume_db)
 
         if result.get("status") == "success":
             await _persist_remote(hostname, "volume", {k: v for k, v in result.items() if k != "status"})
@@ -892,15 +892,15 @@ def create_dsp_router(
         body = await request.json()
         muted = body.get("muted")
 
-        if dsp_router_service.is_local_client(hostname):
+        if equalizer_router_service.is_local_client(hostname):
             vs = _require_volume_service()
-            if not await dsp_service.set_mute(muted):
+            if not await camilladsp_service.set_mute(muted):
                 raise HTTPException(status_code=500, detail="Failed to set local mute")
             await vs.set_client_mute(hostname, muted, broadcast=True)
             return {"status": "success", "mute": muted}
 
-        # Remote client via DspRouter
-        result = await dsp_router_service.set_mute(hostname, muted)
+        # Remote client via EqualizerRouter
+        result = await equalizer_router_service.set_mute(hostname, muted)
 
         if result.get("status") == "success" and volume_service:
             await volume_service.set_client_mute(hostname, muted, broadcast=True)
@@ -910,7 +910,7 @@ def create_dsp_router(
 
     @router.get("/client/{hostname}/saved-settings")
     async def get_client_saved_settings(hostname: str):
-        """Get Milo's saved DSP settings for a client"""
+        """Get Milo's saved equalizer settings for a client"""
         if not sync_service:
             return {"hostname": hostname, "settings": {}}
         settings = await sync_service.get_client_settings(hostname)
@@ -918,12 +918,12 @@ def create_dsp_router(
 
     @router.post("/client/{hostname}/restore")
     async def restore_client_settings(hostname: str):
-        """Restore saved DSP settings to a client"""
+        """Restore saved equalizer settings to a client"""
         if not sync_service or not proxy_service:
             return {"status": "error", "restored": [], "errors": ["Services not available"]}
 
-        # Local client: settings are applied directly via dsp_service
-        if dsp_router_service.is_local_client(hostname):
+        # Local client: settings are applied directly via camilladsp_service
+        if equalizer_router_service.is_local_client(hostname):
             return {"status": "skipped", "message": "Local client settings are managed directly", "restored": []}
 
         # Get IP for remote client
@@ -945,21 +945,21 @@ def create_dsp_router(
                 errors.append(f"{name}: {e}")
 
         if "compressor" in saved:
-            await try_restore("compressor", "/dsp/compressor", saved["compressor"])
+            await try_restore("compressor", "/equalizer/compressor", saved["compressor"])
         if "loudness" in saved:
-            await try_restore("loudness", "/dsp/loudness", saved["loudness"])
+            await try_restore("loudness", "/equalizer/loudness", saved["loudness"])
         for fid, fdata in saved.get("filters", {}).items():
-            # Transform saved filter data to match DspFilterUpdateRequest schema:
+            # Transform saved filter data to match EqualizerFilterUpdateRequest schema:
             # - Remove 'id' (it's in the URL)
             # - Rename 'type' to 'filter_type' (Pydantic model uses filter_type)
             filter_payload = {k: v for k, v in fdata.items() if k != "id"}
             if "type" in filter_payload:
                 filter_payload["filter_type"] = filter_payload.pop("type")
-            await try_restore(f"filter:{fid}", f"/dsp/filter/{fid}", filter_payload)
+            await try_restore(f"filter:{fid}", f"/equalizer/filter/{fid}", filter_payload)
         if "main" in saved.get("volume", {}):
-            await try_restore("volume", "/dsp/volume", {"volume": saved["volume"]["main"]})
+            await try_restore("volume", "/equalizer/volume", {"volume": saved["volume"]["main"]})
         if "mute" in saved.get("volume", {}):
-            await try_restore("mute", "/dsp/mute", {"muted": saved["volume"]["mute"]})
+            await try_restore("mute", "/equalizer/mute", {"muted": saved["volume"]["mute"]})
 
         logger.info(f"Restored settings for {hostname}: {restored}")
         if errors:

@@ -18,14 +18,14 @@ Usage:
 from backend.core.volume.service import VolumeService
 from backend.core.volume.state import VolumeStateStore
 from backend.core.volume.config import VolumeConfigService
-from backend.core.volume.dsp_controller import DSPController
+from backend.core.volume.equalizer_controller import EqualizerController
 from backend.core.volume.routes import router, setup_volume_routes, create_volume_router
 
 __all__ = [
     "VolumeService",
     "VolumeStateStore",
     "VolumeConfigService",
-    "DSPController",
+    "EqualizerController",
     "router",
     "setup_volume_routes",
     "create_volume_router"

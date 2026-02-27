@@ -7,7 +7,7 @@ ALSA is set to 100% passthrough - volume control is entirely via CamillaDSP.
 
 Architecture:
 - VolumeStateStore: Single source of truth for all volume state
-- DSPController: Hardware abstraction for parallel volume updates
+- EqualizerController: Hardware abstraction for parallel volume updates
 - VolumeService: Orchestration layer only
 """
 import asyncio
@@ -18,7 +18,7 @@ from typing import Optional, Dict, Any
 from backend.core.events import EventBus, Events, get_event_bus
 from backend.core.volume.config import VolumeConfigService
 from backend.core.volume.state import VolumeStateStore
-from backend.core.volume.dsp_controller import DSPController
+from backend.core.volume.equalizer_controller import EqualizerController
 from backend.core.multiroom.snapcast import get_online_client_ids
 from backend.core.models.volume_state import VolumeState
 from backend.config.constants import DEFAULT_VOLUME_DB
@@ -30,18 +30,18 @@ class VolumeService:
 
     Volume is ALWAYS controlled via CamillaDSP in dB (-80 to 0).
     - Direct mode: Single local CamillaDSP control
-    - Multiroom mode: DSP volume synchronized across all clients
+    - Multiroom mode: CamillaDSP volume synchronized across all clients
 
     ALSA Digital mixer is set to 100% passthrough and never changed.
 
     Architecture:
         VolumeStateStore: Single source of truth (state + zones + clients)
-        DSPController: Hardware abstraction (local + remote DSP updates)
+        EqualizerController: Hardware abstraction (local + remote equalizer updates)
         VolumeService: Orchestration (API -> State -> Hardware)
     """
 
     def __init__(self, state_machine, snapcast_service, settings_service=None,
-                 camilladsp_service=None, dsp_client_proxy_service=None,
+                 camilladsp_service=None, equalizer_client_proxy_service=None,
                  hardware_service=None, event_bus: EventBus = None):
         """
         Initialize VolumeService.
@@ -51,7 +51,7 @@ class VolumeService:
             snapcast_service: Service for Snapcast client management
             settings_service: SettingsService for configuration
             camilladsp_service: Service for local CamillaDSP control
-            dsp_client_proxy_service: Service for remote client control
+            equalizer_client_proxy_service: Service for remote client control
             hardware_service: HardwareService for reading audio hardware config
             event_bus: EventBus for emitting volume events (optional, uses global singleton)
         """
@@ -59,8 +59,8 @@ class VolumeService:
         self.state_machine = state_machine
         self.snapcast_service = snapcast_service
         self.settings_service = settings_service
-        self._dsp_service = camilladsp_service
-        self._proxy_service = dsp_client_proxy_service
+        self._camilladsp_service = camilladsp_service
+        self._proxy_service = equalizer_client_proxy_service
         self._hardware_service = hardware_service
         self.logger = logging.getLogger(__name__)
         self._volume_lock = asyncio.Lock()
@@ -68,9 +68,9 @@ class VolumeService:
         # Initialize sub-services
         self._config_service = VolumeConfigService(self.settings_service)
 
-        # VolumeStateStore (SSOT) + DSPController (hardware abstraction)
+        # VolumeStateStore (SSOT) + EqualizerController (hardware abstraction)
         self._state_store = VolumeStateStore(self.settings_service)
-        self._dsp_controller = DSPController(self._dsp_service, self._proxy_service)
+        self._equalizer_controller = EqualizerController(self._camilladsp_service, self._proxy_service)
 
         # Injected via setters to resolve circular dependencies
         self._snapcast_websocket_service = None
@@ -83,7 +83,7 @@ class VolumeService:
     def set_client_registry(self, registry):
         """Set client registry (for dependency injection after init)."""
         self._client_registry = registry
-        self._dsp_controller.set_registry(registry)
+        self._equalizer_controller.set_registry(registry)
 
     def set_routing_service(self, routing_service) -> None:
         """Set routing service reference (circular dependency resolution)."""
@@ -103,18 +103,18 @@ class VolumeService:
             self.logger.error("Timeout waiting for volume lock (>2s)")
             return False
 
-    async def _check_dsp_or_error(self) -> bool:
-        """Check DSP availability. Returns True if OK."""
-        if self._is_multiroom_enabled() or self._is_dsp_available():
+    async def _check_equalizer_or_error(self) -> bool:
+        """Check equalizer availability. Returns True if OK."""
+        if self._is_multiroom_enabled() or self._is_equalizer_available():
             return True
-        self.logger.warning("DSP not available, volume change blocked")
+        self.logger.warning("Equalizer not available, volume change blocked")
         return False
 
     async def _apply_to_multiroom_clients(self, updates: Dict[str, float]) -> bool:
         """Apply volume updates to multiroom clients and update state store."""
         if not updates:
             return True
-        results = await self._dsp_controller.apply_volumes_parallel(updates)
+        results = await self._equalizer_controller.apply_volumes_parallel(updates)
         for hostname, volume in updates.items():
             if results.get(hostname, False):
                 await self._state_store.set_client_volume(hostname, volume)
@@ -201,11 +201,11 @@ class VolumeService:
         except Exception:
             return False
 
-    def _is_dsp_available(self) -> bool:
+    def _is_equalizer_available(self) -> bool:
         """Check if CamillaDSP is connected and available for volume control."""
-        if not self._dsp_service:
+        if not self._camilladsp_service:
             return False
-        return self._dsp_service.is_volume_control_available()
+        return self._camilladsp_service.is_volume_control_available()
 
     async def update_volume_mode(self, multiroom_enabled: bool) -> float:
         """
@@ -239,13 +239,13 @@ class VolumeService:
             # Set local volume to the previous global
             self._state_store.set_local_volume(current_global)
 
-            # Apply to DSP (volume + unmute to ensure sound works after multiroom)
+            # Apply to CamillaDSP (volume + unmute to ensure sound works after multiroom)
             try:
-                await self._dsp_service.set_volume(current_global)
-                await self._dsp_service.set_mute(False)
-                self.logger.info(f"Applied volume {current_global:.1f} dB to DSP (unmuted)")
+                await self._camilladsp_service.set_volume(current_global)
+                await self._camilladsp_service.set_mute(False)
+                self.logger.info(f"Applied volume {current_global:.1f} dB to CamillaDSP (unmuted)")
             except Exception as e:
-                self.logger.warning(f"Failed to apply volume/mute to DSP: {e}")
+                self.logger.warning(f"Failed to apply volume/mute to CamillaDSP: {e}")
 
             return current_global
 
@@ -383,13 +383,13 @@ class VolumeService:
         if not self._is_multiroom_enabled():
             return True
         try:
-            # Wait for client DSP to be ready
-            if not await self._dsp_controller.wait_for_client_ready(client_id, max_wait=10.0):
-                self.logger.error(f"DSP_SYNC: Client {client_id} DSP not ready, skipping")
+            # Wait for client equalizer to be ready
+            if not await self._equalizer_controller.wait_for_client_ready(client_id, max_wait=10.0):
+                self.logger.error(f"EQUALIZER_SYNC: Client {client_id} Equalizer not ready, skipping")
                 return False
 
-            # Mute DSP first to prevent volume spike
-            await self._dsp_controller.set_dsp_mute(client_id, True)
+            # Mute CamillaDSP first to prevent volume spike
+            await self._equalizer_controller.set_equalizer_mute(client_id, True)
             volume_state = await self._state_store.get_complete_state()
 
             # Find client's zone (if any)
@@ -410,10 +410,10 @@ class VolumeService:
                 self.logger.info(f"Syncing {client_id} (no zone): {expected_volume:.1f}dB")
 
             # Apply volume while muted
-            await self._dsp_controller.set_dsp_volume(client_id, expected_volume)
+            await self._equalizer_controller.set_equalizer_volume(client_id, expected_volume)
 
             # Apply persisted mute state
-            await self._dsp_controller.set_dsp_mute(client_id, self._state_store.get_client_mute(client_id))
+            await self._equalizer_controller.set_equalizer_mute(client_id, self._state_store.get_client_mute(client_id))
 
             await self._state_store.register_client(client_id, volume_db=expected_volume, available=True)
             await self._broadcast_volume_state(show_bar=False)
@@ -421,7 +421,7 @@ class VolumeService:
         except Exception as e:
             self.logger.error(f"Error syncing client {client_id}: {e}")
             try:
-                await self._dsp_controller.set_dsp_mute(client_id, False)
+                await self._equalizer_controller.set_equalizer_mute(client_id, False)
             except Exception:
                 pass
             return False
@@ -431,35 +431,35 @@ class VolumeService:
         if self._is_multiroom_enabled():
             await self.update_client_volume_db(client_id, volume_db, broadcast=True)
 
-    async def sync_all_clients_from_dsp(self) -> bool:
-        """Sync all client volumes from their DSP state (called when multiroom is enabled)."""
+    async def sync_all_clients_from_equalizer(self) -> bool:
+        """Sync all client volumes from their equalizer state (called when multiroom is enabled)."""
         if not self._is_multiroom_enabled():
             return True
         try:
             registry = self._client_registry
             clients = await self.snapcast_service.get_clients()
             for client in clients:
-                cid = client.get("dsp_id", "")
+                cid = client.get("camilladsp_id", "")
                 if not cid:
                     continue
-                # Read DSP volume (local client uses local DSP, others use proxy)
+                # Read equalizer volume (local client uses local CamillaDSP, others use proxy)
                 client_info = registry.get_client(cid) if registry else None
                 if client_info and client_info.ip == "127.0.0.1":
-                    vol_data = await self._dsp_service.get_volume()
+                    vol_data = await self._camilladsp_service.get_volume()
                 elif client_info and client_info.ip:
                     # Use IP address for proxy request (never mac_id)
-                    vol_data = await self._proxy_service.request(client_info.ip, "GET", "/dsp/volume")
+                    vol_data = await self._proxy_service.request(client_info.ip, "GET", "/equalizer/volume")
                 else:
                     self.logger.warning(f"Cannot sync client {cid}: no IP address in registry")
                     continue
                 volume = vol_data.get("main", DEFAULT_VOLUME_DB) if vol_data else DEFAULT_VOLUME_DB
                 await self._state_store.register_client(cid, volume_db=volume, available=client.get("available", True))
 
-            self.logger.info(f"Synced {len(clients)} clients from DSP")
+            self.logger.info(f"Synced {len(clients)} clients from equalizer")
             await self._broadcast_volume_state(show_bar=False)
             return True
         except Exception as e:
-            self.logger.error(f"Error syncing all clients from DSP: {e}")
+            self.logger.error(f"Error syncing all clients from equalizer: {e}")
             return False
 
     async def push_volume_to_all_clients(self, target_volume_db: Optional[float] = None) -> bool:
@@ -495,8 +495,8 @@ class VolumeService:
                         updates[cid] = persisted
                     elif restore_enabled:
                         if local_volume is None:
-                            dsp_state = await self._dsp_service.get_volume()
-                            local_volume = dsp_state.get("main", DEFAULT_VOLUME_DB) if dsp_state else DEFAULT_VOLUME_DB
+                            volume_state = await self._camilladsp_service.get_volume()
+                            local_volume = volume_state.get("main", DEFAULT_VOLUME_DB) if volume_state else DEFAULT_VOLUME_DB
                         updates[cid] = local_volume
                     else:
                         updates[cid] = startup_volume
@@ -507,7 +507,7 @@ class VolumeService:
                 return True
 
             # Apply volumes and update state store
-            results = await self._dsp_controller.apply_volumes_parallel(updates)
+            results = await self._equalizer_controller.apply_volumes_parallel(updates)
             for hostname, volume in updates.items():
                 if results.get(hostname, False):
                     await self._state_store.set_client_volume(hostname, volume)
@@ -516,7 +516,7 @@ class VolumeService:
             for cid in client_ids:
                 if self._state_store.has_client(cid):
                     try:
-                        await self._dsp_controller.set_dsp_mute(cid, self._state_store.get_client_mute(cid))
+                        await self._equalizer_controller.set_equalizer_mute(cid, self._state_store.get_client_mute(cid))
                     except Exception as e:
                         self.logger.warning(f"Failed to apply mute to {cid}: {e}")
 
@@ -534,7 +534,7 @@ class VolumeService:
         """Update client volume in dB (called from API routes)."""
         try:
             await self._state_store.set_client_volume(client_id, volume_db)
-            await self._dsp_controller.set_dsp_volume(client_id, volume_db)
+            await self._equalizer_controller.set_equalizer_volume(client_id, volume_db)
             if broadcast and self._is_multiroom_enabled():
                 await self._broadcast_volume_state(show_bar=False)
         except Exception as e:
@@ -544,7 +544,7 @@ class VolumeService:
         """Set mute state for a client."""
         try:
             await self._state_store.set_client_mute(client_id, mute)
-            await self._dsp_controller.set_dsp_mute(client_id, mute)
+            await self._equalizer_controller.set_equalizer_mute(client_id, mute)
             if broadcast:
                 await self._broadcast_volume_state(show_bar=False)
         except Exception as e:
@@ -566,7 +566,7 @@ class VolumeService:
                     return self._state_store.compute_zone_average(zone_id)
 
                 self.logger.info(f"Applying zone delta: {zone_id} {delta_db:+.1f}dB -> {len(updates)} clients")
-                results = await self._dsp_controller.apply_volumes_parallel(updates)
+                results = await self._equalizer_controller.apply_volumes_parallel(updates)
 
                 # Update state store with successful updates
                 successful = {h: v for h, v in updates.items() if results.get(h, False)}
@@ -599,7 +599,7 @@ class VolumeService:
         """
         Initialize volume service.
 
-        Sets ALSA to 100% passthrough and initializes DSP volume.
+        Sets ALSA to 100% passthrough and initializes CamillaDSP volume.
         """
         try:
             await self._load_volume_config()
@@ -631,12 +631,12 @@ class VolumeService:
         - False: Use startup_volume_db from settings.json
 
         Note: At startup, registry may not have the local client yet, so we use
-        _local_volume_db and direct DSP service calls.
+        _local_volume_db and direct CamillaDSP service calls.
         """
         try:
             # Wait for CamillaDSP connection
-            if self._dsp_service:
-                if not await self._dsp_service.wait_for_connection(timeout=10.0):
+            if self._camilladsp_service:
+                if not await self._camilladsp_service.wait_for_connection(timeout=10.0):
                     self.logger.warning("FR12: CamillaDSP not connected after 10s, startup volume not applied")
                     return
 
@@ -650,14 +650,14 @@ class VolumeService:
             local_mac_id = self._state_store.local_mac_id
             local_mute = self._state_store.get_client_mute(local_mac_id) if local_mac_id else False
 
-            # Apply directly to local DSP (at startup, registry not yet populated)
-            if target_volume is not None and self._dsp_service:
-                await self._dsp_service.set_volume(target_volume)
-                await self._dsp_service.set_mute(local_mute)
+            # Apply directly to local CamillaDSP (at startup, registry not yet populated)
+            if target_volume is not None and self._camilladsp_service:
+                await self._camilladsp_service.set_volume(target_volume)
+                await self._camilladsp_service.set_mute(local_mute)
                 self.logger.info(f"FR12: Startup state applied - volume={target_volume:.1f}dB, mute={local_mute}")
-            elif self._dsp_service:
-                await self._dsp_service.set_mute(False)
-                self.logger.warning("FR12: No target volume, only unmuted DSP")
+            elif self._camilladsp_service:
+                await self._camilladsp_service.set_mute(False)
+                self.logger.warning("FR12: No target volume, only unmuted CamillaDSP")
         except Exception as e:
             self.logger.error(f"FR12: Failed to apply startup volume: {e}")
 
@@ -697,7 +697,7 @@ class VolumeService:
         """Set volume to specific level in dB (-80 to 0)."""
         async def _do_set():
             try:
-                if not await self._check_dsp_or_error():
+                if not await self._check_equalizer_or_error():
                     return False
                 clamped_db = self._config_service.config.clamp(volume_db)
                 success = await self._apply_volume_db(clamped_db)
@@ -712,7 +712,7 @@ class VolumeService:
         return await self._with_lock(_do_set)
 
     async def _apply_volume_db(self, volume_db: float) -> bool:
-        """Apply volume to DSP (local or multiroom)."""
+        """Apply volume to CamillaDSP (local or multiroom)."""
         try:
             if self._is_multiroom_enabled():
                 client_ids = await get_online_client_ids(self.snapcast_service)
@@ -723,7 +723,7 @@ class VolumeService:
                     self._state_store.set_local_volume(volume_db)
                 return success
             else:
-                success = await self._dsp_service.set_volume(volume_db)
+                success = await self._camilladsp_service.set_volume(volume_db)
                 if success:
                     self._state_store.set_local_volume(volume_db)
                 return success
@@ -735,7 +735,7 @@ class VolumeService:
         """Adjust volume by delta in dB (positive = louder, negative = quieter)."""
         async def _do_adjust():
             try:
-                if not await self._check_dsp_or_error():
+                if not await self._check_equalizer_or_error():
                     return False
                 success = await self._apply_delta_db(delta_db)
                 if success:
@@ -767,7 +767,7 @@ class VolumeService:
                 return success
             else:
                 new_db = self._config_service.config.clamp(volume_state.global_volume_db + delta_db)
-                success = await self._dsp_service.set_volume(new_db)
+                success = await self._camilladsp_service.set_volume(new_db)
                 if success:
                     self._state_store.set_local_volume(new_db)
                 return success
@@ -813,11 +813,11 @@ class VolumeService:
         try:
             clients = await self.snapcast_service.get_clients()
             for client in clients:
-                dsp_id = client.get("dsp_id", "")
+                camilladsp_id = client.get("camilladsp_id", "")
                 available = client.get("available", True)
-                if dsp_id:
-                    await self._state_store.set_client_availability(dsp_id, available)
-                    self.logger.debug(f"Initialized availability: {dsp_id} -> {available}")
+                if camilladsp_id:
+                    await self._state_store.set_client_availability(camilladsp_id, available)
+                    self.logger.debug(f"Initialized availability: {camilladsp_id} -> {available}")
             self.logger.info(f"Initialized availability for {len(clients)} clients")
         except Exception as e:
             self.logger.warning(f"Failed to initialize client availability: {e}")
@@ -859,7 +859,7 @@ class VolumeService:
             return {
                 "volume_db": vs.global_volume_db,
                 "multiroom_enabled": self._is_multiroom_enabled(),
-                "dsp_available": self._is_dsp_available(),
+                "equalizer_available": self._is_equalizer_available(),
                 "config": self.get_volume_config_public(),
                 "clients": {h: {"volume_db": c.volume_db, "offset_db": c.offset_db, "mute": c.mute, "available": c.available}
                            for h, c in vs.clients.items()},

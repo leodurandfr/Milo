@@ -34,7 +34,7 @@ import { ref, computed, onMounted, onUnmounted, watch, inject } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useSnapcastStore } from '@/stores/snapcastStore';
-import { useDspStore } from '@/stores/dspStore';
+import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import useWebSocket from '@/services/websocket';
 import MultiroomItem from './MultiroomItem.vue';
@@ -43,7 +43,7 @@ import MessageContent from '@/components/ui/MessageContent.vue';
 const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
 const snapcastStore = useSnapcastStore();
-const dspStore = useDspStore();
+const equalizerStore = useEqualizerStore();
 const settingsStore = useSettingsStore();
 const { on } = useWebSocket();
 
@@ -64,8 +64,8 @@ let unsubscribeFunctions = [];
 // === COMPUTED ===
 const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
 
-// Get linked groups from DSP store (zones are a multiroom feature, independent of DSP effects)
-const linkedGroups = computed(() => dspStore.linkedGroups || []);
+// Get linked groups from equalizer store (zones are a multiroom feature, independent of equalizer effects)
+const linkedGroups = computed(() => equalizerStore.linkedGroups || []);
 
 // Get zone info for a client (returns zone object if linked, null otherwise)
 function getZoneForClient(client) {
@@ -109,7 +109,7 @@ function getZoneAverageVolume(zone) {
   );
   if (onlineClientIds.length === 0) return -60;
 
-  const volumes = onlineClientIds.map(macId => dspStore.getClientDspVolume(macId));
+  const volumes = onlineClientIds.map(macId => equalizerStore.getClientEqualizerVolume(macId));
   return volumes.reduce((sum, v) => sum + v, 0) / volumes.length;
 }
 
@@ -123,7 +123,7 @@ function getZoneMuted(zone) {
   }
   // Fallback: check individual clients
   if (!zone?.client_ids?.length) return false;
-  return zone.client_ids.every(macId => dspStore.getClientDspMute(macId));
+  return zone.client_ids.every(macId => equalizerStore.getClientEqualizerMute(macId));
 }
 
 // Track starting state when zone slider drag begins
@@ -148,7 +148,7 @@ function getZoneSliderState(zone) {
     // Capture starting volumes for online clients only
     const clientStarts = {};
     onlineClientIds.forEach(macId => {
-      clientStarts[macId] = dspStore.getClientDspVolume(macId);
+      clientStarts[macId] = equalizerStore.getClientEqualizerVolume(macId);
     });
     const startAvg = Object.values(clientStarts).reduce((s, v) => s + v, 0) / onlineClientIds.length;
     zoneSliderState.value[zoneId] = { startAvg, clientStarts };
@@ -209,20 +209,20 @@ const displayClients = computed(() => {
       id: `placeholder-${i}`,
       name: '',
       volume: 0,
-      dspMuted: false,
+      equalizerMuted: false,
       isZone: item.type === 'zone',
       zoneClientDetails: null
     }));
   }
 
-  // Add dspVolume and dspMuted from cache to each client
+  // Add equalizerVolume and equalizerMuted from cache to each client
   // If there are linked groups, filter to show only zone primaries
   if (linkedGroups.value.length > 0) {
     return snapcastStore.clients
       .filter(client => isZonePrimary(client))
       .map(client => {
-        const dspVol = dspStore.getClientDspVolume(client.mac_id);
-        const dspMut = dspStore.getClientDspMute(client.mac_id);
+        const eqVol = equalizerStore.getClientEqualizerVolume(client.mac_id);
+        const eqMut = equalizerStore.getClientEqualizerMute(client.mac_id);
         const zone = getZoneForClient(client);
 
         if (zone) {
@@ -238,9 +238,9 @@ const displayClients = computed(() => {
             id: c.mac_id,
             mac_id: c.mac_id,
             name: c.name,
-            dspVolume: dspStore.getClientDspVolume(c.mac_id),
-            dspMuted: dspStore.getClientDspMute(c.mac_id),
-            speakerType: dspStore.getClientSpeakerType(c.mac_id),
+            equalizerVolume: equalizerStore.getClientEqualizerVolume(c.mac_id),
+            equalizerMuted: equalizerStore.getClientEqualizerMute(c.mac_id),
+            speakerType: equalizerStore.getClientSpeakerType(c.mac_id),
             online: c.online,
             is_local: c.is_local
           }));
@@ -250,8 +250,8 @@ const displayClients = computed(() => {
           return {
             ...client,
             name: zoneName,
-            dspVolume: zoneVolume,
-            dspMuted: getZoneMuted(zone),
+            equalizerVolume: zoneVolume,
+            equalizerMuted: getZoneMuted(zone),
             volumeLoading: zoneVolume === null,
             zoneClientIds: zone.client_ids,
             isZone: true,
@@ -260,8 +260,8 @@ const displayClients = computed(() => {
         }
         return {
           ...client,
-          dspVolume: dspVol,
-          dspMuted: dspMut,
+          equalizerVolume: eqVol,
+          equalizerMuted: eqMut,
           isZone: false,
           zoneClientDetails: null
         };
@@ -288,15 +288,15 @@ const displayClients = computed(() => {
       });
   }
 
-  // No linked groups - just add dspVolume and dspMuted to each client
+  // No linked groups - just add equalizerVolume and equalizerMuted to each client
   // Sorting handled by multiroomStore (local first, online first, alphabetical)
   return snapcastStore.clients.map(client => {
-    const dspVol = dspStore.getClientDspVolume(client.mac_id);
-    const dspMut = dspStore.getClientDspMute(client.mac_id);
+    const eqVol = equalizerStore.getClientEqualizerVolume(client.mac_id);
+    const eqMut = equalizerStore.getClientEqualizerMute(client.mac_id);
     return {
       ...client,
-      dspVolume: dspVol,
-      dspMuted: dspMut,
+      equalizerVolume: eqVol,
+      equalizerMuted: eqMut,
       isZone: false,
       zoneClientDetails: null
     };
@@ -339,7 +339,7 @@ async function handleVolumeChange(clientMacId, volumeDb, options = {}) {
       // Single atomic API call for entire zone
       // This eliminates race condition - updates all clients in parallel, broadcasts once
       try {
-        await dspStore.applyZoneDelta(zone.id, delta);
+        await equalizerStore.applyZoneDelta(zone.id, delta);
         // Volume state updated via single WebSocket broadcast from backend
       } catch (error) {
         console.error('Failed to apply zone volume delta:', error);
@@ -350,7 +350,7 @@ async function handleVolumeChange(clientMacId, volumeDb, options = {}) {
     }
   } else {
     // Standalone client - always use direct update
-    await dspStore.updateClientDspVolume(client.mac_id, volumeDb);
+    await equalizerStore.updateClientEqualizerVolume(client.mac_id, volumeDb);
     // Volume state will be updated via WebSocket broadcast
   }
 }
@@ -372,24 +372,24 @@ async function handleMuteToggle(clientMacId, muted, options = {}) {
       );
 
       const updatePromises = onlineClientIds.map(async (macId) => {
-        await dspStore.updateClientDspMute(macId, muted);
+        await equalizerStore.updateClientEqualizerMute(macId, muted);
       });
       await Promise.all(updatePromises);
     }
   } else {
     // Standalone client - always use direct update
-    await dspStore.updateClientDspMute(client.mac_id, muted);
+    await equalizerStore.updateClientEqualizerMute(client.mac_id, muted);
   }
 }
 
 // Handle individual client volume change (within expanded zone)
-async function handleClientVolumeChange(clientDspId, volumeDb) {
-  await dspStore.updateClientDspVolume(clientDspId, volumeDb);
+async function handleClientVolumeChange(clientEqId, volumeDb) {
+  await equalizerStore.updateClientEqualizerVolume(clientEqId, volumeDb);
 }
 
 // Handle individual client mute toggle (within expanded zone)
-async function handleClientMuteToggle(clientDspId, muted) {
-  await dspStore.updateClientDspMute(clientDspId, muted);
+async function handleClientMuteToggle(clientEqId, muted) {
+  await equalizerStore.updateClientEqualizerMute(clientEqId, muted);
 }
 
 // === TRANSITION HELPERS ===
@@ -468,11 +468,11 @@ onMounted(async () => {
     transitionState.value = 'idle';
   }
 
-  // Load DSP enabled state (for volume mode detection)
-  await dspStore.loadEnabledState();
+  // Load equalizer enabled state (for volume mode detection)
+  await equalizerStore.loadEnabledState();
 
-  // Load linked groups (zones are a multiroom feature, independent of DSP effects)
-  await dspStore.loadTargets();
+  // Load linked groups (zones are a multiroom feature, independent of equalizer effects)
+  await equalizerStore.loadTargets();
 
   // Note: snapcast client event subscriptions removed - clients are now derived from
   // multiroomStore which handles registry events globally in App.vue
@@ -482,7 +482,7 @@ onMounted(async () => {
     on('routing', 'multiroom_disabling', handleMultiroomDisabling),
     on('routing', 'multiroom_ready', handleMultiroomReady),
     on('routing', 'multiroom_error', handleMultiroomError),
-    on('dsp', 'enabled_changed', (e) => dspStore.handleEnabledChanged(e)),
+    on('equalizer', 'enabled_changed', (e) => equalizerStore.handleEnabledChanged(e)),
     // Volume changes - handled by unifiedAudioStore.handleVolumeEvent
     // The unified state update will trigger reactivity
     on('volume', 'volume_changed', (event) => {

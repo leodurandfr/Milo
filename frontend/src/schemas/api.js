@@ -119,9 +119,9 @@ const HealthResponseSchema = z.object({
   })).optional()
 });
 
-// === DSP ===
+// === EQUALIZER ===
 
-const DspFilterSchema = z.object({
+const EqualizerFilterSchema = z.object({
   id: z.string(),
   freq: z.number(),
   gain: z.number(),
@@ -130,7 +130,7 @@ const DspFilterSchema = z.object({
   enabled: z.boolean().default(true)
 });
 
-const DspStatusSchema = z.object({
+const EqualizerStatusSchema = z.object({
   state: z.enum(['disconnected', 'inactive', 'running', 'paused']),
   sample_rate: z.number().optional(),
   input_peak: z.tuple([z.number(), z.number()]).optional(),
@@ -138,10 +138,10 @@ const DspStatusSchema = z.object({
 });
 
 /**
- * Response from zone DSP endpoints (PATCH /api/dsp/zone/{zone_id}/...).
+ * Response from zone equalizer endpoints (PATCH /api/equalizer/zone/{zone_id}/...).
  * Backend applies changes to all ONLINE clients and returns status.
  */
-const DspZoneResponseSchema = z.object({
+const EqualizerZoneResponseSchema = z.object({
   status: z.enum(['success', 'partial', 'error']),
   zone_id: z.string(),
   applied_to: z.array(z.string()),
@@ -152,10 +152,10 @@ const DspZoneResponseSchema = z.object({
   })).nullable().optional(),
   // Optional fields for specific endpoint responses
   filter_id: z.string().optional(),  // For zone filter update
-  enabled: z.boolean().optional()     // For zone DSP bypass toggle
+  enabled: z.boolean().optional()     // For zone equalizer bypass toggle
 });
 
-const DspCompressorSchema = z.object({
+const EqualizerCompressorSchema = z.object({
   enabled: z.boolean(),
   threshold: z.number(),
   ratio: z.number(),
@@ -164,20 +164,20 @@ const DspCompressorSchema = z.object({
   makeup_gain: z.number()
 });
 
-const DspLoudnessSchema = z.object({
+const EqualizerLoudnessSchema = z.object({
   enabled: z.boolean(),
   high_boost: z.number(),
   low_boost: z.number()
 });
 
-const DspPresetSchema = z.object({
+const EqualizerPresetSchema = z.object({
   id: z.string(),
   name: z.string(),
   gains: z.array(z.number())
 });
 
-const DspPresetsResponseSchema = z.object({
-  presets: z.array(DspPresetSchema),
+const EqualizerPresetsResponseSchema = z.object({
+  presets: z.array(EqualizerPresetSchema),
   manual_gains: z.array(z.number()),
   active_preset: z.string().nullable()
 });
@@ -206,7 +206,7 @@ export const MultiroomStateSchema = z.object({
     id: z.string(),
     name: z.string(),
     client_ids: z.array(z.string()),
-    dsp_settings: z.object({}).passthrough().optional(),
+    equalizer_settings: z.object({}).passthrough().optional(),
     online_client_count: z.number().optional(),
     has_subwoofer: z.boolean().optional(),
     crossover_enabled: z.boolean().optional()

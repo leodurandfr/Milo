@@ -31,7 +31,7 @@
           <div
             v-else-if="!isZone"
             class="client-icon"
-            :class="{ 'muted': client.dspMuted, 'offline': !client.online }"
+            :class="{ 'muted': client.equalizerMuted, 'offline': !client.online }"
           >
             <SvgIcon :name="getSpeakerIcon(clientSpeakerType)" :size="24" />
           </div>
@@ -53,7 +53,7 @@
           class="client-name heading-3"
           :class="{
             'visible': !isLoading,
-            'muted': client.dspMuted,
+            'muted': client.equalizerMuted,
             'offline': !client.online && !isZone
           }"
         >
@@ -84,7 +84,7 @@
           class="volume-control"
           :class="{
             'visible': !isLoading,
-            'muted': client.dspMuted
+            'muted': client.equalizerMuted
           }"
         >
           <RangeSlider
@@ -93,7 +93,7 @@
             :max="sliderMax"
             :step="1"
             :disabled="isLoading"
-            :muted="client.dspMuted"
+            :muted="client.equalizerMuted"
             show-value
             value-unit=" dB"
             @input="handleVolumeInput"
@@ -117,7 +117,7 @@
         >
           <Toggle
             v-if="client.online || isZone"
-            :model-value="!client.dspMuted"
+            :model-value="!client.equalizerMuted"
             variant="secondary"
             @change="handleMuteToggle"
           />
@@ -145,14 +145,14 @@
           :style="{ '--row-delay': `${100 + index * 80}ms` }"
         >
           <!-- Speaker icon -->
-          <div class="client-icon" :class="{ 'muted': zoneClient.dspMuted, 'offline': !zoneClient.online }">
+          <div class="client-icon" :class="{ 'muted': zoneClient.equalizerMuted, 'offline': !zoneClient.online }">
             <SvgIcon :name="getSpeakerIcon(zoneClient.speakerType)" :size="24" />
           </div>
 
           <!-- Client name -->
           <span
             class="client-row-name heading-3"
-            :class="{ 'muted': zoneClient.dspMuted, 'offline': !zoneClient.online }"
+            :class="{ 'muted': zoneClient.equalizerMuted, 'offline': !zoneClient.online }"
           >
             {{ zoneClient.name }}
           </span>
@@ -160,12 +160,12 @@
           <!-- Client volume slider (when online) -->
           <div v-if="zoneClient.online" class="client-volume">
             <RangeSlider
-              :model-value="getClientDisplayVolume(zoneClient.mac_id, zoneClient.dspVolume)"
+              :model-value="getClientDisplayVolume(zoneClient.mac_id, zoneClient.equalizerVolume)"
               :min="sliderMin"
               :max="sliderMax"
               :step="1"
               :disabled="isLoading"
-              :muted="zoneClient.dspMuted"
+              :muted="zoneClient.equalizerMuted"
               show-value
               value-unit=" dB"
               @input="(v) => handleClientVolumeInput(zoneClient.mac_id, v)"
@@ -181,7 +181,7 @@
           <!-- Client mute toggle (online) or offline placeholder -->
           <Toggle
             v-if="zoneClient.online"
-            :model-value="!zoneClient.dspMuted"
+            :model-value="!zoneClient.equalizerMuted"
             variant="secondary"
             @change="(enabled) => handleClientMuteToggle(zoneClient.mac_id, !enabled)"
           />
@@ -198,13 +198,13 @@ import RangeSlider from '@/components/ui/RangeSlider.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import { useSettingsStore } from '@/stores/settingsStore';
-import { useDspStore } from '@/stores/dspStore';
+import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useVolumeThrottle, useVolumeThrottleMap } from '@/composables/useVolumeThrottle';
 import { useI18n } from '@/services/i18n';
 
 const { t } = useI18n();
 const settingsStore = useSettingsStore();
-const dspStore = useDspStore();
+const equalizerStore = useEqualizerStore();
 
 const props = defineProps({
   client: {
@@ -221,7 +221,7 @@ const props = defineProps({
     default: false
   },
   // Detailed client list for expanded view
-  // [{mac_id, name, dspVolume, dspMuted, speakerType, online}]
+  // [{mac_id, name, equalizerVolume, equalizerMuted, speakerType, online}]
   zoneClientDetails: {
     type: Array,
     default: null
@@ -249,7 +249,7 @@ const expandedWrapperHeight = ref('0px');
 
 // Clear local volume when backend confirms the update (via WebSocket)
 watch(
-  () => props.client.dspVolume,
+  () => props.client.equalizerVolume,
   (newServerVolume) => {
     // If we have a pending local value and server now matches (within 1dB tolerance)
     if (localDisplayVolume.value !== null && newServerVolume != null) {
@@ -293,7 +293,7 @@ const sliderMax = computed(() => settingsStore.volumeLimits.max_db);
 // Speaker type for standalone client (not zone)
 const clientSpeakerType = computed(() => {
   if (props.isZone) return null;
-  return dspStore.getClientSpeakerType(props.client.mac_id) || 'bookshelf';
+  return equalizerStore.getClientSpeakerType(props.client.mac_id) || 'bookshelf';
 });
 
 // Volume is always in dB (zone average or single client)
@@ -302,8 +302,8 @@ const displayVolume = computed(() => {
     return localDisplayVolume.value;
   }
 
-  // Use dspVolume from client (populated by parent), clamp to limits
-  const volume = props.client.dspVolume ?? -60;
+  // Use equalizerVolume from client (populated by parent), clamp to limits
+  const volume = props.client.equalizerVolume ?? -60;
   return Math.max(sliderMin.value, Math.min(sliderMax.value, Math.round(volume)));
 });
 

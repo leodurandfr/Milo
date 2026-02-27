@@ -23,7 +23,7 @@
 <script setup>
 import { computed } from 'vue';
 import { useI18n } from '@/services/i18n';
-import { useDspStore } from '@/stores/dspStore';
+import { useEqualizerStore } from '@/stores/equalizerStore';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 
@@ -47,10 +47,10 @@ const props = defineProps({
 });
 
 const { t } = useI18n();
-const dspStore = useDspStore();
+const equalizerStore = useEqualizerStore();
 
 const speakerIcon = computed(() => {
-  const speakerType = dspStore.getClientSpeakerType(props.macId);
+  const speakerType = equalizerStore.getClientSpeakerType(props.macId);
   const iconMap = {
     satellite: 'speakerSatellite',
     bookshelf: 'speakerShelf',
@@ -61,7 +61,7 @@ const speakerIcon = computed(() => {
 });
 
 const speakerTypeLabel = computed(() => {
-  const speakerType = dspStore.getClientSpeakerType(props.macId);
+  const speakerType = equalizerStore.getClientSpeakerType(props.macId);
   return t(`multiroom.speakerTypes.${speakerType}`);
 });
 </script>

@@ -126,7 +126,7 @@ class TestVolumeService:
                     "step_mobile_db": 5.0,
                     "step_rotary_db": 2.0
                 }
-            elif key == "dsp.linked_groups":
+            elif key == "equalizer.linked_groups":
                 return []
             return None
 
@@ -152,7 +152,7 @@ class TestVolumeService:
                     "step_mobile_db": 3.0,
                     "step_rotary_db": 4.0
                 }
-            elif key == "dsp.linked_groups":
+            elif key == "equalizer.linked_groups":
                 return []
             return None
 
@@ -178,7 +178,7 @@ class TestVolumeService:
                     "step_mobile_db": 3.0,
                     "step_rotary_db": 2.0
                 }
-            elif key == "dsp.linked_groups":
+            elif key == "equalizer.linked_groups":
                 return []
             return None
 

@@ -179,7 +179,7 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
 
         This endpoint solves the race condition by:
         1. Calculating updates for ALL clients in the zone
-        2. Applying them in parallel via DSPController
+        2. Applying them in parallel via EqualizerController
         3. Broadcasting complete state ONCE after all updates succeed
 
         Args:
@@ -236,7 +236,7 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
 
         This endpoint solves the race condition by:
         1. Calculating updates for ALL clients in the zone
-        2. Applying them in parallel via DSPController
+        2. Applying them in parallel via EqualizerController
         3. Broadcasting complete state ONCE after all updates succeed
 
         Replaces the old pattern of frontend sending multiple parallel requests.
@@ -308,7 +308,7 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
         Validate that a client exists in the registry.
 
         Args:
-            client_id: Client DSP ID (hostname like "local" or "milo-client-01")
+            client_id: Client equalizer ID (hostname like "local" or "milo-client-01")
 
         Returns:
             Client data dict if found
@@ -318,9 +318,9 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
         """
         if client_registry_service is None:
             # No registry service - allow all client IDs (fallback mode)
-            return {"dsp_id": client_id}
+            return {"camilladsp_id": client_id}
 
-        client = client_registry_service.get_client_by_dsp_id(client_id)
+        client = client_registry_service.get_client_by_camilladsp_id(client_id)
         if not client:
             raise HTTPException(
                 status_code=404,
@@ -357,7 +357,7 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
         Set volume for a specific client.
 
         Args:
-            client_id: Client DSP ID (e.g., "local", "milo-client-01")
+            client_id: Client equalizer ID (e.g., "local", "milo-client-01")
             request: Volume in dB (-80 to 0)
 
         Returns:
@@ -396,7 +396,7 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
         Set mute state for a specific client.
 
         Args:
-            client_id: Client DSP ID (e.g., "local", "milo-client-01")
+            client_id: Client equalizer ID (e.g., "local", "milo-client-01")
             request: Mute state (true/false)
 
         Returns:
@@ -430,7 +430,7 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
         Get volume state for a specific client.
 
         Args:
-            client_id: Client DSP ID (e.g., "local", "milo-client-01")
+            client_id: Client equalizer ID (e.g., "local", "milo-client-01")
 
         Returns:
             Client volume state including volume_db, mute, and online status

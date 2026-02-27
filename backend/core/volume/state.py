@@ -207,21 +207,21 @@ class VolumeStateStore:
 
         elif event_type == RegistryEventType.ZONE_CLIENT_ADDED:
             zone_id = data.get("zone_id")
-            dsp_id = data.get("dsp_id")
-            if zone_id and dsp_id and zone_id in self._zones:
+            camilladsp_id = data.get("camilladsp_id")
+            if zone_id and camilladsp_id and zone_id in self._zones:
                 async with self._lock:
-                    if dsp_id not in self._zones[zone_id].client_ids:
-                        self._zones[zone_id].client_ids.append(dsp_id)
-                self.logger.debug(f"Client {dsp_id} added to zone {zone_id} in volume state")
+                    if camilladsp_id not in self._zones[zone_id].client_ids:
+                        self._zones[zone_id].client_ids.append(camilladsp_id)
+                self.logger.debug(f"Client {camilladsp_id} added to zone {zone_id} in volume state")
 
         elif event_type == RegistryEventType.ZONE_CLIENT_REMOVED:
             zone_id = data.get("zone_id")
-            dsp_id = data.get("dsp_id")
-            if zone_id and dsp_id and zone_id in self._zones:
+            camilladsp_id = data.get("camilladsp_id")
+            if zone_id and camilladsp_id and zone_id in self._zones:
                 async with self._lock:
-                    if dsp_id in self._zones[zone_id].client_ids:
-                        self._zones[zone_id].client_ids.remove(dsp_id)
-                self.logger.debug(f"Client {dsp_id} removed from zone {zone_id} in volume state")
+                    if camilladsp_id in self._zones[zone_id].client_ids:
+                        self._zones[zone_id].client_ids.remove(camilladsp_id)
+                self.logger.debug(f"Client {camilladsp_id} removed from zone {zone_id} in volume state")
 
     # ========== Storage Directory ==========
 

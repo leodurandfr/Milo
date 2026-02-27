@@ -395,9 +395,9 @@ describe('multiroomStore - Real-Time Sync (Story 6.3)', () => {
 
   // ===========================================================================
   // AC3: Crossover Changed Event Handling
-  // Note: crossover_changed events are handled by dspStore, not multiroomStore.
-  // See dspStore.test.js "handleZoneCrossoverChanged" tests for AC3 coverage.
-  // App.vue wiring: on('multiroom', 'crossover_changed', (event) => dspStore.handleZoneCrossoverChanged(event))
+  // Note: crossover_changed events are handled by equalizerStore, not multiroomStore.
+  // See equalizerStore.test.js "handleZoneCrossoverChanged" tests for AC3 coverage.
+  // App.vue wiring: on('multiroom', 'crossover_changed', (event) => equalizerStore.handleZoneCrossoverChanged(event))
   // ===========================================================================
 
   // ===========================================================================

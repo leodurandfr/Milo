@@ -46,10 +46,10 @@ class CrossoverService:
     DEFAULT_Q = 0.707  # Butterworth (flattest passband)
     CLIENT_API_PORT = _CLIENT_API_PORT
 
-    def __init__(self, settings_service=None, dsp_service=None, event_bus: EventBus = None):
+    def __init__(self, settings_service=None, camilladsp_service=None, event_bus: EventBus = None):
         self.logger = logging.getLogger(__name__)
         self.settings_service = settings_service
-        self.dsp_service = dsp_service
+        self.camilladsp_service = camilladsp_service
         self.event_bus = event_bus or get_event_bus()
 
         # State machine reference (set by container)
@@ -469,8 +469,8 @@ class CrossoverService:
             is_local = (client.ip == "127.0.0.1") if client else False
 
             if is_local:
-                if self.dsp_service:
-                    return await self.dsp_service.set_crossover_filter(
+                if self.camilladsp_service:
+                    return await self.camilladsp_service.set_crossover_filter(
                         enabled=enabled,
                         frequency=frequency,
                         q=self.DEFAULT_Q
@@ -509,8 +509,8 @@ class CrossoverService:
             is_local = (client.ip == "127.0.0.1") if client else False
 
             if is_local:
-                if self.dsp_service:
-                    return await self.dsp_service.set_lowpass_filter(
+                if self.camilladsp_service:
+                    return await self.camilladsp_service.set_lowpass_filter(
                         enabled=enabled,
                         frequency=frequency,
                         q=self.DEFAULT_Q
@@ -553,7 +553,7 @@ class CrossoverService:
         """
         identifier = client_id or ip_address
         try:
-            url = f"http://{ip_address}:{self.CLIENT_API_PORT}/dsp/crossover"
+            url = f"http://{ip_address}:{self.CLIENT_API_PORT}/equalizer/crossover"
 
             payload = {
                 "enabled": enabled,
@@ -604,7 +604,7 @@ class CrossoverService:
         """
         identifier = client_id or ip_address
         try:
-            url = f"http://{ip_address}:{self.CLIENT_API_PORT}/dsp/lowpass"
+            url = f"http://{ip_address}:{self.CLIENT_API_PORT}/equalizer/lowpass"
 
             payload = {
                 "enabled": enabled,
@@ -677,7 +677,7 @@ class CrossoverService:
     # === Pending Settings Queue for Offline Clients ===
 
     async def queue_pending_settings(self, client_id: str, setting_type: str, settings: Dict[str, Any]) -> None:
-        """Queue DSP settings for an offline client."""
+        """Queue equalizer settings for an offline client."""
         if client_id not in self._pending_settings:
             self._pending_settings[client_id] = {}
 
@@ -735,7 +735,7 @@ class CrossoverService:
             muted = pending["mute"].get("muted", False)
             await self._apply_pending_mute(client_id, muted)
 
-        # Apply EQ filters (zone DSP settings)
+        # Apply EQ filters (zone equalizer settings)
         if "filters" in pending:
             filters = pending["filters"]
             for flt in filters:
@@ -776,15 +776,15 @@ class CrossoverService:
             is_local = (client.ip == "127.0.0.1") if client else False
 
             if is_local:
-                if self.dsp_service:
-                    await self.dsp_service.set_mute(muted)
+                if self.camilladsp_service:
+                    await self.camilladsp_service.set_mute(muted)
                     return True
             else:
                 # Use client IP for remote requests
                 if not client or not client.ip:
                     self.logger.warning(f"Cannot apply pending mute: client {client_id} has no IP address")
                     return False
-                url = f"http://{client.ip}:{self.CLIENT_API_PORT}/dsp/mute"
+                url = f"http://{client.ip}:{self.CLIENT_API_PORT}/equalizer/mute"
 
                 timeout = aiohttp.ClientTimeout(total=5)
                 async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -810,15 +810,15 @@ class CrossoverService:
             is_local = (client.ip == "127.0.0.1") if client else False
 
             if is_local:
-                if self.dsp_service:
-                    await self.dsp_service.set_filter(filter_id, **data)
+                if self.camilladsp_service:
+                    await self.camilladsp_service.set_filter(filter_id, **data)
                     return True
             else:
                 # Use client IP for remote requests
                 if not client or not client.ip:
                     self.logger.warning(f"Cannot apply pending filter: client {client_id} has no IP address")
                     return False
-                url = f"http://{client.ip}:{self.CLIENT_API_PORT}/dsp/filter/{filter_id}"
+                url = f"http://{client.ip}:{self.CLIENT_API_PORT}/equalizer/filter/{filter_id}"
 
                 timeout = aiohttp.ClientTimeout(total=5)
                 async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -837,15 +837,15 @@ class CrossoverService:
             is_local = (client.ip == "127.0.0.1") if client else False
 
             if is_local:
-                if self.dsp_service:
-                    await self.dsp_service.set_compressor(**settings)
+                if self.camilladsp_service:
+                    await self.camilladsp_service.set_compressor(**settings)
                     return True
             else:
                 # Use client IP for remote requests
                 if not client or not client.ip:
                     self.logger.warning(f"Cannot apply pending compressor: client {client_id} has no IP address")
                     return False
-                url = f"http://{client.ip}:{self.CLIENT_API_PORT}/dsp/compressor"
+                url = f"http://{client.ip}:{self.CLIENT_API_PORT}/equalizer/compressor"
 
                 timeout = aiohttp.ClientTimeout(total=5)
                 async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -864,15 +864,15 @@ class CrossoverService:
             is_local = (client.ip == "127.0.0.1") if client else False
 
             if is_local:
-                if self.dsp_service:
-                    await self.dsp_service.set_loudness(**settings)
+                if self.camilladsp_service:
+                    await self.camilladsp_service.set_loudness(**settings)
                     return True
             else:
                 # Use client IP for remote requests
                 if not client or not client.ip:
                     self.logger.warning(f"Cannot apply pending loudness: client {client_id} has no IP address")
                     return False
-                url = f"http://{client.ip}:{self.CLIENT_API_PORT}/dsp/loudness"
+                url = f"http://{client.ip}:{self.CLIENT_API_PORT}/equalizer/loudness"
 
                 timeout = aiohttp.ClientTimeout(total=5)
                 async with aiohttp.ClientSession(timeout=timeout) as session:

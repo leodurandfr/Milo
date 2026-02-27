@@ -1,44 +1,44 @@
 <!-- frontend/src/components/equalizer/EqualizerModal.vue -->
 <template>
   <div class="equalizer-modal">
-    <ModalHeader :title="$t('dsp.title')">
+    <ModalHeader :title="$t('equalizer.title')">
       <template #actions="{ iconType }">
         <Toggle
-          :modelValue="dspStore.isDspEffectsEnabled"
+          :modelValue="equalizerStore.isEqualizerEffectsEnabled"
           :type="iconType"
-          :disabled="dspStore.isTogglingEnabled"
-          @change="handleDspToggle"
+          :disabled="equalizerStore.isTogglingEnabled"
+          @change="handleEqualizerToggle"
         />
       </template>
     </ModalHeader>
 
     <div class="main-content">
       <Transition name="fade-slide" mode="out-in">
-        <!-- State 1: DSP disabled -->
+        <!-- State 1: Equalizer disabled -->
         <MessageContent
-          v-if="!dspStore.isDspEffectsEnabled"
+          v-if="!equalizerStore.isEqualizerEffectsEnabled"
           key="disabled"
           icon="equalizer"
-          :title="$t('dsp.effects_disabled')"
+          :title="$t('equalizer.effects_disabled')"
         />
 
-        <!-- State 2: DSP enabled but loading/connecting -->
+        <!-- State 2: Equalizer enabled but loading/connecting -->
         <MessageContent
-          v-else-if="!dspStore.isConnected"
+          v-else-if="!equalizerStore.isConnected"
           key="loading"
           :loading="true"
           :loading-delay="0"
-          :title="$t('dsp.connecting')"
+          :title="$t('equalizer.connecting')"
         />
 
-        <!-- State 3: DSP connected - controls -->
+        <!-- State 3: Equalizer connected - controls -->
         <div v-else key="controls" class="controls-content">
           <!-- Propagation Error Banner -->
-          <div v-if="dspStore.propagationErrors.length > 0" class="error-banner" @click="dspStore.clearPropagationErrors">
+          <div v-if="equalizerStore.propagationErrors.length > 0" class="error-banner" @click="equalizerStore.clearPropagationErrors">
             <span class="error-icon">⚠</span>
             <span class="error-text">
-              {{ $t('dsp.syncError') }}:
-              {{ dspStore.propagationErrors.map(e => dspStore.getClientDisplayName(e.clientId)).join(', ') }}
+              {{ $t('equalizer.syncError') }}:
+              {{ equalizerStore.propagationErrors.map(e => equalizerStore.getClientDisplayName(e.clientId)).join(', ') }}
             </span>
             <span class="error-dismiss">×</span>
           </div>
@@ -46,28 +46,28 @@
           <!-- Section 1: Zones (tabs) -->
           <ItemSelector
             ref="zoneTabsRef"
-            :disabled="dspStore.isUpdating"
+            :disabled="equalizerStore.isUpdating"
           />
 
           <!-- Section 2: 10 Bands Equalizer with presets dropdown -->
           <SettingsSection>
             <template #header>
-              <SectionHeader :title="$t('dsp.equalizer.title')" :subtitle="selectedZoneName">
+              <SectionHeader :title="$t('equalizer.equalizer.title')" :subtitle="selectedZoneName">
                 <template #actions>
                   <Dropdown
                     :model-value="currentPresetValue"
                     :options="presetOptions"
-                    :placeholder="$t('dsp.selectPreset')"
-                    :disabled="dspStore.isUpdating"
+                    :placeholder="$t('equalizer.selectPreset')"
+                    :disabled="equalizerStore.isUpdating"
                     @update:model-value="handlePresetChange"
                   />
                 </template>
               </SectionHeader>
             </template>
             <ParametricEQ
-              :filters="dspStore.filters"
-              :filters-loaded="dspStore.filtersLoaded"
-              :disabled="dspStore.isUpdating"
+              :filters="equalizerStore.filters"
+              :filters-loaded="equalizerStore.filtersLoaded"
+              :disabled="equalizerStore.isUpdating"
               :is-mobile="isMobile"
               @update:filter="handleFilterUpdate"
               @change="handleFilterChange"
@@ -76,22 +76,22 @@
 
           <!-- Section 3: Loudness -->
           <ToggleSection
-            :title="$t('dsp.loudness.title')"
-            :enabled="dspStore.loudness.enabled"
+            :title="$t('equalizer.loudness.title')"
+            :enabled="equalizerStore.loudness.enabled"
             @change="handleLoudnessToggle"
           >
             <div class="effect-controls">
               <div class="control-item">
-                <label class="text-mono-small">{{ $t('dsp.loudness.lowBoost') }}</label>
-                <RangeSlider :model-value="dspStore.loudness.low_boost" :min="0" :max="15" :step="0.5" value-unit=" dB"
-                  @update:model-value="(v) => dspStore.loudness.low_boost = v"
+                <label class="text-mono-small">{{ $t('equalizer.loudness.lowBoost') }}</label>
+                <RangeSlider :model-value="equalizerStore.loudness.low_boost" :min="0" :max="15" :step="0.5" value-unit=" dB"
+                  @update:model-value="(v) => equalizerStore.loudness.low_boost = v"
                   @change="handleLoudnessChange('low_boost', $event)" />
               </div>
 
               <div class="control-item">
-                <label class="text-mono-small">{{ $t('dsp.loudness.highBoost') }}</label>
-                <RangeSlider :model-value="dspStore.loudness.high_boost" :min="0" :max="15" :step="0.5" value-unit=" dB"
-                  @update:model-value="(v) => dspStore.loudness.high_boost = v"
+                <label class="text-mono-small">{{ $t('equalizer.loudness.highBoost') }}</label>
+                <RangeSlider :model-value="equalizerStore.loudness.high_boost" :min="0" :max="15" :step="0.5" value-unit=" dB"
+                  @update:model-value="(v) => equalizerStore.loudness.high_boost = v"
                   @change="handleLoudnessChange('high_boost', $event)" />
               </div>
             </div>
@@ -99,43 +99,43 @@
 
           <!-- Section 4: Compressor -->
           <ToggleSection
-            :title="$t('dsp.compressor.title')"
-            :enabled="dspStore.compressor.enabled"
+            :title="$t('equalizer.compressor.title')"
+            :enabled="equalizerStore.compressor.enabled"
             @change="handleCompressorToggle"
           >
             <div class="effect-controls">
               <div class="control-item">
-                <label class="text-mono-small">{{ $t('dsp.compressor.ratio') }}</label>
-                <RangeSlider :model-value="dspStore.compressor.ratio" :min="1" :max="20" :step="0.5" value-unit=":1"
-                  @update:model-value="(v) => dspStore.compressor.ratio = v"
+                <label class="text-mono-small">{{ $t('equalizer.compressor.ratio') }}</label>
+                <RangeSlider :model-value="equalizerStore.compressor.ratio" :min="1" :max="20" :step="0.5" value-unit=":1"
+                  @update:model-value="(v) => equalizerStore.compressor.ratio = v"
                   @change="handleCompressorChange('ratio', $event)" />
               </div>
 
               <div class="control-item">
-                <label class="text-mono-small">{{ $t('dsp.compressor.threshold') }}</label>
-                <RangeSlider :model-value="dspStore.compressor.threshold" :min="-60" :max="0" :step="1" value-unit=" dB"
-                  @update:model-value="(v) => dspStore.compressor.threshold = v"
+                <label class="text-mono-small">{{ $t('equalizer.compressor.threshold') }}</label>
+                <RangeSlider :model-value="equalizerStore.compressor.threshold" :min="-60" :max="0" :step="1" value-unit=" dB"
+                  @update:model-value="(v) => equalizerStore.compressor.threshold = v"
                   @change="handleCompressorChange('threshold', $event)" />
               </div>
 
               <div class="control-item">
-                <label class="text-mono-small">{{ $t('dsp.compressor.attack') }}</label>
-                <RangeSlider :model-value="dspStore.compressor.attack" :min="0.1" :max="100" :step="0.1" value-unit=" ms"
-                  @update:model-value="(v) => dspStore.compressor.attack = v"
+                <label class="text-mono-small">{{ $t('equalizer.compressor.attack') }}</label>
+                <RangeSlider :model-value="equalizerStore.compressor.attack" :min="0.1" :max="100" :step="0.1" value-unit=" ms"
+                  @update:model-value="(v) => equalizerStore.compressor.attack = v"
                   @change="handleCompressorChange('attack', $event)" />
               </div>
 
               <div class="control-item">
-                <label class="text-mono-small">{{ $t('dsp.compressor.release') }}</label>
-                <RangeSlider :model-value="dspStore.compressor.release" :min="10" :max="1000" :step="10" value-unit=" ms"
-                  @update:model-value="(v) => dspStore.compressor.release = v"
+                <label class="text-mono-small">{{ $t('equalizer.compressor.release') }}</label>
+                <RangeSlider :model-value="equalizerStore.compressor.release" :min="10" :max="1000" :step="10" value-unit=" ms"
+                  @update:model-value="(v) => equalizerStore.compressor.release = v"
                   @change="handleCompressorChange('release', $event)" />
               </div>
 
               <div class="control-item">
-                <label class="text-mono-small">{{ $t('dsp.compressor.makeup') }}</label>
-                <RangeSlider :model-value="dspStore.compressor.makeup_gain" :min="0" :max="30" :step="0.5" value-unit=" dB"
-                  @update:model-value="(v) => dspStore.compressor.makeup_gain = v"
+                <label class="text-mono-small">{{ $t('equalizer.compressor.makeup') }}</label>
+                <RangeSlider :model-value="equalizerStore.compressor.makeup_gain" :min="0" :max="30" :step="0.5" value-unit=" dB"
+                  @update:model-value="(v) => equalizerStore.compressor.makeup_gain = v"
                   @change="handleCompressorChange('makeup_gain', $event)" />
               </div>
             </div>
@@ -151,7 +151,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { useDspStore } from '@/stores/dspStore';
+import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
@@ -167,7 +167,7 @@ import ParametricEQ from './ParametricEQ.vue';
 import LevelMeters from './LevelMeters.vue';
 
 const { t } = useI18n();
-const dspStore = useDspStore();
+const equalizerStore = useEqualizerStore();
 const { on } = useWebSocket();
 
 // Local state
@@ -186,9 +186,9 @@ const selectedClientIds = computed(() => {
 
 let unsubscribeFunctions = [];
 
-// === DSP TOGGLE ===
-async function handleDspToggle(enabled) {
-  await dspStore.toggleDspEffectsEnabled(enabled);
+// === EQUALIZER TOGGLE ===
+async function handleEqualizerToggle(enabled) {
+  await equalizerStore.toggleEqualizerEffectsEnabled(enabled);
 }
 
 // === PRESETS ===
@@ -196,13 +196,13 @@ const presetOptions = computed(() => {
   const options = [];
 
   options.push({
-    label: t('dsp.presets.manual'),
+    label: t('equalizer.presets.manual'),
     value: 'manual'
   });
 
-  dspStore.builtinPresets.forEach(preset => {
+  equalizerStore.builtinPresets.forEach(preset => {
     options.push({
-      label: t(`dsp.presets.${preset.id}`, preset.id),
+      label: t(`equalizer.presets.${preset.id}`, preset.id),
       value: preset.id
     });
   });
@@ -211,10 +211,10 @@ const presetOptions = computed(() => {
 });
 
 const currentPresetValue = computed(() => {
-  if (dspStore.isManualMode && dspStore.activePreset !== 'manual') {
+  if (equalizerStore.isManualMode && equalizerStore.activePreset !== 'manual') {
     return 'manual';
   }
-  return dspStore.activePreset || 'manual';
+  return equalizerStore.activePreset || 'manual';
 });
 
 // === MOBILE DETECTION ===
@@ -225,35 +225,35 @@ function updateMobileStatus() {
 
 // === FILTER UPDATES ===
 function handleFilterUpdate({ id, field, value }) {
-  dspStore.updateFilter(id, field, value);
+  equalizerStore.updateFilter(id, field, value);
 }
 
 function handleFilterChange({ id }) {
-  dspStore.finalizeFilterUpdate(id);
+  equalizerStore.finalizeFilterUpdate(id);
 }
 
 // === PRESET HANDLING ===
 async function handlePresetChange(value) {
   if (!value) return;
-  await dspStore.loadPreset(value);
+  await equalizerStore.loadPreset(value);
 }
 
 // === LOUDNESS ===
 async function handleLoudnessToggle(enabled) {
-  await dspStore.updateLoudness({ enabled });
+  await equalizerStore.updateLoudness({ enabled });
 }
 
 async function handleLoudnessChange(field, value) {
-  await dspStore.updateLoudness({ [field]: value, enabled: dspStore.loudness.enabled });
+  await equalizerStore.updateLoudness({ [field]: value, enabled: equalizerStore.loudness.enabled });
 }
 
 // === COMPRESSOR ===
 async function handleCompressorToggle(enabled) {
-  await dspStore.updateCompressor({ enabled });
+  await equalizerStore.updateCompressor({ enabled });
 }
 
 async function handleCompressorChange(field, value) {
-  await dspStore.updateCompressor({ [field]: value, enabled: dspStore.compressor.enabled });
+  await equalizerStore.updateCompressor({ [field]: value, enabled: equalizerStore.compressor.enabled });
 }
 
 // === LIFECYCLE ===
@@ -264,34 +264,34 @@ onMounted(async () => {
   // Register WebSocket event listeners FIRST (before any async operations)
   // to prevent race condition where events arrive during initialization
   unsubscribeFunctions.push(
-    on('dsp', 'filter_changed', (e) => dspStore.handleFilterChanged(e)),
-    on('dsp', 'filters_reset', () => dspStore.handleFiltersReset()),
-    on('dsp', 'state_changed', (e) => dspStore.handleStateChanged(e)),
-    on('dsp', 'preset_loaded', (e) => dspStore.handlePresetLoaded(e)),
-    on('dsp', 'compressor_changed', (e) => dspStore.handleCompressorChanged(e)),
-    on('dsp', 'loudness_changed', (e) => dspStore.handleLoudnessChanged(e)),
-    on('dsp', 'enabled_changed', (e) => dspStore.handleEnabledChanged(e))
+    on('equalizer', 'filter_changed', (e) => equalizerStore.handleFilterChanged(e)),
+    on('equalizer', 'filters_reset', () => equalizerStore.handleFiltersReset()),
+    on('equalizer', 'state_changed', (e) => equalizerStore.handleStateChanged(e)),
+    on('equalizer', 'preset_loaded', (e) => equalizerStore.handlePresetLoaded(e)),
+    on('equalizer', 'compressor_changed', (e) => equalizerStore.handleCompressorChanged(e)),
+    on('equalizer', 'loudness_changed', (e) => equalizerStore.handleLoudnessChanged(e)),
+    on('equalizer', 'enabled_changed', (e) => equalizerStore.handleEnabledChanged(e))
   );
 
   // Initialize filters
-  dspStore.initializeFilters();
+  equalizerStore.initializeFilters();
 
   // Load enabled state from settings
-  await dspStore.loadEnabledState();
+  await equalizerStore.loadEnabledState();
 
-  // Load available DSP targets (Milo + clients)
-  await dspStore.loadTargets();
+  // Load available equalizer targets (Milo + clients)
+  await equalizerStore.loadTargets();
 
-  // Load DSP status if effects are enabled
-  if (dspStore.isDspEffectsEnabled) {
-    await dspStore.loadStatus();
+  // Load equalizer status if effects are enabled
+  if (equalizerStore.isEqualizerEffectsEnabled) {
+    await equalizerStore.loadStatus();
   }
 });
 
 onUnmounted(() => {
   window.removeEventListener('resize', updateMobileStatus);
   unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
-  dspStore.cleanup();
+  equalizerStore.cleanup();
 });
 </script>
 

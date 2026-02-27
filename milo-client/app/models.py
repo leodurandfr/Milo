@@ -66,8 +66,8 @@ class FiltersBatchUpdate(BaseModel):
     filters: List[dict]  # [{id: "eq_band_00", gain: 5.0, freq: 31, q: 1.41}, ...]
 
 
-class DspEnabledUpdate(BaseModel):
-    """Model for DSP enabled state update."""
+class EqualizerEnabledUpdate(BaseModel):
+    """Model for equalizer enabled state update."""
     enabled: bool
 
 

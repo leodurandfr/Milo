@@ -25,8 +25,8 @@ class TestSnapcastRoutes:
         service = Mock()
         service.is_available = AsyncMock(return_value=True)
         service.get_clients = AsyncMock(return_value=[
-            {"id": "client1", "name": "Client 1", "volume": 50, "muted": False, "host": "milo", "ip": "127.0.0.1", "dsp_id": "local"},
-            {"id": "client2", "name": "Client 2", "volume": 75, "muted": True, "host": "remote", "ip": "192.168.1.100", "dsp_id": "192.168.1.100"}
+            {"id": "client1", "name": "Client 1", "volume": 50, "muted": False, "host": "milo", "ip": "127.0.0.1", "camilladsp_id": "local"},
+            {"id": "client2", "name": "Client 2", "volume": 75, "muted": True, "host": "remote", "ip": "192.168.1.100", "camilladsp_id": "192.168.1.100"}
         ])
         service.get_detailed_clients = AsyncMock(return_value=[
             {"id": "client1", "name": "Client 1", "volume": 50, "muted": False, "host": "milo"},
@@ -49,28 +49,28 @@ class TestSnapcastRoutes:
         return sm
 
     @pytest.fixture
-    def mock_dsp_service(self):
-        """DSP service mock for local mute control"""
+    def mock_camilladsp_service(self):
+        """Equalizer service mock for local mute control"""
         service = Mock()
         service.set_mute = AsyncMock(return_value=True)
         return service
 
     @pytest.fixture
-    def client(self, mock_routing_service, mock_snapcast_service, mock_state_machine, mock_dsp_service):
+    def client(self, mock_routing_service, mock_snapcast_service, mock_state_machine, mock_camilladsp_service):
         """Fixture to create a TestClient"""
         app = FastAPI()
         router = create_snapcast_router(
             mock_routing_service,
             mock_snapcast_service,
             mock_state_machine,
-            dsp_service=mock_dsp_service
+            camilladsp_service=mock_camilladsp_service
         )
         app.include_router(router)
         client = TestClient(app)
         client._mock_routing = mock_routing_service
         client._mock_snapcast = mock_snapcast_service
         client._mock_state_machine = mock_state_machine
-        client._mock_dsp_service = mock_dsp_service
+        client._mock_camilladsp_service = mock_camilladsp_service
         return client
 
     # ===================

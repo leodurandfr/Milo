@@ -89,11 +89,11 @@
     "syncError": "Erro de sincronização",
     "retrySync": "Tentar novamente"
   },
-  "dsp": {
-    "title": "Equalizador DSP",
-    "disabled": "O DSP está desativado",
-    "effects_disabled": "Os efeitos DSP estão desativados",
-    "connecting": "A conectar ao DSP...",
+  "equalizer": {
+    "title": "Equalizador equalizer",
+    "disabled": "O equalizer está desativado",
+    "effects_disabled": "Os efeitos equalizer estão desativados",
+    "connecting": "A conectar ao equalizador...",
     "selectPreset": "Preset",
     "selectTarget": "Dispositivo",
     "zones": {
@@ -106,7 +106,7 @@
       "editZone": "Editar a zona",
       "updateZone": "Atualizar",
       "deleteZone": "Eliminar a zona",
-      "description": "Ligue os sistemas para criar zonas com configurações DSP partilhadas. As alterações serão aplicadas a todos os membros.",
+      "description": "Ligue os sistemas para criar zonas com configurações equalizer partilhadas. As alterações serão aplicadas a todos os membros.",
       "noZones": "Nenhuma zona criada. Crie uma zona para ligar vários sistemas.",
       "inOtherZone": "Noutra zona",
       "subwoofer": "Sub",
@@ -190,7 +190,7 @@
     },
     "linkedClients": {
       "title": "Ligar clientes",
-      "description": "Os clientes ligados partilham as mesmas configurações DSP. As alterações aplicam-se a todos.",
+      "description": "Os clientes ligados partilham as mesmas configurações do equalizador. As alterações aplicam-se a todos.",
       "linked": "Ligado",
       "offline": "Offline",
       "currentGroup": "Atualmente ligados:",

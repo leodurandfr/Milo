@@ -36,8 +36,8 @@ from .conftest import WebSocketEventCollector
 
 
 @pytest.fixture
-def mock_dsp_service():
-    """Mock DSP controller to avoid real hardware calls."""
+def mock_camilladsp_service():
+    """Mock Equalizer controller to avoid real hardware calls."""
     service = Mock()
     service.set_volume = AsyncMock(return_value=True)
     service.get_volume = AsyncMock(return_value={"main": -30.0, "mute": False})
@@ -80,7 +80,7 @@ def mock_settings_service():
             return volume_config.get(subkey)
         elif key == "routing.multiroom_enabled":
             return False
-        elif key == "dsp.linked_groups":
+        elif key == "equalizer.linked_groups":
             return []
         return None
 
@@ -137,7 +137,7 @@ async def volume_service(
     mock_state_machine,
     mock_snapcast_service,
     mock_settings_service,
-    mock_dsp_service,
+    mock_camilladsp_service,
     websocket_collector: WebSocketEventCollector,
     temp_storage_path
 ):
@@ -147,8 +147,8 @@ async def volume_service(
             state_machine=mock_state_machine,
             snapcast_service=mock_snapcast_service,
             settings_service=mock_settings_service,
-            camilladsp_service=mock_dsp_service,
-            dsp_client_proxy_service=None
+            camilladsp_service=mock_camilladsp_service,
+            equalizer_client_proxy_service=None
         )
 
         # Initialize service
@@ -636,7 +636,7 @@ class TestVolumePersistence:
         self,
         mock_state_machine,
         mock_snapcast_service,
-        mock_dsp_service,
+        mock_camilladsp_service,
         temp_storage_path
     ):
         """
@@ -664,7 +664,7 @@ class TestVolumePersistence:
                 return True
             elif key == "routing.multiroom_enabled":
                 return False
-            elif key == "dsp.linked_groups":
+            elif key == "equalizer.linked_groups":
                 return []
             return None
 
@@ -684,8 +684,8 @@ class TestVolumePersistence:
                 state_machine=mock_state_machine,
                 snapcast_service=mock_snapcast_service,
                 settings_service=settings,
-                camilladsp_service=mock_dsp_service,
-                dsp_client_proxy_service=None
+                camilladsp_service=mock_camilladsp_service,
+                equalizer_client_proxy_service=None
             )
             await service.initialize()
 
@@ -714,7 +714,7 @@ class TestVolumePersistence:
         mock_settings_service,
         mock_state_machine,
         mock_snapcast_service,
-        mock_dsp_service,
+        mock_camilladsp_service,
         temp_storage_path
     ):
         """
@@ -770,7 +770,7 @@ class TestVolumePersistence:
         self,
         mock_state_machine,
         mock_snapcast_service,
-        mock_dsp_service,
+        mock_camilladsp_service,
         temp_storage_path
     ):
         """
@@ -798,7 +798,7 @@ class TestVolumePersistence:
                 return True
             elif key == "routing.multiroom_enabled":
                 return False
-            elif key == "dsp.linked_groups":
+            elif key == "equalizer.linked_groups":
                 return []
             return None
 
@@ -818,8 +818,8 @@ class TestVolumePersistence:
                 state_machine=mock_state_machine,
                 snapcast_service=mock_snapcast_service,
                 settings_service=settings,
-                camilladsp_service=mock_dsp_service,
-                dsp_client_proxy_service=None
+                camilladsp_service=mock_camilladsp_service,
+                equalizer_client_proxy_service=None
             )
             await service.initialize()
 
@@ -1418,7 +1418,7 @@ class TestStartupVolumeIntegration:
         self,
         mock_state_machine,
         mock_snapcast_service,
-        mock_dsp_service,
+        mock_camilladsp_service,
         websocket_collector: WebSocketEventCollector,
         temp_storage_path
     ):
@@ -1450,7 +1450,7 @@ class TestStartupVolumeIntegration:
                 return settings_data.get(subkey)
             elif key == "routing.multiroom_enabled":
                 return False
-            elif key == "dsp.linked_groups":
+            elif key == "equalizer.linked_groups":
                 return []
             return None
 
@@ -1468,8 +1468,8 @@ class TestStartupVolumeIntegration:
                 state_machine=mock_state_machine,
                 snapcast_service=mock_snapcast_service,
                 settings_service=settings,
-                camilladsp_service=mock_dsp_service,
-                dsp_client_proxy_service=None
+                camilladsp_service=mock_camilladsp_service,
+                equalizer_client_proxy_service=None
             )
             await service.initialize()
             websocket_collector.clear()
@@ -1495,7 +1495,7 @@ class TestStartupVolumeIntegration:
         self,
         mock_state_machine,
         mock_snapcast_service,
-        mock_dsp_service,
+        mock_camilladsp_service,
         websocket_collector: WebSocketEventCollector,
         temp_storage_path
     ):
@@ -1526,7 +1526,7 @@ class TestStartupVolumeIntegration:
                 return settings_data.get(subkey)
             elif key == "routing.multiroom_enabled":
                 return False
-            elif key == "dsp.linked_groups":
+            elif key == "equalizer.linked_groups":
                 return []
             return None
 
@@ -1538,8 +1538,8 @@ class TestStartupVolumeIntegration:
                 state_machine=mock_state_machine,
                 snapcast_service=mock_snapcast_service,
                 settings_service=settings,
-                camilladsp_service=mock_dsp_service,
-                dsp_client_proxy_service=None
+                camilladsp_service=mock_camilladsp_service,
+                equalizer_client_proxy_service=None
             )
             await service.initialize()
             websocket_collector.clear()
@@ -1564,14 +1564,14 @@ class TestStartupVolumeIntegration:
         self,
         mock_state_machine,
         mock_snapcast_service,
-        mock_dsp_service,
+        mock_camilladsp_service,
         temp_storage_path
     ):
         """
         FR12 AC3: Backend startup applies startup_volume_db when restore=false.
 
         Validates:
-        - On initialize(), DSP receives startup_volume_db from settings
+        - On initialize(), Equalizer receives startup_volume_db from settings
         - NOT the persisted volume
         """
         # Create settings
@@ -1591,7 +1591,7 @@ class TestStartupVolumeIntegration:
                 }
             elif key == "routing.multiroom_enabled":
                 return False
-            elif key == "dsp.linked_groups":
+            elif key == "equalizer.linked_groups":
                 return []
             return None
 
@@ -1615,17 +1615,17 @@ class TestStartupVolumeIntegration:
                 state_machine=mock_state_machine,
                 snapcast_service=mock_snapcast_service,
                 settings_service=settings,
-                camilladsp_service=mock_dsp_service,
-                dsp_client_proxy_service=None
+                camilladsp_service=mock_camilladsp_service,
+                equalizer_client_proxy_service=None
             )
 
             # Action: Initialize service (triggers _apply_startup_volume)
             await service.initialize()
 
-            # Assert: DSP was set to startup_volume, NOT persisted volume
-            mock_dsp_service.set_volume.assert_called()
+            # Assert: Equalizer was set to startup_volume, NOT persisted volume
+            mock_camilladsp_service.set_volume.assert_called()
             # Find the call with the startup volume
-            calls = mock_dsp_service.set_volume.call_args_list
+            calls = mock_camilladsp_service.set_volume.call_args_list
             volume_calls = [c for c in calls if c[0][0] == startup_volume]
             assert len(volume_calls) >= 1, f"Expected call with {startup_volume}, got {calls}"
 
@@ -1636,7 +1636,7 @@ class TestStartupVolumeIntegration:
         self,
         mock_state_machine,
         mock_snapcast_service,
-        mock_dsp_service,
+        mock_camilladsp_service,
         temp_storage_path
     ):
         """
@@ -1647,7 +1647,7 @@ class TestStartupVolumeIntegration:
         the correct last volume, so it's the single source of truth.
 
         Validates:
-        - On initialize(), DSP receives startup_volume_db from settings
+        - On initialize(), Equalizer receives startup_volume_db from settings
         - startup_volume_db was pre-synced by FR11 before shutdown
         """
         # Create settings: startup_volume_db already synced by FR11 to -42.0
@@ -1667,7 +1667,7 @@ class TestStartupVolumeIntegration:
                 }
             elif key == "routing.multiroom_enabled":
                 return False
-            elif key == "dsp.linked_groups":
+            elif key == "equalizer.linked_groups":
                 return []
             return None
 
@@ -1691,16 +1691,16 @@ class TestStartupVolumeIntegration:
                 state_machine=mock_state_machine,
                 snapcast_service=mock_snapcast_service,
                 settings_service=settings,
-                camilladsp_service=mock_dsp_service,
-                dsp_client_proxy_service=None
+                camilladsp_service=mock_camilladsp_service,
+                equalizer_client_proxy_service=None
             )
 
             # Action: Initialize service
             await service.initialize()
 
-            # Assert: DSP was set to startup_volume_db (which FR11 synced to persisted_volume)
-            mock_dsp_service.set_volume.assert_called()
-            calls = mock_dsp_service.set_volume.call_args_list
+            # Assert: Equalizer was set to startup_volume_db (which FR11 synced to persisted_volume)
+            mock_camilladsp_service.set_volume.assert_called()
+            calls = mock_camilladsp_service.set_volume.call_args_list
             volume_calls = [c for c in calls if c[0][0] == persisted_volume]
             assert len(volume_calls) >= 1, f"Expected call with {persisted_volume}, got {calls}"
 
@@ -1711,7 +1711,7 @@ class TestStartupVolumeIntegration:
         self,
         mock_state_machine,
         mock_snapcast_service,
-        mock_dsp_service,
+        mock_camilladsp_service,
         temp_storage_path
     ):
         """
@@ -1739,7 +1739,7 @@ class TestStartupVolumeIntegration:
                 }
             elif key == "routing.multiroom_enabled":
                 return False
-            elif key == "dsp.linked_groups":
+            elif key == "equalizer.linked_groups":
                 return []
             return None
 
@@ -1764,8 +1764,8 @@ class TestStartupVolumeIntegration:
                 state_machine=mock_state_machine,
                 snapcast_service=mock_snapcast_service,
                 settings_service=settings,
-                camilladsp_service=mock_dsp_service,
-                dsp_client_proxy_service=None
+                camilladsp_service=mock_camilladsp_service,
+                equalizer_client_proxy_service=None
             )
 
             # Action: Initialize service
@@ -1774,14 +1774,14 @@ class TestStartupVolumeIntegration:
             # Assert: Stale data was ignored - state store uses DEFAULT_VOLUME_DB
             assert service._state_store._local_volume_db == DEFAULT_VOLUME_DB
 
-            # Assert: DSP was NOT set to stale volume (-50dB)
-            calls = mock_dsp_service.set_volume.call_args_list
+            # Assert: Equalizer was NOT set to stale volume (-50dB)
+            calls = mock_camilladsp_service.set_volume.call_args_list
             stale_volume_calls = [c for c in calls if c[0][0] == -50.0]
-            assert len(stale_volume_calls) == 0, f"DSP should not receive stale volume -50dB, got {calls}"
+            assert len(stale_volume_calls) == 0, f"Equalizer should not receive stale volume -50dB, got {calls}"
 
-            # Assert: DSP received startup_volume_db from settings (single source of truth)
+            # Assert: Equalizer received startup_volume_db from settings (single source of truth)
             startup_calls = [c for c in calls if c[0][0] == startup_volume]
-            assert len(startup_calls) >= 1, f"DSP should receive startup_volume_db ({startup_volume}), got {calls}"
+            assert len(startup_calls) >= 1, f"Equalizer should receive startup_volume_db ({startup_volume}), got {calls}"
 
             await service.cleanup()
 
@@ -1817,7 +1817,7 @@ class TestVolumeApiEndpointsIntegration:
         websocket_collector.clear()
 
         # Simulate what the API endpoint would call
-        # (VolumeService.update_client_volume_db uses MAC or DSP ID)
+        # (VolumeService.update_client_volume_db uses MAC or Equalizer ID)
         await volume_service.update_client_volume_db("local", -42.0)
 
         # Assert: Volume updated in state
@@ -1933,7 +1933,7 @@ class TestVolumeApiEndpointsIntegration:
         self,
         mock_state_machine,
         mock_snapcast_service,
-        mock_dsp_service,
+        mock_camilladsp_service,
         websocket_collector: WebSocketEventCollector,
         temp_storage_path
     ):
@@ -1965,7 +1965,7 @@ class TestVolumeApiEndpointsIntegration:
                 return settings_data.get(subkey)
             elif key == "routing.multiroom_enabled":
                 return False
-            elif key == "dsp.linked_groups":
+            elif key == "equalizer.linked_groups":
                 return []
             return None
 
@@ -1983,8 +1983,8 @@ class TestVolumeApiEndpointsIntegration:
                 state_machine=mock_state_machine,
                 snapcast_service=mock_snapcast_service,
                 settings_service=settings,
-                camilladsp_service=mock_dsp_service,
-                dsp_client_proxy_service=None
+                camilladsp_service=mock_camilladsp_service,
+                equalizer_client_proxy_service=None
             )
             await service.initialize()
 

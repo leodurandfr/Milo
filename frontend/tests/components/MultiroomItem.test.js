@@ -15,8 +15,8 @@ vi.mock('@/stores/settingsStore', () => ({
   }))
 }));
 
-vi.mock('@/stores/dspStore', () => ({
-  useDspStore: vi.fn(() => ({
+vi.mock('@/stores/equalizerStore', () => ({
+  useEqualizerStore: vi.fn(() => ({
     getClientSpeakerType: vi.fn(() => 'bookshelf')
   }))
 }));
@@ -46,8 +46,8 @@ describe('MultiroomItem - Volume Slider Rendering', () => {
             id: 'client-1',
             mac_id: 'dc:a6:32:7e:d3:43',
             name: 'Test Client',
-            dspVolume: -25,
-            dspMuted: false
+            equalizerVolume: -25,
+            equalizerMuted: false
           },
           isLoading: false,
           isZone: false
@@ -76,8 +76,8 @@ describe('MultiroomItem - Volume Slider Rendering', () => {
             id: 'client-1',
             mac_id: 'dc:a6:32:7e:d3:43',
             name: 'Test Client',
-            dspVolume: -100, // Below min
-            dspMuted: false
+            equalizerVolume: -100, // Below min
+            equalizerMuted: false
           },
           isLoading: false,
           isZone: false
@@ -108,8 +108,8 @@ describe('MultiroomItem - Volume Slider Rendering', () => {
             id: 'client-1',
             mac_id: 'dc:a6:32:7e:d3:43',
             name: 'Test Client',
-            dspVolume: -30,
-            dspMuted: false
+            equalizerVolume: -30,
+            equalizerMuted: false
           },
           isLoading: false,
           isZone: false
@@ -139,14 +139,14 @@ describe('MultiroomItem - Volume Slider Rendering', () => {
           client: {
             id: 'zone-1',
             name: 'Test Zone',
-            dspVolume: -30,
-            dspMuted: false
+            equalizerVolume: -30,
+            equalizerMuted: false
           },
           isLoading: false,
           isZone: true,
           zoneClientDetails: [
-            { mac_id: 'client-1', name: 'Online Client', dspVolume: -25, dspMuted: false, speakerType: 'bookshelf', online: true },
-            { mac_id: 'client-2', name: 'Offline Client', dspVolume: -30, dspMuted: false, speakerType: 'bookshelf', online: false }
+            { mac_id: 'client-1', name: 'Online Client', equalizerVolume: -25, equalizerMuted: false, speakerType: 'bookshelf', online: true },
+            { mac_id: 'client-2', name: 'Offline Client', equalizerVolume: -30, equalizerMuted: false, speakerType: 'bookshelf', online: false }
           ]
         },
         global: {
@@ -181,8 +181,8 @@ describe('MultiroomItem - Volume Slider Rendering', () => {
               id: 'client-1',
               mac_id: 'dc:a6:32:7e:d3:43',
               name: 'Test Client',
-              dspVolume: -25,
-              dspMuted: true // Muted
+              equalizerVolume: -25,
+              equalizerMuted: true // Muted
             },
             isLoading: false,
             isZone: false
@@ -202,7 +202,7 @@ describe('MultiroomItem - Volume Slider Rendering', () => {
         const toggle = wrapper.find('.toggle-stub');
         expect(toggle.exists()).toBe(true);
         // Toggle shows "enabled" state, which is inverse of "muted"
-        // dspMuted=true → modelValue should be false
+        // equalizerMuted=true → modelValue should be false
         expect(toggle.attributes('data-model-value')).toBe('false');
       });
 
@@ -213,8 +213,8 @@ describe('MultiroomItem - Volume Slider Rendering', () => {
               id: 'client-1',
               mac_id: 'dc:a6:32:7e:d3:43',
               name: 'Test Client',
-              dspVolume: -25,
-              dspMuted: false // Not muted
+              equalizerVolume: -25,
+              equalizerMuted: false // Not muted
             },
             isLoading: false,
             isZone: false
@@ -232,7 +232,7 @@ describe('MultiroomItem - Volume Slider Rendering', () => {
         });
 
         const toggle = wrapper.find('.toggle-stub');
-        // dspMuted=false → modelValue should be true (enabled)
+        // equalizerMuted=false → modelValue should be true (enabled)
         expect(toggle.attributes('data-model-value')).toBe('true');
       });
     });
@@ -245,8 +245,8 @@ describe('MultiroomItem - Volume Slider Rendering', () => {
               id: 'client-1',
               mac_id: 'dc:a6:32:7e:d3:43',
               name: 'Test Client',
-              dspVolume: -25,
-              dspMuted: false
+              equalizerVolume: -25,
+              equalizerMuted: false
             },
             isLoading: false,
             isZone: false
@@ -281,8 +281,8 @@ describe('MultiroomItem - Volume Slider Rendering', () => {
               id: 'client-1',
               mac_id: 'dc:a6:32:7e:d3:43',
               name: 'Test Client',
-              dspVolume: -25,
-              dspMuted: true
+              equalizerVolume: -25,
+              equalizerMuted: true
             },
             isLoading: false,
             isZone: false
@@ -307,8 +307,8 @@ describe('MultiroomItem - Volume Slider Rendering', () => {
               id: 'client-1',
               mac_id: 'dc:a6:32:7e:d3:43',
               name: 'Test Client',
-              dspVolume: -25,
-              dspMuted: true
+              equalizerVolume: -25,
+              equalizerMuted: true
             },
             isLoading: false,
             isZone: false

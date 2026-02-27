@@ -1,4 +1,4 @@
-# backend/core/dsp/presets.py
+# backend/core/equalizer/presets.py
 """
 Predefined EQ presets for 10-band parametric equalizer.
 

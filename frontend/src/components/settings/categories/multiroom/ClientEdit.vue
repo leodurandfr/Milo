@@ -89,7 +89,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useSnapcastStore } from '@/stores/snapcastStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
-import { useDspStore } from '@/stores/dspStore';
+import { useEqualizerStore } from '@/stores/equalizerStore';
 import InputText from '@/components/ui/InputText.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
@@ -108,7 +108,7 @@ const emit = defineEmits(['back']);
 const { t } = useI18n();
 const snapcastStore = useSnapcastStore();
 const multiroomClientStore = useMultiroomStore();
-const dspStore = useDspStore();
+const equalizerStore = useEqualizerStore();
 
 const clientName = ref('');
 const originalClientName = ref('');
@@ -132,7 +132,7 @@ const clientDisplayName = computed(() =>
 
 // Check if client is in a zone
 const clientZone = computed(() => {
-  return dspStore.getZoneGroup(props.macId);
+  return equalizerStore.getZoneGroup(props.macId);
 });
 
 const isInZone = computed(() => !!clientZone.value);
@@ -213,8 +213,8 @@ onMounted(() => {
   if (client.value) {
     clientName.value = client.value.name || client.value.host;
     originalClientName.value = clientName.value;
-    // Load current speaker type from client data or dspStore
-    selectedSpeakerType.value = client.value.speaker_type || dspStore.getClientSpeakerType(props.macId);
+    // Load current speaker type from client data or equalizerStore
+    selectedSpeakerType.value = client.value.speaker_type || equalizerStore.getClientSpeakerType(props.macId);
   }
 });
 </script>

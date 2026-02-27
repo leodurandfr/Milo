@@ -88,10 +88,10 @@ def mock_volume_service():
 def mock_client_registry():
     """Create a mock ClientRegistryService for testing."""
     registry = MagicMock()
-    registry.get_client_by_dsp_id = MagicMock(return_value={
+    registry.get_client_by_camilladsp_id = MagicMock(return_value={
         "mac_id": "dca6327ed343",
         "hostname": "milo-client-01",
-        "dsp_id": "local",
+        "camilladsp_id": "local",
         "status": "ONLINE"
     })
     return registry
@@ -130,10 +130,10 @@ class TestSetClientVolumeEndpoint:
 
     def test_set_volume_offline_client(self, test_client, mock_volume_service, mock_client_registry):
         """Test setting volume for an offline client (should still persist)."""
-        mock_client_registry.get_client_by_dsp_id.return_value = {
+        mock_client_registry.get_client_by_camilladsp_id.return_value = {
             "mac_id": "dca6327ed343",
             "hostname": "milo-client-01",
-            "dsp_id": "milo-client-01",
+            "camilladsp_id": "milo-client-01",
             "status": "OFFLINE"
         }
 
@@ -149,7 +149,7 @@ class TestSetClientVolumeEndpoint:
 
     def test_set_volume_invalid_client_returns_404(self, test_client, mock_client_registry):
         """Test setting volume for non-existent client returns 404."""
-        mock_client_registry.get_client_by_dsp_id.return_value = None
+        mock_client_registry.get_client_by_camilladsp_id.return_value = None
 
         response = test_client.patch(
             "/api/volume/client/unknown-client",
@@ -229,7 +229,7 @@ class TestSetClientMuteEndpoint:
 
     def test_mute_invalid_client_returns_404(self, test_client, mock_client_registry):
         """Test muting non-existent client returns 404."""
-        mock_client_registry.get_client_by_dsp_id.return_value = None
+        mock_client_registry.get_client_by_camilladsp_id.return_value = None
 
         response = test_client.patch(
             "/api/volume/client/unknown-client/mute",
@@ -262,10 +262,10 @@ class TestGetClientVolumeEndpoint:
 
     def test_get_volume_offline_client(self, test_client, mock_volume_service, mock_client_registry):
         """Test getting volume for offline client shows online=False."""
-        mock_client_registry.get_client_by_dsp_id.return_value = {
+        mock_client_registry.get_client_by_camilladsp_id.return_value = {
             "mac_id": "dca6327ed343",
             "hostname": "milo-client-01",
-            "dsp_id": "milo-client-01",
+            "camilladsp_id": "milo-client-01",
             "status": "OFFLINE"
         }
 
@@ -277,7 +277,7 @@ class TestGetClientVolumeEndpoint:
 
     def test_get_volume_invalid_client_returns_404(self, test_client, mock_client_registry):
         """Test getting volume for non-existent client returns 404."""
-        mock_client_registry.get_client_by_dsp_id.return_value = None
+        mock_client_registry.get_client_by_camilladsp_id.return_value = None
 
         response = test_client.get("/api/volume/client/unknown-client")
 
@@ -307,7 +307,7 @@ class TestVolumeApiErrorHandling:
 
     def test_service_error_returns_500(self, test_client, mock_volume_service, mock_client_registry):
         """Test that service errors return 500."""
-        mock_volume_service.update_client_volume_db.side_effect = Exception("DSP connection failed")
+        mock_volume_service.update_client_volume_db.side_effect = Exception("Equalizer connection failed")
 
         response = test_client.patch(
             "/api/volume/client/local",
@@ -315,7 +315,7 @@ class TestVolumeApiErrorHandling:
         )
 
         assert response.status_code == 500
-        assert "DSP connection failed" in response.json()["detail"]
+        assert "Equalizer connection failed" in response.json()["detail"]
 
     def test_get_volume_service_error(self, test_client, mock_volume_service, mock_client_registry):
         """Test that get volume service errors return 500."""

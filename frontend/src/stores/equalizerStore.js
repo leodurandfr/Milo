@@ -1,7 +1,7 @@
-// frontend/src/stores/dspStore.js
+// frontend/src/stores/equalizerStore.js
 /**
  * Pinia store for CamillaDSP parametric equalizer
- * Manages DSP state, filters, and presets
+ * Manages equalizer state, filters, and presets
  */
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
@@ -17,7 +17,7 @@ const DEFAULT_FREQUENCIES = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 1600
 const THROTTLE_DELAY = 50;
 const FINAL_DELAY = 200;
 
-export const useDspStore = defineStore('dsp', () => {
+export const useEqualizerStore = defineStore('equalizer', () => {
   // === STATE ===
   const filters = ref([]);
   const builtinPresets = ref([]); // Array of { id, gains } objects
@@ -31,16 +31,16 @@ export const useDspStore = defineStore('dsp', () => {
   const filtersLoaded = ref(false);
   const sampleRate = ref(48000);
 
-  // DSP effects enabled state (persisted in settings)
+  // Equalizer effects enabled state (persisted in settings)
   // Note: Volume always works via CamillaDSP, this controls EQ/compressor/loudness
-  const isDspEffectsEnabled = ref(true);
+  const isEqualizerEffectsEnabled = ref(true);
   const isTogglingEnabled = ref(false);
 
   // Audio levels (for meters)
   const inputPeak = ref([-80, -80]);
   const outputPeak = ref([-80, -80]);
 
-  // Advanced DSP settings
+  // Advanced equalizer settings
   const compressor = ref({
     enabled: false,
     threshold: -20,
@@ -56,7 +56,7 @@ export const useDspStore = defineStore('dsp', () => {
     high_boost: 5
   });
 
-  // Multi-client DSP support
+  // Multi-client equalizer support
   // selectedTarget is the MAC address of the target client (e.g., "dc:a6:32:7e:d3:43")
   // Initialized to null - will be auto-selected to local client when registry loads
   const selectedTarget = ref(null);
@@ -64,7 +64,7 @@ export const useDspStore = defineStore('dsp', () => {
   // Client registry store - single source of truth for clients and zones
   const registryStore = useMultiroomStore();
 
-  // Available DSP targets - computed from multiroomStore (single source of truth)
+  // Available equalizer targets - computed from multiroomStore (single source of truth)
   const availableTargets = computed(() => {
     return registryStore.clientList.map(client => ({
       id: client.mac_id,
@@ -155,17 +155,17 @@ export const useDspStore = defineStore('dsp', () => {
 
   // === API HELPERS ===
   function getApiBase(targetId = selectedTarget.value) {
-    // If target is part of a zone, use local API (source of truth for zone DSP)
-    // This ensures zone DSP works even when some zone members are offline
+    // If target is part of a zone, use local API (source of truth for zone equalizer)
+    // This ensures zone equalizer works even when some zone members are offline
     const zone = registryStore.getZoneForClient(targetId);
     if (zone) {
-      return '/api/dsp';
+      return '/api/equalizer';
     }
     // If targeting a standalone remote client, use proxy endpoint
     if (targetId && !isLocalClient(targetId)) {
-      return `/api/dsp/client/${targetId}`;
+      return `/api/equalizer/client/${targetId}`;
     }
-    return '/api/dsp';
+    return '/api/equalizer';
   }
 
   /**
@@ -194,20 +194,20 @@ export const useDspStore = defineStore('dsp', () => {
       if (axios.isCancel(error) || error.name === 'CanceledError') {
         return null;
       }
-      logger.error('store', 'Error fetching DSP status', error);
+      logger.error('store', 'Error fetching equalizer status', error);
       return null;
     }
   }
 
-  async function fetchZoneDsp(zoneId, signal = null) {
+  async function fetchZoneEqualizer(zoneId, signal = null) {
     try {
-      const response = await axios.get(`/api/dsp/zone/${zoneId}`, { signal });
+      const response = await axios.get(`/api/equalizer/zone/${zoneId}`, { signal });
       return response.data;
     } catch (error) {
       if (axios.isCancel(error) || error.name === 'CanceledError') {
         return null;
       }
-      logger.error('store', 'Error fetching zone DSP', error);
+      logger.error('store', 'Error fetching zone equalizer', error);
       return null;
     }
   }
@@ -220,7 +220,7 @@ export const useDspStore = defineStore('dsp', () => {
       if (axios.isCancel(error) || error.name === 'CanceledError') {
         return null;
       }
-      logger.error('store', 'Error fetching DSP filters', error);
+      logger.error('store', 'Error fetching equalizer filters', error);
       return [];
     }
   }
@@ -228,13 +228,13 @@ export const useDspStore = defineStore('dsp', () => {
   async function fetchPresets() {
     try {
       // Presets are always fetched from local Milo
-      const response = await axios.get('/api/dsp/presets');
+      const response = await axios.get('/api/equalizer/presets');
       builtinPresets.value = response.data.presets || [];
       manualGains.value = response.data.manual_gains || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
       activePreset.value = response.data.active_preset || 'manual';
       return builtinPresets.value;
     } catch (error) {
-      logger.error('store', 'Error fetching DSP presets', error);
+      logger.error('store', 'Error fetching equalizer presets', error);
       return [];
     }
   }
@@ -248,7 +248,7 @@ export const useDspStore = defineStore('dsp', () => {
 
       if (zoneId) {
         // Zone: use zone endpoint
-        const response = await axios.patch(`/api/dsp/zone/${zoneId}/filter/${filterId}`, filterData);
+        const response = await axios.patch(`/api/equalizer/zone/${zoneId}/filter/${filterId}`, filterData);
         return response.data.status === 'success' || response.data.status === 'partial';
       } else {
         // Direct mode or standalone: use local endpoint
@@ -276,7 +276,7 @@ export const useDspStore = defineStore('dsp', () => {
 
   async function fetchZoneCrossover(zoneId) {
     try {
-      const response = await axios.get(`/api/dsp/links/${zoneId}/crossover`);
+      const response = await axios.get(`/api/equalizer/links/${zoneId}/crossover`);
       return response.data || { frequency: 80, enabled: false, has_subwoofer: false };
     } catch (error) {
       logger.error('store', 'Error fetching zone crossover', error);
@@ -286,20 +286,20 @@ export const useDspStore = defineStore('dsp', () => {
 
   async function fetchEnabledState() {
     try {
-      const response = await axios.get('/api/dsp/enabled');
+      const response = await axios.get('/api/equalizer/enabled');
       return response.data.enabled ?? true;
     } catch (error) {
-      logger.error('store', 'Error fetching DSP enabled state', error);
+      logger.error('store', 'Error fetching equalizer enabled state', error);
       return true;
     }
   }
 
   async function setEnabledState(enabled) {
     try {
-      const response = await axios.put('/api/dsp/enabled', { enabled });
+      const response = await axios.put('/api/equalizer/enabled', { enabled });
       return response.data.status === 'success';
     } catch (error) {
-      logger.error('store', 'Error setting DSP enabled state', error);
+      logger.error('store', 'Error setting equalizer enabled state', error);
       return false;
     }
   }
@@ -363,7 +363,7 @@ export const useDspStore = defineStore('dsp', () => {
     return client?.is_local ?? false;
   }
 
-  // === CLIENT DSP VOLUMES ===
+  // === CLIENT EQUALIZER VOLUMES ===
 
   /**
    * Convert MAC address to URL format (remove colons).
@@ -385,14 +385,14 @@ export const useDspStore = defineStore('dsp', () => {
   }
 
   /**
-   * Update DSP volume for a client via API.
+   * Update equalizer volume for a client via API.
    * Uses MAC-based endpoint (all clients are identified by mac_id).
    * Each client's volume is independent - changing one doesn't affect others.
    * @param {string} clientId - Client identifier (MAC address)
    * @param {number} volumeDb - Volume in dB (-80 to 0)
    * @returns {Promise<boolean>} Success status
    */
-  async function updateClientDspVolume(clientId, volumeDb) {
+  async function updateClientEqualizerVolume(clientId, volumeDb) {
     try {
       // Skip remote clients when multiroom is disabled
       if (!isLocalClient(clientId)) {
@@ -407,7 +407,7 @@ export const useDspStore = defineStore('dsp', () => {
       await axios.patch(`/api/volume/client/mac/${macToUrlFormat(clientId)}`, { volume_db: volumeDb });
       return true;
     } catch (error) {
-      logger.error('store', `Error updating DSP volume for ${clientId}`, error);
+      logger.error('store', `Error updating equalizer volume for ${clientId}`, error);
       return false;
     }
   }
@@ -444,21 +444,21 @@ export const useDspStore = defineStore('dsp', () => {
   }
 
   /**
-   * Get DSP volume for a client from unified volume state
+   * Get equalizer volume for a client from unified volume state
    * @param {string} clientId - Client identifier (MAC address)
    * @returns {number} Volume in dB, defaults to -30 if not found
    */
-  function getClientDspVolume(clientId) {
+  function getClientEqualizerVolume(clientId) {
     const audioStore = useUnifiedAudioStore();
     return audioStore.volumeState.clients[clientId]?.volume_db ?? -30;
   }
 
   /**
-   * Get DSP mute for a client from unified volume state
+   * Get equalizer mute for a client from unified volume state
    * @param {string} clientId - Client identifier (MAC address)
    * @returns {boolean} Mute state, defaults to false if not found
    */
-  function getClientDspMute(clientId) {
+  function getClientEqualizerMute(clientId) {
     const audioStore = useUnifiedAudioStore();
     return audioStore.volumeState.clients[clientId]?.mute ?? false;
   }
@@ -474,7 +474,7 @@ export const useDspStore = defineStore('dsp', () => {
    * @param {boolean} options.propagate - If true, propagate to all zone members (default: false)
    * @returns {Promise<boolean>} Success status
    */
-  async function updateClientDspMute(clientId, muted, options = {}) {
+  async function updateClientEqualizerMute(clientId, muted, options = {}) {
     const { propagate = false } = options;
 
     try {
@@ -518,7 +518,7 @@ export const useDspStore = defineStore('dsp', () => {
   }
 
   /**
-   * Propagate any DSP setting to linked clients.
+   * Propagate any equalizer setting to linked clients.
    * Only propagates to available (connected) clients.
    * @param {string} endpoint - API endpoint (e.g., 'mute', 'compressor', 'preset')
    * @param {object} data - Data to propagate
@@ -657,18 +657,18 @@ export const useDspStore = defineStore('dsp', () => {
         loudness.value = { ...loudness.value, ...statusData.loudness };
       }
 
-      // When in a zone, the zone registry is the source of truth for DSP settings.
+      // When in a zone, the zone registry is the source of truth for equalizer settings.
       // The local CamillaDSP cache may be stale (zone operations use persist=False).
       // Override loudness/compressor with zone data to prevent state desync.
       const zoneId = getSelectedZoneId();
       if (zoneId) {
-        const zoneDsp = await fetchZoneDsp(zoneId, signal);
-        if (zoneDsp) {
-          if (zoneDsp.loudness) {
-            loudness.value = { ...loudness.value, ...zoneDsp.loudness };
+        const zoneEq = await fetchZoneEqualizer(zoneId, signal);
+        if (zoneEq) {
+          if (zoneEq.loudness) {
+            loudness.value = { ...loudness.value, ...zoneEq.loudness };
           }
-          if (zoneDsp.compressor) {
-            compressor.value = { ...compressor.value, ...zoneDsp.compressor };
+          if (zoneEq.compressor) {
+            compressor.value = { ...compressor.value, ...zoneEq.compressor };
           }
         }
       }
@@ -681,7 +681,7 @@ export const useDspStore = defineStore('dsp', () => {
       if (axios.isCancel(error) || error.name === 'CanceledError') {
         return;
       }
-      logger.error('store', 'Error loading DSP data', error);
+      logger.error('store', 'Error loading equalizer data', error);
     } finally {
       isLoading.value = false;
       loadAbortController = null;
@@ -821,7 +821,7 @@ export const useDspStore = defineStore('dsp', () => {
       // If target is in a zone, use zone endpoint (backend handles propagation)
       const zoneId = getSelectedZoneId();
       if (zoneId) {
-        const response = await axios.post(`/api/dsp/zone/${zoneId}/preset`, { preset_id: presetId });
+        const response = await axios.post(`/api/equalizer/zone/${zoneId}/preset`, { preset_id: presetId });
         if (response.data.status === 'success' || response.data.status === 'partial') {
           activePreset.value = presetId;
           // WebSocket filter_changed events update filters.value automatically
@@ -831,7 +831,7 @@ export const useDspStore = defineStore('dsp', () => {
       }
 
       // Standalone client: update directly
-      const response = await axios.put(`/api/dsp/preset/${presetId}`);
+      const response = await axios.put(`/api/equalizer/preset/${presetId}`);
       if (response.data.status === 'success') {
         activePreset.value = presetId;
         // WebSocket filter_changed events update filters.value automatically
@@ -853,7 +853,7 @@ export const useDspStore = defineStore('dsp', () => {
       // If target is in a zone, use zone endpoint (backend handles propagation)
       const zoneId = getSelectedZoneId();
       if (zoneId) {
-        const response = await axios.patch(`/api/dsp/zone/${zoneId}/compressor`, settings);
+        const response = await axios.patch(`/api/equalizer/zone/${zoneId}/compressor`, settings);
         if (response.data.status === 'success' || response.data.status === 'partial') {
           Object.assign(compressor.value, settings);
           return true;
@@ -879,7 +879,7 @@ export const useDspStore = defineStore('dsp', () => {
       // If target is in a zone, use zone endpoint (backend handles propagation)
       const zoneId = getSelectedZoneId();
       if (zoneId) {
-        const response = await axios.patch(`/api/dsp/zone/${zoneId}/loudness`, settings);
+        const response = await axios.patch(`/api/equalizer/zone/${zoneId}/loudness`, settings);
         if (response.data.status === 'success' || response.data.status === 'partial') {
           Object.assign(loudness.value, settings);
           return true;
@@ -900,7 +900,7 @@ export const useDspStore = defineStore('dsp', () => {
     }
   }
 
-  async function updateDspMute(muted) {
+  async function updateEqualizerMute(muted) {
     try {
       const response = await axios.put(`${getApiBase()}/mute`, { muted });
       if (response.data.status === 'success') {
@@ -916,7 +916,7 @@ export const useDspStore = defineStore('dsp', () => {
       }
       return false;
     } catch (error) {
-      logger.error('store', 'Error updating DSP mute', error);
+      logger.error('store', 'Error updating equalizer mute', error);
       return false;
     }
   }
@@ -949,9 +949,9 @@ export const useDspStore = defineStore('dsp', () => {
 
   async function restoreClientSettings(hostname) {
     try {
-      const response = await axios.post(`/api/dsp/client/${hostname}/restore`);
+      const response = await axios.post(`/api/equalizer/client/${hostname}/restore`);
       if (response.data.restored && response.data.restored.length > 0) {
-        logger.info('store', `Restored DSP settings for ${hostname}`, response.data.restored);
+        logger.info('store', `Restored equalizer settings for ${hostname}`, response.data.restored);
       }
       return response.data;
     } catch (error) {
@@ -1089,7 +1089,7 @@ export const useDspStore = defineStore('dsp', () => {
    */
   async function setClientCrossoverFrequency(clientId, frequency) {
     try {
-      const response = await axios.put(`/api/dsp/client/${clientId}/crossover-frequency`, {
+      const response = await axios.put(`/api/equalizer/client/${clientId}/crossover-frequency`, {
         frequency
       });
       // State update happens via WebSocket (registry.speaker_type_changed)
@@ -1127,7 +1127,7 @@ export const useDspStore = defineStore('dsp', () => {
    */
   async function getZoneAutoCrossover(zoneId) {
     try {
-      const response = await axios.get(`/api/dsp/links/${zoneId}/auto-crossover`);
+      const response = await axios.get(`/api/equalizer/links/${zoneId}/auto-crossover`);
       return response.data.frequency || 80;
     } catch (error) {
       logger.error('store', 'Error getting zone auto crossover', error);
@@ -1143,7 +1143,7 @@ export const useDspStore = defineStore('dsp', () => {
    */
   async function setZoneCrossoverFrequency(zoneId, frequency) {
     try {
-      const response = await axios.put(`/api/dsp/links/${zoneId}/crossover`, { frequency });
+      const response = await axios.put(`/api/equalizer/links/${zoneId}/crossover`, { frequency });
       if (response.data.status === 'success') {
         zoneCrossover.value[zoneId] = {
           ...zoneCrossover.value[zoneId],
@@ -1167,7 +1167,7 @@ export const useDspStore = defineStore('dsp', () => {
    */
   async function applyZoneCrossover(zoneId) {
     try {
-      const response = await axios.post(`/api/dsp/links/${zoneId}/crossover/apply`);
+      const response = await axios.post(`/api/equalizer/links/${zoneId}/crossover/apply`);
       return response.data.status === 'success';
     } catch (error) {
       logger.error('store', 'Error applying zone crossover', error);
@@ -1206,29 +1206,29 @@ export const useDspStore = defineStore('dsp', () => {
   // === WEBSOCKET HANDLERS ===
 
   /**
-   * Handle DSP changed events from multiroom category.
-   * Updates local DSP state when the target matches selectedTarget.
+   * Handle equalizer changed events from multiroom category.
+   * Updates local equalizer state when the target matches selectedTarget.
    * @param {Object} event - WebSocket event with data:
-   *   { target_type: "zone"|"client", target_id, dsp_settings }
-   *   dsp_settings may contain: filters, compressor, loudness
+   *   { target_type: "zone"|"client", target_id, equalizer_settings }
+   *   equalizer_settings may contain: filters, compressor, loudness
    */
-  function handleDspChanged(event) {
+  function handleEqualizerChanged(event) {
     if (!event.data) return;
 
-    const { target_type, target_id, dsp_settings } = event.data;
-    if (!dsp_settings) return;
+    const { target_type, target_id, equalizer_settings } = event.data;
+    if (!equalizer_settings) return;
 
     // ALWAYS update activePreset for zone events if we have a client in that zone
     // This must happen BEFORE the relevance check for filter updates, because
     // the relevance check may fail while the preset change is still valid
-    if (target_type === 'zone' && dsp_settings.active_preset !== undefined) {
+    if (target_type === 'zone' && equalizer_settings.active_preset !== undefined) {
       const zone = registryStore.getZoneForClient(selectedTarget.value);
       if (zone && zone.id === target_id) {
-        activePreset.value = dsp_settings.active_preset;
+        activePreset.value = equalizer_settings.active_preset;
       }
     }
 
-    // Check if this DSP change applies to the currently selected target
+    // Check if this equalizer change applies to the currently selected target
     let isRelevant = false;
 
     if (target_type === 'client') {
@@ -1242,9 +1242,9 @@ export const useDspStore = defineStore('dsp', () => {
 
     if (!isRelevant) return;
 
-    // Update local DSP state from received settings
-    if (dsp_settings.filters && Array.isArray(dsp_settings.filters)) {
-      for (const filterData of dsp_settings.filters) {
+    // Update local equalizer state from received settings
+    if (equalizer_settings.filters && Array.isArray(equalizer_settings.filters)) {
+      for (const filterData of equalizer_settings.filters) {
         // Skip if this specific filter is being actively edited (avoids echo conflicts)
         if (filterThrottleMap.has(filterData.id)) continue;
 
@@ -1261,17 +1261,17 @@ export const useDspStore = defineStore('dsp', () => {
       }
     }
 
-    if (dsp_settings.compressor) {
-      Object.assign(compressor.value, dsp_settings.compressor);
+    if (equalizer_settings.compressor) {
+      Object.assign(compressor.value, equalizer_settings.compressor);
     }
 
-    if (dsp_settings.loudness) {
-      Object.assign(loudness.value, dsp_settings.loudness);
+    if (equalizer_settings.loudness) {
+      Object.assign(loudness.value, equalizer_settings.loudness);
     }
 
     // Update active preset if present in the event
-    if (dsp_settings.active_preset !== undefined) {
-      activePreset.value = dsp_settings.active_preset;
+    if (equalizer_settings.active_preset !== undefined) {
+      activePreset.value = equalizer_settings.active_preset;
     }
   }
 
@@ -1363,7 +1363,7 @@ export const useDspStore = defineStore('dsp', () => {
     clearAllThrottles();
     filtersLoaded.value = false;
 
-    // Reset DSP state to defaults to prevent showing stale data while loading
+    // Reset equalizer state to defaults to prevent showing stale data while loading
     // This ensures users see flat/disabled state instead of previous zone's settings
     for (const filter of filters.value) {
       filter.gain = 0;
@@ -1373,18 +1373,18 @@ export const useDspStore = defineStore('dsp', () => {
     activePreset.value = 'manual';
   }
 
-  // === DSP EFFECTS ENABLE/DISABLE ===
+  // === EQUALIZER EFFECTS ENABLE/DISABLE ===
   async function loadEnabledState() {
-    isDspEffectsEnabled.value = await fetchEnabledState();
-    return isDspEffectsEnabled.value;
+    isEqualizerEffectsEnabled.value = await fetchEnabledState();
+    return isEqualizerEffectsEnabled.value;
   }
 
-  async function toggleDspEffectsEnabled(enabled) {
+  async function toggleEqualizerEffectsEnabled(enabled) {
     if (isTogglingEnabled.value) return false;
 
-    const previousState = isDspEffectsEnabled.value;
+    const previousState = isEqualizerEffectsEnabled.value;
     isTogglingEnabled.value = true;
-    isDspEffectsEnabled.value = enabled;
+    isEqualizerEffectsEnabled.value = enabled;
 
     try {
       let success = false;
@@ -1393,10 +1393,10 @@ export const useDspStore = defineStore('dsp', () => {
       const zoneId = getSelectedZoneId();
       if (zoneId) {
         try {
-          const response = await axios.patch(`/api/dsp/zone/${zoneId}/enabled`, { enabled });
+          const response = await axios.patch(`/api/equalizer/zone/${zoneId}/enabled`, { enabled });
           success = response.data.status === 'success' || response.data.status === 'partial';
         } catch (error) {
-          logger.error('store', 'Error updating zone DSP enabled', error);
+          logger.error('store', 'Error updating zone equalizer enabled', error);
           // Fall back to direct update
           success = await setEnabledState(enabled);
         }
@@ -1407,21 +1407,21 @@ export const useDspStore = defineStore('dsp', () => {
 
       if (success) {
         if (enabled) {
-          // DSP effects enabled: load status
+          // Equalizer effects enabled: load status
           await loadStatus();
         } else {
-          // DSP effects disabled: cleanup local state
+          // Equalizer effects disabled: cleanup local state
           cleanup();
         }
         return true;
       } else {
         // Revert on failure
-        isDspEffectsEnabled.value = previousState;
+        isEqualizerEffectsEnabled.value = previousState;
         return false;
       }
     } catch (error) {
-      logger.error('store', 'Error toggling DSP effects', error);
-      isDspEffectsEnabled.value = previousState;
+      logger.error('store', 'Error toggling equalizer effects', error);
+      isEqualizerEffectsEnabled.value = previousState;
       return false;
     } finally {
       isTogglingEnabled.value = false;
@@ -1430,7 +1430,7 @@ export const useDspStore = defineStore('dsp', () => {
 
   function handleEnabledChanged(event) {
     if (event.data && event.data.enabled !== undefined) {
-      isDspEffectsEnabled.value = event.data.enabled;
+      isEqualizerEffectsEnabled.value = event.data.enabled;
     }
   }
 
@@ -1447,11 +1447,11 @@ export const useDspStore = defineStore('dsp', () => {
     inputPeak,
     outputPeak,
 
-    // DSP Effects Enabled State
-    isDspEffectsEnabled,
+    // Equalizer Effects Enabled State
+    isEqualizerEffectsEnabled,
     isTogglingEnabled,
 
-    // Advanced DSP State
+    // Advanced Equalizer State
     compressor,
     loudness,
 
@@ -1475,9 +1475,9 @@ export const useDspStore = defineStore('dsp', () => {
     resetAllFilters,
     cleanup,
 
-    // DSP Effects Enable/Disable
+    // Equalizer Effects Enable/Disable
     loadEnabledState,
-    toggleDspEffectsEnabled,
+    toggleEqualizerEffectsEnabled,
 
     // Target Management
     loadTargets,
@@ -1521,14 +1521,14 @@ export const useDspStore = defineStore('dsp', () => {
     // Advanced Features
     updateCompressor,
     updateLoudness,
-    updateDspMute,
+    updateEqualizerMute,
 
-    // Client DSP volume/mute (reads from unified store)
-    updateClientDspVolume,
+    // Client equalizer volume/mute (reads from unified store)
+    updateClientEqualizerVolume,
     applyZoneDelta,  // Atomic zone volume update
-    getClientDspVolume,
-    getClientDspMute,
-    updateClientDspMute,  // Use { propagate: true } for zone propagation
+    getClientEqualizerVolume,
+    getClientEqualizerMute,
+    updateClientEqualizerMute,  // Use { propagate: true } for zone propagation
 
     // Propagation Errors
     propagationErrors,
@@ -1536,7 +1536,7 @@ export const useDspStore = defineStore('dsp', () => {
     getClientDisplayName,
 
     // WebSocket Handlers
-    handleDspChanged,
+    handleEqualizerChanged,
     handleFilterChanged,
     handleFiltersReset,
     handleStateChanged,

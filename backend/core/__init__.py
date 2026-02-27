@@ -8,7 +8,7 @@ This module provides core services:
 - SettingsService: Configuration management
 - SystemdServiceManager: Systemd service control
 - VolumeService: Volume control (in core.volume)
-- DSP services (in core.dsp)
+- Equalizer services (in core.equalizer)
 - Multiroom services (in core.multiroom)
 """
 

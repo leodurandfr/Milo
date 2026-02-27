@@ -19,7 +19,7 @@ from backend.core.multiroom.routing import RoutingEnvironment
 logger = logging.getLogger(__name__)
 
 
-def create_snapcast_router(routing_service, snapcast_service, state_machine, dsp_service=None, proxy_service=None, settings_service=None):
+def create_snapcast_router(routing_service, snapcast_service, state_machine, camilladsp_service=None, proxy_service=None, settings_service=None):
     """Create Snapcast router with all endpoints."""
     router = APIRouter(prefix="/api/routing/snapcast", tags=["snapcast"])
 
@@ -232,13 +232,13 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine, dsp
     return router
 
 
-def setup_multiroom_routes(app, routing_service, snapcast_service, state_machine, dsp_service=None, proxy_service=None, settings_service=None):
+def setup_multiroom_routes(app, routing_service, snapcast_service, state_machine, camilladsp_service=None, proxy_service=None, settings_service=None):
     """Set up all multiroom routes on the FastAPI app."""
     router = create_snapcast_router(
         routing_service=routing_service,
         snapcast_service=snapcast_service,
         state_machine=state_machine,
-        dsp_service=dsp_service,
+        camilladsp_service=camilladsp_service,
         proxy_service=proxy_service,
         settings_service=settings_service
     )

@@ -13,7 +13,7 @@ This module provides:
 from backend.core.multiroom.models import (
     Client,
     Zone,
-    DspSettings,
+    EqualizerSettings,
     RegistryState,
     RegistryEventType,
     SpeakerType,
@@ -41,7 +41,7 @@ __all__ = [
     # Models
     "Client",
     "Zone",
-    "DspSettings",
+    "EqualizerSettings",
     "RegistryState",
     "RegistryEventType",
     "SpeakerType",

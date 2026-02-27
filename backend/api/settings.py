@@ -279,7 +279,7 @@ def create_settings_router(
         """
         Update the enabled apps in the dock.
         If an app is disabled, stop the associated processes.
-        If an app is enabled, start the associated processes (multiroom/DSP).
+        If an app is enabled, start the associated processes (multiroom/equalizer).
         Strict approach: one error = full rollback.
         """
         try:
@@ -372,8 +372,8 @@ def create_settings_router(
                         logger.info("Broadcasting multiroom state update to frontend")
                         await state_machine.update_multiroom_state(False)
                     
-                    # === DSP ===
-                    elif app == 'dsp':
+                    # === EQUALIZER ===
+                    elif app == 'equalizer':
                         # Get the active source to restart the plugin
                         current_state = await state_machine.get_current_state()
                         active_source = None
@@ -383,15 +383,10 @@ def create_settings_router(
                             except ValueError:
                                 pass
 
-                        operations_log.append("Disabling DSP effects")
-                        logger.info(f"Disabling DSP effects for active source: {active_source.value if active_source else 'none'}")
-                        await routing_service.set_dsp_effects_enabled(False, active_source)
+                        operations_log.append("Disabling equalizer effects")
+                        logger.info(f"Disabling equalizer effects for active source: {active_source.value if active_source else 'none'}")
+                        await routing_service.set_equalizer_effects_enabled(False, active_source)
 
-                        # Notify the frontend via WebSocket
-                        operations_log.append("Broadcasting DSP effects state update")
-                        logger.info("Broadcasting DSP effects state update to frontend")
-                        await state_machine.update_dsp_effects_state(False)
-                
                 # === HANDLE ENABLES ===
                 for app in enabled_apps_new:
                     logger.info(f"Processing enable for app: {app}")
@@ -436,8 +431,8 @@ def create_settings_router(
                         logger.info("Broadcasting multiroom state update to frontend")
                         await state_machine.update_multiroom_state(True)
                     
-                    # === DSP ===
-                    elif app == 'dsp':
+                    # === EQUALIZER ===
+                    elif app == 'equalizer':
                         # Get the active source to restart the plugin
                         current_state = await state_machine.get_current_state()
                         active_source = None
@@ -447,14 +442,9 @@ def create_settings_router(
                             except ValueError:
                                 pass
 
-                        operations_log.append("Enabling DSP effects")
-                        logger.info(f"Enabling DSP effects for active source: {active_source.value if active_source else 'none'}")
-                        await routing_service.set_dsp_effects_enabled(True, active_source)
-
-                        # Notify the frontend via WebSocket
-                        operations_log.append("Broadcasting DSP effects state update")
-                        logger.info("Broadcasting DSP effects state update to frontend")
-                        await state_machine.update_dsp_effects_state(True)
+                        operations_log.append("Enabling equalizer effects")
+                        logger.info(f"Enabling equalizer effects for active source: {active_source.value if active_source else 'none'}")
+                        await routing_service.set_equalizer_effects_enabled(True, active_source)
                 
                 # All operations succeeded → save settings
                 operations_log.append("Saving new settings")

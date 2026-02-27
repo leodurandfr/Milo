@@ -79,12 +79,12 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     }
   }
 
-  async function setDspEnabled(enabled) {
+  async function setEqualizerEnabled(enabled) {
     try {
-      const response = await axios.put('/api/dsp/enabled', { enabled });
+      const response = await axios.put('/api/equalizer/enabled', { enabled });
       return response.data.status === 'success';
     } catch (err) {
-      logger.error('store', 'Set DSP failed', { enabled, error: err.message });
+      logger.error('store', 'Set equalizer failed', { enabled, error: err.message });
       return false;
     }
   }
@@ -234,7 +234,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     changeSource,
     sendCommand,
     setMultiroomEnabled,
-    setDspEnabled,
+    setEqualizerEnabled,
     updateState,
     setVolume,
     adjustVolume,

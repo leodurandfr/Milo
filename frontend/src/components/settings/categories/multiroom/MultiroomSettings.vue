@@ -12,7 +12,7 @@
               <SectionHeader :title="t('multiroom.zonesAndSpeakers')">
                 <template #actions>
                   <Button v-if="ungroupedClients.length >= 2" variant="brand" size="small" @click="handleCreateZone">
-                    {{ t('dsp.zones.createZone', 'Create Zone') }}
+                    {{ t('equalizer.zones.createZone', 'Create Zone') }}
                   </Button>
                 </template>
               </SectionHeader>

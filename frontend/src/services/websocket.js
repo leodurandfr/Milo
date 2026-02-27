@@ -32,17 +32,17 @@ import { logger } from '@/services/logger';
  *     Data: { mac_id, client: { complete client object with all fields } }
  *   - zone_changed → multiroomStore (zone create/delete/update, membership changes)
  *     Data: { zone_id, zone: { enriched zone with online_client_count, has_subwoofer, crossover_enabled } | null }
- *   - dsp_changed → dspStore (zone/client DSP settings)
- *     Data: { target_type: "zone"|"client", target_id, dsp_settings }
- *   - crossover_changed → dspStore (crossover enable/disable, frequency)
+ *   - equalizer_changed → equalizerStore (zone/client equalizer settings)
+ *     Data: { target_type: "zone"|"client", target_id, equalizer_settings }
+ *   - crossover_changed → equalizerStore (crossover enable/disable, frequency)
  *     Data: { zone_id, crossover_enabled, crossover_frequency }
  *
  * snapcast: (low-level Snapcast events - kept for debugging/monitoring)
  *   - client_* events → MultiroomControl.vue → multiroomStore
  *   - client_name_changed → also EqualizerModal.vue, MultiroomSettings.vue (sync names)
  *
- * dsp:
- *   - filter_*, state_changed, preset_*, compressor_*, loudness_* → EqualizerModal.vue → dspStore
+ * equalizer:
+ *   - filter_*, state_changed, preset_*, compressor_*, loudness_* → EqualizerModal.vue → equalizerStore
  *   - links_changed, enabled_changed → EqualizerModal, MultiroomSettings, MultiroomControl
  *   - client_volumes_pushed → MultiroomSettings, MultiroomControl
  *

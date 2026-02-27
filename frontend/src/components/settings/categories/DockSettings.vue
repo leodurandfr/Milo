@@ -54,7 +54,7 @@
     <SettingsSection :title="t('applications.features')">
       <div class="app-list">
         <ListItemButton
-          :title="t('dsp.title')"
+          :title="t('equalizer.title')"
           :model-value="config.equalizer"
           variant="background"
           action="toggle"

@@ -108,14 +108,14 @@ class TestAudioRoutingService:
         mock_sm = Mock()
         mock_sm.system_state = Mock()
         mock_sm.system_state.multiroom_enabled = False
-        mock_sm.system_state.dsp_effects_enabled = False
+        mock_sm.system_state.equalizer_effects_enabled = False
         routing_service.set_state_machine(mock_sm)
 
         state = routing_service.get_state()
 
         assert isinstance(state, dict)
         assert 'multiroom_enabled' in state
-        assert 'dsp_effects_enabled' in state
+        assert 'equalizer_effects_enabled' in state
 
     @pytest.mark.asyncio
     async def test_initialize_with_settings(self, routing_service, mock_settings_service, mock_async_lock):
@@ -127,7 +127,7 @@ class TestAudioRoutingService:
         mock_sm = Mock()
         mock_sm.system_state = Mock()
         mock_sm.system_state.multiroom_enabled = False
-        mock_sm.system_state.dsp_effects_enabled = False
+        mock_sm.system_state.equalizer_effects_enabled = False
         mock_sm._state_lock = mock_async_lock
         routing_service.set_state_machine(mock_sm)
 
@@ -135,7 +135,7 @@ class TestAudioRoutingService:
         async def get_setting_side_effect(key):
             return {
                 'routing.multiroom_enabled': True,
-                'dsp.effects_enabled': False
+                'equalizer.effects_enabled': False
             }.get(key)
 
         mock_settings_service.get_setting = AsyncMock(side_effect=get_setting_side_effect)
@@ -145,7 +145,7 @@ class TestAudioRoutingService:
                 await routing_service.initialize()
 
         assert mock_sm.system_state.multiroom_enabled is True
-        assert mock_sm.system_state.dsp_effects_enabled is False
+        assert mock_sm.system_state.equalizer_effects_enabled is False
 
     @pytest.mark.asyncio
     async def test_initialize_without_settings_service(self):
@@ -158,7 +158,7 @@ class TestAudioRoutingService:
 
         # Should use default values
         assert service.multiroom_enabled is False
-        assert service.dsp_effects_enabled is False
+        assert service.equalizer_effects_enabled is False
 
     @pytest.mark.asyncio
     async def test_set_multiroom_enabled_already_enabled(self, routing_service, mock_async_lock):
@@ -215,50 +215,50 @@ class TestAudioRoutingService:
         mock_settings_service.set_setting.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_set_dsp_effects_enabled_already_enabled(self, routing_service, mock_async_lock):
-        """set_dsp_effects_enabled test when already in desired state (no-op)"""
+    async def test_set_equalizer_effects_enabled_already_enabled(self, routing_service, mock_async_lock):
+        """set_equalizer_effects_enabled test when already in desired state (no-op)"""
         mock_sm = Mock()
         mock_sm.system_state = Mock()
-        mock_sm.system_state.dsp_effects_enabled = True
+        mock_sm.system_state.equalizer_effects_enabled = True
         mock_sm._state_lock = mock_async_lock
         routing_service.set_state_machine(mock_sm)
 
-        result = await routing_service.set_dsp_effects_enabled(True)
+        result = await routing_service.set_equalizer_effects_enabled(True)
 
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_set_dsp_effects_enabled_success(self, routing_service, mock_settings_service, mock_async_lock):
-        """Successful DSP effects activation test"""
+    async def test_set_equalizer_effects_enabled_success(self, routing_service, mock_settings_service, mock_async_lock):
+        """Successful Equalizer effects activation test"""
         mock_sm = Mock()
         mock_sm.system_state = Mock()
-        mock_sm.system_state.dsp_effects_enabled = False
+        mock_sm.system_state.equalizer_effects_enabled = False
         mock_sm._state_lock = mock_async_lock
         mock_sm.broadcast_event = AsyncMock()
         routing_service.set_state_machine(mock_sm)
 
-        result = await routing_service.set_dsp_effects_enabled(True)
+        result = await routing_service.set_equalizer_effects_enabled(True)
 
         assert result is True
-        assert mock_sm.system_state.dsp_effects_enabled is True
-        mock_settings_service.set_setting.assert_called_with('dsp.effects_enabled', True)
+        assert mock_sm.system_state.equalizer_effects_enabled is True
+        mock_settings_service.set_setting.assert_called_with('equalizer.effects_enabled', True)
 
     @pytest.mark.asyncio
-    async def test_set_dsp_effects_enabled_with_plugin_restart(self, routing_service, mock_plugin, mock_settings_service, mock_async_lock):
-        """DSP effects activation test with active plugin restart"""
+    async def test_set_equalizer_effects_enabled_with_plugin_restart(self, routing_service, mock_plugin, mock_settings_service, mock_async_lock):
+        """Equalizer effects activation test with active plugin restart"""
         mock_sm = Mock()
         mock_sm.system_state = Mock()
-        mock_sm.system_state.dsp_effects_enabled = False
+        mock_sm.system_state.equalizer_effects_enabled = False
         mock_sm._state_lock = mock_async_lock
         mock_sm.broadcast_event = AsyncMock()
         routing_service.set_state_machine(mock_sm)
         routing_service.set_plugin_callback(lambda source: mock_plugin if source == AudioSource.SPOTIFY else None)
 
-        result = await routing_service.set_dsp_effects_enabled(True, active_source=AudioSource.SPOTIFY)
+        result = await routing_service.set_equalizer_effects_enabled(True, active_source=AudioSource.SPOTIFY)
 
         assert result is True
-        # Note: Plugin restart is no longer done by set_dsp_effects_enabled
-        # DSP effects toggle doesn't require plugin restart with CamillaDSP
+        # Note: Plugin restart is no longer done by set_equalizer_effects_enabled
+        # Equalizer effects toggle doesn't require plugin restart with CamillaDSP
 
     @pytest.mark.asyncio
     async def test_update_systemd_environment_validation(self, routing_service):
@@ -266,7 +266,7 @@ class TestAudioRoutingService:
         mock_sm = Mock()
         mock_sm.system_state = Mock()
         mock_sm.system_state.multiroom_enabled = True
-        mock_sm.system_state.dsp_effects_enabled = False
+        mock_sm.system_state.equalizer_effects_enabled = False
         routing_service.set_state_machine(mock_sm)
 
         # NEW: test file writing instead of sudo
@@ -288,7 +288,7 @@ class TestAudioRoutingService:
         mock_sm = Mock()
         mock_sm.system_state = Mock()
         mock_sm.system_state.multiroom_enabled = True
-        mock_sm.system_state.dsp_effects_enabled = True
+        mock_sm.system_state.equalizer_effects_enabled = True
         routing_service.set_state_machine(mock_sm)
 
         # Test file content

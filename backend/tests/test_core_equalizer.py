@@ -1,11 +1,11 @@
-# backend/tests/test_core_dsp.py
+# backend/tests/test_core_equalizer.py
 """
-Unit tests for core/dsp module.
+Unit tests for core/equalizer module.
 
 Tests cover:
 - CamillaDSPService
-- DspClientProxyService
-- DspSettingsSyncService
+- EqualizerClientProxyService
+- EqualizerSettingsSyncService
 - Presets
 """
 import asyncio
@@ -15,12 +15,12 @@ import json
 import tempfile
 from pathlib import Path
 
-from backend.core.dsp import (
+from backend.core.equalizer import (
     CamillaDSPService,
-    DspState,
+    CamillaDspState,
     FilterType,
-    DspClientProxyService,
-    DspSettingsSyncService,
+    EqualizerClientProxyService,
+    EqualizerSettingsSyncService,
     get_builtin_presets,
     get_preset_by_id,
     DEFAULT_MANUAL_GAINS,
@@ -98,16 +98,16 @@ class TestIsIpAddress:
 
 
 # =============================================================================
-# DspClientProxyService Tests
+# EqualizerClientProxyService Tests
 # =============================================================================
 
-class TestDspClientProxyService:
-    """Test DSP client proxy service"""
+class TestEqualizerClientProxyService:
+    """Test Equalizer client proxy service"""
 
     @pytest.fixture
     def proxy_service(self):
         """Create proxy service instance"""
-        return DspClientProxyService()
+        return EqualizerClientProxyService()
 
     def test_get_host_with_ip(self, proxy_service):
         """Should return IP address as-is"""
@@ -129,7 +129,7 @@ class TestDspClientProxyService:
         with patch("aiohttp.ClientSession") as mock_session:
             mock_response = AsyncMock()
             mock_response.status = 200
-            mock_response.json = AsyncMock(return_value={"dsp_ready": True})
+            mock_response.json = AsyncMock(return_value={"equalizer_ready": True})
 
             mock_context = AsyncMock()
             mock_context.__aenter__.return_value = mock_response
@@ -146,11 +146,11 @@ class TestDspClientProxyService:
 
     @pytest.mark.asyncio
     async def test_check_available_not_ready(self, proxy_service):
-        """Should return False when DSP not ready"""
+        """Should return False when Equalizer not ready"""
         with patch("aiohttp.ClientSession") as mock_session:
             mock_response = AsyncMock()
             mock_response.status = 200
-            mock_response.json = AsyncMock(return_value={"dsp_ready": False})
+            mock_response.json = AsyncMock(return_value={"equalizer_ready": False})
 
             mock_context = AsyncMock()
             mock_context.__aenter__.return_value = mock_response
@@ -168,7 +168,7 @@ class TestDspClientProxyService:
     @pytest.mark.asyncio
     async def test_check_available_connection_error(self, proxy_service):
         """Should return False on connection error"""
-        with patch("backend.core.dsp.client_proxy.aiohttp.ClientSession") as mock_session:
+        with patch("backend.core.equalizer.client_proxy.aiohttp.ClientSession") as mock_session:
             mock_session.side_effect = Exception("Connection refused")
 
             result = await proxy_service.check_available("192.168.1.100")
@@ -176,16 +176,16 @@ class TestDspClientProxyService:
 
 
 # =============================================================================
-# DspSettingsSyncService Tests
+# EqualizerSettingsSyncService Tests
 # =============================================================================
 
-class TestDspSettingsSyncService:
-    """Test DSP settings sync service"""
+class TestEqualizerSettingsSyncService:
+    """Test Equalizer settings sync service"""
 
     @pytest.fixture
     def sync_service(self):
         """Create sync service instance"""
-        return DspSettingsSyncService()
+        return EqualizerSettingsSyncService()
 
     @pytest.fixture
     def temp_settings_file(self):
@@ -200,11 +200,11 @@ class TestDspSettingsSyncService:
         sync_service.set_proxy_service(mock_proxy)
         assert sync_service.proxy_service == mock_proxy
 
-    def test_set_dsp_service(self, sync_service):
-        """Should set DSP service"""
-        mock_dsp = Mock()
-        sync_service.set_dsp_service(mock_dsp)
-        assert sync_service.dsp_service == mock_dsp
+    def test_set_camilladsp_service(self, sync_service):
+        """Should set Equalizer service"""
+        mock_camilladsp = Mock()
+        sync_service.set_camilladsp_service(mock_camilladsp)
+        assert sync_service.camilladsp_service == mock_camilladsp
 
     @pytest.mark.asyncio
     async def test_load_settings_empty(self, sync_service, temp_settings_file):
@@ -254,22 +254,22 @@ class TestCamillaDSPService:
         return Mock(spec=EventBus)
 
     @pytest.fixture
-    def dsp_service(self, mock_settings_service, mock_event_bus):
-        """Create DSP service instance"""
+    def camilladsp_service(self, mock_settings_service, mock_event_bus):
+        """Create Equalizer service instance"""
         return CamillaDSPService(
             settings_service=mock_settings_service,
             event_bus=mock_event_bus
         )
 
-    def test_initial_state_disconnected(self, dsp_service):
+    def test_initial_state_disconnected(self, camilladsp_service):
         """Should start in disconnected state"""
-        assert dsp_service.state == DspState.DISCONNECTED
-        assert dsp_service.connected is False
+        assert camilladsp_service.state == CamillaDspState.DISCONNECTED
+        assert camilladsp_service.connected is False
 
-    def test_default_host_port(self, dsp_service):
+    def test_default_host_port(self, camilladsp_service):
         """Should use default host and port"""
-        assert dsp_service.host == "127.0.0.1"
-        assert dsp_service.port == 1234
+        assert camilladsp_service.host == "127.0.0.1"
+        assert camilladsp_service.port == 1234
 
     def test_custom_host_port(self, mock_settings_service, mock_event_bus):
         """Should accept custom host and port"""
@@ -282,180 +282,180 @@ class TestCamillaDSPService:
         assert service.host == "192.168.1.100"
         assert service.port == 5678
 
-    def test_set_state_machine(self, dsp_service):
+    def test_set_state_machine(self, camilladsp_service):
         """Should set state machine reference"""
         mock_state_machine = Mock()
-        dsp_service.set_state_machine(mock_state_machine)
-        assert dsp_service.state_machine == mock_state_machine
+        camilladsp_service.set_state_machine(mock_state_machine)
+        assert camilladsp_service.state_machine == mock_state_machine
 
-    def test_is_volume_control_available_disconnected(self, dsp_service):
+    def test_is_volume_control_available_disconnected(self, camilladsp_service):
         """Should return False when disconnected"""
-        assert dsp_service.is_volume_control_available() is False
+        assert camilladsp_service.is_volume_control_available() is False
 
-    def test_initial_compressor_settings(self, dsp_service):
+    def test_initial_compressor_settings(self, camilladsp_service):
         """Should have default compressor settings"""
-        assert dsp_service._compressor["enabled"] is False
-        assert dsp_service._compressor["threshold"] == -20.0
-        assert dsp_service._compressor["ratio"] == 4.0
+        assert camilladsp_service._compressor["enabled"] is False
+        assert camilladsp_service._compressor["threshold"] == -20.0
+        assert camilladsp_service._compressor["ratio"] == 4.0
 
-    def test_initial_loudness_settings(self, dsp_service):
+    def test_initial_loudness_settings(self, camilladsp_service):
         """Should have default loudness settings"""
-        assert dsp_service._loudness["enabled"] is False
-        assert dsp_service._loudness["high_boost"] == 5.0
-        assert dsp_service._loudness["low_boost"] == 8.0
+        assert camilladsp_service._loudness["enabled"] is False
+        assert camilladsp_service._loudness["high_boost"] == 5.0
+        assert camilladsp_service._loudness["low_boost"] == 8.0
 
-    def test_initial_volume_settings(self, dsp_service):
+    def test_initial_volume_settings(self, camilladsp_service):
         """Should have default volume settings"""
-        assert dsp_service._volume["main"] == 0.0
-        assert dsp_service._volume["mute"] is False
+        assert camilladsp_service._volume["main"] == 0.0
+        assert camilladsp_service._volume["mute"] is False
 
     @pytest.mark.asyncio
-    async def test_get_compressor(self, dsp_service):
+    async def test_get_compressor(self, camilladsp_service):
         """Should return compressor settings copy"""
-        compressor = await dsp_service.get_compressor()
-        assert compressor == dsp_service._compressor
+        compressor = await camilladsp_service.get_compressor()
+        assert compressor == camilladsp_service._compressor
         # Modify returned value should not affect internal state
         compressor["enabled"] = True
-        assert dsp_service._compressor["enabled"] is False
+        assert camilladsp_service._compressor["enabled"] is False
 
     @pytest.mark.asyncio
-    async def test_get_loudness(self, dsp_service):
+    async def test_get_loudness(self, camilladsp_service):
         """Should return loudness settings copy"""
-        loudness = await dsp_service.get_loudness()
-        assert loudness == dsp_service._loudness
+        loudness = await camilladsp_service.get_loudness()
+        assert loudness == camilladsp_service._loudness
 
     @pytest.mark.asyncio
-    async def test_get_volume_disconnected(self, dsp_service):
+    async def test_get_volume_disconnected(self, camilladsp_service):
         """Should return cached volume when disconnected"""
-        volume = await dsp_service.get_volume()
+        volume = await camilladsp_service.get_volume()
         assert volume == {"main": 0.0, "mute": False}
 
     @pytest.mark.asyncio
-    async def test_get_filters_disconnected(self, dsp_service):
+    async def test_get_filters_disconnected(self, camilladsp_service):
         """Should return empty list when disconnected"""
-        filters = await dsp_service.get_filters()
+        filters = await camilladsp_service.get_filters()
         assert filters == []
 
     @pytest.mark.asyncio
-    async def test_set_filter_disconnected(self, dsp_service):
+    async def test_set_filter_disconnected(self, camilladsp_service):
         """Should fail when disconnected"""
-        result = await dsp_service.set_filter("eq_band_00", 100, 0, 1.0)
+        result = await camilladsp_service.set_filter("eq_band_00", 100, 0, 1.0)
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_set_volume_disconnected(self, dsp_service):
+    async def test_set_volume_disconnected(self, camilladsp_service):
         """Should fail when disconnected"""
-        result = await dsp_service.set_volume(-20)
+        result = await camilladsp_service.set_volume(-20)
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_set_mute_disconnected(self, dsp_service):
+    async def test_set_mute_disconnected(self, camilladsp_service):
         """Should fail when disconnected"""
-        result = await dsp_service.set_mute(True)
+        result = await camilladsp_service.set_mute(True)
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_set_compressor_disconnected(self, dsp_service):
+    async def test_set_compressor_disconnected(self, camilladsp_service):
         """Should update cache even when disconnected"""
-        result = await dsp_service.set_compressor(enabled=True, threshold=-30)
+        result = await camilladsp_service.set_compressor(enabled=True, threshold=-30)
         assert result is True
-        assert dsp_service._compressor["enabled"] is True
-        assert dsp_service._compressor["threshold"] == -30
+        assert camilladsp_service._compressor["enabled"] is True
+        assert camilladsp_service._compressor["threshold"] == -30
 
     @pytest.mark.asyncio
-    async def test_set_loudness_disconnected(self, dsp_service):
+    async def test_set_loudness_disconnected(self, camilladsp_service):
         """Should update cache even when disconnected"""
-        result = await dsp_service.set_loudness(enabled=True, low_boost=10.0)
+        result = await camilladsp_service.set_loudness(enabled=True, low_boost=10.0)
         assert result is True
-        assert dsp_service._loudness["enabled"] is True
-        assert dsp_service._loudness["low_boost"] == 10.0
+        assert camilladsp_service._loudness["enabled"] is True
+        assert camilladsp_service._loudness["low_boost"] == 10.0
 
     @pytest.mark.asyncio
-    async def test_get_status_disconnected(self, dsp_service):
+    async def test_get_status_disconnected(self, camilladsp_service):
         """Should return disconnected status"""
-        status = await dsp_service.get_status()
+        status = await camilladsp_service.get_status()
         assert status["available"] is False
-        assert status["state"] == DspState.DISCONNECTED.value
+        assert status["state"] == CamillaDspState.DISCONNECTED.value
 
     @pytest.mark.asyncio
-    async def test_get_levels_disconnected(self, dsp_service):
+    async def test_get_levels_disconnected(self, camilladsp_service):
         """Should return unavailable when disconnected"""
-        levels = await dsp_service.get_levels()
+        levels = await camilladsp_service.get_levels()
         assert levels["available"] is False
 
     @pytest.mark.asyncio
-    async def test_get_crossover_filter_disconnected(self, dsp_service):
+    async def test_get_crossover_filter_disconnected(self, camilladsp_service):
         """Should return default crossover when disconnected"""
-        crossover = await dsp_service.get_crossover_filter()
+        crossover = await camilladsp_service.get_crossover_filter()
         assert crossover["enabled"] is False
         assert crossover["frequency"] == 80
         assert crossover["q"] == 0.707
 
     @pytest.mark.asyncio
-    async def test_set_crossover_filter_disconnected(self, dsp_service):
+    async def test_set_crossover_filter_disconnected(self, camilladsp_service):
         """Should fail when disconnected"""
-        result = await dsp_service.set_crossover_filter(enabled=True)
+        result = await camilladsp_service.set_crossover_filter(enabled=True)
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_set_lowpass_filter_disconnected(self, dsp_service):
+    async def test_set_lowpass_filter_disconnected(self, camilladsp_service):
         """Should fail when disconnected"""
-        result = await dsp_service.set_lowpass_filter(enabled=True)
+        result = await camilladsp_service.set_lowpass_filter(enabled=True)
         assert result is False
 
-    def test_get_presets(self, dsp_service):
+    def test_get_presets(self, camilladsp_service):
         """Should return builtin presets"""
-        presets = dsp_service.get_presets()
+        presets = camilladsp_service.get_presets()
         assert len(presets) == len(BUILTIN_PRESETS)
 
     @pytest.mark.asyncio
-    async def test_get_active_preset_none(self, dsp_service):
+    async def test_get_active_preset_none(self, camilladsp_service):
         """Should return None when no preset active"""
-        preset = await dsp_service.get_active_preset()
+        preset = await camilladsp_service.get_active_preset()
         assert preset is None
 
     @pytest.mark.asyncio
-    async def test_get_manual_gains_default(self, dsp_service):
+    async def test_get_manual_gains_default(self, camilladsp_service):
         """Should return default gains when none saved"""
-        gains = await dsp_service.get_manual_gains()
+        gains = await camilladsp_service.get_manual_gains()
         assert gains == DEFAULT_MANUAL_GAINS
 
     @pytest.mark.asyncio
-    async def test_load_preset_skips_when_already_active(self, dsp_service, mock_settings_service):
+    async def test_load_preset_skips_when_already_active(self, camilladsp_service, mock_settings_service):
         """Should skip loading when already on the same preset"""
         # Setup: preset is already active
         mock_settings_service.get_setting = AsyncMock(return_value="acoustic")
 
         # Should return True without applying gains
-        result = await dsp_service.load_preset("acoustic")
+        result = await camilladsp_service.load_preset("acoustic")
         assert result is True
         # set_setting should NOT be called (no change needed)
         mock_settings_service.set_setting.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_bypass_effects_disconnected(self, dsp_service):
+    async def test_bypass_effects_disconnected(self, camilladsp_service):
         """Should fail when disconnected"""
-        result = await dsp_service.bypass_effects()
+        result = await camilladsp_service.bypass_effects()
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_restore_effects_disconnected(self, dsp_service):
+    async def test_restore_effects_disconnected(self, camilladsp_service):
         """Should fail when disconnected"""
-        result = await dsp_service.restore_effects()
+        result = await camilladsp_service.restore_effects()
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_wait_for_connection_timeout(self, dsp_service):
+    async def test_wait_for_connection_timeout(self, camilladsp_service):
         """Should timeout when not connected"""
-        result = await dsp_service.wait_for_connection(timeout=0.1)
+        result = await camilladsp_service.wait_for_connection(timeout=0.1)
         assert result is False
 
-    def test_parse_filters_empty(self, dsp_service):
+    def test_parse_filters_empty(self, camilladsp_service):
         """Should return empty list for empty config"""
-        result = dsp_service._parse_filters({})
+        result = camilladsp_service._parse_filters({})
         assert result == []
 
-    def test_parse_filters_with_eq_bands(self, dsp_service):
+    def test_parse_filters_with_eq_bands(self, camilladsp_service):
         """Should parse EQ band filters"""
         config = {
             "eq_band_00": {
@@ -477,13 +477,13 @@ class TestCamillaDSPService:
                 }
             }
         }
-        result = dsp_service._parse_filters(config)
+        result = camilladsp_service._parse_filters(config)
         assert len(result) == 2
         assert result[0]["id"] == "eq_band_00"
         assert result[0]["freq"] == 100
         assert result[0]["gain"] == 3
 
-    def test_parse_filters_skips_non_eq_filters(self, dsp_service):
+    def test_parse_filters_skips_non_eq_filters(self, camilladsp_service):
         """Should skip non-EQ filters like loudness"""
         config = {
             "eq_band_00": {
@@ -495,7 +495,7 @@ class TestCamillaDSPService:
                 "parameters": {"type": "Lowshelf", "freq": 100, "gain": 5, "slope": 6}
             }
         }
-        result = dsp_service._parse_filters(config)
+        result = camilladsp_service._parse_filters(config)
         assert len(result) == 1
         assert result[0]["id"] == "eq_band_00"
 
@@ -519,15 +519,15 @@ class TestFilterType:
 
 
 # =============================================================================
-# DSP State Tests
+# Equalizer State Tests
 # =============================================================================
 
-class TestDspState:
-    """Test DSP state enum"""
+class TestCamillaDspState:
+    """Test Equalizer state enum"""
 
-    def test_dsp_states_exist(self):
+    def test_equalizer_states_exist(self):
         """Should have all expected states"""
-        assert DspState.DISCONNECTED.value == "disconnected"
-        assert DspState.INACTIVE.value == "inactive"
-        assert DspState.RUNNING.value == "running"
-        assert DspState.PAUSED.value == "paused"
+        assert CamillaDspState.DISCONNECTED.value == "disconnected"
+        assert CamillaDspState.INACTIVE.value == "inactive"
+        assert CamillaDspState.RUNNING.value == "running"
+        assert CamillaDspState.PAUSED.value == "paused"

@@ -10,7 +10,7 @@ Event Naming Convention:
     - source.started, source.stopped, source.error
     - volume.changed, volume.muted
     - routing.mode_changed
-    - dsp.config_changed
+    - equalizer.config_changed
     - multiroom.client_state_changed, multiroom.zone_changed
 
 Usage:
@@ -33,8 +33,8 @@ Standard Events:
     source.error        {source_id: str, error: str}
     volume.changed      {volume_db: float, mute: bool}
     volume.muted        {mute: bool}
-    routing.mode_changed {multiroom_enabled: bool, dsp_effects_enabled: bool}
-    dsp.config_changed  {config: dict}
+    routing.mode_changed {multiroom_enabled: bool, equalizer_effects_enabled: bool}
+    equalizer.config_changed  {config: dict}
     multiroom.client_state_changed {client: dict}
     multiroom.zone_changed {zone: dict}
     multiroom.crossover_changed {zone_id: str, enabled: bool, frequency: int}
@@ -158,8 +158,8 @@ class Events:
     # Routing events
     ROUTING_MODE_CHANGED = "routing.mode_changed"
 
-    # DSP events
-    DSP_CONFIG_CHANGED = "dsp.config_changed"
+    # Equalizer events
+    EQUALIZER_CONFIG_CHANGED = "equalizer.config_changed"
 
     # Multiroom events (formerly registry.*)
     CLIENT_REGISTERED = "multiroom.client_state_changed"

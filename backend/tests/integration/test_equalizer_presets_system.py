@@ -1,6 +1,6 @@
-# backend/tests/integration/test_dsp_presets_system.py
+# backend/tests/integration/test_equalizer_presets_system.py
 """
-Integration tests for Story 4-6: DSP Presets System
+Integration tests for Story 4-6: Equalizer Presets System
 
 Tests cover:
 - AC1: Apply preset to zone/client with gains and WebSocket event
@@ -16,8 +16,8 @@ API → CamillaDSPService → WebSocket → Frontend state update
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
-from backend.core.dsp import CamillaDSPService, DspState
-from backend.core.dsp.presets import (
+from backend.core.equalizer import CamillaDSPService, CamillaDspState
+from backend.core.equalizer.presets import (
     BUILTIN_PRESETS,
     DEFAULT_EQ_FREQS,
     DEFAULT_MANUAL_GAINS,
@@ -57,8 +57,8 @@ def mock_state_machine():
 
 
 @pytest.fixture
-def mock_dsp_router_service():
-    """Create mock DSP router service for local/remote client checks"""
+def mock_equalizer_router_service():
+    """Create mock Equalizer router service for local/remote client checks"""
     service = Mock()
     # Local client returns True, remote clients return False
     service.is_local_client = Mock(side_effect=lambda mac_id: mac_id == "local")
@@ -66,28 +66,28 @@ def mock_dsp_router_service():
 
 
 @pytest.fixture
-def mock_multiroom_dsp_service():
-    """Create mock multiroom DSP service for zone and client operations"""
+def mock_multiroom_equalizer_service():
+    """Create mock multiroom Equalizer service for zone and client operations"""
     service = Mock()
     service.load_zone_preset = AsyncMock(return_value=True)
     service.load_client_preset = AsyncMock(return_value=True)
     service.update_filter = AsyncMock(return_value=True)
     service.update_compressor = AsyncMock(return_value=True)
     service.update_loudness = AsyncMock(return_value=True)
-    service.set_zone_dsp_effects_enabled = AsyncMock(return_value=True)
+    service.set_zone_equalizer_effects_enabled = AsyncMock(return_value=True)
     return service
 
 
 @pytest.fixture
-def connected_dsp_service(mock_settings_service, mock_event_bus, mock_state_machine):
-    """Create connected DSP service"""
+def connected_camilladsp_service(mock_settings_service, mock_event_bus, mock_state_machine):
+    """Create connected Equalizer service"""
     service = CamillaDSPService(
         settings_service=mock_settings_service,
         event_bus=mock_event_bus
     )
     service.set_state_machine(mock_state_machine)
     service._connected = True
-    service._state = DspState.RUNNING
+    service._state = CamillaDspState.RUNNING
 
     service._filters = [
         {"id": f"eq_band_{i:02d}", "freq": freq, "gain": 0, "q": 1.41, "type": "Peaking", "enabled": True}
@@ -98,19 +98,19 @@ def connected_dsp_service(mock_settings_service, mock_event_bus, mock_state_mach
 
 
 @pytest.fixture
-def dsp_service_with_jazz_preset(connected_dsp_service, mock_settings_service):
-    """DSP service with jazz preset active"""
+def camilladsp_service_with_jazz_preset(connected_camilladsp_service, mock_settings_service):
+    """Equalizer service with jazz preset active"""
     # Simulate jazz preset loaded
     jazz_gains = [4, 3, 2, 2, -2, -2, 0, 2, 3, 4]
     for i, gain in enumerate(jazz_gains):
-        connected_dsp_service._filters[i]["gain"] = gain
+        connected_camilladsp_service._filters[i]["gain"] = gain
 
     mock_settings_service.get_setting = AsyncMock(side_effect=lambda key: {
-        "dsp.active_preset": "jazz",
-        "dsp.manual_gains": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        "equalizer.active_preset": "jazz",
+        "equalizer.manual_gains": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     }.get(key))
 
-    return connected_dsp_service
+    return connected_camilladsp_service
 
 
 # =============================================================================
@@ -121,41 +121,41 @@ class TestAC1ApplyPreset:
     """AC1: Apply preset → gains overwritten, WebSocket preset_loaded broadcast"""
 
     @pytest.mark.asyncio
-    async def test_load_preset_applies_correct_gains(self, connected_dsp_service, mock_settings_service):
+    async def test_load_preset_applies_correct_gains(self, connected_camilladsp_service, mock_settings_service):
         """Should apply preset gains to EQ bands"""
         jazz_gains = [4, 3, 2, 2, -2, -2, 0, 2, 3, 4]
         mock_config = {"filters": {}, "pipeline": []}
 
-        with patch.object(connected_dsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_dsp_service, '_set_config', new_callable=AsyncMock):
-                result = await connected_dsp_service.load_preset("jazz")
+        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
+            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
+                result = await connected_camilladsp_service.load_preset("jazz")
 
                 assert result is True
                 # Verify gains were applied
                 for i, expected_gain in enumerate(jazz_gains):
-                    assert connected_dsp_service._filters[i]["gain"] == expected_gain, \
-                        f"Filter {i} should have gain={expected_gain}, got {connected_dsp_service._filters[i]['gain']}"
+                    assert connected_camilladsp_service._filters[i]["gain"] == expected_gain, \
+                        f"Filter {i} should have gain={expected_gain}, got {connected_camilladsp_service._filters[i]['gain']}"
 
     @pytest.mark.asyncio
-    async def test_load_preset_saves_active_preset_to_settings(self, connected_dsp_service, mock_settings_service):
+    async def test_load_preset_saves_active_preset_to_settings(self, connected_camilladsp_service, mock_settings_service):
         """Should save active preset ID to settings"""
         mock_config = {"filters": {}, "pipeline": []}
 
-        with patch.object(connected_dsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_dsp_service, '_set_config', new_callable=AsyncMock):
-                await connected_dsp_service.load_preset("rock")
+        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
+            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
+                await connected_camilladsp_service.load_preset("rock")
 
-                # Verify dsp.active_preset was saved
-                mock_settings_service.set_setting.assert_any_call("dsp.active_preset", "rock")
+                # Verify equalizer.active_preset was saved
+                mock_settings_service.set_setting.assert_any_call("equalizer.active_preset", "rock")
 
     @pytest.mark.asyncio
-    async def test_load_preset_broadcasts_preset_loaded_event(self, connected_dsp_service, mock_state_machine):
+    async def test_load_preset_broadcasts_preset_loaded_event(self, connected_camilladsp_service, mock_state_machine):
         """Should broadcast preset_loaded WebSocket event"""
         mock_config = {"filters": {}, "pipeline": []}
 
-        with patch.object(connected_dsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_dsp_service, '_set_config', new_callable=AsyncMock):
-                await connected_dsp_service.load_preset("classical")
+        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
+            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
+                await connected_camilladsp_service.load_preset("classical")
 
                 # Check preset_loaded event was broadcast
                 calls = [c for c in mock_state_machine.broadcast_event.call_args_list
@@ -164,17 +164,17 @@ class TestAC1ApplyPreset:
                 assert calls[-1][0][2] == {"id": "classical"}
 
     @pytest.mark.asyncio
-    async def test_load_preset_returns_false_for_unknown_preset(self, connected_dsp_service):
+    async def test_load_preset_returns_false_for_unknown_preset(self, connected_camilladsp_service):
         """Should return False for unknown preset ID"""
-        result = await connected_dsp_service.load_preset("unknown_preset_xyz")
+        result = await connected_camilladsp_service.load_preset("unknown_preset_xyz")
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_load_preset_skips_if_already_active(self, connected_dsp_service, mock_settings_service, mock_state_machine):
+    async def test_load_preset_skips_if_already_active(self, connected_camilladsp_service, mock_settings_service, mock_state_machine):
         """Should skip if preset is already active (no redundant API calls)"""
         mock_settings_service.get_setting = AsyncMock(return_value="jazz")
 
-        result = await connected_dsp_service.load_preset("jazz")
+        result = await connected_camilladsp_service.load_preset("jazz")
 
         assert result is True
         # No set_config should be called if already on the same preset
@@ -189,19 +189,19 @@ class TestAC2AutoSwitchToManual:
     """AC2: Modifying filter while on preset → auto-switch to Manual"""
 
     @pytest.mark.asyncio
-    async def test_set_filter_switches_to_manual_when_on_preset(self, dsp_service_with_jazz_preset, mock_settings_service):
+    async def test_set_filter_switches_to_manual_when_on_preset(self, camilladsp_service_with_jazz_preset, mock_settings_service):
         """Should switch to manual when modifying filter while on builtin preset"""
         mock_settings_service.get_setting = AsyncMock(side_effect=lambda key: {
-            "dsp.active_preset": "jazz",
-            "dsp.manual_gains": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            "equalizer.active_preset": "jazz",
+            "equalizer.manual_gains": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         }.get(key))
 
         mock_config = {"filters": {}, "pipeline": []}
 
-        with patch.object(dsp_service_with_jazz_preset, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(dsp_service_with_jazz_preset, '_set_config', new_callable=AsyncMock):
+        with patch.object(camilladsp_service_with_jazz_preset, '_get_config', new_callable=AsyncMock, return_value=mock_config):
+            with patch.object(camilladsp_service_with_jazz_preset, '_set_config', new_callable=AsyncMock):
                 # Modify a filter (not from preset = from_preset=False is default)
-                await dsp_service_with_jazz_preset.set_filter(
+                await camilladsp_service_with_jazz_preset.set_filter(
                     filter_id="eq_band_00",
                     freq=32,
                     gain=6.0,  # Different from jazz preset gain
@@ -211,24 +211,24 @@ class TestAC2AutoSwitchToManual:
 
                 # Should save manual gains and switch to manual
                 save_calls = [c for c in mock_settings_service.set_setting.call_args_list
-                              if c[0][0] == "dsp.manual_gains"]
+                              if c[0][0] == "equalizer.manual_gains"]
                 assert len(save_calls) >= 1, "Should save manual gains"
 
                 preset_calls = [c for c in mock_settings_service.set_setting.call_args_list
-                               if c[0][0] == "dsp.active_preset" and c[0][1] == "manual"]
+                               if c[0][0] == "equalizer.active_preset" and c[0][1] == "manual"]
                 assert len(preset_calls) >= 1, "Should switch to manual preset"
 
     @pytest.mark.asyncio
-    async def test_set_filter_with_from_preset_does_not_switch(self, dsp_service_with_jazz_preset, mock_settings_service):
+    async def test_set_filter_with_from_preset_does_not_switch(self, camilladsp_service_with_jazz_preset, mock_settings_service):
         """Should NOT switch to manual when from_preset=True (preset loading)"""
         mock_settings_service.get_setting = AsyncMock(return_value="jazz")
 
         mock_config = {"filters": {}, "pipeline": []}
 
-        with patch.object(dsp_service_with_jazz_preset, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(dsp_service_with_jazz_preset, '_set_config', new_callable=AsyncMock):
+        with patch.object(camilladsp_service_with_jazz_preset, '_get_config', new_callable=AsyncMock, return_value=mock_config):
+            with patch.object(camilladsp_service_with_jazz_preset, '_set_config', new_callable=AsyncMock):
                 # Modify a filter WITH from_preset=True
-                await dsp_service_with_jazz_preset.set_filter(
+                await camilladsp_service_with_jazz_preset.set_filter(
                     filter_id="eq_band_00",
                     freq=32,
                     gain=6.0,
@@ -239,22 +239,22 @@ class TestAC2AutoSwitchToManual:
 
                 # Should NOT switch to manual
                 preset_calls = [c for c in mock_settings_service.set_setting.call_args_list
-                               if c[0][0] == "dsp.active_preset" and c[0][1] == "manual"]
+                               if c[0][0] == "equalizer.active_preset" and c[0][1] == "manual"]
                 assert len(preset_calls) == 0, "Should NOT switch to manual when from_preset=True"
 
     @pytest.mark.asyncio
-    async def test_auto_switch_broadcasts_preset_loaded_manual_event(self, dsp_service_with_jazz_preset, mock_settings_service, mock_state_machine):
+    async def test_auto_switch_broadcasts_preset_loaded_manual_event(self, camilladsp_service_with_jazz_preset, mock_settings_service, mock_state_machine):
         """Should broadcast preset_loaded with id=manual when auto-switching"""
         mock_settings_service.get_setting = AsyncMock(side_effect=lambda key: {
-            "dsp.active_preset": "jazz",
-            "dsp.manual_gains": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            "equalizer.active_preset": "jazz",
+            "equalizer.manual_gains": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         }.get(key))
 
         mock_config = {"filters": {}, "pipeline": []}
 
-        with patch.object(dsp_service_with_jazz_preset, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(dsp_service_with_jazz_preset, '_set_config', new_callable=AsyncMock):
-                await dsp_service_with_jazz_preset.set_filter(
+        with patch.object(camilladsp_service_with_jazz_preset, '_get_config', new_callable=AsyncMock, return_value=mock_config):
+            with patch.object(camilladsp_service_with_jazz_preset, '_set_config', new_callable=AsyncMock):
+                await camilladsp_service_with_jazz_preset.set_filter(
                     filter_id="eq_band_05",
                     freq=1000,
                     gain=-3.0,
@@ -278,102 +278,102 @@ class TestAC3ZonePropagation:
 
     @pytest.mark.asyncio
     async def test_zone_preset_endpoint_exists(self):
-        """Verify POST /api/dsp/zone/{zone_id}/preset route exists"""
-        from backend.api.dsp import create_dsp_router
+        """Verify POST /api/equalizer/zone/{zone_id}/preset route exists"""
+        from backend.api.equalizer import create_equalizer_router
 
-        mock_dsp = Mock()
+        mock_camilladsp = Mock()
         mock_sm = Mock()
         mock_registry = Mock()
-        mock_dsp_router = Mock()
-        mock_dsp_router.is_local_client = Mock(side_effect=lambda mac_id: mac_id == "local")
+        mock_equalizer_router = Mock()
+        mock_equalizer_router.is_local_client = Mock(side_effect=lambda mac_id: mac_id == "local")
 
-        router = create_dsp_router(
-            dsp_service=mock_dsp,
+        router = create_equalizer_router(
+            camilladsp_service=mock_camilladsp,
             state_machine=mock_sm,
             client_registry_service=mock_registry,
-            dsp_router_service=mock_dsp_router
+            equalizer_router_service=mock_equalizer_router
         )
 
         routes = [r.path for r in router.routes]
-        assert "/api/dsp/zone/{zone_id}/preset" in routes, \
+        assert "/api/equalizer/zone/{zone_id}/preset" in routes, \
             "Zone preset route should exist"
 
     @pytest.mark.asyncio
     async def test_client_preset_endpoint_exists(self):
-        """Verify POST /api/dsp/client/{mac_id}/preset route exists"""
-        from backend.api.dsp import create_dsp_router
+        """Verify POST /api/equalizer/client/{mac_id}/preset route exists"""
+        from backend.api.equalizer import create_equalizer_router
 
-        mock_dsp = Mock()
+        mock_camilladsp = Mock()
         mock_sm = Mock()
         mock_registry = Mock()
-        mock_dsp_router = Mock()
-        mock_dsp_router.is_local_client = Mock(side_effect=lambda mac_id: mac_id == "local")
+        mock_equalizer_router = Mock()
+        mock_equalizer_router.is_local_client = Mock(side_effect=lambda mac_id: mac_id == "local")
 
-        router = create_dsp_router(
-            dsp_service=mock_dsp,
+        router = create_equalizer_router(
+            camilladsp_service=mock_camilladsp,
             state_machine=mock_sm,
             client_registry_service=mock_registry,
-            dsp_router_service=mock_dsp_router
+            equalizer_router_service=mock_equalizer_router
         )
 
         routes = [r.path for r in router.routes]
-        assert "/api/dsp/client/{mac_id}/preset" in routes, \
+        assert "/api/equalizer/client/{mac_id}/preset" in routes, \
             "Client preset route should exist"
 
     @pytest.mark.asyncio
-    async def test_zone_preset_calls_multiroom_dsp_service(self, connected_dsp_service, mock_state_machine, mock_dsp_router_service, mock_multiroom_dsp_service):
-        """Zone preset should delegate to multiroom_dsp_service.load_zone_preset()"""
-        from backend.api.dsp import create_dsp_router
-        from backend.api.models import DspPresetRequest
+    async def test_zone_preset_calls_multiroom_equalizer_service(self, connected_camilladsp_service, mock_state_machine, mock_equalizer_router_service, mock_multiroom_equalizer_service):
+        """Zone preset should delegate to multiroom_equalizer_service.load_zone_preset()"""
+        from backend.api.equalizer import create_equalizer_router
+        from backend.api.models import EqualizerPresetRequest
 
-        router = create_dsp_router(
-            dsp_service=connected_dsp_service,
+        router = create_equalizer_router(
+            camilladsp_service=connected_camilladsp_service,
             state_machine=mock_state_machine,
-            dsp_router_service=mock_dsp_router_service,
-            multiroom_dsp_service=mock_multiroom_dsp_service
+            equalizer_router_service=mock_equalizer_router_service,
+            multiroom_equalizer_service=mock_multiroom_equalizer_service
         )
 
         # Get the endpoint function
         for route in router.routes:
-            if route.path == "/api/dsp/zone/{zone_id}/preset":
+            if route.path == "/api/equalizer/zone/{zone_id}/preset":
                 endpoint = route.endpoint
                 break
 
         # Call endpoint
-        payload = DspPresetRequest(preset_id="jazz")
+        payload = EqualizerPresetRequest(preset_id="jazz")
         result = await endpoint("zone_test", payload)
 
-        # Verify multiroom_dsp_service was called
-        mock_multiroom_dsp_service.load_zone_preset.assert_called_once_with("zone_test", "jazz")
+        # Verify multiroom_equalizer_service was called
+        mock_multiroom_equalizer_service.load_zone_preset.assert_called_once_with("zone_test", "jazz")
         assert result["status"] == "success"
         assert result["preset_id"] == "jazz"
         assert result["zone_id"] == "zone_test"
 
     @pytest.mark.asyncio
-    async def test_zone_preset_returns_404_for_unknown_zone(self, connected_dsp_service, mock_state_machine, mock_dsp_router_service, mock_multiroom_dsp_service):
+    async def test_zone_preset_returns_404_for_unknown_zone(self, connected_camilladsp_service, mock_state_machine, mock_equalizer_router_service, mock_multiroom_equalizer_service):
         """Zone preset should return 404 for unknown zone ID"""
-        from backend.api.dsp import create_dsp_router
-        from backend.api.models import DspPresetRequest
+        from backend.api.equalizer import create_equalizer_router
+        from backend.api.models import EqualizerPresetRequest
         from fastapi import HTTPException
 
-        # Configure multiroom_dsp_service to raise ValueError for unknown zone
-        mock_multiroom_dsp_service.load_zone_preset = AsyncMock(
+        # Configure multiroom_equalizer_service to raise ValueError for unknown zone
+        mock_multiroom_equalizer_service.load_zone_preset = AsyncMock(
             side_effect=ValueError("Zone not found: nonexistent_zone")
         )
 
-        router = create_dsp_router(
-            dsp_service=connected_dsp_service,
+        router = create_equalizer_router(
+            camilladsp_service=connected_camilladsp_service,
             state_machine=mock_state_machine,
-            dsp_router_service=mock_dsp_router_service,
-            multiroom_dsp_service=mock_multiroom_dsp_service
+            equalizer_router_service=mock_equalizer_router_service,
+            multiroom_equalizer_service=mock_multiroom_equalizer_service
         )
 
         for route in router.routes:
-            if route.path == "/api/dsp/zone/{zone_id}/preset":
+            if route.path == "/api/equalizer/zone/{zone_id}/preset":
                 endpoint = route.endpoint
                 break
 
-        payload = DspPresetRequest(preset_id="jazz")
+        payload = EqualizerPresetRequest(preset_id="jazz")
 
         with pytest.raises(HTTPException) as exc_info:
             await endpoint("nonexistent_zone", payload)
@@ -383,63 +383,63 @@ class TestAC3ZonePropagation:
 
 
 class TestAC3ClientPresetEndpoint:
-    """AC3: Client preset endpoint tests (POST /api/dsp/client/{mac_id}/preset)
+    """AC3: Client preset endpoint tests (POST /api/equalizer/client/{mac_id}/preset)
 
-    These tests verify the endpoint delegates to multiroom_dsp_service.load_client_preset()
+    These tests verify the endpoint delegates to multiroom_equalizer_service.load_client_preset()
     """
 
     @pytest.mark.asyncio
-    async def test_client_preset_calls_multiroom_dsp_service(self, connected_dsp_service, mock_state_machine, mock_dsp_router_service, mock_multiroom_dsp_service):
-        """Client preset should delegate to multiroom_dsp_service.load_client_preset()"""
-        from backend.api.dsp import create_dsp_router
-        from backend.api.models import DspPresetRequest
+    async def test_client_preset_calls_multiroom_equalizer_service(self, connected_camilladsp_service, mock_state_machine, mock_equalizer_router_service, mock_multiroom_equalizer_service):
+        """Client preset should delegate to multiroom_equalizer_service.load_client_preset()"""
+        from backend.api.equalizer import create_equalizer_router
+        from backend.api.models import EqualizerPresetRequest
 
-        router = create_dsp_router(
-            dsp_service=connected_dsp_service,
+        router = create_equalizer_router(
+            camilladsp_service=connected_camilladsp_service,
             state_machine=mock_state_machine,
-            dsp_router_service=mock_dsp_router_service,
-            multiroom_dsp_service=mock_multiroom_dsp_service
+            equalizer_router_service=mock_equalizer_router_service,
+            multiroom_equalizer_service=mock_multiroom_equalizer_service
         )
 
         for route in router.routes:
-            if route.path == "/api/dsp/client/{mac_id}/preset":
+            if route.path == "/api/equalizer/client/{mac_id}/preset":
                 endpoint = route.endpoint
                 break
 
-        payload = DspPresetRequest(preset_id="pop")
+        payload = EqualizerPresetRequest(preset_id="pop")
         result = await endpoint("local", payload)
 
-        # Verify multiroom_dsp_service was called
-        mock_multiroom_dsp_service.load_client_preset.assert_called_once_with("local", "pop")
+        # Verify multiroom_equalizer_service was called
+        mock_multiroom_equalizer_service.load_client_preset.assert_called_once_with("local", "pop")
         assert result["status"] == "success"
         assert result["client_id"] == "local"
         assert result["preset_id"] == "pop"
 
     @pytest.mark.asyncio
-    async def test_client_preset_returns_404_for_unknown_client(self, connected_dsp_service, mock_state_machine, mock_dsp_router_service, mock_multiroom_dsp_service):
+    async def test_client_preset_returns_404_for_unknown_client(self, connected_camilladsp_service, mock_state_machine, mock_equalizer_router_service, mock_multiroom_equalizer_service):
         """Client preset for unknown client should return 404"""
-        from backend.api.dsp import create_dsp_router
-        from backend.api.models import DspPresetRequest
+        from backend.api.equalizer import create_equalizer_router
+        from backend.api.models import EqualizerPresetRequest
         from fastapi import HTTPException
 
-        # Configure multiroom_dsp_service to raise ValueError for unknown client
-        mock_multiroom_dsp_service.load_client_preset = AsyncMock(
+        # Configure multiroom_equalizer_service to raise ValueError for unknown client
+        mock_multiroom_equalizer_service.load_client_preset = AsyncMock(
             side_effect=ValueError("Client not found: unknown:mac:address")
         )
 
-        router = create_dsp_router(
-            dsp_service=connected_dsp_service,
+        router = create_equalizer_router(
+            camilladsp_service=connected_camilladsp_service,
             state_machine=mock_state_machine,
-            dsp_router_service=mock_dsp_router_service,
-            multiroom_dsp_service=mock_multiroom_dsp_service
+            equalizer_router_service=mock_equalizer_router_service,
+            multiroom_equalizer_service=mock_multiroom_equalizer_service
         )
 
         for route in router.routes:
-            if route.path == "/api/dsp/client/{mac_id}/preset":
+            if route.path == "/api/equalizer/client/{mac_id}/preset":
                 endpoint = route.endpoint
                 break
 
-        payload = DspPresetRequest(preset_id="jazz")
+        payload = EqualizerPresetRequest(preset_id="jazz")
 
         with pytest.raises(HTTPException) as exc_info:
             await endpoint("unknown:mac:address", payload)
@@ -448,30 +448,30 @@ class TestAC3ClientPresetEndpoint:
         assert "not found" in str(exc_info.value.detail).lower()
 
     @pytest.mark.asyncio
-    async def test_client_preset_returns_404_for_zone_client(self, connected_dsp_service, mock_state_machine, mock_dsp_router_service, mock_multiroom_dsp_service):
+    async def test_client_preset_returns_404_for_zone_client(self, connected_camilladsp_service, mock_state_machine, mock_equalizer_router_service, mock_multiroom_equalizer_service):
         """Client preset for a client in a zone should return 404 with guidance"""
-        from backend.api.dsp import create_dsp_router
-        from backend.api.models import DspPresetRequest
+        from backend.api.equalizer import create_equalizer_router
+        from backend.api.models import EqualizerPresetRequest
         from fastapi import HTTPException
 
-        # Configure multiroom_dsp_service to raise ValueError for zone client
-        mock_multiroom_dsp_service.load_client_preset = AsyncMock(
+        # Configure multiroom_equalizer_service to raise ValueError for zone client
+        mock_multiroom_equalizer_service.load_client_preset = AsyncMock(
             side_effect=ValueError("Client aa:bb:cc:dd:ee:ff is in a zone. Use load_zone_preset() instead.")
         )
 
-        router = create_dsp_router(
-            dsp_service=connected_dsp_service,
+        router = create_equalizer_router(
+            camilladsp_service=connected_camilladsp_service,
             state_machine=mock_state_machine,
-            dsp_router_service=mock_dsp_router_service,
-            multiroom_dsp_service=mock_multiroom_dsp_service
+            equalizer_router_service=mock_equalizer_router_service,
+            multiroom_equalizer_service=mock_multiroom_equalizer_service
         )
 
         for route in router.routes:
-            if route.path == "/api/dsp/client/{mac_id}/preset":
+            if route.path == "/api/equalizer/client/{mac_id}/preset":
                 endpoint = route.endpoint
                 break
 
-        payload = DspPresetRequest(preset_id="jazz")
+        payload = EqualizerPresetRequest(preset_id="jazz")
 
         with pytest.raises(HTTPException) as exc_info:
             await endpoint("aa:bb:cc:dd:ee:ff", payload)
@@ -485,7 +485,7 @@ class TestAC3ClientPresetEndpoint:
 # =============================================================================
 
 class TestAC4PresetsList:
-    """AC4: GET /api/dsp/presets returns 21 builtin + Manual"""
+    """AC4: GET /api/equalizer/presets returns 21 builtin + Manual"""
 
     def test_builtin_presets_count(self):
         """Should have exactly 21 builtin presets"""
@@ -534,45 +534,45 @@ class TestAC4PresetsList:
             assert expected_id in preset_ids, f"Expected preset '{expected_id}' not found"
 
     @pytest.mark.asyncio
-    async def test_get_presets_api_returns_all_data(self, connected_dsp_service, mock_settings_service):
+    async def test_get_presets_api_returns_all_data(self, connected_camilladsp_service, mock_settings_service):
         """get_presets() should return presets, manual_gains, and active_preset"""
         mock_settings_service.get_setting = AsyncMock(side_effect=lambda key: {
-            "dsp.active_preset": "rock",
-            "dsp.manual_gains": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            "equalizer.active_preset": "rock",
+            "equalizer.manual_gains": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
         }.get(key))
 
         # Test the service methods
-        presets = connected_dsp_service.get_presets()
-        active = await connected_dsp_service.get_active_preset()
-        manual = await connected_dsp_service.get_manual_gains()
+        presets = connected_camilladsp_service.get_presets()
+        active = await connected_camilladsp_service.get_active_preset()
+        manual = await connected_camilladsp_service.get_manual_gains()
 
         assert len(presets) == 21
         assert active == "rock"
         assert manual == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
     @pytest.mark.asyncio
-    async def test_manual_preset_selectable_via_api(self, connected_dsp_service, mock_settings_service):
+    async def test_manual_preset_selectable_via_api(self, connected_camilladsp_service, mock_settings_service):
         """Manual preset should be loadable via load_preset('manual')"""
         saved_manual_gains = [3, 2, 1, 0, -1, -2, -3, -4, -5, -6]
 
         mock_settings_service.get_setting = AsyncMock(side_effect=lambda key: {
-            "dsp.active_preset": "jazz",  # Currently on jazz
-            "dsp.manual_gains": saved_manual_gains,
+            "equalizer.active_preset": "jazz",  # Currently on jazz
+            "equalizer.manual_gains": saved_manual_gains,
         }.get(key))
 
         mock_config = {"filters": {}, "pipeline": []}
 
-        with patch.object(connected_dsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_dsp_service, '_set_config', new_callable=AsyncMock):
-                result = await connected_dsp_service.load_preset("manual")
+        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
+            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
+                result = await connected_camilladsp_service.load_preset("manual")
 
                 assert result is True
                 # Verify saved manual gains were applied
                 for i, expected_gain in enumerate(saved_manual_gains):
-                    assert connected_dsp_service._filters[i]["gain"] == expected_gain
+                    assert connected_camilladsp_service._filters[i]["gain"] == expected_gain
 
                 # Verify active preset set to manual
-                mock_settings_service.set_setting.assert_any_call("dsp.active_preset", "manual")
+                mock_settings_service.set_setting.assert_any_call("equalizer.active_preset", "manual")
 
 
 # =============================================================================
@@ -583,51 +583,51 @@ class TestAC5ManualPresetPersistence:
     """AC5: Manual gains saved before switching, restored on return to Manual"""
 
     @pytest.mark.asyncio
-    async def test_save_manual_gains_before_switching_preset(self, connected_dsp_service, mock_settings_service):
+    async def test_save_manual_gains_before_switching_preset(self, connected_camilladsp_service, mock_settings_service):
         """Should save current gains as manual before switching to builtin preset"""
         # Start with custom gains (simulating manual mode)
         for i, gain in enumerate([5, 4, 3, 2, 1, 0, -1, -2, -3, -4]):
-            connected_dsp_service._filters[i]["gain"] = gain
+            connected_camilladsp_service._filters[i]["gain"] = gain
 
         # Currently on "manual" preset
         mock_settings_service.get_setting = AsyncMock(side_effect=lambda key: {
-            "dsp.active_preset": "manual",
-            "dsp.manual_gains": None,
+            "equalizer.active_preset": "manual",
+            "equalizer.manual_gains": None,
         }.get(key))
 
         mock_config = {"filters": {}, "pipeline": []}
 
-        with patch.object(connected_dsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_dsp_service, '_set_config', new_callable=AsyncMock):
-                await connected_dsp_service.load_preset("jazz")
+        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
+            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
+                await connected_camilladsp_service.load_preset("jazz")
 
                 # Verify manual gains were saved before switching
                 save_calls = [c for c in mock_settings_service.set_setting.call_args_list
-                              if c[0][0] == "dsp.manual_gains"]
+                              if c[0][0] == "equalizer.manual_gains"]
                 assert len(save_calls) >= 1, "Should save manual gains before switching"
                 # Verify the saved gains match what was in the filters
                 saved_gains = save_calls[0][0][1]
                 assert saved_gains == [5, 4, 3, 2, 1, 0, -1, -2, -3, -4]
 
     @pytest.mark.asyncio
-    async def test_load_manual_preset_restores_saved_gains(self, connected_dsp_service, mock_settings_service):
+    async def test_load_manual_preset_restores_saved_gains(self, connected_camilladsp_service, mock_settings_service):
         """Switching to Manual should restore previously saved manual gains"""
         saved_manual_gains = [2, 4, 6, 8, 10, 8, 6, 4, 2, 0]
 
         mock_settings_service.get_setting = AsyncMock(side_effect=lambda key: {
-            "dsp.active_preset": "jazz",  # Currently on jazz
-            "dsp.manual_gains": saved_manual_gains,
+            "equalizer.active_preset": "jazz",  # Currently on jazz
+            "equalizer.manual_gains": saved_manual_gains,
         }.get(key))
 
         mock_config = {"filters": {}, "pipeline": []}
 
-        with patch.object(connected_dsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_dsp_service, '_set_config', new_callable=AsyncMock):
-                await connected_dsp_service.load_preset("manual")
+        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
+            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
+                await connected_camilladsp_service.load_preset("manual")
 
                 # Verify saved manual gains were applied
                 for i, expected_gain in enumerate(saved_manual_gains):
-                    assert connected_dsp_service._filters[i]["gain"] == expected_gain, \
+                    assert connected_camilladsp_service._filters[i]["gain"] == expected_gain, \
                         f"Filter {i} should have gain={expected_gain}"
 
 
@@ -642,11 +642,11 @@ class TestAC6StartupRestoration:
     async def test_apply_saved_preset_on_initialization(self, mock_settings_service, mock_event_bus, mock_state_machine):
         """Should apply saved preset during initialization"""
         mock_settings_service.get_setting = AsyncMock(side_effect=lambda key: {
-            "dsp.active_preset": "rock",
-            "dsp.manual_gains": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            "dsp.filters": None,
-            "dsp.compressor": None,
-            "dsp.loudness": None,
+            "equalizer.active_preset": "rock",
+            "equalizer.manual_gains": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            "equalizer.filters": None,
+            "equalizer.compressor": None,
+            "equalizer.loudness": None,
         }.get(key))
 
         service = CamillaDSPService(
@@ -655,7 +655,7 @@ class TestAC6StartupRestoration:
         )
         service.set_state_machine(mock_state_machine)
         service._connected = True
-        service._state = DspState.RUNNING
+        service._state = CamillaDspState.RUNNING
 
         service._filters = [
             {"id": f"eq_band_{i:02d}", "freq": freq, "gain": 0, "q": 1.41, "type": "Peaking", "enabled": True}
@@ -703,40 +703,40 @@ class TestAC6StartupRestoration:
 # API Models Tests
 # =============================================================================
 
-class TestDspPresetRequestModel:
-    """Test DspPresetRequest Pydantic model validation"""
+class TestEqualizerPresetRequestModel:
+    """Test EqualizerPresetRequest Pydantic model validation"""
 
     def test_valid_preset_id(self):
         """Should accept valid preset IDs"""
-        from backend.api.models import DspPresetRequest
+        from backend.api.models import EqualizerPresetRequest
 
-        request = DspPresetRequest(preset_id="jazz")
+        request = EqualizerPresetRequest(preset_id="jazz")
         assert request.preset_id == "jazz"
 
-        request = DspPresetRequest(preset_id="bass_boost")
+        request = EqualizerPresetRequest(preset_id="bass_boost")
         assert request.preset_id == "bass_boost"
 
     def test_preset_id_normalized_to_lowercase(self):
         """Should normalize preset ID to lowercase"""
-        from backend.api.models import DspPresetRequest
+        from backend.api.models import EqualizerPresetRequest
 
-        request = DspPresetRequest(preset_id="JAZZ")
+        request = EqualizerPresetRequest(preset_id="JAZZ")
         assert request.preset_id == "jazz"
 
     def test_preset_id_stripped(self):
         """Should strip whitespace from preset ID"""
-        from backend.api.models import DspPresetRequest
+        from backend.api.models import EqualizerPresetRequest
 
-        request = DspPresetRequest(preset_id="  jazz  ")
+        request = EqualizerPresetRequest(preset_id="  jazz  ")
         assert request.preset_id == "jazz"
 
     def test_invalid_preset_id_rejected(self):
         """Should reject invalid preset IDs"""
-        from backend.api.models import DspPresetRequest
+        from backend.api.models import EqualizerPresetRequest
         from pydantic import ValidationError
 
         with pytest.raises(ValidationError):
-            DspPresetRequest(preset_id="jazz!")  # Special character
+            EqualizerPresetRequest(preset_id="jazz!")  # Special character
 
         with pytest.raises(ValidationError):
-            DspPresetRequest(preset_id="")  # Empty string
+            EqualizerPresetRequest(preset_id="")  # Empty string

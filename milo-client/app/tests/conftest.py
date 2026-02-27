@@ -47,12 +47,12 @@ def mock_camilla_client():
 
 
 @pytest.fixture
-def dsp_service(mock_camilla_client):
-    """DSPService with mocked CamillaDSP client."""
-    with patch("services.dsp.CAMILLADSP_AVAILABLE", True), \
-         patch("services.dsp.CamillaClient", return_value=mock_camilla_client):
-        from services.dsp import DSPService
-        service = DSPService()
+def equalizer_service(mock_camilla_client):
+    """EqualizerService with mocked CamillaDSP client."""
+    with patch("services.equalizer.CAMILLADSP_AVAILABLE", True), \
+         patch("services.equalizer.CamillaClient", return_value=mock_camilla_client):
+        from services.equalizer import EqualizerService
+        service = EqualizerService()
         service._client = mock_camilla_client
         service._connected = True
         return service

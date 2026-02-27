@@ -1,12 +1,12 @@
-# backend/tests/test_dsp_models.py
+# backend/tests/test_equalizer_models.py
 """
-Unit tests for DSP domain models.
+Unit tests for Equalizer domain models.
 
 Tests cover:
 - EqFilter dataclass validation and serialization
 - CompressorSettings dataclass validation and serialization
 - LoudnessSettings dataclass validation and serialization
-- DspSettings model with typed sub-models
+- EqualizerSettings model with typed sub-models
 - Backward compatibility with existing settings.json format
 """
 import pytest
@@ -14,7 +14,7 @@ from backend.core.multiroom.models import (
     EqFilter,
     CompressorSettings,
     LoudnessSettings,
-    DspSettings,
+    EqualizerSettings,
     FilterType,
     DEFAULT_EQ_FREQUENCIES,
 )
@@ -383,21 +383,21 @@ class TestLoudnessSettings:
 
 
 # =============================================================================
-# DspSettings Tests
+# EqualizerSettings Tests
 # =============================================================================
 
-class TestDspSettings:
-    """Test DspSettings model with typed sub-models"""
+class TestEqualizerSettings:
+    """Test EqualizerSettings model with typed sub-models"""
 
     def test_create_with_defaults(self):
         """Should create with default flat configuration"""
-        dsp = DspSettings()
-        assert dsp.enabled is True
-        assert dsp.filters == []
-        assert isinstance(dsp.compressor, CompressorSettings)
-        assert dsp.compressor.enabled is False
-        assert isinstance(dsp.loudness, LoudnessSettings)
-        assert dsp.loudness.enabled is False
+        eq = EqualizerSettings()
+        assert eq.enabled is True
+        assert eq.filters == []
+        assert isinstance(eq.compressor, CompressorSettings)
+        assert eq.compressor.enabled is False
+        assert isinstance(eq.loudness, LoudnessSettings)
+        assert eq.loudness.enabled is False
 
     def test_create_with_custom_values(self):
         """Should create with custom values"""
@@ -405,27 +405,27 @@ class TestDspSettings:
         compressor = CompressorSettings(enabled=True, threshold=-25.0)
         loudness = LoudnessSettings(enabled=True, high_boost=7.5)
 
-        dsp = DspSettings(
+        eq = EqualizerSettings(
             enabled=False,
             filters=filters,
             compressor=compressor,
             loudness=loudness
         )
-        assert dsp.enabled is False
-        assert len(dsp.filters) == 1
-        assert dsp.filters[0].gain == 3.0
-        assert dsp.compressor.enabled is True
-        assert dsp.loudness.enabled is True
+        assert eq.enabled is False
+        assert len(eq.filters) == 1
+        assert eq.filters[0].gain == 3.0
+        assert eq.compressor.enabled is True
+        assert eq.loudness.enabled is True
 
     def test_to_dict(self):
         """Should serialize to dictionary"""
-        dsp = DspSettings(
+        eq = EqualizerSettings(
             enabled=True,
             filters=[EqFilter(id="eq_band_00", frequency=500, gain=2.0)],
             compressor=CompressorSettings(enabled=True),
             loudness=LoudnessSettings(enabled=False)
         )
-        d = dsp.to_dict()
+        d = eq.to_dict()
         assert d["enabled"] is True
         assert len(d["filters"]) == 1
         assert d["filters"][0]["frequency"] == 500
@@ -442,30 +442,30 @@ class TestDspSettings:
             "compressor": {"enabled": True, "threshold": -30.0, "ratio": 6.0, "attack": 15.0, "release": 150.0, "makeup_gain": 2.0},
             "loudness": {"enabled": True, "high_boost": 4.0, "low_boost": 7.0}
         }
-        dsp = DspSettings.from_dict(data)
-        assert dsp.enabled is False
-        assert len(dsp.filters) == 1
-        assert dsp.filters[0].gain == -3.0
-        assert dsp.compressor.enabled is True
-        assert dsp.compressor.threshold == -30.0
-        assert dsp.loudness.enabled is True
-        assert dsp.loudness.high_boost == 4.0
+        eq = EqualizerSettings.from_dict(data)
+        assert eq.enabled is False
+        assert len(eq.filters) == 1
+        assert eq.filters[0].gain == -3.0
+        assert eq.compressor.enabled is True
+        assert eq.compressor.threshold == -30.0
+        assert eq.loudness.enabled is True
+        assert eq.loudness.high_boost == 4.0
 
     def test_from_dict_none(self):
         """Should return default instance for None input"""
-        dsp = DspSettings.from_dict(None)
-        assert dsp.enabled is True
-        assert dsp.filters == []
+        eq = EqualizerSettings.from_dict(None)
+        assert eq.enabled is True
+        assert eq.filters == []
 
     def test_from_dict_empty(self):
         """Should return default instance for empty dict"""
-        dsp = DspSettings.from_dict({})
-        assert dsp.enabled is True
-        assert dsp.filters == []
+        eq = EqualizerSettings.from_dict({})
+        assert eq.enabled is True
+        assert eq.filters == []
 
     def test_roundtrip_serialization(self):
         """Should preserve values through to_dict/from_dict cycle"""
-        original = DspSettings(
+        original = EqualizerSettings(
             enabled=False,
             filters=[
                 EqFilter(id="eq_band_00", frequency=63, gain=4.0),
@@ -474,7 +474,7 @@ class TestDspSettings:
             compressor=CompressorSettings(enabled=True, threshold=-35.0),
             loudness=LoudnessSettings(enabled=True, low_boost=10.0)
         )
-        restored = DspSettings.from_dict(original.to_dict())
+        restored = EqualizerSettings.from_dict(original.to_dict())
         assert restored.enabled == original.enabled
         assert len(restored.filters) == len(original.filters)
         assert restored.filters[0].frequency == original.filters[0].frequency
@@ -483,20 +483,20 @@ class TestDspSettings:
 
     def test_default_factory_method(self):
         """Should create flat configuration via default() method"""
-        dsp = DspSettings.default()
-        assert dsp.enabled is True
-        assert len(dsp.filters) == 10  # 10-band parametric EQ
+        eq = EqualizerSettings.default()
+        assert eq.enabled is True
+        assert len(eq.filters) == 10  # 10-band parametric EQ
         # All filters should have 0 dB gain (flat)
-        for f in dsp.filters:
+        for f in eq.filters:
             assert f.gain == 0.0
-        assert dsp.compressor.enabled is False
-        assert dsp.loudness.enabled is False
+        assert eq.compressor.enabled is False
+        assert eq.loudness.enabled is False
 
     def test_default_eq_frequencies(self):
         """Default EQ should use standard 10-band frequencies"""
-        dsp = DspSettings.default()
+        eq = EqualizerSettings.default()
         expected_freqs = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
-        actual_freqs = [f.frequency for f in dsp.filters]
+        actual_freqs = [f.frequency for f in eq.filters]
         assert actual_freqs == expected_freqs
 
     # Backward compatibility tests
@@ -510,12 +510,12 @@ class TestDspSettings:
             "compressor": {"enabled": False, "threshold": -20.0, "ratio": 4.0, "attack": 10.0, "release": 100.0, "makeup_gain": 0.0},
             "loudness": {"enabled": False, "high_boost": 5.0, "low_boost": 8.0}
         }
-        dsp = DspSettings.from_dict(old_data)
+        eq = EqualizerSettings.from_dict(old_data)
         # Should handle old "freq" key
-        assert len(dsp.filters) == 1
-        assert dsp.filters[0].frequency == 100
+        assert len(eq.filters) == 1
+        assert eq.filters[0].frequency == 100
         # Should handle old "type" key
-        assert dsp.filters[0].filter_type == FilterType.PEAKING
+        assert eq.filters[0].filter_type == FilterType.PEAKING
 
     def test_backward_compat_none_compressor_loudness(self):
         """Should handle None compressor/loudness from old format"""
@@ -524,9 +524,9 @@ class TestDspSettings:
             "compressor": None,
             "loudness": None
         }
-        dsp = DspSettings.from_dict(old_data)
-        assert dsp.compressor.enabled is False
-        assert dsp.loudness.enabled is False
+        eq = EqualizerSettings.from_dict(old_data)
+        assert eq.compressor.enabled is False
+        assert eq.loudness.enabled is False
 
 
 # =============================================================================
@@ -557,7 +557,7 @@ class TestFilterTypeEnum:
 # =============================================================================
 
 class TestDspConstants:
-    """Test DSP-related constants"""
+    """Test Equalizer-related constants"""
 
     def test_default_eq_frequencies(self):
         """Should have standard 10-band EQ frequencies"""

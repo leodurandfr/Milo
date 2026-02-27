@@ -1,6 +1,6 @@
-# backend/core/dsp/client_proxy.py
+# backend/core/equalizer/client_proxy.py
 """
-DSP Client Proxy Service - Handles communication with remote milo-client DSP APIs.
+Equalizer Client Proxy Service - Handles communication with remote milo-client equalizer APIs.
 
 This service abstracts the complexity of proxying requests to satellite clients
 in a multiroom setup, including:
@@ -47,12 +47,12 @@ def is_ip_address(hostname: str) -> bool:
         return False
 
 
-class DspClientProxyService:
+class EqualizerClientProxyService:
     """
-    Service for proxying DSP requests to remote milo-client instances.
+    Service for proxying equalizer requests to remote milo-client instances.
 
     Used in multiroom setups to communicate with satellite devices
-    running milo-client for DSP control.
+    running milo-client for equalizer control.
 
     IMPORTANT: This service expects IP addresses or hostnames, NOT MAC addresses.
     Callers must look up the IP from the client registry before calling proxy methods.
@@ -99,13 +99,13 @@ class DspClientProxyService:
 
     async def check_available(self, hostname: str) -> bool:
         """
-        Check if a client's DSP API is available AND DSP is ready.
+        Check if a client's equalizer API is available AND equalizer is ready.
 
         Args:
             hostname: The client hostname or IP address
 
         Returns:
-            True if the client's health endpoint responds with 200 AND dsp_ready is true
+            True if the client's health endpoint responds with 200 AND equalizer_ready is true
         """
         try:
             host = self._get_host(hostname)
@@ -115,8 +115,8 @@ class DspClientProxyService:
                 async with session.get(url) as response:
                     if response.status == 200:
                         data = await response.json()
-                        # Check dsp_ready flag (default True for backward compatibility)
-                        return data.get("dsp_ready", True)
+                        # Check equalizer_ready flag (default True for backward compatibility)
+                        return data.get("equalizer_ready", True)
                     return False
         except Exception:
             return False
@@ -130,12 +130,12 @@ class DspClientProxyService:
         skip_multiroom_check: bool = False
     ) -> Dict[str, Any]:
         """
-        Proxy a request to a client's DSP API.
+        Proxy a request to a client's equalizer API.
 
         Args:
             hostname: The client hostname or IP address
             method: HTTP method (GET, PUT, POST)
-            path: API path (e.g., "/dsp/volume")
+            path: API path (e.g., "/equalizer/volume")
             body: Optional request body for PUT/POST
             skip_multiroom_check: If True, skip the multiroom enabled check
 
@@ -202,9 +202,9 @@ class DspClientProxyService:
             self.logger.error(f"Unexpected error proxying to {hostname}: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def get_dsp_levels(self, hostname: str) -> Optional[Dict[str, Any]]:
+    async def get_equalizer_levels(self, hostname: str) -> Optional[Dict[str, Any]]:
         """
-        Get DSP levels from a client.
+        Get equalizer levels from a client.
 
         Args:
             hostname: The client hostname or IP address
@@ -216,9 +216,9 @@ class DspClientProxyService:
             host = self._get_host(hostname)
             timeout = aiohttp.ClientTimeout(total=1.0)  # Short timeout for levels polling
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(f"http://{host}:{CLIENT_API_PORT}/dsp/levels") as resp:
+                async with session.get(f"http://{host}:{CLIENT_API_PORT}/equalizer/levels") as resp:
                     if resp.status == 200:
                         return await resp.json()
         except Exception as e:
-            self.logger.debug(f"Failed to get DSP levels from {hostname}: {e}")
+            self.logger.debug(f"Failed to get equalizer levels from {hostname}: {e}")
         return None

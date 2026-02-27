@@ -81,8 +81,8 @@ class TestSnapcastDetectionIntegration:
         sm.snapcast_service = None
         sm.volume_service = None
         sm.crossover_service = None
-        sm.dsp_client_proxy_service = None
-        sm.dsp_settings_sync_service = None
+        sm.equalizer_client_proxy_service = None
+        sm.equalizer_settings_sync_service = None
         sm.camilladsp_service = None
         return sm
 

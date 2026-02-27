@@ -3,7 +3,7 @@
 Unit tests for the core.multiroom module.
 
 Tests:
-- Models (Client, Zone, DspSettings, RegistryState, RegistryEventType)
+- Models (Client, Zone, EqualizerSettings, RegistryState, RegistryEventType)
 - ClientRegistryService
 - SnapcastService
 - CrossoverService
@@ -17,7 +17,7 @@ from datetime import datetime
 from backend.core.multiroom.models import (
     Client,
     Zone,
-    DspSettings,
+    EqualizerSettings,
     RegistryState,
     RegistryEventType,
     ReconnectionContext,
@@ -38,7 +38,7 @@ from backend.core.multiroom.snapcast import (
     get_online_client_ids,
 )
 from backend.core.multiroom.crossover import CrossoverService
-from backend.core.dsp.client_proxy import is_ip_address
+from backend.core.equalizer.client_proxy import is_ip_address
 
 
 # =============================================================================
@@ -151,12 +151,12 @@ class TestClient:
         assert client.speaker_type == "unknown_type"
 
 
-class TestDspSettings:
-    """Tests for DspSettings model."""
+class TestEqualizerSettings:
+    """Tests for EqualizerSettings model."""
 
-    def test_create_default_dsp_settings(self):
-        """Test creating default DSP settings (without factory method)."""
-        settings = DspSettings()
+    def test_create_default_equalizer_settings(self):
+        """Test creating default Equalizer settings (without factory method)."""
+        settings = EqualizerSettings()
 
         # New structure: enabled=True, typed sub-models
         assert settings.enabled is True
@@ -166,11 +166,11 @@ class TestDspSettings:
         assert isinstance(settings.loudness, LoudnessSettings)
         assert settings.loudness.enabled is False
 
-    def test_dsp_settings_factory_default(self):
-        """Test creating default DSP settings with factory method."""
+    def test_equalizer_settings_factory_default(self):
+        """Test creating default Equalizer settings with factory method."""
         from backend.core.multiroom.models import EqFilter
 
-        settings = DspSettings.default()
+        settings = EqualizerSettings.default()
 
         # Factory creates 10-band EQ with flat gains
         assert settings.enabled is True
@@ -178,11 +178,11 @@ class TestDspSettings:
         assert all(isinstance(f, EqFilter) for f in settings.filters)
         assert all(f.gain == 0.0 for f in settings.filters)
 
-    def test_dsp_settings_to_dict(self):
-        """Test converting DSP settings to dictionary."""
+    def test_equalizer_settings_to_dict(self):
+        """Test converting Equalizer settings to dictionary."""
         from backend.core.multiroom.models import EqFilter, CompressorSettings
 
-        settings = DspSettings(
+        settings = EqualizerSettings(
             enabled=True,
             filters=[EqFilter(id="eq_band_00", frequency=1000, gain=3.0)],
             compressor=CompressorSettings(enabled=True, threshold=-20)
@@ -197,8 +197,8 @@ class TestDspSettings:
         assert data["compressor"]["threshold"] == -20
         assert data["loudness"]["enabled"] is False
 
-    def test_dsp_settings_from_dict(self):
-        """Test creating DSP settings from dictionary."""
+    def test_equalizer_settings_from_dict(self):
+        """Test creating Equalizer settings from dictionary."""
         data = {
             "enabled": True,
             "filters": [{"id": "eq_band_00", "frequency": 100, "gain": 2.0, "filter_type": "Lowshelf", "q": 1.0, "enabled": True}],
@@ -206,7 +206,7 @@ class TestDspSettings:
             "loudness": {"enabled": True, "high_boost": 7.0}
         }
 
-        settings = DspSettings.from_dict(data)
+        settings = EqualizerSettings.from_dict(data)
 
         assert settings.enabled is True
         assert len(settings.filters) == 1
@@ -229,7 +229,7 @@ class TestZone:
         assert zone.id == "zone1"
         assert zone.name == "Living Room Zone"
         assert len(zone.client_ids) == 2
-        assert zone.dsp_settings is not None
+        assert zone.equalizer_settings is not None
 
     def test_zone_uuid_auto_generation(self):
         """Test that zone id is auto-generated as UUID when not provided."""
@@ -242,7 +242,7 @@ class TestZone:
         assert re.match(uuid_pattern, zone.id.lower()) is not None
         assert zone.name == "Auto ID Zone"
         assert zone.client_ids == []
-        assert zone.dsp_settings is not None
+        assert zone.equalizer_settings is not None
 
     def test_zone_default_values(self):
         """Test zone default values when created with minimal parameters."""
@@ -252,32 +252,32 @@ class TestZone:
         assert len(zone.id) == 36  # UUID length with dashes
         # client_ids should default to empty list
         assert zone.client_ids == []
-        # dsp_settings should default to empty DspSettings (new typed structure)
-        assert zone.dsp_settings.enabled is True
-        assert zone.dsp_settings.filters == []
-        assert isinstance(zone.dsp_settings.compressor, CompressorSettings)
-        assert zone.dsp_settings.compressor.enabled is False
-        assert isinstance(zone.dsp_settings.loudness, LoudnessSettings)
-        assert zone.dsp_settings.loudness.enabled is False
+        # equalizer_settings should default to empty EqualizerSettings (new typed structure)
+        assert zone.equalizer_settings.enabled is True
+        assert zone.equalizer_settings.filters == []
+        assert isinstance(zone.equalizer_settings.compressor, CompressorSettings)
+        assert zone.equalizer_settings.compressor.enabled is False
+        assert isinstance(zone.equalizer_settings.loudness, LoudnessSettings)
+        assert zone.equalizer_settings.loudness.enabled is False
 
     def test_zone_to_dict(self):
         """Test converting zone to dictionary."""
         from backend.core.multiroom.models import EqFilter
 
-        dsp = DspSettings(filters=[EqFilter(id="eq_band_00", frequency=1000, gain=2.0)])
+        eq = EqualizerSettings(filters=[EqFilter(id="eq_band_00", frequency=1000, gain=2.0)])
         zone = Zone(
             name="Kitchen Zone",
             id="zone2",
             client_ids=["local", "aa:bb:cc:dd:ee:ff"],
-            dsp_settings=dsp
+            equalizer_settings=eq
         )
 
         data = zone.to_dict()
 
         assert data["id"] == "zone2"
         assert len(data["client_ids"]) == 2
-        assert len(data["dsp_settings"]["filters"]) == 1
-        assert data["dsp_settings"]["filters"][0]["frequency"] == 1000
+        assert len(data["equalizer_settings"]["filters"]) == 1
+        assert data["equalizer_settings"]["filters"][0]["frequency"] == 1000
 
     def test_zone_from_dict(self):
         """Test creating zone from dictionary."""
@@ -285,7 +285,7 @@ class TestZone:
             "id": "zone3",
             "name": "Bedroom Zone",
             "client_ids": ["local", "aa:bb:cc:dd:ee:ff"],
-            "dsp_settings": {
+            "equalizer_settings": {
                 "filters": [],
                 "compressor": None,
                 "loudness": None
@@ -326,7 +326,7 @@ class TestRegistryState:
 
         assert len(state.clients) == 0
         assert len(state.zones) == 0
-        assert len(state.standalone_dsp) == 0
+        assert len(state.standalone_equalizer) == 0
 
     def test_state_to_dict(self):
         """Test converting state to dictionary."""
@@ -338,19 +338,19 @@ class TestRegistryState:
             ip="127.0.0.1"
         )
         zone = Zone(name="Zone 1", id="zone1", client_ids=["local", "client2"])
-        standalone_dsp = DspSettings(filters=[EqFilter(id="eq_band_00", frequency=1000)])
+        standalone_equalizer = EqualizerSettings(filters=[EqFilter(id="eq_band_00", frequency=1000)])
 
         state = RegistryState(
             clients={"local": client},
             zones={"zone1": zone},
-            standalone_dsp={"client3": standalone_dsp}
+            standalone_equalizer={"client3": standalone_equalizer}
         )
 
         data = state.to_dict()
 
         assert "local" in data["clients"]
         assert "zone1" in data["zones"]
-        assert "client3" in data["standalone_dsp"]
+        assert "client3" in data["standalone_equalizer"]
 
 
 class TestRegistryEventType:
@@ -365,7 +365,7 @@ class TestRegistryEventType:
         assert RegistryEventType.ZONE_UPDATED == "zone_updated"
         assert RegistryEventType.ZONE_DELETED == "zone_deleted"
         assert RegistryEventType.VOLUME_CHANGED == "volume_changed"
-        assert RegistryEventType.DSP_SETTINGS_CHANGED == "dsp_settings_changed"
+        assert RegistryEventType.EQUALIZER_SETTINGS_CHANGED == "equalizer_settings_changed"
 
 
 class TestModelConstants:
@@ -693,30 +693,30 @@ class TestClientRegistryService:
             ClientRegistryService.compute_mac_id("client", "192.168.1.200", mac="00:00:00:00:00:00")
 
     @pytest.mark.asyncio
-    async def test_standalone_dsp_storage(self, registry):
-        """Test standalone DSP settings storage."""
+    async def test_standalone_equalizer_storage(self, registry):
+        """Test standalone Equalizer settings storage."""
         from backend.core.multiroom.models import EqFilter
 
         await registry.initialize()
 
         await registry.register_client(mac_id="local", name="Main", ip="127.0.0.1")
 
-        # Initially no standalone DSP
-        assert registry.get_standalone_dsp("local") is None
+        # Initially no standalone Equalizer
+        assert registry.get_standalone_equalizer("local") is None
 
-        # Set standalone DSP with typed EqFilter
-        dsp = DspSettings(filters=[EqFilter(id="eq_band_00", frequency=1000, gain=3.0)])
-        await registry.set_standalone_dsp("local", dsp)
+        # Set standalone Equalizer with typed EqFilter
+        eq = EqualizerSettings(filters=[EqFilter(id="eq_band_00", frequency=1000, gain=3.0)])
+        await registry.set_standalone_equalizer("local", eq)
 
-        # Retrieve standalone DSP
-        retrieved = registry.get_standalone_dsp("local")
+        # Retrieve standalone Equalizer
+        retrieved = registry.get_standalone_equalizer("local")
         assert retrieved is not None
         assert len(retrieved.filters) == 1
         assert retrieved.filters[0].frequency == 1000
 
     @pytest.mark.asyncio
-    async def test_standalone_dsp_cleared_on_zone_join(self, registry):
-        """Test that standalone DSP is cleared when client joins a zone."""
+    async def test_standalone_equalizer_cleared_on_zone_join(self, registry):
+        """Test that standalone Equalizer is cleared when client joins a zone."""
         from backend.core.multiroom.models import EqFilter
 
         await registry.initialize()
@@ -724,19 +724,19 @@ class TestClientRegistryService:
         await registry.register_client(mac_id="local", name="Main", ip="127.0.0.1")
         await registry.register_client(mac_id="client2", name="Client 2", ip="192.168.1.100")
 
-        # Set standalone DSP for local with typed EqFilter
-        dsp = DspSettings(filters=[EqFilter(id="eq_band_00", frequency=1000)])
-        await registry.set_standalone_dsp("local", dsp)
+        # Set standalone Equalizer for local with typed EqFilter
+        eq = EqualizerSettings(filters=[EqFilter(id="eq_band_00", frequency=1000)])
+        await registry.set_standalone_equalizer("local", eq)
 
-        # Create zone - standalone DSP should be cleared
+        # Create zone - standalone Equalizer should be cleared
         await registry.create_zone("zone1", "Test Zone", ["local", "client2"])
 
-        # Standalone DSP should be cleared
-        assert registry.get_standalone_dsp("local") is None
+        # Standalone Equalizer should be cleared
+        assert registry.get_standalone_equalizer("local") is None
 
     @pytest.mark.asyncio
-    async def test_zone_dsp_retained_on_leave(self, registry):
-        """Test that zone DSP is copied to standalone when client leaves zone (FR14/AC2)."""
+    async def test_zone_equalizer_retained_on_leave(self, registry):
+        """Test that zone Equalizer is copied to standalone when client leaves zone (FR14/AC2)."""
         from backend.core.multiroom.models import EqFilter
 
         await registry.initialize()
@@ -745,19 +745,19 @@ class TestClientRegistryService:
         await registry.register_client(mac_id="client2", name="Client 2", ip="192.168.1.100")
         await registry.register_client(mac_id="client3", name="Client 3", ip="192.168.1.101")
 
-        # Create zone with custom DSP settings using typed EqFilter
-        zone_dsp = DspSettings(filters=[EqFilter(id="eq_band_00", frequency=2000, gain=-5.0)])
-        await registry.create_zone("zone1", "Test Zone", ["local", "client2", "client3"], dsp_settings=zone_dsp)
+        # Create zone with custom Equalizer settings using typed EqFilter
+        zone_equalizer = EqualizerSettings(filters=[EqFilter(id="eq_band_00", frequency=2000, gain=-5.0)])
+        await registry.create_zone("zone1", "Test Zone", ["local", "client2", "client3"], equalizer_settings=zone_equalizer)
 
-        # Verify no standalone DSP for client3
-        assert registry.get_standalone_dsp("client3") is None
+        # Verify no standalone Equalizer for client3
+        assert registry.get_standalone_equalizer("client3") is None
 
         # Remove client3 from zone
         result = await registry.remove_client_from_zone("zone1", "client3")
         assert result is True
 
-        # Client3 should now have zone's DSP as standalone (FR14)
-        standalone = registry.get_standalone_dsp("client3")
+        # Client3 should now have zone's Equalizer as standalone (FR14)
+        standalone = registry.get_standalone_equalizer("client3")
         assert standalone is not None
         assert len(standalone.filters) == 1
         assert standalone.filters[0].frequency == 2000
@@ -1357,8 +1357,8 @@ class TestCrossoverService:
         return service
 
     @pytest.fixture
-    def mock_dsp_service(self):
-        """Create a mock DSP service."""
+    def mock_camilladsp_service(self):
+        """Create a mock Equalizer service."""
         service = AsyncMock()
         service.set_crossover_filter = AsyncMock(return_value=True)
         service.set_lowpass_filter = AsyncMock(return_value=True)
@@ -1384,7 +1384,7 @@ class TestCrossoverService:
         return bus
 
     @pytest.fixture
-    def crossover_service(self, mock_settings_service, mock_dsp_service, mock_registry, mock_event_bus):
+    def crossover_service(self, mock_settings_service, mock_camilladsp_service, mock_registry, mock_event_bus):
         """Create a CrossoverService instance with mock registry for local client."""
         # Configure mock registry to return local client
         local_client = MagicMock()
@@ -1394,7 +1394,7 @@ class TestCrossoverService:
 
         service = CrossoverService(
             settings_service=mock_settings_service,
-            dsp_service=mock_dsp_service,
+            camilladsp_service=mock_camilladsp_service,
             event_bus=mock_event_bus
         )
         # Set registry via setter (not constructor parameter)
@@ -1461,20 +1461,20 @@ class TestCrossoverService:
         assert crossover_service.has_pending_settings("192.168.1.100") is False
 
     @pytest.mark.asyncio
-    async def test_set_client_crossover_local(self, crossover_service, mock_dsp_service):
+    async def test_set_client_crossover_local(self, crossover_service, mock_camilladsp_service):
         """Test setting crossover on local client (identified by mac_id with ip=127.0.0.1)."""
         # Use the MAC address configured in the mock registry for local client
         result = await crossover_service._set_client_crossover("aa:bb:cc:dd:ee:ff", True, 80)
         assert result is True
-        mock_dsp_service.set_crossover_filter.assert_called_once()
+        mock_camilladsp_service.set_crossover_filter.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_set_client_lowpass_local(self, crossover_service, mock_dsp_service):
+    async def test_set_client_lowpass_local(self, crossover_service, mock_camilladsp_service):
         """Test setting lowpass on local client (identified by mac_id with ip=127.0.0.1)."""
         # Use the MAC address configured in the mock registry for local client
         result = await crossover_service._set_client_lowpass("aa:bb:cc:dd:ee:ff", True, 80)
         assert result is True
-        mock_dsp_service.set_lowpass_filter.assert_called_once()
+        mock_camilladsp_service.set_lowpass_filter.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_cleanup(self, crossover_service):
@@ -1499,15 +1499,15 @@ class TestMultiroomIntegration:
         mock_settings.get_setting = AsyncMock(return_value=None)
         mock_settings.set_setting = AsyncMock()
 
-        mock_dsp = AsyncMock()
-        mock_dsp.set_crossover_filter = AsyncMock(return_value=True)
-        mock_dsp.set_lowpass_filter = AsyncMock(return_value=True)
+        mock_camilladsp_mock = AsyncMock()
+        mock_camilladsp_mock.set_crossover_filter = AsyncMock(return_value=True)
+        mock_camilladsp_mock.set_lowpass_filter = AsyncMock(return_value=True)
 
         mock_bus = MagicMock()
         mock_bus.emit = AsyncMock()
 
         registry = ClientRegistryService(settings_service=mock_settings, event_bus=mock_bus)
-        crossover = CrossoverService(settings_service=mock_settings, dsp_service=mock_dsp, event_bus=mock_bus)
+        crossover = CrossoverService(settings_service=mock_settings, camilladsp_service=mock_camilladsp_mock, event_bus=mock_bus)
 
         # Initialize
         await registry.initialize()
@@ -1530,32 +1530,32 @@ class TestMultiroomIntegration:
 
 
 # =============================================================================
-# Zone DSP Sync Tests (FR7, FR8 - Story 5.1)
+# Zone Equalizer Sync Tests (FR7, FR8 - Story 5.1)
 # =============================================================================
 
 class TestZoneDspSync:
-    """Tests for zone DSP settings sync on client reconnection."""
+    """Tests for zone Equalizer settings sync on client reconnection."""
 
-    def test_dsp_settings_to_dict(self):
-        """Test DspSettings serialization."""
+    def test_equalizer_settings_to_dict(self):
+        """Test EqualizerSettings serialization."""
         from backend.core.multiroom.models import EqFilter, CompressorSettings, LoudnessSettings
 
-        dsp = DspSettings(
+        eq = EqualizerSettings(
             enabled=True,
             filters=[EqFilter(id="eq_1", frequency=1000, gain=3.0, q=1.0)],
             compressor=CompressorSettings(enabled=True, threshold=-20, ratio=4.0),
             loudness=LoudnessSettings(enabled=True, high_boost=75)
         )
 
-        data = dsp.to_dict()
+        data = eq.to_dict()
 
         assert len(data["filters"]) == 1
         assert data["filters"][0]["frequency"] == 1000
         assert data["compressor"]["enabled"] is True
         assert data["loudness"]["high_boost"] == 75
 
-    def test_dsp_settings_from_dict(self):
-        """Test DspSettings deserialization."""
+    def test_equalizer_settings_from_dict(self):
+        """Test EqualizerSettings deserialization."""
         data = {
             "enabled": True,
             "filters": [{"id": "eq_1", "frequency": 500, "gain": -2.0, "q": 1.41, "filter_type": "Peaking", "enabled": True}],
@@ -1563,18 +1563,18 @@ class TestZoneDspSync:
             "loudness": None
         }
 
-        dsp = DspSettings.from_dict(data)
+        eq = EqualizerSettings.from_dict(data)
 
-        assert len(dsp.filters) == 1
-        assert dsp.filters[0].frequency == 500
-        assert dsp.compressor.enabled is False
-        assert dsp.loudness.enabled is False  # None becomes default LoudnessSettings
+        assert len(eq.filters) == 1
+        assert eq.filters[0].frequency == 500
+        assert eq.compressor.enabled is False
+        assert eq.loudness.enabled is False  # None becomes default LoudnessSettings
 
-    def test_zone_with_dsp_settings(self):
-        """Test Zone contains DSP settings properly."""
+    def test_zone_with_equalizer_settings(self):
+        """Test Zone contains Equalizer settings properly."""
         from backend.core.multiroom.models import EqFilter, CompressorSettings, LoudnessSettings
 
-        dsp_settings = DspSettings(
+        equalizer_settings = EqualizerSettings(
             enabled=True,
             filters=[EqFilter(id="eq_1", frequency=100, gain=2.0)],
             compressor=CompressorSettings(enabled=True, threshold=-15),
@@ -1585,22 +1585,22 @@ class TestZoneDspSync:
             name="Living Room",
             id="zone-1",
             client_ids=["local", "client-01"],
-            dsp_settings=dsp_settings
+            equalizer_settings=equalizer_settings
         )
 
-        assert zone.dsp_settings.filters[0].frequency == 100
-        assert zone.dsp_settings.compressor.enabled is True
-        assert zone.dsp_settings.loudness.enabled is True
+        assert zone.equalizer_settings.filters[0].frequency == 100
+        assert zone.equalizer_settings.compressor.enabled is True
+        assert zone.equalizer_settings.loudness.enabled is True
 
-    def test_zone_to_dict_includes_dsp_settings(self):
-        """Test Zone serialization includes DSP settings."""
+    def test_zone_to_dict_includes_equalizer_settings(self):
+        """Test Zone serialization includes Equalizer settings."""
         from backend.core.multiroom.models import EqFilter, LoudnessSettings
 
         zone = Zone(
             name="Test Zone",
             id="zone-1",
             client_ids=["local"],
-            dsp_settings=DspSettings(
+            equalizer_settings=EqualizerSettings(
                 enabled=True,
                 filters=[EqFilter(id="eq_2", frequency=2000)],
                 loudness=LoudnessSettings(enabled=False)
@@ -1609,19 +1609,19 @@ class TestZoneDspSync:
 
         data = zone.to_dict()
 
-        assert "dsp_settings" in data
-        assert len(data["dsp_settings"]["filters"]) == 1
-        assert data["dsp_settings"]["filters"][0]["frequency"] == 2000
-        assert data["dsp_settings"]["compressor"]["enabled"] is False
-        assert data["dsp_settings"]["loudness"]["enabled"] is False
+        assert "equalizer_settings" in data
+        assert len(data["equalizer_settings"]["filters"]) == 1
+        assert data["equalizer_settings"]["filters"][0]["frequency"] == 2000
+        assert data["equalizer_settings"]["compressor"]["enabled"] is False
+        assert data["equalizer_settings"]["loudness"]["enabled"] is False
 
-    def test_zone_from_dict_loads_dsp_settings(self):
-        """Test Zone deserialization loads DSP settings."""
+    def test_zone_from_dict_loads_equalizer_settings(self):
+        """Test Zone deserialization loads Equalizer settings."""
         data = {
             "id": "zone-2",
             "name": "Bedroom",
             "client_ids": ["client-02", "client-03"],
-            "dsp_settings": {
+            "equalizer_settings": {
                 "enabled": True,
                 "filters": [{"id": "eq_3", "frequency": 3000, "gain": 1.5, "q": 1.41, "filter_type": "Peaking", "enabled": True}],
                 "compressor": {"enabled": True, "threshold": -20, "ratio": 4.0, "attack": 10.0, "release": 100.0, "makeup_gain": 0.0},
@@ -1633,31 +1633,31 @@ class TestZoneDspSync:
 
         assert zone.id == "zone-2"
         assert len(zone.client_ids) == 2
-        assert zone.dsp_settings.filters[0].frequency == 3000
-        assert zone.dsp_settings.compressor.enabled is True
-        assert zone.dsp_settings.loudness.high_boost == 5.0
+        assert zone.equalizer_settings.filters[0].frequency == 3000
+        assert zone.equalizer_settings.compressor.enabled is True
+        assert zone.equalizer_settings.loudness.high_boost == 5.0
 
 
 # =============================================================================
-# Pending DSP Settings Queue Tests (Task 3 - Story 5.1)
+# Pending Equalizer Settings Queue Tests (Task 3 - Story 5.1)
 # =============================================================================
 
-class TestPendingDspSettings:
-    """Tests for pending DSP settings queue for offline clients."""
+class TestPendingEqualizerSettings:
+    """Tests for pending Equalizer settings queue for offline clients."""
 
     @pytest.fixture
-    def mock_dsp(self):
-        """Create mock DSP service."""
-        dsp = AsyncMock()
-        dsp.set_filter = AsyncMock(return_value=True)
-        dsp.set_compressor = AsyncMock(return_value=True)
-        dsp.set_loudness = AsyncMock(return_value=True)
-        dsp.set_mute = AsyncMock(return_value=True)
-        return dsp
+    def mock_camilladsp(self):
+        """Create mock Equalizer service."""
+        camilladsp_mock = AsyncMock()
+        camilladsp_mock.set_filter = AsyncMock(return_value=True)
+        camilladsp_mock.set_compressor = AsyncMock(return_value=True)
+        camilladsp_mock.set_loudness = AsyncMock(return_value=True)
+        camilladsp_mock.set_mute = AsyncMock(return_value=True)
+        return camilladsp_mock
 
     @pytest.fixture
-    def crossover_service(self, mock_dsp):
-        """Create CrossoverService with mock DSP and registry for local client."""
+    def crossover_service(self, mock_camilladsp):
+        """Create CrossoverService with mock Equalizer and registry for local client."""
         mock_settings = AsyncMock()
         mock_bus = MagicMock()
         mock_bus.emit = AsyncMock()
@@ -1671,7 +1671,7 @@ class TestPendingDspSettings:
 
         service = CrossoverService(
             settings_service=mock_settings,
-            dsp_service=mock_dsp,
+            camilladsp_service=mock_camilladsp,
             event_bus=mock_bus
         )
         service.set_registry(mock_registry)
@@ -1715,7 +1715,7 @@ class TestPendingDspSettings:
         assert pending["loudness"]["high_boost"] == -25
 
     @pytest.mark.asyncio
-    async def test_apply_pending_filters_local(self, crossover_service, mock_dsp):
+    async def test_apply_pending_filters_local(self, crossover_service, mock_camilladsp):
         """Test applying pending filters to local client."""
         filters = [{"id": "eq_1", "freq": 1000, "gain": 3.0, "q": 1.0, "type": "peaking"}]
         await crossover_service.queue_pending_settings("aa:bb:cc:dd:ee:ff", "filters", filters)
@@ -1723,11 +1723,11 @@ class TestPendingDspSettings:
         result = await crossover_service.apply_pending_settings("aa:bb:cc:dd:ee:ff")
 
         assert result is True
-        mock_dsp.set_filter.assert_called_once()
+        mock_camilladsp.set_filter.assert_called_once()
         assert not crossover_service.has_pending_settings("aa:bb:cc:dd:ee:ff")
 
     @pytest.mark.asyncio
-    async def test_apply_pending_compressor_local(self, crossover_service, mock_dsp):
+    async def test_apply_pending_compressor_local(self, crossover_service, mock_camilladsp):
         """Test applying pending compressor to local client."""
         compressor = {"enabled": True, "threshold": -15}
         await crossover_service.queue_pending_settings("aa:bb:cc:dd:ee:ff", "compressor", compressor)
@@ -1735,10 +1735,10 @@ class TestPendingDspSettings:
         result = await crossover_service.apply_pending_settings("aa:bb:cc:dd:ee:ff")
 
         assert result is True
-        mock_dsp.set_compressor.assert_called_once()
+        mock_camilladsp.set_compressor.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_apply_pending_loudness_local(self, crossover_service, mock_dsp):
+    async def test_apply_pending_loudness_local(self, crossover_service, mock_camilladsp):
         """Test applying pending loudness to local client."""
         loudness = {"enabled": True, "high_boost": -30}
         await crossover_service.queue_pending_settings("aa:bb:cc:dd:ee:ff", "loudness", loudness)
@@ -1746,10 +1746,10 @@ class TestPendingDspSettings:
         result = await crossover_service.apply_pending_settings("aa:bb:cc:dd:ee:ff")
 
         assert result is True
-        mock_dsp.set_loudness.assert_called_once()
+        mock_camilladsp.set_loudness.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_clear_pending_after_apply(self, crossover_service, mock_dsp):
+    async def test_clear_pending_after_apply(self, crossover_service, mock_camilladsp):
         """Test that pending settings are cleared after successful apply."""
         await crossover_service.queue_pending_settings("aa:bb:cc:dd:ee:ff", "compressor", {"enabled": True})
         await crossover_service.queue_pending_settings("aa:bb:cc:dd:ee:ff", "loudness", {"enabled": False})
@@ -1762,18 +1762,18 @@ class TestPendingDspSettings:
 
 
 # =============================================================================
-# TestStandaloneDspSync - Story 5.2: Standalone client DSP settings sync
+# TestStandaloneEqualizerSync - Story 5.2: Standalone client Equalizer settings sync
 # =============================================================================
 
 
-class TestStandaloneDspSync:
-    """Tests for standalone client DSP settings sync on reconnection (Story 5.2)."""
+class TestStandaloneEqualizerSync:
+    """Tests for standalone client Equalizer settings sync on reconnection (Story 5.2)."""
 
-    def test_standalone_dsp_default_settings(self):
-        """Test that default DSP settings are returned when none saved (AC3)."""
-        from backend.core.dsp.sync import DspSettingsSyncService
+    def test_standalone_equalizer_default_settings(self):
+        """Test that default Equalizer settings are returned when none saved (AC3)."""
+        from backend.core.equalizer.sync import EqualizerSettingsSyncService
 
-        sync_service = DspSettingsSyncService()
+        sync_service = EqualizerSettingsSyncService()
         defaults = sync_service.get_default_settings()
 
         # Defaults should have flat EQ, compressor off, loudness off
@@ -1785,9 +1785,9 @@ class TestStandaloneDspSync:
 
     def test_default_settings_returns_copy(self):
         """Test that default settings returns a copy (not mutable reference)."""
-        from backend.core.dsp.sync import DspSettingsSyncService
+        from backend.core.equalizer.sync import EqualizerSettingsSyncService
 
-        sync_service = DspSettingsSyncService()
+        sync_service = EqualizerSettingsSyncService()
         defaults1 = sync_service.get_default_settings()
         defaults2 = sync_service.get_default_settings()
 
@@ -1800,29 +1800,29 @@ class TestStandaloneDspSync:
     @pytest.mark.asyncio
     async def test_load_standalone_settings_returns_none_when_not_found(self, tmp_path, monkeypatch):
         """Test loading settings for unknown client returns None."""
-        from backend.core.dsp.sync import DspSettingsSyncService
+        from backend.core.equalizer.sync import EqualizerSettingsSyncService
         from backend.config import constants
 
         # Use temp file
-        test_file = tmp_path / "client_dsp.json"
-        monkeypatch.setattr(constants, "CLIENT_DSP_FILE", test_file)
+        test_file = tmp_path / "client_equalizer.json"
+        monkeypatch.setattr(constants, "CLIENT_EQUALIZER_FILE", test_file)
 
-        sync_service = DspSettingsSyncService()
+        sync_service = EqualizerSettingsSyncService()
         result = await sync_service.load_standalone_settings("unknown-client")
 
         assert result is None
 
     @pytest.mark.asyncio
     async def test_save_and_load_standalone_settings(self, tmp_path, monkeypatch):
-        """Test saving and loading standalone DSP settings."""
-        from backend.core.dsp.sync import DspSettingsSyncService
+        """Test saving and loading standalone Equalizer settings."""
+        from backend.core.equalizer.sync import EqualizerSettingsSyncService
         from backend.config import constants
 
         # Use temp file
-        test_file = tmp_path / "client_dsp.json"
-        monkeypatch.setattr(constants, "CLIENT_DSP_FILE", test_file)
+        test_file = tmp_path / "client_equalizer.json"
+        monkeypatch.setattr(constants, "CLIENT_EQUALIZER_FILE", test_file)
 
-        sync_service = DspSettingsSyncService()
+        sync_service = EqualizerSettingsSyncService()
         client_id = "milo-client-01"
         settings = {
             "filters": {"band_1": {"type": "HighShelf", "gain": 2.0}},
@@ -1842,14 +1842,14 @@ class TestStandaloneDspSync:
     @pytest.mark.asyncio
     async def test_local_client_standalone_settings(self, tmp_path, monkeypatch):
         """AC4: 'local' client follows same STANDALONE rules."""
-        from backend.core.dsp.sync import DspSettingsSyncService
+        from backend.core.equalizer.sync import EqualizerSettingsSyncService
         from backend.config import constants
 
         # Use temp file
-        test_file = tmp_path / "client_dsp.json"
-        monkeypatch.setattr(constants, "CLIENT_DSP_FILE", test_file)
+        test_file = tmp_path / "client_equalizer.json"
+        monkeypatch.setattr(constants, "CLIENT_EQUALIZER_FILE", test_file)
 
-        sync_service = DspSettingsSyncService()
+        sync_service = EqualizerSettingsSyncService()
         local_settings = {
             "filters": {"band_1": {"type": "Peaking", "gain": -3.0}},
             "compressor": {"enabled": False},
@@ -1899,28 +1899,28 @@ class TestWebSocketSyncStatus:
         # Expected sync_status keys
         sync_status = {
             "volume_synced": True,
-            "dsp_synced": True,
+            "equalizer_synced": True,
             "pending_applied": False
         }
 
         assert "volume_synced" in sync_status
-        assert "dsp_synced" in sync_status
+        assert "equalizer_synced" in sync_status
         assert "pending_applied" in sync_status
         assert isinstance(sync_status["volume_synced"], bool)
-        assert isinstance(sync_status["dsp_synced"], bool)
+        assert isinstance(sync_status["equalizer_synced"], bool)
         assert isinstance(sync_status["pending_applied"], bool)
 
     def test_sync_status_default_values(self):
         """Test sync_status default values before sync."""
         sync_status = {
             "volume_synced": False,
-            "dsp_synced": False,
+            "equalizer_synced": False,
             "pending_applied": False
         }
 
         # All should be False by default
         assert sync_status["volume_synced"] is False
-        assert sync_status["dsp_synced"] is False
+        assert sync_status["equalizer_synced"] is False
         assert sync_status["pending_applied"] is False
 
     def test_client_connected_event_structure(self):
@@ -1937,7 +1937,7 @@ class TestWebSocketSyncStatus:
             "online": True,
             "sync_status": {
                 "volume_synced": True,
-                "dsp_synced": True,
+                "equalizer_synced": True,
                 "pending_applied": False
             }
         }
@@ -1949,7 +1949,7 @@ class TestWebSocketSyncStatus:
 
         sync_status = event_payload["sync_status"]
         assert sync_status["volume_synced"] is True
-        assert sync_status["dsp_synced"] is True
+        assert sync_status["equalizer_synced"] is True
 
 
 # =============================================================================
@@ -1961,19 +1961,19 @@ class TestAutoCrossover:
     """Tests for automatic crossover enable/disable based on subwoofer presence (Story 5.3)."""
 
     @pytest.fixture
-    def mock_dsp(self):
+    def mock_camilladsp(self):
         """Mock CamillaDSP service."""
-        dsp = AsyncMock()
-        dsp.set_crossover_filter = AsyncMock(return_value=True)
-        dsp.set_lowpass_filter = AsyncMock(return_value=True)
-        return dsp
+        camilladsp_mock = AsyncMock()
+        camilladsp_mock.set_crossover_filter = AsyncMock(return_value=True)
+        camilladsp_mock.set_lowpass_filter = AsyncMock(return_value=True)
+        return camilladsp_mock
 
     @pytest.fixture
-    def crossover_service(self, mock_dsp):
+    def crossover_service(self, mock_camilladsp):
         """Create CrossoverService with mocked dependencies."""
         from backend.core.multiroom.crossover import CrossoverService
 
-        service = CrossoverService(dsp_service=mock_dsp)
+        service = CrossoverService(camilladsp_service=mock_camilladsp)
         return service
 
     @pytest.fixture
@@ -2200,8 +2200,8 @@ class TestSnapcastClientDetection:
         sm.snapcast_service = None
         sm.volume_service = None
         sm.crossover_service = None
-        sm.dsp_client_proxy_service = None
-        sm.dsp_settings_sync_service = None
+        sm.equalizer_client_proxy_service = None
+        sm.equalizer_settings_sync_service = None
         sm.camilladsp_service = None
         return sm
 
@@ -2865,15 +2865,15 @@ class TestReconnectionHelperMethods:
 
 
 # =============================================================================
-# DSP Sync Method Tests (Story 5.1 Code Review Fixes)
+# Equalizer Sync Method Tests (Story 5.1 Code Review Fixes)
 # =============================================================================
 
 
 class TestSyncZoneDspToClient:
     """
-    Unit tests for SnapcastWebSocketService._sync_zone_dsp_to_client().
+    Unit tests for SnapcastWebSocketService._sync_zone_equalizer_to_client().
 
-    These tests validate that zone DSP settings (EqFilter, CompressorSettings,
+    These tests validate that zone Equalizer settings (EqFilter, CompressorSettings,
     LoudnessSettings dataclasses) are properly converted to dicts before
     being sent to the proxy service.
     """
@@ -2883,8 +2883,8 @@ class TestSyncZoneDspToClient:
         """Create a mock state machine with required services."""
         sm = MagicMock()
         sm.broadcast_event = AsyncMock()
-        sm.dsp_client_proxy_service = MagicMock()
-        sm.dsp_client_proxy_service.request = AsyncMock()
+        sm.equalizer_client_proxy_service = MagicMock()
+        sm.equalizer_client_proxy_service.request = AsyncMock()
         sm.crossover_service = MagicMock()
         sm.crossover_service.queue_pending_settings = AsyncMock()
         return sm
@@ -2900,12 +2900,12 @@ class TestSyncZoneDspToClient:
         return registry
 
     @pytest.fixture
-    def mock_zone_with_dsp(self):
-        """Create a mock zone with typed DSP settings."""
+    def mock_zone_with_equalizer(self):
+        """Create a mock zone with typed Equalizer settings."""
         zone = MagicMock()
         zone.id = "zone-1"
 
-        # Create real DspSettings with EqFilter objects
+        # Create real EqualizerSettings with EqFilter objects
         filters = [
             EqFilter(id="eq_band_00", frequency=100, gain=3.0, q=1.41, filter_type=FilterType.PEAKING),
             EqFilter(id="eq_band_01", frequency=1000, gain=-2.0, q=1.0, filter_type=FilterType.LOWSHELF),
@@ -2913,7 +2913,7 @@ class TestSyncZoneDspToClient:
         compressor = CompressorSettings(enabled=True, threshold=-15.0, ratio=4.0, attack=10.0, release=100.0)
         loudness = LoudnessSettings(enabled=True, high_boost=5.0, low_boost=8.0)
 
-        zone.dsp_settings = DspSettings(
+        zone.equalizer_settings = EqualizerSettings(
             enabled=True,
             filters=filters,
             compressor=compressor,
@@ -2922,7 +2922,7 @@ class TestSyncZoneDspToClient:
         return zone
 
     @pytest.mark.asyncio
-    async def test_eq_filter_attributes_accessed_correctly(self, mock_state_machine, mock_registry, mock_zone_with_dsp):
+    async def test_eq_filter_attributes_accessed_correctly(self, mock_state_machine, mock_registry, mock_zone_with_equalizer):
         """Test that EqFilter object attributes are accessed correctly (not .get())."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
@@ -2931,18 +2931,18 @@ class TestSyncZoneDspToClient:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
-        ws_service._dsp_client_proxy_service = mock_state_machine.dsp_client_proxy_service
+        ws_service._equalizer_client_proxy_service = mock_state_machine.equalizer_client_proxy_service
         ws_service._crossover_service = mock_state_machine.crossover_service
 
         # Execute sync
-        result = await ws_service._sync_zone_dsp_to_client("test-client", mock_zone_with_dsp)
+        result = await ws_service._sync_zone_equalizer_to_client("test-client", mock_zone_with_equalizer)
 
         # Verify proxy was called for each filter
-        proxy = mock_state_machine.dsp_client_proxy_service
+        proxy = mock_state_machine.equalizer_client_proxy_service
         assert proxy.request.call_count >= 2  # At least 2 filter calls
 
         # Check first filter call
-        filter_calls = [call for call in proxy.request.call_args_list if "/dsp/filter/" in str(call)]
+        filter_calls = [call for call in proxy.request.call_args_list if "/equalizer/filter/" in str(call)]
         assert len(filter_calls) == 2
 
         # Verify filter data structure is correct (dict, not EqFilter object)
@@ -2955,7 +2955,7 @@ class TestSyncZoneDspToClient:
         assert "filter_type" in filter_data
 
     @pytest.mark.asyncio
-    async def test_compressor_settings_converted_to_dict(self, mock_state_machine, mock_registry, mock_zone_with_dsp):
+    async def test_compressor_settings_converted_to_dict(self, mock_state_machine, mock_registry, mock_zone_with_equalizer):
         """Test that CompressorSettings dataclass is converted to dict."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
@@ -2964,15 +2964,15 @@ class TestSyncZoneDspToClient:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
-        ws_service._dsp_client_proxy_service = mock_state_machine.dsp_client_proxy_service
+        ws_service._equalizer_client_proxy_service = mock_state_machine.equalizer_client_proxy_service
         ws_service._crossover_service = mock_state_machine.crossover_service
 
         # Execute sync
-        await ws_service._sync_zone_dsp_to_client("test-client", mock_zone_with_dsp)
+        await ws_service._sync_zone_equalizer_to_client("test-client", mock_zone_with_equalizer)
 
         # Find compressor call
-        proxy = mock_state_machine.dsp_client_proxy_service
-        compressor_calls = [call for call in proxy.request.call_args_list if "/dsp/compressor" in str(call)]
+        proxy = mock_state_machine.equalizer_client_proxy_service
+        compressor_calls = [call for call in proxy.request.call_args_list if "/equalizer/compressor" in str(call)]
         assert len(compressor_calls) == 1
 
         # Verify it's a dict, not CompressorSettings object
@@ -2982,7 +2982,7 @@ class TestSyncZoneDspToClient:
         assert compressor_data["threshold"] == -15.0
 
     @pytest.mark.asyncio
-    async def test_loudness_settings_converted_to_dict(self, mock_state_machine, mock_registry, mock_zone_with_dsp):
+    async def test_loudness_settings_converted_to_dict(self, mock_state_machine, mock_registry, mock_zone_with_equalizer):
         """Test that LoudnessSettings dataclass is converted to dict."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
@@ -2991,15 +2991,15 @@ class TestSyncZoneDspToClient:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
-        ws_service._dsp_client_proxy_service = mock_state_machine.dsp_client_proxy_service
+        ws_service._equalizer_client_proxy_service = mock_state_machine.equalizer_client_proxy_service
         ws_service._crossover_service = mock_state_machine.crossover_service
 
         # Execute sync
-        await ws_service._sync_zone_dsp_to_client("test-client", mock_zone_with_dsp)
+        await ws_service._sync_zone_equalizer_to_client("test-client", mock_zone_with_equalizer)
 
         # Find loudness call
-        proxy = mock_state_machine.dsp_client_proxy_service
-        loudness_calls = [call for call in proxy.request.call_args_list if "/dsp/loudness" in str(call)]
+        proxy = mock_state_machine.equalizer_client_proxy_service
+        loudness_calls = [call for call in proxy.request.call_args_list if "/equalizer/loudness" in str(call)]
         assert len(loudness_calls) == 1
 
         # Verify it's a dict, not LoudnessSettings object
@@ -3009,12 +3009,12 @@ class TestSyncZoneDspToClient:
         assert loudness_data["high_boost"] == 5.0
 
     @pytest.mark.asyncio
-    async def test_failed_filter_queued_as_dict(self, mock_state_machine, mock_registry, mock_zone_with_dsp):
+    async def test_failed_filter_queued_as_dict(self, mock_state_machine, mock_registry, mock_zone_with_equalizer):
         """Test that failed filters are queued as dicts (not EqFilter objects)."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         # Make filter sync fail
-        mock_state_machine.dsp_client_proxy_service.request = AsyncMock(
+        mock_state_machine.equalizer_client_proxy_service.request = AsyncMock(
             side_effect=Exception("Connection failed")
         )
 
@@ -3023,11 +3023,11 @@ class TestSyncZoneDspToClient:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
-        ws_service._dsp_client_proxy_service = mock_state_machine.dsp_client_proxy_service
+        ws_service._equalizer_client_proxy_service = mock_state_machine.equalizer_client_proxy_service
         ws_service._crossover_service = mock_state_machine.crossover_service
 
         # Execute sync (should fail but queue settings)
-        result = await ws_service._sync_zone_dsp_to_client("test-client", mock_zone_with_dsp)
+        result = await ws_service._sync_zone_equalizer_to_client("test-client", mock_zone_with_equalizer)
         assert result is False  # Sync failed
 
         # Verify filters were queued as dicts
@@ -3044,7 +3044,7 @@ class TestSyncZoneDspToClient:
         assert all(isinstance(f, dict) for f in queued_filters)
 
     @pytest.mark.asyncio
-    async def test_sync_returns_true_on_success(self, mock_state_machine, mock_registry, mock_zone_with_dsp):
+    async def test_sync_returns_true_on_success(self, mock_state_machine, mock_registry, mock_zone_with_equalizer):
         """Test that sync returns True when all settings are synced successfully."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
@@ -3053,10 +3053,10 @@ class TestSyncZoneDspToClient:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
-        ws_service._dsp_client_proxy_service = mock_state_machine.dsp_client_proxy_service
+        ws_service._equalizer_client_proxy_service = mock_state_machine.equalizer_client_proxy_service
         ws_service._crossover_service = mock_state_machine.crossover_service
 
-        result = await ws_service._sync_zone_dsp_to_client("test-client", mock_zone_with_dsp)
+        result = await ws_service._sync_zone_equalizer_to_client("test-client", mock_zone_with_equalizer)
         assert result is True
 
     @pytest.mark.asyncio
@@ -3072,21 +3072,21 @@ class TestSyncZoneDspToClient:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
-        ws_service._dsp_client_proxy_service = mock_state_machine.dsp_client_proxy_service
+        ws_service._equalizer_client_proxy_service = mock_state_machine.equalizer_client_proxy_service
         ws_service._crossover_service = mock_state_machine.crossover_service
 
         mock_zone = MagicMock()
-        mock_zone.dsp_settings = DspSettings()
+        mock_zone.equalizer_settings = EqualizerSettings()
 
-        result = await ws_service._sync_zone_dsp_to_client("unknown-client", mock_zone)
+        result = await ws_service._sync_zone_equalizer_to_client("unknown-client", mock_zone)
         assert result is False
 
 
 class TestSyncStandaloneDspToClient:
     """
-    Unit tests for SnapcastWebSocketService._sync_standalone_dsp_to_client().
+    Unit tests for SnapcastWebSocketService._sync_standalone_equalizer_to_client().
 
-    Tests that standalone DSP sync properly loads saved settings and applies them.
+    Tests that standalone Equalizer sync properly loads saved settings and applies them.
     """
 
     @pytest.fixture
@@ -3094,10 +3094,10 @@ class TestSyncStandaloneDspToClient:
         """Create a mock state machine with required services."""
         sm = MagicMock()
         sm.broadcast_event = AsyncMock()
-        sm.dsp_client_proxy_service = MagicMock()
-        sm.dsp_client_proxy_service.request = AsyncMock()
-        sm.dsp_settings_sync_service = MagicMock()
-        sm.dsp_settings_sync_service.get_client_settings = AsyncMock(return_value=None)
+        sm.equalizer_client_proxy_service = MagicMock()
+        sm.equalizer_client_proxy_service.request = AsyncMock()
+        sm.equalizer_settings_sync_service = MagicMock()
+        sm.equalizer_settings_sync_service.get_client_settings = AsyncMock(return_value=None)
         sm.crossover_service = MagicMock()
         sm.crossover_service.queue_pending_settings = AsyncMock()
         sm.camilladsp_service = MagicMock()
@@ -3126,12 +3126,12 @@ class TestSyncStandaloneDspToClient:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
-        ws_service._dsp_client_proxy_service = mock_state_machine.dsp_client_proxy_service
-        ws_service._dsp_settings_sync_service = mock_state_machine.dsp_settings_sync_service
+        ws_service._equalizer_client_proxy_service = mock_state_machine.equalizer_client_proxy_service
+        ws_service._equalizer_settings_sync_service = mock_state_machine.equalizer_settings_sync_service
         ws_service._crossover_service = mock_state_machine.crossover_service
         ws_service._camilladsp_service = mock_state_machine.camilladsp_service
 
-        result = await ws_service._sync_standalone_dsp_to_client("test-client")
+        result = await ws_service._sync_standalone_equalizer_to_client("test-client")
         assert result is True
 
     @pytest.mark.asyncio
@@ -3147,7 +3147,7 @@ class TestSyncStandaloneDspToClient:
             "compressor": {"enabled": True, "threshold": -20},
             "loudness": {"enabled": False}
         }
-        mock_state_machine.dsp_settings_sync_service.get_client_settings = AsyncMock(
+        mock_state_machine.equalizer_settings_sync_service.get_client_settings = AsyncMock(
             return_value=saved_settings
         )
 
@@ -3156,19 +3156,19 @@ class TestSyncStandaloneDspToClient:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
-        ws_service._dsp_client_proxy_service = mock_state_machine.dsp_client_proxy_service
-        ws_service._dsp_settings_sync_service = mock_state_machine.dsp_settings_sync_service
+        ws_service._equalizer_client_proxy_service = mock_state_machine.equalizer_client_proxy_service
+        ws_service._equalizer_settings_sync_service = mock_state_machine.equalizer_settings_sync_service
         ws_service._crossover_service = mock_state_machine.crossover_service
         ws_service._camilladsp_service = mock_state_machine.camilladsp_service
 
-        result = await ws_service._sync_standalone_dsp_to_client("test-client")
+        result = await ws_service._sync_standalone_equalizer_to_client("test-client")
 
         # Verify proxy was called for each setting type
-        proxy = mock_state_machine.dsp_client_proxy_service
+        proxy = mock_state_machine.equalizer_client_proxy_service
         assert proxy.request.call_count >= 3  # filter, compressor, loudness
 
     @pytest.mark.asyncio
-    async def test_local_client_uses_dsp_service(self, mock_state_machine):
+    async def test_local_client_uses_camilladsp_service(self, mock_state_machine):
         """Test that local client uses camilladsp_service directly."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
@@ -3185,7 +3185,7 @@ class TestSyncStandaloneDspToClient:
             "compressor": {"enabled": True, "threshold": -20},
             "loudness": {"enabled": False}
         }
-        mock_state_machine.dsp_settings_sync_service.get_client_settings = AsyncMock(
+        mock_state_machine.equalizer_settings_sync_service.get_client_settings = AsyncMock(
             return_value=saved_settings
         )
 
@@ -3194,21 +3194,21 @@ class TestSyncStandaloneDspToClient:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
-        ws_service._dsp_client_proxy_service = mock_state_machine.dsp_client_proxy_service
-        ws_service._dsp_settings_sync_service = mock_state_machine.dsp_settings_sync_service
+        ws_service._equalizer_client_proxy_service = mock_state_machine.equalizer_client_proxy_service
+        ws_service._equalizer_settings_sync_service = mock_state_machine.equalizer_settings_sync_service
         ws_service._crossover_service = mock_state_machine.crossover_service
         ws_service._camilladsp_service = mock_state_machine.camilladsp_service
 
-        result = await ws_service._sync_standalone_dsp_to_client("local")
+        result = await ws_service._sync_standalone_equalizer_to_client("local")
 
         # Verify camilladsp_service was used (not proxy)
-        dsp_service = mock_state_machine.camilladsp_service
-        assert dsp_service.set_filter.call_count == 1
-        assert dsp_service.set_compressor.call_count == 1
-        assert dsp_service.set_loudness.call_count == 1
+        camilladsp_service = mock_state_machine.camilladsp_service
+        assert camilladsp_service.set_filter.call_count == 1
+        assert camilladsp_service.set_compressor.call_count == 1
+        assert camilladsp_service.set_loudness.call_count == 1
 
         # Verify proxy was NOT used for local client
-        proxy = mock_state_machine.dsp_client_proxy_service
+        proxy = mock_state_machine.equalizer_client_proxy_service
         assert proxy.request.call_count == 0
 
     @pytest.mark.asyncio
@@ -3224,9 +3224,9 @@ class TestSyncStandaloneDspToClient:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
-        ws_service._dsp_settings_sync_service = mock_state_machine.dsp_settings_sync_service
+        ws_service._equalizer_settings_sync_service = mock_state_machine.equalizer_settings_sync_service
 
-        result = await ws_service._sync_standalone_dsp_to_client("unknown-client")
+        result = await ws_service._sync_standalone_equalizer_to_client("unknown-client")
         assert result is False
 
     @pytest.mark.asyncio
@@ -3241,12 +3241,12 @@ class TestSyncStandaloneDspToClient:
                 "eq_band_01": {"freq": 1000, "gain": -1.5, "q": 1.41, "type": "Peaking"}
             }
         }
-        mock_state_machine.dsp_settings_sync_service.get_client_settings = AsyncMock(
+        mock_state_machine.equalizer_settings_sync_service.get_client_settings = AsyncMock(
             return_value=saved_settings
         )
 
         # Make proxy fail for filters
-        mock_state_machine.dsp_client_proxy_service.request = AsyncMock(
+        mock_state_machine.equalizer_client_proxy_service.request = AsyncMock(
             side_effect=Exception("Connection refused")
         )
 
@@ -3255,12 +3255,12 @@ class TestSyncStandaloneDspToClient:
             routing_service=MagicMock()
         )
         ws_service._registry = mock_registry
-        ws_service._dsp_client_proxy_service = mock_state_machine.dsp_client_proxy_service
-        ws_service._dsp_settings_sync_service = mock_state_machine.dsp_settings_sync_service
+        ws_service._equalizer_client_proxy_service = mock_state_machine.equalizer_client_proxy_service
+        ws_service._equalizer_settings_sync_service = mock_state_machine.equalizer_settings_sync_service
         ws_service._crossover_service = mock_state_machine.crossover_service
         ws_service._camilladsp_service = mock_state_machine.camilladsp_service
 
-        result = await ws_service._sync_standalone_dsp_to_client("test-client")
+        result = await ws_service._sync_standalone_equalizer_to_client("test-client")
 
         # Sync should fail
         assert result is False
@@ -3566,9 +3566,9 @@ class TestApplyTargetVolumeToClient:
         # Mock state store public accessors
         volume_service._state_store = MagicMock()
         volume_service._state_store.get_client_mute = MagicMock(return_value=False)
-        # Mock DSP controller for mute operation
-        volume_service._dsp_controller = MagicMock()
-        volume_service._dsp_controller.set_dsp_mute = AsyncMock()
+        # Mock Equalizer controller for mute operation
+        volume_service._equalizer_controller = MagicMock()
+        volume_service._equalizer_controller.set_equalizer_mute = AsyncMock()
         state_machine.volume_service = volume_service
         return state_machine
 
@@ -3646,7 +3646,7 @@ class TestApplyTargetVolumeToClient:
         mock_state_machine = MagicMock()
         volume_service = AsyncMock()
         volume_service.update_client_volume_db = AsyncMock(
-            side_effect=Exception("DSP connection failed")
+            side_effect=Exception("Equalizer connection failed")
         )
 
         ws_service = SnapcastWebSocketService(

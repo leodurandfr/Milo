@@ -49,7 +49,7 @@ class ClientUpdateRequest(BaseModel):
         return v
 
 
-def create_multiroom_router(registry_service, multiroom_dsp_service=None):
+def create_multiroom_router(registry_service, multiroom_equalizer_service=None):
     """
     Creates multiroom router with dependency injection.
 
@@ -273,7 +273,7 @@ def create_multiroom_router(registry_service, multiroom_dsp_service=None):
 
         Requires at least 2 valid client mac_ids.
         Broadcasts 'zone_created' WebSocket event on success.
-        Clients are assigned to the zone and receive shared DSP settings.
+        Clients are assigned to the zone and receive shared equalizer settings.
 
         Args:
             request: Zone creation request with name and client_ids
@@ -296,11 +296,11 @@ def create_multiroom_router(registry_service, multiroom_dsp_service=None):
             # Apply zone's default DSP settings to CamillaDSP
             # This ensures CamillaDSP has flat EQ when a new zone is created,
             # preventing stale settings from previous zone from being displayed
-            if multiroom_dsp_service:
+            if multiroom_equalizer_service:
                 try:
-                    await multiroom_dsp_service.apply_zone_dsp(zone_id, zone.dsp_settings)
+                    await multiroom_equalizer_service.apply_zone_equalizer(zone_id, zone.equalizer_settings)
                 except Exception as e:
-                    logger.warning(f"Failed to apply initial zone DSP: {e}")
+                    logger.warning(f"Failed to apply initial zone equalizer: {e}")
 
             return {
                 "status": "success",
@@ -357,7 +357,7 @@ def create_multiroom_router(registry_service, multiroom_dsp_service=None):
 
         When deleted:
         - All member clients have their zone_id set to None
-        - Clients retain zone DSP settings as their standalone DSP (FR14)
+        - Clients retain zone equalizer settings as their standalone equalizer (FR14)
         - 'zone_deleted' WebSocket event is broadcast
 
         Args:
@@ -391,9 +391,9 @@ def create_multiroom_router(registry_service, multiroom_dsp_service=None):
     @router.post("/zones/{zone_id}/clients", status_code=200)
     async def add_client_to_zone(zone_id: str, request: ZoneAddClient):
         """
-        Add a client to a zone. Client's DSP is replaced by zone's (FR15).
+        Add a client to a zone. Client's equalizer is replaced by zone's (FR15).
 
-        The client will adopt the zone's shared DSP settings.
+        The client will adopt the zone's shared equalizer settings.
         If the client was in another zone, it is removed from that zone first.
         Broadcasts 'zone_updated' WebSocket event on success.
 
@@ -444,9 +444,9 @@ def create_multiroom_router(registry_service, multiroom_dsp_service=None):
     @router.delete("/zones/{zone_id}/clients/{mac_id}")
     async def remove_client_from_zone(zone_id: str, mac_id: str):
         """
-        Remove a client from a zone. Client keeps zone DSP as standalone (FR14).
+        Remove a client from a zone. Client keeps zone equalizer as standalone (FR14).
 
-        The client retains the zone's DSP settings as its standalone settings.
+        The client retains the zone's equalizer settings as its standalone settings.
         If the zone has less than 2 clients after removal, the zone is deleted.
         Broadcasts 'zone_updated' or 'zone_deleted' WebSocket event.
 

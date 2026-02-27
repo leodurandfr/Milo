@@ -1,13 +1,13 @@
-# backend/core/multiroom/dsp_router.py
+# backend/core/multiroom/equalizer_router.py
 """
-DspRouter - Centralized DSP command routing.
+EqualizerRouter - Centralized Equalizer command routing.
 
-Routes DSP commands to local dsp_service or remote proxy_service
+Routes equalizer commands to local camilladsp_service or remote proxy_service
 based on client IP address. Eliminates if/else duplication in endpoints.
 
 Architecture:
 - Lookup client in ClientRegistry by mac_id
-- If client.ip == "127.0.0.1" → local dsp_service
+- If client.ip == "127.0.0.1" → local camilladsp_service
 - Else → proxy_service to remote client
 """
 import logging
@@ -16,12 +16,12 @@ from typing import Any, Dict, Optional, Callable, Awaitable
 logger = logging.getLogger(__name__)
 
 
-class DspRouter:
+class EqualizerRouter:
     """
-    Routes DSP commands to appropriate service based on client location.
+    Routes equalizer commands to appropriate service based on client location.
 
     Usage:
-        router = DspRouter(registry, dsp_service, proxy_service)
+        router = EqualizerRouter(registry, camilladsp_service, proxy_service)
         await router.set_volume(mac_id, volume_db)
         await router.set_mute(mac_id, muted)
     """
@@ -29,12 +29,12 @@ class DspRouter:
     def __init__(
         self,
         client_registry,
-        dsp_service,
+        camilladsp_service,
         proxy_service,
         volume_service=None
     ):
         self._registry = client_registry
-        self._dsp_service = dsp_service
+        self._camilladsp_service = camilladsp_service
         self._proxy_service = proxy_service
         self._volume_service = volume_service
 
@@ -72,7 +72,7 @@ class DspRouter:
             return {"status": "error", "message": f"Client {mac_id} not found"}
 
         if self._is_local(client):
-            logger.debug(f"Routing {action_name} to local DSP for {mac_id}")
+            logger.debug(f"Routing {action_name} to local CamillaDSP for {mac_id}")
             return await local_action()
         else:
             if not self._proxy_service:
@@ -90,13 +90,13 @@ class DspRouter:
     async def set_volume(self, mac_id: str, volume_db: float) -> Dict[str, Any]:
         """Set volume for a client."""
         async def local():
-            if self._dsp_service:
-                success = await self._dsp_service.set_volume(volume_db)
+            if self._camilladsp_service:
+                success = await self._camilladsp_service.set_volume(volume_db)
                 return {"status": "success" if success else "error", "volume": volume_db}
-            return {"status": "error", "message": "DSP service not available"}
+            return {"status": "error", "message": "Equalizer service not available"}
 
         async def remote(ip: str):
-            result = await self._proxy_service.request(ip, "PUT", "/dsp/volume", {"volume": volume_db})
+            result = await self._proxy_service.request(ip, "PUT", "/equalizer/volume", {"volume": volume_db})
             return result
 
         return await self._route(mac_id, local, remote, "set_volume")
@@ -104,13 +104,13 @@ class DspRouter:
     async def set_mute(self, mac_id: str, muted: bool) -> Dict[str, Any]:
         """Set mute for a client."""
         async def local():
-            if self._dsp_service:
-                success = await self._dsp_service.set_mute(muted)
+            if self._camilladsp_service:
+                success = await self._camilladsp_service.set_mute(muted)
                 return {"status": "success" if success else "error", "mute": muted}
-            return {"status": "error", "message": "DSP service not available"}
+            return {"status": "error", "message": "Equalizer service not available"}
 
         async def remote(ip: str):
-            result = await self._proxy_service.request(ip, "PUT", "/dsp/mute", {"muted": muted})
+            result = await self._proxy_service.request(ip, "PUT", "/equalizer/mute", {"muted": muted})
             return result
 
         return await self._route(mac_id, local, remote, "set_mute")
@@ -120,13 +120,13 @@ class DspRouter:
     async def load_preset(self, mac_id: str, preset_id: str) -> Dict[str, Any]:
         """Load a preset for a client."""
         async def local():
-            if self._dsp_service:
-                success = await self._dsp_service.load_preset(preset_id)
+            if self._camilladsp_service:
+                success = await self._camilladsp_service.load_preset(preset_id)
                 return {"status": "success" if success else "error", "preset_id": preset_id}
-            return {"status": "error", "message": "DSP service not available"}
+            return {"status": "error", "message": "Equalizer service not available"}
 
         async def remote(ip: str):
-            result = await self._proxy_service.request(ip, "PUT", f"/dsp/preset/{preset_id}")
+            result = await self._proxy_service.request(ip, "PUT", f"/equalizer/preset/{preset_id}")
             return result
 
         return await self._route(mac_id, local, remote, "load_preset")
@@ -136,28 +136,28 @@ class DspRouter:
     async def get_filters(self, mac_id: str) -> Dict[str, Any]:
         """Get all filters for a client."""
         async def local():
-            if self._dsp_service:
-                filters = await self._dsp_service.get_filters()
+            if self._camilladsp_service:
+                filters = await self._camilladsp_service.get_filters()
                 return {"filters": filters}
-            return {"filters": [], "error": "DSP service not available"}
+            return {"filters": [], "error": "Equalizer service not available"}
 
         async def remote(ip: str):
-            return await self._proxy_service.request(ip, "GET", "/dsp/filters")
+            return await self._proxy_service.request(ip, "GET", "/equalizer/filters")
 
         return await self._route(mac_id, local, remote, "get_filters")
 
     async def reset_filters(self, mac_id: str) -> Dict[str, Any]:
         """Reset all filters to flat for a client."""
         async def local():
-            if self._dsp_service:
-                success = await self._dsp_service.reset_filters()
+            if self._camilladsp_service:
+                success = await self._camilladsp_service.reset_filters()
                 if success:
                     return {"status": "success", "message": "All filters reset to flat"}
                 return {"status": "error", "message": "Failed to reset filters"}
-            return {"status": "error", "message": "DSP service not available"}
+            return {"status": "error", "message": "Equalizer service not available"}
 
         async def remote(ip: str):
-            return await self._proxy_service.request(ip, "POST", "/dsp/reset")
+            return await self._proxy_service.request(ip, "POST", "/equalizer/reset")
 
         return await self._route(mac_id, local, remote, "reset_filters")
 
@@ -182,8 +182,8 @@ class DspRouter:
             broadcast: Emit WebSocket event (False for batch updates)
         """
         async def local():
-            if self._dsp_service:
-                success = await self._dsp_service.set_filter(
+            if self._camilladsp_service:
+                success = await self._camilladsp_service.set_filter(
                     filter_id=filter_id,
                     freq=filter_data.get("freq"),
                     gain=filter_data.get("gain"),
@@ -195,11 +195,11 @@ class DspRouter:
                     broadcast=broadcast
                 )
                 return {"status": "success" if success else "error", "filter_id": filter_id}
-            return {"status": "error", "message": "DSP service not available"}
+            return {"status": "error", "message": "Equalizer service not available"}
 
         async def remote(ip: str):
             result = await self._proxy_service.request(
-                ip, "PUT", f"/dsp/filter/{filter_id}", filter_data
+                ip, "PUT", f"/equalizer/filter/{filter_id}", filter_data
             )
             return result
 
@@ -210,25 +210,25 @@ class DspRouter:
     async def get_compressor(self, mac_id: str) -> Dict[str, Any]:
         """Get compressor settings for a client."""
         async def local():
-            if self._dsp_service:
-                return await self._dsp_service.get_compressor()
-            return {"enabled": False, "error": "DSP service not available"}
+            if self._camilladsp_service:
+                return await self._camilladsp_service.get_compressor()
+            return {"enabled": False, "error": "Equalizer service not available"}
 
         async def remote(ip: str):
-            return await self._proxy_service.request(ip, "GET", "/dsp/compressor")
+            return await self._proxy_service.request(ip, "GET", "/equalizer/compressor")
 
         return await self._route(mac_id, local, remote, "get_compressor")
 
     async def set_compressor(self, mac_id: str, settings: Dict[str, Any]) -> Dict[str, Any]:
         """Set compressor settings for a client."""
         async def local():
-            if self._dsp_service:
-                success = await self._dsp_service.set_compressor(**settings)
+            if self._camilladsp_service:
+                success = await self._camilladsp_service.set_compressor(**settings)
                 return {"status": "success" if success else "error"}
-            return {"status": "error", "message": "DSP service not available"}
+            return {"status": "error", "message": "Equalizer service not available"}
 
         async def remote(ip: str):
-            result = await self._proxy_service.request(ip, "PUT", "/dsp/compressor", settings)
+            result = await self._proxy_service.request(ip, "PUT", "/equalizer/compressor", settings)
             return result
 
         return await self._route(mac_id, local, remote, "set_compressor")
@@ -238,69 +238,69 @@ class DspRouter:
     async def get_loudness(self, mac_id: str) -> Dict[str, Any]:
         """Get loudness settings for a client."""
         async def local():
-            if self._dsp_service:
-                return await self._dsp_service.get_loudness()
-            return {"enabled": False, "error": "DSP service not available"}
+            if self._camilladsp_service:
+                return await self._camilladsp_service.get_loudness()
+            return {"enabled": False, "error": "Equalizer service not available"}
 
         async def remote(ip: str):
-            return await self._proxy_service.request(ip, "GET", "/dsp/loudness")
+            return await self._proxy_service.request(ip, "GET", "/equalizer/loudness")
 
         return await self._route(mac_id, local, remote, "get_loudness")
 
     async def set_loudness(self, mac_id: str, settings: Dict[str, Any]) -> Dict[str, Any]:
         """Set loudness settings for a client."""
         async def local():
-            if self._dsp_service:
-                success = await self._dsp_service.set_loudness(**settings)
+            if self._camilladsp_service:
+                success = await self._camilladsp_service.set_loudness(**settings)
                 return {"status": "success" if success else "error"}
-            return {"status": "error", "message": "DSP service not available"}
+            return {"status": "error", "message": "Equalizer service not available"}
 
         async def remote(ip: str):
-            result = await self._proxy_service.request(ip, "PUT", "/dsp/loudness", settings)
+            result = await self._proxy_service.request(ip, "PUT", "/equalizer/loudness", settings)
             return result
 
         return await self._route(mac_id, local, remote, "set_loudness")
 
-    # === DSP ENABLED ===
+    # === EQUALIZER ENABLED ===
 
-    async def set_dsp_enabled(self, mac_id: str, enabled: bool, routing_service=None) -> Dict[str, Any]:
-        """Set DSP effects enabled state for a client."""
+    async def set_equalizer_enabled(self, mac_id: str, enabled: bool, routing_service=None) -> Dict[str, Any]:
+        """Set equalizer effects enabled state for a client."""
         async def local():
             if routing_service:
-                success = await routing_service.set_dsp_effects_enabled(enabled)
+                success = await routing_service.set_equalizer_effects_enabled(enabled)
                 return {"status": "success" if success else "error", "enabled": enabled}
             return {"status": "error", "message": "Routing service not available"}
 
         async def remote(ip: str):
-            result = await self._proxy_service.request(ip, "PUT", "/dsp/enabled", {"enabled": enabled})
+            result = await self._proxy_service.request(ip, "PUT", "/equalizer/enabled", {"enabled": enabled})
             return result
 
-        return await self._route(mac_id, local, remote, "set_dsp_enabled")
+        return await self._route(mac_id, local, remote, "set_equalizer_enabled")
 
-    async def get_dsp_enabled(self, mac_id: str, routing_service=None) -> Dict[str, Any]:
-        """Get DSP effects enabled state for a client."""
+    async def get_equalizer_enabled(self, mac_id: str, routing_service=None) -> Dict[str, Any]:
+        """Get equalizer effects enabled state for a client."""
         async def local():
             if routing_service:
-                return {"enabled": routing_service.dsp_effects_enabled}
+                return {"enabled": routing_service.equalizer_effects_enabled}
             return {"enabled": True}
 
         async def remote(ip: str):
-            result = await self._proxy_service.request(ip, "GET", "/dsp/enabled")
+            result = await self._proxy_service.request(ip, "GET", "/equalizer/enabled")
             return result
 
-        return await self._route(mac_id, local, remote, "get_dsp_enabled")
+        return await self._route(mac_id, local, remote, "get_equalizer_enabled")
 
     # === STATUS ===
 
     async def get_status(self, mac_id: str) -> Dict[str, Any]:
-        """Get DSP status for a client."""
+        """Get equalizer status for a client."""
         async def local():
-            if self._dsp_service:
-                return await self._dsp_service.get_status()
-            return {"available": False, "error": "DSP service not available"}
+            if self._camilladsp_service:
+                return await self._camilladsp_service.get_status()
+            return {"available": False, "error": "Equalizer service not available"}
 
         async def remote(ip: str):
-            result = await self._proxy_service.request(ip, "GET", "/dsp/status")
+            result = await self._proxy_service.request(ip, "GET", "/equalizer/status")
             return result
 
         return await self._route(mac_id, local, remote, "get_status")
@@ -308,25 +308,25 @@ class DspRouter:
     async def get_levels(self, mac_id: str) -> Dict[str, Any]:
         """Get audio levels for a client."""
         async def local():
-            if self._dsp_service:
-                return await self._dsp_service.get_levels()
+            if self._camilladsp_service:
+                return await self._camilladsp_service.get_levels()
             return {"available": False}
 
         async def remote(ip: str):
-            return await self._proxy_service.get_dsp_levels(ip)
+            return await self._proxy_service.get_equalizer_levels(ip)
 
         return await self._route(mac_id, local, remote, "get_levels")
 
     async def get_volume(self, mac_id: str) -> Dict[str, Any]:
         """Get volume for a client."""
         async def local():
-            if self._dsp_service:
-                vol = await self._dsp_service.get_volume()
+            if self._camilladsp_service:
+                vol = await self._camilladsp_service.get_volume()
                 return {"main": vol.get("main", -60), "mute": vol.get("mute", False)}
             return {"main": -60, "mute": False}
 
         async def remote(ip: str):
-            return await self._proxy_service.request(ip, "GET", "/dsp/volume")
+            return await self._proxy_service.request(ip, "GET", "/equalizer/volume")
 
         return await self._route(mac_id, local, remote, "get_volume")
 

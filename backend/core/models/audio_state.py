@@ -34,7 +34,7 @@ class SystemAudioState:
     - Operational state of the active plugin
     - Associated metadata
     - Audio routing state (multiroom_enabled flag)
-    - DSP effects state (equalizer, compressor, loudness enabled)
+    - equalizer effects state (equalizer, compressor, loudness enabled)
     """
     active_source: AudioSource = AudioSource.NONE
     plugin_state: PluginState = PluginState.READY
@@ -42,7 +42,7 @@ class SystemAudioState:
     metadata: Dict[str, Any] = None
     error: Optional[str] = None
     multiroom_enabled: bool = False
-    dsp_effects_enabled: bool = False
+    equalizer_effects_enabled: bool = False
     
     def __post_init__(self):
         if self.metadata is None:
@@ -57,7 +57,7 @@ class SystemAudioState:
             "metadata": self.metadata,
             "error": self.error,
             "multiroom_enabled": self.multiroom_enabled,
-            "dsp_effects_enabled": self.dsp_effects_enabled
+            "equalizer_effects_enabled": self.equalizer_effects_enabled
         }
     
     @classmethod
@@ -70,5 +70,5 @@ class SystemAudioState:
             metadata=data.get("metadata", {}),
             error=data.get("error"),
             multiroom_enabled=data.get("multiroom_enabled", False),
-            dsp_effects_enabled=data.get("dsp_effects_enabled", False)
+            equalizer_effects_enabled=data.get("equalizer_effects_enabled", False)
         )

@@ -29,7 +29,7 @@ CAMILLADSP_PORT = 1234
 CONFIG_FILE = "/var/lib/milo-client/camilladsp/config.yml"
 
 
-class DSPService:
+class EqualizerService:
     """
     CamillaDSP control service.
 
@@ -43,7 +43,7 @@ class DSPService:
     """
 
     def __init__(self, host: str = None, port: int = None, config_file: str = None):
-        self.logger = logging.getLogger(f"{__name__}.DSPService")
+        self.logger = logging.getLogger(f"{__name__}.EqualizerService")
         self.host = host or CAMILLADSP_HOST
         self.port = port or CAMILLADSP_PORT
         self.config_file = config_file or CONFIG_FILE
@@ -71,7 +71,7 @@ class DSPService:
         self._volume = {"main": 0.0, "mute": True}  # Matches CamillaDSP startup state (-m flag)
         self._crossover = {"enabled": False, "frequency": 80.0, "q": 0.707}
         self._lowpass = {"enabled": False, "frequency": 80.0, "q": 0.707}
-        self._dsp_enabled = True
+        self._equalizer_enabled = True
         self._saved_effects_state = None  # For bypass/restore
 
     @property
@@ -222,7 +222,7 @@ class DSPService:
             self.logger.warning(f"Could not load state from config: {e}")
 
     async def get_status(self) -> Dict[str, Any]:
-        """Get DSP status."""
+        """Get equalizer status."""
         try:
             state = await self._exec(lambda: self._client.general.state())
             state_str = str(state).split('.')[-1].lower()
@@ -236,7 +236,7 @@ class DSPService:
                 "delay": self._delay
             }
         except Exception as e:
-            self.logger.error(f"Error getting DSP status: {e}")
+            self.logger.error(f"Error getting equalizer status: {e}")
             return {"available": False, "error": str(e)}
 
     async def _get_config(self) -> Optional[Dict[str, Any]]:
@@ -502,7 +502,7 @@ class DSPService:
             return False
 
     async def get_volume(self) -> Dict[str, Any]:
-        """Get current DSP volume settings."""
+        """Get current equalizer volume settings."""
         if self._connected and self._client:
             try:
                 volume = await self._exec(lambda: self._client.volume.main_volume())
@@ -528,7 +528,7 @@ class DSPService:
             return {"available": False}
 
     async def set_volume(self, volume: float) -> bool:
-        """Set DSP volume in dB."""
+        """Set equalizer volume in dB."""
         self._volume["main"] = max(-80, min(0, volume))
 
         try:
@@ -542,7 +542,7 @@ class DSPService:
             return False
 
     async def set_mute(self, muted: bool) -> bool:
-        """Set DSP mute state."""
+        """Set equalizer mute state."""
         self._volume["mute"] = muted
 
         try:
@@ -703,14 +703,14 @@ class DSPService:
             if not (step.get("type") == "Processor" and step.get("name") == processor_name)
         ]
 
-    async def set_dsp_enabled(self, enabled: bool) -> bool:
+    async def set_equalizer_enabled(self, enabled: bool) -> bool:
         """
-        Enable or disable DSP effects (compressor, loudness).
+        Enable or disable equalizer effects (compressor, loudness).
 
         When disabled, saves current state and disables effects.
         When enabled, restores previously saved state.
         """
-        if enabled == self._dsp_enabled:
+        if enabled == self._equalizer_enabled:
             return True
 
         try:
@@ -725,7 +725,7 @@ class DSPService:
                     await self.set_compressor(enabled=False)
                 if self._loudness["enabled"]:
                     await self.set_loudness(enabled=False)
-                self.logger.info("DSP effects bypassed")
+                self.logger.info("Equalizer effects bypassed")
             else:
                 # Restore saved state
                 if self._saved_effects_state:
@@ -734,11 +734,11 @@ class DSPService:
                     if self._saved_effects_state.get("loudness_enabled"):
                         await self.set_loudness(enabled=True)
                     self._saved_effects_state = None
-                self.logger.info("DSP effects restored")
+                self.logger.info("Equalizer effects restored")
 
-            self._dsp_enabled = enabled
+            self._equalizer_enabled = enabled
             return True
 
         except Exception as e:
-            self.logger.error(f"Error setting DSP enabled: {e}")
+            self.logger.error(f"Error setting equalizer enabled: {e}")
             return False

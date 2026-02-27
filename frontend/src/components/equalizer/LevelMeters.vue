@@ -4,7 +4,7 @@
   <div class="level-meters">
     <!-- Header -->
     <div class="meters-header">
-      <h2 class="heading-2">{{ $t('dsp.meters.title') }}</h2>
+      <h2 class="heading-2">{{ $t('equalizer.meters.title') }}</h2>
     </div>
 
     <!-- Meters content (always visible) -->
@@ -32,7 +32,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
-import { useDspStore } from '@/stores/dspStore';
+import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import LevelMeter from './LevelMeter.vue';
@@ -45,7 +45,7 @@ const props = defineProps({
   }
 });
 
-const dspStore = useDspStore();
+const equalizerStore = useEqualizerStore();
 const settingsStore = useSettingsStore();
 const audioStore = useUnifiedAudioStore();
 
@@ -57,12 +57,12 @@ let pollInterval = null;
 
 // Convert array levels to individual channels
 const outputLeft = computed(() => {
-  const levels = dspStore.outputPeak;
+  const levels = equalizerStore.outputPeak;
   return Array.isArray(levels) && levels.length > 0 ? levels[0] : meterMin.value;
 });
 
 const outputRight = computed(() => {
-  const levels = dspStore.outputPeak;
+  const levels = equalizerStore.outputPeak;
   return Array.isArray(levels) && levels.length > 1 ? levels[1] : outputLeft.value;
 });
 
@@ -83,23 +83,23 @@ async function pollLevels() {
 
   // All clients muted - show no levels
   if (ids.length === 0) {
-    dspStore.updateLevels(silent, silent);
+    equalizerStore.updateLevels(silent, silent);
     return;
   }
 
   try {
     // Always use zone endpoint - it handles both local and remote clients correctly
-    const endpoint = `/api/dsp/levels/zone/${ids.join(',')}`;
+    const endpoint = `/api/equalizer/levels/zone/${ids.join(',')}`;
 
     const response = await axios.get(endpoint);
     if (response.data.available) {
-      dspStore.updateLevels(
+      equalizerStore.updateLevels(
         response.data.input_peak || silent,
         response.data.output_peak || silent
       );
     } else {
       // No clients available - reset to minimum
-      dspStore.updateLevels(silent, silent);
+      equalizerStore.updateLevels(silent, silent);
     }
   } catch (error) {
     // Silently fail - levels are optional

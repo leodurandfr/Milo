@@ -207,11 +207,11 @@ class TestAudioStateMachine:
         assert state_machine.system_state.multiroom_enabled is True
 
     @pytest.mark.asyncio
-    async def test_update_dsp_effects_state(self, state_machine):
-        """DSP effects state update test"""
-        await state_machine.update_dsp_effects_state(True)
+    async def test_update_equalizer_effects_state(self, state_machine):
+        """Equalizer effects state update test"""
+        await state_machine.update_equalizer_effects_state(True)
 
-        assert state_machine.system_state.dsp_effects_enabled is True
+        assert state_machine.system_state.equalizer_effects_enabled is True
 
     @pytest.mark.asyncio
     async def test_broadcast_event(self, state_machine, mock_websocket_handler):
