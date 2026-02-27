@@ -1,10 +1,10 @@
-<!-- frontend/src/components/settings/categories/dsp/LevelMeters.vue -->
+<!-- frontend/src/components/equalizer/LevelMeters.vue -->
 <!-- Stereo input/output level meters with real-time monitoring -->
 <template>
   <div class="level-meters">
     <!-- Header -->
     <div class="meters-header">
-      <h2 class="heading-2">{{ $t('dsp.meters.title', 'Niveaux de sortie audio') }}</h2>
+      <h2 class="heading-2">{{ $t('dsp.meters.title') }}</h2>
     </div>
 
     <!-- Meters content (always visible) -->
@@ -79,10 +79,11 @@ const activeClientIds = computed(() => {
 async function pollLevels() {
   const ids = activeClientIds.value;
 
+  const silent = [meterMin.value, meterMin.value];
+
   // All clients muted - show no levels
   if (ids.length === 0) {
-    dspStore.inputPeak = [meterMin.value, meterMin.value];
-    dspStore.outputPeak = [meterMin.value, meterMin.value];
+    dspStore.updateLevels(silent, silent);
     return;
   }
 
@@ -92,12 +93,13 @@ async function pollLevels() {
 
     const response = await axios.get(endpoint);
     if (response.data.available) {
-      dspStore.inputPeak = response.data.input_peak || [meterMin.value, meterMin.value];
-      dspStore.outputPeak = response.data.output_peak || [meterMin.value, meterMin.value];
+      dspStore.updateLevels(
+        response.data.input_peak || silent,
+        response.data.output_peak || silent
+      );
     } else {
       // No clients available - reset to minimum
-      dspStore.inputPeak = [meterMin.value, meterMin.value];
-      dspStore.outputPeak = [meterMin.value, meterMin.value];
+      dspStore.updateLevels(silent, silent);
     }
   } catch (error) {
     // Silently fail - levels are optional

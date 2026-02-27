@@ -39,11 +39,11 @@ import { logger } from '@/services/logger';
  *
  * snapcast: (low-level Snapcast events - kept for debugging/monitoring)
  *   - client_* events → MultiroomControl.vue → multiroomStore
- *   - client_name_changed → also DspSettings.vue, MultiroomSettings.vue (sync names)
+ *   - client_name_changed → also EqualizerModal.vue, MultiroomSettings.vue (sync names)
  *
  * dsp:
- *   - filter_*, state_changed, preset_*, compressor_*, loudness_* → DspSettings.vue → dspStore
- *   - links_changed, enabled_changed → DspSettings, MultiroomSettings, MultiroomControl
+ *   - filter_*, state_changed, preset_*, compressor_*, loudness_* → EqualizerModal.vue → dspStore
+ *   - links_changed, enabled_changed → EqualizerModal, MultiroomSettings, MultiroomControl
  *   - client_volumes_pushed → MultiroomSettings, MultiroomControl
  *
  * routing:

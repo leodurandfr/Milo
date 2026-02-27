@@ -1,4 +1,4 @@
-<!-- frontend/src/components/settings/categories/dsp/ItemSelector.vue -->
+<!-- frontend/src/components/equalizer/ItemSelector.vue -->
 <!-- Zone/Client selector (tabs only - volume controls moved to MultiroomControl) -->
 <template>
   <div v-show="zoneTabs.length > 1" class="item-selector">
@@ -167,7 +167,7 @@ watch(zoneTabs, (tabs) => {
       handleTargetChange(tabs[0].value);
     }
   }
-}, { immediate: true });
+});
 
 // Expose selectedZoneName and selectedClientIds for parent components
 defineExpose({ selectedZoneName, selectedClientIds });

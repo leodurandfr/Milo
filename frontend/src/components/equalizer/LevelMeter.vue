@@ -1,4 +1,4 @@
-<!-- frontend/src/components/settings/categories/dsp/LevelMeter.vue -->
+<!-- frontend/src/components/equalizer/LevelMeter.vue -->
 <!-- Audio level meter with peak hold -->
 <template>
   <div class="level-meter" :class="{ vertical: orientation === 'vertical' }">

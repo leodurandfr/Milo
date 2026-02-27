@@ -39,6 +39,7 @@ export const useSettingsStore = defineStore('settings', () => {
     podcast: true,
     airplay: true,
     mac: true,
+    equalizer: true,
     multiroom: true,
     settings: true
   });
@@ -130,6 +131,7 @@ export const useSettingsStore = defineStore('settings', () => {
             podcast: enabledApps.includes('podcast'),
             airplay: enabledApps.includes('airplay'),
             mac: enabledApps.includes('mac'),
+            equalizer: enabledApps.includes('equalizer'),
             multiroom: enabledApps.includes('multiroom'),
             settings: enabledApps.includes('settings')
           };
@@ -224,6 +226,7 @@ export const useSettingsStore = defineStore('settings', () => {
       podcast: enabledApps.includes('podcast'),
       airplay: enabledApps.includes('airplay'),
       mac: enabledApps.includes('mac'),
+      equalizer: enabledApps.includes('equalizer'),
       multiroom: enabledApps.includes('multiroom'),
       settings: enabledApps.includes('settings')
     };
@@ -253,7 +256,7 @@ export const useSettingsStore = defineStore('settings', () => {
    */
   function buildEnabledAppsArray() {
     const orderedAudio = sourceOrder.value.filter(s => dockApps.value[s]);
-    const utilities = ['multiroom', 'settings'].filter(u => dockApps.value[u]);
+    const utilities = ['equalizer', 'multiroom', 'settings'].filter(u => dockApps.value[u]);
     return [...orderedAudio, ...utilities];
   }
 

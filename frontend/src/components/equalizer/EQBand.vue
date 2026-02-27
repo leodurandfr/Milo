@@ -1,4 +1,4 @@
-<!-- frontend/src/components/settings/categories/dsp/EQBand.vue -->
+<!-- frontend/src/components/equalizer/EQBand.vue -->
 <!-- Individual parametric EQ band control with frequency, gain, Q, and type -->
 <template>
   <div class="eq-band" :class="{ 'horizontal': orientation === 'horizontal', 'compact': compact }">
