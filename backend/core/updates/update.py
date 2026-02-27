@@ -612,6 +612,13 @@ class UpdateService(VersionService):
                 await self._cleanup_temp_files(temp_dir)
                 return verify_result
 
+            # Write version file for reliable version tracking
+            try:
+                async with aiofiles.open('/var/lib/milo/shairport-sync-version', 'w') as f:
+                    await f.write(latest_version)
+            except Exception as e:
+                self.update_logger.warning(f"Failed to write version file: {e}")
+
             # Phase 9: Cleanup (95-100%)
             if progress_callback:
                 await progress_callback("updates.progress.cleaningUp", 95)

@@ -50,7 +50,7 @@ class VersionService:
                 "name": "AirPlay",
                 "description": "updates.airplay",
                 "commands": {
-                    "main": ["shairport-sync", "--version"]
+                    "main": ["sh", "-c", "cat /var/lib/milo/shairport-sync-version 2>/dev/null || shairport-sync --version 2>&1"]
                 },
                 "repo": "mikebrady/shairport-sync",
                 "version_regex": r"(\d+\.\d+(?:\.\d+)?)"
