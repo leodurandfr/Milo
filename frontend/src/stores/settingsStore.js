@@ -239,8 +239,9 @@ export const useSettingsStore = defineStore('settings', () => {
    */
   function syncSourceOrder(enabledApps) {
     const audioFromServer = enabledApps.filter(a => ALL_AUDIO_SOURCES.includes(a));
-    const missing = ALL_AUDIO_SOURCES.filter(a => !audioFromServer.includes(a));
-    sourceOrder.value = [...audioFromServer, ...missing];
+    const enabledSet = new Set(audioFromServer);
+    let i = 0;
+    sourceOrder.value = sourceOrder.value.map(s => enabledSet.has(s) ? audioFromServer[i++] : s);
   }
 
   /**
