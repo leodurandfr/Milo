@@ -251,7 +251,7 @@ class MacSource(BaseAudioSource):
             )
 
             try:
-                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=2.0)
             except asyncio.TimeoutError:
                 proc.kill()
                 await proc.wait()

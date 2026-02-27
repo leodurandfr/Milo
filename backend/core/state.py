@@ -45,7 +45,7 @@ class AudioStateMachine:
     - websocket_handler optional during transition period
     """
 
-    TRANSITION_TIMEOUT = 5.0
+    TRANSITION_TIMEOUT = 10.0
     INACTIVITY_TIMEOUT = 7200  # 2 hours in seconds
 
     def __init__(self, event_bus: EventBus):

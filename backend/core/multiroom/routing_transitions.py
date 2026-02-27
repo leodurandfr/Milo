@@ -71,6 +71,9 @@ class RoutingTransitions:
         """
         Unified transition to target routing mode.
 
+        Acquires state_machine._transition_lock to prevent race conditions
+        with concurrent source transitions (transition_to_source).
+
         Args:
             target_mode: Target routing mode ("direct" or "multiroom")
             active_source: Currently active audio source (if any)
@@ -78,43 +81,52 @@ class RoutingTransitions:
         Returns:
             True if transition successful, False otherwise
         """
+        if not self.state_machine:
+            logger.error("State machine not available for routing transition")
+            return False
+
         try:
             plugin = None
 
             if active_source and self.get_plugin:
                 plugin = self.get_plugin(active_source)
 
-            # Step 1: Notify STARTING state to show loading UI
-            if plugin and self.state_machine:
-                await self.state_machine.update_plugin_state(
-                    source=active_source,
-                    new_state=PluginState.STARTING,
-                    metadata={"reason": "routing_change"}
-                )
+            # Acquire transition lock to prevent concurrent plugin lifecycle
+            # operations with transition_to_source(). Lock order is always:
+            # _routing_lock (held by caller) -> _transition_lock (acquired here)
+            async with self.state_machine._transition_lock:
 
-            # Step 2: Stop plugin FIRST to release ALSA device before routing change
-            # This is critical: in direct mode, the plugin holds camilladsp device
-            # which snapclient needs in multiroom mode
-            if plugin:
-                logger.info(f"Stopping plugin {active_source.value} to release ALSA device")
-                await plugin.stop()
-                await asyncio.sleep(0.5)  # Wait for ALSA to release
+                # Step 1: Notify STARTING state to show loading UI
+                if plugin:
+                    await self.state_machine.update_plugin_state(
+                        source=active_source,
+                        new_state=PluginState.STARTING,
+                        metadata={"reason": "routing_change"}
+                    )
 
-            # Step 3: Start/stop Snapcast services based on target mode
-            if target_mode == "multiroom":
-                snapcast_success = await self._handle_multiroom_snapcast()
-                if not snapcast_success:
-                    # Try to restart plugin even if Snapcast failed
-                    if plugin:
-                        logger.info(f"Snapcast failed, restarting plugin {active_source.value}")
-                        await plugin.start()
-                    return False
-            else:
-                await self._stop_snapcast()
+                # Step 2: Stop plugin FIRST to release ALSA device before routing change
+                # This is critical: in direct mode, the plugin holds camilladsp device
+                # which snapclient needs in multiroom mode
+                if plugin:
+                    logger.info(f"Stopping plugin {active_source.value} to release ALSA device")
+                    await plugin.stop()
+                    await asyncio.sleep(0.5)  # Wait for ALSA to release
 
-            # Step 4: Restart plugin with new routing
-            if plugin:
-                await self._restart_plugin(plugin, active_source, target_mode)
+                # Step 3: Start/stop Snapcast services based on target mode
+                if target_mode == "multiroom":
+                    snapcast_success = await self._handle_multiroom_snapcast()
+                    if not snapcast_success:
+                        # Try to restart plugin even if Snapcast failed
+                        if plugin:
+                            logger.info(f"Snapcast failed, restarting plugin {active_source.value}")
+                            await plugin.start()
+                        return False
+                else:
+                    await self._stop_snapcast()
+
+                # Step 4: Restart plugin with new routing
+                if plugin:
+                    await self._restart_plugin(plugin, active_source, target_mode)
 
             return True
 
