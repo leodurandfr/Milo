@@ -14,18 +14,23 @@
       <router-view />
       <VolumeBar />
       <Dock
+        @open-equalizer="isEqualizerOpen = true"
         @open-multiroom="isMultiroomOpen = true"
         @open-settings="isSettingsOpen = true"
       />
+
+      <Modal :is-open="isEqualizerOpen" @close="isEqualizerOpen = false">
+        <EqualizerModal />
+      </Modal>
+
+      <Modal :is-open="isMultiroomOpen" content-overflow="visible" @close="isMultiroomOpen = false">
+        <MultiroomModal />
+      </Modal>
+
+      <Modal :is-open="isSettingsOpen" @close="closeSettings">
+        <SettingsModal :initial-view="settingsInitialView" />
+      </Modal>
     </template>
-
-    <Modal :is-open="isMultiroomOpen" content-overflow="visible" @close="isMultiroomOpen = false">
-      <MultiroomModal />
-    </Modal>
-
-    <Modal :is-open="isSettingsOpen" @close="closeSettings">
-      <SettingsModal :initial-view="settingsInitialView" />
-    </Modal>
 
     <!-- Global Virtual Keyboard -->
     <VirtualKeyboard />
@@ -52,6 +57,9 @@ import Modal from '@/components/ui/Modal.vue';
 import NotificationBanner from '@/components/ui/NotificationBanner.vue';
 
 // Lazy-loaded modals
+const EqualizerModal = defineAsyncComponent(() =>
+  import('@/components/equalizer/EqualizerModal.vue')
+);
 const MultiroomModal = defineAsyncComponent(() =>
   import('@/components/multiroom/MultiroomModal.vue')
 );
@@ -266,6 +274,7 @@ watch(isReady, (ready) => {
   }
 });
 
+const isEqualizerOpen = ref(false);
 const isMultiroomOpen = ref(false);
 const isSettingsOpen = ref(false);
 
@@ -289,9 +298,11 @@ function registerDockControl(showFn) {
 }
 
 // Provide for child components
+provide('openEqualizer', () => isEqualizerOpen.value = true);
 provide('openMultiroom', () => isMultiroomOpen.value = true);
 provide('openSettings', openSettings);
 provide('closeModals', () => {
+  isEqualizerOpen.value = false;
   isMultiroomOpen.value = false;
   closeSettings();
 });
@@ -394,6 +405,7 @@ onMounted(async () => {
 
   // Preload modals in background for instant display when user opens them
   Promise.all([
+    import('@/components/equalizer/EqualizerModal.vue'),
     import('@/components/multiroom/MultiroomModal.vue'),
     import('@/components/settings/SettingsModal.vue'),
     import('@/components/ui/VirtualKeyboard.vue')

@@ -54,6 +54,18 @@
     <SettingsSection :title="t('applications.features')">
       <div class="app-list">
         <ListItemButton
+          :title="t('dsp.title')"
+          :model-value="config.equalizer"
+          variant="background"
+          action="toggle"
+          @update:model-value="(val) => handleToggle('equalizer', val)"
+        >
+          <template #icon>
+            <AppIcon name="equalizer" :size="40" />
+          </template>
+        </ListItemButton>
+
+        <ListItemButton
           :title="t('multiroom.title')"
           :model-value="config.multiroom"
           variant="background"

@@ -1337,6 +1337,11 @@ export const useDspStore = defineStore('dsp', () => {
     outputPeak.value = event.data.output_peak || [-80, -80];
   }
 
+  function updateLevels(input, output) {
+    inputPeak.value = input;
+    outputPeak.value = output;
+  }
+
   function handleCompressorChanged(event) {
     Object.assign(compressor.value, event.data);
   }
@@ -1537,6 +1542,7 @@ export const useDspStore = defineStore('dsp', () => {
     handleStateChanged,
     handlePresetLoaded,
     handleLevels,
+    updateLevels,
     handleCompressorChanged,
     handleLoudnessChanged,
     handleEnabledChanged

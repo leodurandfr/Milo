@@ -8,10 +8,6 @@
         <Toggle :model-value="isMultiroomActive" :type="iconType"
           :disabled="unifiedStore.systemState.transitioning || isMultiroomToggling" @change="handleMultiroomToggle" />
       </template>
-      <template v-else-if="currentView === 'equalizer'" #actions="{ iconType }">
-        <Toggle :model-value="dspStore.isDspEffectsEnabled" :type="iconType" :disabled="dspStore.isTogglingEnabled"
-          @change="handleDspToggle" />
-      </template>
     </ModalHeader>
 
     <!-- Content area (wrapper provides positioning context for cross-fade overlay) -->
@@ -44,12 +40,6 @@
             </template>
           </ListItemButton>
           
-          <ListItemButton :title="t('dsp.title')" action="caret" @click="push('equalizer')">
-            <template #icon>
-              <img :src="equalizerIcon" alt="Equalizer" />
-            </template>
-          </ListItemButton>
-
           <ListItemButton v-if="settingsStore.dockApps.multiroom" :title="t('multiroom.title')" action="caret"
             @click="push('multiroom')">
             <template #icon>
@@ -149,10 +139,6 @@
       <!-- Mac streaming view -->
       <MacosSettings v-else-if="currentView === 'macos'" key="macos" class="view-content" />
 
-      <!-- DSP view -->
-      <DspSettings v-else-if="currentView === 'equalizer'" key="equalizer" class="view-content"
-        @configure-zone="handleEditZone" />
-
       <!-- Updates view -->
       <UpdateManager v-else-if="currentView === 'updates'" key="updates" class="view-content" />
 
@@ -164,13 +150,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, inject, watch } from 'vue';
+import { ref, computed, onMounted, inject, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { i18n } from '@/services/i18n';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useRadioStore } from '@/stores/radioStore';
-import { useDspStore } from '@/stores/dspStore';
 import { useNavigationStack } from '@/composables/useNavigationStack';
 import useWebSocket from '@/services/websocket';
 import { logger } from '@/services/logger';
@@ -191,7 +176,6 @@ import updatesIcon from '@/assets/settings-icons/updates.svg';
 import informationIcon from '@/assets/settings-icons/information.svg';
 import radioIcon from '@/assets/settings-icons/radio.svg';
 import podcastIcon from '@/assets/settings-icons/podcast.svg';
-import equalizerIcon from '@/assets/settings-icons/equalizer.svg';
 import macosIcon from '@/assets/settings-icons/macos.svg';
 import DockSettings from '@/components/settings/categories/DockSettings.vue';
 import VolumeSettings from '@/components/settings/categories/VolumeSettings.vue';
@@ -206,8 +190,6 @@ import PodcastSettings from '@/components/settings/categories/PodcastSettings.vu
 import MacosSettings from '@/components/settings/categories/MacosSettings.vue';
 import UpdateManager from '@/components/settings/categories/UpdateManager.vue';
 import InfoSettings from '@/components/settings/categories/InfoSettings.vue';
-import DspSettings from '@/components/settings/categories/DspSettings.vue';
-
 const props = defineProps({
   initialView: {
     type: String,
@@ -222,7 +204,6 @@ const { on } = useWebSocket();
 const settingsStore = useSettingsStore();
 const unifiedStore = useUnifiedAudioStore();
 const radioStore = useRadioStore();
-const dspStore = useDspStore();
 
 // Inject modal scroll reset function and content ref for scroll detection
 const resetScroll = inject('modalResetScroll', () => { });
@@ -263,7 +244,6 @@ const headerTitle = computed(() => {
     'radio-edit': t('radio.manageStation.editStationTitle'),
     'podcast': t('podcastSettings.title'),
     'macos': t('macSettings.title'),
-    'equalizer': t('dsp.title'),
     'updates': t('settings.updates'),
     'info': t('settings.information')
   };
@@ -481,7 +461,7 @@ async function handleRadioStationEdited(station) {
 // Placeholder for odd grid
 const shouldShowPlaceholder = computed(() => {
   // Count the number of visible IconButtons
-  let count = 7; // Base: Languages, Applications, Volume, Screen, Equalizer, Updates, Information
+  let count = 6; // Base: Languages, Applications, Volume, Screen, Updates, Information
   if (settingsStore.dockApps.spotify) count++;
   if (settingsStore.dockApps.mac) count++;
   if (settingsStore.dockApps.multiroom) count++;
@@ -500,10 +480,6 @@ async function handleMultiroomToggle(enabled) {
   await unifiedStore.setMultiroomEnabled(enabled);
 }
 
-async function handleDspToggle(enabled) {
-  await dspStore.toggleDspEffectsEnabled(enabled);
-}
-
 function handleMultiroomEnabling() {
   isMultiroomToggling.value = true;
 }
@@ -512,15 +488,10 @@ function handleMultiroomDisabling() {
   isMultiroomToggling.value = true;
 }
 
-// Watcher multiroom state (similar to MultiroomModal.vue)
-let lastMultiroomState = isMultiroomActive.value;
-const watcherInterval = setInterval(() => {
-  if (lastMultiroomState !== isMultiroomActive.value) {
-    lastMultiroomState = isMultiroomActive.value;
-    // Reset toggling when the state change is complete
-    isMultiroomToggling.value = false;
-  }
-}, 100);
+// Reset toggling when multiroom state actually changes
+watch(isMultiroomActive, () => {
+  isMultiroomToggling.value = false;
+});
 
 onMounted(async () => {
   // Preload all settings in parallel
@@ -535,9 +506,6 @@ onMounted(async () => {
   on('routing', 'multiroom_disabling', handleMultiroomDisabling);
 });
 
-onUnmounted(() => {
-  clearInterval(watcherInterval);
-});
 </script>
 
 <style scoped>
