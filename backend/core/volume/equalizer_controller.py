@@ -1,12 +1,12 @@
-# backend/core/volume/dsp_controller.py
+# backend/core/volume/equalizer_controller.py
 """
-DSPController - Hardware Abstraction for Volume Control
+EqualizerController - Hardware Abstraction for Volume Control
 
 This service handles all interactions with audio hardware (CamillaDSP).
 It abstracts local vs remote clients and provides parallel updates with error handling.
 
 Key features:
-- Routes volume commands to local DSP or remote clients
+- Routes volume commands to local CamillaDSP or remote clients
 - Parallel updates with asyncio.gather()
 - Timeout and error handling
 - Retry logic for transient failures
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from backend.core.multiroom.client_registry import ClientRegistryService
 
 
-class DSPController:
+class EqualizerController:
     """
     Hardware abstraction layer for CamillaDSP volume control.
 
@@ -35,7 +35,7 @@ class DSPController:
 
     def __init__(self, camilladsp_service, client_proxy_service, client_registry=None):
         """
-        Initialize DSPController.
+        Initialize EqualizerController.
 
         Args:
             camilladsp_service: Service for controlling local CamillaDSP
@@ -43,7 +43,7 @@ class DSPController:
             client_registry: Registry for looking up client IPs
         """
         self.logger = logging.getLogger(__name__)
-        self._dsp_service = camilladsp_service
+        self._camilladsp_service = camilladsp_service
         self._proxy_service = client_proxy_service
         self._registry = client_registry
         self._timeout = self.DEFAULT_TIMEOUT
@@ -67,10 +67,10 @@ class DSPController:
     # ========== Client Readiness ==========
 
     async def wait_for_client_ready(self, mac_id: str, max_wait: float = 10.0, interval: float = 0.5) -> bool:
-        """Wait for a client's DSP to become available."""
+        """Wait for a client's equalizer to become available."""
         if self._is_local(mac_id):
-            if self._dsp_service and hasattr(self._dsp_service, 'wait_for_connection'):
-                return await self._dsp_service.wait_for_connection(timeout=max_wait)
+            if self._camilladsp_service and hasattr(self._camilladsp_service, 'wait_for_connection'):
+                return await self._camilladsp_service.wait_for_connection(timeout=max_wait)
             return True
 
         client_ip = self._get_client_ip(mac_id)
@@ -89,7 +89,7 @@ class DSPController:
 
     # ========== Single Client Operations ==========
 
-    async def set_dsp_volume(self, mac_id: str, volume_db: float, retry: int = 0) -> bool:
+    async def set_equalizer_volume(self, mac_id: str, volume_db: float, retry: int = 0) -> bool:
         """
         Set volume for a single client (local or remote).
 
@@ -114,7 +114,7 @@ class DSPController:
         except asyncio.TimeoutError:
             if retry < self.RETRY_ATTEMPTS:
                 await asyncio.sleep(self.RETRY_DELAY)
-                return await self.set_dsp_volume(mac_id, volume_db, retry + 1)
+                return await self.set_equalizer_volume(mac_id, volume_db, retry + 1)
             self.logger.error(f"Timeout setting volume for {mac_id}")
             return False
         except Exception as e:
@@ -133,19 +133,19 @@ class DSPController:
         """
         try:
             result = await asyncio.wait_for(
-                self._dsp_service.set_volume(volume_db),
+                self._camilladsp_service.set_volume(volume_db),
                 timeout=self._timeout
             )
 
             if result:
-                self.logger.debug(f"Local DSP volume set to {volume_db:.1f}dB")
+                self.logger.debug(f"Local CamillaDSP volume set to {volume_db:.1f}dB")
                 return True
             else:
-                self.logger.warning(f"Local DSP volume update failed")
+                self.logger.warning(f"Local CamillaDSP volume update failed")
                 return False
 
         except Exception as e:
-            self.logger.error(f"Error setting local DSP volume: {e}")
+            self.logger.error(f"Error setting local equalizer volume: {e}")
             raise
 
     async def _set_remote_volume(self, hostname: str, volume_db: float) -> bool:
@@ -164,28 +164,28 @@ class DSPController:
                 self._proxy_service.request(
                     hostname,
                     "PUT",
-                    "/dsp/volume",
+                    "/equalizer/volume",
                     {"volume": volume_db}
                 ),
                 timeout=self._timeout
             )
 
             if result and result.get("status") == "success":
-                self.logger.debug(f"Remote DSP ({hostname}) volume set to {volume_db:.1f}dB")
+                self.logger.debug(f"Remote CamillaDSP ({hostname}) volume set to {volume_db:.1f}dB")
                 return True
             else:
-                self.logger.warning(f"Remote DSP ({hostname}) volume update failed: {result}")
+                self.logger.warning(f"Remote CamillaDSP ({hostname}) volume update failed: {result}")
                 return False
 
         except Exception as e:
-            self.logger.error(f"Error setting remote DSP volume ({hostname}): {e}")
+            self.logger.error(f"Error setting remote equalizer volume ({hostname}): {e}")
             raise
 
-    async def set_dsp_mute(self, mac_id: str, mute: bool) -> bool:
-        """Set mute state for a client's DSP."""
+    async def set_equalizer_mute(self, mac_id: str, mute: bool) -> bool:
+        """Set mute state for a client's equalizer."""
         try:
             if self._is_local(mac_id):
-                result = await asyncio.wait_for(self._dsp_service.set_mute(mute), timeout=self._timeout)
+                result = await asyncio.wait_for(self._camilladsp_service.set_mute(mute), timeout=self._timeout)
                 return bool(result)
 
             client_ip = self._get_client_ip(mac_id)
@@ -193,7 +193,7 @@ class DSPController:
                 return False
 
             result = await asyncio.wait_for(
-                self._proxy_service.request(client_ip, "PUT", "/dsp/mute", {"muted": mute}),
+                self._proxy_service.request(client_ip, "PUT", "/equalizer/mute", {"muted": mute}),
                 timeout=self._timeout
             )
             return result and result.get("status") == "success"
@@ -240,7 +240,7 @@ class DSPController:
             return success_map
 
         # Apply volumes in parallel
-        tasks = {mac_id: asyncio.create_task(self.set_dsp_volume(mac_id, vol))
+        tasks = {mac_id: asyncio.create_task(self.set_equalizer_volume(mac_id, vol))
                  for mac_id, vol in available_updates.items()}
         results = await asyncio.gather(*tasks.values(), return_exceptions=True)
 
@@ -255,7 +255,7 @@ class DSPController:
         """Read current volume from hardware."""
         try:
             if self._is_local(mac_id):
-                vol = await asyncio.wait_for(self._dsp_service.get_volume(), timeout=self._timeout)
+                vol = await asyncio.wait_for(self._camilladsp_service.get_volume(), timeout=self._timeout)
                 return vol.get("main") if vol else None
 
             client_ip = self._get_client_ip(mac_id)
@@ -263,7 +263,7 @@ class DSPController:
                 return None
 
             result = await asyncio.wait_for(
-                self._proxy_service.request(client_ip, "GET", "/dsp/volume", None),
+                self._proxy_service.request(client_ip, "GET", "/equalizer/volume", None),
                 timeout=self._timeout
             )
             return result.get("volume_db") if result else None
@@ -315,10 +315,10 @@ class DSPController:
 
     def set_timeout(self, timeout: float) -> None:
         """
-        Set timeout for DSP operations.
+        Set timeout for equalizer operations.
 
         Args:
             timeout: Timeout in seconds
         """
         self._timeout = timeout
-        self.logger.debug(f"DSP timeout set to {timeout}s")
+        self.logger.debug(f"Equalizer timeout set to {timeout}s")

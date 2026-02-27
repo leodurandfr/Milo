@@ -3,10 +3,10 @@
 <template>
   <div class="zone-edit">
     <!-- Zone Name Input -->
-    <SettingsSection :title="$t('dsp.zones.zoneName', 'Zone Name')">
+    <SettingsSection :title="$t('equalizer.zones.zoneName', 'Zone Name')">
       <InputText
         v-model="zoneName"
-        :placeholder="$t('dsp.zones.zoneNamePlaceholder', 'e.g., Living Room')"
+        :placeholder="$t('equalizer.zones.zoneNamePlaceholder', 'e.g., Living Room')"
         size="medium"
         :maxlength="15"
         @blur="saveZoneName"
@@ -14,7 +14,7 @@
     </SettingsSection>
 
     <!-- Client Selection -->
-    <SettingsSection :title="$t('dsp.zones.selectClients', 'Select Clients')">
+    <SettingsSection :title="$t('equalizer.zones.selectClients', 'Select Clients')">
       <div class="clients-list">
         <SpeakerListItem
           v-for="target in availableTargets"
@@ -48,7 +48,7 @@
       :disabled="selectedClients.length < 2"
       @click="handleCreate"
     >
-      {{ $t('dsp.zones.createZone', 'Create Zone') }}
+      {{ $t('equalizer.zones.createZone', 'Create Zone') }}
     </Button>
 
     <!-- Delete Zone (only when editing existing zone) -->
@@ -60,14 +60,14 @@
       :loading="deleting"
       @click="handleDelete"
     >
-      {{ $t('dsp.zones.deleteZone', 'Delete Zone') }}
+      {{ $t('equalizer.zones.deleteZone', 'Delete Zone') }}
     </Button>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
-import { useDspStore } from '@/stores/dspStore';
+import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import Button from '@/components/ui/Button.vue';
 import InputText from '@/components/ui/InputText.vue';
@@ -86,7 +86,7 @@ const props = defineProps({
 
 const emit = defineEmits(['back', 'saved']);
 
-const dspStore = useDspStore();
+const equalizerStore = useEqualizerStore();
 const multiroomStore = useMultiroomStore();
 const saving = ref(false);
 const deleting = ref(false);
@@ -172,7 +172,7 @@ async function saveZoneName() {
 async function handleCrossoverChange(frequency) {
   if (!props.groupId) return;
   try {
-    await dspStore.setZoneCrossoverFrequency(props.groupId, frequency);
+    await equalizerStore.setZoneCrossoverFrequency(props.groupId, frequency);
   } catch (error) {
     console.error('Error updating crossover frequency:', error);
   }

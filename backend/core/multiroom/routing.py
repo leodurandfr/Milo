@@ -30,7 +30,7 @@ class RoutingEnvironment:
     - ROC_FRAME_LENGTH: ROC frame length (e.g., "4ms")
 
     Note: MILO_EQUALIZER was removed - CamillaDSP is always in the audio path.
-    DSP effects (EQ, compressor, loudness) are controlled via CamillaDSP bypass,
+    Equalizer effects (EQ, compressor, loudness) are controlled via CamillaDSP bypass,
     not via ALSA routing.
     """
 
@@ -175,7 +175,7 @@ class AudioRoutingService:
 
     IMPORTANT: This service no longer has its own state. It directly uses
     state_machine.system_state as the single source of truth for multiroom_enabled
-    and dsp_effects_enabled. This eliminates desynchronization risks.
+    and equalizer_effects_enabled. This eliminates desynchronization risks.
     """
 
     def __init__(self, get_plugin_callback: Optional[Callable] = None, settings_service=None, systemd_manager=None):
@@ -256,18 +256,18 @@ class AudioRoutingService:
             async with self.state_machine._state_lock:
                 self.state_machine.system_state.multiroom_enabled = value
 
-    async def _get_dsp_effects_enabled(self) -> bool:
-        """Accesses DSP effects state in a thread-safe manner"""
+    async def _get_equalizer_effects_enabled(self) -> bool:
+        """Accesses equalizer effects state in a thread-safe manner"""
         if not self.state_machine:
             return False
         async with self.state_machine._state_lock:
-            return self.state_machine.system_state.dsp_effects_enabled
+            return self.state_machine.system_state.equalizer_effects_enabled
 
-    async def _set_dsp_effects_state(self, value: bool) -> None:
-        """Modifies DSP effects state in a thread-safe manner (internal method)"""
+    async def _set_equalizer_effects_state(self, value: bool) -> None:
+        """Modifies equalizer effects state in a thread-safe manner (internal method)"""
         if self.state_machine:
             async with self.state_machine._state_lock:
-                self.state_machine.system_state.dsp_effects_enabled = value
+                self.state_machine.system_state.equalizer_effects_enabled = value
 
     # Synchronous properties for compatibility (read-only, may be slightly out of sync)
     @property
@@ -278,11 +278,11 @@ class AudioRoutingService:
         return self.state_machine.system_state.multiroom_enabled
 
     @property
-    def dsp_effects_enabled(self) -> bool:
-        """Accesses DSP effects state (FAST READ - may be slightly out of sync)"""
+    def equalizer_effects_enabled(self) -> bool:
+        """Accesses equalizer effects state (FAST READ - may be slightly out of sync)"""
         if not self.state_machine:
             return False
-        return self.state_machine.system_state.dsp_effects_enabled
+        return self.state_machine.system_state.equalizer_effects_enabled
     
     async def initialize(self) -> None:
         """Initializes service state"""
@@ -297,27 +297,27 @@ class AudioRoutingService:
             # Load state from SettingsService
             if self.settings_service:
                 multiroom = await self.settings_service.get_setting('routing.multiroom_enabled')
-                dsp_effects = await self.settings_service.get_setting('dsp.effects_enabled')
+                equalizer_effects = await self.settings_service.get_setting('equalizer.effects_enabled')
                 await self._set_multiroom_state(self._to_bool(multiroom))
-                await self._set_dsp_effects_state(self._to_bool(dsp_effects))
-                self.logger.info(f"Loaded state from settings: multiroom={self.multiroom_enabled}, dsp_effects={self.dsp_effects_enabled}")
+                await self._set_equalizer_effects_state(self._to_bool(equalizer_effects))
+                self.logger.info(f"Loaded state from settings: multiroom={self.multiroom_enabled}, equalizer_effects={self.equalizer_effects_enabled}")
             else:
                 self.logger.warning("SettingsService not available, using defaults")
                 await self._set_multiroom_state(False)
-                await self._set_dsp_effects_state(False)
+                await self._set_equalizer_effects_state(False)
 
             await self._update_systemd_environment()
             await self._sync_snapcast_state()
             await self._initialize_camilladsp()
 
             self._initial_detection_done = True
-            self.logger.info(f"Routing initialized: multiroom={self.multiroom_enabled}, dsp_effects={self.dsp_effects_enabled}")
+            self.logger.info(f"Routing initialized: multiroom={self.multiroom_enabled}, equalizer_effects={self.equalizer_effects_enabled}")
 
             if self.multiroom_enabled:
                 asyncio.create_task(self._delayed_multiroom_sync())
 
         except Exception as e:
-            # Do NOT reset multiroom/dsp state here — routing.env was already
+            # Do NOT reset multiroom/equalizer state here — routing.env was already
             # written correctly from settings.json above. Resetting would overwrite
             # MILO_MODE=multiroom with MILO_MODE=direct, causing ALSA device conflicts.
             self.logger.error(f"Error during initial state detection: {e}")
@@ -351,18 +351,18 @@ class AudioRoutingService:
             connected = await self.camilladsp_service.connect()
             if connected:
                 self.logger.info("Backend connected to CamillaDSP daemon")
-                current_dsp_effects = await self._get_dsp_effects_enabled()
-                if current_dsp_effects:
-                    self.logger.info("DSP effects enabled, restoring from settings")
+                current_equalizer_effects = await self._get_equalizer_effects_enabled()
+                if current_equalizer_effects:
+                    self.logger.info("Equalizer effects enabled, restoring from settings")
                     await self.camilladsp_service.restore_effects()
                 else:
-                    self.logger.info("DSP effects disabled, bypassing all effects")
+                    self.logger.info("Equalizer effects disabled, bypassing all effects")
                     await self.camilladsp_service.bypass_effects()
             else:
                 self.logger.warning("Failed to connect to CamillaDSP daemon on startup")
 
     async def _delayed_multiroom_sync(self):
-        """Sync client volumes from DSP after startup delay (ensures all services ready)."""
+        """Sync client volumes from equalizer after startup delay (ensures all services ready)."""
         try:
             self.logger.info(f"[{time.time():.3f}] DELAYED_SYNC: Waiting 3s before startup sync...")
             # Wait for all services to be fully initialized
@@ -373,14 +373,14 @@ class AudioRoutingService:
                 self.logger.info(f"[{time.time():.3f}] DELAYED_SYNC: Multiroom disabled, skipping sync")
                 return
 
-            # Sync volumes from DSP
+            # Sync volumes from equalizer
             volume_service = getattr(self.state_machine, 'volume_service', None) if self.state_machine else None
             if volume_service:
-                self.logger.info(f"[{time.time():.3f}] DELAYED_SYNC: Starting sync_all_clients_from_dsp")
-                await volume_service.sync_all_clients_from_dsp()
-                self.logger.info(f"[{time.time():.3f}] DELAYED_SYNC: sync_all_clients_from_dsp complete")
+                self.logger.info(f"[{time.time():.3f}] DELAYED_SYNC: Starting sync_all_clients_from_equalizer")
+                await volume_service.sync_all_clients_from_equalizer()
+                self.logger.info(f"[{time.time():.3f}] DELAYED_SYNC: sync_all_clients_from_equalizer complete")
             else:
-                self.logger.warning("VolumeService not available for DSP sync")
+                self.logger.warning("VolumeService not available for equalizer sync")
 
         except Exception as e:
             self.logger.error(f"Error in delayed multiroom sync: {e}")
@@ -497,9 +497,9 @@ class AudioRoutingService:
         except Exception as e:
             self.logger.error(f"Auto-configure multiroom failed: {e}")
 
-    async def set_dsp_effects_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
+    async def set_equalizer_effects_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
         """
-        Enables/disables DSP EFFECTS (not the service itself).
+        Enables/disables equalizer effects (not the service itself).
 
         CamillaDSP service stays ALWAYS running. This toggle only controls:
         - EQ filters (enabled/bypassed)
@@ -509,51 +509,51 @@ class AudioRoutingService:
         Volume control via CamillaDSP is ALWAYS active regardless of this setting.
         """
         async with self._routing_lock:  # Guarantee atomicity of routing operations
-            current_state = await self._get_dsp_effects_enabled()
+            current_state = await self._get_equalizer_effects_enabled()
             if current_state == enabled:
-                self.logger.info(f"DSP effects already {'enabled' if enabled else 'bypassed'}")
+                self.logger.info(f"Equalizer effects already {'enabled' if enabled else 'bypassed'}")
                 return True
 
             try:
                 old_state = current_state
-                self.logger.info(f"{'Enabling' if enabled else 'Bypassing'} DSP effects")
+                self.logger.info(f"{'Enabling' if enabled else 'Bypassing'} Equalizer effects")
 
-                await self._set_dsp_effects_state(enabled)
+                await self._set_equalizer_effects_state(enabled)
 
-                # Toggle DSP effects (NOT the service!)
+                # Toggle Equalizer effects (NOT the service!)
                 if self.camilladsp_service:
                     if enabled:
-                        # Restore all DSP effects from settings
+                        # Restore all Equalizer effects from settings
                         success = await self.camilladsp_service.restore_effects()
                         if success:
-                            self.logger.info("DSP effects restored from settings")
+                            self.logger.info("Equalizer effects restored from settings")
                         else:
-                            self.logger.warning("Failed to restore DSP effects")
+                            self.logger.warning("Failed to restore Equalizer effects")
                     else:
-                        # Bypass all DSP effects (but keep volume!)
+                        # Bypass all Equalizer effects (but keep volume!)
                         success = await self.camilladsp_service.bypass_effects()
                         if success:
-                            self.logger.info("DSP effects bypassed (volume unchanged)")
+                            self.logger.info("Equalizer effects bypassed (volume unchanged)")
                         else:
-                            self.logger.warning("Failed to bypass DSP effects")
+                            self.logger.warning("Failed to bypass Equalizer effects")
 
-                # Broadcast DSP state change event
+                # Broadcast equalizer state change event
                 if self.state_machine:
-                    await self.state_machine.broadcast_event("dsp", "enabled_changed", {
+                    await self.state_machine.broadcast_event("equalizer", "enabled_changed", {
                         "enabled": enabled,
                         "effects_bypassed": not enabled
                     })
 
                 # Save state via SettingsService
                 if self.settings_service:
-                    await self.settings_service.set_setting('dsp.effects_enabled', enabled)
+                    await self.settings_service.set_setting('equalizer.effects_enabled', enabled)
 
-                self.logger.info(f"DSP effects {'enabled' if enabled else 'bypassed'}")
+                self.logger.info(f"Equalizer effects {'enabled' if enabled else 'bypassed'}")
                 return True
 
             except Exception as e:
-                await self._set_dsp_effects_state(old_state)
-                self.logger.error(f"Error changing DSP effects state: {e}")
+                await self._set_equalizer_effects_state(old_state)
+                self.logger.error(f"Error changing Equalizer effects state: {e}")
                 return False
     
     async def _update_systemd_environment(self) -> None:
@@ -599,7 +599,7 @@ class AudioRoutingService:
         """
         return {
             "multiroom_enabled": self.multiroom_enabled,
-            "dsp_effects_enabled": self.dsp_effects_enabled
+            "equalizer_effects_enabled": self.equalizer_effects_enabled
         }
     
     async def get_snapcast_status(self) -> Dict[str, Any]:

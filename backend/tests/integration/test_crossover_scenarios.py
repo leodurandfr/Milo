@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from backend.core.multiroom.models import (
     Client,
     Zone,
-    DspSettings,
+    EqualizerSettings,
     RegistryEventType,
     DEFAULT_SPEAKER_TYPE,
     DEFAULT_CROSSOVER_FREQUENCIES,
@@ -47,8 +47,8 @@ def mock_settings_service():
 
 
 @pytest.fixture
-def mock_dsp_service():
-    """Create a mock DSP service for local client."""
+def mock_camilladsp_service():
+    """Create a mock Equalizer service for local client."""
     service = AsyncMock()
     service.set_crossover_filter = AsyncMock(return_value=True)
     service.set_lowpass_filter = AsyncMock(return_value=True)
@@ -79,11 +79,11 @@ async def registry(mock_settings_service, mock_event_bus):
 
 
 @pytest.fixture
-async def crossover_with_registry(mock_settings_service, mock_dsp_service, mock_event_bus, registry):
+async def crossover_with_registry(mock_settings_service, mock_camilladsp_service, mock_event_bus, registry):
     """Create CrossoverService integrated with ClientRegistryService."""
     crossover = CrossoverService(
         settings_service=mock_settings_service,
-        dsp_service=mock_dsp_service,
+        camilladsp_service=mock_camilladsp_service,
         event_bus=mock_event_bus
     )
     await crossover.initialize()
@@ -104,7 +104,7 @@ class TestCrossoverActivation:
     """E2E tests for crossover activation scenarios."""
 
     @pytest.mark.asyncio
-    async def test_e2e_subwoofer_joins_zone_activates_crossover(self, crossover_with_registry, mock_dsp_service):
+    async def test_e2e_subwoofer_joins_zone_activates_crossover(self, crossover_with_registry, mock_camilladsp_service):
         """Test crossover activates when subwoofer joins a zone."""
         crossover, registry = crossover_with_registry
 
@@ -151,10 +151,10 @@ class TestCrossoverActivation:
 
         assert result is True
         # Local client should get highpass filter
-        mock_dsp_service.set_crossover_filter.assert_called()
+        mock_camilladsp_service.set_crossover_filter.assert_called()
 
     @pytest.mark.asyncio
-    async def test_e2e_crossover_applies_to_all_zone_members(self, crossover_with_registry, mock_dsp_service):
+    async def test_e2e_crossover_applies_to_all_zone_members(self, crossover_with_registry, mock_camilladsp_service):
         """Test crossover applies highpass to all non-subwoofer members."""
         crossover, registry = crossover_with_registry
 
@@ -173,11 +173,11 @@ class TestCrossoverActivation:
         await crossover.apply_zone_crossover(zone.id)
 
         # Verify local got highpass
-        mock_dsp_service.set_crossover_filter.assert_called()
+        mock_camilladsp_service.set_crossover_filter.assert_called()
 
         # Verify subwoofer did NOT get highpass (it gets lowpass instead)
         # Check that last call to set_crossover_filter was for enabling
-        calls = mock_dsp_service.set_crossover_filter.call_args_list
+        calls = mock_camilladsp_service.set_crossover_filter.call_args_list
         # At least one call should be for local client
         assert len(calls) >= 1
 
@@ -190,7 +190,7 @@ class TestCrossoverDeactivation:
     """E2E tests for crossover deactivation scenarios."""
 
     @pytest.mark.asyncio
-    async def test_e2e_subwoofer_leaves_zone_deactivates_crossover(self, crossover_with_registry, mock_dsp_service):
+    async def test_e2e_subwoofer_leaves_zone_deactivates_crossover(self, crossover_with_registry, mock_camilladsp_service):
         """Test crossover deactivates when subwoofer leaves zone."""
         crossover, registry = crossover_with_registry
 
@@ -209,7 +209,7 @@ class TestCrossoverDeactivation:
         assert result is True
 
         # Reset mock to track deactivation
-        mock_dsp_service.reset_mock()
+        mock_camilladsp_service.reset_mock()
 
         # Remove subwoofer from zone
         await registry.remove_client_from_zone(zone.id, "sub-1")
@@ -218,15 +218,15 @@ class TestCrossoverDeactivation:
         await crossover.apply_zone_crossover(zone.id)
 
         # Filters should be disabled
-        mock_dsp_service.set_crossover_filter.assert_called()
+        mock_camilladsp_service.set_crossover_filter.assert_called()
         # Should be called with enabled=False since no subwoofer
-        calls = mock_dsp_service.set_crossover_filter.call_args_list
+        calls = mock_camilladsp_service.set_crossover_filter.call_args_list
         last_call = calls[-1] if calls else None
         if last_call:
             assert last_call.kwargs.get('enabled') is False or last_call[1].get('enabled') is False
 
     @pytest.mark.asyncio
-    async def test_e2e_subwoofer_goes_offline_deactivates_crossover(self, crossover_with_registry, mock_dsp_service):
+    async def test_e2e_subwoofer_goes_offline_deactivates_crossover(self, crossover_with_registry, mock_camilladsp_service):
         """Test crossover deactivates when subwoofer goes offline."""
         crossover, registry = crossover_with_registry
 
@@ -244,7 +244,7 @@ class TestCrossoverDeactivation:
         await crossover.apply_zone_crossover(zone.id)
 
         # Reset mock
-        mock_dsp_service.reset_mock()
+        mock_camilladsp_service.reset_mock()
 
         # Subwoofer goes offline
         await registry.set_client_online("sub-1", False)
@@ -253,7 +253,7 @@ class TestCrossoverDeactivation:
         await crossover.apply_zone_crossover(zone.id)
 
         # Should disable crossover (subwoofer offline means no crossover)
-        mock_dsp_service.set_crossover_filter.assert_called()
+        mock_camilladsp_service.set_crossover_filter.assert_called()
 
 
 # =============================================================================
@@ -264,7 +264,7 @@ class TestCrossoverRecalculation:
     """E2E tests for crossover recalculation on configuration changes."""
 
     @pytest.mark.asyncio
-    async def test_e2e_speaker_type_change_triggers_recalculation(self, crossover_with_registry, mock_dsp_service):
+    async def test_e2e_speaker_type_change_triggers_recalculation(self, crossover_with_registry, mock_camilladsp_service):
         """Test crossover recalculates when speaker_type changes."""
         crossover, registry = crossover_with_registry
 
@@ -283,7 +283,7 @@ class TestCrossoverRecalculation:
         await crossover.apply_zone_crossover(zone.id)
 
         # Reset mock
-        mock_dsp_service.reset_mock()
+        mock_camilladsp_service.reset_mock()
 
         # Change local speaker type to satellite (120Hz)
         await registry.update_speaker_type("local", "satellite")
@@ -292,10 +292,10 @@ class TestCrossoverRecalculation:
         await crossover.apply_zone_crossover(zone.id)
 
         # Should be called with new frequency
-        mock_dsp_service.set_crossover_filter.assert_called()
+        mock_camilladsp_service.set_crossover_filter.assert_called()
 
     @pytest.mark.asyncio
-    async def test_e2e_client_join_zone_triggers_recalculation(self, crossover_with_registry, mock_dsp_service):
+    async def test_e2e_client_join_zone_triggers_recalculation(self, crossover_with_registry, mock_camilladsp_service):
         """Test crossover recalculates when client joins zone."""
         crossover, registry = crossover_with_registry
 
@@ -313,7 +313,7 @@ class TestCrossoverRecalculation:
         await crossover.apply_zone_crossover(zone.id)
 
         # Reset mock
-        mock_dsp_service.reset_mock()
+        mock_camilladsp_service.reset_mock()
 
         # Register new client with tower speaker type (50Hz)
         await registry.register_client("tower-1", "Tower", "192.168.1.101")
@@ -331,7 +331,7 @@ class TestCrossoverRecalculation:
         assert freq == 50  # Tower's default
 
     @pytest.mark.asyncio
-    async def test_e2e_client_leave_zone_triggers_recalculation(self, crossover_with_registry, mock_dsp_service):
+    async def test_e2e_client_leave_zone_triggers_recalculation(self, crossover_with_registry, mock_camilladsp_service):
         """Test crossover recalculates when client leaves zone."""
         crossover, registry = crossover_with_registry
 
@@ -370,7 +370,7 @@ class TestPendingSettingsOnReconnect:
     """E2E tests for pending settings application on reconnect."""
 
     @pytest.mark.asyncio
-    async def test_e2e_pending_crossover_applied_on_reconnect(self, crossover_with_registry, mock_dsp_service):
+    async def test_e2e_pending_crossover_applied_on_reconnect(self, crossover_with_registry, mock_camilladsp_service):
         """Test pending crossover settings are applied when client reconnects.
 
         The CrossoverService automatically applies pending settings when
@@ -399,10 +399,10 @@ class TestPendingSettingsOnReconnect:
         # Pending settings should now be cleared (applied automatically)
         # Note: The event triggers _handle_registry_event which calls apply_pending_settings
         assert crossover.has_pending_settings("local") is False
-        mock_dsp_service.set_crossover_filter.assert_called()
+        mock_camilladsp_service.set_crossover_filter.assert_called()
 
     @pytest.mark.asyncio
-    async def test_e2e_pending_lowpass_applied_on_reconnect(self, crossover_with_registry, mock_dsp_service):
+    async def test_e2e_pending_lowpass_applied_on_reconnect(self, crossover_with_registry, mock_camilladsp_service):
         """Test pending lowpass settings are applied when subwoofer reconnects."""
         crossover, registry = crossover_with_registry
 
@@ -421,10 +421,10 @@ class TestPendingSettingsOnReconnect:
 
         # Settings should be automatically applied via event handler
         assert crossover.has_pending_settings("local") is False
-        mock_dsp_service.set_lowpass_filter.assert_called()
+        mock_camilladsp_service.set_lowpass_filter.assert_called()
 
     @pytest.mark.asyncio
-    async def test_e2e_multiple_pending_settings_applied(self, crossover_with_registry, mock_dsp_service):
+    async def test_e2e_multiple_pending_settings_applied(self, crossover_with_registry, mock_camilladsp_service):
         """Test multiple pending settings types are all applied automatically."""
         crossover, registry = crossover_with_registry
 
@@ -437,8 +437,8 @@ class TestPendingSettingsOnReconnect:
 
         # Both settings should be applied via event handler
         assert crossover.has_pending_settings("local") is False
-        mock_dsp_service.set_crossover_filter.assert_called()
-        mock_dsp_service.set_compressor.assert_called()
+        mock_camilladsp_service.set_crossover_filter.assert_called()
+        mock_camilladsp_service.set_compressor.assert_called()
 
 
 # =============================================================================
@@ -460,7 +460,7 @@ class TestRegistryEventIntegration:
         assert crossover._handle_registry_event in registry._subscribers
 
     @pytest.mark.asyncio
-    async def test_zone_created_event_triggers_crossover_application(self, crossover_with_registry, mock_dsp_service):
+    async def test_zone_created_event_triggers_crossover_application(self, crossover_with_registry, mock_camilladsp_service):
         """Test ZONE_CREATED event triggers crossover application."""
         crossover, registry = crossover_with_registry
 
@@ -481,7 +481,7 @@ class TestRegistryEventIntegration:
         )
 
         # Crossover should be applied
-        mock_dsp_service.set_crossover_filter.assert_called()
+        mock_camilladsp_service.set_crossover_filter.assert_called()
 
 
 # =============================================================================
@@ -492,7 +492,7 @@ class TestAutomaticCrossoverE2E:
     """E2E tests for automatic crossover activation/deactivation (Story 5.5)."""
 
     @pytest.mark.asyncio
-    async def test_e2e_subwoofer_online_activates_crossover(self, crossover_with_registry, mock_dsp_service):
+    async def test_e2e_subwoofer_online_activates_crossover(self, crossover_with_registry, mock_camilladsp_service):
         """E2E Test: Snapcast event → CLIENT_CONNECTED → crossover activation (AC#1, AC#6)."""
         crossover, registry = crossover_with_registry
 
@@ -509,22 +509,22 @@ class TestAutomaticCrossoverE2E:
         zone = await registry.create_zone(generate_zone_id(), "Living Room", ["local", "sub-1"])
 
         # 3. Reset mock to track only activation calls
-        mock_dsp_service.reset_mock()
+        mock_camilladsp_service.reset_mock()
 
         # 4. Subwoofer comes ONLINE (simulating Snapcast connection event)
         await registry.set_client_online("sub-1", True)
 
         # 5. Verify crossover was automatically activated
         #    The EVENT_CONNECTED triggers _handle_registry_event which calls apply_zone_crossover
-        mock_dsp_service.set_crossover_filter.assert_called()
+        mock_camilladsp_service.set_crossover_filter.assert_called()
 
         # Verify highpass was enabled on local (bookshelf) speaker
-        calls = [c for c in mock_dsp_service.set_crossover_filter.call_args_list]
+        calls = [c for c in mock_camilladsp_service.set_crossover_filter.call_args_list]
         enabled_calls = [c for c in calls if c.kwargs.get('enabled', c[1].get('enabled', None)) is True]
         assert len(enabled_calls) > 0, "Expected at least one call with enabled=True"
 
     @pytest.mark.asyncio
-    async def test_e2e_subwoofer_offline_deactivates_crossover(self, crossover_with_registry, mock_dsp_service):
+    async def test_e2e_subwoofer_offline_deactivates_crossover(self, crossover_with_registry, mock_camilladsp_service):
         """E2E Test: Snapcast event → CLIENT_DISCONNECTED → crossover deactivation (AC#5, AC#6)."""
         crossover, registry = crossover_with_registry
 
@@ -543,20 +543,20 @@ class TestAutomaticCrossoverE2E:
         await crossover.apply_zone_crossover(zone.id)
 
         # Verify crossover is active
-        mock_dsp_service.reset_mock()
+        mock_camilladsp_service.reset_mock()
 
         # 2. Subwoofer goes OFFLINE (simulating Snapcast disconnection)
         await registry.set_client_online("sub-1", False)
 
         # 3. Verify crossover was automatically deactivated
-        mock_dsp_service.set_crossover_filter.assert_called()
+        mock_camilladsp_service.set_crossover_filter.assert_called()
 
         # Verify highpass was disabled
-        last_call = mock_dsp_service.set_crossover_filter.call_args
+        last_call = mock_camilladsp_service.set_crossover_filter.call_args
         assert last_call.kwargs.get('enabled') is False or last_call[1].get('enabled') is False
 
     @pytest.mark.asyncio
-    async def test_e2e_speaker_type_api_change_triggers_crossover(self, crossover_with_registry, mock_dsp_service):
+    async def test_e2e_speaker_type_api_change_triggers_crossover(self, crossover_with_registry, mock_camilladsp_service):
         """E2E Test: speaker_type API change → crossover recalculation → WebSocket broadcast (AC#7)."""
         crossover, registry = crossover_with_registry
 
@@ -573,7 +573,7 @@ class TestAutomaticCrossoverE2E:
 
         # Verify no crossover initially
         await crossover.apply_zone_crossover(zone.id)
-        mock_dsp_service.reset_mock()
+        mock_camilladsp_service.reset_mock()
 
         # 2. Change book-2 to subwoofer (simulating API call: PATCH /api/multiroom/clients/{mac_id})
         #    This triggers SPEAKER_TYPE_CHANGED event which leads to crossover recalculation
@@ -586,9 +586,9 @@ class TestAutomaticCrossoverE2E:
         )
 
         # 4. Verify crossover was activated
-        mock_dsp_service.set_crossover_filter.assert_called()
+        mock_camilladsp_service.set_crossover_filter.assert_called()
 
-        last_call = mock_dsp_service.set_crossover_filter.call_args
+        last_call = mock_camilladsp_service.set_crossover_filter.call_args
         assert last_call.kwargs.get('enabled') is True or last_call[1].get('enabled') is True
 
     @pytest.mark.asyncio
@@ -630,7 +630,7 @@ class TestAutomaticCrossoverE2E:
         assert event_data["zone"]["crossover_enabled"] is True, "Crossover should be enabled with online subwoofer"
 
     @pytest.mark.asyncio
-    async def test_e2e_auto_mode_respects_subwoofer_online_status(self, crossover_with_registry, mock_dsp_service):
+    async def test_e2e_auto_mode_respects_subwoofer_online_status(self, crossover_with_registry, mock_camilladsp_service):
         """E2E Test: Auto mode (crossover_enabled=None) correctly follows subwoofer status."""
         crossover, registry = crossover_with_registry
 
@@ -648,29 +648,29 @@ class TestAutomaticCrossoverE2E:
 
         # 1. With subwoofer OFFLINE - crossover should be disabled
         await crossover.apply_zone_crossover(zone.id)
-        last_call = mock_dsp_service.set_crossover_filter.call_args
+        last_call = mock_camilladsp_service.set_crossover_filter.call_args
         assert last_call.kwargs.get('enabled') is False or last_call[1].get('enabled') is False
 
-        mock_dsp_service.reset_mock()
+        mock_camilladsp_service.reset_mock()
 
         # 2. Bring subwoofer ONLINE - crossover should automatically enable
         await registry.set_client_online("sub-1", True)
         await crossover.apply_zone_crossover(zone.id)
 
-        last_call = mock_dsp_service.set_crossover_filter.call_args
+        last_call = mock_camilladsp_service.set_crossover_filter.call_args
         assert last_call.kwargs.get('enabled') is True or last_call[1].get('enabled') is True
 
-        mock_dsp_service.reset_mock()
+        mock_camilladsp_service.reset_mock()
 
         # 3. Take subwoofer OFFLINE again - crossover should automatically disable
         await registry.set_client_online("sub-1", False)
         await crossover.apply_zone_crossover(zone.id)
 
-        last_call = mock_dsp_service.set_crossover_filter.call_args
+        last_call = mock_camilladsp_service.set_crossover_filter.call_args
         assert last_call.kwargs.get('enabled') is False or last_call[1].get('enabled') is False
 
     @pytest.mark.asyncio
-    async def test_e2e_explicit_crossover_enabled_overrides_auto(self, crossover_with_registry, mock_dsp_service):
+    async def test_e2e_explicit_crossover_enabled_overrides_auto(self, crossover_with_registry, mock_camilladsp_service):
         """E2E Test: Explicit crossover_enabled=False overrides auto-activation."""
         crossover, registry = crossover_with_registry
 
@@ -686,13 +686,13 @@ class TestAutomaticCrossoverE2E:
         # Set explicit crossover_enabled=False
         await registry.update_zone(zone.id, crossover_enabled=False)
 
-        mock_dsp_service.reset_mock()
+        mock_camilladsp_service.reset_mock()
 
         # Apply crossover - should NOT enable despite online subwoofer
         await crossover.apply_zone_crossover(zone.id)
 
         # Crossover should be disabled because explicit setting overrides
-        last_call = mock_dsp_service.set_crossover_filter.call_args
+        last_call = mock_camilladsp_service.set_crossover_filter.call_args
         assert last_call.kwargs.get('enabled') is False or last_call[1].get('enabled') is False
 
 
@@ -704,12 +704,12 @@ class TestCrossoverEdgeCases:
     """Tests for crossover edge cases documented in Story 5.5 Dev Notes."""
 
     @pytest.mark.asyncio
-    async def test_client_changes_zone_both_zones_recalculated(self, crossover_with_registry, mock_dsp_service):
+    async def test_client_changes_zone_both_zones_recalculated(self, crossover_with_registry, mock_camilladsp_service):
         """Test: When client moves between zones, both zones recalculate crossover."""
         crossover, registry = crossover_with_registry
 
         # Setup: Two zones, one with subwoofer, one without
-        # Note: Only "local" (127.0.0.1) uses mock_dsp_service directly; others are remote (proxy)
+        # Note: Only "local" (127.0.0.1) uses mock_camilladsp_service directly; others are remote (proxy)
         await registry.register_client("local", "Main", "127.0.0.1")
         await registry.set_client_online("local", True)
 
@@ -725,28 +725,28 @@ class TestCrossoverEdgeCases:
         await registry.update_speaker_type("sat-2", "satellite")
         await registry.set_client_online("sat-2", True)
 
-        # Zone 1: local + subwoofer + satellite (crossover active, local uses mock_dsp_service)
+        # Zone 1: local + subwoofer + satellite (crossover active, local uses mock_camilladsp_service)
         zone1 = await registry.create_zone(generate_zone_id(), "Zone 1", ["local", "sub-1", "sat-1"])
 
         # Verify zone1 has crossover active - local client should get crossover enabled
         await crossover.apply_zone_crossover(zone1.id)
-        call = mock_dsp_service.set_crossover_filter.call_args
+        call = mock_camilladsp_service.set_crossover_filter.call_args
         assert call is not None, "Expected set_crossover_filter called for local client"
         assert call.kwargs.get('enabled') is True or call[1].get('enabled') is True
 
-        mock_dsp_service.reset_mock()
+        mock_camilladsp_service.reset_mock()
 
         # Move subwoofer from zone1 to a new zone (zone1 keeps local + sat-1)
         await registry.remove_client_from_zone(zone1.id, "sub-1")
 
         # Zone 1 should now have crossover disabled (no subwoofer)
         await crossover.apply_zone_crossover(zone1.id)
-        call = mock_dsp_service.set_crossover_filter.call_args
+        call = mock_camilladsp_service.set_crossover_filter.call_args
         assert call is not None, "Expected set_crossover_filter called for local client"
         assert call.kwargs.get('enabled') is False or call[1].get('enabled') is False
 
     @pytest.mark.asyncio
-    async def test_zone_deleted_filters_disabled_for_ex_members(self, crossover_with_registry, mock_dsp_service):
+    async def test_zone_deleted_filters_disabled_for_ex_members(self, crossover_with_registry, mock_camilladsp_service):
         """Test: When zone is deleted, all crossover filters are disabled for ex-members."""
         crossover, registry = crossover_with_registry
 
@@ -762,10 +762,10 @@ class TestCrossoverEdgeCases:
 
         # Apply crossover (should be active)
         await crossover.apply_zone_crossover(zone.id)
-        call = mock_dsp_service.set_crossover_filter.call_args
+        call = mock_camilladsp_service.set_crossover_filter.call_args
         assert call.kwargs.get('enabled') is True or call[1].get('enabled') is True
 
-        mock_dsp_service.reset_mock()
+        mock_camilladsp_service.reset_mock()
 
         # Delete the zone
         await registry.delete_zone(zone.id)
@@ -773,8 +773,8 @@ class TestCrossoverEdgeCases:
         # CrossoverService._handle_registry_event(ZONE_DELETED) should disable filters
         # Verify set_crossover_filter was called with enabled=False
         # The event handler disables filters for all ex-members
-        if mock_dsp_service.set_crossover_filter.called:
-            call = mock_dsp_service.set_crossover_filter.call_args
+        if mock_camilladsp_service.set_crossover_filter.called:
+            call = mock_camilladsp_service.set_crossover_filter.call_args
             assert call.kwargs.get('enabled') is False or call[1].get('enabled') is False
 
 
@@ -786,7 +786,7 @@ class TestFilterApplicationE2E:
     """E2E tests for filter application (Story 5.6 Task 6)."""
 
     @pytest.mark.asyncio
-    async def test_e2e_satellite_receives_highpass_at_speaker_type_freq(self, crossover_with_registry, mock_dsp_service):
+    async def test_e2e_satellite_receives_highpass_at_speaker_type_freq(self, crossover_with_registry, mock_camilladsp_service):
         """E2E Test: satellite in zone with subwoofer receives highpass at speaker_type freq (6.1)."""
         crossover, registry = crossover_with_registry
 
@@ -803,21 +803,21 @@ class TestFilterApplicationE2E:
         # Enable auto-frequency mode (zone default is 80Hz, override to None for auto-calc)
         zone.crossover_frequency = None
 
-        mock_dsp_service.reset_mock()
+        mock_camilladsp_service.reset_mock()
 
         # Apply crossover
         await crossover.apply_zone_crossover(zone.id)
 
         # Verify local (satellite) received highpass
-        mock_dsp_service.set_crossover_filter.assert_called()
-        call = mock_dsp_service.set_crossover_filter.call_args
+        mock_camilladsp_service.set_crossover_filter.assert_called()
+        call = mock_camilladsp_service.set_crossover_filter.call_args
         assert call.kwargs.get('enabled') is True or call[1].get('enabled') is True
         # Frequency should be satellite's default (120Hz) - calculated by get_zone_auto_crossover
         freq = call.kwargs.get('frequency', call[1].get('frequency'))
         assert freq == 120, f"Expected 120Hz for satellite, got {freq}"
 
     @pytest.mark.asyncio
-    async def test_e2e_subwoofer_receives_lowpass_at_zone_freq(self, crossover_with_registry, mock_dsp_service):
+    async def test_e2e_subwoofer_receives_lowpass_at_zone_freq(self, crossover_with_registry, mock_camilladsp_service):
         """E2E Test: subwoofer in zone receives lowpass at zone crossover freq (6.2)."""
         crossover, registry = crossover_with_registry
 
@@ -832,24 +832,24 @@ class TestFilterApplicationE2E:
 
         zone = await registry.create_zone(generate_zone_id(), "Bass Zone", ["sat-1", "local"])
 
-        mock_dsp_service.reset_mock()
+        mock_camilladsp_service.reset_mock()
 
         # Apply crossover
         await crossover.apply_zone_crossover(zone.id)
 
         # Verify local (subwoofer) received lowpass
-        mock_dsp_service.set_lowpass_filter.assert_called()
-        call = mock_dsp_service.set_lowpass_filter.call_args
+        mock_camilladsp_service.set_lowpass_filter.assert_called()
+        call = mock_camilladsp_service.set_lowpass_filter.call_args
         assert call.kwargs.get('enabled') is True or call[1].get('enabled') is True
 
         # Verify subwoofer did NOT receive highpass (should be disabled)
         # The apply_zone_crossover calls set_crossover_filter with enabled=False for subwoofers
-        crossover_calls = [c for c in mock_dsp_service.set_crossover_filter.call_args_list
+        crossover_calls = [c for c in mock_camilladsp_service.set_crossover_filter.call_args_list
                           if c.kwargs.get('enabled', c[1].get('enabled')) is False]
         assert len(crossover_calls) > 0, "Subwoofer should have crossover (highpass) disabled"
 
     @pytest.mark.asyncio
-    async def test_e2e_crossover_disabled_returns_to_fullrange(self, crossover_with_registry, mock_dsp_service):
+    async def test_e2e_crossover_disabled_returns_to_fullrange(self, crossover_with_registry, mock_camilladsp_service):
         """E2E Test: crossover disabled - both clients return to full-range (6.3)."""
         crossover, registry = crossover_with_registry
 
@@ -870,20 +870,20 @@ class TestFilterApplicationE2E:
         # Then, disable crossover explicitly
         await registry.update_zone(zone.id, crossover_enabled=False)
 
-        mock_dsp_service.reset_mock()
+        mock_camilladsp_service.reset_mock()
 
         # Apply crossover again with disabled setting
         await crossover.apply_zone_crossover(zone.id)
 
         # Both filters should be disabled
-        last_crossover_call = mock_dsp_service.set_crossover_filter.call_args
-        last_lowpass_call = mock_dsp_service.set_lowpass_filter.call_args
+        last_crossover_call = mock_camilladsp_service.set_crossover_filter.call_args
+        last_lowpass_call = mock_camilladsp_service.set_lowpass_filter.call_args
 
         assert last_crossover_call.kwargs.get('enabled') is False or last_crossover_call[1].get('enabled') is False
         assert last_lowpass_call.kwargs.get('enabled') is False or last_lowpass_call[1].get('enabled') is False
 
     @pytest.mark.asyncio
-    async def test_e2e_reconnect_applies_crossover_filters(self, crossover_with_registry, mock_dsp_service):
+    async def test_e2e_reconnect_applies_crossover_filters(self, crossover_with_registry, mock_camilladsp_service):
         """E2E Test: client reconnects to active crossover zone - filters applied (6.4)."""
         crossover, registry = crossover_with_registry
 
@@ -898,23 +898,23 @@ class TestFilterApplicationE2E:
 
         zone = await registry.create_zone(generate_zone_id(), "Reconnect Test", ["local", "sub-1"])
 
-        mock_dsp_service.reset_mock()
+        mock_camilladsp_service.reset_mock()
 
         # Bring local online (simulates reconnection)
         await registry.set_client_online("local", True)
 
         # The CLIENT_CONNECTED event should trigger crossover application
         # via _recalculate_zones_for_client
-        mock_dsp_service.set_crossover_filter.assert_called()
+        mock_camilladsp_service.set_crossover_filter.assert_called()
 
         # Verify highpass was enabled (satellite reconnected to zone with subwoofer)
-        call = mock_dsp_service.set_crossover_filter.call_args
+        call = mock_camilladsp_service.set_crossover_filter.call_args
         enabled = call.kwargs.get('enabled', call[1].get('enabled'))
         assert enabled is True, "Reconnected satellite should have highpass enabled"
 
     @pytest.mark.asyncio
-    async def test_e2e_dsp_bypass_does_not_affect_crossover(self, crossover_with_registry, mock_dsp_service):
-        """E2E Test: DSP bypass does not affect crossover filters (Story 5.6 AC#6)."""
+    async def test_e2e_dsp_bypass_does_not_affect_crossover(self, crossover_with_registry, mock_camilladsp_service):
+        """E2E Test: Equalizer bypass does not affect crossover filters (Story 5.6 AC#6)."""
         crossover, registry = crossover_with_registry
 
         # Setup: Zone with active crossover
@@ -933,16 +933,16 @@ class TestFilterApplicationE2E:
         # Record crossover state
         crossover_enabled_before = True  # We just applied it
 
-        # Simulate DSP bypass (this would be called on DspService, not CrossoverService)
+        # Simulate Equalizer bypass (this would be called on DspService, not CrossoverService)
         # The key point is that CrossoverService crossover methods are independent
         # of DspService.bypass_effects()
 
         # Verify crossover is still applicable after "bypass" simulation
-        mock_dsp_service.reset_mock()
+        mock_camilladsp_service.reset_mock()
         await crossover.apply_zone_crossover(zone.id)
 
-        # Crossover should still be enabled (not affected by DSP bypass)
-        call = mock_dsp_service.set_crossover_filter.call_args
+        # Crossover should still be enabled (not affected by Equalizer bypass)
+        call = mock_camilladsp_service.set_crossover_filter.call_args
         assert call.kwargs.get('enabled') is True or call[1].get('enabled') is True
 
 
@@ -954,7 +954,7 @@ class TestMixedSpeakerTypeZones:
     """Tests for zones with mixed speaker types."""
 
     @pytest.mark.asyncio
-    async def test_e2e_mixed_speakers_use_minimum_frequency(self, crossover_with_registry, mock_dsp_service):
+    async def test_e2e_mixed_speakers_use_minimum_frequency(self, crossover_with_registry, mock_camilladsp_service):
         """E2E Test: Zone with satellite + tower uses minimum frequency (tower's 50Hz)."""
         crossover, registry = crossover_with_registry
 
@@ -979,18 +979,18 @@ class TestMixedSpeakerTypeZones:
         freq = await crossover.get_zone_auto_crossover(zone.id)
         assert freq == 50, f"Expected minimum 50Hz, got {freq}"
 
-        mock_dsp_service.reset_mock()
+        mock_camilladsp_service.reset_mock()
 
         # Apply crossover
         await crossover.apply_zone_crossover(zone.id)
 
         # Local (tower) should receive highpass at 50Hz
-        call = mock_dsp_service.set_crossover_filter.call_args
+        call = mock_camilladsp_service.set_crossover_filter.call_args
         freq = call.kwargs.get('frequency', call[1].get('frequency'))
         assert freq == 50, f"Expected 50Hz crossover frequency, got {freq}"
 
     @pytest.mark.asyncio
-    async def test_e2e_all_bookshelf_zone_uses_80hz(self, crossover_with_registry, mock_dsp_service):
+    async def test_e2e_all_bookshelf_zone_uses_80hz(self, crossover_with_registry, mock_camilladsp_service):
         """E2E Test: Zone with all bookshelf speakers uses 80Hz (THX standard)."""
         crossover, registry = crossover_with_registry
 
@@ -1013,11 +1013,11 @@ class TestMixedSpeakerTypeZones:
         freq = await crossover.get_zone_auto_crossover(zone.id)
         assert freq == 80
 
-        mock_dsp_service.reset_mock()
+        mock_camilladsp_service.reset_mock()
 
         await crossover.apply_zone_crossover(zone.id)
 
         # Verify 80Hz was used
-        call = mock_dsp_service.set_crossover_filter.call_args
+        call = mock_camilladsp_service.set_crossover_filter.call_args
         freq = call.kwargs.get('frequency', call[1].get('frequency'))
         assert freq == 80

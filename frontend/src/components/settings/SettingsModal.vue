@@ -236,8 +236,8 @@ const headerTitle = computed(() => {
     'spotify': t('audioSources.spotify'),
     'multiroom': t('audioSources.multiroom'),
     'multiroom-zone-edit': zoneGroupId.value
-      ? t('dsp.zones.editZone', 'Edit Zone')
-      : t('dsp.zones.createZone', 'Create Zone'),
+      ? t('equalizer.zones.editZone', 'Edit Zone')
+      : t('equalizer.zones.createZone', 'Create Zone'),
     'multiroom-client-edit': t('multiroom.editSpeaker', 'Edit Speaker'),
     'radio': t('audioSources.radio'),
     'radio-add': t('radio.manageStation.addStationTitle'),

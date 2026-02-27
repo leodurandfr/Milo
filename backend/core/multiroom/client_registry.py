@@ -1,6 +1,6 @@
 # backend/core/multiroom/client_registry.py
 """
-ClientRegistryService - Single Source of Truth for client/zone/DSP management.
+ClientRegistryService - Single Source of Truth for client/zone/equalizer management.
 
 All services that need client information MUST query this service.
 This service is the ONLY place where client state is mutated.
@@ -8,7 +8,7 @@ This service is the ONLY place where client state is mutated.
 Architecture:
 - mac_id is the single unique identifier for clients (always a MAC address)
 - Local client is identified by ip == "127.0.0.1" or client.is_local
-- Zones share DSP settings, standalone clients have individual DSP
+- Zones share equalizer settings, standalone clients have individual equalizer
 """
 import asyncio
 import logging
@@ -18,7 +18,7 @@ from backend.core.events import EventBus, get_event_bus
 from backend.core.multiroom.models import (
     Client,
     Zone,
-    DspSettings,
+    EqualizerSettings,
     RegistryState,
     RegistryEventType,
     ReconnectionContext,
@@ -40,7 +40,7 @@ _EVENT_TYPE_MAP = {
     RegistryEventType.ZONE_DELETED: "zone_changed",
     RegistryEventType.ZONE_CLIENT_ADDED: "zone_changed",
     RegistryEventType.ZONE_CLIENT_REMOVED: "zone_changed",
-    RegistryEventType.DSP_SETTINGS_CHANGED: "dsp_changed",
+    RegistryEventType.EQUALIZER_SETTINGS_CHANGED: "equalizer_changed",
 }
 
 
@@ -50,11 +50,11 @@ class ClientRegistryService:
 
     Responsibilities:
     - Track all clients with complete metadata
-    - Manage zone configuration and DSP settings
+    - Manage zone configuration and equalizer settings
     - Track online/offline status (single source)
     - Emit events on state changes
     - Persist configuration to settings
-    - Manage standalone DSP settings
+    - Manage standalone equalizer settings
     """
 
     def __init__(self, settings_service=None, event_bus: EventBus = None):
@@ -66,7 +66,7 @@ class ClientRegistryService:
         # Core state - protected by lock
         self._clients: Dict[str, Client] = {}
         self._zones: Dict[str, Zone] = {}
-        self._standalone_dsp: Dict[str, DspSettings] = {}
+        self._standalone_equalizer: Dict[str, EqualizerSettings] = {}
         self._lock = asyncio.Lock()
 
         # Subscriber callbacks for local event handling
@@ -159,7 +159,7 @@ class ClientRegistryService:
         """
         Remove a client from the registry completely.
 
-        Also removes from zones and cleans up standalone DSP settings.
+        Also removes from zones and cleans up standalone equalizer settings.
 
         Args:
             mac_id: The client's mac_id
@@ -190,9 +190,9 @@ class ClientRegistryService:
                     else:
                         zones_modified.append((zone.id, self.zone_to_enriched_dict(zone)))
 
-            # Clean up standalone DSP
-            if mac_id in self._standalone_dsp:
-                del self._standalone_dsp[mac_id]
+            # Clean up standalone equalizer
+            if mac_id in self._standalone_equalizer:
+                del self._standalone_equalizer[mac_id]
 
             self.logger.info(f"Client unregistered: {mac_id}")
 
@@ -378,19 +378,19 @@ class ClientRegistryService:
         """Get a client by mac_id."""
         return self._clients.get(mac_id)
 
-    def get_client_by_dsp_id(self, dsp_id: str) -> Optional[Dict[str, Any]]:
+    def get_client_by_camilladsp_id(self, camilladsp_id: str) -> Optional[Dict[str, Any]]:
         """
-        Get a client by DSP ID (mac_id).
+        Get a client by equalizer ID (mac_id).
 
-        In Milo architecture, mac_id IS the DSP ID for volume/DSP operations.
+        In Milo architecture, mac_id IS the equalizer ID for volume/equalizer operations.
 
         Args:
-            dsp_id: Client mac_id (MAC address)
+            camilladsp_id: Client mac_id (MAC address)
 
         Returns:
             Client data dict if found, None otherwise
         """
-        client = self._clients.get(dsp_id)
+        client = self._clients.get(camilladsp_id)
         return client.to_dict() if client else None
 
     def get_all_clients(self) -> Dict[str, Client]:
@@ -426,7 +426,7 @@ class ClientRegistryService:
         zone_id: str,
         name: str,
         client_ids: List[str],
-        dsp_settings: Optional[DspSettings] = None
+        equalizer_settings: Optional[EqualizerSettings] = None
     ) -> Zone:
         """
         Create a new zone. Requires at least 2 clients.
@@ -435,7 +435,7 @@ class ClientRegistryService:
             zone_id: Unique zone identifier
             name: Display name
             client_ids: List of mac_ids to include (minimum 2)
-            dsp_settings: Initial DSP settings (optional)
+            equalizer_settings: Initial equalizer settings (optional)
 
         Returns:
             The created zone
@@ -460,16 +460,16 @@ class ClientRegistryService:
                 id=zone_id,
                 name=name,
                 client_ids=client_ids.copy(),
-                dsp_settings=dsp_settings or DspSettings.default()
+                equalizer_settings=equalizer_settings or EqualizerSettings.default()
             )
             self._zones[zone_id] = zone
 
             # Update client zone_id references
             for cid in client_ids:
                 self._clients[cid].zone_id = zone_id
-                # Move standalone DSP to zone (first client's DSP becomes zone DSP)
-                if cid in self._standalone_dsp:
-                    del self._standalone_dsp[cid]
+                # Move standalone equalizer to zone (first client's equalizer becomes zone equalizer)
+                if cid in self._standalone_equalizer:
+                    del self._standalone_equalizer[cid]
 
         await self._persist_state()
         await self._emit_event(RegistryEventType.ZONE_CREATED, {
@@ -481,19 +481,19 @@ class ClientRegistryService:
         return zone
 
     def _make_clients_standalone(self, mac_ids, zone: Zone) -> None:
-        """Make clients standalone, keeping zone DSP as their individual DSP.
+        """Make clients standalone, keeping zone equalizer as their individual equalizer.
 
         Must be called inside self._lock.
         """
-        zone_dsp_dict = zone.dsp_settings.to_dict()
+        zone_eq_dict = zone.equalizer_settings.to_dict()
         for mac_id in mac_ids:
             if mac_id in self._clients:
                 self._clients[mac_id].zone_id = None
-                self._standalone_dsp[mac_id] = DspSettings.from_dict(zone_dsp_dict)
+                self._standalone_equalizer[mac_id] = EqualizerSettings.from_dict(zone_eq_dict)
 
     async def delete_zone(self, zone_id: str) -> bool:
         """
-        Delete a zone. Clients become standalone and keep current DSP.
+        Delete a zone. Clients become standalone and keep current equalizer.
 
         Args:
             zone_id: The zone's ID
@@ -563,7 +563,7 @@ class ClientRegistryService:
 
     async def add_client_to_zone(self, zone_id: str, mac_id: str) -> bool:
         """
-        Add a client to a zone. Client's DSP is replaced by zone's.
+        Add a client to a zone. Client's equalizer is replaced by zone's equalizer.
 
         Args:
             zone_id: The zone's ID
@@ -595,9 +595,9 @@ class ClientRegistryService:
             zone.client_ids.append(mac_id)
             client.zone_id = zone_id
 
-            # Remove standalone DSP (client now uses zone's DSP)
-            if mac_id in self._standalone_dsp:
-                del self._standalone_dsp[mac_id]
+            # Remove standalone equalizer (client now uses zone's equalizer)
+            if mac_id in self._standalone_equalizer:
+                del self._standalone_equalizer[mac_id]
 
         await self._persist_state()
         await self._emit_event(RegistryEventType.ZONE_UPDATED, {
@@ -610,7 +610,7 @@ class ClientRegistryService:
 
     async def remove_client_from_zone(self, zone_id: str, mac_id: str) -> bool:
         """
-        Remove a client from a zone. Client keeps current DSP as standalone.
+        Remove a client from a zone. Client keeps current equalizer as standalone.
 
         If zone has less than 2 clients after removal, zone is deleted.
 
@@ -631,7 +631,7 @@ class ClientRegistryService:
             if mac_id not in zone.client_ids:
                 return False
 
-            # Client keeps zone DSP as standalone
+            # Client keeps zone equalizer as standalone
             self._make_clients_standalone([mac_id], zone)
             zone.client_ids.remove(mac_id)
 
@@ -669,9 +669,9 @@ class ClientRegistryService:
         """
         Set the complete client list for a zone.
 
-        Replaces all zone members in one operation. Handles DSP transitions:
-        - Clients leaving zone keep zone DSP as standalone
-        - Clients joining zone have standalone DSP cleared
+        Replaces all zone members in one operation. Handles equalizer transitions:
+        - Clients leaving zone keep zone equalizer as standalone
+        - Clients joining zone have standalone equalizer cleared
 
         Args:
             zone_id: The zone ID to update
@@ -703,14 +703,14 @@ class ClientRegistryService:
             leaving = old_client_ids - new_client_ids
             joining = new_client_ids - old_client_ids
 
-            # Handle clients leaving zone - keep DSP as standalone
+            # Handle clients leaving zone - keep equalizer as standalone
             self._make_clients_standalone(leaving, zone)
 
-            # Handle clients joining zone - DSP replaced by zone's
+            # Handle clients joining zone - equalizer replaced by zone's
             for mac_id in joining:
                 if mac_id in self._clients:
                     self._clients[mac_id].zone_id = zone_id
-                    self._standalone_dsp.pop(mac_id, None)
+                    self._standalone_equalizer.pop(mac_id, None)
 
             # Update zone
             zone.client_ids = client_ids
@@ -816,7 +816,7 @@ class ClientRegistryService:
         Determine the reconnection context for a client.
 
         This is the first step of the reconnection sync process. The context
-        determines which volume and DSP sources to use when syncing a
+        determines which volume and equalizer sources to use when syncing a
         reconnecting client.
 
         The 4 possible contexts are:
@@ -1002,71 +1002,71 @@ class ClientRegistryService:
 
         return base
 
-    # === STANDALONE DSP MANAGEMENT ===
+    # === STANDALONE EQUALIZER MANAGEMENT ===
 
-    def get_standalone_dsp(self, mac_id: str) -> Optional[DspSettings]:
-        """Get standalone DSP settings for a client."""
-        return self._standalone_dsp.get(mac_id)
+    def get_standalone_equalizer(self, mac_id: str) -> Optional[EqualizerSettings]:
+        """Get standalone equalizer settings for a client."""
+        return self._standalone_equalizer.get(mac_id)
 
-    async def set_standalone_dsp(self, mac_id: str, settings: DspSettings) -> None:
+    async def set_standalone_equalizer(self, mac_id: str, settings: EqualizerSettings) -> None:
         """
-        Set standalone DSP settings for a client.
+        Set standalone equalizer settings for a client.
 
         Args:
             mac_id: The client's mac_id
-            settings: DSP settings to store
+            settings: Equalizer settings to store
         """
         async with self._lock:
             client = self._clients.get(mac_id)
             if not client:
-                self.logger.warning(f"Cannot set DSP: client {mac_id} not found")
+                self.logger.warning(f"Cannot set equalizer: client {mac_id} not found")
                 return
 
             if client.zone_id:
-                self.logger.warning(f"Client {mac_id} is in zone, use zone DSP instead")
+                self.logger.warning(f"Client {mac_id} is in zone, use zone equalizer instead")
                 return
 
-            self._standalone_dsp[mac_id] = settings
+            self._standalone_equalizer[mac_id] = settings
 
-        await self._persist_standalone_dsp()
-        await self._emit_event(RegistryEventType.DSP_SETTINGS_CHANGED, {
+        await self._persist_standalone_equalizer()
+        await self._emit_event(RegistryEventType.EQUALIZER_SETTINGS_CHANGED, {
             "target_type": "client",
             "target_id": mac_id,
-            "dsp_settings": settings.to_dict()
+            "equalizer_settings": settings.to_dict()
         })
 
-    def get_client_dsp_settings(self, mac_id: str) -> Optional[DspSettings]:
+    def get_client_equalizer_settings(self, mac_id: str) -> Optional[EqualizerSettings]:
         """
-        Get DSP settings for a client (from zone or standalone).
+        Get equalizer settings for a client (from zone or standalone).
 
         Args:
             mac_id: The client's mac_id
 
         Returns:
-            DSP settings or None if not found
+            Equalizer settings or None if not found
         """
         client = self._clients.get(mac_id)
         if not client:
             return None
 
-        # If in zone, return zone's DSP
+        # If in zone, return zone's equalizer
         if client.zone_id:
             zone = self._zones.get(client.zone_id)
             if zone:
-                return zone.dsp_settings
+                return zone.equalizer_settings
 
-        # Otherwise return standalone DSP
-        return self._standalone_dsp.get(mac_id)
+        # Otherwise return standalone equalizer
+        return self._standalone_equalizer.get(mac_id)
 
-    async def set_zone_dsp(self, zone_id: str, settings: DspSettings) -> bool:
+    async def set_zone_equalizer(self, zone_id: str, settings: EqualizerSettings) -> bool:
         """
-        Set DSP settings for a zone.
+        Set equalizer settings for a zone.
 
-        Updates zone.dsp_settings and persists to settings.json.
+        Updates zone.equalizer_settings and persists to settings.json.
 
         Args:
             zone_id: The zone's ID
-            settings: DSP settings to store
+            settings: Equalizer settings to store
 
         Returns:
             True if successful, False if zone not found
@@ -1074,16 +1074,16 @@ class ClientRegistryService:
         async with self._lock:
             zone = self._zones.get(zone_id)
             if not zone:
-                self.logger.warning(f"Cannot set DSP: zone {zone_id} not found")
+                self.logger.warning(f"Cannot set equalizer: zone {zone_id} not found")
                 return False
 
-            zone.dsp_settings = settings
+            zone.equalizer_settings = settings
 
         await self._persist_zones()
-        await self._emit_event(RegistryEventType.DSP_SETTINGS_CHANGED, {
+        await self._emit_event(RegistryEventType.EQUALIZER_SETTINGS_CHANGED, {
             "target_type": "zone",
             "target_id": zone_id,
-            "dsp_settings": settings.to_dict()
+            "equalizer_settings": settings.to_dict()
         })
         return True
 
@@ -1094,7 +1094,7 @@ class ClientRegistryService:
         return RegistryState(
             clients=self._clients.copy(),
             zones=self._zones.copy(),
-            standalone_dsp=self._standalone_dsp.copy()
+            standalone_equalizer=self._standalone_equalizer.copy()
         )
 
     def get_state_dict(self) -> Dict[str, Any]:
@@ -1102,7 +1102,7 @@ class ClientRegistryService:
         return {
             "clients": {k: v.to_dict() for k, v in self._clients.items()},
             "zones": {k: v.to_dict() for k, v in self._zones.items()},
-            "standalone_dsp": {k: v.to_dict() for k, v in self._standalone_dsp.items()}
+            "standalone_equalizer": {k: v.to_dict() for k, v in self._standalone_equalizer.items()}
         }
 
     # === EVENT SYSTEM ===
@@ -1167,12 +1167,12 @@ class ClientRegistryService:
                     self._zones[zone_id] = zone
                 self.logger.info(f"Loaded {len(self._zones)} zones from settings")
 
-            # Load standalone DSP
-            standalone_data = await self._settings_service.get_setting("multiroom.standalone_dsp")
+            # Load standalone equalizer
+            standalone_data = await self._settings_service.get_setting("multiroom.standalone_equalizer")
             if standalone_data:
-                for mac_id, dsp_data in standalone_data.items():
-                    self._standalone_dsp[mac_id] = DspSettings.from_dict(dsp_data)
-                self.logger.info(f"Loaded {len(self._standalone_dsp)} standalone DSP configs")
+                for mac_id, equalizer_data in standalone_data.items():
+                    self._standalone_equalizer[mac_id] = EqualizerSettings.from_dict(equalizer_data)
+                self.logger.info(f"Loaded {len(self._standalone_equalizer)} standalone equalizer configs")
 
         except Exception as e:
             self.logger.error(f"Failed to load persisted state: {e}")
@@ -1181,7 +1181,7 @@ class ClientRegistryService:
         """Persist all state to settings."""
         await self._persist_clients()
         await self._persist_zones()
-        await self._persist_standalone_dsp()
+        await self._persist_standalone_equalizer()
 
     async def _persist_clients(self) -> None:
         """Save client configuration to settings."""
@@ -1219,19 +1219,19 @@ class ClientRegistryService:
         except Exception as e:
             self.logger.error(f"Failed to persist zones: {e}")
 
-    async def _persist_standalone_dsp(self) -> None:
-        """Save standalone DSP settings to settings."""
+    async def _persist_standalone_equalizer(self) -> None:
+        """Save standalone equalizer settings to settings."""
         if not self._settings_service:
             return
 
         try:
-            dsp_data = {
+            equalizer_data = {
                 mac_id: settings.to_dict()
-                for mac_id, settings in self._standalone_dsp.items()
+                for mac_id, settings in self._standalone_equalizer.items()
             }
-            await self._settings_service.set_setting("multiroom.standalone_dsp", dsp_data)
+            await self._settings_service.set_setting("multiroom.standalone_equalizer", equalizer_data)
         except Exception as e:
-            self.logger.error(f"Failed to persist standalone DSP: {e}")
+            self.logger.error(f"Failed to persist standalone equalizer: {e}")
 
     # === UTILITY ===
 

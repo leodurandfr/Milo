@@ -317,7 +317,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
 
       default:
         // Ignore unknown event types silently
-        // Note: dsp_changed and crossover_changed are handled by dspStore
+        // Note: equalizer_changed and crossover_changed are handled by equalizerStore
         break;
     }
   }
@@ -385,7 +385,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
 
   /**
    * Add a client to a zone.
-   * Client's DSP is replaced by zone's shared DSP (FR15).
+   * Client's equalizer is replaced by zone's shared equalizer (FR15).
    * @param {string} zoneId - Zone ID
    * @param {string} macId - Client mac_id to add
    * @returns {Promise<Object>} Response with updated zone data
@@ -409,7 +409,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
 
   /**
    * Remove a client from a zone.
-   * Client keeps zone DSP as standalone DSP (FR14).
+   * Client keeps zone equalizer as standalone equalizer (FR14).
    * If zone has < 2 clients after removal, zone is deleted.
    * @param {string} zoneId - Zone ID
    * @param {string} macId - Client mac_id to remove
@@ -489,7 +489,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    */
   function hasSyncError(macId) {
     const client = clients.value.get(macId);
-    return client?.sync_status?.dsp_synced === false || client?.sync_status?.volume_synced === false;
+    return client?.sync_status?.equalizer_synced === false || client?.sync_status?.volume_synced === false;
   }
 
   /**
@@ -505,7 +505,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
   /**
    * Get sync status for a client.
    * @param {string} macId - Client mac_id
-   * @returns {Object|null} Sync status { volume_synced, dsp_synced, pending_applied }
+   * @returns {Object|null} Sync status { volume_synced, equalizer_synced, pending_applied }
    */
   function getSyncStatus(macId) {
     const client = clients.value.get(macId);

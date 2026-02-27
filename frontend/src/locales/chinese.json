@@ -89,11 +89,11 @@
     "syncError": "同步错误",
     "retrySync": "重试"
   },
-  "dsp": {
-    "title": "DSP 均衡器",
-    "disabled": "DSP 已禁用",
-    "effects_disabled": "DSP 效果已禁用",
-    "connecting": "正在连接 DSP...",
+  "equalizer": {
+    "title": "Equalizer 均衡器",
+    "disabled": "Equalizer 已禁用",
+    "effects_disabled": "Equalizer 效果已禁用",
+    "connecting": "正在连接均衡器...",
     "selectPreset": "预设",
     "selectTarget": "设备",
     "zones": {

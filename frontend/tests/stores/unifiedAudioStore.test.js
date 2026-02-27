@@ -170,7 +170,7 @@ describe('unifiedAudioStore', () => {
             transitioning: false,
             metadata: { title: 'Test Song' },
             multiroom_enabled: true,
-            dsp_effects_enabled: true
+            equalizer_effects_enabled: true
           }
         }
       };
@@ -368,13 +368,13 @@ describe('unifiedAudioStore', () => {
     });
   });
 
-  describe('setDspEnabled', () => {
+  describe('setEqualizerEnabled', () => {
     it('should call API with correct endpoint', async () => {
       axios.post.mockResolvedValueOnce({ data: { status: 'success' } });
 
-      await store.setDspEnabled(false);
+      await store.setEqualizerEnabled(false);
 
-      expect(axios.post).toHaveBeenCalledWith('/api/routing/dsp/false');
+      expect(axios.post).toHaveBeenCalledWith('/api/routing/equalizer/false');
     });
   });
 });

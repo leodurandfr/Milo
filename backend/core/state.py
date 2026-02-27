@@ -303,21 +303,21 @@ class AudioStateMachine:
             "source": "routing"
         })
 
-    async def update_dsp_effects_state(self, enabled: bool) -> None:
-        """Update DSP effects state."""
+    async def update_equalizer_effects_state(self, enabled: bool) -> None:
+        """Update equalizer effects state."""
         async with self._state_lock:
-            old_state = self.system_state.dsp_effects_enabled
-            self.system_state.dsp_effects_enabled = enabled
+            old_state = self.system_state.equalizer_effects_enabled
+            self.system_state.equalizer_effects_enabled = enabled
 
-        await self.event_bus.emit(Events.DSP_CONFIG_CHANGED, {
-            "dsp_effects_enabled": enabled
+        await self.event_bus.emit(Events.EQUALIZER_CONFIG_CHANGED, {
+            "equalizer_effects_enabled": enabled
         })
 
         await self._broadcast_websocket("system", "state_changed", {
             "old_state": old_state,
             "new_state": enabled,
-            "dsp_effects_changed": True,
-            "source": "dsp"
+            "equalizer_effects_changed": True,
+            "source": "equalizer"
         })
 
     async def refresh_active_metadata(self) -> bool:

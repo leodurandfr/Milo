@@ -3,7 +3,7 @@
 Integration tests for multiroom zone management.
 
 These tests validate the contracts for zone creation, client management,
-and DSP settings synchronization for the multiroom/DSP architecture.
+and Equalizer settings synchronization for the multiroom/Equalizer architecture.
 """
 import pytest
 import asyncio
@@ -11,7 +11,7 @@ from unittest.mock import Mock, AsyncMock
 
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.volume.state import VolumeStateStore
-from backend.core.multiroom.models import Client, Zone, DspSettings, RegistryEventType
+from backend.core.multiroom.models import Client, Zone, EqualizerSettings, RegistryEventType
 from backend.core.models.volume_state import VolumeState
 
 from .conftest import WebSocketEventCollector
@@ -32,7 +32,7 @@ def mock_settings_service():
     storage = {
         "multiroom.clients": {},
         "multiroom.zones": {},
-        "multiroom.standalone_dsp": {}
+        "multiroom.standalone_equalizer": {}
     }
 
     async def mock_get_setting(key):
@@ -166,7 +166,7 @@ class TestZoneCreation:
         assert zone.id == "living_room"
         assert zone.name == "Living Room"
         assert set(zone.client_ids) == {"local", "bedroom"}
-        assert zone.dsp_settings is not None
+        assert zone.equalizer_settings is not None
 
     @pytest.mark.asyncio
     async def test_create_zone_requires_minimum_2_clients(
@@ -618,23 +618,23 @@ class TestZoneClientManagement:
 
 
 # ==============================================================================
-# Test DSP Settings
+# Test Equalizer Settings
 # ==============================================================================
 
 
-class TestZoneDspSettings:
-    """Tests for zone DSP settings management."""
+class TestZoneEqualizerSettings:
+    """Tests for zone Equalizer settings management."""
 
     @pytest.mark.asyncio
-    async def test_zone_has_default_dsp_settings(
+    async def test_zone_has_default_equalizer_settings(
         self,
         registry_with_clients: ClientRegistryService
     ):
         """
-        Test zone is created with default DSP settings.
+        Test zone is created with default Equalizer settings.
 
-        Default DSP settings include:
-        - enabled=True (DSP active)
+        Default Equalizer settings include:
+        - enabled=True (Equalizer active)
         - 10-band parametric EQ at standard frequencies with 0 dB gain
         - compressor disabled
         - loudness disabled
@@ -647,29 +647,29 @@ class TestZoneDspSettings:
             client_ids=["local", "bedroom"]
         )
 
-        assert zone.dsp_settings is not None
-        assert zone.dsp_settings.enabled is True
+        assert zone.equalizer_settings is not None
+        assert zone.equalizer_settings.enabled is True
         # Default creates 10-band EQ with flat gains
-        assert len(zone.dsp_settings.filters) == 10
-        assert all(isinstance(f, EqFilter) for f in zone.dsp_settings.filters)
-        assert all(f.gain == 0.0 for f in zone.dsp_settings.filters)
+        assert len(zone.equalizer_settings.filters) == 10
+        assert all(isinstance(f, EqFilter) for f in zone.equalizer_settings.filters)
+        assert all(f.gain == 0.0 for f in zone.equalizer_settings.filters)
         # Compressor and loudness should be disabled by default
-        assert isinstance(zone.dsp_settings.compressor, CompressorSettings)
-        assert zone.dsp_settings.compressor.enabled is False
-        assert isinstance(zone.dsp_settings.loudness, LoudnessSettings)
-        assert zone.dsp_settings.loudness.enabled is False
+        assert isinstance(zone.equalizer_settings.compressor, CompressorSettings)
+        assert zone.equalizer_settings.compressor.enabled is False
+        assert isinstance(zone.equalizer_settings.loudness, LoudnessSettings)
+        assert zone.equalizer_settings.loudness.enabled is False
 
     @pytest.mark.asyncio
-    async def test_zone_created_with_custom_dsp_settings(
+    async def test_zone_created_with_custom_equalizer_settings(
         self,
         registry_with_clients: ClientRegistryService
     ):
         """
-        Test zone can be created with custom DSP settings.
+        Test zone can be created with custom Equalizer settings.
         """
         from backend.core.multiroom.models import EqFilter, CompressorSettings
 
-        custom_dsp = DspSettings(
+        custom_equalizer = EqualizerSettings(
             enabled=True,
             filters=[EqFilter(id="eq_band_00", frequency=1000, gain=3.0)],
             compressor=CompressorSettings(enabled=True, threshold=-20, ratio=4.0)
@@ -679,28 +679,28 @@ class TestZoneDspSettings:
             zone_id="living_room",
             name="Living Room",
             client_ids=["local", "bedroom"],
-            dsp_settings=custom_dsp
+            equalizer_settings=custom_equalizer
         )
 
-        assert len(zone.dsp_settings.filters) == 1
-        assert zone.dsp_settings.compressor.enabled is True
+        assert len(zone.equalizer_settings.filters) == 1
+        assert zone.equalizer_settings.compressor.enabled is True
 
     @pytest.mark.asyncio
-    async def test_standalone_dsp_cleared_when_joining_zone(
+    async def test_standalone_equalizer_cleared_when_joining_zone(
         self,
         registry_with_clients: ClientRegistryService
     ):
         """
-        Test that standalone DSP settings are cleared when client joins a zone.
+        Test that standalone Equalizer settings are cleared when client joins a zone.
         """
         from backend.core.multiroom.models import EqFilter
 
-        # Set standalone DSP for local with typed EqFilter
-        dsp = DspSettings(filters=[EqFilter(id="eq_band_00", frequency=1000)])
-        await registry_with_clients.set_standalone_dsp("local", dsp)
+        # Set standalone Equalizer for local with typed EqFilter
+        eq = EqualizerSettings(filters=[EqFilter(id="eq_band_00", frequency=1000)])
+        await registry_with_clients.set_standalone_equalizer("local", eq)
 
-        # Verify standalone DSP exists
-        assert registry_with_clients.get_standalone_dsp("local") is not None
+        # Verify standalone Equalizer exists
+        assert registry_with_clients.get_standalone_equalizer("local") is not None
 
         # Create zone
         await registry_with_clients.create_zone(
@@ -709,8 +709,8 @@ class TestZoneDspSettings:
             client_ids=["local", "bedroom"]
         )
 
-        # Standalone DSP should be cleared
-        assert registry_with_clients.get_standalone_dsp("local") is None
+        # Standalone Equalizer should be cleared
+        assert registry_with_clients.get_standalone_equalizer("local") is None
 
 
 # ==============================================================================

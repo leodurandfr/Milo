@@ -89,11 +89,11 @@
     "syncError": "सिंक त्रुटि",
     "retrySync": "पुनः प्रयास करें"
   },
-  "dsp": {
-    "title": "DSP इक्वलाइज़र",
-    "disabled": "DSP अक्षम है",
-    "effects_disabled": "DSP इफ़ेक्ट्स अक्षम हैं",
-    "connecting": "DSP से कनेक्ट हो रहा है...",
+  "equalizer": {
+    "title": "Equalizer इक्वलाइज़र",
+    "disabled": "Equalizer अक्षम है",
+    "effects_disabled": "Equalizer इफ़ेक्ट्स अक्षम हैं",
+    "connecting": "Equalizer से कनेक्ट हो रहा है...",
     "selectPreset": "प्रीसेट",
     "selectTarget": "डिवाइस",
     "zones": {
@@ -106,7 +106,7 @@
       "editZone": "ज़ोन संपादित करें",
       "updateZone": "अपडेट करें",
       "deleteZone": "ज़ोन हटाएं",
-      "description": "साझा DSP सेटिंग्स के साथ ज़ोन बनाने के लिए सिस्टम लिंक करें। परिवर्तन सभी सदस्यों पर लागू होंगे।",
+      "description": "साझा equalizer सेटिंग्स के साथ ज़ोन बनाने के लिए सिस्टम लिंक करें। परिवर्तन सभी सदस्यों पर लागू होंगे।",
       "noZones": "कोई ज़ोन नहीं बनाया गया। कई सिस्टम लिंक करने के लिए ज़ोन बनाएं।",
       "inOtherZone": "अन्य ज़ोन में",
       "subwoofer": "सब",
@@ -190,7 +190,7 @@
     },
     "linkedClients": {
       "title": "क्लाइंट लिंक करें",
-      "description": "लिंक किए गए क्लाइंट समान DSP सेटिंग्स साझा करते हैं। परिवर्तन सभी पर लागू होते हैं।",
+      "description": "लिंक किए गए क्लाइंट समान equalizer सेटिंग्स साझा करते हैं। परिवर्तन सभी पर लागू होते हैं।",
       "linked": "लिंक किया गया",
       "offline": "ऑफ़लाइन",
       "currentGroup": "वर्तमान में लिंक:",

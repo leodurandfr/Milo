@@ -89,11 +89,11 @@
     "syncError": "Sync error",
     "retrySync": "Retry"
   },
-  "dsp": {
-    "title": "DSP equalizer",
-    "disabled": "DSP is disabled",
-    "effects_disabled": "DSP effects are disabled",
-    "connecting": "Connecting to DSP...",
+  "equalizer": {
+    "title": "Equalizer",
+    "disabled": "Equalizer is disabled",
+    "effects_disabled": "Equalizer effects are disabled",
+    "connecting": "Connecting to equalizer...",
     "selectPreset": "Preset",
     "selectTarget": "Device",
     "zones": {
@@ -106,7 +106,7 @@
       "editZone": "Edit zone",
       "updateZone": "Update zone",
       "deleteZone": "Delete zone",
-      "description": "Link systems to create zones with shared DSP settings. Changes to one zone member will apply to all.",
+      "description": "Link systems to create zones with shared equalizer settings. Changes to one zone member will apply to all.",
       "noZones": "No zones created yet. Create a zone to link multiple systems.",
       "inOtherZone": "In other zone",
       "subwoofer": "Sub",
@@ -190,7 +190,7 @@
     },
     "linkedClients": {
       "title": "Link clients",
-      "description": "Linked clients share the same DSP settings. Changes to one will apply to all.",
+      "description": "Linked clients share the same equalizer settings. Changes to one will apply to all.",
       "linked": "Linked",
       "offline": "Offline",
       "currentGroup": "Currently linked:",

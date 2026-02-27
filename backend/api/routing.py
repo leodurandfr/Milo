@@ -6,12 +6,12 @@ from fastapi import APIRouter
 from backend.core.models.audio_state import AudioSource
 
 def create_routing_router(routing_service, state_machine):
-    """Creates routing router (multiroom + DSP)"""
+    """Creates routing router (multiroom + equalizer)"""
     router = APIRouter(prefix="/api/routing", tags=["routing"])
 
     @router.get("/status")
     async def get_routing_status():
-        """Gets current routing status (including DSP)"""
+        """Gets current routing status (including equalizer)"""
         routing_state = routing_service.get_state()
         snapcast_status = await routing_service.get_snapcast_status()
 

@@ -22,7 +22,7 @@ vi.mock('@/services/i18n', () => ({
 
 // Import after mocks
 import { useMultiroomStore } from '@/stores/multiroomStore';
-import { useDspStore } from '@/stores/dspStore';
+import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 
 // Mock the stores
@@ -66,15 +66,15 @@ vi.mock('@/stores/multiroomStore', () => ({
   }))
 }));
 
-vi.mock('@/stores/dspStore', () => ({
-  useDspStore: vi.fn(() => ({
+vi.mock('@/stores/equalizerStore', () => ({
+  useEqualizerStore: vi.fn(() => ({
     linkedGroups: [
       { id: 'zone-1', name: 'Living Room', client_ids: ['dc:a6:32:7e:d3:43', 'aa:bb:cc:dd:ee:ff'] }
     ],
-    getClientDspVolume: vi.fn((mac) => mac === 'dc:a6:32:7e:d3:43' ? -25 : -30),
-    getClientDspMute: vi.fn(() => false),
+    getClientEqualizerVolume: vi.fn((mac) => mac === 'dc:a6:32:7e:d3:43' ? -25 : -30),
+    getClientEqualizerMute: vi.fn(() => false),
     getClientSpeakerType: vi.fn(() => 'bookshelf'),
-    updateClientDspMute: vi.fn().mockResolvedValue(true),
+    updateClientEqualizerMute: vi.fn().mockResolvedValue(true),
     loadEnabledState: vi.fn(),
     loadTargets: vi.fn(),
     handleEnabledChanged: vi.fn()
@@ -94,30 +94,30 @@ describe('MultiroomControl - Zone Mute Functionality', () => {
   });
 
   describe('Task 3.2: Zone mute toggles ALL online clients', () => {
-    it('should call updateClientDspMute for all online zone clients when zone mute toggled', async () => {
+    it('should call updateClientEqualizerMute for all online zone clients when zone mute toggled', async () => {
       // Import the component to get access to its logic
       // Since we can't easily mount the component due to complex dependencies,
       // we test the store logic directly
 
-      const dspStore = useDspStore();
+      const equalizerStore = useEqualizerStore();
       const multiroomStore = useMultiroomStore();
 
       // Simulate the zone mute logic from MultiroomControl.handleMuteToggle
-      const zone = dspStore.linkedGroups[0];
+      const zone = equalizerStore.linkedGroups[0];
       const onlineClientIds = zone.client_ids.filter(macId =>
         multiroomStore.clients.some(c => c.mac_id === macId)
       );
 
-      // Call updateClientDspMute for each online client (simulating what component does)
+      // Call updateClientEqualizerMute for each online client (simulating what component does)
       const updatePromises = onlineClientIds.map(async (macId) => {
-        await dspStore.updateClientDspMute(macId, true);
+        await equalizerStore.updateClientEqualizerMute(macId, true);
       });
       await Promise.all(updatePromises);
 
-      // Verify that updateClientDspMute was called for both clients
-      expect(dspStore.updateClientDspMute).toHaveBeenCalledTimes(2);
-      expect(dspStore.updateClientDspMute).toHaveBeenCalledWith('dc:a6:32:7e:d3:43', true);
-      expect(dspStore.updateClientDspMute).toHaveBeenCalledWith('aa:bb:cc:dd:ee:ff', true);
+      // Verify that updateClientEqualizerMute was called for both clients
+      expect(equalizerStore.updateClientEqualizerMute).toHaveBeenCalledTimes(2);
+      expect(equalizerStore.updateClientEqualizerMute).toHaveBeenCalledWith('dc:a6:32:7e:d3:43', true);
+      expect(equalizerStore.updateClientEqualizerMute).toHaveBeenCalledWith('aa:bb:cc:dd:ee:ff', true);
     });
 
     it('should only mute online clients, skipping offline ones', async () => {
@@ -135,24 +135,24 @@ describe('MultiroomControl - Zone Mute Functionality', () => {
         saveDisplayCache: vi.fn()
       });
 
-      const dspStore = useDspStore();
+      const equalizerStore = useEqualizerStore();
       const multiroomStore = useMultiroomStore();
 
       // Simulate the zone mute logic
-      const zone = dspStore.linkedGroups[0];
+      const zone = equalizerStore.linkedGroups[0];
       const onlineClientIds = zone.client_ids.filter(macId =>
         multiroomStore.clients.some(c => c.mac_id === macId && c.online !== false)
       );
 
       // Only call for online clients
       const updatePromises = onlineClientIds.map(async (macId) => {
-        await dspStore.updateClientDspMute(macId, true);
+        await equalizerStore.updateClientEqualizerMute(macId, true);
       });
       await Promise.all(updatePromises);
 
       // Should only update the online client
-      expect(dspStore.updateClientDspMute).toHaveBeenCalledTimes(1);
-      expect(dspStore.updateClientDspMute).toHaveBeenCalledWith('dc:a6:32:7e:d3:43', true);
+      expect(equalizerStore.updateClientEqualizerMute).toHaveBeenCalledTimes(1);
+      expect(equalizerStore.updateClientEqualizerMute).toHaveBeenCalledWith('dc:a6:32:7e:d3:43', true);
     });
   });
 });

@@ -1,7 +1,7 @@
 """
 Services for Milo Client.
 """
-from services.dsp import DSPService
+from services.equalizer import EqualizerService
 from services.snapclient import SnapclientService
 
-__all__ = ["DSPService", "SnapclientService"]
+__all__ = ["EqualizerService", "SnapclientService"]

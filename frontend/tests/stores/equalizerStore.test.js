@@ -1,8 +1,8 @@
-// frontend/tests/stores/dspStore.test.js
-// Tests for dspStore volume functions (Story 3.5)
+// frontend/tests/stores/equalizerStore.test.js
+// Tests for equalizerStore volume functions (Story 3.5)
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
-import { useDspStore } from '@/stores/dspStore';
+import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import axios from 'axios';
@@ -36,12 +36,12 @@ vi.mock('@/stores/multiroomStore', () => ({
   }))
 }));
 
-describe('dspStore - Volume Functions', () => {
+describe('equalizerStore - Volume Functions', () => {
   let store;
 
   beforeEach(() => {
     setActivePinia(createPinia());
-    store = useDspStore();
+    store = useEqualizerStore();
     vi.clearAllMocks();
   });
 
@@ -50,17 +50,17 @@ describe('dspStore - Volume Functions', () => {
       // This tests the internal conversion that should happen
       const macWithColons = 'dc:a6:32:7e:d3:43';
       const expectedUrl = 'dca6327ed343';
-      // The conversion happens inside updateClientDspVolume
+      // The conversion happens inside updateClientEqualizerVolume
       // We test it indirectly by checking the API call
       expect(macWithColons.replace(/:/g, '')).toBe(expectedUrl);
     });
   });
 
-  describe('updateClientDspVolume', () => {
+  describe('updateClientEqualizerVolume', () => {
     it('should call MAC-based endpoint for volume update', async () => {
       axios.patch.mockResolvedValueOnce({ data: { status: 'success', mac_id: 'dc:a6:32:7e:d3:43', volume_db: -25 } });
 
-      const result = await store.updateClientDspVolume('dc:a6:32:7e:d3:43', -25);
+      const result = await store.updateClientEqualizerVolume('dc:a6:32:7e:d3:43', -25);
 
       // Should use PATCH /api/volume/client/mac/{mac_url} endpoint
       expect(axios.patch).toHaveBeenCalledWith(
@@ -73,9 +73,9 @@ describe('dspStore - Volume Functions', () => {
     it('should handle local client volume update', async () => {
       axios.patch.mockResolvedValueOnce({ data: { status: 'success' } });
 
-      const result = await store.updateClientDspVolume('local', -30);
+      const result = await store.updateClientEqualizerVolume('local', -30);
 
-      // Local client should use the dsp_id-based endpoint
+      // Local client should use the camilladsp_id-based endpoint
       expect(axios.patch).toHaveBeenCalledWith(
         '/api/volume/client/local',
         { volume_db: -30 }
@@ -86,7 +86,7 @@ describe('dspStore - Volume Functions', () => {
     it('should return false on API error', async () => {
       axios.patch.mockRejectedValueOnce(new Error('Network error'));
 
-      const result = await store.updateClientDspVolume('dc:a6:32:7e:d3:43', -25);
+      const result = await store.updateClientEqualizerVolume('dc:a6:32:7e:d3:43', -25);
 
       expect(result).toBe(false);
     });
@@ -98,19 +98,19 @@ describe('dspStore - Volume Functions', () => {
         volumeState: { clients: {} }
       });
 
-      const freshStore = useDspStore();
-      const result = await freshStore.updateClientDspVolume('dc:a6:32:7e:d3:43', -25);
+      const freshStore = useEqualizerStore();
+      const result = await freshStore.updateClientEqualizerVolume('dc:a6:32:7e:d3:43', -25);
 
       expect(axios.patch).not.toHaveBeenCalled();
       expect(result).toBe(false);
     });
   });
 
-  describe('updateClientDspMute', () => {
+  describe('updateClientEqualizerMute', () => {
     it('should call MAC-based endpoint for mute update', async () => {
       axios.patch.mockResolvedValueOnce({ data: { status: 'success', mac_id: 'dc:a6:32:7e:d3:43', mute: true } });
 
-      const result = await store.updateClientDspMute('dc:a6:32:7e:d3:43', true);
+      const result = await store.updateClientEqualizerMute('dc:a6:32:7e:d3:43', true);
 
       // Should use PATCH /api/volume/client/mac/{mac_url}/mute endpoint
       expect(axios.patch).toHaveBeenCalledWith(
@@ -123,7 +123,7 @@ describe('dspStore - Volume Functions', () => {
     it('should handle unmute operation', async () => {
       axios.patch.mockResolvedValueOnce({ data: { status: 'success', mac_id: 'dc:a6:32:7e:d3:43', mute: false } });
 
-      const result = await store.updateClientDspMute('dc:a6:32:7e:d3:43', false);
+      const result = await store.updateClientEqualizerMute('dc:a6:32:7e:d3:43', false);
 
       expect(axios.patch).toHaveBeenCalledWith(
         '/api/volume/client/mac/dca6327ed343/mute',
@@ -135,9 +135,9 @@ describe('dspStore - Volume Functions', () => {
     it('should handle local client mute update', async () => {
       axios.patch.mockResolvedValueOnce({ data: { status: 'success' } });
 
-      const result = await store.updateClientDspMute('local', true);
+      const result = await store.updateClientEqualizerMute('local', true);
 
-      // Local client should use the dsp_id-based endpoint
+      // Local client should use the camilladsp_id-based endpoint
       expect(axios.patch).toHaveBeenCalledWith(
         '/api/volume/client/local/mute',
         { mute: true }
@@ -148,7 +148,7 @@ describe('dspStore - Volume Functions', () => {
     it('should return false on API error', async () => {
       axios.patch.mockRejectedValueOnce(new Error('Network error'));
 
-      const result = await store.updateClientDspMute('dc:a6:32:7e:d3:43', true);
+      const result = await store.updateClientEqualizerMute('dc:a6:32:7e:d3:43', true);
 
       expect(result).toBe(false);
     });
@@ -172,7 +172,7 @@ describe('dspStore - Volume Functions', () => {
         }
       });
 
-      const freshStore = useDspStore();
+      const freshStore = useEqualizerStore();
       const result = await freshStore.applyZoneDelta('zone-uuid-123', 5);
 
       expect(axios.patch).toHaveBeenCalledWith(
@@ -189,7 +189,7 @@ describe('dspStore - Volume Functions', () => {
         volumeState: { clients: {} }
       });
 
-      const freshStore = useDspStore();
+      const freshStore = useEqualizerStore();
       const result = await freshStore.applyZoneDelta('zone-uuid-123', 5);
 
       expect(axios.patch).not.toHaveBeenCalled();
@@ -197,14 +197,14 @@ describe('dspStore - Volume Functions', () => {
     });
   });
 
-  describe('getClientDspVolume', () => {
+  describe('getClientEqualizerVolume', () => {
     it('should return volume from unified store', () => {
-      const volume = store.getClientDspVolume('dc:a6:32:7e:d3:43');
+      const volume = store.getClientEqualizerVolume('dc:a6:32:7e:d3:43');
       expect(volume).toBe(-30);
     });
 
     it('should return default -30 for unknown client', () => {
-      const volume = store.getClientDspVolume('unknown-mac');
+      const volume = store.getClientEqualizerVolume('unknown-mac');
       expect(volume).toBe(-30);
     });
 
@@ -218,20 +218,20 @@ describe('dspStore - Volume Functions', () => {
         }
       });
 
-      const freshStore = useDspStore();
-      const volume = freshStore.getClientDspVolume('milo');
+      const freshStore = useEqualizerStore();
+      const volume = freshStore.getClientEqualizerVolume('milo');
       expect(volume).toBe(-25);
     });
   });
 
-  describe('getClientDspMute', () => {
+  describe('getClientEqualizerMute', () => {
     it('should return mute state from unified store', () => {
-      const muted = store.getClientDspMute('dc:a6:32:7e:d3:43');
+      const muted = store.getClientEqualizerMute('dc:a6:32:7e:d3:43');
       expect(muted).toBe(false);
     });
 
     it('should return default false for unknown client', () => {
-      const muted = store.getClientDspMute('unknown-mac');
+      const muted = store.getClientEqualizerMute('unknown-mac');
       expect(muted).toBe(false);
     });
   });
@@ -241,12 +241,12 @@ describe('dspStore - Volume Functions', () => {
 // Story 4.3: EQ Filter Management - Zone Propagation Tests
 // =============================================================================
 
-describe('dspStore - EQ Filter Zone Propagation', () => {
+describe('equalizerStore - EQ Filter Zone Propagation', () => {
   let store;
 
   beforeEach(() => {
     setActivePinia(createPinia());
-    store = useDspStore();
+    store = useEqualizerStore();
     vi.clearAllMocks();
   });
 
@@ -271,7 +271,7 @@ describe('dspStore - EQ Filter Zone Propagation', () => {
 
       axios.put.mockResolvedValue({ data: { status: 'success' } });
 
-      const freshStore = useDspStore();
+      const freshStore = useEqualizerStore();
       freshStore.filters = [
         { id: 'eq_band_00', freq: 31, gain: 0, q: 1.41, type: 'Peaking', enabled: true }
       ];
@@ -282,12 +282,12 @@ describe('dspStore - EQ Filter Zone Propagation', () => {
       await freshStore.finalizeFilterUpdate('eq_band_00');
 
       // Should have called PUT for local + propagation to 2 online zone members
-      // Local: /api/dsp/filter/eq_band_00
-      // Remote clients: /api/dsp/client/{hostname}/filter/eq_band_00
+      // Local: /api/equalizer/filter/eq_band_00
+      // Remote clients: /api/equalizer/client/{hostname}/filter/eq_band_00
       expect(axios.put).toHaveBeenCalled();
       const putCalls = axios.put.mock.calls;
       // At least 1 call for local filter update
-      expect(putCalls.some(call => call[0] === '/api/dsp/filter/eq_band_00')).toBe(true);
+      expect(putCalls.some(call => call[0] === '/api/equalizer/filter/eq_band_00')).toBe(true);
     });
 
     it('should skip offline clients during propagation', async () => {
@@ -305,7 +305,7 @@ describe('dspStore - EQ Filter Zone Propagation', () => {
         initialize: vi.fn()
       });
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
       vi.clearAllMocks();
 
       axios.put.mockResolvedValue({ data: { status: 'success' } });
@@ -333,7 +333,7 @@ describe('dspStore - EQ Filter Zone Propagation', () => {
       // Setup standalone mock BEFORE creating store
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
       vi.clearAllMocks();
 
       axios.put.mockResolvedValue({ data: { status: 'success', id: 'eq_band_00' } });
@@ -356,7 +356,7 @@ describe('dspStore - EQ Filter Zone Propagation', () => {
       // Setup zone mock BEFORE creating store
       useMultiroomStore.mockReturnValue(createZoneMock('zone-1', 'Test Zone'));
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
       vi.clearAllMocks();
 
       axios.patch.mockResolvedValue({
@@ -376,7 +376,7 @@ describe('dspStore - EQ Filter Zone Propagation', () => {
 
       // Should use zone endpoint (backend handles propagation)
       expect(axios.patch).toHaveBeenCalledWith(
-        '/api/dsp/zone/zone-1/filter/eq_band_00',
+        '/api/equalizer/zone/zone-1/filter/eq_band_00',
         expect.objectContaining({ gain: 5.0 })
       );
     });
@@ -384,7 +384,7 @@ describe('dspStore - EQ Filter Zone Propagation', () => {
 
   describe('Filter state management', () => {
     it('should have 10-band EQ default structure', () => {
-      const freshStore = useDspStore();
+      const freshStore = useEqualizerStore();
       // Default filters should be defined
       expect(Array.isArray(freshStore.filters)).toBe(true);
     });
@@ -392,7 +392,7 @@ describe('dspStore - EQ Filter Zone Propagation', () => {
     it('should support filter enabled/disabled state', async () => {
       axios.put.mockResolvedValue({ data: { status: 'success' } });
 
-      const freshStore = useDspStore();
+      const freshStore = useEqualizerStore();
       freshStore.filters = [
         { id: 'eq_band_00', freq: 31, gain: 0, q: 1.41, type: 'Peaking', enabled: true }
       ];
@@ -417,12 +417,12 @@ describe('dspStore - EQ Filter Zone Propagation', () => {
 
   describe('Preset auto-switch (FR23)', () => {
     it('should track active preset state', () => {
-      const freshStore = useDspStore();
+      const freshStore = useEqualizerStore();
       expect(freshStore.activePreset).toBeDefined;
     });
 
     it('should have manual gains storage', () => {
-      const freshStore = useDspStore();
+      const freshStore = useEqualizerStore();
       expect(Array.isArray(freshStore.manualGains)).toBe(true);
       expect(freshStore.manualGains.length).toBe(10);
     });
@@ -430,7 +430,7 @@ describe('dspStore - EQ Filter Zone Propagation', () => {
     it('should switch to manual preset on filter modification', async () => {
       axios.put.mockResolvedValue({ data: { status: 'success' } });
 
-      const freshStore = useDspStore();
+      const freshStore = useEqualizerStore();
       freshStore.activePreset = 'acoustic'; // Currently on a preset
       freshStore.filters = [
         { id: 'eq_band_00', freq: 31, gain: 0, q: 1.41, type: 'Peaking', enabled: true }
@@ -449,18 +449,18 @@ describe('dspStore - EQ Filter Zone Propagation', () => {
 });
 
 // =============================================================================
-// Story 4.6: DSP Presets System - Preset Loading & Zone Propagation Tests
+// Story 4.6: Equalizer Presets System - Preset Loading & Zone Propagation Tests
 // =============================================================================
 
-describe('dspStore - Preset Management (Story 4.6)', () => {
+describe('equalizerStore - Preset Management (Story 4.6)', () => {
   // Note: loadPreset now uses zone endpoint when target is in a zone
 
   describe('loadPreset', () => {
-    it('should call PUT /api/dsp/preset/{preset_id} for standalone client', async () => {
+    it('should call PUT /api/equalizer/preset/{preset_id} for standalone client', async () => {
       // Setup standalone mock BEFORE creating store
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
       vi.clearAllMocks();
 
       axios.put.mockResolvedValueOnce({ data: { status: 'success', id: 'jazz' } });
@@ -468,16 +468,16 @@ describe('dspStore - Preset Management (Story 4.6)', () => {
       store.selectedTarget = 'local';
       const result = await store.loadPreset('jazz');
 
-      expect(axios.put).toHaveBeenCalledWith('/api/dsp/preset/jazz');
+      expect(axios.put).toHaveBeenCalledWith('/api/equalizer/preset/jazz');
       expect(result).toBe(true);
       expect(store.activePreset).toBe('jazz');
     });
 
-    it('should use POST /api/dsp/zone/{zone_id}/preset when in zone', async () => {
+    it('should use POST /api/equalizer/zone/{zone_id}/preset when in zone', async () => {
       // Setup zone mock BEFORE creating store (backend handles propagation)
       useMultiroomStore.mockReturnValue(createZoneMock('zone-1', 'Test Zone'));
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
       vi.clearAllMocks();
 
       axios.post.mockResolvedValueOnce({
@@ -489,7 +489,7 @@ describe('dspStore - Preset Management (Story 4.6)', () => {
 
       // Should use zone endpoint (backend handles propagation to all members)
       expect(axios.post).toHaveBeenCalledWith(
-        '/api/dsp/zone/zone-1/preset',
+        '/api/equalizer/zone/zone-1/preset',
         { preset_id: 'rock' }
       );
     });
@@ -498,7 +498,7 @@ describe('dspStore - Preset Management (Story 4.6)', () => {
       // Setup zone mock BEFORE creating store
       useMultiroomStore.mockReturnValue(createZoneMock('zone-1', 'Test Zone'));
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
       vi.clearAllMocks();
 
       // One client offline, partial success
@@ -522,7 +522,7 @@ describe('dspStore - Preset Management (Story 4.6)', () => {
       // Setup standalone mock BEFORE creating store
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
       vi.clearAllMocks();
 
       axios.put.mockRejectedValueOnce(new Error('Network error'));
@@ -537,7 +537,7 @@ describe('dspStore - Preset Management (Story 4.6)', () => {
       // Setup standalone mock BEFORE creating store
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
       vi.clearAllMocks();
 
       axios.put.mockResolvedValueOnce({ data: { status: 'success', id: 'bass_boost' } });
@@ -556,7 +556,7 @@ describe('dspStore - Preset Management (Story 4.6)', () => {
     it('should track propagation errors array for UI notification', async () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
       // propagationErrors should be available for UI to display
       expect(Array.isArray(store.propagationErrors)).toBe(true);
     });
@@ -564,7 +564,7 @@ describe('dspStore - Preset Management (Story 4.6)', () => {
     it('should have clearPropagationErrors function', async () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
       // clearPropagationErrors should be available
       expect(typeof store.clearPropagationErrors).toBe('function');
     });
@@ -574,7 +574,7 @@ describe('dspStore - Preset Management (Story 4.6)', () => {
     it('should be a computed property that exists', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
       // isManualMode should be defined
       expect(store.isManualMode !== undefined).toBe(true);
     });
@@ -582,7 +582,7 @@ describe('dspStore - Preset Management (Story 4.6)', () => {
     it('should return true when activePreset is "manual"', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
       store.activePreset = 'manual';
       store.filters = [];
       store.builtinPresets = [];
@@ -593,7 +593,7 @@ describe('dspStore - Preset Management (Story 4.6)', () => {
     it('should return true when no preset is selected', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
       store.activePreset = null;
 
       expect(store.isManualMode).toBe(true);
@@ -605,7 +605,7 @@ describe('dspStore - Preset Management (Story 4.6)', () => {
     it('should return false when gains match active preset', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
       store.activePreset = 'jazz';
       store.builtinPresets = [
         { id: 'jazz', gains: [4, 3, 2, 2, -2, -2, 0, 2, 3, 4] }
@@ -629,7 +629,7 @@ describe('dspStore - Preset Management (Story 4.6)', () => {
     it('should return true when gains differ from active preset', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
       store.activePreset = 'jazz';
       store.builtinPresets = [
         { id: 'jazz', gains: [4, 3, 2, 2, -2, -2, 0, 2, 3, 4] }
@@ -655,7 +655,7 @@ describe('dspStore - Preset Management (Story 4.6)', () => {
     it('should update activePreset from WebSocket event', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
       store.activePreset = 'manual';
 
       store.handlePresetLoaded({ data: { id: 'electronic' } });
@@ -666,7 +666,7 @@ describe('dspStore - Preset Management (Story 4.6)', () => {
     it('should support both id and name formats in event data', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
       store.activePreset = 'jazz';
 
       // Some events use 'name' instead of 'id'
@@ -678,7 +678,7 @@ describe('dspStore - Preset Management (Story 4.6)', () => {
 });
 
 // =============================================================================
-// Story 4.7: API Endpoints for DSP - Zone Endpoint Integration Tests
+// Story 4.7: API Endpoints for Equalizer - Zone Endpoint Integration Tests
 // =============================================================================
 
 // Helper: Create zone mock that returns zone for 'local' client
@@ -717,7 +717,7 @@ const createStandaloneMock = () => ({
   initialize: vi.fn()
 });
 
-describe('dspStore - Zone DSP Endpoints (Story 4.7)', () => {
+describe('equalizerStore - Zone Equalizer Endpoints (Story 4.7)', () => {
   // Note: Each test must set up mock BEFORE creating store instance
 
   describe('Zone endpoint detection', () => {
@@ -725,7 +725,7 @@ describe('dspStore - Zone DSP Endpoints (Story 4.7)', () => {
       // Setup mock BEFORE creating store
       useMultiroomStore.mockReturnValue(createZoneMock('zone-living-room', 'Living Room'));
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.selectedTarget = 'local';
       expect(store.selectedTarget).toBe('local');
@@ -736,7 +736,7 @@ describe('dspStore - Zone DSP Endpoints (Story 4.7)', () => {
       // Setup mock BEFORE creating store
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.selectedTarget = 'local';
       expect(store.selectedTarget).toBe('local');
@@ -746,11 +746,11 @@ describe('dspStore - Zone DSP Endpoints (Story 4.7)', () => {
   });
 
   describe('updateCompressor with zone endpoint', () => {
-    it('should use PATCH /api/dsp/zone/{zone_id}/compressor when in zone', async () => {
+    it('should use PATCH /api/equalizer/zone/{zone_id}/compressor when in zone', async () => {
       // Setup mock BEFORE creating store
       useMultiroomStore.mockReturnValue(createZoneMock('zone-living-room', 'Living Room'));
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
       vi.clearAllMocks(); // Clear after store creation to reset axios mocks
 
       axios.patch.mockResolvedValueOnce({
@@ -762,17 +762,17 @@ describe('dspStore - Zone DSP Endpoints (Story 4.7)', () => {
 
       // Should use zone endpoint
       expect(axios.patch).toHaveBeenCalledWith(
-        '/api/dsp/zone/zone-living-room/compressor',
+        '/api/equalizer/zone/zone-living-room/compressor',
         expect.objectContaining({ enabled: true, threshold: -20 })
       );
       expect(result).toBe(true);
     });
 
-    it('should use PUT /api/dsp/compressor for standalone client', async () => {
+    it('should use PUT /api/equalizer/compressor for standalone client', async () => {
       // Setup mock BEFORE creating store
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
       vi.clearAllMocks();
 
       axios.put.mockResolvedValueOnce({
@@ -784,7 +784,7 @@ describe('dspStore - Zone DSP Endpoints (Story 4.7)', () => {
 
       // Should use direct endpoint (not zone)
       expect(axios.put).toHaveBeenCalledWith(
-        '/api/dsp/compressor',
+        '/api/equalizer/compressor',
         expect.objectContaining({ enabled: true, threshold: -15 })
       );
       expect(result).toBe(true);
@@ -792,11 +792,11 @@ describe('dspStore - Zone DSP Endpoints (Story 4.7)', () => {
   });
 
   describe('updateLoudness with zone endpoint', () => {
-    it('should use PATCH /api/dsp/zone/{zone_id}/loudness when in zone', async () => {
+    it('should use PATCH /api/equalizer/zone/{zone_id}/loudness when in zone', async () => {
       // Setup mock BEFORE creating store
       useMultiroomStore.mockReturnValue(createZoneMock('zone-bedroom', 'Bedroom'));
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
       vi.clearAllMocks();
 
       axios.patch.mockResolvedValueOnce({
@@ -808,19 +808,19 @@ describe('dspStore - Zone DSP Endpoints (Story 4.7)', () => {
 
       // Should use zone endpoint
       expect(axios.patch).toHaveBeenCalledWith(
-        '/api/dsp/zone/zone-bedroom/loudness',
+        '/api/equalizer/zone/zone-bedroom/loudness',
         expect.objectContaining({ enabled: true })
       );
       expect(result).toBe(true);
     });
   });
 
-  describe('toggleDspEffectsEnabled with zone endpoint', () => {
-    it('should use PATCH /api/dsp/zone/{zone_id}/enabled when in zone', async () => {
+  describe('toggleEqualizerEffectsEnabled with zone endpoint', () => {
+    it('should use PATCH /api/equalizer/zone/{zone_id}/enabled when in zone', async () => {
       // Setup mock BEFORE creating store
       useMultiroomStore.mockReturnValue(createZoneMock('zone-kitchen', 'Kitchen'));
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
       vi.clearAllMocks();
 
       axios.patch.mockResolvedValueOnce({
@@ -828,21 +828,21 @@ describe('dspStore - Zone DSP Endpoints (Story 4.7)', () => {
       });
 
       store.selectedTarget = 'local';
-      const result = await store.toggleDspEffectsEnabled(false);
+      const result = await store.toggleEqualizerEffectsEnabled(false);
 
       // Should use zone endpoint
       expect(axios.patch).toHaveBeenCalledWith(
-        '/api/dsp/zone/zone-kitchen/enabled',
+        '/api/equalizer/zone/zone-kitchen/enabled',
         expect.objectContaining({ enabled: false })
       );
       expect(result).toBe(true);
     });
 
-    it('should use PUT /api/dsp/enabled for standalone client', async () => {
+    it('should use PUT /api/equalizer/enabled for standalone client', async () => {
       // Setup mock BEFORE creating store
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
       vi.clearAllMocks();
 
       axios.put.mockResolvedValueOnce({
@@ -850,11 +850,11 @@ describe('dspStore - Zone DSP Endpoints (Story 4.7)', () => {
       });
 
       store.selectedTarget = 'local';
-      await store.toggleDspEffectsEnabled(false);
+      await store.toggleEqualizerEffectsEnabled(false);
 
       // Should use direct endpoint (not zone)
       expect(axios.put).toHaveBeenCalledWith(
-        '/api/dsp/enabled',
+        '/api/equalizer/enabled',
         expect.objectContaining({ enabled: false })
       );
       // Note: Return value depends on internal state (cleanup, loadStatus)
@@ -863,11 +863,11 @@ describe('dspStore - Zone DSP Endpoints (Story 4.7)', () => {
   });
 
   describe('finalizeFilterUpdate with zone endpoint', () => {
-    it('should use PATCH /api/dsp/zone/{zone_id}/filter/{filter_id} when in zone', async () => {
+    it('should use PATCH /api/equalizer/zone/{zone_id}/filter/{filter_id} when in zone', async () => {
       // Setup mock BEFORE creating store
       useMultiroomStore.mockReturnValue(createZoneMock('zone-office', 'Office'));
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
       vi.clearAllMocks();
 
       axios.patch.mockResolvedValueOnce({
@@ -883,16 +883,16 @@ describe('dspStore - Zone DSP Endpoints (Story 4.7)', () => {
 
       // Should use zone endpoint
       expect(axios.patch).toHaveBeenCalledWith(
-        '/api/dsp/zone/zone-office/filter/eq_band_00',
+        '/api/equalizer/zone/zone-office/filter/eq_band_00',
         expect.objectContaining({ gain: 5.0 })
       );
     });
 
-    it('should use PUT /api/dsp/filter/{filter_id} for standalone client', async () => {
+    it('should use PUT /api/equalizer/filter/{filter_id} for standalone client', async () => {
       // Setup mock BEFORE creating store
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
       vi.clearAllMocks();
 
       axios.put.mockResolvedValueOnce({
@@ -908,7 +908,7 @@ describe('dspStore - Zone DSP Endpoints (Story 4.7)', () => {
 
       // Should use direct endpoint (not zone)
       expect(axios.put).toHaveBeenCalledWith(
-        '/api/dsp/filter/eq_band_00',
+        '/api/equalizer/filter/eq_band_00',
         expect.objectContaining({ gain: 3.0 })
       );
     });
@@ -919,7 +919,7 @@ describe('dspStore - Zone DSP Endpoints (Story 4.7)', () => {
       // Setup mock BEFORE creating store
       useMultiroomStore.mockReturnValue(createZoneMock('zone-partial', 'Partial Zone'));
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
       vi.clearAllMocks();
 
       // Partial success: one client failed
@@ -944,7 +944,7 @@ describe('dspStore - Zone DSP Endpoints (Story 4.7)', () => {
       // Setup mock BEFORE creating store
       useMultiroomStore.mockReturnValue(createZoneMock('zone-offline', 'Zone with Offline'));
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
       vi.clearAllMocks();
 
       // Backend reports offline client was skipped
@@ -967,10 +967,10 @@ describe('dspStore - Zone DSP Endpoints (Story 4.7)', () => {
 });
 
 // =============================================================================
-// Story 4.8: Frontend DSP Controls - ItemSelector, Presets & WebSocket Tests
+// Story 4.8: Frontend Equalizer Controls - ItemSelector, Presets & WebSocket Tests
 // =============================================================================
 
-describe('dspStore - ItemSelector Zone/Client Selection (Story 4.8)', () => {
+describe('equalizerStore - ItemSelector Zone/Client Selection (Story 4.8)', () => {
   describe('availableTargets computed property', () => {
     it('should derive targets from clientRegistryStore.clientList', () => {
       useMultiroomStore.mockReturnValue({
@@ -987,7 +987,7 @@ describe('dspStore - ItemSelector Zone/Client Selection (Story 4.8)', () => {
         initialize: vi.fn()
       });
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       const targets = store.availableTargets;
 
@@ -1014,7 +1014,7 @@ describe('dspStore - ItemSelector Zone/Client Selection (Story 4.8)', () => {
       };
       useMultiroomStore.mockReturnValue(mockStore);
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       expect(store.availableTargets.length).toBe(1);
     });
@@ -1037,7 +1037,7 @@ describe('dspStore - ItemSelector Zone/Client Selection (Story 4.8)', () => {
         initialize: vi.fn()
       });
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       const zones = store.linkedGroups;
 
@@ -1051,7 +1051,7 @@ describe('dspStore - ItemSelector Zone/Client Selection (Story 4.8)', () => {
     it('should return zone members when client is in a zone', () => {
       useMultiroomStore.mockReturnValue(createZoneMock('zone-test', 'Test Zone'));
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       const linkedIds = store.getLinkedClientIds('local');
 
@@ -1062,7 +1062,7 @@ describe('dspStore - ItemSelector Zone/Client Selection (Story 4.8)', () => {
     it('should return only the client itself when not in a zone', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       const linkedIds = store.getLinkedClientIds('local');
 
@@ -1074,7 +1074,7 @@ describe('dspStore - ItemSelector Zone/Client Selection (Story 4.8)', () => {
     it('should return zone object when client is in a zone', () => {
       useMultiroomStore.mockReturnValue(createZoneMock('zone-office', 'Office'));
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       const zone = store.getZoneGroup('local');
 
@@ -1086,7 +1086,7 @@ describe('dspStore - ItemSelector Zone/Client Selection (Story 4.8)', () => {
     it('should return null when client is standalone', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       const zone = store.getZoneGroup('local');
 
@@ -1096,12 +1096,12 @@ describe('dspStore - ItemSelector Zone/Client Selection (Story 4.8)', () => {
 
 });
 
-describe('dspStore - Preset Display Integration (Story 4.8)', () => {
+describe('equalizerStore - Preset Display Integration (Story 4.8)', () => {
   describe('builtinPresets array', () => {
     it('should be populated after fetchPresets', async () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
       vi.clearAllMocks();
 
       // loadStatus calls fetchStatus, fetchFilters, and fetchPresets in parallel
@@ -1141,7 +1141,7 @@ describe('dspStore - Preset Display Integration (Story 4.8)', () => {
     it('should return manual when isManualMode is true', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.activePreset = 'jazz';
       store.builtinPresets = [{ id: 'jazz', gains: [4, 3, 2, 2, -2, -2, 0, 2, 3, 4] }];
@@ -1156,7 +1156,7 @@ describe('dspStore - Preset Display Integration (Story 4.8)', () => {
     it('should return active preset when gains match', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.activePreset = 'flat';
       store.builtinPresets = [{ id: 'flat', gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }];
@@ -1170,12 +1170,12 @@ describe('dspStore - Preset Display Integration (Story 4.8)', () => {
   });
 });
 
-describe('dspStore - WebSocket Event Handlers (Story 4.8)', () => {
+describe('equalizerStore - WebSocket Event Handlers (Story 4.8)', () => {
   describe('handleFilterChanged', () => {
     it('should update filter gain from WebSocket event', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.filters = [
         { id: 'eq_band_00', freq: 31, gain: 0, q: 1.41, type: 'Peaking', displayName: '31' }
@@ -1191,7 +1191,7 @@ describe('dspStore - WebSocket Event Handlers (Story 4.8)', () => {
     it('should update filter frequency and displayName from WebSocket event', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.filters = [
         { id: 'eq_band_00', freq: 31, gain: 0, q: 1.41, type: 'Peaking', displayName: '31' }
@@ -1208,7 +1208,7 @@ describe('dspStore - WebSocket Event Handlers (Story 4.8)', () => {
     it('should not update filters during throttling', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.filters = [
         { id: 'eq_band_00', freq: 31, gain: 3.0, q: 1.41, type: 'Peaking', displayName: '31' }
@@ -1231,7 +1231,7 @@ describe('dspStore - WebSocket Event Handlers (Story 4.8)', () => {
     it('should reset all filter gains to 0', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.filters = [
         { id: 'eq_band_00', gain: 5 },
@@ -1248,10 +1248,10 @@ describe('dspStore - WebSocket Event Handlers (Story 4.8)', () => {
   });
 
   describe('handleStateChanged', () => {
-    it('should update DSP state from WebSocket event', () => {
+    it('should update Equalizer state from WebSocket event', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.state = 'disconnected';
 
@@ -1263,7 +1263,7 @@ describe('dspStore - WebSocket Event Handlers (Story 4.8)', () => {
     it('should default to disconnected when state is missing', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.state = 'running';
 
@@ -1277,7 +1277,7 @@ describe('dspStore - WebSocket Event Handlers (Story 4.8)', () => {
     it('should update compressor settings from WebSocket event', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.compressor = { enabled: false, threshold: -20, ratio: 4, attack: 10, release: 100, makeup_gain: 0 };
 
@@ -1297,7 +1297,7 @@ describe('dspStore - WebSocket Event Handlers (Story 4.8)', () => {
     it('should update loudness settings from WebSocket event', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.loudness = { enabled: false, low_boost: 5, high_boost: 5 };
 
@@ -1313,29 +1313,29 @@ describe('dspStore - WebSocket Event Handlers (Story 4.8)', () => {
   });
 
   describe('handleEnabledChanged', () => {
-    it('should update isDspEffectsEnabled from WebSocket event', () => {
+    it('should update isEqualizerEffectsEnabled from WebSocket event', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
-      store.isDspEffectsEnabled = true;
+      store.isEqualizerEffectsEnabled = true;
 
       store.handleEnabledChanged({ data: { enabled: false } });
 
-      expect(store.isDspEffectsEnabled).toBe(false);
+      expect(store.isEqualizerEffectsEnabled).toBe(false);
     });
 
     it('should not change state when enabled is undefined', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
-      store.isDspEffectsEnabled = true;
+      store.isEqualizerEffectsEnabled = true;
 
       store.handleEnabledChanged({ data: {} });
 
       // Should remain unchanged
-      expect(store.isDspEffectsEnabled).toBe(true);
+      expect(store.isEqualizerEffectsEnabled).toBe(true);
     });
   });
 });
@@ -1344,21 +1344,21 @@ describe('dspStore - WebSocket Event Handlers (Story 4.8)', () => {
 // Story 6.2: Frontend WebSocket Integration - New Event Handlers
 // =============================================================================
 
-describe('dspStore - handleDspChanged (Story 6.2)', () => {
+describe('equalizerStore - handleEqualizerChanged (Story 6.2)', () => {
   describe('target matching', () => {
     it('should update state when target_type is client and matches selectedTarget', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.selectedTarget = 'dc:a6:32:7e:d3:43';
       store.compressor = { enabled: false, threshold: -20, ratio: 4 };
 
-      store.handleDspChanged({
+      store.handleEqualizerChanged({
         data: {
           target_type: 'client',
           target_id: 'dc:a6:32:7e:d3:43',
-          dsp_settings: {
+          equalizer_settings: {
             compressor: { enabled: true, threshold: -15 }
           }
         }
@@ -1371,16 +1371,16 @@ describe('dspStore - handleDspChanged (Story 6.2)', () => {
     it('should update state when target_type is zone and selectedTarget is in that zone', () => {
       useMultiroomStore.mockReturnValue(createZoneMock('zone-living', 'Living Room'));
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.selectedTarget = 'local'; // local is in zone-living
       store.loudness = { enabled: false, low_boost: 5, high_boost: 5 };
 
-      store.handleDspChanged({
+      store.handleEqualizerChanged({
         data: {
           target_type: 'zone',
           target_id: 'zone-living',
-          dsp_settings: {
+          equalizer_settings: {
             loudness: { enabled: true, low_boost: 10 }
           }
         }
@@ -1393,16 +1393,16 @@ describe('dspStore - handleDspChanged (Story 6.2)', () => {
     it('should ignore event when target_type is client but does not match selectedTarget', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.selectedTarget = 'local';
       store.compressor = { enabled: false, threshold: -20 };
 
-      store.handleDspChanged({
+      store.handleEqualizerChanged({
         data: {
           target_type: 'client',
           target_id: 'other-client-id', // Different from selectedTarget
-          dsp_settings: {
+          equalizer_settings: {
             compressor: { enabled: true, threshold: -10 }
           }
         }
@@ -1416,16 +1416,16 @@ describe('dspStore - handleDspChanged (Story 6.2)', () => {
     it('should ignore event when target_type is zone but selectedTarget is not in that zone', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock()); // Standalone = not in any zone
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.selectedTarget = 'local';
       store.compressor = { enabled: false };
 
-      store.handleDspChanged({
+      store.handleEqualizerChanged({
         data: {
           target_type: 'zone',
           target_id: 'other-zone-id',
-          dsp_settings: {
+          equalizer_settings: {
             compressor: { enabled: true }
           }
         }
@@ -1437,10 +1437,10 @@ describe('dspStore - handleDspChanged (Story 6.2)', () => {
   });
 
   describe('filter updates', () => {
-    it('should update filters from dsp_settings when not throttling', () => {
+    it('should update filters from equalizer_settings when not throttling', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.selectedTarget = 'local';
       store.filters = [
@@ -1448,11 +1448,11 @@ describe('dspStore - handleDspChanged (Story 6.2)', () => {
         { id: 'eq_band_01', freq: 62, gain: 0, q: 1.41, displayName: '62' }
       ];
 
-      store.handleDspChanged({
+      store.handleEqualizerChanged({
         data: {
           target_type: 'client',
           target_id: 'local',
-          dsp_settings: {
+          equalizer_settings: {
             filters: [
               { id: 'eq_band_00', freq: 31, gain: 5.0, q: 1.41 },
               { id: 'eq_band_01', freq: 80, gain: -2.0, q: 2.0 }
@@ -1472,32 +1472,32 @@ describe('dspStore - handleDspChanged (Story 6.2)', () => {
     it('should handle missing event.data gracefully', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.selectedTarget = 'local';
       store.compressor = { enabled: false };
 
       // Should not throw
-      expect(() => store.handleDspChanged({})).not.toThrow();
-      expect(() => store.handleDspChanged({ data: null })).not.toThrow();
+      expect(() => store.handleEqualizerChanged({})).not.toThrow();
+      expect(() => store.handleEqualizerChanged({ data: null })).not.toThrow();
 
       // State unchanged
       expect(store.compressor.enabled).toBe(false);
     });
 
-    it('should handle missing dsp_settings gracefully', () => {
+    it('should handle missing equalizer_settings gracefully', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.selectedTarget = 'local';
       store.compressor = { enabled: false };
 
-      store.handleDspChanged({
+      store.handleEqualizerChanged({
         data: {
           target_type: 'client',
           target_id: 'local'
-          // No dsp_settings
+          // No equalizer_settings
         }
       });
 
@@ -1508,15 +1508,15 @@ describe('dspStore - handleDspChanged (Story 6.2)', () => {
 });
 
 // =============================================================================
-// Story 6.4: DSP Store Real-Time Sync Tests
+// Story 6.4: Equalizer Store Real-Time Sync Tests
 // =============================================================================
 
-describe('dspStore - Real-Time Sync (Story 6.4)', () => {
-  describe('AC1: Zone DSP Changed Event Handling', () => {
-    it('should update zone DSP settings when receiving dsp_changed for zone containing selectedTarget', () => {
+describe('equalizerStore - Real-Time Sync (Story 6.4)', () => {
+  describe('AC1: Zone Equalizer Changed Event Handling', () => {
+    it('should update zone Equalizer settings when receiving equalizer_changed for zone containing selectedTarget', () => {
       useMultiroomStore.mockReturnValue(createZoneMock('zone-living', 'Living Room'));
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.selectedTarget = 'local'; // local is in zone-living
       store.filters = [
@@ -1526,12 +1526,12 @@ describe('dspStore - Real-Time Sync (Story 6.4)', () => {
       store.compressor = { enabled: false, threshold: -20 };
       store.loudness = { enabled: false };
 
-      // Receive dsp_changed event for the zone
-      store.handleDspChanged({
+      // Receive equalizer_changed event for the zone
+      store.handleEqualizerChanged({
         data: {
           target_type: 'zone',
           target_id: 'zone-living',
-          dsp_settings: {
+          equalizer_settings: {
             filters: [
               { id: 'eq_band_00', freq: 31, gain: 6.0, q: 1.41 },
               { id: 'eq_band_01', freq: 62, gain: -3.0, q: 2.0, type: 'Lowshelf' }
@@ -1552,19 +1552,19 @@ describe('dspStore - Real-Time Sync (Story 6.4)', () => {
       expect(store.loudness.low_boost).toBe(8);
     });
 
-    it('should ignore zone dsp_changed event when selectedTarget is not in that zone', () => {
+    it('should ignore zone equalizer_changed event when selectedTarget is not in that zone', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock()); // local is standalone
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.selectedTarget = 'local';
       store.compressor = { enabled: false };
 
-      store.handleDspChanged({
+      store.handleEqualizerChanged({
         data: {
           target_type: 'zone',
           target_id: 'other-zone',
-          dsp_settings: { compressor: { enabled: true } }
+          equalizer_settings: { compressor: { enabled: true } }
         }
       });
 
@@ -1572,20 +1572,20 @@ describe('dspStore - Real-Time Sync (Story 6.4)', () => {
     });
   });
 
-  describe('AC2: Client DSP Changed Event Handling', () => {
-    it('should update client DSP settings when receiving dsp_changed for standalone client', () => {
+  describe('AC2: Client Equalizer Changed Event Handling', () => {
+    it('should update client Equalizer settings when receiving equalizer_changed for standalone client', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.selectedTarget = 'local';
       store.filters = [{ id: 'eq_band_00', freq: 31, gain: 0, q: 1.41, displayName: '31' }];
 
-      store.handleDspChanged({
+      store.handleEqualizerChanged({
         data: {
           target_type: 'client',
           target_id: 'local',
-          dsp_settings: {
+          equalizer_settings: {
             filters: [{ id: 'eq_band_00', freq: 50, gain: 4.5, q: 2.0, type: 'Highpass' }]
           }
         }
@@ -1596,19 +1596,19 @@ describe('dspStore - Real-Time Sync (Story 6.4)', () => {
       expect(store.filters[0].displayName).toBe('50');
     });
 
-    it('should ignore client dsp_changed event when target_id does not match selectedTarget', () => {
+    it('should ignore client equalizer_changed event when target_id does not match selectedTarget', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.selectedTarget = 'local';
       store.filters = [{ id: 'eq_band_00', freq: 31, gain: 0, q: 1.41, displayName: '31' }];
 
-      store.handleDspChanged({
+      store.handleEqualizerChanged({
         data: {
           target_type: 'client',
           target_id: 'dc:a6:32:7e:d3:43', // Different client
-          dsp_settings: {
+          equalizer_settings: {
             filters: [{ id: 'eq_band_00', gain: 10 }]
           }
         }
@@ -1622,7 +1622,7 @@ describe('dspStore - Real-Time Sync (Story 6.4)', () => {
     it('should update activePreset when preset_loaded event sets preset to manual', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.activePreset = 'jazz';
 
@@ -1634,7 +1634,7 @@ describe('dspStore - Real-Time Sync (Story 6.4)', () => {
     it('should show isManualMode as true when preset is manual', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.activePreset = 'manual';
       store.filters = [];
@@ -1646,7 +1646,7 @@ describe('dspStore - Real-Time Sync (Story 6.4)', () => {
     it('should detect manual mode when filter gains differ from active preset', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.activePreset = 'rock';
       store.builtinPresets = [{ id: 'rock', gains: [5, 4, 3, 0, -1, -1, 0, 3, 4, 5] }];
@@ -1667,21 +1667,21 @@ describe('dspStore - Real-Time Sync (Story 6.4)', () => {
     });
   });
 
-  describe('AC4: Remote User DSP Changes', () => {
-    it('should update local UI immediately on remote dsp_changed event (no conflict)', () => {
+  describe('AC4: Remote User Equalizer Changes', () => {
+    it('should update local UI immediately on remote equalizer_changed event (no conflict)', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.selectedTarget = 'local';
       store.compressor = { enabled: false, threshold: -20, ratio: 4 };
 
       // Remote user changes compressor settings
-      store.handleDspChanged({
+      store.handleEqualizerChanged({
         data: {
           target_type: 'client',
           target_id: 'local',
-          dsp_settings: {
+          equalizer_settings: {
             compressor: { enabled: true, threshold: -12, ratio: 8 }
           }
         }
@@ -1695,7 +1695,7 @@ describe('dspStore - Real-Time Sync (Story 6.4)', () => {
     it('should not overwrite filters during local editing (throttle guard)', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.selectedTarget = 'local';
       store.filters = [{ id: 'eq_band_00', freq: 31, gain: 5.0, q: 1.41, displayName: '31' }];
@@ -1704,11 +1704,11 @@ describe('dspStore - Real-Time Sync (Story 6.4)', () => {
       store.updateFilter('eq_band_00', 'gain', 5.0);
 
       // Remote event arrives during local editing
-      store.handleDspChanged({
+      store.handleEqualizerChanged({
         data: {
           target_type: 'client',
           target_id: 'local',
-          dsp_settings: {
+          equalizer_settings: {
             filters: [{ id: 'eq_band_00', gain: 0 }] // Remote wants to reset
           }
         }
@@ -1719,14 +1719,14 @@ describe('dspStore - Real-Time Sync (Story 6.4)', () => {
     });
   });
 
-  describe('AC5: No Polling for DSP State', () => {
+  describe('AC5: No Polling for Equalizer State', () => {
     it('should use reactive state updates via WebSocket handlers', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       // Verify handler methods exist and are functions (not polling)
-      expect(typeof store.handleDspChanged).toBe('function');
+      expect(typeof store.handleEqualizerChanged).toBe('function');
       expect(typeof store.handleFilterChanged).toBe('function');
       expect(typeof store.handlePresetLoaded).toBe('function');
       expect(typeof store.handleEnabledChanged).toBe('function');
@@ -1735,38 +1735,38 @@ describe('dspStore - Real-Time Sync (Story 6.4)', () => {
     });
   });
 
-  describe('Multiple Rapid DSP Events', () => {
-    it('should process multiple rapid dsp_changed events without data loss', () => {
+  describe('Multiple Rapid Equalizer Events', () => {
+    it('should process multiple rapid equalizer_changed events without data loss', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.selectedTarget = 'local';
       store.compressor = { enabled: false, threshold: -20 };
       store.loudness = { enabled: false, low_boost: 5 };
 
       // Rapid sequence of events
-      store.handleDspChanged({
+      store.handleEqualizerChanged({
         data: {
           target_type: 'client',
           target_id: 'local',
-          dsp_settings: { compressor: { enabled: true } }
+          equalizer_settings: { compressor: { enabled: true } }
         }
       });
 
-      store.handleDspChanged({
+      store.handleEqualizerChanged({
         data: {
           target_type: 'client',
           target_id: 'local',
-          dsp_settings: { loudness: { enabled: true, low_boost: 10 } }
+          equalizer_settings: { loudness: { enabled: true, low_boost: 10 } }
         }
       });
 
-      store.handleDspChanged({
+      store.handleEqualizerChanged({
         data: {
           target_type: 'client',
           target_id: 'local',
-          dsp_settings: { compressor: { threshold: -15 } }
+          equalizer_settings: { compressor: { threshold: -15 } }
         }
       });
 
@@ -1780,7 +1780,7 @@ describe('dspStore - Real-Time Sync (Story 6.4)', () => {
     it('should process rapid filter_changed events correctly', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.filters = [
         { id: 'eq_band_00', freq: 31, gain: 0, q: 1.41, displayName: '31' },
@@ -1800,50 +1800,50 @@ describe('dspStore - Real-Time Sync (Story 6.4)', () => {
   });
 
   describe('enabled_changed Event Handling', () => {
-    it('should update isDspEffectsEnabled from WebSocket event', () => {
+    it('should update isEqualizerEffectsEnabled from WebSocket event', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
-      store.isDspEffectsEnabled = true;
+      store.isEqualizerEffectsEnabled = true;
 
       store.handleEnabledChanged({ data: { enabled: false } });
 
-      expect(store.isDspEffectsEnabled).toBe(false);
+      expect(store.isEqualizerEffectsEnabled).toBe(false);
     });
 
     it('should toggle from false to true', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
-      store.isDspEffectsEnabled = false;
+      store.isEqualizerEffectsEnabled = false;
 
       store.handleEnabledChanged({ data: { enabled: true } });
 
-      expect(store.isDspEffectsEnabled).toBe(true);
+      expect(store.isEqualizerEffectsEnabled).toBe(true);
     });
 
     it('should ignore event with undefined enabled value', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
-      store.isDspEffectsEnabled = true;
+      store.isEqualizerEffectsEnabled = true;
 
       store.handleEnabledChanged({ data: { other_field: 'value' } });
 
-      expect(store.isDspEffectsEnabled).toBe(true); // Unchanged
+      expect(store.isEqualizerEffectsEnabled).toBe(true); // Unchanged
     });
   });
 });
 
-describe('dspStore - handleZoneCrossoverChanged (Story 6.2)', () => {
+describe('equalizerStore - handleZoneCrossoverChanged (Story 6.2)', () => {
   describe('legacy format support', () => {
     it('should handle legacy crossover event format', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.handleZoneCrossoverChanged({
         data: {
@@ -1865,7 +1865,7 @@ describe('dspStore - handleZoneCrossoverChanged (Story 6.2)', () => {
     it('should handle new multiroom.crossover_changed format', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.handleZoneCrossoverChanged({
         data: {
@@ -1885,7 +1885,7 @@ describe('dspStore - handleZoneCrossoverChanged (Story 6.2)', () => {
     it('should prefer new field names over legacy when both present', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.handleZoneCrossoverChanged({
         data: {
@@ -1906,7 +1906,7 @@ describe('dspStore - handleZoneCrossoverChanged (Story 6.2)', () => {
     it('should ignore event with missing zone_id', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       store.handleZoneCrossoverChanged({
         data: {
@@ -1922,7 +1922,7 @@ describe('dspStore - handleZoneCrossoverChanged (Story 6.2)', () => {
     it('should handle empty data gracefully', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
-      const store = useDspStore();
+      const store = useEqualizerStore();
 
       // Should not throw
       expect(() => store.handleZoneCrossoverChanged({})).not.toThrow();

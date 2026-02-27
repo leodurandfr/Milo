@@ -85,7 +85,7 @@ def _create_service(name: str) -> Any:
     from backend.core.multiroom.websocket import SnapcastWebSocketService
     from backend.core.multiroom.client_registry import ClientRegistryService
     from backend.core.multiroom.crossover import CrossoverService
-    from backend.core.dsp import CamillaDSPService, DspClientProxyService, DspSettingsSyncService, MultiroomDspService
+    from backend.core.equalizer import CamillaDSPService, EqualizerClientProxyService, EqualizerSettingsSyncService, MultiroomEqualizerService
     from backend.core.volume import VolumeService
     from backend.core.updates import VersionService, UpdateService, SatelliteUpdateService
     from backend.hardware import HardwareService, RotaryVolumeController, ScreenController
@@ -130,7 +130,7 @@ def _create_service(name: str) -> Any:
             host="127.0.0.1",
             port=1780
         ),
-        "dsp_client_proxy_service": lambda: DspClientProxyService(
+        "equalizer_client_proxy_service": lambda: EqualizerClientProxyService(
             routing_service=get_service("audio_routing_service")
         ),
         "volume_service": lambda: VolumeService(
@@ -138,7 +138,7 @@ def _create_service(name: str) -> Any:
             snapcast_service=get_service("snapcast_service"),
             settings_service=get_service("settings_service"),
             camilladsp_service=get_service("camilladsp_service"),
-            dsp_client_proxy_service=get_service("dsp_client_proxy_service"),
+            equalizer_client_proxy_service=get_service("equalizer_client_proxy_service"),
             hardware_service=get_service("hardware_service")
         ),
         "rotary_controller": lambda: RotaryVolumeController(
@@ -154,18 +154,18 @@ def _create_service(name: str) -> Any:
         ),
         "crossover_service": lambda: CrossoverService(
             settings_service=get_service("settings_service"),
-            dsp_service=get_service("camilladsp_service")
+            camilladsp_service=get_service("camilladsp_service")
         ),
-        "dsp_settings_sync_service": lambda: DspSettingsSyncService(
-            proxy_service=get_service("dsp_client_proxy_service"),
-            dsp_service=get_service("camilladsp_service"),
+        "equalizer_settings_sync_service": lambda: EqualizerSettingsSyncService(
+            proxy_service=get_service("equalizer_client_proxy_service"),
+            camilladsp_service=get_service("camilladsp_service"),
             client_registry=get_service("client_registry_service")
         ),
-        "multiroom_dsp_service": lambda: MultiroomDspService(
+        "multiroom_equalizer_service": lambda: MultiroomEqualizerService(
             client_registry_service=get_service("client_registry_service"),
             camilladsp_service=get_service("camilladsp_service")
         ),
-        "dsp_router": lambda: _create_dsp_router(),
+        "equalizer_router": lambda: _create_equalizer_router(),
 
         # Update services
         "version_service": lambda: VersionService(),
@@ -246,14 +246,14 @@ def _create_podcast_source():
     )
 
 
-def _create_dsp_router():
-    """Create DspRouter with dependencies."""
-    from backend.core.multiroom.dsp_router import DspRouter
+def _create_equalizer_router():
+    """Create EqualizerRouter with dependencies."""
+    from backend.core.multiroom.equalizer_router import EqualizerRouter
 
-    return DspRouter(
+    return EqualizerRouter(
         client_registry=get_service("client_registry_service"),
-        dsp_service=get_service("camilladsp_service"),
-        proxy_service=get_service("dsp_client_proxy_service")
+        camilladsp_service=get_service("camilladsp_service"),
+        proxy_service=get_service("equalizer_client_proxy_service")
     )
 
 
@@ -289,9 +289,9 @@ def initialize_services() -> None:
     crossover_service = get_service("crossover_service")
     client_registry_service = get_service("client_registry_service")
     websocket_event_handler = get_service("websocket_event_handler")
-    dsp_settings_sync_service = get_service("dsp_settings_sync_service")
-    dsp_client_proxy_service = get_service("dsp_client_proxy_service")
-    multiroom_dsp_service = get_service("multiroom_dsp_service")
+    equalizer_settings_sync_service = get_service("equalizer_settings_sync_service")
+    equalizer_client_proxy_service = get_service("equalizer_client_proxy_service")
+    multiroom_equalizer_service = get_service("multiroom_equalizer_service")
 
     # Set websocket handler on state machine for backward compatibility
     state_machine.websocket_handler = websocket_event_handler
@@ -318,11 +318,11 @@ def initialize_services() -> None:
     # 2.5b - state_machine ← crossover_service
     state_machine.crossover_service = crossover_service
 
-    # 2.5c - state_machine ← dsp_settings_sync_service (for zone DSP sync on reconnection)
-    state_machine.dsp_settings_sync_service = dsp_settings_sync_service
+    # 2.5c - state_machine ← equalizer_settings_sync_service (for zone equalizer sync on reconnection)
+    state_machine.equalizer_settings_sync_service = equalizer_settings_sync_service
 
-    # 2.5d - state_machine ← dsp_client_proxy_service (for remote DSP control)
-    state_machine.dsp_client_proxy_service = dsp_client_proxy_service
+    # 2.5d - state_machine ← equalizer_client_proxy_service (for remote equalizer control)
+    state_machine.equalizer_client_proxy_service = equalizer_client_proxy_service
 
     # 2.6 - camilladsp_service → state_machine
     camilladsp_service.set_state_machine(state_machine)
@@ -343,7 +343,7 @@ def initialize_services() -> None:
     # 2.11 - volume_service → snapcast_websocket_service
     volume_service.set_snapcast_websocket_service(snapcast_websocket_service)
 
-    # 2.11b - volume_service → client_registry (for DSPController IP lookup)
+    # 2.11b - volume_service → client_registry (for EqualizerController IP lookup)
     volume_service.set_client_registry(client_registry_service)
 
     # 2.11c - volume_service → routing_service (for multiroom mode detection)
@@ -356,22 +356,22 @@ def initialize_services() -> None:
     state_machine.volume_service = volume_service
     state_machine.snapcast_service = get_service("snapcast_service")
 
-    # 2.14 - multiroom_dsp_service → state_machine (for event broadcasting)
-    multiroom_dsp_service.set_state_machine(state_machine)
+    # 2.14 - multiroom_equalizer_service → state_machine (for event broadcasting)
+    multiroom_equalizer_service.set_state_machine(state_machine)
 
-    # 2.15 - multiroom_dsp_service → proxy_service + routing_service (for remote client control)
-    multiroom_dsp_service.set_proxy_service(dsp_client_proxy_service)
-    multiroom_dsp_service.set_routing_service(routing_service)
+    # 2.15 - multiroom_equalizer_service → proxy_service + routing_service (for remote client control)
+    multiroom_equalizer_service.set_proxy_service(equalizer_client_proxy_service)
+    multiroom_equalizer_service.set_routing_service(routing_service)
 
-    # 2.16 - multiroom_dsp_service → dsp_router (for targeted filter updates)
-    multiroom_dsp_service.set_dsp_router(get_service("dsp_router"))
+    # 2.16 - multiroom_equalizer_service → equalizer_router (for targeted filter updates)
+    multiroom_equalizer_service.set_equalizer_router(get_service("equalizer_router"))
 
     # 2.17 - snapcast_websocket_service → direct service references
     snapcast_websocket_service.set_snapcast_service(get_service("snapcast_service"))
     snapcast_websocket_service.set_volume_service(volume_service)
     snapcast_websocket_service.set_crossover_service(crossover_service)
-    snapcast_websocket_service.set_dsp_client_proxy_service(dsp_client_proxy_service)
-    snapcast_websocket_service.set_dsp_settings_sync_service(dsp_settings_sync_service)
+    snapcast_websocket_service.set_equalizer_client_proxy_service(equalizer_client_proxy_service)
+    snapcast_websocket_service.set_equalizer_settings_sync_service(equalizer_settings_sync_service)
     snapcast_websocket_service.set_camilladsp_service(camilladsp_service)
 
     # =========================================================================

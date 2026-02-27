@@ -19,7 +19,7 @@ from backend.dependencies import get_service, initialize_services, get_init_task
 from backend.api import audio
 from backend.api.routing import create_routing_router
 from backend.core.multiroom.routes import create_snapcast_router
-from backend.api.dsp import create_dsp_router
+from backend.api.equalizer import create_equalizer_router
 from backend.api.volume import create_volume_router
 from backend.features.spotify.routes import setup_spotify_routes
 from backend.features.mac.routes import setup_mac_routes
@@ -61,7 +61,7 @@ state_machine = get_service("audio_state_machine")
 routing_service = get_service("audio_routing_service")
 snapcast_service = get_service("snapcast_service")
 snapcast_websocket_service = get_service("snapcast_websocket_service")
-dsp_service = get_service("camilladsp_service")
+camilladsp_service = get_service("camilladsp_service")
 settings_service = get_service("settings_service")
 volume_service = get_service("volume_service")
 rotary_controller = get_service("rotary_controller")
@@ -69,10 +69,10 @@ screen_controller = get_service("screen_controller")
 systemd_manager = get_service("systemd_manager")
 hardware_service = get_service("hardware_service")
 crossover_service = get_service("crossover_service")
-dsp_proxy_service = get_service("dsp_client_proxy_service")
-dsp_sync_service = get_service("dsp_settings_sync_service")
+equalizer_proxy_service = get_service("equalizer_client_proxy_service")
+equalizer_sync_service = get_service("equalizer_settings_sync_service")
 client_registry_service = get_service("client_registry_service")
-dsp_router_service = get_service("dsp_router")
+equalizer_router_service = get_service("equalizer_router")
 ws_manager = get_service("websocket_manager")
 websocket_server = WebSocketServer(ws_manager, state_machine)
 
@@ -145,19 +145,19 @@ app.include_router(routing_router)
 
 snapcast_router = create_snapcast_router(
     routing_service, snapcast_service, state_machine,
-    dsp_service=dsp_service, proxy_service=dsp_proxy_service,
+    camilladsp_service=camilladsp_service, proxy_service=equalizer_proxy_service,
     settings_service=settings_service
 )
 app.include_router(snapcast_router)
 
-multiroom_dsp_service = get_service("multiroom_dsp_service")
-dsp_router = create_dsp_router(
-    dsp_service, state_machine, settings_service, routing_service,
-    crossover_service, dsp_proxy_service, dsp_sync_service,
-    client_registry_service, dsp_router_service, multiroom_dsp_service,
+multiroom_equalizer_service = get_service("multiroom_equalizer_service")
+equalizer_router = create_equalizer_router(
+    camilladsp_service, state_machine, settings_service, routing_service,
+    crossover_service, equalizer_proxy_service, equalizer_sync_service,
+    client_registry_service, equalizer_router_service, multiroom_equalizer_service,
     volume_service
 )
-app.include_router(dsp_router)
+app.include_router(equalizer_router)
 
 volume_router = create_volume_router(volume_service, client_registry_service, settings_service)
 app.include_router(volume_router)
@@ -219,7 +219,7 @@ app.include_router(health_router)
 errors_router = create_errors_router()
 app.include_router(errors_router)
 
-multiroom_router = create_multiroom_router(client_registry_service, multiroom_dsp_service)
+multiroom_router = create_multiroom_router(client_registry_service, multiroom_equalizer_service)
 app.include_router(multiroom_router)
 
 app.add_websocket_route("/ws", websocket_server.websocket_endpoint)

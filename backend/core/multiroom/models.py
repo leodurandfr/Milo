@@ -17,7 +17,7 @@ from backend.config.constants import DEFAULT_VOLUME_DB
 
 
 # =============================================================================
-# DSP Types and Constants
+# Equalizer Types and Constants
 # =============================================================================
 
 class FilterType(str, Enum):
@@ -233,15 +233,15 @@ DEFAULT_CROSSOVER_FREQUENCIES = {
 
 
 @dataclass
-class DspSettings:
+class EqualizerSettings:
     """
-    DSP settings for a zone or standalone client.
+    Equalizer settings for a zone or standalone client.
 
     Contains all audio processing settings that are shared within a zone
     or stored individually for standalone clients.
 
     Attributes:
-        enabled: Global DSP bypass toggle (True = DSP active, False = bypassed)
+        enabled: Global equalizer bypass toggle (True = Equalizer active, False = bypassed)
         filters: List of EQ filter configurations (typed EqFilter objects)
         compressor: Compressor settings
         loudness: Loudness compensation settings
@@ -264,7 +264,7 @@ class DspSettings:
         }
 
     @classmethod
-    def from_dict(cls, data: Optional[Dict[str, Any]]) -> 'DspSettings':
+    def from_dict(cls, data: Optional[Dict[str, Any]]) -> 'EqualizerSettings':
         """
         Create from dictionary.
 
@@ -298,12 +298,12 @@ class DspSettings:
         )
 
     @classmethod
-    def default(cls) -> 'DspSettings':
+    def default(cls) -> 'EqualizerSettings':
         """
-        Create default DSP settings with flat 10-band EQ.
+        Create default equalizer settings with flat 10-band EQ.
 
         Returns a "flat" configuration:
-        - enabled=True (DSP active)
+        - enabled=True (Equalizer active)
         - 10 EQ bands at standard frequencies, all at 0 dB gain
         - compressor disabled
         - loudness disabled
@@ -423,21 +423,21 @@ class Zone:
     """
     Zone (linked group) configuration.
 
-    A zone groups multiple clients together for synchronized DSP settings.
+    A zone groups multiple clients together for synchronized equalizer settings.
     Volume remains independent per client within a zone.
 
     Attributes:
         id: Unique zone identifier (UUID v4, auto-generated if not provided)
         name: Display name for UI (max 15 characters, validated at API boundary)
         client_ids: List of mac_ids belonging to this zone
-        dsp_settings: Shared DSP settings for all zone members
+        equalizer_settings: Shared equalizer settings for all zone members
         crossover_frequency: Crossover frequency in Hz (default 80Hz THX standard)
         crossover_enabled: Whether crossover filtering is active for this zone
     """
     name: str
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     client_ids: List[str] = field(default_factory=list)
-    dsp_settings: DspSettings = field(default_factory=DspSettings)
+    equalizer_settings: EqualizerSettings = field(default_factory=EqualizerSettings)
     crossover_frequency: Optional[int] = 80  # Default THX standard
     crossover_enabled: Optional[bool] = None  # None = auto (depends on subwoofer presence)
 
@@ -447,7 +447,7 @@ class Zone:
             "id": self.id,
             "name": self.name,
             "client_ids": self.client_ids.copy(),
-            "dsp_settings": self.dsp_settings.to_dict(),
+            "equalizer_settings": self.equalizer_settings.to_dict(),
             "crossover_frequency": self.crossover_frequency,
             "crossover_enabled": self.crossover_enabled
         }
@@ -455,14 +455,14 @@ class Zone:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Zone':
         """Create from dictionary."""
-        dsp_data = data.get("dsp_settings")
-        dsp_settings = DspSettings.from_dict(dsp_data) if dsp_data else DspSettings()
+        eq_data = data.get("equalizer_settings")
+        equalizer_settings = EqualizerSettings.from_dict(eq_data) if eq_data else EqualizerSettings()
 
         return cls(
             name=data.get("name", data["id"]),
             id=data["id"],
             client_ids=data.get("client_ids", []).copy(),
-            dsp_settings=dsp_settings,
+            equalizer_settings=equalizer_settings,
             crossover_frequency=data.get("crossover_frequency", 80),
             crossover_enabled=data.get("crossover_enabled")
         )
@@ -489,14 +489,14 @@ class RegistryState:
     """
     clients: Dict[str, Client] = field(default_factory=dict)
     zones: Dict[str, Zone] = field(default_factory=dict)
-    standalone_dsp: Dict[str, DspSettings] = field(default_factory=dict)
+    standalone_equalizer: Dict[str, EqualizerSettings] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "clients": {k: v.to_dict() for k, v in self.clients.items()},
             "zones": {k: v.to_dict() for k, v in self.zones.items()},
-            "standalone_dsp": {k: v.to_dict() for k, v in self.standalone_dsp.items()}
+            "standalone_equalizer": {k: v.to_dict() for k, v in self.standalone_equalizer.items()}
         }
 
     @classmethod
@@ -510,33 +510,33 @@ class RegistryState:
             k: Zone.from_dict(v)
             for k, v in data.get("zones", {}).items()
         }
-        standalone_dsp = {
-            k: DspSettings.from_dict(v)
-            for k, v in data.get("standalone_dsp", {}).items()
+        standalone_equalizer = {
+            k: EqualizerSettings.from_dict(v)
+            for k, v in data.get("standalone_equalizer", {}).items()
         }
-        return cls(clients=clients, zones=zones, standalone_dsp=standalone_dsp)
+        return cls(clients=clients, zones=zones, standalone_equalizer=standalone_equalizer)
 
 
 class ReconnectionContext(str, Enum):
     """
     Context for client reconnection sync strategy selection.
 
-    Determines which volume and DSP sync strategy to apply when a client
+    Determines which volume and equalizer sync strategy to apply when a client
     reconnects to the system. Based on FR7-FR10 from PRD.
 
     Attributes:
         IN_ZONE_OTHERS_ONLINE: Client in zone with other zone members ONLINE (FR7)
             - Volume: zone average from online members
-            - DSP: zone.dsp_settings
+            - Equalizer: zone.equalizer_settings
         IN_ZONE_ALL_OFFLINE: Client in zone but all other zone members OFFLINE (FR8)
             - Volume: startup_volume_db (DEFAULT_VOLUME_DB)
-            - DSP: zone.dsp_settings (from persistence)
+            - Equalizer: zone.equalizer_settings (from persistence)
         STANDALONE_OTHERS_ONLINE: Standalone client with other clients ONLINE globally (FR9)
             - Volume: global average from all online clients
-            - DSP: standalone_dsp[mac_id]
+            - Equalizer: standalone_equalizer[mac_id]
         STANDALONE_ALONE: Standalone client with no other clients ONLINE (FR10)
             - Volume: startup_volume_db (DEFAULT_VOLUME_DB)
-            - DSP: standalone_dsp[mac_id]
+            - Equalizer: standalone_equalizer[mac_id]
     """
     IN_ZONE_OTHERS_ONLINE = "in_zone_others_online"      # FR7
     IN_ZONE_ALL_OFFLINE = "in_zone_all_offline"          # FR8
@@ -564,6 +564,6 @@ class RegistryEventType:
     # Speaker type event
     SPEAKER_TYPE_CHANGED = "speaker_type_changed"
 
-    # DSP events
-    DSP_SETTINGS_CHANGED = "dsp_settings_changed"
+    # Equalizer events
+    EQUALIZER_SETTINGS_CHANGED = "equalizer_settings_changed"
     CROSSOVER_CHANGED = "crossover_changed"

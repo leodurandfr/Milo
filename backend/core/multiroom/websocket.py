@@ -74,8 +74,8 @@ class SnapcastWebSocketService:
         self._snapcast_service = None
         self._volume_service = None
         self._crossover_service = None
-        self._dsp_client_proxy_service = None
-        self._dsp_settings_sync_service = None
+        self._equalizer_client_proxy_service = None
+        self._equalizer_settings_sync_service = None
         self._camilladsp_service = None
 
     @property
@@ -203,13 +203,13 @@ class SnapcastWebSocketService:
         """Set CrossoverService dependency."""
         self._crossover_service = service
 
-    def set_dsp_client_proxy_service(self, service) -> None:
-        """Set DspClientProxyService dependency."""
-        self._dsp_client_proxy_service = service
+    def set_equalizer_client_proxy_service(self, service) -> None:
+        """Set EqualizerClientProxyService dependency."""
+        self._equalizer_client_proxy_service = service
 
-    def set_dsp_settings_sync_service(self, service) -> None:
-        """Set DspSettingsSyncService dependency."""
-        self._dsp_settings_sync_service = service
+    def set_equalizer_settings_sync_service(self, service) -> None:
+        """Set EqualizerSettingsSyncService dependency."""
+        self._equalizer_settings_sync_service = service
 
     def set_camilladsp_service(self, service) -> None:
         """Set CamillaDSPService dependency."""
@@ -646,11 +646,11 @@ class SnapcastWebSocketService:
         Initialize new client: set Multiroom group, sync volume, apply pending settings.
 
         Returns:
-            Dict with sync status: {volume_synced, dsp_synced, pending_applied}
+            Dict with sync status: {volume_synced, equalizer_synced, pending_applied}
         """
         sync_status = {
             "volume_synced": False,
-            "dsp_synced": False,
+            "equalizer_synced": False,
             "pending_applied": False
         }
         try:
@@ -681,15 +681,15 @@ class SnapcastWebSocketService:
         1. Detect reconnection context (FR7-FR10)
         2. Join client to multiroom group
         3. Set Snapcast volume to 100% passthrough
-        4. Apply correct DSP volume based on context
-        5. Sync zone/standalone DSP settings based on context
+        4. Apply correct equalizer volume based on context
+        5. Sync zone/standalone equalizer settings based on context
 
         Returns:
-            Dict with sync status: {volume_synced, dsp_synced, pending_applied, context}
+            Dict with sync status: {volume_synced, equalizer_synced, pending_applied, context}
         """
         sync_status = {
             "volume_synced": False,
-            "dsp_synced": False,
+            "equalizer_synced": False,
             "pending_applied": False,
             "context": None
         }
@@ -723,7 +723,7 @@ class SnapcastWebSocketService:
             await self._snapcast_service.set_volume(client_id, 100)
             self.logger.info(f"[{time.time():.3f}] SYNC_VOLUME: Snapcast volume set to 100% for {client_id}")
 
-            # 4. Apply correct DSP volume based on context (FR7-FR10)
+            # 4. Apply correct equalizer volume based on context (FR7-FR10)
             target_volume = self._resolve_target_volume(mac_id, context)
             self.logger.info(
                 f"[{time.time():.3f}] SYNC_VOLUME: Applying target volume "
@@ -732,30 +732,30 @@ class SnapcastWebSocketService:
             volume_synced = await self._apply_target_volume_to_client(mac_id, target_volume)
             sync_status["volume_synced"] = volume_synced
 
-            # 5. Sync DSP settings based on context
-            dsp_synced = True
+            # 5. Sync equalizer settings based on context
+            equalizer_synced = True
             if self.registry:
                 if context in (ReconnectionContext.IN_ZONE_OTHERS_ONLINE, ReconnectionContext.IN_ZONE_ALL_OFFLINE):
-                    # IN_ZONE contexts (FR7, FR8) - sync zone DSP settings
+                    # IN_ZONE contexts (FR7, FR8) - sync zone equalizer settings
                     zone = self.registry.get_zone_for_client(mac_id)
-                    if zone and zone.dsp_settings:
+                    if zone and zone.equalizer_settings:
                         self.logger.info(
-                            f"[{time.time():.3f}] SYNC_DSP: Syncing zone DSP for {mac_id} "
+                            f"[{time.time():.3f}] SYNC_EQ: Syncing zone equalizer for {mac_id} "
                             f"(zone: {zone.id}, context: {context.value})"
                         )
-                        dsp_synced = await self._sync_zone_dsp_to_client(mac_id, zone)
+                        equalizer_synced = await self._sync_zone_equalizer_to_client(mac_id, zone)
                     else:
                         self.logger.warning(
-                            f"[{time.time():.3f}] SYNC_DSP: Client {mac_id} in zone context but no zone found"
+                            f"[{time.time():.3f}] SYNC_EQ: Client {mac_id} in zone context but no zone found"
                         )
                 else:
-                    # STANDALONE contexts (FR9, FR10) - sync standalone DSP settings
+                    # STANDALONE contexts - sync standalone equalizer settings
                     self.logger.info(
-                        f"[{time.time():.3f}] SYNC_DSP: Syncing standalone DSP for {mac_id} "
+                        f"[{time.time():.3f}] SYNC_EQ: Syncing standalone equalizer for {mac_id} "
                         f"(context: {context.value})"
                     )
-                    dsp_synced = await self._sync_standalone_dsp_to_client(mac_id)
-            sync_status["dsp_synced"] = dsp_synced
+                    equalizer_synced = await self._sync_standalone_equalizer_to_client(mac_id)
+            sync_status["equalizer_synced"] = equalizer_synced
 
             # 6. Broadcast volume state to frontend (AC5)
             # This notifies UI about the reconnected client with its synced volume
@@ -778,7 +778,7 @@ class SnapcastWebSocketService:
                         "mac_id": mac_id,
                         "client": client.to_dict(),
                         "sync_context": context.value,
-                        "dsp_ready": dsp_synced
+                        "equalizer_ready": equalizer_synced
                     })
 
             self.logger.info(
@@ -834,7 +834,7 @@ class SnapcastWebSocketService:
         target_volume_db: float
     ) -> bool:
         """
-        Apply a specific volume to a client's DSP and update state.
+        Apply a specific volume to a client's equalizer and update state.
 
         Args:
             mac_id: Client identifier
@@ -848,13 +848,13 @@ class SnapcastWebSocketService:
                 self.logger.warning(f"No volume_service available to apply volume for {mac_id}")
                 return False
 
-            # Update client volume in state and apply to DSP
+            # Update client volume in state and apply to equalizer
             await self._volume_service.update_client_volume_db(mac_id, target_volume_db, broadcast=False)
 
             # Unmute DSP (CamillaDSP starts muted with -m flag)
             # Use persisted mute state (defaults to False = unmuted)
             persisted_mute = self._volume_service._state_store.get_client_mute(mac_id)
-            await self._volume_service._dsp_controller.set_dsp_mute(mac_id, persisted_mute)
+            await self._volume_service._equalizer_controller.set_equalizer_mute(mac_id, persisted_mute)
             self.logger.info(f"[{time.time():.3f}] MUTE_APPLY: Set {mac_id} mute={persisted_mute}")
 
             # Update registry if available
@@ -895,7 +895,7 @@ class SnapcastWebSocketService:
         except Exception as e:
             self.logger.warning(f"Could not push snapclient config to {client_ip}: {e}")
 
-    async def _apply_dsp_setting(
+    async def _apply_equalizer_setting(
         self, hostname: str, mac_id: str, setting_type: str, data: Any, is_local: bool = False
     ) -> bool:
         """
@@ -923,16 +923,16 @@ class SnapcastWebSocketService:
                 elif setting_type == "loudness":
                     await self._camilladsp_service.set_loudness(**data)
             else:
-                if not self._dsp_client_proxy_service:
+                if not self._equalizer_client_proxy_service:
                     return False
-                await self._dsp_client_proxy_service.request(hostname, "PUT", f"/dsp/{setting_type}", data)
+                await self._equalizer_client_proxy_service.request(hostname, "PUT", f"/equalizer/{setting_type}", data)
             return True
         except Exception as e:
-            self.logger.warning(f"Failed to apply DSP {setting_type} to {mac_id}: {e}")
+            self.logger.warning(f"Failed to apply equalizer {setting_type} to {mac_id}: {e}")
             return False
 
-    async def _sync_zone_dsp_to_client(self, mac_id: str, zone) -> bool:
-        """Apply zone DSP settings (filters, compressor, loudness) to a reconnected client."""
+    async def _sync_zone_equalizer_to_client(self, mac_id: str, zone) -> bool:
+        """Apply zone equalizer settings (filters, compressor, loudness) to a reconnected client."""
         try:
             client = self.registry.get_client(mac_id) if self.registry else None
             if not client or not client.ip:
@@ -946,34 +946,34 @@ class SnapcastWebSocketService:
             if is_local and not self._camilladsp_service:
                 self.logger.warning(f"No camilladsp_service for local DSP sync to {mac_id}")
                 return False
-            if not is_local and not self._dsp_client_proxy_service:
-                self.logger.warning(f"No dsp_client_proxy_service for DSP sync to {mac_id}")
+            if not is_local and not self._equalizer_client_proxy_service:
+                self.logger.warning(f"No equalizer_client_proxy_service for equalizer sync to {mac_id}")
                 return False
 
-            dsp = zone.dsp_settings
+            eq = zone.equalizer_settings
             synced = []
             failed = []
             filters_failed = []
 
             # Sync filters
-            if dsp.filters:
-                for flt in dsp.filters:
+            if eq.filters:
+                for flt in eq.filters:
                     if not flt.id:
                         continue
                     filter_data = {
                         'freq': flt.frequency, 'gain': flt.gain, 'q': flt.q,
                         'filter_type': flt.filter_type.value if hasattr(flt.filter_type, 'value') else flt.filter_type
                     }
-                    if await self._apply_dsp_setting(hostname, mac_id, f"filter/{flt.id}", filter_data, is_local):
+                    if await self._apply_equalizer_setting(hostname, mac_id, f"filter/{flt.id}", filter_data, is_local):
                         synced.append(f"filter:{flt.id}")
                     else:
                         failed.append(f"filter:{flt.id}")
                         filters_failed.append(flt.to_dict())
 
             # Sync compressor
-            if dsp.compressor:
-                data = dsp.compressor.to_dict()
-                if await self._apply_dsp_setting(hostname, mac_id, "compressor", data, is_local):
+            if eq.compressor:
+                data = eq.compressor.to_dict()
+                if await self._apply_equalizer_setting(hostname, mac_id, "compressor", data, is_local):
                     synced.append("compressor")
                 else:
                     failed.append("compressor")
@@ -981,9 +981,9 @@ class SnapcastWebSocketService:
                         await self._crossover_service.queue_pending_settings(hostname, "compressor", data)
 
             # Sync loudness
-            if dsp.loudness:
-                data = dsp.loudness.to_dict()
-                if await self._apply_dsp_setting(hostname, mac_id, "loudness", data, is_local):
+            if eq.loudness:
+                data = eq.loudness.to_dict()
+                if await self._apply_equalizer_setting(hostname, mac_id, "loudness", data, is_local):
                     synced.append("loudness")
                 else:
                     failed.append("loudness")
@@ -995,31 +995,31 @@ class SnapcastWebSocketService:
                 await self._crossover_service.queue_pending_settings(hostname, "filters", filters_failed)
 
             if synced:
-                self.logger.info(f"SYNC_DSP: Synced {synced} to {mac_id} from zone {zone.id}")
+                self.logger.info(f"SYNC_EQ: Synced {synced} to {mac_id} from zone {zone.id}")
             if failed:
-                self.logger.warning(f"SYNC_DSP: Queued failed {failed} for retry to {mac_id}")
+                self.logger.warning(f"SYNC_EQ: Queued failed {failed} for retry to {mac_id}")
 
             return len(failed) == 0
 
         except Exception as e:
-            self.logger.error(f"Error syncing zone DSP to {mac_id}: {e}", exc_info=True)
+            self.logger.error(f"Error syncing zone equalizer to {mac_id}: {e}", exc_info=True)
             return False
 
-    async def _sync_standalone_dsp_to_client(self, mac_id: str) -> bool:
-        """Apply saved standalone DSP settings to a reconnected client."""
+    async def _sync_standalone_equalizer_to_client(self, mac_id: str) -> bool:
+        """Apply saved standalone equalizer settings to a reconnected client."""
         try:
-            if not self._dsp_settings_sync_service:
-                self.logger.warning(f"No dsp_settings_sync_service for standalone DSP sync to {mac_id}")
+            if not self._equalizer_settings_sync_service:
+                self.logger.warning(f"No equalizer_settings_sync_service for standalone equalizer sync to {mac_id}")
                 return True  # Not a failure, just no sync service
 
             client = self.registry.get_client(mac_id) if self.registry else None
             if not client or not client.ip:
-                self.logger.warning(f"Cannot sync standalone DSP to {mac_id}: no IP address")
+                self.logger.warning(f"Cannot sync standalone equalizer to {mac_id}: no IP address")
                 return False
 
             hostname = client.ip
             is_local = (client.ip == "127.0.0.1")
-            saved = await self._dsp_settings_sync_service.get_client_settings(mac_id)
+            saved = await self._equalizer_settings_sync_service.get_client_settings(mac_id)
 
             if not saved:
                 self.logger.info(f"SYNC_STANDALONE: No saved settings for {mac_id}, defaults apply")
@@ -1038,7 +1038,7 @@ class SnapcastWebSocketService:
                     'freq': flt.get('freq'), 'gain': flt.get('gain'), 'q': flt.get('q'),
                     'filter_type': flt.get('filter_type') or flt.get('type')
                 }
-                if await self._apply_dsp_setting(hostname, mac_id, f"filter/{filter_id}", filter_data, is_local):
+                if await self._apply_equalizer_setting(hostname, mac_id, f"filter/{filter_id}", filter_data, is_local):
                     synced.append(f"filter:{filter_id}")
                 else:
                     failed.append(f"filter:{filter_id}")
@@ -1050,7 +1050,7 @@ class SnapcastWebSocketService:
 
             # Sync compressor
             if compressor := saved.get('compressor'):
-                if await self._apply_dsp_setting(hostname, mac_id, "compressor", compressor, is_local):
+                if await self._apply_equalizer_setting(hostname, mac_id, "compressor", compressor, is_local):
                     synced.append("compressor")
                 else:
                     failed.append("compressor")
@@ -1059,7 +1059,7 @@ class SnapcastWebSocketService:
 
             # Sync loudness
             if loudness := saved.get('loudness'):
-                if await self._apply_dsp_setting(hostname, mac_id, "loudness", loudness, is_local):
+                if await self._apply_equalizer_setting(hostname, mac_id, "loudness", loudness, is_local):
                     synced.append("loudness")
                 else:
                     failed.append("loudness")
@@ -1074,7 +1074,7 @@ class SnapcastWebSocketService:
             return len(failed) == 0
 
         except Exception as e:
-            self.logger.error(f"Error syncing standalone DSP to {mac_id}: {e}", exc_info=True)
+            self.logger.error(f"Error syncing standalone equalizer to {mac_id}: {e}", exc_info=True)
             return False
 
     async def _broadcast_snapcast_event(self, event_type: str, data: Dict[str, Any]) -> None:

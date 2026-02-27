@@ -75,7 +75,7 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { usePodcastStore } from '@/stores/podcastStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
-import { useDspStore } from '@/stores/dspStore';
+import { useEqualizerStore } from '@/stores/equalizerStore';
 import { i18n, useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { logger } from '@/services/logger';
@@ -98,7 +98,7 @@ const unifiedStore = useUnifiedAudioStore();
 const podcastStore = usePodcastStore();
 const settingsStore = useSettingsStore();
 const multiroomStore = useMultiroomStore();
-const dspStore = useDspStore();
+const equalizerStore = useEqualizerStore();
 const { on, onReconnect, onVisibilityChange, isConnected } = useWebSocket();
 const { loadHardwareInfo } = useHardwareConfig();
 
@@ -376,19 +376,19 @@ onMounted(async () => {
     // Multiroom events - new standardized format (Story 6.2)
     on('multiroom', 'client_state_changed', (event) => multiroomStore.handleMultiroomEvent(event)),
     on('multiroom', 'zone_changed', (event) => multiroomStore.handleMultiroomEvent(event)),
-    on('multiroom', 'dsp_changed', (event) => dspStore.handleDspChanged(event)),
-    on('multiroom', 'crossover_changed', (event) => dspStore.handleZoneCrossoverChanged(event)),
+    on('multiroom', 'equalizer_changed', (event) => equalizerStore.handleEqualizerChanged(event)),
+    on('multiroom', 'crossover_changed', (event) => equalizerStore.handleZoneCrossoverChanged(event)),
     onReconnect(() => {
       logger.info('websocket', 'WebSocket reconnected');
       // Refresh registry state on reconnect (AC3: State Resync)
       multiroomStore.fetchState();
-      // Refresh DSP state for current target
-      dspStore.loadStatus();
+      // Refresh equalizer state for current target
+      equalizerStore.loadStatus();
     }),
     onVisibilityChange(() => {
       // Refresh stores when tab becomes visible (fixes stale data after background)
       multiroomStore.fetchState();
-      dspStore.loadStatus();
+      equalizerStore.loadStatus();
     })
   );
 

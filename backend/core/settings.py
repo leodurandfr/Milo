@@ -48,7 +48,7 @@ class SettingsService:
             },
             "routing": {
                 "multiroom_enabled": False,
-                "dsp_effects_enabled": False
+                "equalizer_effects_enabled": False
             },
             "dock": {
                 "enabled_apps": list(DEFAULT_DOCK_APPS)
@@ -217,11 +217,11 @@ class SettingsService:
             'enabled_apps': filtered_apps if filtered_apps else self.defaults['dock']['enabled_apps'].copy()
         }
 
-        # Routing (multiroom + DSP effects)
+        # Routing (multiroom + equalizer effects)
         routing_input = settings.get('routing', {})
         validated['routing'] = {
             'multiroom_enabled': bool(routing_input.get('multiroom_enabled', False)),
-            'dsp_effects_enabled': bool(routing_input.get('dsp_effects_enabled', False))
+            'equalizer_effects_enabled': bool(routing_input.get('equalizer_effects_enabled', False))
         }
 
         # Mac ROC streaming settings
@@ -254,11 +254,11 @@ class SettingsService:
             'shazam_enabled': bool(radio_input.get('shazam_enabled', True))
         }
 
-        # DSP (linked_groups, presets) - Preserve DSP section without strict validation
-        dsp_input = settings.get('dsp', {})
-        if dsp_input:
-            # Preserve DSP section as-is (no strict validation)
-            validated['dsp'] = dsp_input
+        # Equalizer (linked_groups, presets) - Preserve equalizer section without strict validation
+        equalizer_input = settings.get('equalizer', {})
+        if equalizer_input:
+            # Preserve equalizer section as-is (no strict validation)
+            validated['equalizer'] = equalizer_input
 
         # Multiroom (client_types for crossover) - Preserve multiroom section without strict validation
         multiroom_input = settings.get('multiroom', {})

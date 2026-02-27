@@ -131,7 +131,7 @@ def mock_state_machine_for_ws(mock_volume_service):
         metadata={},
         error=None,
         multiroom_enabled=False,
-        dsp_effects_enabled=True
+        equalizer_effects_enabled=True
     )
 
     # Methods
@@ -143,7 +143,7 @@ def mock_state_machine_for_ws(mock_volume_service):
         "metadata": {},
         "error": None,
         "multiroom_enabled": False,
-        "dsp_effects_enabled": True
+        "equalizer_effects_enabled": True
     })
     sm.broadcast_event = AsyncMock()
 
@@ -597,7 +597,7 @@ class TestEventCategories:
              "data": {"zone_id": "living_room"},
              "timestamp": time.time()},
             {"category": "registry", "type": "client_registered", "source": "registry",
-             "data": {"dsp_id": "local", "client": {"name": "Local"}},
+             "data": {"camilladsp_id": "local", "client": {"name": "Local"}},
              "timestamp": time.time()},
         ]
 
@@ -610,33 +610,33 @@ class TestEventCategories:
         assert mock_websocket.received_messages[2]["type"] == "client_registered"
 
     @pytest.mark.asyncio
-    async def test_dsp_category_events(
+    async def test_equalizer_category_events(
         self,
         websocket_event_handler: WebSocketEventHandler,
         mock_websocket: MockWebSocket,
         websocket_manager: WebSocketManager
     ):
         """
-        Test dsp category event types.
+        Test equalizer category event types.
 
         Validates:
-        - dsp category with types: filter_added, mute_changed, etc.
+        - equalizer category with types: filter_added, mute_changed, etc.
         """
         await websocket_manager.connect(mock_websocket)
 
-        dsp_events = [
-            {"category": "dsp", "type": "filter_added", "source": "dsp",
+        equalizer_events = [
+            {"category": "equalizer", "type": "filter_added", "source": "equalizer",
              "data": {"filter_id": 1, "type": "peak"},
              "timestamp": time.time()},
-            {"category": "dsp", "type": "mute_changed", "source": "dsp",
+            {"category": "equalizer", "type": "mute_changed", "source": "equalizer",
              "data": {"mute": True},
              "timestamp": time.time()},
-            {"category": "dsp", "type": "enabled_changed", "source": "dsp",
+            {"category": "equalizer", "type": "enabled_changed", "source": "equalizer",
              "data": {"enabled": False},
              "timestamp": time.time()},
         ]
 
-        for event in dsp_events:
+        for event in equalizer_events:
             await websocket_event_handler.handle_event(event)
 
         assert len(mock_websocket.received_messages) == 3
@@ -891,7 +891,7 @@ class TestReconnection:
             "metadata": {"station": "Test FM"},
             "error": None,
             "multiroom_enabled": False,
-            "dsp_effects_enabled": True
+            "equalizer_effects_enabled": True
         })
 
         # Reconnect
@@ -1139,7 +1139,7 @@ class TestMultiroomEventFormat:
                     "id": "uuid-living-room",
                     "name": "Living Room",
                     "client_ids": ["local", "dc:a6:32:7e:d3:43"],
-                    "dsp_settings": {
+                    "equalizer_settings": {
                         "enabled": True,
                         "filters": [],
                         "compressor": {"enabled": False},
@@ -1167,7 +1167,7 @@ class TestMultiroomEventFormat:
         assert "id" in zone
         assert "name" in zone
         assert "client_ids" in zone
-        assert "dsp_settings" in zone
+        assert "equalizer_settings" in zone
         assert "crossover_frequency" in zone
         # Computed fields for enriched zone
         assert "crossover_enabled" in zone
@@ -1175,30 +1175,30 @@ class TestMultiroomEventFormat:
         assert "has_subwoofer" in zone
 
     @pytest.mark.asyncio
-    async def test_multiroom_category_dsp_changed(
+    async def test_multiroom_category_equalizer_changed(
         self,
         websocket_event_handler: WebSocketEventHandler,
         mock_websocket: MockWebSocket,
         websocket_manager: WebSocketManager
     ):
         """
-        Test dsp_changed event format (AC3, AC5).
+        Test equalizer_changed event format (AC3, AC5).
 
         Validates:
         - category is "multiroom"
-        - type is "dsp_changed"
-        - data contains target_type, target_id, and dsp_settings
+        - type is "equalizer_changed"
+        - data contains target_type, target_id, and equalizer_settings
         """
         await websocket_manager.connect(mock_websocket)
 
-        dsp_event = {
+        equalizer_event = {
             "category": "multiroom",
-            "type": "dsp_changed",
+            "type": "equalizer_changed",
             "source": "multiroom",
             "data": {
                 "target_type": "zone",
                 "target_id": "uuid-living-room",
-                "dsp_settings": {
+                "equalizer_settings": {
                     "enabled": True,
                     "filters": [
                         {"id": "eq_band_00", "frequency": 31, "gain": 2.0, "q": 1.41}
@@ -1209,20 +1209,20 @@ class TestMultiroomEventFormat:
             },
             "timestamp": time.time()
         }
-        await websocket_event_handler.handle_event(dsp_event)
+        await websocket_event_handler.handle_event(equalizer_event)
 
         assert len(mock_websocket.received_messages) == 1
         event = mock_websocket.received_messages[0]
 
         # Verify category and type
         assert event["category"] == "multiroom"
-        assert event["type"] == "dsp_changed"
+        assert event["type"] == "equalizer_changed"
 
-        # Verify DSP event structure (AC3)
+        # Verify Equalizer event structure (AC3)
         data = event["data"]
         assert "target_type" in data
         assert "target_id" in data
-        assert "dsp_settings" in data
+        assert "equalizer_settings" in data
 
     @pytest.mark.asyncio
     async def test_multiroom_category_crossover_changed(

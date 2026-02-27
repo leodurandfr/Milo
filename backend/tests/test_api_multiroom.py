@@ -418,12 +418,12 @@ class TestZoneResponse:
             id="550e8400-e29b-41d4-a716-446655440000",
             name="Living Room",
             client_ids=["local", "dc:a6:32:7e:d3:43"],
-            dsp_settings={"filters": [], "compressor": None, "loudness": None}
+            equalizer_settings={"filters": [], "compressor": None, "loudness": None}
         )
         assert response.id == "550e8400-e29b-41d4-a716-446655440000"
         assert response.name == "Living Room"
         assert len(response.client_ids) == 2
-        assert response.dsp_settings["filters"] == []
+        assert response.equalizer_settings["filters"] == []
 
     def test_zone_response_from_dict(self):
         """ZoneResponse can be created from dict."""
@@ -431,11 +431,11 @@ class TestZoneResponse:
             "id": "zone-1",
             "name": "Kitchen",
             "client_ids": ["c1", "c2"],
-            "dsp_settings": {"filters": [{"freq": 1000}]}
+            "equalizer_settings": {"filters": [{"freq": 1000}]}
         }
         response = ZoneResponse(**data)
         assert response.id == "zone-1"
-        assert response.dsp_settings["filters"][0]["freq"] == 1000
+        assert response.equalizer_settings["filters"][0]["freq"] == 1000
 
 
 class TestMaxZoneNameLengthConstant:
@@ -459,7 +459,7 @@ class TestMaxZoneNameLengthConstant:
 @pytest.fixture
 def mock_zone_registry_service():
     """Create a mock ClientRegistryService with zone support."""
-    from backend.core.multiroom.models import Zone, DspSettings
+    from backend.core.multiroom.models import Zone, EqualizerSettings
 
     service = Mock()
 
@@ -500,7 +500,7 @@ def mock_zone_registry_service():
         id="zone-test-123",
         name="Living Room",
         client_ids=["local", "dc:a6:32:7e:d3:43"],
-        dsp_settings=DspSettings.default()
+        equalizer_settings=EqualizerSettings.default()
     )
 
     service._clients = {
@@ -538,7 +538,7 @@ def mock_zone_registry_service():
 
     service.zone_to_enriched_dict = Mock(side_effect=zone_to_enriched_dict)
 
-    async def mock_create_zone(zone_id, name, client_ids, dsp_settings=None):
+    async def mock_create_zone(zone_id, name, client_ids, equalizer_settings=None):
         if len(client_ids) < 2:
             raise ValueError("Zone requires at least 2 clients")
         for cid in client_ids:
@@ -548,7 +548,7 @@ def mock_zone_registry_service():
             id=zone_id,
             name=name,
             client_ids=client_ids,
-            dsp_settings=dsp_settings or DspSettings.default()
+            equalizer_settings=equalizer_settings or EqualizerSettings.default()
         )
         service._zones[zone_id] = zone
         return zone
@@ -841,7 +841,7 @@ class TestDeleteZone:
 @pytest.fixture
 def mock_membership_registry_service():
     """Create a mock ClientRegistryService with zone membership support."""
-    from backend.core.multiroom.models import Zone, DspSettings
+    from backend.core.multiroom.models import Zone, EqualizerSettings
 
     service = Mock()
 
@@ -882,7 +882,7 @@ def mock_membership_registry_service():
         id="zone-test-123",
         name="Living Room",
         client_ids=["local", "dc:a6:32:7e:d3:43"],
-        dsp_settings=DspSettings.default()
+        equalizer_settings=EqualizerSettings.default()
     )
 
     service._clients = {

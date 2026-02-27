@@ -122,7 +122,7 @@ def setup_volume_routes(volume_service, client_registry_service=None):
 
         This endpoint solves the race condition by:
         1. Calculating updates for ALL clients in the zone
-        2. Applying them in parallel via DSPController
+        2. Applying them in parallel via EqualizerController
         3. Broadcasting complete state ONCE after all updates succeed
 
         Args:

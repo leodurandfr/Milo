@@ -1,21 +1,21 @@
-# backend/core/dsp/multiroom_service.py
+# backend/core/equalizer/multiroom_service.py
 """
-MultiroomDspService - Multiroom-aware DSP coordination service.
+MultiroomEqualizerService - Multiroom-aware equalizer coordination service.
 
-This service coordinates DSP settings across multiple clients and zones:
+This service coordinates equalizer settings across multiple clients and zones:
 - Uses ClientRegistryService as the source of truth for settings
 - Routes DSP commands to appropriate CamillaDSP instances
 - Handles zone propagation logic (apply to all ONLINE clients)
-- Manages standalone client DSP separately
+- Manages standalone client equalizer separately
 
 Architecture:
     API Layer
         │
         ▼
-    MultiroomDspService (this module - multiroom-aware)
+    MultiroomEqualizerService (this module - multiroom-aware)
         │
         ├─── ClientRegistryService (state/persistence)
-        │       └── zone.dsp_settings, standalone_dsp
+        │       └── zone.equalizer_settings, standalone_equalizer
         │
         └─── CamillaDSPService (local daemon control)
 """
@@ -24,7 +24,7 @@ import logging
 from typing import Any, Dict, Optional
 
 from backend.core.multiroom.models import (
-    DspSettings,
+    EqualizerSettings,
     EqFilter,
     CompressorSettings,
     LoudnessSettings,
@@ -32,20 +32,20 @@ from backend.core.multiroom.models import (
 )
 
 
-class MultiroomDspService:
+class MultiroomEqualizerService:
     """
-    Multiroom-aware DSP coordination service.
+    Multiroom-aware equalizer coordination service.
 
-    Coordinates DSP settings for zones and standalone clients:
-    - Zone DSP: Shared settings applied to all ONLINE clients in zone
-    - Standalone DSP: Individual settings per client not in a zone
+    Coordinates equalizer settings for zones and standalone clients:
+    - Zone equalizer: Shared settings applied to all ONLINE clients in zone
+    - Standalone equalizer: Individual settings per client not in a zone
 
     Responsibilities:
-    - Apply DSP settings to zones (propagate to all online clients)
-    - Apply DSP settings to standalone clients
+    - Apply equalizer settings to zones (propagate to all online clients)
+    - Apply equalizer settings to standalone clients
     - Handle CamillaDSP failures gracefully
-    - Broadcast WebSocket events on DSP changes
-    - Provide partial update methods for individual DSP components
+    - Broadcast WebSocket events on equalizer changes
+    - Provide partial update methods for individual equalizer components
     """
 
     def __init__(
@@ -54,10 +54,10 @@ class MultiroomDspService:
         camilladsp_service=None,
         proxy_service=None,
         routing_service=None,
-        dsp_router=None,
+        equalizer_router=None,
     ):
         """
-        Initialize MultiroomDspService.
+        Initialize MultiroomEqualizerService.
 
         Dependencies are injected lazily via setters during service initialization
         in dependencies.py to handle circular dependencies.
@@ -65,18 +65,18 @@ class MultiroomDspService:
         Args:
             client_registry_service: ClientRegistryService for state management
             camilladsp_service: CamillaDSPService for local DSP control
-            proxy_service: DspClientProxyService for remote client communication
-            routing_service: AudioRoutingService for DSP effects toggle
-            dsp_router: DspRouter for routing filter updates to local/remote clients
+            proxy_service: EqualizerClientProxyService for remote client communication
+            routing_service: AudioRoutingService for equalizer effects toggle
+            equalizer_router: EqualizerRouter for routing filter updates to local/remote clients
         """
         self.logger = logging.getLogger(__name__)
 
         # Dependencies (can be set lazily via setters)
         self._registry = client_registry_service
-        self._dsp_service = camilladsp_service
+        self._camilladsp_service = camilladsp_service
         self._proxy_service = proxy_service
         self._routing_service = routing_service
-        self._dsp_router = dsp_router
+        self._equalizer_router = equalizer_router
 
         # State machine for event broadcasting (set via setter)
         self._state_machine = None
@@ -84,7 +84,7 @@ class MultiroomDspService:
         # Async lock for thread safety
         self._lock = asyncio.Lock()
 
-        self.logger.info("MultiroomDspService created")
+        self.logger.info("MultiroomEqualizerService created")
 
     # =========================================================================
     # Dependency Setters (for circular dependency resolution)
@@ -94,41 +94,41 @@ class MultiroomDspService:
         """Set ClientRegistryService dependency."""
         self._registry = registry
 
-    def set_dsp_service(self, dsp_service) -> None:
+    def set_camilladsp_service(self, camilladsp_service) -> None:
         """Set CamillaDSPService dependency."""
-        self._dsp_service = dsp_service
+        self._camilladsp_service = camilladsp_service
 
     def set_state_machine(self, state_machine) -> None:
         """Set state machine for event broadcasting."""
         self._state_machine = state_machine
 
     def set_proxy_service(self, proxy_service) -> None:
-        """Set DspClientProxyService dependency."""
+        """Set EqualizerClientProxyService dependency."""
         self._proxy_service = proxy_service
 
     def set_routing_service(self, routing_service) -> None:
         """Set AudioRoutingService dependency."""
         self._routing_service = routing_service
 
-    def set_dsp_router(self, dsp_router) -> None:
-        """Set DspRouter dependency."""
-        self._dsp_router = dsp_router
+    def set_equalizer_router(self, equalizer_router) -> None:
+        """Set EqualizerRouter dependency."""
+        self._equalizer_router = equalizer_router
 
     # =========================================================================
-    # Zone DSP Methods (AC2, AC5)
+    # Zone Equalizer Methods (AC2, AC5)
     # =========================================================================
 
-    async def apply_zone_dsp(self, zone_id: str, settings: DspSettings) -> bool:
+    async def apply_zone_equalizer(self, zone_id: str, settings: EqualizerSettings) -> bool:
         """
-        Apply DSP settings to a zone.
+        Apply equalizer settings to a zone.
 
-        Updates zone.dsp_settings in ClientRegistryService (source of truth),
+        Updates zone.equalizer_settings in ClientRegistryService (source of truth),
         then applies to all ONLINE clients via CamillaDSP. Offline clients
         will receive settings on reconnection.
 
         Args:
             zone_id: The zone ID to update
-            settings: DspSettings to apply
+            settings: EqualizerSettings to apply
 
         Returns:
             True if settings were saved (even if some clients failed)
@@ -146,10 +146,10 @@ class MultiroomDspService:
             if not zone:
                 raise ValueError(f"Zone not found: {zone_id}")
 
-            # Update zone DSP settings via registry's public method (handles persistence)
-            await self._registry.set_zone_dsp(zone_id, settings)
+            # Update zone equalizer settings via registry's public method (handles persistence)
+            await self._registry.set_zone_equalizer(zone_id, settings)
 
-            self.logger.info(f"Zone {zone_id} DSP settings updated")
+            self.logger.info(f"Zone {zone_id} Equalizer settings updated")
 
         # Apply to all ONLINE clients in parallel (NFR3: < 200ms)
         online_clients = self._registry.get_online_zone_clients(zone_id)
@@ -162,13 +162,13 @@ class MultiroomDspService:
             )
             success_count = sum(1 for r in results if r is True)
             self.logger.info(
-                f"Zone {zone_id}: Applied DSP to {success_count}/{len(online_clients)} online clients"
+                f"Zone {zone_id}: Applied equalizer to {success_count}/{len(online_clients)} online clients"
             )
         else:
-            self.logger.debug(f"Zone {zone_id}: No online clients to apply DSP")
+            self.logger.debug(f"Zone {zone_id}: No online clients to apply equalizer")
 
         # Broadcast WebSocket event
-        await self._broadcast_dsp_event(
+        await self._broadcast_equalizer_event(
             target_type="zone",
             target_id=zone_id,
             settings=settings,
@@ -176,34 +176,34 @@ class MultiroomDspService:
 
         return True
 
-    async def get_zone_dsp(self, zone_id: str) -> Optional[DspSettings]:
+    async def get_zone_equalizer(self, zone_id: str) -> Optional[EqualizerSettings]:
         """
-        Get DSP settings for a zone.
+        Get equalizer settings for a zone.
 
-        Note: This method is async for API consistency with apply_zone_dsp(),
+        Note: This method is async for API consistency with apply_zone_equalizer(),
         enabling uniform async/await usage patterns across the service.
 
         Args:
             zone_id: The zone ID
 
         Returns:
-            DspSettings or None if zone not found
+            EqualizerSettings or None if zone not found
         """
         if not self._registry:
             return None
 
         zone = self._registry.get_zone(zone_id)
         if zone:
-            return zone.dsp_settings
+            return zone.equalizer_settings
         return None
 
     async def _resolve_preset_gains(self, preset_id: str) -> list:
         """Resolve gain values for a preset ID (builtin or manual)."""
-        from backend.core.dsp.presets import get_preset_by_id, DEFAULT_MANUAL_GAINS
+        from backend.core.equalizer.presets import get_preset_by_id, DEFAULT_MANUAL_GAINS
 
         if preset_id == "manual":
-            if self._dsp_service and hasattr(self._dsp_service, 'get_manual_gains'):
-                return await self._dsp_service.get_manual_gains()
+            if self._camilladsp_service and hasattr(self._camilladsp_service, 'get_manual_gains'):
+                return await self._camilladsp_service.get_manual_gains()
             return DEFAULT_MANUAL_GAINS
 
         preset = get_preset_by_id(preset_id)
@@ -213,7 +213,7 @@ class MultiroomDspService:
 
     def _build_preset_filters(self, gains: list) -> list:
         """Build EqFilter objects from gain values using standard frequencies."""
-        from backend.core.dsp.presets import DEFAULT_EQ_FREQS
+        from backend.core.equalizer.presets import DEFAULT_EQ_FREQS
 
         return [
             EqFilter(
@@ -238,13 +238,13 @@ class MultiroomDspService:
         """
         gains = await self._resolve_preset_gains(preset_id)
 
-        current = await self.get_zone_dsp(zone_id)
+        current = await self.get_zone_equalizer(zone_id)
         if not current:
             raise ValueError(f"Zone not found: {zone_id}")
 
         current.filters = self._build_preset_filters(gains)
         current.active_preset = preset_id
-        return await self.apply_zone_dsp(zone_id, current)
+        return await self.apply_zone_equalizer(zone_id, current)
 
     async def load_client_preset(self, mac_id: str, preset_id: str) -> bool:
         """
@@ -257,7 +257,7 @@ class MultiroomDspService:
         """
         gains = await self._resolve_preset_gains(preset_id)
 
-        current = await self.get_client_dsp(mac_id)
+        current = await self.get_client_equalizer(mac_id)
         if not current:
             if self._registry:
                 client = self._registry.get_client(mac_id)
@@ -267,22 +267,22 @@ class MultiroomDspService:
 
         current.filters = self._build_preset_filters(gains)
         current.active_preset = preset_id
-        return await self.apply_client_dsp(mac_id, current)
+        return await self.apply_client_equalizer(mac_id, current)
 
     # =========================================================================
-    # Standalone Client DSP Methods (AC3)
+    # Standalone Client Equalizer Methods (AC3)
     # =========================================================================
 
-    async def apply_client_dsp(self, mac_id: str, settings: DspSettings) -> bool:
+    async def apply_client_equalizer(self, mac_id: str, settings: EqualizerSettings) -> bool:
         """
-        Apply DSP settings to a standalone client.
+        Apply equalizer settings to a standalone client.
 
         Only works for clients NOT in a zone. For zone clients,
-        use apply_zone_dsp() instead.
+        use apply_zone_equalizer() instead.
 
         Args:
             mac_id: The client's MAC ID
-            settings: DspSettings to apply
+            settings: EqualizerSettings to apply
 
         Returns:
             True if settings were saved and applied
@@ -301,19 +301,19 @@ class MultiroomDspService:
         if client.zone_id is not None:
             raise ValueError(
                 f"Client {mac_id} is in zone {client.zone_id}. "
-                "Use apply_zone_dsp() instead."
+                "Use apply_zone_equalizer() instead."
             )
 
-        # Update standalone DSP via registry
-        await self._registry.set_standalone_dsp(mac_id, settings)
+        # Update standalone equalizer via registry
+        await self._registry.set_standalone_equalizer(mac_id, settings)
 
         # Apply to CamillaDSP
         success = await self._apply_to_camilladsp(mac_id, settings)
 
-        self.logger.info(f"Client {mac_id} DSP settings updated (applied: {success})")
+        self.logger.info(f"Client {mac_id} Equalizer settings updated (applied: {success})")
 
         # Broadcast WebSocket event
-        await self._broadcast_dsp_event(
+        await self._broadcast_equalizer_event(
             target_type="client",
             target_id=mac_id,
             settings=settings,
@@ -321,40 +321,40 @@ class MultiroomDspService:
 
         return True
 
-    async def get_client_dsp(self, mac_id: str) -> Optional[DspSettings]:
+    async def get_client_equalizer(self, mac_id: str) -> Optional[EqualizerSettings]:
         """
-        Get DSP settings for a standalone client.
+        Get equalizer settings for a standalone client.
 
-        Note: This method is async for API consistency with apply_client_dsp(),
+        Note: This method is async for API consistency with apply_client_equalizer(),
         enabling uniform async/await usage patterns across the service.
 
         Args:
             mac_id: The client's MAC ID
 
         Returns:
-            DspSettings or None if client not found or not standalone
+            EqualizerSettings or None if client not found or not standalone
         """
         if not self._registry:
             return None
 
-        return self._registry.get_standalone_dsp(mac_id)
+        return self._registry.get_standalone_equalizer(mac_id)
 
     # =========================================================================
-    # Target-Agnostic DSP Methods (AC2, AC3)
+    # Target-Agnostic Equalizer Methods (AC2, AC3)
     # =========================================================================
 
-    async def apply_dsp(
-        self, target_type: str, target_id: str, settings: DspSettings
+    async def apply_equalizer(
+        self, target_type: str, target_id: str, settings: EqualizerSettings
     ) -> bool:
         """
-        Apply DSP settings to a zone or client.
+        Apply equalizer settings to a zone or client.
 
         Routes to appropriate method based on target_type.
 
         Args:
             target_type: "zone" or "client"
             target_id: Zone ID or client MAC ID
-            settings: DspSettings to apply
+            settings: EqualizerSettings to apply
 
         Returns:
             True if successful
@@ -363,32 +363,32 @@ class MultiroomDspService:
             ValueError: If invalid target_type
         """
         if target_type == "zone":
-            return await self.apply_zone_dsp(target_id, settings)
+            return await self.apply_zone_equalizer(target_id, settings)
         elif target_type == "client":
-            return await self.apply_client_dsp(target_id, settings)
+            return await self.apply_client_equalizer(target_id, settings)
         else:
             raise ValueError(f"Invalid target_type: {target_type}. Must be 'zone' or 'client'")
 
-    async def get_dsp(
+    async def get_equalizer(
         self, target_type: str, target_id: str
-    ) -> Optional[DspSettings]:
+    ) -> Optional[EqualizerSettings]:
         """
-        Get DSP settings for a zone or client.
+        Get equalizer settings for a zone or client.
 
         Args:
             target_type: "zone" or "client"
             target_id: Zone ID or client MAC ID
 
         Returns:
-            DspSettings or None if not found
+            EqualizerSettings or None if not found
 
         Raises:
             ValueError: If invalid target_type
         """
         if target_type == "zone":
-            return await self.get_zone_dsp(target_id)
+            return await self.get_zone_equalizer(target_id)
         elif target_type == "client":
-            return await self.get_client_dsp(target_id)
+            return await self.get_client_equalizer(target_id)
         else:
             raise ValueError(f"Invalid target_type: {target_type}. Must be 'zone' or 'client'")
 
@@ -404,10 +404,10 @@ class MultiroomDspService:
         return client.is_local if client else False
 
     async def _apply_to_camilladsp(
-        self, mac_id: str, settings: DspSettings
+        self, mac_id: str, settings: EqualizerSettings
     ) -> bool:
         """
-        Apply DSP settings to a client's CamillaDSP instance.
+        Apply equalizer settings to a client's CamillaDSP instance.
 
         Handles both local and remote clients:
         - Local: Apply via CamillaDSPService
@@ -420,7 +420,7 @@ class MultiroomDspService:
 
         Args:
             mac_id: The client's MAC ID
-            settings: DspSettings to apply
+            settings: EqualizerSettings to apply
 
         Returns:
             True if applied successfully, False on failure
@@ -430,27 +430,27 @@ class MultiroomDspService:
         else:
             return await self._apply_to_remote(mac_id, settings)
 
-    async def _apply_to_local(self, settings: DspSettings) -> bool:
-        """Apply DSP settings to local CamillaDSP instance."""
-        if not self._dsp_service:
+    async def _apply_to_local(self, settings: EqualizerSettings) -> bool:
+        """Apply equalizer settings to local CamillaDSP instance."""
+        if not self._camilladsp_service:
             self.logger.warning("CamillaDSPService not available")
             return False
 
-        if not self._dsp_service.connected:
+        if not self._camilladsp_service.connected:
             self.logger.warning("CamillaDSP not connected, settings saved but not applied")
             return False
 
         try:
             # Apply EQ filters (suppress individual broadcasts - zone will broadcast complete state)
             for eq_filter in settings.filters:
-                success = await self._dsp_service.set_filter(
+                success = await self._camilladsp_service.set_filter(
                     filter_id=eq_filter.id,
                     freq=eq_filter.frequency,
                     gain=eq_filter.gain,
                     q=eq_filter.q,
                     filter_type=eq_filter.filter_type.value,
                     enabled=eq_filter.enabled,
-                    persist=False,  # Don't persist to dsp.* keys (multiroom uses registry)
+                    persist=False,  # Don't persist to equalizer.* keys keys (multiroom uses registry)
                     from_preset=True,  # Don't switch to manual preset
                     broadcast=False,  # Don't broadcast per-filter (zone broadcasts complete state)
                 )
@@ -459,36 +459,36 @@ class MultiroomDspService:
 
             # Apply compressor (suppress broadcast - zone broadcasts complete state)
             comp = settings.compressor
-            await self._dsp_service.set_compressor(
+            await self._camilladsp_service.set_compressor(
                 enabled=comp.enabled,
                 threshold=comp.threshold,
                 ratio=comp.ratio,
                 attack=comp.attack,
                 release=comp.release,
                 makeup_gain=comp.makeup_gain,
-                persist=False,  # Don't persist to dsp.* keys
+                persist=False,  # Don't persist to equalizer.* keys keys
                 broadcast=False,  # Don't broadcast (zone broadcasts complete state)
             )
 
             # Apply loudness (suppress broadcast - zone broadcasts complete state)
             loud = settings.loudness
-            await self._dsp_service.set_loudness(
+            await self._camilladsp_service.set_loudness(
                 enabled=loud.enabled,
                 high_boost=loud.high_boost,
                 low_boost=loud.low_boost,
-                persist=False,  # Don't persist to dsp.* keys
+                persist=False,  # Don't persist to equalizer.* keys keys
                 broadcast=False,  # Don't broadcast (zone broadcasts complete state)
             )
 
-            self.logger.debug("DSP settings applied to local")
+            self.logger.debug("Equalizer settings applied to local")
             return True
 
         except Exception as e:
-            self.logger.warning(f"Failed to apply DSP settings to local: {e}")
+            self.logger.warning(f"Failed to apply equalizer settings to local: {e}")
             return False
 
-    async def _apply_to_remote(self, mac_id: str, settings: DspSettings) -> bool:
-        """Apply DSP settings to a remote client via proxy."""
+    async def _apply_to_remote(self, mac_id: str, settings: EqualizerSettings) -> bool:
+        """Apply equalizer settings to a remote client via proxy."""
         if not self._proxy_service:
             self.logger.debug(f"Proxy service not available, skipping remote client {mac_id} (will sync on reconnection)")
             return True  # Not a failure - settings are persisted and will sync later
@@ -521,13 +521,13 @@ class MultiroomDspService:
                 for f in settings.filters
             ]
             await self._proxy_service.request(
-                client_ip, "PUT", "/dsp/filters", {"filters": filters_batch}
+                client_ip, "PUT", "/equalizer/filters", {"filters": filters_batch}
             )
 
             # Apply compressor
             comp = settings.compressor
             await self._proxy_service.request(
-                client_ip, "PUT", "/dsp/compressor",
+                client_ip, "PUT", "/equalizer/compressor",
                 {
                     "enabled": comp.enabled,
                     "threshold": comp.threshold,
@@ -541,7 +541,7 @@ class MultiroomDspService:
             # Apply loudness
             loud = settings.loudness
             await self._proxy_service.request(
-                client_ip, "PUT", "/dsp/loudness",
+                client_ip, "PUT", "/equalizer/loudness",
                 {
                     "enabled": loud.enabled,
                     "high_boost": loud.high_boost,
@@ -549,15 +549,15 @@ class MultiroomDspService:
                 }
             )
 
-            self.logger.debug(f"DSP settings applied to remote client {mac_id}")
+            self.logger.debug(f"Equalizer settings applied to remote client {mac_id}")
             return True
 
         except Exception as e:
-            self.logger.warning(f"Failed to apply DSP settings to {mac_id}: {e}")
+            self.logger.warning(f"Failed to apply equalizer settings to {mac_id}: {e}")
             return False
 
     # =========================================================================
-    # Partial DSP Update Methods (AC2, AC3)
+    # Partial Equalizer Update Methods (AC2, AC3)
     # =========================================================================
 
     async def update_filter(
@@ -591,7 +591,7 @@ class MultiroomDspService:
             True if successful
         """
         # Get current settings
-        current = await self.get_dsp(target_type, target_id)
+        current = await self.get_equalizer(target_type, target_id)
         if not current:
             raise ValueError(f"{target_type} not found: {target_id}")
 
@@ -618,8 +618,8 @@ class MultiroomDspService:
         # ALWAYS save manual gains on ANY filter modification
         gains = [f.gain for f in current.filters[:10]]
 
-        if self._dsp_service and self._dsp_service.settings_service:
-            await self._dsp_service.settings_service.set_setting("dsp.manual_gains", gains)
+        if self._camilladsp_service and self._camilladsp_service.settings_service:
+            await self._camilladsp_service.settings_service.set_setting("equalizer.manual_gains", gains)
 
         # Handle preset auto-switch when user manually modifies a filter
         preset_changed = False
@@ -629,9 +629,9 @@ class MultiroomDspService:
 
         # Save to registry (source of truth)
         if target_type == "zone":
-            await self._registry.set_zone_dsp(target_id, current)
+            await self._registry.set_zone_equalizer(target_id, current)
         else:
-            await self._registry.set_standalone_dsp(target_id, current)
+            await self._registry.set_standalone_equalizer(target_id, current)
 
         # Build filter data dict for router
         filter_data = {
@@ -642,12 +642,12 @@ class MultiroomDspService:
             "enabled": updated_filter.enabled
         }
 
-        # Apply to clients via DspRouter (handles local/remote routing)
-        if self._dsp_router:
+        # Apply to clients via EqualizerRouter (handles local/remote routing)
+        if self._equalizer_router:
             if target_type == "zone":
                 online_clients = self._registry.get_online_zone_clients(target_id)
                 for client in online_clients:
-                    await self._dsp_router.update_filter(
+                    await self._equalizer_router.update_filter(
                         mac_id=client.mac_id,
                         filter_id=filter_id,
                         filter_data=filter_data,
@@ -656,7 +656,7 @@ class MultiroomDspService:
                         broadcast=False     # Don't broadcast per-filter
                     )
             else:
-                await self._dsp_router.update_filter(
+                await self._equalizer_router.update_filter(
                     mac_id=target_id,
                     filter_id=filter_id,
                     filter_data=filter_data,
@@ -665,15 +665,15 @@ class MultiroomDspService:
                     broadcast=False
                 )
         else:
-            self.logger.warning("DspRouter not available, filter update not applied to clients")
+            self.logger.warning("EqualizerRouter not available, filter update not applied to clients")
 
-        # Broadcast zone event ONCE (includes active_preset in dsp_settings)
-        await self._broadcast_dsp_event(target_type, target_id, current)
+        # Broadcast zone event ONCE (includes active_preset in equalizer_settings)
+        await self._broadcast_equalizer_event(target_type, target_id, current)
 
         # Also emit preset_loaded event if preset changed to manual
         if preset_changed and self._state_machine:
             await self._state_machine.broadcast_event(
-                "dsp", "preset_loaded", {"id": "manual"}
+                "equalizer", "preset_loaded", {"id": "manual"}
             )
 
         return True
@@ -706,7 +706,7 @@ class MultiroomDspService:
             True if successful
         """
         # Get current settings
-        current = await self.get_dsp(target_type, target_id)
+        current = await self.get_equalizer(target_type, target_id)
         if not current:
             raise ValueError(f"{target_type} not found: {target_id}")
 
@@ -726,7 +726,7 @@ class MultiroomDspService:
             comp.makeup_gain = makeup_gain
 
         # Apply updated settings
-        return await self.apply_dsp(target_type, target_id, current)
+        return await self.apply_equalizer(target_type, target_id, current)
 
     async def update_loudness(
         self,
@@ -750,7 +750,7 @@ class MultiroomDspService:
             True if successful
         """
         # Get current settings
-        current = await self.get_dsp(target_type, target_id)
+        current = await self.get_equalizer(target_type, target_id)
         if not current:
             raise ValueError(f"{target_type} not found: {target_id}")
 
@@ -764,29 +764,29 @@ class MultiroomDspService:
             loud.low_boost = low_boost
 
         # Apply updated settings
-        return await self.apply_dsp(target_type, target_id, current)
+        return await self.apply_equalizer(target_type, target_id, current)
 
-    async def update_dsp_enabled(
+    async def update_equalizer_enabled(
         self,
         target_type: str,
         target_id: str,
         enabled: bool,
     ) -> bool:
         """
-        Update global DSP enabled state, preserving other settings.
+        Update global equalizer enabled state, preserving other settings.
 
-        When disabled, DSP effects are bypassed but settings are preserved.
+        When disabled, equalizer effects are bypassed but settings are preserved.
 
         Args:
             target_type: "zone" or "client"
             target_id: Zone ID or client MAC ID
-            enabled: New DSP enabled state
+            enabled: New equalizer enabled state
 
         Returns:
             True if successful
         """
         # Get current settings
-        current = await self.get_dsp(target_type, target_id)
+        current = await self.get_equalizer(target_type, target_id)
         if not current:
             raise ValueError(f"{target_type} not found: {target_id}")
 
@@ -794,19 +794,19 @@ class MultiroomDspService:
         current.enabled = enabled
 
         # Apply updated settings
-        return await self.apply_dsp(target_type, target_id, current)
+        return await self.apply_equalizer(target_type, target_id, current)
 
-    async def set_zone_dsp_effects_enabled(self, zone_id: str, enabled: bool) -> bool:
+    async def set_zone_equalizer_effects_enabled(self, zone_id: str, enabled: bool) -> bool:
         """
-        Enable/disable DSP effects for all clients in a zone.
+        Enable/disable equalizer effects for all clients in a zone.
 
         This method uses routing_service for local clients (which properly
-        bypasses/restores DSP effects in the audio chain) and proxies to
+        bypasses/restores equalizer effects in the audio chain) and proxies to
         remote clients.
 
         Args:
             zone_id: The zone ID
-            enabled: Whether DSP effects should be enabled
+            enabled: Whether equalizer effects should be enabled
 
         Returns:
             True if at least one client was updated successfully
@@ -829,10 +829,10 @@ class MultiroomDspService:
                 # Local client: use routing_service
                 if self._routing_service:
                     try:
-                        if await self._routing_service.set_dsp_effects_enabled(enabled):
+                        if await self._routing_service.set_equalizer_effects_enabled(enabled):
                             success_count += 1
                     except Exception as e:
-                        self.logger.warning(f"Failed to set DSP enabled for local: {e}")
+                        self.logger.warning(f"Failed to set equalizer enabled for local: {e}")
             else:
                 # Remote client: proxy
                 if not self._proxy_service or not self._registry:
@@ -847,17 +847,17 @@ class MultiroomDspService:
 
                 try:
                     result = await self._proxy_service.request(
-                        client.ip, "PUT", "/dsp/enabled", {"enabled": enabled}
+                        client.ip, "PUT", "/equalizer/enabled", {"enabled": enabled}
                     )
                     if result.get("status") == "success":
                         success_count += 1
                 except Exception as e:
-                    self.logger.warning(f"Failed to set DSP enabled for {client_id}: {e}")
+                    self.logger.warning(f"Failed to set equalizer enabled for {client_id}: {e}")
 
         # Broadcast WebSocket event
         if self._state_machine:
             await self._state_machine.broadcast_event(
-                "dsp", "zone_enabled_changed",
+                "equalizer", "zone_enabled_changed",
                 {"zone_id": zone_id, "enabled": enabled}
             )
 
@@ -867,33 +867,33 @@ class MultiroomDspService:
     # Event Broadcasting
     # =========================================================================
 
-    async def _broadcast_dsp_event(
+    async def _broadcast_equalizer_event(
         self,
         target_type: str,
         target_id: str,
-        settings: DspSettings,
+        settings: EqualizerSettings,
     ) -> None:
         """
-        Broadcast DSP changed event via WebSocket.
+        Broadcast equalizer changed event via WebSocket.
 
         Event format matches architecture spec:
         {
             "category": "multiroom",
-            "type": "dsp_changed",
+            "type": "equalizer_changed",
             "data": {
                 "target_type": "zone" | "client",
                 "target_id": "uuid-..." | "mac-...",
-                "dsp_settings": { ... }
+                "equalizer_settings": { ... }
             }
         }
         """
         if self._state_machine:
             await self._state_machine.broadcast_event(
                 "multiroom",
-                "dsp_changed",
+                "equalizer_changed",
                 {
                     "target_type": target_type,
                     "target_id": target_id,
-                    "dsp_settings": settings.to_dict(),
+                    "equalizer_settings": settings.to_dict(),
                 },
             )

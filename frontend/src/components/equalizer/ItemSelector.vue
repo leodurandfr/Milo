@@ -26,11 +26,11 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue';
-import { useDspStore } from '@/stores/dspStore';
+import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 
-const dspStore = useDspStore();
+const equalizerStore = useEqualizerStore();
 const audioStore = useUnifiedAudioStore();
 
 const props = defineProps({
@@ -43,10 +43,10 @@ const props = defineProps({
 const emit = defineEmits(['targetChange', 'configureZone']);
 
 // Local state
-const selectedTargetLocal = ref(dspStore.selectedTarget);
+const selectedTargetLocal = ref(equalizerStore.selectedTarget);
 
 // === COMPUTED ===
-const targets = computed(() => dspStore.availableTargets);
+const targets = computed(() => equalizerStore.availableTargets);
 
 // Convert targets to tabs format (zones + individual clients)
 const zoneTabs = computed(() => {
@@ -72,7 +72,7 @@ const zoneTabs = computed(() => {
   for (const target of targets.value) {
     if (processedIds.has(target.id)) continue;
 
-    const linkedIds = dspStore.getLinkedClientIds(target.id);
+    const linkedIds = equalizerStore.getLinkedClientIds(target.id);
 
     if (linkedIds.length > 1) {
       // This is a zone - get names of linked clients (backend sorts local first)
@@ -81,7 +81,7 @@ const zoneTabs = computed(() => {
         .filter(Boolean);
 
       // Find the group for this zone to get custom name
-      const group = dspStore.getZoneGroup(target.id);
+      const group = equalizerStore.getZoneGroup(target.id);
 
       // Use custom zone name if set, otherwise combine client names
       const zoneName = group?.name || (linkedClients.length > 0
@@ -137,21 +137,21 @@ const selectedClientIds = computed(() => {
 async function handleTargetChange(targetValue) {
   selectedTargetLocal.value = targetValue;
 
-  // If it's a zone, select the first client as the active DSP target
+  // If it's a zone, select the first client as the active equalizer target
   if (targetValue.startsWith('zone:')) {
     const clientIds = targetValue.replace('zone:', '').split(',');
     if (clientIds.length > 0) {
-      await dspStore.selectTarget(clientIds[0]);
+      await equalizerStore.selectTarget(clientIds[0]);
     }
   } else {
-    await dspStore.selectTarget(targetValue);
+    await equalizerStore.selectTarget(targetValue);
   }
 
   emit('targetChange', targetValue);
 }
 
 // Sync local target with store
-watch(() => dspStore.selectedTarget, (newTarget) => {
+watch(() => equalizerStore.selectedTarget, (newTarget) => {
   // Don't override if we have a zone selected
   if (!selectedTargetLocal.value.startsWith('zone:')) {
     selectedTargetLocal.value = newTarget;

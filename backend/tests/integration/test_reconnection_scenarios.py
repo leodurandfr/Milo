@@ -1,7 +1,7 @@
 """
 Integration tests for reconnection scenarios (FR7-FR10, FR13).
 
-These tests validate the reconnection sync logic for volume and DSP settings
+These tests validate the reconnection sync logic for volume and Equalizer settings
 across all defined scenarios in the architecture document.
 
 Story 5.5: Tests E2E - Scénarios de Reconnexion
@@ -25,12 +25,12 @@ from backend.core.multiroom.models import ReconnectionContext
 
 @pytest.fixture
 def mock_zone():
-    """Create a mock zone with DSP settings."""
+    """Create a mock zone with Equalizer settings."""
     zone = MagicMock()
     zone.id = "zone-1"
     zone.name = "Living Room"
     zone.client_ids = ["local", "milo-client-01", "milo-client-02"]
-    zone.dsp_settings = {
+    zone.equalizer_settings = {
         "filters": {"band_1": {"type": "Peaking", "freq": 1000, "gain": 3.0}},
         "compressor": {"enabled": False},
         "loudness": {"enabled": False}
@@ -108,7 +108,7 @@ class TestReconnectionInZone:
 
         Expected:
         - volume = zone_volume_avg (average of online members)
-        - DSP = zone.dsp_settings
+        - Equalizer = zone.equalizer_settings
         """
         # Setup: Zone with 3 clients, client-02 offline, others online
         mock_client_02.online = False
@@ -127,20 +127,20 @@ class TestReconnectionInZone:
         assert reconnecting_client_expected_volume == -27.5
 
     @pytest.mark.asyncio
-    async def test_fr7_in_zone_dsp_sync(self, mock_zone):
+    async def test_fr7_in_zone_equalizer_sync(self, mock_zone):
         """
-        FR7: IN_ZONE client reconnects - DSP settings sync.
+        FR7: IN_ZONE client reconnects - Equalizer settings sync.
 
-        Expected: DSP = zone.dsp_settings
+        Expected: Equalizer = zone.equalizer_settings
         """
-        # Verify zone has DSP settings to sync
-        assert mock_zone.dsp_settings is not None
-        assert "filters" in mock_zone.dsp_settings
-        assert "compressor" in mock_zone.dsp_settings
-        assert "loudness" in mock_zone.dsp_settings
+        # Verify zone has Equalizer settings to sync
+        assert mock_zone.equalizer_settings is not None
+        assert "filters" in mock_zone.equalizer_settings
+        assert "compressor" in mock_zone.equalizer_settings
+        assert "loudness" in mock_zone.equalizer_settings
 
         # Verify filter settings
-        filters = mock_zone.dsp_settings["filters"]
+        filters = mock_zone.equalizer_settings["filters"]
         assert "band_1" in filters
         assert filters["band_1"]["gain"] == 3.0
 
@@ -151,7 +151,7 @@ class TestReconnectionInZone:
 
         Expected:
         - volume = startup_volume_db (DEFAULT_VOLUME_DB = -60.0)
-        - DSP = zone.dsp_settings (from persistence)
+        - Equalizer = zone.equalizer_settings (from persistence)
         """
         # Setup: All clients in zone are offline
         # When first client reconnects, no online clients to average from
@@ -161,23 +161,23 @@ class TestReconnectionInZone:
 
         assert expected_volume == -60.0
 
-        # Zone DSP settings should still be applied from persistence
-        assert mock_zone.dsp_settings is not None
+        # Zone Equalizer settings should still be applied from persistence
+        assert mock_zone.equalizer_settings is not None
 
     @pytest.mark.asyncio
-    async def test_fr8_zone_dsp_from_persistence(self, mock_zone):
+    async def test_fr8_zone_equalizer_from_persistence(self, mock_zone):
         """
-        FR8: Verify zone DSP settings come from persistence when all offline.
+        FR8: Verify zone Equalizer settings come from persistence when all offline.
         """
-        # Even when all clients are offline, zone.dsp_settings should be loaded
+        # Even when all clients are offline, zone.equalizer_settings should be loaded
         # from persistence (settings.json) and applied to reconnecting client
 
-        persisted_dsp = mock_zone.dsp_settings
+        persisted_equalizer = mock_zone.equalizer_settings
 
         # Verify structure matches what's expected
-        assert persisted_dsp["filters"]["band_1"]["type"] == "Peaking"
-        assert persisted_dsp["filters"]["band_1"]["freq"] == 1000
-        assert persisted_dsp["compressor"]["enabled"] is False
+        assert persisted_equalizer["filters"]["band_1"]["type"] == "Peaking"
+        assert persisted_equalizer["filters"]["band_1"]["freq"] == 1000
+        assert persisted_equalizer["compressor"]["enabled"] is False
 
 
 class TestReconnectionStandalone:
@@ -194,7 +194,7 @@ class TestReconnectionStandalone:
 
         Expected:
         - volume = volume_global (average of all online clients)
-        - DSP = standalone_dsp[mac_id]
+        - Equalizer = standalone_equalizer[mac_id]
         """
         # Setup: Standalone client (not in zone), other clients online
         # Global volume = average of all online clients
@@ -205,14 +205,14 @@ class TestReconnectionStandalone:
         assert expected_global_volume == -27.5
 
     @pytest.mark.asyncio
-    async def test_fr9_standalone_dsp_sync(self):
+    async def test_fr9_standalone_equalizer_sync(self):
         """
-        FR9: STANDALONE client reconnects - DSP settings sync.
+        FR9: STANDALONE client reconnects - Equalizer settings sync.
 
-        Expected: DSP = standalone_dsp[mac_id] from client_dsp.json
+        Expected: Equalizer = standalone_equalizer[mac_id] from client_equalizer.json
         """
-        # Standalone DSP settings structure
-        standalone_dsp = {
+        # Standalone Equalizer settings structure
+        standalone_equalizer = {
             "milo-client-03": {
                 "filters": {"band_1": {"type": "HighShelf", "gain": -2.0}},
                 "compressor": {"enabled": True, "threshold": -15},
@@ -221,10 +221,10 @@ class TestReconnectionStandalone:
         }
 
         client_id = "milo-client-03"
-        client_dsp = standalone_dsp.get(client_id)
+        client_equalizer = standalone_equalizer.get(client_id)
 
-        assert client_dsp is not None
-        assert client_dsp["compressor"]["enabled"] is True
+        assert client_equalizer is not None
+        assert client_equalizer["compressor"]["enabled"] is True
 
     @pytest.mark.asyncio
     async def test_fr10_standalone_first_client_uses_startup_volume(self):
@@ -233,7 +233,7 @@ class TestReconnectionStandalone:
 
         Expected:
         - volume = startup_volume_db (DEFAULT_VOLUME_DB = -60.0)
-        - DSP = standalone_dsp[mac_id]
+        - Equalizer = standalone_equalizer[mac_id]
         """
         # Setup: No clients online (backend just started or all disconnected)
         online_clients = []
@@ -247,15 +247,15 @@ class TestReconnectionStandalone:
         assert expected_volume == -60.0
 
     @pytest.mark.asyncio
-    async def test_fr10_standalone_dsp_defaults_when_none_saved(self):
+    async def test_fr10_standalone_equalizer_defaults_when_none_saved(self):
         """
-        FR10: STANDALONE client with no saved DSP settings gets defaults.
+        FR10: STANDALONE client with no saved Equalizer settings gets defaults.
 
-        Expected: Default DSP (flat EQ, compressor off, loudness off)
+        Expected: Default Equalizer (flat EQ, compressor off, loudness off)
         """
-        from backend.core.dsp.sync import DspSettingsSyncService
+        from backend.core.equalizer.sync import EqualizerSettingsSyncService
 
-        sync_service = DspSettingsSyncService()
+        sync_service = EqualizerSettingsSyncService()
         defaults = sync_service.get_default_settings()
 
         # Verify defaults are flat/off
@@ -461,12 +461,12 @@ class TestSyncStatusTracking:
         """Test sync_status dict structure in client_connected event."""
         sync_status = {
             "volume_synced": True,
-            "dsp_synced": True,
+            "equalizer_synced": True,
             "pending_applied": False
         }
 
         assert "volume_synced" in sync_status
-        assert "dsp_synced" in sync_status
+        assert "equalizer_synced" in sync_status
         assert "pending_applied" in sync_status
 
     def test_sync_status_failure_detection(self):
@@ -474,22 +474,22 @@ class TestSyncStatusTracking:
         # Sync failed
         sync_status = {
             "volume_synced": True,
-            "dsp_synced": False,  # DSP sync failed
+            "equalizer_synced": False,  # Equalizer sync failed
             "pending_applied": False
         }
 
-        has_error = not sync_status["volume_synced"] or not sync_status["dsp_synced"]
+        has_error = not sync_status["volume_synced"] or not sync_status["equalizer_synced"]
         assert has_error is True
 
     def test_sync_status_success_detection(self):
         """Test detecting sync success from sync_status."""
         sync_status = {
             "volume_synced": True,
-            "dsp_synced": True,
+            "equalizer_synced": True,
             "pending_applied": True
         }
 
-        has_error = not sync_status["volume_synced"] or not sync_status["dsp_synced"]
+        has_error = not sync_status["volume_synced"] or not sync_status["equalizer_synced"]
         assert has_error is False
 
 
@@ -529,8 +529,8 @@ class TestReconnectionContextDetectionIntegration:
         sm.snapcast_service = None
         sm.volume_service = None
         sm.crossover_service = None
-        sm.dsp_client_proxy_service = None
-        sm.dsp_settings_sync_service = None
+        sm.equalizer_client_proxy_service = None
+        sm.equalizer_settings_sync_service = None
         sm.camilladsp_service = None
         return sm
 
@@ -735,9 +735,9 @@ class TestReconnectionContextDetectionIntegration:
         ws_service._snapcast_service = mock_snapcast
         ws_service._volume_service = mock_volume
 
-        # Mock the DSP sync methods to avoid errors
+        # Mock the Equalizer sync methods to avoid errors
         ws_service._sync_client_volume_and_broadcast = AsyncMock(return_value=True)
-        ws_service._sync_standalone_dsp_to_client = AsyncMock(return_value=True)
+        ws_service._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)
 
         # Simulate reconnection (include mac matching registered mac_id)
         client_data = {
@@ -842,8 +842,8 @@ class TestInZoneReconnectionSyncIntegration:
         sm.broadcast_event = AsyncMock()
         sm.snapcast_service = None
         sm.crossover_service = None
-        sm.dsp_client_proxy_service = None
-        sm.dsp_settings_sync_service = None
+        sm.equalizer_client_proxy_service = None
+        sm.equalizer_settings_sync_service = None
         sm.camilladsp_service = None
 
         # Mock volume service with config and state store
@@ -861,7 +861,7 @@ class TestInZoneReconnectionSyncIntegration:
             "client-2": mock_client_state,
             "client-3": mock_client_state,
         }
-        volume_service._dsp_controller = AsyncMock()
+        volume_service._equalizer_controller = AsyncMock()
         sm.volume_service = volume_service
 
         return sm
@@ -922,8 +922,8 @@ class TestInZoneReconnectionSyncIntegration:
         ws_service._snapcast_service = mock_snapcast
         ws_service._volume_service = mock_state_machine.volume_service
 
-        # Mock DSP sync to avoid errors
-        ws_service._sync_zone_dsp_to_client = AsyncMock(return_value=True)
+        # Mock Equalizer sync to avoid errors
+        ws_service._sync_zone_equalizer_to_client = AsyncMock(return_value=True)
 
         # Get target volume using the unified method
         context = registry.get_reconnection_context("client-1")
@@ -1074,14 +1074,14 @@ class TestInZoneReconnectionSyncIntegration:
         )
         ws_service._snapcast_service = mock_snapcast
         ws_service._volume_service = mock_state_machine.volume_service
-        ws_service._sync_zone_dsp_to_client = AsyncMock(return_value=True)
+        ws_service._sync_zone_equalizer_to_client = AsyncMock(return_value=True)
 
         # Mock _state_store._clients to return a proper client state object
         volume_service = mock_state_machine.volume_service
         mock_client_state = MagicMock()
         mock_client_state.mute = False
         volume_service._state_store._clients = {"client-1": mock_client_state}
-        volume_service._dsp_controller = AsyncMock()
+        volume_service._equalizer_controller = AsyncMock()
 
         # Simulate reconnection (include mac matching registered mac_id)
         client_data = {
@@ -1096,14 +1096,14 @@ class TestInZoneReconnectionSyncIntegration:
         volume_service._broadcast_volume_state.assert_called()
 
     @pytest.mark.asyncio
-    async def test_dsp_sync_uses_zone_settings(
+    async def test_equalizer_sync_uses_zone_settings(
         self, mock_settings_service, mock_event_bus, mock_state_machine
     ):
         """
-        E2E: DSP sync uses zone.dsp_settings for IN_ZONE contexts (AC3).
+        E2E: Equalizer sync uses zone.equalizer_settings for IN_ZONE contexts (AC3).
         """
         from backend.core.multiroom.client_registry import ClientRegistryService
-        from backend.core.multiroom.models import DspSettings, EqFilter, FilterType
+        from backend.core.multiroom.models import EqualizerSettings, EqFilter, FilterType
 
         registry = ClientRegistryService(
             settings_service=mock_settings_service,
@@ -1111,23 +1111,23 @@ class TestInZoneReconnectionSyncIntegration:
         )
         await registry.initialize()
 
-        # Register clients and create zone with DSP settings
+        # Register clients and create zone with Equalizer settings
         await registry.register_client("client-1", "Client 1", "192.168.1.1")
         await registry.register_client("client-2", "Client 2", "192.168.1.2")
 
-        # Create zone with custom DSP settings
-        dsp_settings = DspSettings(
+        # Create zone with custom Equalizer settings
+        equalizer_settings = EqualizerSettings(
             enabled=True,
             filters=[EqFilter(id="eq_band_00", frequency=1000, gain=5.0, filter_type=FilterType.PEAKING)]
         )
-        await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2"], dsp_settings=dsp_settings)
+        await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2"], equalizer_settings=equalizer_settings)
 
-        # Verify zone has DSP settings
+        # Verify zone has Equalizer settings
         zone = registry.get_zone("zone-1")
-        assert zone.dsp_settings is not None
-        assert zone.dsp_settings.enabled is True
-        assert len(zone.dsp_settings.filters) == 1
-        assert zone.dsp_settings.filters[0].gain == 5.0
+        assert zone.equalizer_settings is not None
+        assert zone.equalizer_settings.enabled is True
+        assert len(zone.equalizer_settings.filters) == 1
+        assert zone.equalizer_settings.filters[0].gain == 5.0
 
 
 # =============================================================================
@@ -1183,13 +1183,13 @@ class TestAC4SyncTimeCompliance:
             "client-1": mock_client_state,
             "client-2": mock_client_state,
         }
-        volume_service._dsp_controller = AsyncMock()
+        volume_service._equalizer_controller = AsyncMock()
         sm.volume_service = volume_service
 
-        # Mock DSP services
+        # Mock Equalizer services
         sm.crossover_service = None
-        sm.dsp_client_proxy_service = None
-        sm.dsp_settings_sync_service = None
+        sm.equalizer_client_proxy_service = None
+        sm.equalizer_settings_sync_service = None
         sm.camilladsp_service = None
 
         return sm
@@ -1234,7 +1234,7 @@ class TestAC4SyncTimeCompliance:
         )
         ws_service._snapcast_service = mock_state_machine.snapcast_service
         ws_service._volume_service = mock_state_machine.volume_service
-        ws_service._sync_zone_dsp_to_client = AsyncMock(return_value=True)
+        ws_service._sync_zone_equalizer_to_client = AsyncMock(return_value=True)
 
         # Simulate reconnection with timing (include mac matching registered mac_id)
         client_data = {
@@ -1256,18 +1256,18 @@ class TestAC4SyncTimeCompliance:
         assert sync_status["volume_synced"] is True
 
     @pytest.mark.asyncio
-    async def test_sync_time_with_dsp_operations(
+    async def test_sync_time_with_equalizer_operations(
         self, mock_settings_service, mock_event_bus, mock_state_machine
     ):
         """
-        AC4/NFR4: Sync time includes DSP operations and still completes within 1 second.
+        AC4/NFR4: Sync time includes Equalizer operations and still completes within 1 second.
 
-        Tests a more realistic scenario with mocked DSP operations.
+        Tests a more realistic scenario with mocked Equalizer operations.
         """
         import time
         from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
-        from backend.core.multiroom.models import DspSettings, EqFilter, FilterType
+        from backend.core.multiroom.models import EqualizerSettings, EqFilter, FilterType
 
         # Setup registry
         registry = ClientRegistryService(
@@ -1278,12 +1278,12 @@ class TestAC4SyncTimeCompliance:
         mock_state_machine.client_registry = registry
         registry.set_state_machine(mock_state_machine)
 
-        # Register clients and create zone with DSP settings
+        # Register clients and create zone with Equalizer settings
         await registry.register_client("client-1", "Client 1", "192.168.1.1")
         await registry.register_client("client-2", "Client 2", "192.168.1.2")
         await registry.update_volume("client-2", volume_db=-25.0)
 
-        dsp_settings = DspSettings(
+        equalizer_settings = EqualizerSettings(
             enabled=True,
             filters=[
                 EqFilter(id="eq_band_00", frequency=100, gain=2.0, filter_type=FilterType.PEAKING),
@@ -1291,11 +1291,11 @@ class TestAC4SyncTimeCompliance:
                 EqFilter(id="eq_band_02", frequency=10000, gain=3.0, filter_type=FilterType.PEAKING),
             ]
         )
-        await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2"], dsp_settings=dsp_settings)
+        await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2"], equalizer_settings=equalizer_settings)
         await registry.set_client_online("client-1", False)
         await registry.set_client_online("client-2", True)
 
-        # Create websocket service with realistic DSP mock (small delay)
+        # Create websocket service with realistic Equalizer mock (small delay)
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
             routing_service=MagicMock(),
@@ -1304,11 +1304,11 @@ class TestAC4SyncTimeCompliance:
         ws_service._snapcast_service = mock_state_machine.snapcast_service
         ws_service._volume_service = mock_state_machine.volume_service
 
-        async def mock_dsp_sync(*args, **kwargs):
-            await asyncio.sleep(0.1)  # Simulate 100ms for DSP operations
+        async def mock_equalizer_sync(*args, **kwargs):
+            await asyncio.sleep(0.1)  # Simulate 100ms for Equalizer operations
             return True
 
-        ws_service._sync_zone_dsp_to_client = mock_dsp_sync
+        ws_service._sync_zone_equalizer_to_client = mock_equalizer_sync
 
         # Include mac matching registered mac_id
         client_data = {
@@ -1323,9 +1323,9 @@ class TestAC4SyncTimeCompliance:
 
         elapsed_time = end_time - start_time
 
-        # Assert: Even with DSP operations, sync completes within 1 second
-        assert elapsed_time < 1.0, f"Sync with DSP took {elapsed_time:.3f}s, expected < 1.0s"
-        assert sync_status["dsp_synced"] is True
+        # Assert: Even with Equalizer operations, sync completes within 1 second
+        assert elapsed_time < 1.0, f"Sync with Equalizer took {elapsed_time:.3f}s, expected < 1.0s"
+        assert sync_status["equalizer_synced"] is True
 
 
 # =============================================================================
@@ -1337,7 +1337,7 @@ class TestAC6PendingSettingsQueue:
     """
     Tests for AC6: Pending Settings Handling.
 
-    Validates that failed DSP settings are queued via queue_pending_settings()
+    Validates that failed Equalizer settings are queued via queue_pending_settings()
     for later retry when sync fails.
     """
 
@@ -1364,7 +1364,7 @@ class TestAC6PendingSettingsQueue:
         sm.snapcast_service = None
         sm.volume_service = None
         sm.camilladsp_service = None
-        sm.dsp_settings_sync_service = None
+        sm.equalizer_settings_sync_service = None
 
         # Mock crossover service with queue_pending_settings
         crossover = AsyncMock()
@@ -1372,10 +1372,10 @@ class TestAC6PendingSettingsQueue:
         crossover.has_pending_settings = MagicMock(return_value=False)
         sm.crossover_service = crossover
 
-        # Mock DSP proxy that will fail
+        # Mock Equalizer proxy that will fail
         proxy = AsyncMock()
         proxy.request = AsyncMock(side_effect=Exception("Connection refused"))
-        sm.dsp_client_proxy_service = proxy
+        sm.equalizer_client_proxy_service = proxy
 
         return sm
 
@@ -1388,7 +1388,7 @@ class TestAC6PendingSettingsQueue:
         """
         from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
-        from backend.core.multiroom.models import DspSettings, CompressorSettings
+        from backend.core.multiroom.models import EqualizerSettings, CompressorSettings
 
         # Setup registry
         registry = ClientRegistryService(
@@ -1404,11 +1404,11 @@ class TestAC6PendingSettingsQueue:
         await registry.register_client("client-2", "Client 2", "192.168.1.101")
 
         # Create zone with compressor settings
-        dsp_settings = DspSettings(
+        equalizer_settings = EqualizerSettings(
             enabled=True,
             compressor=CompressorSettings(enabled=True, threshold=-20.0, ratio=4.0)
         )
-        await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2"], dsp_settings=dsp_settings)
+        await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2"], equalizer_settings=equalizer_settings)
 
         # Create websocket service
         ws_service = SnapcastWebSocketService(
@@ -1416,12 +1416,12 @@ class TestAC6PendingSettingsQueue:
             routing_service=MagicMock(),
             event_bus=mock_event_bus
         )
-        ws_service._dsp_client_proxy_service = mock_state_machine_with_crossover.dsp_client_proxy_service
+        ws_service._equalizer_client_proxy_service = mock_state_machine_with_crossover.equalizer_client_proxy_service
         ws_service._crossover_service = mock_state_machine_with_crossover.crossover_service
 
-        # Call _sync_zone_dsp_to_client - compressor sync will fail
+        # Call _sync_zone_equalizer_to_client - compressor sync will fail
         zone = registry.get_zone("zone-1")
-        result = await ws_service._sync_zone_dsp_to_client("client-1", zone)
+        result = await ws_service._sync_zone_equalizer_to_client("client-1", zone)
 
         # Assert: sync failed and compressor was queued
         assert result is False
@@ -1445,7 +1445,7 @@ class TestAC6PendingSettingsQueue:
         """
         from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
-        from backend.core.multiroom.models import DspSettings, LoudnessSettings
+        from backend.core.multiroom.models import EqualizerSettings, LoudnessSettings
 
         # Setup registry
         registry = ClientRegistryService(
@@ -1461,11 +1461,11 @@ class TestAC6PendingSettingsQueue:
         await registry.register_client("client-2", "Client 2", "192.168.1.101")
 
         # Create zone with loudness settings
-        dsp_settings = DspSettings(
+        equalizer_settings = EqualizerSettings(
             enabled=True,
             loudness=LoudnessSettings(enabled=True, high_boost=10.0)
         )
-        await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2"], dsp_settings=dsp_settings)
+        await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2"], equalizer_settings=equalizer_settings)
 
         # Create websocket service
         ws_service = SnapcastWebSocketService(
@@ -1473,12 +1473,12 @@ class TestAC6PendingSettingsQueue:
             routing_service=MagicMock(),
             event_bus=mock_event_bus
         )
-        ws_service._dsp_client_proxy_service = mock_state_machine_with_crossover.dsp_client_proxy_service
+        ws_service._equalizer_client_proxy_service = mock_state_machine_with_crossover.equalizer_client_proxy_service
         ws_service._crossover_service = mock_state_machine_with_crossover.crossover_service
 
-        # Call _sync_zone_dsp_to_client - loudness sync will fail
+        # Call _sync_zone_equalizer_to_client - loudness sync will fail
         zone = registry.get_zone("zone-1")
-        result = await ws_service._sync_zone_dsp_to_client("client-1", zone)
+        result = await ws_service._sync_zone_equalizer_to_client("client-1", zone)
 
         # Assert: sync failed and loudness was queued
         assert result is False
@@ -1499,7 +1499,7 @@ class TestAC6PendingSettingsQueue:
         """
         from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
-        from backend.core.multiroom.models import DspSettings, EqFilter, FilterType
+        from backend.core.multiroom.models import EqualizerSettings, EqFilter, FilterType
 
         # Setup registry
         registry = ClientRegistryService(
@@ -1515,14 +1515,14 @@ class TestAC6PendingSettingsQueue:
         await registry.register_client("client-2", "Client 2", "192.168.1.101")
 
         # Create zone with filter settings
-        dsp_settings = DspSettings(
+        equalizer_settings = EqualizerSettings(
             enabled=True,
             filters=[
                 EqFilter(id="eq_band_00", frequency=100, gain=3.0, filter_type=FilterType.PEAKING),
                 EqFilter(id="eq_band_01", frequency=1000, gain=-2.0, filter_type=FilterType.PEAKING),
             ]
         )
-        await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2"], dsp_settings=dsp_settings)
+        await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2"], equalizer_settings=equalizer_settings)
 
         # Create websocket service
         ws_service = SnapcastWebSocketService(
@@ -1530,12 +1530,12 @@ class TestAC6PendingSettingsQueue:
             routing_service=MagicMock(),
             event_bus=mock_event_bus
         )
-        ws_service._dsp_client_proxy_service = mock_state_machine_with_crossover.dsp_client_proxy_service
+        ws_service._equalizer_client_proxy_service = mock_state_machine_with_crossover.equalizer_client_proxy_service
         ws_service._crossover_service = mock_state_machine_with_crossover.crossover_service
 
-        # Call _sync_zone_dsp_to_client - filter sync will fail
+        # Call _sync_zone_equalizer_to_client - filter sync will fail
         zone = registry.get_zone("zone-1")
-        result = await ws_service._sync_zone_dsp_to_client("client-1", zone)
+        result = await ws_service._sync_zone_equalizer_to_client("client-1", zone)
 
         # Assert: sync failed and filters were queued
         assert result is False
@@ -1552,27 +1552,27 @@ class TestAC6PendingSettingsQueue:
         self, mock_settings_service, mock_event_bus
     ):
         """
-        AC6: Successful DSP sync does NOT queue any pending settings.
+        AC6: Successful Equalizer sync does NOT queue any pending settings.
         """
         from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
-        from backend.core.multiroom.models import DspSettings, EqFilter, FilterType
+        from backend.core.multiroom.models import EqualizerSettings, EqFilter, FilterType
 
         # Create state machine with successful proxy
         sm = MagicMock()
         sm.broadcast_event = AsyncMock()
         sm.camilladsp_service = None
-        sm.dsp_settings_sync_service = None
+        sm.equalizer_settings_sync_service = None
 
         # Mock crossover service
         crossover = AsyncMock()
         crossover.queue_pending_settings = AsyncMock()
         sm.crossover_service = crossover
 
-        # Mock DSP proxy that succeeds
+        # Mock Equalizer proxy that succeeds
         proxy = AsyncMock()
         proxy.request = AsyncMock(return_value={"success": True})
-        sm.dsp_client_proxy_service = proxy
+        sm.equalizer_client_proxy_service = proxy
 
         # Setup registry
         registry = ClientRegistryService(
@@ -1587,12 +1587,12 @@ class TestAC6PendingSettingsQueue:
         await registry.register_client("client-1", "Client 1", "192.168.1.100")
         await registry.register_client("client-2", "Client 2", "192.168.1.101")
 
-        # Create zone with DSP settings
-        dsp_settings = DspSettings(
+        # Create zone with Equalizer settings
+        equalizer_settings = EqualizerSettings(
             enabled=True,
             filters=[EqFilter(id="eq_band_00", frequency=1000, gain=2.0, filter_type=FilterType.PEAKING)]
         )
-        await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2"], dsp_settings=dsp_settings)
+        await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2"], equalizer_settings=equalizer_settings)
 
         # Create websocket service
         ws_service = SnapcastWebSocketService(
@@ -1600,12 +1600,12 @@ class TestAC6PendingSettingsQueue:
             routing_service=MagicMock(),
             event_bus=mock_event_bus
         )
-        ws_service._dsp_client_proxy_service = sm.dsp_client_proxy_service
+        ws_service._equalizer_client_proxy_service = sm.equalizer_client_proxy_service
         ws_service._crossover_service = sm.crossover_service
 
-        # Call _sync_zone_dsp_to_client - should succeed
+        # Call _sync_zone_equalizer_to_client - should succeed
         zone = registry.get_zone("zone-1")
-        result = await ws_service._sync_zone_dsp_to_client("client-1", zone)
+        result = await ws_service._sync_zone_equalizer_to_client("client-1", zone)
 
         # Assert: sync succeeded and nothing was queued
         assert result is True
@@ -1647,8 +1647,8 @@ class TestStandaloneReconnectionSyncIntegration:
         sm.broadcast_event = AsyncMock()
         sm.snapcast_service = None
         sm.crossover_service = None
-        sm.dsp_client_proxy_service = None
-        sm.dsp_settings_sync_service = None
+        sm.equalizer_client_proxy_service = None
+        sm.equalizer_settings_sync_service = None
         sm.camilladsp_service = None
 
         # Mock volume service with config and state store
@@ -1667,7 +1667,7 @@ class TestStandaloneReconnectionSyncIntegration:
             "client-2": mock_client_state,
             "client-3": mock_client_state,
         }
-        volume_service._dsp_controller = AsyncMock()
+        volume_service._equalizer_controller = AsyncMock()
         sm.volume_service = volume_service
 
         return sm
@@ -1725,8 +1725,8 @@ class TestStandaloneReconnectionSyncIntegration:
         ws_service._snapcast_service = mock_snapcast
         ws_service._volume_service = mock_state_machine.volume_service
 
-        # Mock DSP sync to avoid errors
-        ws_service._sync_standalone_dsp_to_client = AsyncMock(return_value=True)
+        # Mock Equalizer sync to avoid errors
+        ws_service._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)
 
         # Get target volume using the unified method
         context = registry.get_reconnection_context("client-1")
@@ -1878,15 +1878,15 @@ class TestStandaloneReconnectionSyncIntegration:
         assert avg == -20.0
 
     @pytest.mark.asyncio
-    async def test_standalone_dsp_sync_uses_client_settings(
+    async def test_standalone_equalizer_sync_uses_client_settings(
         self, mock_settings_service, mock_event_bus, mock_state_machine
     ):
         """
-        E2E: DSP sync for STANDALONE uses client-specific DSP settings (AC3).
+        E2E: Equalizer sync for STANDALONE uses client-specific Equalizer settings (AC3).
         """
         from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
-        from backend.core.dsp.sync import DspSettingsSyncService
+        from backend.core.equalizer.sync import EqualizerSettingsSyncService
 
         registry = ClientRegistryService(
             settings_service=mock_settings_service,
@@ -1898,14 +1898,14 @@ class TestStandaloneReconnectionSyncIntegration:
         # Register standalone client
         await registry.register_client("client-1", "Client 1", "192.168.1.1")
 
-        # Mock dsp_settings_sync_service
-        dsp_sync = MagicMock(spec=DspSettingsSyncService)
-        dsp_sync.get_default_settings = MagicMock(return_value={
+        # Mock equalizer_settings_sync_service
+        equalizer_sync = MagicMock(spec=EqualizerSettingsSyncService)
+        equalizer_sync.get_default_settings = MagicMock(return_value={
             "filters": {},
             "compressor": {"enabled": False},
             "loudness": {"enabled": False}
         })
-        mock_state_machine.dsp_settings_sync_service = dsp_sync
+        mock_state_machine.equalizer_settings_sync_service = equalizer_sync
 
         # Create websocket service
         ws_service = SnapcastWebSocketService(
@@ -1918,7 +1918,7 @@ class TestStandaloneReconnectionSyncIntegration:
         context = registry.get_reconnection_context("client-1")
         assert context == ReconnectionContext.STANDALONE_ALONE
 
-        # DSP sync would use standalone_dsp[mac_id] or defaults
+        # Equalizer sync would use standalone_equalizer[mac_id] or defaults
 
     @pytest.mark.asyncio
     async def test_websocket_broadcast_includes_sync_context(
@@ -1959,7 +1959,7 @@ class TestStandaloneReconnectionSyncIntegration:
         )
         ws_service._snapcast_service = mock_snapcast
         ws_service._volume_service = mock_state_machine.volume_service
-        ws_service._sync_standalone_dsp_to_client = AsyncMock(return_value=True)
+        ws_service._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)
 
         # Track broadcast calls
         broadcast_events = []
@@ -2029,7 +2029,7 @@ class TestStandaloneReconnectionSyncIntegration:
         )
         ws_service._snapcast_service = mock_snapcast
         ws_service._volume_service = mock_state_machine.volume_service
-        ws_service._sync_standalone_dsp_to_client = AsyncMock(return_value=True)
+        ws_service._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)
 
         # Simulate reconnection with timing (use mac matching registered mac_id)
         client_data = {

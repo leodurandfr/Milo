@@ -8,13 +8,13 @@ from typing import Dict, Any
 class AudioRoutingState:
     """Audio routing state."""
     multiroom_enabled: bool = False
-    dsp_effects_enabled: bool = False
+    equalizer_effects_enabled: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert state to dictionary."""
         return {
             "multiroom_enabled": self.multiroom_enabled,
-            "dsp_effects_enabled": self.dsp_effects_enabled
+            "equalizer_effects_enabled": self.equalizer_effects_enabled
         }
 
     @classmethod
@@ -22,5 +22,5 @@ class AudioRoutingState:
         """Create state from dictionary."""
         return cls(
             multiroom_enabled=data.get("multiroom_enabled", False),
-            dsp_effects_enabled=data.get("dsp_effects_enabled", False)
+            equalizer_effects_enabled=data.get("equalizer_effects_enabled", False)
         )

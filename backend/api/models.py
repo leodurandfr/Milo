@@ -240,39 +240,39 @@ class ScreenScreensaverRequest(BaseModel):
 # DSP (CamillaDSP)
 # =============================================================================
 
-DSP_FILTER_TYPES = Literal['Peaking', 'Lowshelf', 'Highshelf', 'Lowpass', 'Highpass', 'Notch', 'Allpass']
+EQUALIZER_FILTER_TYPES = Literal['Peaking', 'Lowshelf', 'Highshelf', 'Lowpass', 'Highpass', 'Notch', 'Allpass']
 
 
-class DspFilterRequest(BaseModel):
-    """DSP filter configuration request"""
+class EqualizerFilterRequest(BaseModel):
+    """Equalizer filter configuration request"""
     freq: float = Field(..., ge=20, le=20000, description="Filter frequency in Hz")
     gain: float = Field(..., ge=-15, le=15, description="Filter gain in dB")
     q: float = Field(default=1.0, ge=0.1, le=10.0, description="Filter Q factor")
-    filter_type: DSP_FILTER_TYPES = Field(default="Peaking", description="Filter type")
+    filter_type: EQUALIZER_FILTER_TYPES = Field(default="Peaking", description="Filter type")
     enabled: bool = Field(default=True, description="Whether filter is active")
 
 
-class DspFilterUpdateRequest(BaseModel):
-    """DSP filter update request (partial update allowed)"""
+class EqualizerFilterUpdateRequest(BaseModel):
+    """Equalizer filter update request (partial update allowed)"""
     freq: Optional[float] = Field(None, ge=20, le=20000)
     gain: Optional[float] = Field(None, ge=-15, le=15)
     q: Optional[float] = Field(None, ge=0.1, le=10.0)
-    filter_type: Optional[DSP_FILTER_TYPES] = None
+    filter_type: Optional[EQUALIZER_FILTER_TYPES] = None
     enabled: Optional[bool] = None
 
 
-class DspVolumeRequest(BaseModel):
-    """DSP volume request"""
+class EqualizerVolumeRequest(BaseModel):
+    """Equalizer volume request"""
     volume: float = Field(..., ge=-100, le=0, description="Volume in dB")
 
 
-class DspMuteRequest(BaseModel):
-    """DSP mute request"""
+class EqualizerMuteRequest(BaseModel):
+    """Equalizer mute request"""
     muted: bool
 
 
-class DspCompressorRequest(BaseModel):
-    """DSP compressor settings request"""
+class EqualizerCompressorRequest(BaseModel):
+    """Equalizer compressor settings request"""
     enabled: Optional[bool] = None
     threshold: Optional[float] = Field(None, ge=-60, le=0, description="Threshold in dB")
     ratio: Optional[float] = Field(None, ge=1, le=20, description="Compression ratio")
@@ -281,15 +281,15 @@ class DspCompressorRequest(BaseModel):
     makeup_gain: Optional[float] = Field(None, ge=0, le=30, description="Makeup gain in dB")
 
 
-class DspLoudnessRequest(BaseModel):
-    """DSP loudness compensation request"""
+class EqualizerLoudnessRequest(BaseModel):
+    """Equalizer loudness compensation request"""
     enabled: Optional[bool] = None
     high_boost: Optional[float] = Field(None, ge=0, le=15, description="High frequency boost in dB")
     low_boost: Optional[float] = Field(None, ge=0, le=15, description="Low frequency boost in dB")
 
 
-class DspLinkedClientsRequest(BaseModel):
-    """DSP linked clients request - clients that share the same DSP settings"""
+class EqualizerLinkedClientsRequest(BaseModel):
+    """Equalizer linked clients request - clients that share the same equalizer settings"""
     client_ids: List[str] = Field(..., min_length=2, description="List of client IDs to link together")
     source_client: Optional[str] = Field(None, description="Client whose settings will be pushed to others (defaults to first in list)")
     name: Optional[str] = Field(None, description="Custom zone name")
@@ -366,7 +366,7 @@ class ZoneResponse(BaseModel):
     id: str
     name: str
     client_ids: List[str]
-    dsp_settings: Dict[str, Any]
+    equalizer_settings: Dict[str, Any]
 
 
 class ZoneAddClient(BaseModel):
@@ -408,8 +408,8 @@ class CrossoverFilterRequest(BaseModel):
     q: float = Field(default=0.707, ge=0.5, le=1.5, description="Filter Q factor (0.707 = Butterworth)")
 
 
-class DspPresetRequest(BaseModel):
-    """DSP preset loading request"""
+class EqualizerPresetRequest(BaseModel):
+    """Equalizer preset loading request"""
     preset_id: str = Field(..., min_length=1, max_length=50, description="Preset ID to load")
 
     @field_validator('preset_id')

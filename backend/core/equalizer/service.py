@@ -1,4 +1,4 @@
-# backend/core/dsp/service.py
+# backend/core/equalizer/service.py
 """
 CamillaDSP service for Milo - WebSocket client for CamillaDSP daemon.
 Replaces alsaequal with full parametric EQ capabilities.
@@ -9,10 +9,10 @@ from typing import Dict, List, Any, Optional
 from enum import Enum
 
 from backend.core.events import EventBus, get_event_bus
-from backend.core.dsp.presets import get_builtin_presets, get_preset_by_id, DEFAULT_MANUAL_GAINS, DEFAULT_EQ_FREQS
+from backend.core.equalizer.presets import get_builtin_presets, get_preset_by_id, DEFAULT_MANUAL_GAINS, DEFAULT_EQ_FREQS
 
 
-class DspState(str, Enum):
+class CamillaDspState(str, Enum):
     """CamillaDSP daemon states"""
     DISCONNECTED = "disconnected"
     INACTIVE = "inactive"  # Connected but not processing
@@ -60,7 +60,7 @@ class CamillaDSPService:
         self.event_bus = event_bus or get_event_bus()
 
         self._client = None
-        self._state = DspState.DISCONNECTED
+        self._state = CamillaDspState.DISCONNECTED
         self._lock = asyncio.Lock()
         self._reconnect_task: Optional[asyncio.Task] = None
         self._monitor_task: Optional[asyncio.Task] = None
@@ -75,7 +75,7 @@ class CamillaDSPService:
         self._filters: List[Dict[str, Any]] = []
         self._loop = None  # Cached event loop
 
-        # Advanced DSP settings cache
+        # Advanced equalizer settings cache
         self._compressor: Dict[str, Any] = {
             "enabled": False,
             "threshold": -20.0,
@@ -104,7 +104,7 @@ class CamillaDSPService:
         return await self._loop.run_in_executor(None, func)
 
     @property
-    def state(self) -> DspState:
+    def state(self) -> CamillaDspState:
         return self._state
 
     @property
@@ -115,7 +115,7 @@ class CamillaDSPService:
         """
         Wait for CamillaDSP connection to be established.
 
-        This is used by VolumeService to ensure DSP is ready before applying
+        This is used by VolumeService to ensure CamillaDSP is ready before applying
         startup volume/mute state. Services initialize in parallel, so we need
         to wait for the connection before sending commands.
 
@@ -138,11 +138,11 @@ class CamillaDSPService:
 
     def is_volume_control_available(self) -> bool:
         """
-        Check if DSP can be used for volume control.
+        Check if CamillaDSP can be used for volume control.
         Returns True when connected and ready (inactive, running, or paused).
         Volume can be set even when no audio is playing (inactive state).
         """
-        return self._connected and self._state in (DspState.INACTIVE, DspState.RUNNING, DspState.PAUSED)
+        return self._connected and self._state in (CamillaDspState.INACTIVE, CamillaDspState.RUNNING, CamillaDspState.PAUSED)
 
     async def initialize(self) -> bool:
         try:
@@ -205,7 +205,7 @@ class CamillaDSPService:
 
             except Exception as e:
                 self._connected = False
-                self._state = DspState.DISCONNECTED
+                self._state = CamillaDspState.DISCONNECTED
                 self.logger.warning(f"Failed to connect to CamillaDSP: {e}")
                 return False
 
@@ -220,39 +220,39 @@ class CamillaDSPService:
                 self._client = None
 
             self._connected = False
-            self._state = DspState.DISCONNECTED
+            self._state = CamillaDspState.DISCONNECTED
 
             # Broadcast state change event (frontend listens for 'state_changed')
             await self._broadcast_event("state_changed", {"state": self._state.value})
 
-    async def _get_daemon_state(self) -> DspState:
+    async def _get_daemon_state(self) -> CamillaDspState:
         if not self._client:
-            return DspState.DISCONNECTED
+            return CamillaDspState.DISCONNECTED
 
         try:
             # pycamilladsp v3 API: general.state() returns ProcessingState enum
             state = await self._run(self._client.general.state)
 
-            # Map ProcessingState enum to our DspState
+            # Map ProcessingState enum to our CamillaDspState
             state_str = str(state).split('.')[-1].upper()
             state_map = {
-                "RUNNING": DspState.RUNNING,
-                "PAUSED": DspState.PAUSED,
-                "INACTIVE": DspState.INACTIVE,
+                "RUNNING": CamillaDspState.RUNNING,
+                "PAUSED": CamillaDspState.PAUSED,
+                "INACTIVE": CamillaDspState.INACTIVE,
             }
 
-            return state_map.get(state_str, DspState.INACTIVE)
+            return state_map.get(state_str, CamillaDspState.INACTIVE)
 
         except Exception as e:
             self.logger.error(f"Error getting daemon state: {e}")
-            return DspState.DISCONNECTED
+            return CamillaDspState.DISCONNECTED
 
     async def get_status(self) -> Dict[str, Any]:
         try:
             if not self._connected:
                 return {
                     "available": False,
-                    "state": DspState.DISCONNECTED.value,
+                    "state": CamillaDspState.DISCONNECTED.value,
                     "message": "CamillaDSP not connected"
                 }
 
@@ -271,7 +271,7 @@ class CamillaDSPService:
             }
 
             # Add rate/buffer info if running
-            if state == DspState.RUNNING:
+            if state == CamillaDspState.RUNNING:
                 try:
                     # pycamilladsp v3 API: rate.capture()
                     rate = await self._run(self._client.rate.capture)
@@ -282,10 +282,10 @@ class CamillaDSPService:
             return status
 
         except Exception as e:
-            self.logger.error(f"Error getting DSP status: {e}")
+            self.logger.error(f"Error getting CamillaDSP status: {e}")
             return {
                 "available": False,
-                "state": DspState.DISCONNECTED.value,
+                "state": CamillaDspState.DISCONNECTED.value,
                 "error": str(e)
             }
 
@@ -421,7 +421,7 @@ class CamillaDSPService:
 
                     # If user was on a predefined preset, switch to manual mode
                     if current_preset and current_preset != "manual":
-                        await self.settings_service.set_setting("dsp.active_preset", "manual")
+                        await self.settings_service.set_setting("equalizer.active_preset", "manual")
                         await self._broadcast_event("preset_loaded", {"id": "manual"})
 
             return True
@@ -660,7 +660,7 @@ class CamillaDSPService:
 
             # Persist compressor settings (skip during bypass operations)
             if persist and self.settings_service:
-                await self.settings_service.set_setting("dsp.compressor", self._compressor)
+                await self.settings_service.set_setting("equalizer.compressor", self._compressor)
 
             return True
 
@@ -744,7 +744,7 @@ class CamillaDSPService:
 
             # Persist loudness settings (skip during bypass operations)
             if persist and self.settings_service:
-                await self.settings_service.set_setting("dsp.loudness", self._loudness)
+                await self.settings_service.set_setting("equalizer.loudness", self._loudness)
 
             return True
 
@@ -845,7 +845,7 @@ class CamillaDSPService:
         """Get gains for a preset ID (builtin or manual)"""
         if preset_id == "manual":
             if self.settings_service:
-                saved = await self.settings_service.get_setting("dsp.manual_gains")
+                saved = await self.settings_service.get_setting("equalizer.manual_gains")
                 if saved and len(saved) >= 10:
                     return saved
             return DEFAULT_MANUAL_GAINS
@@ -873,7 +873,7 @@ class CamillaDSPService:
             await self._apply_gains(gains)
 
             if self.settings_service:
-                await self.settings_service.set_setting("dsp.active_preset", preset_id)
+                await self.settings_service.set_setting("equalizer.active_preset", preset_id)
                 self.logger.info(f"Saved active preset: {preset_id}")
             await self._broadcast_event("preset_loaded", {"id": preset_id})
             return True
@@ -884,11 +884,11 @@ class CamillaDSPService:
     async def _save_manual_gains(self) -> None:
         if self.settings_service:
             gains = [f.get("gain", 0) for f in self._filters[:10]]
-            await self.settings_service.set_setting("dsp.manual_gains", gains)
+            await self.settings_service.set_setting("equalizer.manual_gains", gains)
 
     async def get_manual_gains(self) -> List[float]:
         if self.settings_service:
-            gains = await self.settings_service.get_setting("dsp.manual_gains")
+            gains = await self.settings_service.get_setting("equalizer.manual_gains")
             if gains and len(gains) >= 10:
                 return gains
         return DEFAULT_MANUAL_GAINS
@@ -896,17 +896,17 @@ class CamillaDSPService:
     async def get_active_preset(self) -> Optional[str]:
         if not self.settings_service:
             return None
-        return await self.settings_service.get_setting("dsp.active_preset")
+        return await self.settings_service.get_setting("equalizer.active_preset")
 
     async def clear_active_preset(self) -> None:
         if self.settings_service:
-            await self.settings_service.set_setting("dsp.active_preset", None)
+            await self.settings_service.set_setting("equalizer.active_preset", None)
 
-    # === Effects Bypass/Restore (for DSP toggle) ===
+    # === Effects Bypass/Restore (for equalizer toggle) ===
 
     async def bypass_effects(self) -> bool:
         """
-        Bypass all DSP effects while keeping volume control active.
+        Bypass all equalizer effects while keeping volume control active.
 
         This is called when user disables "DSP" toggle. CamillaDSP keeps running
         but all audio processing (EQ, compressor, loudness) is bypassed.
@@ -916,7 +916,7 @@ class CamillaDSPService:
             return False
 
         try:
-            self.logger.info("Bypassing all DSP effects...")
+            self.logger.info("Bypassing all equalizer effects...")
 
             # Save current config before bypassing (filters, compressor, loudness)
             await self.save_current_config()
@@ -939,7 +939,7 @@ class CamillaDSPService:
             # 3. Disable loudness (persist=False to keep settings for restore)
             await self.set_loudness(enabled=False, persist=False)
 
-            self.logger.info("DSP effects bypassed (volume unchanged)")
+            self.logger.info("Equalizer effects bypassed (volume unchanged)")
             await self._broadcast_event("effects_bypassed", {"bypassed": True})
             return True
 
@@ -949,9 +949,9 @@ class CamillaDSPService:
 
     async def restore_effects(self) -> bool:
         """
-        Restore all DSP effects from saved settings.
+        Restore all equalizer effects from saved settings.
 
-        This is called when user enables "DSP" toggle. Restores EQ filters,
+        This is called when user enables equalizer toggle. Restores EQ filters,
         compressor, and loudness from saved settings.
         """
         if not self._connected:
@@ -959,11 +959,11 @@ class CamillaDSPService:
             return False
 
         try:
-            self.logger.info("Restoring DSP effects from settings...")
+            self.logger.info("Restoring equalizer effects from settings...")
 
             # 1. Restore EQ filters from settings
             if self.settings_service:
-                saved_filters = await self.settings_service.get_setting("dsp.filters")
+                saved_filters = await self.settings_service.get_setting("equalizer.filters")
                 if saved_filters:
                     for f in saved_filters:
                         await self.set_filter(
@@ -977,12 +977,12 @@ class CamillaDSPService:
                     self._filters = saved_filters
 
                 # 2. Restore compressor settings
-                saved_compressor = await self.settings_service.get_setting("dsp.compressor")
+                saved_compressor = await self.settings_service.get_setting("equalizer.compressor")
                 if saved_compressor:
                     await self.set_compressor(**saved_compressor)
 
                 # 3. Restore loudness settings
-                saved_loudness = await self.settings_service.get_setting("dsp.loudness")
+                saved_loudness = await self.settings_service.get_setting("equalizer.loudness")
                 if saved_loudness:
                     await self.set_loudness(
                         enabled=saved_loudness.get("enabled"),
@@ -990,7 +990,7 @@ class CamillaDSPService:
                         low_boost=saved_loudness.get("low_boost")
                     )
 
-            self.logger.info("DSP effects restored from settings")
+            self.logger.info("Equalizer effects restored from settings")
             await self._broadcast_event("effects_restored", {"bypassed": False})
             return True
 
@@ -1001,25 +1001,25 @@ class CamillaDSPService:
     # === Configuration Persistence ===
 
     async def _load_saved_config(self) -> None:
-        """Load saved DSP configuration from settings"""
+        """Load saved equalizer configuration from settings"""
         if not self.settings_service:
             return
 
         try:
             # Load filters
-            saved_filters = await self.settings_service.get_setting("dsp.filters")
+            saved_filters = await self.settings_service.get_setting("equalizer.filters")
             if saved_filters:
                 self._filters = saved_filters
-                self.logger.info(f"Loaded {len(self._filters)} saved DSP filters")
+                self.logger.info(f"Loaded {len(self._filters)} saved equalizer filters")
 
             # Load compressor
-            saved_compressor = await self.settings_service.get_setting("dsp.compressor")
+            saved_compressor = await self.settings_service.get_setting("equalizer.compressor")
             if saved_compressor:
                 self._compressor.update(saved_compressor)
                 self.logger.info("Loaded saved compressor settings")
 
             # Load loudness
-            saved_loudness = await self.settings_service.get_setting("dsp.loudness")
+            saved_loudness = await self.settings_service.get_setting("equalizer.loudness")
             if saved_loudness:
                 self._loudness.update(saved_loudness)
                 self.logger.info("Loaded saved loudness settings")
@@ -1032,7 +1032,7 @@ class CamillaDSPService:
         if not self.settings_service:
             return
         try:
-            preset_id = await self.settings_service.get_setting("dsp.active_preset")
+            preset_id = await self.settings_service.get_setting("equalizer.active_preset")
             if preset_id:
                 gains = await self._get_preset_gains(preset_id)
                 if gains:
@@ -1046,9 +1046,9 @@ class CamillaDSPService:
             return False
 
         try:
-            await self.settings_service.set_setting("dsp.filters", self._filters)
-            await self.settings_service.set_setting("dsp.compressor", self._compressor)
-            await self.settings_service.set_setting("dsp.loudness", self._loudness)
+            await self.settings_service.set_setting("equalizer.filters", self._filters)
+            await self.settings_service.set_setting("equalizer.compressor", self._compressor)
+            await self.settings_service.set_setting("equalizer.loudness", self._loudness)
             return True
         except Exception as e:
             self.logger.error(f"Error saving config: {e}")
@@ -1058,21 +1058,21 @@ class CamillaDSPService:
         """Save filters to settings (used by set_filter for auto-persistence)"""
         if self.settings_service:
             try:
-                await self.settings_service.set_setting("dsp.filters", self._filters)
+                await self.settings_service.set_setting("equalizer.filters", self._filters)
             except Exception as e:
                 self.logger.error(f"Error saving filters: {e}")
 
     # === Event Broadcasting ===
 
     async def _broadcast_event(self, event_type: str, data: Dict[str, Any]) -> None:
-        """Broadcast DSP event via state machine and EventBus"""
+        """Broadcast equalizer event via state machine and EventBus"""
         # Broadcast via state_machine for WebSocket clients
         if self.state_machine:
-            await self.state_machine.broadcast_event("dsp", event_type, data)
+            await self.state_machine.broadcast_event("equalizer", event_type, data)
 
         # Also emit via EventBus for internal subscribers
         if self.event_bus:
-            await self.event_bus.emit(f"dsp.{event_type}", data)
+            await self.event_bus.emit(f"equalizer.{event_type}", data)
 
     # === Cleanup ===
 

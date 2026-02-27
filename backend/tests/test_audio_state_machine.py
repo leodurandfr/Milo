@@ -286,8 +286,8 @@ class TestPluginStateUpdate:
         assert state_machine.system_state.error == "Connection failed"
 
 
-class TestMultiroomAndDSP:
-    """Test multiroom and DSP state updates."""
+class TestMultiroomAndEqualizer:
+    """Test multiroom and Equalizer state updates."""
 
     @pytest.mark.asyncio
     async def test_update_multiroom_state(self, state_machine, event_bus):
@@ -306,20 +306,20 @@ class TestMultiroomAndDSP:
         assert received[0]["multiroom_enabled"] is True
 
     @pytest.mark.asyncio
-    async def test_update_dsp_effects_state(self, state_machine, event_bus):
-        """Test updating DSP effects state."""
+    async def test_update_equalizer_effects_state(self, state_machine, event_bus):
+        """Test updating Equalizer effects state."""
         received = []
 
         async def handler(data):
             received.append(data)
 
-        event_bus.on(Events.DSP_CONFIG_CHANGED, handler)
+        event_bus.on(Events.EQUALIZER_CONFIG_CHANGED, handler)
 
-        await state_machine.update_dsp_effects_state(True)
+        await state_machine.update_equalizer_effects_state(True)
 
-        assert state_machine.system_state.dsp_effects_enabled is True
+        assert state_machine.system_state.equalizer_effects_enabled is True
         assert len(received) == 1
-        assert received[0]["dsp_effects_enabled"] is True
+        assert received[0]["equalizer_effects_enabled"] is True
 
 
 class TestBackwardCompatibility:

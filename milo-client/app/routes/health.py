@@ -6,7 +6,7 @@ import time
 import logging
 from fastapi import APIRouter, HTTPException
 
-from services.dsp import DSPService
+from services.equalizer import EqualizerService
 from services.snapclient import SnapclientService
 
 logger = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ def get_hostname() -> str:
 
 
 def create_health_router(
-    dsp_service: DSPService,
+    equalizer_service: EqualizerService,
     snapclient_service: SnapclientService
 ) -> APIRouter:
     """Creates health router with injected dependencies."""
@@ -36,12 +36,12 @@ def create_health_router(
 
     @router.get("/health")
     async def health_check():
-        """Health endpoint with DSP readiness status."""
+        """Health endpoint with Equalizer readiness status."""
         return {
             "status": "healthy",
             "timestamp": int(time.time()),
             "hostname": get_hostname(),
-            "dsp_ready": dsp_service.connected
+            "equalizer_ready": equalizer_service.connected
         }
 
     @router.get("/status")

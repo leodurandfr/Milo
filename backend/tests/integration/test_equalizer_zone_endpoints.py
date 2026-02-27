@@ -1,26 +1,26 @@
-# backend/tests/integration/test_dsp_zone_endpoints.py
+# backend/tests/integration/test_equalizer_zone_endpoints.py
 """
-Integration tests for Story 4-7: API Endpoints for DSP
+Integration tests for Story 4-7: API Endpoints for Equalizer
 
 Tests cover:
-- AC1: Zone filter update (PATCH /api/dsp/zone/{zone_id}/filter/{filter_id})
-- AC2: Zone compressor control (PATCH /api/dsp/zone/{zone_id}/compressor)
-- AC3: Zone loudness control (PATCH /api/dsp/zone/{zone_id}/loudness)
-- AC4: Zone DSP bypass (PATCH /api/dsp/zone/{zone_id}/enabled)
-- AC5: Zone preset loading (POST /api/dsp/zone/{zone_id}/preset) - exists
+- AC1: Zone filter update (PATCH /api/equalizer/zone/{zone_id}/filter/{filter_id})
+- AC2: Zone compressor control (PATCH /api/equalizer/zone/{zone_id}/compressor)
+- AC3: Zone loudness control (PATCH /api/equalizer/zone/{zone_id}/loudness)
+- AC4: Zone Equalizer bypass (PATCH /api/equalizer/zone/{zone_id}/enabled)
+- AC5: Zone preset loading (POST /api/equalizer/zone/{zone_id}/preset) - exists
 - AC6: Client proxy routes verification
-- AC7: Presets list endpoint (GET /api/dsp/presets)
+- AC7: Presets list endpoint (GET /api/equalizer/presets)
 
 These tests verify:
-- Zone endpoints call multiroom_dsp_service methods
+- Zone endpoints call multiroom_equalizer_service methods
 - Error handling for zone not found, client errors, etc.
 """
 import pytest
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from fastapi import HTTPException
 
-from backend.api.dsp import create_dsp_router
-from backend.api.models import DspFilterUpdateRequest, DspCompressorRequest, DspLoudnessRequest
+from backend.api.equalizer import create_equalizer_router
+from backend.api.models import EqualizerFilterUpdateRequest, EqualizerCompressorRequest, EqualizerLoudnessRequest
 from backend.core.multiroom.models import Zone, Client
 
 
@@ -29,8 +29,8 @@ from backend.core.multiroom.models import Zone, Client
 # =============================================================================
 
 @pytest.fixture
-def mock_dsp_service():
-    """Create mock DSP service with common methods"""
+def mock_camilladsp_service():
+    """Create mock Equalizer service with common methods"""
     service = Mock()
     service.get_filters = AsyncMock(return_value=[
         {"id": "eq_band_00", "freq": 31, "gain": 0, "q": 1.41, "type": "Peaking", "enabled": True},
@@ -59,10 +59,10 @@ def mock_state_machine():
 
 @pytest.fixture
 def mock_routing_service():
-    """Create mock routing service for DSP enabled state"""
+    """Create mock routing service for Equalizer enabled state"""
     rs = Mock()
-    rs.dsp_effects_enabled = True
-    rs.set_dsp_effects_enabled = AsyncMock(return_value=True)
+    rs.equalizer_effects_enabled = True
+    rs.set_equalizer_effects_enabled = AsyncMock(return_value=True)
     return rs
 
 
@@ -76,8 +76,8 @@ def mock_proxy_service():
 
 
 @pytest.fixture
-def mock_dsp_router_service():
-    """Create mock DSP router service for local/remote client checks"""
+def mock_equalizer_router_service():
+    """Create mock Equalizer router service for local/remote client checks"""
     service = Mock()
     # Local client returns True, remote clients return False
     service.is_local_client = Mock(side_effect=lambda mac_id: mac_id == "local")
@@ -90,14 +90,14 @@ def mock_dsp_router_service():
 
 
 @pytest.fixture
-def mock_multiroom_dsp_service():
-    """Create mock multiroom DSP service for zone operations"""
+def mock_multiroom_equalizer_service():
+    """Create mock multiroom Equalizer service for zone operations"""
     service = Mock()
     service.load_zone_preset = AsyncMock(return_value=True)
     service.update_filter = AsyncMock(return_value=True)
     service.update_compressor = AsyncMock(return_value=True)
     service.update_loudness = AsyncMock(return_value=True)
-    service.set_zone_dsp_effects_enabled = AsyncMock(return_value=True)
+    service.set_zone_equalizer_effects_enabled = AsyncMock(return_value=True)
     return service
 
 
@@ -144,18 +144,18 @@ def mock_client_registry_service():
 
 
 @pytest.fixture
-def dsp_router(mock_dsp_service, mock_state_machine, mock_routing_service,
-               mock_proxy_service, mock_client_registry_service, mock_dsp_router_service,
-               mock_multiroom_dsp_service):
-    """Create DSP router with all mocked dependencies"""
-    return create_dsp_router(
-        dsp_service=mock_dsp_service,
+def equalizer_router(mock_camilladsp_service, mock_state_machine, mock_routing_service,
+               mock_proxy_service, mock_client_registry_service, mock_equalizer_router_service,
+               mock_multiroom_equalizer_service):
+    """Create Equalizer router with all mocked dependencies"""
+    return create_equalizer_router(
+        camilladsp_service=mock_camilladsp_service,
         state_machine=mock_state_machine,
         routing_service=mock_routing_service,
         proxy_service=mock_proxy_service,
         client_registry_service=mock_client_registry_service,
-        dsp_router_service=mock_dsp_router_service,
-        multiroom_dsp_service=mock_multiroom_dsp_service
+        equalizer_router_service=mock_equalizer_router_service,
+        multiroom_equalizer_service=mock_multiroom_equalizer_service
     )
 
 
@@ -164,18 +164,18 @@ def dsp_router(mock_dsp_service, mock_state_machine, mock_routing_service,
 # =============================================================================
 
 class TestAC1ZoneFilterUpdate:
-    """AC1: Zone filter update delegates to multiroom_dsp_service"""
+    """AC1: Zone filter update delegates to multiroom_equalizer_service"""
 
     @pytest.mark.asyncio
     async def test_zone_filter_update_calls_multiroom_service(
-        self, mock_dsp_service, mock_state_machine, mock_multiroom_dsp_service, mock_dsp_router_service
+        self, mock_camilladsp_service, mock_state_machine, mock_multiroom_equalizer_service, mock_equalizer_router_service
     ):
-        """Should delegate filter update to multiroom_dsp_service"""
-        router = create_dsp_router(
-            dsp_service=mock_dsp_service,
+        """Should delegate filter update to multiroom_equalizer_service"""
+        router = create_equalizer_router(
+            camilladsp_service=mock_camilladsp_service,
             state_machine=mock_state_machine,
-            dsp_router_service=mock_dsp_router_service,
-            multiroom_dsp_service=mock_multiroom_dsp_service
+            equalizer_router_service=mock_equalizer_router_service,
+            multiroom_equalizer_service=mock_multiroom_equalizer_service
         )
 
         # Get the route function directly
@@ -189,11 +189,11 @@ class TestAC1ZoneFilterUpdate:
         assert route_fn is not None, "Zone filter route not found"
 
         # Call the endpoint
-        payload = DspFilterUpdateRequest(gain=3.0, freq=125)
+        payload = EqualizerFilterUpdateRequest(gain=3.0, freq=125)
         result = await route_fn("zone_test123", "eq_band_00", payload)
 
-        # Verify multiroom_dsp_service was called
-        mock_multiroom_dsp_service.update_filter.assert_called_once_with(
+        # Verify multiroom_equalizer_service was called
+        mock_multiroom_equalizer_service.update_filter.assert_called_once_with(
             target_type="zone",
             target_id="zone_test123",
             filter_id="eq_band_00",
@@ -210,19 +210,19 @@ class TestAC1ZoneFilterUpdate:
 
     @pytest.mark.asyncio
     async def test_zone_filter_update_returns_404_for_unknown_zone(
-        self, mock_dsp_service, mock_state_machine, mock_multiroom_dsp_service, mock_dsp_router_service
+        self, mock_camilladsp_service, mock_state_machine, mock_multiroom_equalizer_service, mock_equalizer_router_service
     ):
         """Should return 404 for unknown zone"""
-        # Configure multiroom_dsp_service to raise ValueError for unknown zone
-        mock_multiroom_dsp_service.update_filter = AsyncMock(
+        # Configure multiroom_equalizer_service to raise ValueError for unknown zone
+        mock_multiroom_equalizer_service.update_filter = AsyncMock(
             side_effect=ValueError("Zone not found: unknown_zone")
         )
 
-        router = create_dsp_router(
-            dsp_service=mock_dsp_service,
+        router = create_equalizer_router(
+            camilladsp_service=mock_camilladsp_service,
             state_machine=mock_state_machine,
-            dsp_router_service=mock_dsp_router_service,
-            multiroom_dsp_service=mock_multiroom_dsp_service
+            equalizer_router_service=mock_equalizer_router_service,
+            multiroom_equalizer_service=mock_multiroom_equalizer_service
         )
 
         route_fn = None
@@ -232,7 +232,7 @@ class TestAC1ZoneFilterUpdate:
                     route_fn = route.endpoint
                     break
 
-        payload = DspFilterUpdateRequest(gain=3.0)
+        payload = EqualizerFilterUpdateRequest(gain=3.0)
 
         with pytest.raises(HTTPException) as exc:
             await route_fn("unknown_zone", "eq_band_00", payload)
@@ -245,18 +245,18 @@ class TestAC1ZoneFilterUpdate:
 # =============================================================================
 
 class TestAC2ZoneCompressorControl:
-    """AC2: Zone compressor control delegates to multiroom_dsp_service"""
+    """AC2: Zone compressor control delegates to multiroom_equalizer_service"""
 
     @pytest.mark.asyncio
     async def test_zone_compressor_update_calls_multiroom_service(
-        self, mock_dsp_service, mock_state_machine, mock_multiroom_dsp_service, mock_dsp_router_service
+        self, mock_camilladsp_service, mock_state_machine, mock_multiroom_equalizer_service, mock_equalizer_router_service
     ):
-        """Should delegate compressor update to multiroom_dsp_service"""
-        router = create_dsp_router(
-            dsp_service=mock_dsp_service,
+        """Should delegate compressor update to multiroom_equalizer_service"""
+        router = create_equalizer_router(
+            camilladsp_service=mock_camilladsp_service,
             state_machine=mock_state_machine,
-            dsp_router_service=mock_dsp_router_service,
-            multiroom_dsp_service=mock_multiroom_dsp_service
+            equalizer_router_service=mock_equalizer_router_service,
+            multiroom_equalizer_service=mock_multiroom_equalizer_service
         )
 
         route_fn = None
@@ -268,11 +268,11 @@ class TestAC2ZoneCompressorControl:
 
         assert route_fn is not None, "Zone compressor route not found"
 
-        payload = DspCompressorRequest(enabled=True, threshold=-20)
+        payload = EqualizerCompressorRequest(enabled=True, threshold=-20)
         result = await route_fn("zone_test123", payload)
 
-        # Verify multiroom_dsp_service was called
-        mock_multiroom_dsp_service.update_compressor.assert_called_once_with(
+        # Verify multiroom_equalizer_service was called
+        mock_multiroom_equalizer_service.update_compressor.assert_called_once_with(
             target_type="zone",
             target_id="zone_test123",
             enabled=True,
@@ -293,18 +293,18 @@ class TestAC2ZoneCompressorControl:
 # =============================================================================
 
 class TestAC3ZoneLoudnessControl:
-    """AC3: Zone loudness control delegates to multiroom_dsp_service"""
+    """AC3: Zone loudness control delegates to multiroom_equalizer_service"""
 
     @pytest.mark.asyncio
     async def test_zone_loudness_update_calls_multiroom_service(
-        self, mock_dsp_service, mock_state_machine, mock_multiroom_dsp_service, mock_dsp_router_service
+        self, mock_camilladsp_service, mock_state_machine, mock_multiroom_equalizer_service, mock_equalizer_router_service
     ):
-        """Should delegate loudness update to multiroom_dsp_service"""
-        router = create_dsp_router(
-            dsp_service=mock_dsp_service,
+        """Should delegate loudness update to multiroom_equalizer_service"""
+        router = create_equalizer_router(
+            camilladsp_service=mock_camilladsp_service,
             state_machine=mock_state_machine,
-            dsp_router_service=mock_dsp_router_service,
-            multiroom_dsp_service=mock_multiroom_dsp_service
+            equalizer_router_service=mock_equalizer_router_service,
+            multiroom_equalizer_service=mock_multiroom_equalizer_service
         )
 
         route_fn = None
@@ -316,11 +316,11 @@ class TestAC3ZoneLoudnessControl:
 
         assert route_fn is not None, "Zone loudness route not found"
 
-        payload = DspLoudnessRequest(enabled=True, high_boost=3.0)
+        payload = EqualizerLoudnessRequest(enabled=True, high_boost=3.0)
         result = await route_fn("zone_test123", payload)
 
-        # Verify multiroom_dsp_service was called
-        mock_multiroom_dsp_service.update_loudness.assert_called_once_with(
+        # Verify multiroom_equalizer_service was called
+        mock_multiroom_equalizer_service.update_loudness.assert_called_once_with(
             target_type="zone",
             target_id="zone_test123",
             enabled=True,
@@ -334,22 +334,22 @@ class TestAC3ZoneLoudnessControl:
 
 
 # =============================================================================
-# AC4: Zone DSP Bypass
+# AC4: Zone Equalizer Bypass
 # =============================================================================
 
 class TestAC4ZoneDspBypass:
-    """AC4: Zone DSP bypass delegates to multiroom_dsp_service"""
+    """AC4: Zone Equalizer bypass delegates to multiroom_equalizer_service"""
 
     @pytest.mark.asyncio
-    async def test_zone_dsp_enabled_update_calls_multiroom_service(
-        self, mock_dsp_service, mock_state_machine, mock_multiroom_dsp_service, mock_dsp_router_service
+    async def test_zone_equalizer_enabled_update_calls_multiroom_service(
+        self, mock_camilladsp_service, mock_state_machine, mock_multiroom_equalizer_service, mock_equalizer_router_service
     ):
-        """Should delegate DSP enabled update to multiroom_dsp_service"""
-        router = create_dsp_router(
-            dsp_service=mock_dsp_service,
+        """Should delegate Equalizer enabled update to multiroom_equalizer_service"""
+        router = create_equalizer_router(
+            camilladsp_service=mock_camilladsp_service,
             state_machine=mock_state_machine,
-            dsp_router_service=mock_dsp_router_service,
-            multiroom_dsp_service=mock_multiroom_dsp_service
+            equalizer_router_service=mock_equalizer_router_service,
+            multiroom_equalizer_service=mock_multiroom_equalizer_service
         )
 
         route_fn = None
@@ -367,8 +367,8 @@ class TestAC4ZoneDspBypass:
 
         result = await route_fn("zone_test123", mock_request)
 
-        # Verify multiroom_dsp_service was called
-        mock_multiroom_dsp_service.set_zone_dsp_effects_enabled.assert_called_once_with(
+        # Verify multiroom_equalizer_service was called
+        mock_multiroom_equalizer_service.set_zone_equalizer_effects_enabled.assert_called_once_with(
             "zone_test123", False
         )
 
@@ -377,15 +377,15 @@ class TestAC4ZoneDspBypass:
         assert result["enabled"] is False
 
     @pytest.mark.asyncio
-    async def test_zone_dsp_enabled_requires_enabled_field(
-        self, mock_dsp_service, mock_state_machine, mock_multiroom_dsp_service, mock_dsp_router_service
+    async def test_zone_equalizer_enabled_requires_enabled_field(
+        self, mock_camilladsp_service, mock_state_machine, mock_multiroom_equalizer_service, mock_equalizer_router_service
     ):
         """Should return 400 if enabled field is missing"""
-        router = create_dsp_router(
-            dsp_service=mock_dsp_service,
+        router = create_equalizer_router(
+            camilladsp_service=mock_camilladsp_service,
             state_machine=mock_state_machine,
-            dsp_router_service=mock_dsp_router_service,
-            multiroom_dsp_service=mock_multiroom_dsp_service
+            equalizer_router_service=mock_equalizer_router_service,
+            multiroom_equalizer_service=mock_multiroom_equalizer_service
         )
 
         route_fn = None
@@ -413,16 +413,16 @@ class TestAC6ClientProxyRoutes:
 
     @pytest.mark.asyncio
     async def test_client_filter_proxy_works(
-        self, mock_dsp_service, mock_state_machine, mock_proxy_service,
-        mock_dsp_router_service, mock_multiroom_dsp_service
+        self, mock_camilladsp_service, mock_state_machine, mock_proxy_service,
+        mock_equalizer_router_service, mock_multiroom_equalizer_service
     ):
         """Should proxy filter update to remote client"""
-        router = create_dsp_router(
-            dsp_service=mock_dsp_service,
+        router = create_equalizer_router(
+            camilladsp_service=mock_camilladsp_service,
             state_machine=mock_state_machine,
             proxy_service=mock_proxy_service,
-            dsp_router_service=mock_dsp_router_service,
-            multiroom_dsp_service=mock_multiroom_dsp_service
+            equalizer_router_service=mock_equalizer_router_service,
+            multiroom_equalizer_service=mock_multiroom_equalizer_service
         )
 
         # Find client filter route
@@ -439,26 +439,26 @@ class TestAC6ClientProxyRoutes:
         mock_request = AsyncMock()
         mock_request.json = AsyncMock(return_value={"gain": 3.0})
 
-        # Configure dsp_router_service to handle the call
-        mock_dsp_router_service.update_filter = AsyncMock(return_value={"status": "success"})
+        # Configure equalizer_router_service to handle the call
+        mock_equalizer_router_service.update_filter = AsyncMock(return_value={"status": "success"})
 
         result = await route_fn("milo-client-01", "eq_band_00", mock_request)
 
-        # Verify dsp_router_service was called
-        mock_dsp_router_service.update_filter.assert_called()
+        # Verify equalizer_router_service was called
+        mock_equalizer_router_service.update_filter.assert_called()
 
     @pytest.mark.asyncio
     async def test_client_compressor_proxy_works(
-        self, mock_dsp_service, mock_state_machine, mock_proxy_service,
-        mock_dsp_router_service, mock_multiroom_dsp_service
+        self, mock_camilladsp_service, mock_state_machine, mock_proxy_service,
+        mock_equalizer_router_service, mock_multiroom_equalizer_service
     ):
         """Should proxy compressor update to remote client"""
-        router = create_dsp_router(
-            dsp_service=mock_dsp_service,
+        router = create_equalizer_router(
+            camilladsp_service=mock_camilladsp_service,
             state_machine=mock_state_machine,
             proxy_service=mock_proxy_service,
-            dsp_router_service=mock_dsp_router_service,
-            multiroom_dsp_service=mock_multiroom_dsp_service
+            equalizer_router_service=mock_equalizer_router_service,
+            multiroom_equalizer_service=mock_multiroom_equalizer_service
         )
 
         # Find client compressor route
@@ -476,8 +476,8 @@ class TestAC6ClientProxyRoutes:
 
         result = await route_fn("milo-client-01", mock_request)
 
-        # Verify dsp_router_service was called
-        mock_dsp_router_service.set_compressor.assert_called()
+        # Verify equalizer_router_service was called
+        mock_equalizer_router_service.set_compressor.assert_called()
 
 
 # =============================================================================
@@ -489,24 +489,24 @@ class TestAC7PresetsList:
 
     @pytest.mark.asyncio
     async def test_presets_endpoint_returns_all_presets(
-        self, mock_dsp_service, mock_state_machine, mock_dsp_router_service, mock_multiroom_dsp_service
+        self, mock_camilladsp_service, mock_state_machine, mock_equalizer_router_service, mock_multiroom_equalizer_service
     ):
         """Should return all builtin presets with manual gains and active preset"""
         # Set up mock with all 21 presets + manual gains
         full_presets = [{"id": f"preset_{i}", "name": f"Preset {i}", "gains": [0]*10} for i in range(21)]
-        mock_dsp_service.get_presets = Mock(return_value=full_presets)
+        mock_camilladsp_service.get_presets = Mock(return_value=full_presets)
 
-        router = create_dsp_router(
-            dsp_service=mock_dsp_service,
+        router = create_equalizer_router(
+            camilladsp_service=mock_camilladsp_service,
             state_machine=mock_state_machine,
-            dsp_router_service=mock_dsp_router_service,
-            multiroom_dsp_service=mock_multiroom_dsp_service
+            equalizer_router_service=mock_equalizer_router_service,
+            multiroom_equalizer_service=mock_multiroom_equalizer_service
         )
 
         # Find presets GET route
         route_fn = None
         for route in router.routes:
-            if hasattr(route, 'path') and route.path == '/api/dsp/presets':
+            if hasattr(route, 'path') and route.path == '/api/equalizer/presets':
                 if route.methods == {'GET'}:
                     route_fn = route.endpoint
                     break
@@ -531,16 +531,16 @@ class TestErrorHandling:
 
     @pytest.mark.asyncio
     async def test_zone_endpoint_returns_error_when_service_fails(
-        self, mock_dsp_service, mock_state_machine, mock_multiroom_dsp_service, mock_dsp_router_service
+        self, mock_camilladsp_service, mock_state_machine, mock_multiroom_equalizer_service, mock_equalizer_router_service
     ):
-        """Should return error status when multiroom_dsp_service fails"""
-        mock_multiroom_dsp_service.update_compressor = AsyncMock(return_value=False)
+        """Should return error status when multiroom_equalizer_service fails"""
+        mock_multiroom_equalizer_service.update_compressor = AsyncMock(return_value=False)
 
-        router = create_dsp_router(
-            dsp_service=mock_dsp_service,
+        router = create_equalizer_router(
+            camilladsp_service=mock_camilladsp_service,
             state_machine=mock_state_machine,
-            dsp_router_service=mock_dsp_router_service,
-            multiroom_dsp_service=mock_multiroom_dsp_service
+            equalizer_router_service=mock_equalizer_router_service,
+            multiroom_equalizer_service=mock_multiroom_equalizer_service
         )
 
         route_fn = None
@@ -550,7 +550,7 @@ class TestErrorHandling:
                     route_fn = route.endpoint
                     break
 
-        payload = DspCompressorRequest(enabled=True)
+        payload = EqualizerCompressorRequest(enabled=True)
         result = await route_fn("zone_test123", payload)
 
         # Should return error status
@@ -558,14 +558,14 @@ class TestErrorHandling:
 
     @pytest.mark.asyncio
     async def test_zone_preset_calls_multiroom_service(
-        self, mock_dsp_service, mock_state_machine, mock_multiroom_dsp_service, mock_dsp_router_service
+        self, mock_camilladsp_service, mock_state_machine, mock_multiroom_equalizer_service, mock_equalizer_router_service
     ):
-        """Should delegate preset loading to multiroom_dsp_service"""
-        router = create_dsp_router(
-            dsp_service=mock_dsp_service,
+        """Should delegate preset loading to multiroom_equalizer_service"""
+        router = create_equalizer_router(
+            camilladsp_service=mock_camilladsp_service,
             state_machine=mock_state_machine,
-            dsp_router_service=mock_dsp_router_service,
-            multiroom_dsp_service=mock_multiroom_dsp_service
+            equalizer_router_service=mock_equalizer_router_service,
+            multiroom_equalizer_service=mock_multiroom_equalizer_service
         )
 
         route_fn = None
@@ -578,13 +578,13 @@ class TestErrorHandling:
         assert route_fn is not None, "Zone preset route not found"
 
         # Create mock payload
-        from backend.api.models import DspPresetRequest
-        payload = DspPresetRequest(preset_id="jazz")
+        from backend.api.models import EqualizerPresetRequest
+        payload = EqualizerPresetRequest(preset_id="jazz")
 
         result = await route_fn("zone_test123", payload)
 
-        # Verify multiroom_dsp_service was called
-        mock_multiroom_dsp_service.load_zone_preset.assert_called_once_with(
+        # Verify multiroom_equalizer_service was called
+        mock_multiroom_equalizer_service.load_zone_preset.assert_called_once_with(
             "zone_test123", "jazz"
         )
 

@@ -3,7 +3,7 @@
 Unit tests for core.volume module.
 
 Tests the migrated VolumeService, VolumeStateStore, VolumeConfigService,
-and DSPController in the new core/volume/ location.
+and EqualizerController in the new core/volume/ location.
 """
 import pytest
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
@@ -13,7 +13,7 @@ from backend.core.volume import (
     VolumeService,
     VolumeStateStore,
     VolumeConfigService,
-    DSPController
+    EqualizerController
 )
 from backend.core.events import EventBus, Events, get_event_bus, reset_event_bus
 from backend.core.models.volume import VolumeConfig
@@ -87,21 +87,21 @@ class TestVolumeConfigService:
 
 
 # ============================================================================
-# DSPController Tests
+# EqualizerController Tests
 # ============================================================================
 
-class TestDSPController:
-    """Tests for DSPController."""
+class TestEqualizerController:
+    """Tests for EqualizerController."""
 
     @pytest.fixture
-    def mock_dsp_service(self):
+    def mock_camilladsp_service(self):
         """Create mock CamillaDSP service."""
-        dsp = Mock()
-        dsp.set_volume = AsyncMock(return_value=True)
-        dsp.get_volume = AsyncMock(return_value=-30.0)
-        dsp.set_mute = AsyncMock(return_value=True)
-        dsp.wait_for_connection = AsyncMock(return_value=True)
-        return dsp
+        camilladsp_mock = Mock()
+        camilladsp_mock.set_volume = AsyncMock(return_value=True)
+        camilladsp_mock.get_volume = AsyncMock(return_value=-30.0)
+        camilladsp_mock.set_mute = AsyncMock(return_value=True)
+        camilladsp_mock.wait_for_connection = AsyncMock(return_value=True)
+        return camilladsp_mock
 
     @pytest.fixture
     def mock_proxy_service(self):
@@ -127,33 +127,33 @@ class TestDSPController:
         return registry
 
     @pytest.fixture
-    def controller(self, mock_dsp_service, mock_proxy_service, mock_registry):
-        """Create DSPController."""
-        return DSPController(mock_dsp_service, mock_proxy_service, client_registry=mock_registry)
+    def controller(self, mock_camilladsp_service, mock_proxy_service, mock_registry):
+        """Create EqualizerController."""
+        return EqualizerController(mock_camilladsp_service, mock_proxy_service, client_registry=mock_registry)
 
     @pytest.mark.asyncio
-    async def test_set_local_volume(self, controller, mock_dsp_service):
-        """Test setting local DSP volume."""
-        result = await controller.set_dsp_volume("local", -25.0)
+    async def test_set_local_volume(self, controller, mock_camilladsp_service):
+        """Test setting local Equalizer volume."""
+        result = await controller.set_equalizer_volume("local", -25.0)
 
         assert result is True
-        mock_dsp_service.set_volume.assert_called_once_with(-25.0)
+        mock_camilladsp_service.set_volume.assert_called_once_with(-25.0)
 
     @pytest.mark.asyncio
     async def test_set_remote_volume(self, controller, mock_proxy_service):
         """Test setting remote client volume."""
-        result = await controller.set_dsp_volume("milo-client-01", -27.0)
+        result = await controller.set_equalizer_volume("milo-client-01", -27.0)
 
         assert result is True
         mock_proxy_service.request.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_set_dsp_mute_local(self, controller, mock_dsp_service):
-        """Test setting local DSP mute."""
-        result = await controller.set_dsp_mute("local", True)
+    async def test_set_equalizer_mute_local(self, controller, mock_camilladsp_service):
+        """Test setting local Equalizer mute."""
+        result = await controller.set_equalizer_mute("local", True)
 
         assert result is True
-        mock_dsp_service.set_mute.assert_called_once_with(True)
+        mock_camilladsp_service.set_mute.assert_called_once_with(True)
 
     @pytest.mark.asyncio
     async def test_apply_volumes_parallel(self, controller):
@@ -175,11 +175,11 @@ class TestDSPController:
         assert results == {}
 
     @pytest.mark.asyncio
-    async def test_wait_for_client_ready_local(self, controller, mock_dsp_service):
+    async def test_wait_for_client_ready_local(self, controller, mock_camilladsp_service):
         """Test waiting for local client ready."""
         result = await controller.wait_for_client_ready("local", max_wait=1.0)
         assert result is True
-        mock_dsp_service.wait_for_connection.assert_called_once()
+        mock_camilladsp_service.wait_for_connection.assert_called_once()
 
 
 # ============================================================================
@@ -323,15 +323,15 @@ class TestVolumeService:
         return settings
 
     @pytest.fixture
-    def mock_dsp_service(self):
+    def mock_camilladsp_service(self):
         """Create mock CamillaDSP service."""
-        dsp = Mock()
-        dsp.set_volume = AsyncMock(return_value=True)
-        dsp.get_volume = AsyncMock(return_value=-30.0)
-        dsp.set_mute = AsyncMock(return_value=True)
-        dsp.is_volume_control_available = Mock(return_value=True)
-        dsp.wait_for_connection = AsyncMock(return_value=True)
-        return dsp
+        camilladsp_mock = Mock()
+        camilladsp_mock.set_volume = AsyncMock(return_value=True)
+        camilladsp_mock.get_volume = AsyncMock(return_value=-30.0)
+        camilladsp_mock.set_mute = AsyncMock(return_value=True)
+        camilladsp_mock.is_volume_control_available = Mock(return_value=True)
+        camilladsp_mock.wait_for_connection = AsyncMock(return_value=True)
+        return camilladsp_mock
 
     @pytest.fixture
     def mock_proxy_service(self):
@@ -343,14 +343,14 @@ class TestVolumeService:
 
     @pytest.fixture
     def service(self, mock_state_machine, mock_snapcast_service, mock_settings,
-                mock_dsp_service, mock_proxy_service):
+                mock_camilladsp_service, mock_proxy_service):
         """Create VolumeService with mocks."""
         return VolumeService(
             state_machine=mock_state_machine,
             snapcast_service=mock_snapcast_service,
             settings_service=mock_settings,
-            camilladsp_service=mock_dsp_service,
-            dsp_client_proxy_service=mock_proxy_service
+            camilladsp_service=mock_camilladsp_service,
+            equalizer_client_proxy_service=mock_proxy_service
         )
 
     def test_initialization(self, service, mock_state_machine, mock_snapcast_service):
@@ -364,15 +364,15 @@ class TestVolumeService:
         assert service.event_bus is get_event_bus()
 
     def test_event_bus_custom(self, mock_state_machine, mock_snapcast_service,
-                              mock_settings, mock_dsp_service, mock_proxy_service):
+                              mock_settings, mock_camilladsp_service, mock_proxy_service):
         """Test that custom EventBus is used when provided."""
         custom_bus = EventBus()
         service = VolumeService(
             state_machine=mock_state_machine,
             snapcast_service=mock_snapcast_service,
             settings_service=mock_settings,
-            camilladsp_service=mock_dsp_service,
-            dsp_client_proxy_service=mock_proxy_service,
+            camilladsp_service=mock_camilladsp_service,
+            equalizer_client_proxy_service=mock_proxy_service,
             event_bus=custom_bus
         )
         assert service.event_bus is custom_bus
@@ -389,13 +389,13 @@ class TestVolumeService:
         service._routing_service.get_state.return_value = {'multiroom_enabled': True}
         assert service._is_multiroom_enabled() is True
 
-    def test_is_dsp_available(self, service, mock_dsp_service):
-        """Test DSP availability check."""
-        mock_dsp_service.is_volume_control_available.return_value = True
-        assert service._is_dsp_available() is True
+    def test_is_equalizer_available(self, service, mock_camilladsp_service):
+        """Test Equalizer availability check."""
+        mock_camilladsp_service.is_volume_control_available.return_value = True
+        assert service._is_equalizer_available() is True
 
-        mock_dsp_service.is_volume_control_available.return_value = False
-        assert service._is_dsp_available() is False
+        mock_camilladsp_service.is_volume_control_available.return_value = False
+        assert service._is_equalizer_available() is False
 
     def test_config_access(self, service):
         """Test config sub-service access."""
@@ -414,17 +414,17 @@ class TestVolumeService:
         assert isinstance(volume, float)
 
     @pytest.mark.asyncio
-    async def test_set_volume_db_direct_mode(self, service, mock_dsp_service, mock_state_machine):
+    async def test_set_volume_db_direct_mode(self, service, mock_camilladsp_service, mock_state_machine):
         """Test setting volume in direct mode."""
         mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
 
         result = await service.set_volume_db(-25.0)
 
         assert result is True
-        mock_dsp_service.set_volume.assert_called()
+        mock_camilladsp_service.set_volume.assert_called()
 
     @pytest.mark.asyncio
-    async def test_adjust_volume_db(self, service, mock_dsp_service, mock_state_machine, mock_settings):
+    async def test_adjust_volume_db(self, service, mock_camilladsp_service, mock_state_machine, mock_settings):
         """Test adjusting volume by delta."""
         mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
         mock_settings.get_setting = AsyncMock(return_value=False)
@@ -433,7 +433,7 @@ class TestVolumeService:
         result = await service.adjust_volume_db(3.0)
 
         assert result is True
-        mock_dsp_service.set_volume.assert_called()
+        mock_camilladsp_service.set_volume.assert_called()
 
     @pytest.mark.asyncio
     async def test_get_status(self, service, mock_settings):
@@ -445,7 +445,7 @@ class TestVolumeService:
         assert isinstance(status, dict)
         assert "volume_db" in status
         assert "multiroom_enabled" in status
-        assert "dsp_available" in status
+        assert "equalizer_available" in status
 
     @pytest.mark.asyncio
     async def test_get_volume_state(self, service, mock_settings):
@@ -482,7 +482,7 @@ class TestVolumeService:
         assert config.clamp(0.0) == -21.0    # Above max
 
     @pytest.mark.asyncio
-    async def test_reload_volume_limits(self, service, mock_settings, mock_dsp_service, mock_state_machine):
+    async def test_reload_volume_limits(self, service, mock_settings, mock_camilladsp_service, mock_state_machine):
         """Test reloading volume limits."""
         mock_settings.get_setting = AsyncMock(return_value={
             "limit_min_db": -60.0,
@@ -578,16 +578,16 @@ class TestZoneReconnectionVolume:
         return store
 
     @pytest.fixture
-    def mock_dsp_controller(self):
-        """Create mock DSPController."""
-        controller = Mock(spec=DSPController)
+    def mock_equalizer_controller(self):
+        """Create mock EqualizerController."""
+        controller = Mock(spec=EqualizerController)
         controller.wait_for_client_ready = AsyncMock(return_value=True)
-        controller.set_dsp_mute = AsyncMock()
-        controller.set_dsp_volume = AsyncMock()
+        controller.set_equalizer_mute = AsyncMock()
+        controller.set_equalizer_volume = AsyncMock()
         return controller
 
     @pytest.mark.asyncio
-    async def test_zone_reconnect_uses_zone_average_when_others_online(self, mock_state_store, mock_dsp_controller):
+    async def test_zone_reconnect_uses_zone_average_when_others_online(self, mock_state_store, mock_equalizer_controller):
         """
         FR7: IN_ZONE client reconnects with others ONLINE.
         Expected: volume = zone_volume_avg
@@ -625,7 +625,7 @@ class TestZoneReconnectionVolume:
         assert expected_volume == -25.0
 
     @pytest.mark.asyncio
-    async def test_zone_reconnect_uses_default_when_all_offline(self, mock_state_store, mock_dsp_controller):
+    async def test_zone_reconnect_uses_default_when_all_offline(self, mock_state_store, mock_equalizer_controller):
         """
         FR8: IN_ZONE client reconnects with ALL others OFFLINE.
         Expected: volume = startup_volume_db (DEFAULT_VOLUME_DB)
@@ -664,7 +664,7 @@ class TestZoneReconnectionVolume:
         assert expected_volume == -60.0
 
     @pytest.mark.asyncio
-    async def test_zone_reconnect_uses_cached_target_during_initial_sync(self, mock_state_store, mock_dsp_controller):
+    async def test_zone_reconnect_uses_cached_target_during_initial_sync(self, mock_state_store, mock_equalizer_controller):
         """
         Test that cached zone target is used during initial sync phase.
         This prevents race conditions when multiple clients sync sequentially.
@@ -721,16 +721,16 @@ class TestStandaloneReconnectionVolume:
         return store
 
     @pytest.fixture
-    def mock_dsp_controller(self):
-        """Create mock DSPController."""
-        controller = Mock(spec=DSPController)
+    def mock_equalizer_controller(self):
+        """Create mock EqualizerController."""
+        controller = Mock(spec=EqualizerController)
         controller.wait_for_client_ready = AsyncMock(return_value=True)
-        controller.set_dsp_mute = AsyncMock()
-        controller.set_dsp_volume = AsyncMock()
+        controller.set_equalizer_mute = AsyncMock()
+        controller.set_equalizer_volume = AsyncMock()
         return controller
 
     @pytest.mark.asyncio
-    async def test_standalone_reconnect_uses_global_volume_when_others_online(self, mock_state_store, mock_dsp_controller):
+    async def test_standalone_reconnect_uses_global_volume_when_others_online(self, mock_state_store, mock_equalizer_controller):
         """
         FR9: STANDALONE client reconnects with others ONLINE.
         Expected: volume = volume_global (average of all ONLINE)
@@ -769,7 +769,7 @@ class TestStandaloneReconnectionVolume:
         assert expected_volume == -30.0
 
     @pytest.mark.asyncio
-    async def test_standalone_reconnect_uses_default_when_first_client(self, mock_state_store, mock_dsp_controller):
+    async def test_standalone_reconnect_uses_default_when_first_client(self, mock_state_store, mock_equalizer_controller):
         """
         FR10: STANDALONE client reconnects as FIRST client (no others ONLINE).
         Expected: volume = startup_volume_db (DEFAULT_VOLUME_DB = -60.0)
@@ -802,7 +802,7 @@ class TestStandaloneReconnectionVolume:
         assert expected_volume == -60.0
 
     @pytest.mark.asyncio
-    async def test_standalone_reconnect_uses_saved_volume_if_exists(self, mock_state_store, mock_dsp_controller):
+    async def test_standalone_reconnect_uses_saved_volume_if_exists(self, mock_state_store, mock_equalizer_controller):
         """
         Test that standalone client uses its saved volume if available.
         """
@@ -837,7 +837,7 @@ class TestStandaloneReconnectionVolume:
         assert expected_volume == -40.0
 
     @pytest.mark.asyncio
-    async def test_local_client_follows_standalone_rules(self, mock_state_store, mock_dsp_controller):
+    async def test_local_client_follows_standalone_rules(self, mock_state_store, mock_equalizer_controller):
         """
         AC4: "local" client follows same STANDALONE rules as remote clients.
         """
@@ -910,15 +910,15 @@ class TestStartupVolumeAutoUpdate:
         return settings
 
     @pytest.fixture
-    def mock_dsp_service(self):
+    def mock_camilladsp_service(self):
         """Create mock CamillaDSP service."""
-        dsp = Mock()
-        dsp.set_volume = AsyncMock(return_value=True)
-        dsp.get_volume = AsyncMock(return_value={"main": -30.0})
-        dsp.set_mute = AsyncMock(return_value=True)
-        dsp.is_volume_control_available = Mock(return_value=True)
-        dsp.wait_for_connection = AsyncMock(return_value=True)
-        return dsp
+        camilladsp_mock = Mock()
+        camilladsp_mock.set_volume = AsyncMock(return_value=True)
+        camilladsp_mock.get_volume = AsyncMock(return_value={"main": -30.0})
+        camilladsp_mock.set_mute = AsyncMock(return_value=True)
+        camilladsp_mock.is_volume_control_available = Mock(return_value=True)
+        camilladsp_mock.wait_for_connection = AsyncMock(return_value=True)
+        return camilladsp_mock
 
     @pytest.fixture
     def mock_proxy_service(self):
@@ -930,14 +930,14 @@ class TestStartupVolumeAutoUpdate:
 
     @pytest.fixture
     def service(self, mock_state_machine, mock_snapcast_service, mock_settings,
-                mock_dsp_service, mock_proxy_service):
+                mock_camilladsp_service, mock_proxy_service):
         """Create VolumeService with mocks."""
         svc = VolumeService(
             state_machine=mock_state_machine,
             snapcast_service=mock_snapcast_service,
             settings_service=mock_settings,
-            camilladsp_service=mock_dsp_service,
-            dsp_client_proxy_service=mock_proxy_service
+            camilladsp_service=mock_camilladsp_service,
+            equalizer_client_proxy_service=mock_proxy_service
         )
         # Set initial config with restore_last_volume=True (FR11 active)
         svc._config_service._config = VolumeConfig(
@@ -1051,7 +1051,7 @@ class TestStartupVolumeAutoUpdate:
 
     @pytest.mark.asyncio
     async def test_zone_volume_delta_updates_startup_volume(
-        self, service, mock_settings, mock_state_machine, mock_dsp_service, mock_snapcast_service
+        self, service, mock_settings, mock_state_machine, mock_camilladsp_service, mock_snapcast_service
     ):
         """
         FR11 AC5: apply_zone_volume_delta() updates startup_volume_db using local client volume.
@@ -1129,15 +1129,15 @@ class TestStartupVolumeOnRestart:
         return settings
 
     @pytest.fixture
-    def mock_dsp_service(self):
+    def mock_camilladsp_service(self):
         """Create mock CamillaDSP service."""
-        dsp = Mock()
-        dsp.set_volume = AsyncMock(return_value=True)
-        dsp.get_volume = AsyncMock(return_value={"main": -30.0})
-        dsp.set_mute = AsyncMock(return_value=True)
-        dsp.is_volume_control_available = Mock(return_value=True)
-        dsp.wait_for_connection = AsyncMock(return_value=True)
-        return dsp
+        camilladsp_mock = Mock()
+        camilladsp_mock.set_volume = AsyncMock(return_value=True)
+        camilladsp_mock.get_volume = AsyncMock(return_value={"main": -30.0})
+        camilladsp_mock.set_mute = AsyncMock(return_value=True)
+        camilladsp_mock.is_volume_control_available = Mock(return_value=True)
+        camilladsp_mock.wait_for_connection = AsyncMock(return_value=True)
+        return camilladsp_mock
 
     @pytest.fixture
     def mock_proxy_service(self):
@@ -1148,31 +1148,31 @@ class TestStartupVolumeOnRestart:
         return proxy
 
     @pytest.fixture
-    def mock_dsp_controller(self):
-        """Create mock DSP controller."""
+    def mock_equalizer_controller(self):
+        """Create mock Equalizer controller."""
         controller = Mock()
-        controller.set_dsp_volume = AsyncMock(return_value=True)
-        controller.set_dsp_mute = AsyncMock(return_value=True)
+        controller.set_equalizer_volume = AsyncMock(return_value=True)
+        controller.set_equalizer_mute = AsyncMock(return_value=True)
         return controller
 
     @pytest.fixture
     def service(self, mock_state_machine, mock_snapcast_service, mock_settings,
-                mock_dsp_service, mock_proxy_service, mock_dsp_controller):
-        """Create VolumeService with mocks, including mocked DSP controller."""
+                mock_camilladsp_service, mock_proxy_service, mock_equalizer_controller):
+        """Create VolumeService with mocks, including mocked Equalizer controller."""
         svc = VolumeService(
             state_machine=mock_state_machine,
             snapcast_service=mock_snapcast_service,
             settings_service=mock_settings,
-            camilladsp_service=mock_dsp_service,
-            dsp_client_proxy_service=mock_proxy_service
+            camilladsp_service=mock_camilladsp_service,
+            equalizer_client_proxy_service=mock_proxy_service
         )
-        # Replace the real DSP controller with our mock
-        svc._dsp_controller = mock_dsp_controller
+        # Replace the real Equalizer controller with our mock
+        svc._equalizer_controller = mock_equalizer_controller
         return svc
 
     @pytest.mark.asyncio
     async def test_startup_applies_startup_volume_when_restore_false(
-        self, service, mock_dsp_service, mock_dsp_controller
+        self, service, mock_camilladsp_service, mock_equalizer_controller
     ):
         """
         FR12 AC3/AC4: initialize() applies startup_volume_db when restore_last_volume=false.
@@ -1189,12 +1189,12 @@ class TestStartupVolumeOnRestart:
         # Act: Call _apply_startup_volume directly (called by initialize())
         await service._apply_startup_volume()
 
-        # Assert: DSP was set to startup_volume_db (uses _dsp_service directly at startup)
-        mock_dsp_service.set_volume.assert_called_with(startup_vol)
+        # Assert: Equalizer was set to startup_volume_db (uses _camilladsp_service directly at startup)
+        mock_camilladsp_service.set_volume.assert_called_with(startup_vol)
 
     @pytest.mark.asyncio
     async def test_startup_applies_persisted_volume_when_restore_true(
-        self, service, mock_dsp_service, mock_dsp_controller
+        self, service, mock_camilladsp_service, mock_equalizer_controller
     ):
         """
         FR12 AC3/AC4: initialize() applies startup_volume_db when restore_last_volume=true.
@@ -1214,12 +1214,12 @@ class TestStartupVolumeOnRestart:
         # Act
         await service._apply_startup_volume()
 
-        # Assert: DSP was set to startup_volume_db (uses _dsp_service directly at startup)
-        mock_dsp_service.set_volume.assert_called_with(persisted_vol)
+        # Assert: Equalizer was set to startup_volume_db (uses _camilladsp_service directly at startup)
+        mock_camilladsp_service.set_volume.assert_called_with(persisted_vol)
 
     @pytest.mark.asyncio
     async def test_startup_uses_startup_volume_db_as_single_source(
-        self, service, mock_dsp_service, mock_dsp_controller
+        self, service, mock_camilladsp_service, mock_equalizer_controller
     ):
         """
         FR12: startup_volume_db is the single source of truth for startup volume.
@@ -1238,12 +1238,12 @@ class TestStartupVolumeOnRestart:
         # Act
         await service._apply_startup_volume()
 
-        # Assert: DSP was set to startup_volume_db (uses _dsp_service directly at startup)
-        mock_dsp_service.set_volume.assert_called_with(startup_vol)
+        # Assert: Equalizer was set to startup_volume_db (uses _camilladsp_service directly at startup)
+        mock_camilladsp_service.set_volume.assert_called_with(startup_vol)
 
     @pytest.mark.asyncio
     async def test_startup_applies_mute_state(
-        self, service, mock_dsp_service, mock_dsp_controller
+        self, service, mock_camilladsp_service, mock_equalizer_controller
     ):
         """
         FR12: Startup also applies persisted mute state.
@@ -1266,18 +1266,18 @@ class TestStartupVolumeOnRestart:
         # Act
         await service._apply_startup_volume()
 
-        # Assert: Mute state was applied via _dsp_service directly at startup
-        mock_dsp_service.set_mute.assert_called_with(True)
+        # Assert: Mute state was applied via _camilladsp_service directly at startup
+        mock_camilladsp_service.set_mute.assert_called_with(True)
 
     @pytest.mark.asyncio
-    async def test_startup_handles_dsp_connection_timeout(
-        self, service, mock_dsp_service, mock_dsp_controller
+    async def test_startup_handles_equalizer_connection_timeout(
+        self, service, mock_camilladsp_service, mock_equalizer_controller
     ):
         """
-        FR12: Gracefully handle DSP connection timeout on startup.
+        FR12: Gracefully handle Equalizer connection timeout on startup.
         """
-        # Arrange: DSP connection times out
-        mock_dsp_service.wait_for_connection = AsyncMock(return_value=False)
+        # Arrange: Equalizer connection times out
+        mock_camilladsp_service.wait_for_connection = AsyncMock(return_value=False)
 
         service._config_service._config = VolumeConfig(
             limit_min_db=-80.0,
@@ -1289,5 +1289,5 @@ class TestStartupVolumeOnRestart:
         # Act: Should not raise, just log warning
         await service._apply_startup_volume()
 
-        # Assert: DSP volume was NOT set (connection failed)
-        mock_dsp_service.set_volume.assert_not_called()
+        # Assert: Equalizer volume was NOT set (connection failed)
+        mock_camilladsp_service.set_volume.assert_not_called()
