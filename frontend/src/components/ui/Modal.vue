@@ -171,10 +171,10 @@ async function openModal() {
   modalOverlay.value.style.transition = 'none';
   modalOverlay.value.style.opacity = '0';
 
-  // Initial container state (invisible and lower position like the dock)
+  // Initial container state (invisible and scaled down)
   modalContainer.value.style.transition = 'none';
   modalContainer.value.style.opacity = '0';
-  modalContainer.value.style.transform = 'translateY(48px) scale(0.85)';
+  modalContainer.value.style.transform = 'scale(0.85)';
 
   // Initial close button state (invisible and higher position)
   closeButtonWrapper.value.style.transition = 'none';
@@ -193,12 +193,12 @@ async function openModal() {
   }, ANIMATION_TIMINGS.overlayDelay);
   animationTimeouts.push(overlayTimeout);
 
-  // Container enter animation (uses --transition-spring like the dock)
+  // Container enter animation (uses --transition-spring-fast)
   const containerTimeout = setTimeout(() => {
     if (!modalContainer.value) return;
     modalContainer.value.style.transition = 'transform var(--transition-spring), opacity 400ms ease-out, height var(--transition-spring)';
     modalContainer.value.style.opacity = '1';
-    modalContainer.value.style.transform = 'translateY(0) scale(1)';
+    modalContainer.value.style.transform = 'scale(1)';
   }, ANIMATION_TIMINGS.containerDelay);
   animationTimeouts.push(containerTimeout);
 
@@ -249,7 +249,7 @@ async function closeModal() {
     if (!modalContainer.value) return;
     modalContainer.value.style.transition = `transform ${ANIMATION_TIMINGS.closeContainerDuration}ms ease-out, opacity ${ANIMATION_TIMINGS.closeContainerDuration}ms ease-out, height ${ANIMATION_TIMINGS.closeContainerDuration}ms ease-out`;
     modalContainer.value.style.opacity = '0';
-    modalContainer.value.style.transform = 'translateY(-76px) scale(0.95)';
+    modalContainer.value.style.transform = 'scale(0.95)';
   }, ANIMATION_TIMINGS.closeContainerDelay);
   animationTimeouts.push(containerCloseTimeout);
 
@@ -382,7 +382,7 @@ onUnmounted(() => {
   flex-direction: column;
   opacity: 0;
   overflow: hidden;
-  transition: height var(--transition-spring);
+  transition: height var(--transition-spring-slow);
 }
 
 .modal-container::before {

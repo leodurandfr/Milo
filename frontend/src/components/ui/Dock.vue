@@ -15,6 +15,7 @@
 
       <button v-for="(app, index) in additionalDockApps.slice().reverse()" :key="app.id"
         @click="() => handleAdditionalAppClick(app.id)" v-press
+        :style="{ '--stagger': `${0.05 + index * 0.03}s` }"
         class="additional-app-content glass-border button-interactive-subtle">
         <AppIcon :name="app.icon" :size="32" />
         <div class="app-title heading-2">{{ getAppTitle(app.id) }}</div>
@@ -578,7 +579,7 @@ const closeAdditionalApps = () => {
   if (!showAdditionalApps.value) return;
   showAdditionalApps.value = false;
   clearTimeout(additionalHideTimeout);
-  additionalHideTimeout = setTimeout(() => additionalAppsInDOM.value = false, 400);
+  additionalHideTimeout = setTimeout(() => additionalAppsInDOM.value = false, 600);
 };
 
 const handleToggleClick = (event) => {
@@ -756,7 +757,7 @@ onUnmounted(() => {
   gap: var(--space-01);
   opacity: 0;
   pointer-events: none;
-  transition: all var(--transition-spring);
+  transition: all var(--transition-spring-fast);
   cursor: grab;
 }
 
@@ -776,7 +777,7 @@ onUnmounted(() => {
   border: none;
   cursor: pointer;
   border-radius: var(--radius-04);
-  transition: all var(--transition-spring);
+  transition: all var(--transition-spring-fast);
   opacity: 0;
   transform: translateY(20px) scale(0.95);
 }
@@ -784,27 +785,9 @@ onUnmounted(() => {
 .additional-apps-container.visible .additional-app-content {
   opacity: 1;
   transform: translateY(0) scale(1);
+  transition-delay: var(--stagger, 0s);
 }
 
-.additional-apps-container.visible .additional-app-content:first-child {
-  transition-delay: 0.075s;
-}
-
-.additional-apps-container.visible .additional-app-content:nth-child(2) {
-  transition-delay: 0.115s;
-}
-
-.additional-apps-container.visible .additional-app-content:nth-child(3) {
-  transition-delay: 0.155s;
-}
-
-.additional-apps-container.visible .additional-app-content:nth-child(4) {
-  transition-delay: 0.195s;
-}
-
-.additional-apps-container.visible .additional-app-content:nth-child(5) {
-  transition-delay: 0.235s;
-}
 
 .app-title {
   color: var(--color-text);
