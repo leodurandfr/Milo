@@ -424,4 +424,11 @@ onUnmounted(() => {
   -webkit-tap-highlight-color: transparent;
   cursor: default;
 }
+
+/* Only show the sleep shield on the Raspberry Pi screen (landscape) */
+@media (max-aspect-ratio: 4/3) {
+  .sleep-shield {
+    display: none !important;
+  }
+}
 </style>

@@ -2,8 +2,8 @@
 <template>
   <div class="settings-modal">
     <!-- Single ModalHeader outside transition -->
-    <ModalHeader :title="headerTitle" :show-back="canGoBack" :actions-key="currentView"
-      :class="{ 'header-hidden': headerHidden }" @back="handleBack">
+    <ModalHeader ref="headerRef" :title="headerTitle" :show-back="canGoBack" :actions-key="currentView"
+      @back="back">
       <template v-if="currentView === 'multiroom'" #actions="{ iconType }">
         <Toggle :model-value="isMultiroomActive" :type="iconType"
           :disabled="unifiedStore.systemState.transitioning || isMultiroomToggling" @change="handleMultiroomToggle" />
@@ -16,83 +16,82 @@
 
     <!-- Content area (wrapper provides positioning context for cross-fade overlay) -->
     <div class="transition-wrapper">
-    <Transition name="fade-slide" @before-leave="onBeforeLeave" @after-leave="onAfterLeave"
-      @enter="onEnter">
+    <Transition name="fade-slide" @before-leave="onBeforeLeave" @enter="onEnter" @after-leave="onAfterLeave">
       <!-- Home view: list of categories -->
       <div v-if="currentView === 'home'" key="home" class="view-content">
         <div class="settings-nav-grid">
-          <ListItemButton :title="t('settings.languages')" action="caret" @click="goToView('languages')">
+          <ListItemButton :title="t('settings.languages')" action="caret" @click="push('languages')">
             <template #icon>
               <img :src="languagesIcon" alt="Languages" />
             </template>
           </ListItemButton>
 
-          <ListItemButton :title="t('settings.dock')" action="caret" @click="goToView('apps')">
+          <ListItemButton :title="t('settings.dock')" action="caret" @click="push('apps')">
             <template #icon>
               <img :src="applicationsIcon" alt="Applications" />
             </template>
           </ListItemButton>
 
-          <ListItemButton :title="t('settings.volume')" action="caret" @click="goToView('volume')">
+          <ListItemButton :title="t('settings.volume')" action="caret" @click="push('volume')">
             <template #icon>
               <img :src="volumeIcon" alt="Volume" />
             </template>
           </ListItemButton>
 
-          <ListItemButton :title="t('settings.screen')" action="caret" @click="goToView('screen')">
+          <ListItemButton :title="t('settings.screen')" action="caret" @click="push('screen')">
             <template #icon>
               <img :src="displayIcon" alt="Display" />
             </template>
           </ListItemButton>
           
-          <ListItemButton :title="t('dsp.title')" action="caret" @click="goToView('equalizer')">
+          <ListItemButton :title="t('dsp.title')" action="caret" @click="push('equalizer')">
             <template #icon>
               <img :src="equalizerIcon" alt="Equalizer" />
             </template>
           </ListItemButton>
 
           <ListItemButton v-if="settingsStore.dockApps.multiroom" :title="t('multiroom.title')" action="caret"
-            @click="goToView('multiroom')">
+            @click="push('multiroom')">
             <template #icon>
               <img :src="multiroomIcon" alt="Multiroom" />
             </template>
           </ListItemButton>
 
           <ListItemButton v-if="settingsStore.dockApps.spotify" :title="t('audioSources.spotify')" action="caret"
-            @click="goToView('spotify')">
+            @click="push('spotify')">
             <template #icon>
               <img :src="spotifyIcon" alt="Spotify" />
             </template>
           </ListItemButton>
 
           <ListItemButton v-if="settingsStore.dockApps.mac" :title="t('macSettings.title')" action="caret"
-            @click="goToView('macos')">
+            @click="push('macos')">
             <template #icon>
               <img :src="macosIcon" alt="Mac" />
             </template>
           </ListItemButton>
 
           <ListItemButton v-if="settingsStore.dockApps.radio" :title="t('audioSources.radio')" action="caret"
-            @click="goToView('radio')">
+            @click="push('radio')">
             <template #icon>
               <img :src="radioIcon" alt="Radio" />
             </template>
           </ListItemButton>
 
           <ListItemButton v-if="settingsStore.dockApps.podcast" :title="t('audioSources.podcasts')" action="caret"
-            @click="goToView('podcast')">
+            @click="push('podcast')">
             <template #icon>
               <img :src="podcastIcon" alt="Podcasts" />
             </template>
           </ListItemButton>
 
-          <ListItemButton :title="t('settings.updates')" action="caret" @click="goToView('updates')">
+          <ListItemButton :title="t('settings.updates')" action="caret" @click="push('updates')">
             <template #icon>
               <img :src="updatesIcon" alt="Updates" />
             </template>
           </ListItemButton>
 
-          <ListItemButton :title="t('settings.information')" action="caret" @click="goToView('info')">
+          <ListItemButton :title="t('settings.information')" action="caret" @click="push('info')">
             <template #icon>
               <img :src="informationIcon" alt="Information" />
             </template>
@@ -225,22 +224,25 @@ const unifiedStore = useUnifiedAudioStore();
 const radioStore = useRadioStore();
 const dspStore = useDspStore();
 
-// Inject modal scroll reset function and content ref for scroll position check
+// Inject modal scroll reset function and content ref for scroll detection
 const resetScroll = inject('modalResetScroll', () => { });
 const modalContentRef = inject('modalContentRef', null);
 
-// Header hidden state (only when scrolled)
-const headerHidden = ref(false);
-const wasScrolled = ref(false);
+// Navigation
+const { currentView, canGoBack, push, back, reset, goTo } = useNavigationStack('home');
 
-// Navigation with stack
-const { currentView, currentParams, canGoBack, push, back, reset, goTo } = useNavigationStack('home');
+// Refs
+const headerRef = ref(null);
 const radioSettingsRef = ref(null);
 const stationToEdit = ref(null);
-
-// Zone/client being edited
 const zoneGroupId = ref(null);
 const macIdToEdit = ref(null);
+
+// Scroll-aware cross-fade state
+let wasScrolled = false;
+let savedScrollTop = 0;
+let enteringEl = null;
+const SCROLL_FADE_THRESHOLD = 50;
 
 // Dynamic header title based on current view
 const headerTitle = computed(() => {
@@ -277,7 +279,6 @@ watch(() => props.initialView, (newView) => {
   }
 }, { immediate: true });
 
-
 // Check if the station can be restored (only modified stations)
 const canRestoreStation = computed(() => {
   return stationToEdit.value?._canRestore === true;
@@ -288,42 +289,66 @@ const canDeleteStation = computed(() => {
   return stationToEdit.value?._canDelete === true;
 });
 
-function goToView(view) {
-  push(view);
-}
+// === Scroll-aware cross-fade transition hooks ===
+// When scrolled: old content stays at scroll position (static), new content overlays at viewport
+// position (absolute+top), header translates into viewport and fades in with the new content.
+// On after-leave: inline styles + scroll reset cancel out for a seamless swap.
 
-function goToHome() {
-  reset();
-}
+function onBeforeLeave(el) {
+  const scrollEl = modalContentRef?.value;
+  const scrollTop = scrollEl?.scrollTop || 0;
 
-function handleBack() {
-  back();
-}
-
-// Transition hooks for header hide/show (only when scrolled)
-function onBeforeLeave() {
-  // Check if scrolled and hide header + reset scroll before cross-fade starts
-  wasScrolled.value = modalContentRef?.value?.scrollTop > 0;
-  if (wasScrolled.value) {
-    headerHidden.value = true;
-    resetScroll();
+  if (scrollTop > SCROLL_FADE_THRESHOLD) {
+    wasScrolled = true;
+    savedScrollTop = scrollTop;
+    const headerEl = headerRef.value?.$el;
+    if (headerEl) {
+      headerEl.style.transition = 'none';
+      headerEl.style.opacity = '0';
+      headerEl.style.transform = `translateY(${scrollTop}px)`;
+    }
+    el.style.position = 'static';
+  } else {
+    wasScrolled = false;
+    savedScrollTop = 0;
+    if (scrollTop > 0) resetScroll();
   }
 }
 
-function onAfterLeave() {
-  // After leave completes, show header (for scrolled case)
-  if (wasScrolled.value) {
+function onEnter(el) {
+  if (wasScrolled) {
+    enteringEl = el;
+    el.style.position = 'absolute';
+    el.style.top = `${savedScrollTop}px`;
+    el.style.left = '0';
+    el.style.width = '100%';
+    // Double rAF syncs with Vue's internal enter transition timing
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        headerHidden.value = false;
+        const headerEl = headerRef.value?.$el;
+        if (headerEl) {
+          headerEl.style.transition = '';
+          headerEl.style.opacity = '';
+        }
       });
     });
   }
 }
 
-function onEnter() {
-  // No-op: header cross-fades internally for non-scrolled case,
-  // scrolled case is handled in onAfterLeave
+function onAfterLeave() {
+  if (wasScrolled && enteringEl) {
+    enteringEl.style.position = '';
+    enteringEl.style.top = '';
+    enteringEl.style.left = '';
+    enteringEl.style.width = '';
+    const headerEl = headerRef.value?.$el;
+    if (headerEl) {
+      headerEl.style.transform = '';
+    }
+    resetScroll();
+    enteringEl = null;
+    wasScrolled = false;
+  }
 }
 
 // Radio navigation handling
@@ -522,14 +547,8 @@ onUnmounted(() => {
   gap: var(--space-03);
 }
 
-/* Header hide/show transition (only when scroll reset is needed) */
 :deep(.modal-header) {
-  transition: opacity var(--transition-in-out);
-}
-
-:deep(.modal-header.header-hidden) {
-  opacity: 0;
-  transition: opacity var(--transition-ultra-fast);
+  transition: padding var(--transition-fast), opacity var(--transition-in-out);
 }
 
 /* Cross-fade wrapper: positioning context for leaving element overlay */
@@ -537,7 +556,7 @@ onUnmounted(() => {
   position: relative;
 }
 
-/* Leaving content overlays absolutely during cross-fade (doesn't affect height) */
+/* Cross-fade: leaving content overlays absolutely (doesn't affect height) */
 :deep(.fade-slide-leave-active) {
   position: absolute;
   top: 0;
