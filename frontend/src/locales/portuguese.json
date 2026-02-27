@@ -90,7 +90,7 @@
     "retrySync": "Tentar novamente"
   },
   "equalizer": {
-    "title": "Equalizador equalizer",
+    "title": "Equalizador",
     "disabled": "O equalizer está desativado",
     "effects_disabled": "Os efeitos equalizer estão desativados",
     "connecting": "A conectar ao equalizador...",

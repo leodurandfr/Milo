@@ -90,7 +90,7 @@
     "retrySync": "重试"
   },
   "equalizer": {
-    "title": "Equalizer 均衡器",
+    "title": "Equalizer",
     "disabled": "Equalizer 已禁用",
     "effects_disabled": "Equalizer 效果已禁用",
     "connecting": "正在连接均衡器...",
