@@ -27,7 +27,7 @@
             </template>
           </ListItemButton>
 
-          <ListItemButton :title="t('settings.applications')" action="caret" @click="goToView('apps')">
+          <ListItemButton :title="t('settings.dock')" action="caret" @click="goToView('apps')">
             <template #icon>
               <img :src="applicationsIcon" alt="Applications" />
             </template>
@@ -107,7 +107,7 @@
       <LanguageSettings v-else-if="currentView === 'languages'" key="languages" class="view-content" />
 
       <!-- Applications view -->
-      <ApplicationsSettings v-else-if="currentView === 'apps'" key="apps" class="view-content" />
+      <DockSettings v-else-if="currentView === 'apps'" key="apps" class="view-content" />
 
       <!-- Volume view -->
       <VolumeSettings v-else-if="currentView === 'volume'" key="volume" class="view-content" />
@@ -194,7 +194,7 @@ import radioIcon from '@/assets/settings-icons/radio.svg';
 import podcastIcon from '@/assets/settings-icons/podcast.svg';
 import equalizerIcon from '@/assets/settings-icons/equalizer.svg';
 import macosIcon from '@/assets/settings-icons/macos.svg';
-import ApplicationsSettings from '@/components/settings/categories/ApplicationsSettings.vue';
+import DockSettings from '@/components/settings/categories/DockSettings.vue';
 import VolumeSettings from '@/components/settings/categories/VolumeSettings.vue';
 import ScreenSettings from '@/components/settings/categories/ScreenSettings.vue';
 import SpotifySettings from '@/components/settings/categories/SpotifySettings.vue';
@@ -247,7 +247,7 @@ const headerTitle = computed(() => {
   const titles = {
     'home': t('settings.title'),
     'languages': t('settings.languages'),
-    'apps': t('settings.applications'),
+    'apps': t('settings.dock'),
     'volume': t('settings.volume'),
     'screen': t('settings.screen'),
     'spotify': t('spotifySettings.title'),

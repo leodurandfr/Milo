@@ -54,6 +54,7 @@ import speakerSubIcon from '@/assets/icons/speaker-sub.svg?raw'
 import speakerShelfIcon from '@/assets/icons/speaker-shelf.svg?raw'
 import speakerColumnIcon from '@/assets/icons/speaker-column.svg?raw'
 import speakerSatelliteIcon from '@/assets/icons/speaker-satellite.svg?raw'
+import dragHandleIcon from '@/assets/icons/drag-handle.svg?raw'
 import keyboardCapsLockIcon from '@/assets/icons/keyboard/caps-lock.svg?raw'
 import keyboardCapsLockFilledIcon from '@/assets/icons/keyboard/caps-lock-filled.svg?raw'
 import keyboardEnterIcon from '@/assets/icons/keyboard/enter.svg?raw'
@@ -94,6 +95,7 @@ const icons = {
   speakerShelf: speakerShelfIcon,
   speakerColumn: speakerColumnIcon,
   speakerSatellite: speakerSatelliteIcon,
+  dragHandle: dragHandleIcon,
   keyboardCapsLock: keyboardCapsLockIcon,
   keyboardCapsLockFilled: keyboardCapsLockFilledIcon,
   keyboardEnter: keyboardEnterIcon,

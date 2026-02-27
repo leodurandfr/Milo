@@ -19,7 +19,7 @@ import { logger } from '@/services/logger';
  *
  * settings:
  *   - language_changed → App.vue, LanguageSettings.vue
- *   - dock_apps_changed → Dock.vue, ApplicationsSettings.vue
+ *   - dock_apps_changed → Dock.vue, DockSettings.vue
  *   - volume_steps_changed → Dock.vue
  *   - podcast_credentials_changed → PodcastSettings.vue
  *   - spotify_disconnect_changed → SpotifySettings.vue
