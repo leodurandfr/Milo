@@ -90,9 +90,9 @@
     "retrySync": "Réessayer"
   },
   "equalizer": {
-    "title": "Equalizer",
-    "disabled": "L'equalizer est désactivé",
-    "effects_disabled": "Les effets equalizer sont désactivés",
+    "title": "Égaliseur",
+    "disabled": "L'égaliseur est désactivé",
+    "effects_disabled": "Les effets de l'égaliseur sont désactivés",
     "connecting": "Connexion à l'égaliseur...",
     "selectPreset": "Preset",
     "selectTarget": "Appareil",
@@ -106,7 +106,7 @@
       "editZone": "Modifier la zone",
       "updateZone": "Mettre à jour",
       "deleteZone": "Supprimer la zone",
-      "description": "Liez les systèmes pour créer des zones avec des réglages equalizer partagés. Les modifications s'appliqueront à tous les membres.",
+      "description": "Liez les systèmes pour créer des zones avec des réglages d'égaliseur partagés. Les modifications s'appliqueront à tous les membres.",
       "noZones": "Aucune zone créée. Créez une zone pour lier plusieurs systèmes.",
       "inOtherZone": "Dans une autre zone",
       "subwoofer": "Sub",
