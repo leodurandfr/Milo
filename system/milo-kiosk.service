@@ -58,7 +58,9 @@ ExecStart=/usr/bin/cage -- /usr/bin/chromium \
   --enable-features=TouchpadAndWheelScrollLatching \
   --force-device-scale-factor=1 \
   --disable-pinch \
-  --disable-features=VizDisplayCompositor \
+  --ignore-gpu-blocklist \
+  --enable-gpu-rasterization \
+  --enable-zero-copy \
   --app=http://localhost
 
 Restart=always

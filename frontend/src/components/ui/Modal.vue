@@ -121,7 +121,7 @@ function resetInactivityTimer() {
   // Start a new 120-second timer
   inactivityTimer = setTimeout(() => {
     close();
-  }, 120000); // 1200 seconds before auto-close 
+  }, 120000); // 120 seconds before auto-close
 }
 
 const ANIMATION_TIMINGS = {
@@ -193,7 +193,7 @@ async function openModal() {
   }, ANIMATION_TIMINGS.overlayDelay);
   animationTimeouts.push(overlayTimeout);
 
-  // Container enter animation (uses --transition-spring-fast)
+  // Container enter animation (scale via --transition-spring, opacity via ease-out)
   const containerTimeout = setTimeout(() => {
     if (!modalContainer.value) return;
     modalContainer.value.style.transition = 'transform var(--transition-spring), opacity 400ms ease-out, height var(--transition-spring)';
