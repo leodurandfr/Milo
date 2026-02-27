@@ -30,6 +30,8 @@ export const useSettingsStore = defineStore('settings', () => {
   });
 
   // === DOCK APPS ===
+  const ALL_AUDIO_SOURCES = ['spotify', 'bluetooth', 'radio', 'podcast', 'airplay', 'mac'];
+
   const dockApps = ref({
     spotify: true,
     bluetooth: true,
@@ -40,6 +42,9 @@ export const useSettingsStore = defineStore('settings', () => {
     multiroom: true,
     settings: true
   });
+
+  // Ordered list of all audio sources (both enabled and disabled)
+  const sourceOrder = ref([...ALL_AUDIO_SOURCES]);
 
   // === SPOTIFY ===
   const spotifyDisconnect = ref({
@@ -128,6 +133,7 @@ export const useSettingsStore = defineStore('settings', () => {
             multiroom: enabledApps.includes('multiroom'),
             settings: enabledApps.includes('settings')
           };
+          syncSourceOrder(enabledApps);
         }
 
         spotifyDisconnect.value = {
@@ -208,7 +214,7 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   /**
-   * Update dock apps
+   * Update dock apps (from WebSocket or API response)
    */
   function updateDockApps(enabledApps) {
     dockApps.value = {
@@ -221,6 +227,34 @@ export const useSettingsStore = defineStore('settings', () => {
       multiroom: enabledApps.includes('multiroom'),
       settings: enabledApps.includes('settings')
     };
+    syncSourceOrder(enabledApps);
+  }
+
+  /**
+   * Extract audio source order from enabled_apps array.
+   * Preserves order of audio sources from the array, appends any missing sources at the end.
+   */
+  function syncSourceOrder(enabledApps) {
+    const audioFromServer = enabledApps.filter(a => ALL_AUDIO_SOURCES.includes(a));
+    const missing = ALL_AUDIO_SOURCES.filter(a => !audioFromServer.includes(a));
+    sourceOrder.value = [...audioFromServer, ...missing];
+  }
+
+  /**
+   * Update source display order
+   */
+  function updateSourceOrder(newOrder) {
+    sourceOrder.value = [...newOrder];
+  }
+
+  /**
+   * Build the full enabled_apps array preserving source order.
+   * Returns ordered enabled audio sources followed by enabled utility apps.
+   */
+  function buildEnabledAppsArray() {
+    const orderedAudio = sourceOrder.value.filter(s => dockApps.value[s]);
+    const utilities = ['multiroom', 'settings'].filter(u => dockApps.value[u]);
+    return [...orderedAudio, ...utilities];
   }
 
   /**
@@ -305,6 +339,7 @@ export const useSettingsStore = defineStore('settings', () => {
     volumeStartup,
     volumeSteps,
     dockApps,
+    sourceOrder,
     spotifyDisconnect,
     podcastCredentials,
     podcastCredentialsStatus,
@@ -324,6 +359,8 @@ export const useSettingsStore = defineStore('settings', () => {
     updateVolumeStartup,
     updateVolumeSteps,
     updateDockApps,
+    updateSourceOrder,
+    buildEnabledAppsArray,
     updateSpotifyDisconnect,
     updatePodcastCredentials,
     refreshPodcastCredentialsStatus,

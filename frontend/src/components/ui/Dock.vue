@@ -110,8 +110,8 @@ const enabledApps = ref(["spotify", "bluetooth", "radio", "podcast", "airplay", 
 
 // Computed to separate audio plugins and features
 const enabledAudioPlugins = computed(() => {
-  return ALL_AUDIO_SOURCES
-    .filter(source => enabledApps.value.includes(source))
+  return enabledApps.value
+    .filter(source => ALL_AUDIO_SOURCES.includes(source))
     .map(source => ({ id: source, icon: source }));
 });
 

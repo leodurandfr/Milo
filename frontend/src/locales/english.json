@@ -11,7 +11,7 @@
   "settings": {
     "title": "Milō Settings",
     "languages": "Languages",
-    "applications": "Applications",
+    "dock": "Dock",
     "volume": "Volume",
     "screen": "Screen",
     "updates": "Updates",
@@ -374,7 +374,9 @@
   },
   "applicationsSettings": {
     "inactivityTimeout": "Auto close",
-    "inactivityDelay": "Deactivate audio source after a period of inactivity:"
+    "inactivityDelay": "Deactivate audio source after a period of inactivity:",
+    "reorder": "Reorder",
+    "done": "Done"
   },
   "clientDetails": {
     "editClient": "Edit client",
@@ -414,6 +416,7 @@
     "1h": "1 h",
     "2h": "2 h",
     "4h": "4 h",
+    "12h": "12 h",
     "never": "Never"
   },
   "common": {

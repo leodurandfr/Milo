@@ -11,7 +11,7 @@
   "settings": {
     "title": "Milō 配置",
     "languages": "语言",
-    "applications": "应用程序",
+    "dock": "Dock",
     "volume": "音量",
     "screen": "屏幕",
     "updates": "更新",
@@ -374,7 +374,9 @@
   },
   "applicationsSettings": {
     "inactivityTimeout": "自动关闭",
-    "inactivityDelay": "在一段时间不活动后停用音频源："
+    "inactivityDelay": "在一段时间不活动后停用音频源：",
+    "reorder": "重新排序",
+    "done": "完成"
   },
   "clientDetails": {
     "editClient": "编辑客户端",
@@ -414,6 +416,7 @@
     "1h": "1小时",
     "2h": "2 h",
     "4h": "4 h",
+    "12h": "12 h",
     "never": "从不"
   },
   "common": {

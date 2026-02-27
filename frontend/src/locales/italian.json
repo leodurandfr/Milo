@@ -11,7 +11,7 @@
   "settings": {
     "title": "Impostazioni Milō",
     "languages": "Lingue",
-    "applications": "Applicazioni",
+    "dock": "Dock",
     "volume": "Volume",
     "screen": "Schermo",
     "updates": "Aggiornamenti",
@@ -374,7 +374,9 @@
   },
   "applicationsSettings": {
     "inactivityTimeout": "Chiusura automatica",
-    "inactivityDelay": "Disattivare la sorgente audio dopo un periodo di inattività:"
+    "inactivityDelay": "Disattivare la sorgente audio dopo un periodo di inattività:",
+    "reorder": "Riordina",
+    "done": "Fatto"
   },
   "clientDetails": {
     "editClient": "Modifica client",
@@ -414,6 +416,7 @@
     "1h": "1 h",
     "2h": "2 h",
     "4h": "4 h",
+    "12h": "12 h",
     "never": "Mai"
   },
   "common": {

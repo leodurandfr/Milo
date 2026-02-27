@@ -11,7 +11,7 @@
   "settings": {
     "title": "Milō कॉन्फ़िगरेशन",
     "languages": "भाषाएं",
-    "applications": "एप्लिकेशन",
+    "dock": "Dock",
     "volume": "वॉल्यूम",
     "screen": "स्क्रीन",
     "updates": "अपडेट",
@@ -374,7 +374,9 @@
   },
   "applicationsSettings": {
     "inactivityTimeout": "स्वचालित बंद",
-    "inactivityDelay": "निष्क्रियता की अवधि के बाद ऑडियो स्रोत को निष्क्रिय करें:"
+    "inactivityDelay": "निष्क्रियता की अवधि के बाद ऑडियो स्रोत को निष्क्रिय करें:",
+    "reorder": "पुनः क्रमित करें",
+    "done": "पूर्ण"
   },
   "clientDetails": {
     "editClient": "क्लाइंट संपादित करें",
@@ -414,6 +416,7 @@
     "1h": "1 घंटा",
     "2h": "2 h",
     "4h": "4 h",
+    "12h": "12 h",
     "never": "कभी नहीं"
   },
   "common": {
