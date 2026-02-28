@@ -167,7 +167,6 @@ class EqualizerRouter:
         filter_id: str,
         filter_data: Dict[str, Any],
         persist: bool = True,
-        from_preset: bool = False,
         broadcast: bool = True
     ) -> Dict[str, Any]:
         """
@@ -178,7 +177,6 @@ class EqualizerRouter:
             filter_id: Filter ID to update
             filter_data: Dict with freq, gain, q, filter_type, enabled
             persist: Save to settings (False for zone updates using registry)
-            from_preset: Don't switch to manual preset
             broadcast: Emit WebSocket event (False for batch updates)
         """
         async def local():
@@ -191,7 +189,6 @@ class EqualizerRouter:
                     filter_type=filter_data.get("filter_type"),
                     enabled=filter_data.get("enabled", True),
                     persist=persist,
-                    from_preset=from_preset,
                     broadcast=broadcast
                 )
                 return {"status": "success" if success else "error", "filter_id": filter_id}

@@ -162,7 +162,9 @@
       "muted": "静音"
     },
     "presets": {
-      "manual": "手动",
+      "custom": "自定义",
+      "edited": "已编辑",
+      "save": "保存",
       "acoustic": "原声",
       "bass_boost": "低音增强",
       "bass_reducer": "低音减弱",

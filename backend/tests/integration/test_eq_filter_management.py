@@ -21,7 +21,7 @@ from backend.core.equalizer import (
     FilterType,
     get_builtin_presets,
     get_preset_by_id,
-    DEFAULT_MANUAL_GAINS,
+    DEFAULT_CUSTOM_GAINS,
     BUILTIN_PRESETS,
 )
 from backend.core.events import EventBus
@@ -342,11 +342,11 @@ class TestAC3TenBandEQConfiguration:
 
 
 # =============================================================================
-# AC4: Preset auto-switch on manual modification (FR23)
+# AC4: No auto-switch on filter modification
 # =============================================================================
 
-class TestAC4PresetAutoSwitch:
-    """AC4: Auto-switch to manual preset when filters are manually modified"""
+class TestAC4NoAutoSwitch:
+    """AC4: Modifying filters does NOT auto-switch preset (removed behavior)"""
 
     @pytest.fixture
     def mock_settings_service(self):
@@ -379,55 +379,27 @@ class TestAC4PresetAutoSwitch:
         return service
 
     @pytest.mark.asyncio
-    async def test_manual_modification_switches_to_manual_preset(self, connected_camilladsp_service_on_preset, mock_settings_service):
-        """Should switch to manual preset when filter manually modified (from_preset=False)"""
+    async def test_manual_modification_does_not_switch_preset(self, connected_camilladsp_service_on_preset, mock_settings_service):
+        """Should NOT switch preset when filter is manually modified"""
         mock_config = {"filters": {}}
 
         with patch.object(connected_camilladsp_service_on_preset, '_get_config', new_callable=AsyncMock, return_value=mock_config):
             with patch.object(connected_camilladsp_service_on_preset, '_set_config', new_callable=AsyncMock):
-                # Modify filter with from_preset=False (default)
                 await connected_camilladsp_service_on_preset.set_filter(
                     filter_id="eq_band_00",
                     freq=100,
                     gain=5.0,
                     q=1.41,
-                    from_preset=False
                 )
 
-                # Verify preset was switched to "manual"
+                # Verify preset was NOT switched
                 preset_calls = [c for c in mock_settings_service.set_setting.call_args_list
                                if c[0][0] == "equalizer.active_preset"]
-                assert len(preset_calls) >= 1
-                assert preset_calls[-1][0][1] == "manual"
+                assert len(preset_calls) == 0
 
     @pytest.mark.asyncio
-    async def test_preset_load_does_not_trigger_manual_switch(self, connected_camilladsp_service_on_preset, mock_settings_service):
-        """Should NOT switch to manual when loading preset (from_preset=True)"""
-        mock_config = {"filters": {}}
-
-        # Reset to track calls during this test only
-        mock_settings_service.set_setting.reset_mock()
-
-        with patch.object(connected_camilladsp_service_on_preset, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service_on_preset, '_set_config', new_callable=AsyncMock):
-                # Apply filter from preset (from_preset=True)
-                await connected_camilladsp_service_on_preset.set_filter(
-                    filter_id="eq_band_00",
-                    freq=100,
-                    gain=5.0,
-                    q=1.41,
-                    from_preset=True
-                )
-
-                # Should NOT have switched preset
-                preset_calls = [c for c in mock_settings_service.set_setting.call_args_list
-                               if c[0][0] == "equalizer.active_preset"]
-                # from_preset=True means we shouldn't switch to manual
-                assert len(preset_calls) == 0 or preset_calls[-1][0][1] != "manual"
-
-    @pytest.mark.asyncio
-    async def test_manual_switch_broadcasts_preset_loaded_event(self, connected_camilladsp_service_on_preset):
-        """Should broadcast preset_loaded event with id=manual on auto-switch"""
+    async def test_manual_modification_does_not_broadcast_preset_loaded(self, connected_camilladsp_service_on_preset):
+        """Should NOT broadcast preset_loaded event when filter is modified"""
         mock_config = {"filters": {}}
         state_machine = connected_camilladsp_service_on_preset.state_machine
 
@@ -438,21 +410,18 @@ class TestAC4PresetAutoSwitch:
                     freq=100,
                     gain=5.0,
                     q=1.41,
-                    from_preset=False
                 )
 
-                # Find preset_loaded broadcast
+                # Should NOT have preset_loaded broadcasts
                 preset_events = [
                     c for c in state_machine.broadcast_event.call_args_list
                     if len(c[0]) >= 2 and c[0][1] == "preset_loaded"
                 ]
-                assert len(preset_events) >= 1
-                # Verify it broadcasts id="manual"
-                assert preset_events[-1][0][2]["id"] == "manual"
+                assert len(preset_events) == 0
 
     @pytest.mark.asyncio
-    async def test_manual_gains_saved_before_switch(self, connected_camilladsp_service_on_preset, mock_settings_service):
-        """Should save current gains as manual gains before switching"""
+    async def test_manual_modification_does_not_save_custom_gains(self, connected_camilladsp_service_on_preset, mock_settings_service):
+        """Should NOT save custom gains when filter is modified"""
         mock_config = {"filters": {}}
 
         with patch.object(connected_camilladsp_service_on_preset, '_get_config', new_callable=AsyncMock, return_value=mock_config):
@@ -462,48 +431,12 @@ class TestAC4PresetAutoSwitch:
                     freq=100,
                     gain=5.0,
                     q=1.41,
-                    from_preset=False
                 )
 
-                # Should have saved manual gains
-                manual_gains_calls = [c for c in mock_settings_service.set_setting.call_args_list
-                                     if c[0][0] == "equalizer.manual_gains"]
-                assert len(manual_gains_calls) >= 1
-
-    @pytest.mark.asyncio
-    async def test_already_on_manual_no_switch(self):
-        """Should not trigger switch when already on manual preset"""
-        mock_settings = Mock()
-        mock_settings.get_setting = AsyncMock(return_value="manual")  # Already on manual
-        mock_settings.set_setting = AsyncMock()
-        mock_event_bus = Mock(spec=EventBus)
-        mock_event_bus.emit = AsyncMock()
-
-        service = CamillaDSPService(
-            settings_service=mock_settings,
-            event_bus=mock_event_bus
-        )
-        service._connected = True
-        service._state = CamillaDspState.RUNNING
-        service._filters = [
-            {"id": f"eq_band_{i:02d}", "type": "Peaking", "freq": DEFAULT_EQ_FREQUENCIES[i], "gain": 0, "q": 1.41, "enabled": True}
-            for i in range(10)
-        ]
-        service.state_machine = Mock()
-        service.state_machine.broadcast_event = AsyncMock()
-
-        mock_config = {"filters": {}}
-
-        with patch.object(service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(service, '_set_config', new_callable=AsyncMock):
-                await service.set_filter("eq_band_00", freq=100, gain=5.0, q=1.41)
-
-                # Should not have a preset_loaded broadcast for manual (already on manual)
-                preset_events = [
-                    c for c in service.state_machine.broadcast_event.call_args_list
-                    if len(c[0]) >= 2 and c[0][1] == "preset_loaded"
-                ]
-                assert len(preset_events) == 0
+                # Should NOT have saved custom gains
+                custom_gains_calls = [c for c in mock_settings_service.set_setting.call_args_list
+                                     if c[0][0] == "equalizer.custom_gains"]
+                assert len(custom_gains_calls) == 0
 
 
 # =============================================================================
@@ -634,6 +567,6 @@ class TestPresetSystem:
         preset = get_preset_by_id("nonexistent")
         assert preset is None
 
-    def test_default_manual_gains_are_flat(self):
-        """Default manual gains should be all zeros (flat response)"""
-        assert DEFAULT_MANUAL_GAINS == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    def test_default_custom_gains_are_flat(self):
+        """Default custom gains should be all zeros (flat response)"""
+        assert DEFAULT_CUSTOM_GAINS == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]

@@ -325,18 +325,18 @@ def create_equalizer_router(
 
     @router.get("/presets")
     async def get_presets():
-        """Get all builtin presets with their gains, manual gains, and active preset ID."""
+        """Get all builtin presets with their gains, custom gains, and active preset ID."""
         try:
             presets = camilladsp_service.get_presets()
             active_preset = await camilladsp_service.get_active_preset()
-            manual_gains = await camilladsp_service.get_manual_gains()
+            custom_gains = await camilladsp_service.get_custom_gains()
             return {
                 "presets": presets,
-                "manual_gains": manual_gains,
+                "custom_gains": custom_gains,
                 "active_preset": active_preset
             }
         except Exception as e:
-            return {"presets": [], "manual_gains": [0]*10, "active_preset": None, "error": str(e)}
+            return {"presets": [], "custom_gains": [0]*10, "active_preset": None, "error": str(e)}
 
     @router.put("/preset/{preset_id}")
     async def load_preset(preset_id: str):
@@ -353,6 +353,68 @@ def create_equalizer_router(
         except HTTPException:
             raise
         except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/save-custom")
+    async def save_custom_preset():
+        """Save current filter gains as the custom preset and activate it."""
+        try:
+            # Save current gains to custom preset
+            await camilladsp_service._save_custom_gains()
+
+            # Set active preset to "custom"
+            if settings_service:
+                await settings_service.set_setting("equalizer.active_preset", "custom")
+
+            # No broadcast: frontend handles state locally in saveCustomPreset()
+            # Broadcasting preset_loaded would trigger handlePresetLoaded which
+            # overwrites current filter gains with stale customGains
+
+            return {"status": "success", "preset_id": "custom"}
+        except Exception as e:
+            logger.error(f"Error saving custom preset: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/zone/{zone_id}/save-custom")
+    async def save_zone_custom_preset(zone_id: str):
+        """Save current zone EQ gains as the custom preset and activate it."""
+        try:
+            current = await multiroom_equalizer_service.get_equalizer("zone", zone_id)
+            if not current:
+                raise HTTPException(status_code=404, detail=f"Zone not found: {zone_id}")
+
+            # Gains are already persisted in the zone's registry EqualizerSettings.filters.
+            # Just update the active preset — no need to write to the shared global key.
+            await multiroom_equalizer_service.set_zone_active_preset(zone_id, "custom")
+
+            return {"status": "success", "zone_id": zone_id, "preset_id": "custom"}
+        except HTTPException:
+            raise
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except Exception as e:
+            logger.error(f"Error saving custom preset for zone {zone_id}: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/client/{mac_id}/save-custom")
+    async def save_client_custom_preset(mac_id: str):
+        """Save current client EQ gains as the custom preset and activate it."""
+        try:
+            current = await multiroom_equalizer_service.get_equalizer("client", mac_id)
+            if not current:
+                raise HTTPException(status_code=404, detail=f"Client not found: {mac_id}")
+
+            # Gains are already persisted in the client's registry EqualizerSettings.filters.
+            # Just update the active preset — no need to write to the shared global key.
+            await multiroom_equalizer_service.set_client_active_preset(mac_id, "custom")
+
+            return {"status": "success", "client_id": mac_id, "preset_id": "custom"}
+        except HTTPException:
+            raise
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except Exception as e:
+            logger.error(f"Error saving custom preset for client {mac_id}: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     @router.get("/zone/{zone_id}")

@@ -162,7 +162,9 @@
       "muted": "म्यूट"
     },
     "presets": {
-      "manual": "मैनुअल",
+      "custom": "कस्टम",
+      "edited": "संपादित",
+      "save": "सहेजें",
       "acoustic": "एकॉस्टिक",
       "bass_boost": "बास बूस्ट",
       "bass_reducer": "बास रिड्यूसर",

@@ -174,7 +174,7 @@ async function openModal() {
   // Initial container state (invisible and scaled down)
   modalContainer.value.style.transition = 'none';
   modalContainer.value.style.opacity = '0';
-  modalContainer.value.style.transform = 'scale(0.85)';
+  modalContainer.value.style.transform = 'scale(0.9)';
 
   // Initial close button state (invisible and higher position)
   closeButtonWrapper.value.style.transition = 'none';
@@ -249,7 +249,7 @@ async function closeModal() {
     if (!modalContainer.value) return;
     modalContainer.value.style.transition = `transform ${ANIMATION_TIMINGS.closeContainerDuration}ms ease-out, opacity ${ANIMATION_TIMINGS.closeContainerDuration}ms ease-out, height ${ANIMATION_TIMINGS.closeContainerDuration}ms ease-out`;
     modalContainer.value.style.opacity = '0';
-    modalContainer.value.style.transform = 'scale(0.95)';
+    modalContainer.value.style.transform = 'scale(0.9)';
   }, ANIMATION_TIMINGS.closeContainerDelay);
   animationTimeouts.push(containerCloseTimeout);
 

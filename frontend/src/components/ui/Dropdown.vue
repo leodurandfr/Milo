@@ -2,11 +2,11 @@
 <template>
   <div ref="dropdownRef" class="dropdown">
     <button v-press type="button" class="dropdown-trigger"
-      :class="[`dropdown-trigger--${variant}`, { 'is-open': isOpen, 'has-selection': modelValue }]"
+      :class="[`dropdown-trigger--${variant}`, `dropdown-trigger--${size}`, { 'is-open': isOpen, 'has-selection': modelValue }]"
       :disabled="disabled"
       @click="toggleDropdown">
-      <span class="dropdown-label" :class="variant === 'minimal' ? 'text-mono' : 'heading-3'">{{ selectedLabel }}</span>
-      <SvgIcon v-if="variant !== 'minimal'" name="caretDown" :size="24" class="dropdown-icon" />
+      <span class="dropdown-label" :class="variant === 'minimal' ? 'text-mono' : (size === 'small' ? 'heading-4' : 'heading-3')">{{ selectedLabel }}</span>
+      <SvgIcon v-if="variant !== 'minimal'" name="caretDown" :size="size === 'small' ? 20 : 24" class="dropdown-icon" />
     </button>
 
     <Teleport to="body">
@@ -50,6 +50,15 @@ const props = defineProps({
     type: String,
     default: 'outline',
     validator: (value) => ['outline', 'minimal', 'background-neutral'].includes(value)
+  },
+  size: {
+    type: String,
+    default: 'medium',
+    validator: (value) => ['medium', 'small'].includes(value)
+  },
+  displayOverride: {
+    type: String,
+    default: null
   }
 });
 
@@ -63,6 +72,7 @@ const menuPosition = ref({ top: '0px', left: '0px', width: '0px' });
 const lastScrollPosition = ref({ x: 0, y: 0 });
 
 const selectedLabel = computed(() => {
+  if (props.displayOverride) return props.displayOverride;
   const selected = props.options.find(opt => opt.value === props.modelValue);
   return selected ? selected.label : props.placeholder;
 });
@@ -233,6 +243,13 @@ onBeforeUnmount(() => {
   transition: box-shadow var(--transition-fast), var(--transition-press);
 }
 
+/* Size: small */
+.dropdown-trigger--small {
+  height: 36px;
+  padding: var(--space-02) var(--space-03);
+  border-radius: var(--radius-03);
+}
+
 .dropdown-trigger.is-open {
   -webkit-box-shadow: inset 0 0 0 2px var(--color-brand);
   box-shadow: inset 0 0 0 2px var(--color-brand);
@@ -374,5 +391,12 @@ onBeforeUnmount(() => {
 .dropdown-menu.open-upward.dropdown-menu-leave-to {
   opacity: 0;
   transform: translateY(8px);
+}
+
+/* Mobile adjustments */
+@media (max-aspect-ratio: 4/3) {
+  .dropdown-trigger--small {
+    height: 34px;
+  }
 }
 </style>

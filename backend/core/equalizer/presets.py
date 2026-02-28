@@ -9,7 +9,7 @@ Each preset contains:
   - id: unique identifier (used for API and i18n keys)
   - gains: array of 10 gain values in dB
 
-Note: "manual" is a special preset stored in user settings, not here.
+Note: "custom" is a special preset stored in user settings, not here.
 The order below matches the UI display order.
 """
 
@@ -39,8 +39,11 @@ BUILTIN_PRESETS: List[Dict] = [
     {"id": "vocal_boost", "gains": [-2, -1, 0, 2, 4, 4, 3, 2, 1, 0]},
 ]
 
-# Default gains for manual preset (flat)
-DEFAULT_MANUAL_GAINS = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+# Default gains for custom preset (flat)
+DEFAULT_CUSTOM_GAINS = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+# Backward compatibility alias
+DEFAULT_MANUAL_GAINS = DEFAULT_CUSTOM_GAINS
 
 # Standard 10-band EQ frequencies (Hz)
 DEFAULT_EQ_FREQS = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]

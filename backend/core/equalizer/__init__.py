@@ -17,6 +17,7 @@ from backend.core.equalizer.service import (
 from backend.core.equalizer.presets import (
     get_builtin_presets,
     get_preset_by_id,
+    DEFAULT_CUSTOM_GAINS,
     DEFAULT_MANUAL_GAINS,
     BUILTIN_PRESETS,
 )
@@ -39,6 +40,7 @@ __all__ = [
     # Presets
     "get_builtin_presets",
     "get_preset_by_id",
+    "DEFAULT_CUSTOM_GAINS",
     "DEFAULT_MANUAL_GAINS",
     "BUILTIN_PRESETS",
 ]

@@ -1008,13 +1008,14 @@ class ClientRegistryService:
         """Get standalone equalizer settings for a client."""
         return self._standalone_equalizer.get(mac_id)
 
-    async def set_standalone_equalizer(self, mac_id: str, settings: EqualizerSettings) -> None:
+    async def set_standalone_equalizer(self, mac_id: str, settings: EqualizerSettings, broadcast: bool = True) -> None:
         """
         Set standalone equalizer settings for a client.
 
         Args:
             mac_id: The client's mac_id
             settings: Equalizer settings to store
+            broadcast: Whether to emit the EQUALIZER_SETTINGS_CHANGED event
         """
         async with self._lock:
             client = self._clients.get(mac_id)
@@ -1029,11 +1030,12 @@ class ClientRegistryService:
             self._standalone_equalizer[mac_id] = settings
 
         await self._persist_standalone_equalizer()
-        await self._emit_event(RegistryEventType.EQUALIZER_SETTINGS_CHANGED, {
-            "target_type": "client",
-            "target_id": mac_id,
-            "equalizer_settings": settings.to_dict()
-        })
+        if broadcast:
+            await self._emit_event(RegistryEventType.EQUALIZER_SETTINGS_CHANGED, {
+                "target_type": "client",
+                "target_id": mac_id,
+                "equalizer_settings": settings.to_dict()
+            })
 
     def get_client_equalizer_settings(self, mac_id: str) -> Optional[EqualizerSettings]:
         """
@@ -1058,7 +1060,7 @@ class ClientRegistryService:
         # Otherwise return standalone equalizer
         return self._standalone_equalizer.get(mac_id)
 
-    async def set_zone_equalizer(self, zone_id: str, settings: EqualizerSettings) -> bool:
+    async def set_zone_equalizer(self, zone_id: str, settings: EqualizerSettings, broadcast: bool = True) -> bool:
         """
         Set equalizer settings for a zone.
 
@@ -1067,6 +1069,7 @@ class ClientRegistryService:
         Args:
             zone_id: The zone's ID
             settings: Equalizer settings to store
+            broadcast: Whether to emit the EQUALIZER_SETTINGS_CHANGED event
 
         Returns:
             True if successful, False if zone not found
@@ -1080,11 +1083,12 @@ class ClientRegistryService:
             zone.equalizer_settings = settings
 
         await self._persist_zones()
-        await self._emit_event(RegistryEventType.EQUALIZER_SETTINGS_CHANGED, {
-            "target_type": "zone",
-            "target_id": zone_id,
-            "equalizer_settings": settings.to_dict()
-        })
+        if broadcast:
+            await self._emit_event(RegistryEventType.EQUALIZER_SETTINGS_CHANGED, {
+                "target_type": "zone",
+                "target_id": zone_id,
+                "equalizer_settings": settings.to_dict()
+            })
         return True
 
     # === STATE SNAPSHOT ===

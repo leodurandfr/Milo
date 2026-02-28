@@ -21,13 +21,12 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   // === STATE ===
   const filters = ref([]);
   const builtinPresets = ref([]); // Array of { id, gains } objects
-  const manualGains = ref([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]); // Saved manual EQ gains
-  const activePreset = ref(null); // Preset ID ('manual' or builtin ID)
+  const customGains = ref([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]); // Saved custom EQ gains
+  const activePreset = ref(null); // Preset ID ('custom' or builtin ID)
   const state = ref('disconnected'); // disconnected, inactive, running, paused
   const isLoading = ref(false);
   const isUpdating = ref(false);
   const isResetting = ref(false);
-  const isLoadingPreset = ref(false); // Flag to prevent "Manual" flicker during preset load
   const filtersLoaded = ref(false);
   const sampleRate = ref(48000);
 
@@ -123,11 +122,15 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   const isConnected = computed(() => state.value !== 'disconnected');
   const isRunning = computed(() => state.value === 'running');
 
-  // Manual mode: active when preset is 'manual' or no preset selected
-  // Backend handles switching to manual when gains change via WebSocket events
-  const isManualMode = computed(() => {
-    return activePreset.value === 'manual' || !activePreset.value;
+  // Custom mode: active when preset is 'custom' or no preset selected
+  const isCustomMode = computed(() => {
+    return activePreset.value === 'custom' || !activePreset.value;
   });
+
+  // Edited state: true when gains have been modified from the loaded preset
+  const isPresetEdited = ref(false);
+  // Snapshot of the gains when a preset was loaded (for edit detection)
+  const originalPresetGains = ref(null);
 
   // Format frequency for display
   const formatFrequency = (freq) => {
@@ -230,8 +233,8 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       // Presets are always fetched from local Milo
       const response = await axios.get('/api/equalizer/presets');
       builtinPresets.value = response.data.presets || [];
-      manualGains.value = response.data.manual_gains || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-      activePreset.value = response.data.active_preset || 'manual';
+      customGains.value = response.data.custom_gains || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+      activePreset.value = response.data.active_preset || 'custom';
       return builtinPresets.value;
     } catch (error) {
       logger.error('store', 'Error fetching equalizer presets', error);
@@ -659,16 +662,22 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
       // When in a zone, the zone registry is the source of truth for equalizer settings.
       // The local CamillaDSP cache may be stale (zone operations use persist=False).
-      // Override loudness/compressor with zone data to prevent state desync.
+      // Override loudness/compressor/activePreset with zone data to prevent state desync.
       const zoneId = getSelectedZoneId();
       if (zoneId) {
         const zoneEq = await fetchZoneEqualizer(zoneId, signal);
+        // Guard: abort if a new loadStatus() was triggered while we were fetching
+        if (signal.aborted) return;
         if (zoneEq) {
           if (zoneEq.loudness) {
             loudness.value = { ...loudness.value, ...zoneEq.loudness };
           }
           if (zoneEq.compressor) {
             compressor.value = { ...compressor.value, ...zoneEq.compressor };
+          }
+          // Zone is source of truth for active preset
+          if (zoneEq.active_preset) {
+            activePreset.value = zoneEq.active_preset;
           }
         }
       }
@@ -677,6 +686,10 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       // No need to update local cache here
 
       filtersLoaded.value = true;
+
+      // Snapshot current preset gains for edit detection
+      isPresetEdited.value = false;
+      _snapshotPresetGains(activePreset.value);
     } catch (error) {
       if (axios.isCancel(error) || error.name === 'CanceledError') {
         return;
@@ -749,6 +762,20 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   async function updateFilter(filterId, field, value) {
     updateFilterValue(filterId, field, value);
 
+    // Track edit state: mark as edited when any filter parameter changes from loaded preset
+    if (!isPresetEdited.value && activePreset.value) {
+      if (field === 'gain' && originalPresetGains.value) {
+        const currentGains = filters.value.map(f => f.gain);
+        const edited = currentGains.some((g, i) => g !== originalPresetGains.value[i]);
+        if (edited) {
+          isPresetEdited.value = true;
+        }
+      } else if (field !== 'gain') {
+        // Freq, Q, or type changes always count as edits
+        isPresetEdited.value = true;
+      }
+    }
+
     const filter = filters.value.find(f => f.id === filterId);
     if (filter) {
       handleFilterThrottled(filterId, {
@@ -816,7 +843,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
   // === PRESET MANAGEMENT ===
   async function loadPreset(presetId) {
-    isLoadingPreset.value = true;
     try {
       // If target is in a zone, use zone endpoint (backend handles propagation)
       const zoneId = getSelectedZoneId();
@@ -824,7 +850,9 @@ export const useEqualizerStore = defineStore('equalizer', () => {
         const response = await axios.post(`/api/equalizer/zone/${zoneId}/preset`, { preset_id: presetId });
         if (response.data.status === 'success' || response.data.status === 'partial') {
           activePreset.value = presetId;
-          // WebSocket filter_changed events update filters.value automatically
+          isPresetEdited.value = false;
+          _snapshotPresetGains(presetId);
+          _applyPresetGains(presetId);
           return true;
         }
         return false;
@@ -834,15 +862,87 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       const response = await axios.put(`/api/equalizer/preset/${presetId}`);
       if (response.data.status === 'success') {
         activePreset.value = presetId;
-        // WebSocket filter_changed events update filters.value automatically
+        isPresetEdited.value = false;
+        _snapshotPresetGains(presetId);
+        _applyPresetGains(presetId);
         return true;
       }
       return false;
     } catch (error) {
       logger.error('store', 'Error loading preset', error);
       return false;
-    } finally {
-      isLoadingPreset.value = false;
+    }
+  }
+
+  /**
+   * Save current filter gains as the "custom" preset.
+   * Posts to the save-custom endpoint, which persists gains and sets active_preset.
+   */
+  async function saveCustomPreset() {
+    try {
+      const zoneId = getSelectedZoneId();
+      let response;
+      if (zoneId) {
+        response = await axios.post(`/api/equalizer/zone/${zoneId}/save-custom`);
+      } else if (selectedTarget.value && !isLocalClient(selectedTarget.value)) {
+        response = await axios.post(`/api/equalizer/client/${selectedTarget.value}/save-custom`);
+      } else {
+        response = await axios.post('/api/equalizer/save-custom');
+      }
+      if (response.data.status === 'success') {
+        activePreset.value = 'custom';
+        customGains.value = filters.value.map(f => f.gain);
+        isPresetEdited.value = false;
+        originalPresetGains.value = [...customGains.value];
+        return true;
+      }
+      return false;
+    } catch (error) {
+      logger.error('store', 'Error saving custom preset', error);
+      return false;
+    }
+  }
+
+  /**
+   * Snapshot the gains for the currently loaded preset (for edit detection).
+   * @param {string} presetId - Preset ID
+   */
+  function _snapshotPresetGains(presetId) {
+    if (presetId === 'custom') {
+      originalPresetGains.value = [...customGains.value];
+    } else {
+      const preset = builtinPresets.value.find(p => p.id === presetId);
+      if (preset) {
+        originalPresetGains.value = [...preset.gains];
+      } else {
+        originalPresetGains.value = null;
+      }
+    }
+  }
+
+  /**
+   * Apply preset gains to local filter values.
+   * Used after loading a preset to update the UI immediately.
+   */
+  function _applyPresetGains(presetId) {
+    let gains = null;
+    if (presetId === 'custom') {
+      gains = customGains.value;
+    } else {
+      const preset = builtinPresets.value.find(p => p.id === presetId);
+      if (preset) {
+        gains = preset.gains;
+      }
+    }
+
+    if (gains && filters.value.length > 0) {
+      for (let i = 0; i < gains.length && i < filters.value.length; i++) {
+        const filterId = `eq_band_${i.toString().padStart(2, '0')}`;
+        const filter = filters.value.find(f => f.id === filterId);
+        if (filter) {
+          filter.gain = gains[i];
+        }
+      }
     }
   }
 
@@ -928,6 +1028,14 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     // availableTargets is now a computed property that delegates to multiroomStore
     if (!registryStore.isInitialized) {
       await registryStore.initialize();
+    }
+
+    // Auto-select local client if no target selected
+    if (!selectedTarget.value && availableTargets.value.length > 0) {
+      const localTarget = availableTargets.value.find(t => t.is_local);
+      if (localTarget) {
+        selectedTarget.value = localTarget.id;
+      }
     }
   }
 
@@ -1223,8 +1331,10 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     // the relevance check may fail while the preset change is still valid
     if (target_type === 'zone' && equalizer_settings.active_preset !== undefined) {
       const zone = registryStore.getZoneForClient(selectedTarget.value);
-      if (zone && zone.id === target_id) {
+      if (zone && zone.id === target_id && equalizer_settings.active_preset !== activePreset.value) {
         activePreset.value = equalizer_settings.active_preset;
+        isPresetEdited.value = false;
+        _snapshotPresetGains(equalizer_settings.active_preset);
       }
     }
 
@@ -1270,9 +1380,11 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       Object.assign(loudness.value, equalizer_settings.loudness);
     }
 
-    // Update active preset if present in the event
-    if (equalizer_settings.active_preset !== undefined) {
+    // Update active preset if it actually changed (avoid resetting edit state on echo)
+    if (equalizer_settings.active_preset !== undefined && equalizer_settings.active_preset !== activePreset.value) {
       activePreset.value = equalizer_settings.active_preset;
+      isPresetEdited.value = false;
+      _snapshotPresetGains(equalizer_settings.active_preset);
     }
   }
 
@@ -1311,27 +1423,9 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   function handlePresetLoaded(event) {
     const presetId = event.data.id || event.data.name;
     activePreset.value = presetId;
-
-    // Apply preset gains to filters (since individual filter_changed events are suppressed)
-    let gains = null;
-    if (presetId === 'manual') {
-      gains = manualGains.value;
-    } else {
-      const preset = builtinPresets.value.find(p => p.id === presetId);
-      if (preset) {
-        gains = preset.gains;
-      }
-    }
-
-    if (gains && filters.value.length > 0) {
-      for (let i = 0; i < gains.length && i < filters.value.length; i++) {
-        const filterId = `eq_band_${i.toString().padStart(2, '0')}`;
-        const filter = filters.value.find(f => f.id === filterId);
-        if (filter) {
-          filter.gain = gains[i];
-        }
-      }
-    }
+    isPresetEdited.value = false;
+    _snapshotPresetGains(presetId);
+    _applyPresetGains(presetId);
   }
 
   function handleLevels(event) {
@@ -1372,7 +1466,9 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     }
     loudness.value = { enabled: false, low_boost: 5, high_boost: 5 };
     compressor.value = { enabled: false, threshold: -20, ratio: 4, attack: 10, release: 100, makeup_gain: 0 };
-    activePreset.value = 'manual';
+    activePreset.value = 'custom';
+    isPresetEdited.value = false;
+    originalPresetGains.value = null;
   }
 
   // === EQUALIZER EFFECTS ENABLE/DISABLE ===
@@ -1516,9 +1612,11 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
     // Preset Management
     builtinPresets,
-    manualGains,
-    isManualMode,
+    customGains,
+    isCustomMode,
+    isPresetEdited,
     loadPreset,
+    saveCustomPreset,
 
     // Advanced Features
     updateCompressor,
