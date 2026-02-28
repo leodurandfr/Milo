@@ -22,7 +22,7 @@
     <!-- Section 2: Modified Stations (from RadioBrowserAPI favorites) -->
     <h2 class="heading-2">{{ $t('radioSettings.modifiedStationsTitle') }}</h2>
     <div v-if="modifiedStations.length > 0" class="stations-list">
-      <StationCard v-for="station in modifiedStations" :key="`${station.id}-${station.name}-${updateCounter}`" :station="station"
+      <StationCard v-for="station in modifiedStations" :key="station.id" :station="station"
         variant="card" :show-country="true" @click="$emit('edit-station', { ...station, _canRestore: true })" />
     </div>
     <div v-else class="empty-state text-mono">
@@ -46,8 +46,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
-import axios from 'axios';
+import { computed, onMounted } from 'vue';
 import { useRadioStore } from '@/stores/radioStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
@@ -74,77 +73,37 @@ async function handleShazamToggle(enabled) {
   await updateSetting('radio-settings', { shazam_enabled: enabled });
 }
 
-// Local lists loaded from the API
-const customStationsDict = ref({}); // Dict of station_id → custom metadata
-const allFavorites = ref([]); // All favorites from API
-const updateCounter = ref(0); // Force re-render counter
-
-// Unmodified favorites: favorites that are NOT in customStationsDict (sorted alphabetically)
+// Unmodified favorites: favorites that are NOT in customStations (already sorted by store)
 const unmodifiedFavorites = computed(() => {
-  return allFavorites.value
-    .filter(station => !customStationsDict.value[station.id])
-    .sort((a, b) => a.name.localeCompare(b.name));
+  return radioStore.favoriteStations
+    .filter(station => !radioStore.customStations[station.id]);
 });
 
 // Modified stations: RadioBrowser favorites that have been modified (sorted alphabetically)
-// These are entries in customStationsDict with RadioBrowser UUID keys (not starting with "custom_")
 const modifiedStations = computed(() => {
-  const _ = updateCounter.value;
-  return Object.entries(customStationsDict.value)
-    .filter(([id, _]) => !id.startsWith('custom_'))
+  return Object.entries(radioStore.customStations)
+    .filter(([id]) => !id.startsWith('custom_'))
     .map(([id, metadata]) => ({ ...metadata, id }))
     .sort((a, b) => a.name.localeCompare(b.name));
 });
 
 // Added stations: custom stations created manually (sorted alphabetically)
-// These are entries in customStationsDict with keys starting with "custom_"
 const addedStations = computed(() => {
-  const _ = updateCounter.value;
-  return Object.entries(customStationsDict.value)
-    .filter(([id, _]) => id.startsWith('custom_'))
+  return Object.entries(radioStore.customStations)
+    .filter(([id]) => id.startsWith('custom_'))
     .map(([id, metadata]) => ({ ...metadata, id }))
     .sort((a, b) => a.name.localeCompare(b.name));
 });
 
-async function loadCustomStations() {
-  // Load custom stations dict (contains both modified favorites and manually added stations)
-  try {
-    const customResponse = await axios.get('/api/radio/custom');
-    customStationsDict.value = customResponse.data || {};
-  } catch (error) {
-    console.error('Erreur chargement stations personnalisées:', error);
-    customStationsDict.value = {};
-  }
-}
-
-async function loadAllFavorites() {
-  // Load all favorites (including unmodified ones)
-  try {
-    const response = await axios.get('/api/radio/stations', {
-      params: { favorites_only: true }
-    });
-    allFavorites.value = response.data.stations || [];
-  } catch (error) {
-    console.error('Erreur chargement favoris:', error);
-    allFavorites.value = [];
-  }
-}
-
-async function loadAllData() {
-  await Promise.all([loadCustomStations(), loadAllFavorites()]);
-}
-
-// Expose loadCustomStations so SettingsModal can reload data
-defineExpose({ loadCustomStations: loadAllData });
-
 onMounted(() => {
-  loadAllData();
+  // Refresh data on mount (preloaded data prevents layout shift, this ensures freshness)
+  radioStore.loadRadioSettingsData();
 });
 
 // Listen for metadata modifications to auto-reload
 on('radio', 'favorite_modified', () => {
   logger.debug('radio', 'Station modified, reloading RadioSettings data');
-  loadAllData();
+  radioStore.loadRadioSettingsData();
 });
 
 // Listen for radio settings changes (from other clients)
