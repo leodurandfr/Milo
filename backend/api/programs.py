@@ -5,6 +5,7 @@ API routes for program management — Full version with satellites
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from typing import Dict, Any
 from backend.core.models.audio_state import AudioSource
+from backend.core.updates.helpers import compare_versions, extract_base_tag
 
 # Mapping from program key to AudioSource for pre-update deactivation
 PROGRAM_TO_AUDIO_SOURCE = {
@@ -81,16 +82,16 @@ def create_programs_router(ws_manager, version_service, update_service, satellit
 
             for satellite in satellites:
                 satellite["latest_version"] = latest_version
-                satellite["update_available"] = satellite_service._compare_versions(
+                satellite["update_available"] = compare_versions(
                     satellite.get("snapclient_version"),
                     latest_version
                 )
-                # App update: available if version differs or satellite has no version
+                # App update: compare base tags (v0.0.1-347-g14ee633 -> v0.0.1)
                 satellite["server_version"] = server_version
                 sat_app_version = satellite.get("app_version")
-                satellite["app_update_available"] = (
-                    server_version is not None and
-                    (sat_app_version is None or sat_app_version != server_version)
+                satellite["app_update_available"] = compare_versions(
+                    extract_base_tag(sat_app_version),
+                    extract_base_tag(server_version)
                 )
 
             return {
