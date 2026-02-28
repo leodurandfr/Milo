@@ -260,15 +260,14 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   .content-container {
     width: 100%;
     max-width: none;
-    padding-top: var(--space-09);
+    padding-top: calc(max(24px, env(safe-area-inset-top, 0px)) + 8px);
     padding-bottom: var(--space-08);
-
   }
 
   .content-container.has-player {
     width: 100%;
     margin-right: 0;
-    padding-bottom: v-bind(mobilePlayerPadding);
+    padding-bottom: calc(v-bind(mobilePlayerPadding) + env(safe-area-inset-bottom, 0px));
   }
 
   .player-wrapper {
