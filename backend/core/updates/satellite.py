@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 from backend.config.constants import CLIENT_API_PORT
+from backend.core.updates.helpers import compare_versions, extract_base_tag
 
 MILO_REPO_DIR = Path("/home/milo/milo")
 MILO_CLIENT_DIR = MILO_REPO_DIR / "milo-client"
@@ -135,7 +136,7 @@ class SatelliteUpdateService:
                     # Enrichir avec version disponible
                     latest_version = await self._get_latest_snapclient_version()
                     satellite["latest_version"] = latest_version
-                    satellite["update_available"] = self._compare_versions(
+                    satellite["update_available"] = compare_versions(
                         satellite.get("snapclient_version"),
                         latest_version
                     )
@@ -492,29 +493,3 @@ class SatelliteUpdateService:
             "error": f"App update timeout for {hostname}"
         }
 
-    def _compare_versions(self, current: Optional[str], latest: Optional[str]) -> bool:
-        """Compares two versions (returns True if update available)"""
-        if not current or not latest:
-            return False
-
-        try:
-            def parse_version(version_str):
-                clean_version = version_str.replace('v', '')
-                parts = clean_version.split('.')
-                while len(parts) < 3:
-                    parts.append('0')
-                return [int(p) for p in parts[:3]]
-
-            current_parts = parse_version(current)
-            latest_parts = parse_version(latest)
-
-            for i in range(3):
-                if latest_parts[i] > current_parts[i]:
-                    return True
-                elif latest_parts[i] < current_parts[i]:
-                    return False
-
-            return False
-
-        except Exception:
-            return False

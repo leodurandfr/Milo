@@ -5,10 +5,12 @@ Version management service - Version with GitHub token support
 import asyncio
 import aiohttp
 import logging
-import re
 import os
+import re
 from typing import Dict, Any, Optional, List
 from pathlib import Path
+
+from backend.core.updates.helpers import compare_versions
 
 class VersionService:
     """Simplified service to manage Milo program versions"""
@@ -318,7 +320,7 @@ class VersionService:
                     latest_version = github_result.get("version")
 
                     if installed_version and latest_version:
-                        result["update_available"] = self._compare_versions(installed_version, latest_version)
+                        result["update_available"] = compare_versions(installed_version, latest_version)
 
             return result
 
@@ -329,34 +331,6 @@ class VersionService:
                 "status": "error",
                 "message": str(e)
             }
-
-    def _compare_versions(self, installed: str, latest: str) -> bool:
-        """Compares two semver versions (returns True if update available)"""
-        try:
-            def parse_version(version_str):
-                # Clean and parse version
-                clean_version = re.sub(r'[^\d.]', '', version_str)
-                parts = clean_version.split('.')
-                # Ensure we have at least 3 parts
-                while len(parts) < 3:
-                    parts.append('0')
-                return [int(p) for p in parts[:3]]
-
-            installed_parts = parse_version(installed)
-            latest_parts = parse_version(latest)
-
-            # Semver comparison
-            for i in range(3):
-                if latest_parts[i] > installed_parts[i]:
-                    return True
-                elif latest_parts[i] < installed_parts[i]:
-                    return False
-
-            return False  # Identical versions
-
-        except Exception:
-            # In case of parsing error, assume no update available
-            return False
 
     def get_program_list(self) -> List[Dict[str, Any]]:
         """Gets the list of configured programs"""
