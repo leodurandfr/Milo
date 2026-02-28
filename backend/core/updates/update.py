@@ -146,6 +146,9 @@ class UpdateService(VersionService):
                 )
                 await proc.communicate()
 
+            # Sync system files from rolled-back version
+            await self._sync_system_files()
+
             if progress_callback:
                 await progress_callback("updates.progress.rollbackRestarting", 96)
 
@@ -272,9 +275,15 @@ class UpdateService(VersionService):
                 await proc.communicate()
 
             if progress_callback:
+                await progress_callback("updates.progress.syncingSystemFiles", 75)
+
+            # 9. Sync system files (services, rootfs)
+            await self._sync_system_files()
+
+            if progress_callback:
                 await progress_callback("updates.progress.rebooting", 95)
 
-            # 9. Reboot the system to reload all services and configs
+            # 10. Reboot the system to reload all services and configs
             # Small delay to ensure the WebSocket message is sent
             await asyncio.sleep(1)
 
@@ -320,6 +329,128 @@ class UpdateService(VersionService):
                     }
 
             return {"success": False, "error": str(e)}
+
+    async def _sync_system_files(self) -> None:
+        """Sync system/ and rootfs/ files to their system destinations.
+
+        Non-fatal: logs warnings on individual failures but does not abort.
+        """
+        repo_path = Path(self.update_config["milo"]["git_path"])
+        synced_udev = False
+
+        # 1. Sync system/*.service → /etc/systemd/system/
+        system_dir = repo_path / "system"
+        if system_dir.exists():
+            for service_file in system_dir.glob("*.service"):
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        "sudo", "cp", str(service_file), f"/etc/systemd/system/{service_file.name}",
+                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                    )
+                    _, stderr = await proc.communicate()
+                    if proc.returncode != 0:
+                        self.update_logger.warning(f"Failed to copy {service_file.name}: {stderr.decode()}")
+                except Exception as e:
+                    self.update_logger.warning(f"Failed to sync service file {service_file.name}: {e}")
+
+            # Sync avahi-daemon override
+            avahi_override = system_dir / "avahi-daemon-override.conf"
+            if avahi_override.exists():
+                try:
+                    dest_dir = "/etc/systemd/system/avahi-daemon.service.d"
+                    proc = await asyncio.create_subprocess_exec(
+                        "sudo", "mkdir", "-p", dest_dir,
+                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                    )
+                    await proc.communicate()
+                    proc = await asyncio.create_subprocess_exec(
+                        "sudo", "cp", str(avahi_override), f"{dest_dir}/milo-override.conf",
+                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                    )
+                    await proc.communicate()
+                except Exception as e:
+                    self.update_logger.warning(f"Failed to sync avahi override: {e}")
+
+            # Reload systemd after service file changes
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "sudo", "systemctl", "daemon-reload",
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                )
+                await proc.communicate()
+            except Exception as e:
+                self.update_logger.warning(f"Failed to run daemon-reload: {e}")
+
+        # 2. Sync rootfs/ → / (preserving directory structure)
+        rootfs_dir = repo_path / "rootfs"
+        if rootfs_dir.exists():
+            for src_file in rootfs_dir.rglob("*"):
+                if not src_file.is_file():
+                    continue
+
+                relative = src_file.relative_to(rootfs_dir)
+
+                # Skip user-configured CamillaDSP files
+                if str(relative).startswith("var/lib/milo/camilladsp/"):
+                    continue
+
+                dest = Path("/") / relative
+
+                try:
+                    # Ensure parent directory exists
+                    proc = await asyncio.create_subprocess_exec(
+                        "sudo", "mkdir", "-p", str(dest.parent),
+                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                    )
+                    await proc.communicate()
+
+                    # Copy file
+                    proc = await asyncio.create_subprocess_exec(
+                        "sudo", "cp", str(src_file), str(dest),
+                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                    )
+                    _, stderr = await proc.communicate()
+                    if proc.returncode != 0:
+                        self.update_logger.warning(f"Failed to copy {relative}: {stderr.decode()}")
+                        continue
+
+                    # Set executable permission for scripts and dispatcher hooks
+                    if (str(relative).startswith("usr/local/bin/")
+                            or str(relative).startswith("etc/NetworkManager/dispatcher.d/")
+                            or src_file.suffix == ".sh"):
+                        proc = await asyncio.create_subprocess_exec(
+                            "sudo", "chmod", "+x", str(dest),
+                            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                        )
+                        await proc.communicate()
+
+                    # Set ownership for home directory files
+                    if str(relative).startswith("home/milo/"):
+                        proc = await asyncio.create_subprocess_exec(
+                            "sudo", "chown", "milo:milo", str(dest),
+                            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                        )
+                        await proc.communicate()
+
+                    # Track if udev rules were synced
+                    if str(relative).startswith("etc/udev/"):
+                        synced_udev = True
+
+                except Exception as e:
+                    self.update_logger.warning(f"Failed to sync rootfs file {relative}: {e}")
+
+        # 3. Reload udev rules if any were synced
+        if synced_udev:
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "sudo", "udevadm", "control", "--reload-rules",
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                )
+                await proc.communicate()
+            except Exception as e:
+                self.update_logger.warning(f"Failed to reload udev rules: {e}")
+
+        self.update_logger.info("System files sync completed")
 
     async def _update_go_librespot(self, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
         """Updates go-librespot with proper service state preservation"""
