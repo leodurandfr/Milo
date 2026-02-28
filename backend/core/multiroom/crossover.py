@@ -640,8 +640,6 @@ class CrossoverService:
 
     async def _recalculate_zones_for_client(self, client_id: str) -> None:
         """Recalculate crossover for zone containing this client."""
-        from backend.core.multiroom.models import RegistryEventType
-
         try:
             if not self._registry:
                 self.logger.warning("Registry not available, cannot recalculate zones")
@@ -651,11 +649,14 @@ class CrossoverService:
             if zone:
                 await self.apply_zone_crossover(zone.id)
 
-                # Broadcast zone update with computed crossover_enabled
-                await self._registry._emit_event(
-                    RegistryEventType.ZONE_UPDATED,
-                    {"zone_id": zone.id, "zone": self._registry.zone_to_enriched_dict(zone)}
-                )
+                # Broadcast zone update directly (WebSocket + EventBus) without using
+                # registry._emit_event(ZONE_UPDATED), which would re-enter
+                # _handle_registry_event and call apply_zone_crossover a second time.
+                zone_data = {"zone_id": zone.id, "zone": self._registry.zone_to_enriched_dict(zone)}
+                if self.state_machine:
+                    await self.state_machine.broadcast_event("multiroom", "zone_changed", zone_data)
+                if self.event_bus:
+                    await self.event_bus.emit("multiroom.zone_changed", zone_data)
         except Exception as e:
             self.logger.error(f"Error recalculating zones for client {client_id}: {e}")
 
