@@ -120,7 +120,7 @@
         :mac-id="macIdToEdit" @back="handleClientSaved" @saved="handleClientSaved" />
 
       <!-- Radio view -->
-      <RadioSettings v-else-if="currentView === 'radio'" key="radio" ref="radioSettingsRef" class="view-content"
+      <RadioSettings v-else-if="currentView === 'radio'" key="radio" class="view-content"
         @go-to-add-station="goToView('radio-add')" @edit-station="handleEditStation" />
 
       <!-- Radio view - Add a station -->
@@ -214,7 +214,6 @@ const { currentView, canGoBack, push, back, reset, goTo } = useNavigationStack('
 
 // Refs
 const headerRef = ref(null);
-const radioSettingsRef = ref(null);
 const stationToEdit = ref(null);
 const zoneGroupId = ref(null);
 const macIdToEdit = ref(null);
@@ -224,7 +223,7 @@ let wasScrolled = false;
 let savedScrollTop = 0;
 let enteringEl = null;
 let headerClone = null;
-const SCROLL_FADE_THRESHOLD = 50;
+const SCROLL_FADE_THRESHOLD = 16;
 
 // Dynamic header title based on current view
 const headerTitle = computed(() => {
@@ -320,6 +319,9 @@ function onBeforeLeave(el) {
     wasScrolled = false;
     savedScrollTop = 0;
     if (scrollTop > 0) resetScroll();
+
+    // Prevent modal-content from clipping the leaving content during height spring
+    if (scrollEl) scrollEl.style.overflow = 'visible';
   }
 }
 
@@ -347,6 +349,10 @@ function onEnter(el) {
 }
 
 function onAfterLeave() {
+  // Restore modal-content overflow after leaving content has faded out
+  const scrollEl = modalContentRef?.value;
+  if (scrollEl) scrollEl.style.overflow = '';
+
   if (wasScrolled) {
     // Remove clone from DOM
     if (headerClone && headerClone.parentNode) {
@@ -403,18 +409,9 @@ async function handleRestoreStation() {
       // Wait a bit for backend to save
       await new Promise(resolve => setTimeout(resolve, 200));
 
-      // Reload favorites in radioStore to update RadioSource
-      await radioStore.loadStations(true);
-
-      // Return to radio settings
+      await radioStore.loadRadioSettingsData();
       back();
       stationToEdit.value = null;
-
-      // After the view changes, reload the data
-      await new Promise(resolve => setTimeout(resolve, 100));
-      if (radioSettingsRef.value) {
-        await radioSettingsRef.value.loadCustomStations();
-      }
     } else {
       console.error('Failed to restore station');
     }
@@ -435,18 +432,9 @@ async function handleDeleteStation() {
       // Wait a bit for backend to save
       await new Promise(resolve => setTimeout(resolve, 200));
 
-      // Reload favorites in radioStore to update RadioSource
-      await radioStore.loadStations(true);
-
-      // Return to radio settings
+      await radioStore.loadRadioSettingsData();
       back();
       stationToEdit.value = null;
-
-      // After the view changes, reload the data
-      await new Promise(resolve => setTimeout(resolve, 100));
-      if (radioSettingsRef.value) {
-        await radioSettingsRef.value.loadCustomStations();
-      }
     } else {
       console.error('Failed to delete station');
     }
@@ -457,10 +445,7 @@ async function handleDeleteStation() {
 
 function handleRadioStationAdded(station) {
   logger.info('settings', 'Station added', station);
-  // Reload RadioSettings data
-  if (radioSettingsRef.value) {
-    radioSettingsRef.value.loadCustomStations();
-  }
+  radioStore.loadRadioSettingsData();
   back();
 }
 
@@ -493,15 +478,8 @@ function handleClientSaved() {
 async function handleRadioStationEdited(station) {
   logger.info('settings', 'Station edited', station);
 
-  // Reload favorites in radioStore to update RadioSource
-  await radioStore.loadStations(true);
-
-  // Reload RadioSettings data for the settings view
-  if (radioSettingsRef.value) {
-    radioSettingsRef.value.loadCustomStations();
-  }
-
-  stationToEdit.value = null; // Reset station to edit
+  await radioStore.loadRadioSettingsData();
+  stationToEdit.value = null;
   back();
 }
 
@@ -547,7 +525,10 @@ onMounted(async () => {
     settingsStore.loadAllSettings()
   ]);
 
-  // Note: Multiroom settings are now loaded directly by MultiroomSettings.vue via multiroomStore
+  // Preload radio settings data if radio is enabled (non-blocking)
+  if (settingsStore.dockApps.radio) {
+    radioStore.loadRadioSettingsData();
+  }
 
   on('routing', 'multiroom_enabling', handleMultiroomEnabling);
   on('routing', 'multiroom_disabling', handleMultiroomDisabling);
