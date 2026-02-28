@@ -360,7 +360,7 @@
 }
 
 .fade-slide-leave-active {
-    transition: all var(--transition-fast);
+    transition: all var(--transition-normal);
 }
 
 .fade-slide-enter-from {
