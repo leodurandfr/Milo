@@ -13,22 +13,57 @@
 
 ## Audio Sources
 
-| <img src="docs/images/spotify.png" width="40"><br>**Spotify** | <span style="font-weight:normal">Spotify Connect receiver — control playback directly</span> |
-|:---:|---|
-| <img src="docs/images/airplay.png" width="40"><br>**AirPlay** | Stream from any Apple device (iPhone, iPad, Mac) |
-| <img src="docs/images/bluetooth.png" width="40"><br>**Bluetooth** | Pair any device and stream audio |
-| <img src="docs/images/radio.png" width="40"><br>**Radio** | Browse 50,000+ stations, save favorites, add custom stations, their image, and identify tracks with Shazam |
-| <img src="docs/images/podcast.png" width="40"><br>**Podcasts** | Search, subscribe, and resume episodes with variable speed (0.5x–2x) |
-| <img src="docs/images/macos.png" width="40"><br>**Mac** | Stream your Mac's system audio (requires [Milō Mac](https://github.com/leodurandfr/Milo-Mac)) |
+<table>
+  <tr>
+    <td align="center"><img src="docs/images/spotify.png" width="40"><br><b>Spotify</b></td>
+    <td>Spotify Connect receiver — control playback directly</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/airplay.png" width="40"><br><b>AirPlay</b></td>
+    <td>Stream from any Apple device (iPhone, iPad, Mac)</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/bluetooth.png" width="40"><br><b>Bluetooth</b></td>
+    <td>Pair any device and stream audio</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/radio.png" width="40"><br><b>Radio</b></td>
+    <td>Browse 50,000+ stations, save favorites, add custom stations, their image, and identify tracks with Shazam</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/podcast.png" width="40"><br><b>Podcasts</b></td>
+    <td>Search, subscribe, and resume episodes with variable speed (0.5x–2x)</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/macos.png" width="40"><br><b>Mac</b></td>
+    <td>Stream your Mac's system audio (requires <a href="https://github.com/leodurandfr/Milo-Mac">Milō Mac</a>)</td>
+  </tr>
+</table>
 
 ## Features
 
-| <img src="docs/images/multiroom.png" width="40"><br>**Multiroom** | <span style="font-weight:normal">Synchronized playback across speakers with zone management and per-speaker volume</span> |
-|:---:|---|
-| <img src="docs/images/equalizer.png" width="40"><br>**Equalizer** | 10-band equalizer with presets, compressor, and loudness compensation (CamillaDSP) |
-| <img src="docs/images/settings.png" width="40"><br>**Settings** | Control how Milō reacts: now playing, volume management, and more |
-| <img src="docs/images/languages.png" width="40"><br>**Languages** | English, French, German, Spanish, Portuguese, Italian, Chinese, Hindi |
-| <img src="docs/images/updates.png" width="40"><br>**Updates** | Check and install updates autonomously, including multi-room client speakers |
+<table>
+  <tr>
+    <td align="center"><img src="docs/images/multiroom.png" width="40"><br><b>Multiroom</b></td>
+    <td>Synchronized playback across speakers with zone management and per-speaker volume</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/equalizer.png" width="40"><br><b>Equalizer</b></td>
+    <td>10-band equalizer with presets, compressor, and loudness compensation (CamillaDSP)</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/settings.png" width="40"><br><b>Settings</b></td>
+    <td>Control how Milō reacts: now playing, volume management, and more</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/languages.png" width="40"><br><b>Languages</b></td>
+    <td>English, French, German, Spanish, Portuguese, Italian, Chinese, Hindi</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/updates.png" width="40"><br><b>Updates</b></td>
+    <td>Check and install updates autonomously, including multi-room client speakers</td>
+  </tr>
+</table>
 
 ## Hardware
 
