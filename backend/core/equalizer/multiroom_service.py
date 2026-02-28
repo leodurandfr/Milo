@@ -197,14 +197,41 @@ class MultiroomEqualizerService:
             return zone.equalizer_settings
         return None
 
-    async def _resolve_preset_gains(self, preset_id: str) -> list:
-        """Resolve gain values for a preset ID (builtin or manual)."""
-        from backend.core.equalizer.presets import get_preset_by_id, DEFAULT_MANUAL_GAINS
+    async def set_zone_active_preset(self, zone_id: str, preset_id: str) -> bool:
+        """
+        Update only the active_preset for a zone without re-applying filters.
 
-        if preset_id == "manual":
-            if self._camilladsp_service and hasattr(self._camilladsp_service, 'get_manual_gains'):
-                return await self._camilladsp_service.get_manual_gains()
-            return DEFAULT_MANUAL_GAINS
+        Args:
+            zone_id: The zone ID
+            preset_id: The new active preset ID
+
+        Returns:
+            True if successful
+
+        Raises:
+            ValueError: If zone not found
+        """
+        if not self._registry:
+            return False
+
+        # Mutation under registry lock to avoid race conditions
+        async with self._registry._lock:
+            zone = self._registry._zones.get(zone_id)
+            if not zone:
+                raise ValueError(f"Zone not found: {zone_id}")
+            zone.equalizer_settings.active_preset = preset_id
+
+        await self._registry._persist_zones()
+        return True
+
+    async def _resolve_preset_gains(self, preset_id: str) -> list:
+        """Resolve gain values for a preset ID (builtin or custom)."""
+        from backend.core.equalizer.presets import get_preset_by_id, DEFAULT_CUSTOM_GAINS
+
+        if preset_id == "custom":
+            if self._camilladsp_service and hasattr(self._camilladsp_service, 'get_custom_gains'):
+                return await self._camilladsp_service.get_custom_gains()
+            return DEFAULT_CUSTOM_GAINS
 
         preset = get_preset_by_id(preset_id)
         if not preset:
@@ -339,6 +366,38 @@ class MultiroomEqualizerService:
 
         return self._registry.get_standalone_equalizer(mac_id)
 
+    async def set_client_active_preset(self, mac_id: str, preset_id: str) -> bool:
+        """
+        Update only the active_preset for a standalone client without re-applying filters.
+
+        Args:
+            mac_id: The client's MAC ID
+            preset_id: The new active preset ID
+
+        Returns:
+            True if successful
+
+        Raises:
+            ValueError: If client not found or not standalone
+        """
+        if not self._registry:
+            return False
+
+        # Mutation under registry lock to avoid race conditions
+        async with self._registry._lock:
+            client = self._registry._clients.get(mac_id)
+            if not client:
+                raise ValueError(f"Client not found: {mac_id}")
+            if client.zone_id:
+                raise ValueError(f"Client {mac_id} is in zone, use zone preset instead")
+            settings = self._registry._standalone_equalizer.get(mac_id)
+            if not settings:
+                raise ValueError(f"No standalone equalizer for client: {mac_id}")
+            settings.active_preset = preset_id
+
+        await self._registry._persist_standalone_equalizer()
+        return True
+
     # =========================================================================
     # Target-Agnostic Equalizer Methods (AC2, AC3)
     # =========================================================================
@@ -450,8 +509,7 @@ class MultiroomEqualizerService:
                     q=eq_filter.q,
                     filter_type=eq_filter.filter_type.value,
                     enabled=eq_filter.enabled,
-                    persist=False,  # Don't persist to equalizer.* keys keys (multiroom uses registry)
-                    from_preset=True,  # Don't switch to manual preset
+                    persist=False,  # Don't persist to equalizer.* keys (multiroom uses registry)
                     broadcast=False,  # Don't broadcast per-filter (zone broadcasts complete state)
                 )
                 if not success:
@@ -615,23 +673,12 @@ class MultiroomEqualizerService:
         if not updated_filter:
             raise ValueError(f"Filter not found: {filter_id}")
 
-        # ALWAYS save manual gains on ANY filter modification
-        gains = [f.gain for f in current.filters[:10]]
-
-        if self._camilladsp_service and self._camilladsp_service.settings_service:
-            await self._camilladsp_service.settings_service.set_setting("equalizer.manual_gains", gains)
-
-        # Handle preset auto-switch when user manually modifies a filter
-        preset_changed = False
-        if current.active_preset and current.active_preset != "manual":
-            current.active_preset = "manual"
-            preset_changed = True
-
-        # Save to registry (source of truth)
+        # Save to registry (source of truth) without broadcasting full settings
+        # (we broadcast only the changed filter below)
         if target_type == "zone":
-            await self._registry.set_zone_equalizer(target_id, current)
+            await self._registry.set_zone_equalizer(target_id, current, broadcast=False)
         else:
-            await self._registry.set_standalone_equalizer(target_id, current)
+            await self._registry.set_standalone_equalizer(target_id, current, broadcast=False)
 
         # Build filter data dict for router
         filter_data = {
@@ -652,7 +699,6 @@ class MultiroomEqualizerService:
                         filter_id=filter_id,
                         filter_data=filter_data,
                         persist=False,      # Don't persist (registry is source of truth)
-                        from_preset=True,   # Don't switch to manual preset
                         broadcast=False     # Don't broadcast per-filter
                     )
             else:
@@ -661,19 +707,24 @@ class MultiroomEqualizerService:
                     filter_id=filter_id,
                     filter_data=filter_data,
                     persist=False,
-                    from_preset=True,
                     broadcast=False
                 )
         else:
             self.logger.warning("EqualizerRouter not available, filter update not applied to clients")
 
-        # Broadcast zone event ONCE (includes active_preset in equalizer_settings)
-        await self._broadcast_equalizer_event(target_type, target_id, current)
-
-        # Also emit preset_loaded event if preset changed to manual
-        if preset_changed and self._state_machine:
+        # Broadcast only the changed filter (not all settings)
+        if self._state_machine:
             await self._state_machine.broadcast_event(
-                "equalizer", "preset_loaded", {"id": "manual"}
+                "multiroom",
+                "equalizer_changed",
+                {
+                    "target_type": target_type,
+                    "target_id": target_id,
+                    "equalizer_settings": {
+                        "filters": [updated_filter.to_dict()],
+                        "active_preset": current.active_preset,
+                    },
+                },
             )
 
         return True

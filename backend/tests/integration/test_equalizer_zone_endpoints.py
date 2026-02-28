@@ -44,7 +44,7 @@ def mock_camilladsp_service():
         {"id": "jazz", "name": "Jazz", "gains": [4, 3, 2, 2, -2, -2, 0, 2, 3, 4]}
     ])
     service.get_active_preset = AsyncMock(return_value="flat")
-    service.get_manual_gains = AsyncMock(return_value=[0]*10)
+    service.get_custom_gains = AsyncMock(return_value=[0]*10)
     service.load_preset = AsyncMock(return_value=True)
     return service
 
@@ -518,7 +518,7 @@ class TestAC7PresetsList:
         # Verify response format
         assert "presets" in result
         assert len(result["presets"]) == 21
-        assert "manual_gains" in result
+        assert "custom_gains" in result
         assert "active_preset" in result
 
 

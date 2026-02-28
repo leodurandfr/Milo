@@ -23,7 +23,7 @@ from backend.core.equalizer import (
     EqualizerSettingsSyncService,
     get_builtin_presets,
     get_preset_by_id,
-    DEFAULT_MANUAL_GAINS,
+    DEFAULT_CUSTOM_GAINS,
     BUILTIN_PRESETS,
     is_ip_address,
 )
@@ -61,9 +61,9 @@ class TestPresets:
         preset = get_preset_by_id("nonexistent")
         assert preset is None
 
-    def test_default_manual_gains_flat(self):
-        """Default manual gains should be flat (all zeros)"""
-        assert DEFAULT_MANUAL_GAINS == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    def test_default_custom_gains_flat(self):
+        """Default custom gains should be flat (all zeros)"""
+        assert DEFAULT_CUSTOM_GAINS == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
     def test_preset_gains_within_range(self):
         """All preset gains should be within -15 to +15 dB"""
@@ -415,10 +415,10 @@ class TestCamillaDSPService:
         assert preset is None
 
     @pytest.mark.asyncio
-    async def test_get_manual_gains_default(self, camilladsp_service):
+    async def test_get_custom_gains_default(self, camilladsp_service):
         """Should return default gains when none saved"""
-        gains = await camilladsp_service.get_manual_gains()
-        assert gains == DEFAULT_MANUAL_GAINS
+        gains = await camilladsp_service.get_custom_gains()
+        assert gains == DEFAULT_CUSTOM_GAINS
 
     @pytest.mark.asyncio
     async def test_load_preset_skips_when_already_active(self, camilladsp_service, mock_settings_service):

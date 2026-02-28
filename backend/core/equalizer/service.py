@@ -9,7 +9,7 @@ from typing import Dict, List, Any, Optional
 from enum import Enum
 
 from backend.core.events import EventBus, get_event_bus
-from backend.core.equalizer.presets import get_builtin_presets, get_preset_by_id, DEFAULT_MANUAL_GAINS, DEFAULT_EQ_FREQS
+from backend.core.equalizer.presets import get_builtin_presets, get_preset_by_id, DEFAULT_CUSTOM_GAINS, DEFAULT_EQ_FREQS
 
 
 class CamillaDspState(str, Enum):
@@ -356,14 +356,12 @@ class CamillaDSPService:
     async def set_filter(self, filter_id: str, freq: float, gain: float,
                          q: float, filter_type: str = "Peaking",
                          enabled: bool = True, persist: bool = True,
-                         from_preset: bool = False,
                          broadcast: bool = True) -> bool:
         """
         Update a single filter band.
 
         Args:
             persist: Set to False during bypass operations
-            from_preset: Set to True when loading a preset (don't switch to manual)
             broadcast: Set to False to suppress WebSocket broadcast (useful for batch updates)
         """
         if not self._connected:
@@ -411,18 +409,6 @@ class CamillaDSPService:
             # Persist filters to settings (skip during bypass operations)
             if persist:
                 await self._save_filters()
-
-                # ALWAYS save manual gains on ANY user modification
-                if not from_preset and self.settings_service:
-                    current_preset = await self.get_active_preset()
-
-                    # Save current gains to manual preset
-                    await self._save_manual_gains()
-
-                    # If user was on a predefined preset, switch to manual mode
-                    if current_preset and current_preset != "manual":
-                        await self.settings_service.set_setting("equalizer.active_preset", "manual")
-                        await self._broadcast_event("preset_loaded", {"id": "manual"})
 
             return True
 
@@ -833,27 +819,23 @@ class CamillaDSPService:
                 # Suppress per-filter broadcasts during preset load (preset_loaded event handles it)
                 await self.set_filter(filter_id, existing["freq"], gain,
                                        existing.get("q", 1.41), existing.get("type", "Peaking"),
-                                       from_preset=True, broadcast=False)
+                                       broadcast=False)
             else:
                 # Filter doesn't exist in cache - use default frequency
                 freq = DEFAULT_EQ_FREQS[i] if i < len(DEFAULT_EQ_FREQS) else 1000
                 self.logger.warning(f"Filter {filter_id} not in cache, creating with freq={freq}")
                 await self.set_filter(filter_id, freq, gain, 1.41, "Peaking",
-                                       from_preset=True, broadcast=False)
+                                       broadcast=False)
 
     async def _get_preset_gains(self, preset_id: str) -> Optional[List[float]]:
-        """Get gains for a preset ID (builtin or manual)"""
-        if preset_id == "manual":
-            if self.settings_service:
-                saved = await self.settings_service.get_setting("equalizer.manual_gains")
-                if saved and len(saved) >= 10:
-                    return saved
-            return DEFAULT_MANUAL_GAINS
+        """Get gains for a preset ID (builtin or custom)"""
+        if preset_id == "custom":
+            return await self.get_custom_gains()
         preset = get_preset_by_id(preset_id)
         return preset["gains"] if preset else None
 
     async def load_preset(self, preset_id: str) -> bool:
-        """Load a builtin or manual preset"""
+        """Load a builtin or custom preset"""
         # Early return if already on the same preset (avoids overwriting current values)
         current = await self.get_active_preset()
         if preset_id == current:
@@ -866,10 +848,6 @@ class CamillaDSPService:
             return False
 
         try:
-            # Save current as manual before switching
-            if current in ("manual", None) and preset_id != "manual":
-                await self._save_manual_gains()
-
             await self._apply_gains(gains)
 
             if self.settings_service:
@@ -881,17 +859,17 @@ class CamillaDSPService:
             self.logger.error(f"Error loading preset: {e}")
             return False
 
-    async def _save_manual_gains(self) -> None:
+    async def _save_custom_gains(self) -> None:
         if self.settings_service:
             gains = [f.get("gain", 0) for f in self._filters[:10]]
-            await self.settings_service.set_setting("equalizer.manual_gains", gains)
+            await self.settings_service.set_setting("equalizer.custom_gains", gains)
 
-    async def get_manual_gains(self) -> List[float]:
+    async def get_custom_gains(self) -> List[float]:
         if self.settings_service:
-            gains = await self.settings_service.get_setting("equalizer.manual_gains")
+            gains = await self.settings_service.get_setting("equalizer.custom_gains")
             if gains and len(gains) >= 10:
                 return gains
-        return DEFAULT_MANUAL_GAINS
+        return DEFAULT_CUSTOM_GAINS
 
     async def get_active_preset(self) -> Optional[str]:
         if not self.settings_service:

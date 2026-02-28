@@ -52,17 +52,31 @@
           <!-- Section 2: 10 Bands Equalizer with presets dropdown -->
           <SettingsSection>
             <template #header>
-              <SectionHeader :title="$t('equalizer.equalizer.title')" :subtitle="selectedZoneName">
-                <template #actions>
-                  <Dropdown
-                    :model-value="currentPresetValue"
-                    :options="presetOptions"
-                    :placeholder="$t('equalizer.selectPreset')"
-                    :disabled="equalizerStore.isUpdating"
-                    @update:model-value="handlePresetChange"
-                  />
-                </template>
-              </SectionHeader>
+              <div class="eq-header">
+                <div class="eq-header__title">
+                  <h2 class="heading-2">{{ $t('equalizer.equalizer.title') }}</h2>
+                  <span v-if="selectedZoneName" class="eq-header__subtitle text-mono">{{ selectedZoneName }}</span>
+                </div>
+                <Button
+                  v-if="equalizerStore.isPresetEdited"
+                  variant="brand"
+                  size="small"
+                  :disabled="equalizerStore.isUpdating"
+                  @click="handleSaveCustomPreset"
+                >
+                  {{ $t('equalizer.presets.save') }}
+                </Button>
+                <Dropdown
+                  :model-value="currentPresetValue"
+                  :options="presetOptions"
+                  :display-override="presetDisplayOverride"
+                  :placeholder="$t('equalizer.selectPreset')"
+                  :disabled="equalizerStore.isUpdating"
+                  size="small"
+                  class="eq-header__dropdown"
+                  @update:model-value="handlePresetChange"
+                />
+              </div>
             </template>
             <ParametricEQ
               :filters="equalizerStore.filters"
@@ -156,11 +170,11 @@ import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
 import Toggle from '@/components/ui/Toggle.vue';
+import Button from '@/components/ui/Button.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
-import SectionHeader from '@/components/settings/SectionHeader.vue';
 import ToggleSection from '@/components/settings/ToggleSection.vue';
 import ItemSelector from './ItemSelector.vue';
 import ParametricEQ from './ParametricEQ.vue';
@@ -196,8 +210,8 @@ const presetOptions = computed(() => {
   const options = [];
 
   options.push({
-    label: t('equalizer.presets.manual'),
-    value: 'manual'
+    label: t('equalizer.presets.custom'),
+    value: 'custom'
   });
 
   equalizerStore.builtinPresets.forEach(preset => {
@@ -211,10 +225,18 @@ const presetOptions = computed(() => {
 });
 
 const currentPresetValue = computed(() => {
-  if (equalizerStore.isManualMode && equalizerStore.activePreset !== 'manual') {
-    return 'manual';
+  if (equalizerStore.isCustomMode && equalizerStore.activePreset !== 'custom') {
+    return 'custom';
   }
-  return equalizerStore.activePreset || 'manual';
+  return equalizerStore.activePreset || 'custom';
+});
+
+// When preset is edited, override dropdown display to show "Edited"
+const presetDisplayOverride = computed(() => {
+  if (equalizerStore.isPresetEdited) {
+    return t('equalizer.presets.edited');
+  }
+  return null;
 });
 
 // === MOBILE DETECTION ===
@@ -236,6 +258,10 @@ function handleFilterChange({ id }) {
 async function handlePresetChange(value) {
   if (!value) return;
   await equalizerStore.loadPreset(value);
+}
+
+async function handleSaveCustomPreset() {
+  await equalizerStore.saveCustomPreset();
 }
 
 // === LOUDNESS ===
@@ -347,8 +373,26 @@ onUnmounted(() => {
   opacity: 1;
 }
 
-/* SectionHeader dropdown constraint */
-:deep(.section-header__actions .dropdown-trigger) {
+/* EQ section header layout */
+.eq-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-02);
+}
+
+.eq-header__title {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-01);
+  min-width: 0;
+}
+
+.eq-header__subtitle {
+  color: var(--color-text-secondary);
+}
+
+.eq-header__dropdown :deep(.dropdown-trigger) {
   min-width: 260px;
 }
 
@@ -371,8 +415,17 @@ onUnmounted(() => {
 
 /* Mobile adjustments */
 @media (max-aspect-ratio: 4/3) {
-  :deep(.section-header__actions .dropdown) {
-    max-width: none;
+  .eq-header {
+    flex-wrap: wrap;
+  }
+
+  .eq-header__dropdown {
+    flex: 0 0 100%;
+    order: 3;
+  }
+
+  .eq-header__dropdown :deep(.dropdown-trigger) {
+    min-width: 0;
   }
 
   .effect-controls {

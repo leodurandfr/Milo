@@ -162,7 +162,9 @@
       "muted": "Muted"
     },
     "presets": {
-      "manual": "Manual",
+      "custom": "Custom",
+      "edited": "Edited",
+      "save": "Save",
       "acoustic": "Acoustic",
       "bass_boost": "Bass boost",
       "bass_reducer": "Bass reducer",

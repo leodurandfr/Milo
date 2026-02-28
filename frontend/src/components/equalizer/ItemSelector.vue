@@ -153,12 +153,13 @@ async function handleTargetChange(targetValue) {
 // Sync local target with store
 watch(() => equalizerStore.selectedTarget, (newTarget) => {
   // Don't override if we have a zone selected
-  if (!selectedTargetLocal.value.startsWith('zone:')) {
+  if (!selectedTargetLocal.value?.startsWith('zone:')) {
     selectedTargetLocal.value = newTarget;
   }
 });
 
 // Auto-select first tab if current selection doesn't exist
+// immediate: true ensures this runs on initial render (not just on change)
 watch(zoneTabs, (tabs) => {
   if (tabs.length > 0) {
     const currentTabExists = tabs.some(t => t.value === selectedTargetLocal.value);
@@ -167,7 +168,7 @@ watch(zoneTabs, (tabs) => {
       handleTargetChange(tabs[0].value);
     }
   }
-});
+}, { immediate: true });
 
 // Expose selectedZoneName and selectedClientIds for parent components
 defineExpose({ selectedZoneName, selectedClientIds });

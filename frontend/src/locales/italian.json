@@ -162,7 +162,9 @@
       "muted": "Silenziato"
     },
     "presets": {
-      "manual": "Manuale",
+      "custom": "Personalizzato",
+      "edited": "Modificato",
+      "save": "Salva",
       "acoustic": "Acustica",
       "bass_boost": "Potenziamento bassi",
       "bass_reducer": "Riduttore di bassi",

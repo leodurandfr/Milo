@@ -178,7 +178,7 @@ const EqualizerPresetSchema = z.object({
 
 const EqualizerPresetsResponseSchema = z.object({
   presets: z.array(EqualizerPresetSchema),
-  manual_gains: z.array(z.number()),
+  custom_gains: z.array(z.number()),
   active_preset: z.string().nullable()
 });
 
