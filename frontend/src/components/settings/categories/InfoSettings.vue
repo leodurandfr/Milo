@@ -9,7 +9,7 @@
       </div>
       <span class="heading-2">Milō OS</span>
       <span class="info-version text-mono">
-        <span v-if="versionLoading && miloVersion === null">...</span>
+        <span v-if="showVersionSkeleton" class="skeleton-line" style="width: 96px"></span>
         <span v-else-if="miloVersion !== null">Version {{ miloVersion }}</span>
         <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
       </span>
@@ -20,7 +20,7 @@
       <div class="info-item">
         <span class="info-label text-mono">{{ t('info.ipAddress') }}</span>
         <span class="info-value text-mono">
-          <span v-if="ipLoading && ipAddress === null">...</span>
+          <span v-if="showIpSkeleton" class="skeleton-line" style="width: 100px"></span>
           <span v-else-if="ipAddress !== null">{{ ipAddress }}</span>
           <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
         </span>
@@ -29,7 +29,7 @@
       <div class="info-item">
         <span class="info-label text-mono">{{ t('info.temperature') }}</span>
         <span class="info-value text-mono">
-          <span v-if="temperatureLoading && systemTemperature === null">...</span>
+          <span v-if="showTempSkeleton" class="skeleton-line" style="width: 48px"></span>
           <span v-else-if="systemTemperature !== null">{{ systemTemperature.toFixed(1) }}°C</span>
           <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
         </span>
@@ -39,13 +39,13 @@
         <div class="info-item-top">
           <span class="info-label text-mono">{{ t('info.cpu') }}</span>
           <span class="info-value text-mono">
-            <span v-if="resourcesLoading && cpuPercent === null">...</span>
+            <span v-if="showResourcesSkeleton" class="skeleton-line" style="width: 36px"></span>
             <span v-else-if="cpuPercent !== null">{{ cpuPercent }}%</span>
             <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
           </span>
         </div>
-        <div v-if="cpuPercent !== null" class="bar-container">
-          <div class="bar-fill" :style="{ width: cpuPercent + '%' }"></div>
+        <div class="bar-container">
+          <div class="bar-fill" :style="{ width: (cpuPercent ?? 0) + '%' }"></div>
         </div>
       </div>
 
@@ -53,12 +53,12 @@
         <div class="info-item-top">
           <span class="info-label text-mono">{{ t('info.ram') }}</span>
           <span class="info-value text-mono">
-            <span v-if="resourcesLoading && ram === null">...</span>
+            <span v-if="showResourcesSkeleton" class="skeleton-line" style="width: 88px"></span>
             <span v-else-if="ram !== null">{{ ram.used_mb }} / {{ ram.total_mb }} MB</span>
             <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
           </span>
         </div>
-        <div v-if="ram !== null" class="bar-container">
+        <div class="bar-container">
           <div class="bar-fill" :style="{ width: ramPercent + '%' }"></div>
         </div>
       </div>
@@ -90,6 +90,11 @@ const ipLoading = ref(false);
 const cpuPercent = ref(null);
 const ram = ref(null);
 const resourcesLoading = ref(false);
+
+const showVersionSkeleton = computed(() => versionLoading.value && miloVersion.value === null);
+const showIpSkeleton = computed(() => ipLoading.value && ipAddress.value === null);
+const showTempSkeleton = computed(() => temperatureLoading.value && systemTemperature.value === null);
+const showResourcesSkeleton = computed(() => resourcesLoading.value && cpuPercent.value === null);
 
 const ramPercent = computed(() => {
   if (!ram.value) return 0;
@@ -266,6 +271,26 @@ onUnmounted(() => {
   background: var(--color-background-contrast-32);
   border-radius: 3px;
   transition: width var(--transition-normal);
+}
+
+/* Skeleton loading (matches MultiroomItem pattern) */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton-line {
+  display: inline-block;
+  height: var(--line-height-mono);
+  border-radius: var(--radius-02);
+  vertical-align: top;
+  background: linear-gradient(90deg,
+    var(--color-background-strong) 0%,
+    var(--color-background-medium-16) 50%,
+    var(--color-background-strong) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
 }
 
 .text-secondary {
