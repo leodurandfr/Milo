@@ -1013,8 +1013,13 @@ class TestCrossoverEventBroadcasting:
 
     @pytest.mark.asyncio
     async def test_crossover_change_broadcasts_zone_updated_event(self, crossover_service_with_registry):
-        """Test: Crossover state change broadcasts ZONE_UPDATED event (AC#4)."""
+        """Test: Crossover state change broadcasts zone_changed event (AC#4)."""
         service, registry = crossover_service_with_registry
+
+        # Setup mock state machine for broadcast
+        mock_state_machine = MagicMock()
+        mock_state_machine.broadcast_event = AsyncMock()
+        service.set_state_machine(mock_state_machine)
 
         # Setup: Zone with satellite + subwoofer
         satellite = Client(mac_id="local", name="Satellite", ip="127.0.0.1",
@@ -1037,16 +1042,21 @@ class TestCrossoverEventBroadcasting:
         # Trigger crossover recalculation
         await service._recalculate_zones_for_client("sub-1")
 
-        # Verify ZONE_UPDATED event was emitted via registry
-        registry._emit_event.assert_called()
-        # Get the last call to _emit_event
-        call_args = registry._emit_event.call_args
-        assert call_args[0][0] == RegistryEventType.ZONE_UPDATED
+        # Verify zone_changed event was broadcast via state machine
+        mock_state_machine.broadcast_event.assert_called()
+        call_args = mock_state_machine.broadcast_event.call_args
+        assert call_args[0][0] == "multiroom"
+        assert call_args[0][1] == "zone_changed"
 
     @pytest.mark.asyncio
     async def test_zone_updated_event_includes_crossover_enabled(self, crossover_service_with_registry):
-        """Test: ZONE_UPDATED event includes computed crossover_enabled field (AC#4)."""
+        """Test: zone_changed event includes computed crossover_enabled field (AC#4)."""
         service, registry = crossover_service_with_registry
+
+        # Setup mock state machine for broadcast
+        mock_state_machine = MagicMock()
+        mock_state_machine.broadcast_event = AsyncMock()
+        service.set_state_machine(mock_state_machine)
 
         # Setup: Zone with satellite + online subwoofer
         satellite = Client(mac_id="local", name="Satellite", ip="127.0.0.1",
@@ -1070,8 +1080,8 @@ class TestCrossoverEventBroadcasting:
         await service._recalculate_zones_for_client("sub-1")
 
         # Verify event data includes crossover_enabled
-        call_args = registry._emit_event.call_args
-        event_data = call_args[0][1]  # Second positional arg is data
+        call_args = mock_state_machine.broadcast_event.call_args
+        event_data = call_args[0][2]  # Third positional arg is data
         assert "zone" in event_data
         zone_data = event_data["zone"]
         assert "crossover_enabled" in zone_data

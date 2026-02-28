@@ -475,12 +475,8 @@ class SnapcastWebSocketService:
                     "online": online, "last_seen_age": client.get("last_seen_age", 0)
                 })
 
-                # Recalculate crossover for zones containing this client
-                if self.registry and self._crossover_service:
-                    zone = self.registry.get_zone_for_client(mac_id)
-                    if zone:
-                        self.logger.info(f"Recalculating crossover for zone {zone.id}")
-                        await self._crossover_service.apply_zone_crossover(zone.id)
+                # Crossover recalculation is handled by CrossoverService._handle_registry_event
+                # via CLIENT_CONNECTED/CLIENT_DISCONNECTED events emitted by set_client_online()
 
     async def _handle_response(self, response: Dict[str, Any]) -> None:
         """Process a response to a request."""
@@ -526,18 +522,8 @@ class SnapcastWebSocketService:
             if self.registry:
                 await self.registry.set_client_online(mac_id, True)
 
-            # Recalculate crossover for zones containing this client
-            if self.registry and self._crossover_service:
-                from backend.core.multiroom.models import RegistryEventType
-                zone = self.registry.get_zone_for_client(mac_id)
-                if zone:
-                    self.logger.info(f"Recalculating crossover for zone {zone.id} (client {mac_id} connected)")
-                    await self._crossover_service.apply_zone_crossover(zone.id)
-                    # Broadcast zone update with computed crossover_enabled
-                    await self.registry._emit_event(
-                        RegistryEventType.ZONE_UPDATED,
-                        {"zone_id": zone.id, "zone": self.registry.zone_to_enriched_dict(zone)}
-                    )
+            # Crossover recalculation is handled by CrossoverService._handle_registry_event
+            # via CLIENT_CONNECTED event emitted by set_client_online()
 
             # Push snapclient buffer config to remote clients (fire-and-forget)
             if not is_local:

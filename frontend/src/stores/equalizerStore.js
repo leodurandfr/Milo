@@ -1250,13 +1250,14 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
         const filter = filters.value.find(f => f.id === filterData.id);
         if (filter) {
-          if (filterData.freq !== undefined) {
+          // Only update if values actually changed (avoids unnecessary reactivity triggers)
+          if (filterData.freq !== undefined && filter.freq !== filterData.freq) {
             filter.freq = filterData.freq;
             filter.displayName = formatFrequency(filterData.freq);
           }
-          if (filterData.gain !== undefined) filter.gain = filterData.gain;
-          if (filterData.q !== undefined) filter.q = filterData.q;
-          if (filterData.type !== undefined) filter.type = filterData.type;
+          if (filterData.gain !== undefined && filter.gain !== filterData.gain) filter.gain = filterData.gain;
+          if (filterData.q !== undefined && filter.q !== filterData.q) filter.q = filterData.q;
+          if (filterData.type !== undefined && filter.type !== filterData.type) filter.type = filterData.type;
         }
       }
     }
@@ -1283,13 +1284,14 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     // Skip if this specific filter is being actively edited (avoids echo conflicts)
     // This is more precise than checking filterThrottleMap.size === 0
     if (filter && !filterThrottleMap.has(id)) {
-      if (freq !== undefined) {
+      // Only update if values actually changed (avoids unnecessary reactivity triggers)
+      if (freq !== undefined && filter.freq !== freq) {
         filter.freq = freq;
         filter.displayName = formatFrequency(freq);
       }
-      if (gain !== undefined) filter.gain = gain;
-      if (q !== undefined) filter.q = q;
-      if (type !== undefined) filter.type = type;
+      if (gain !== undefined && filter.gain !== gain) filter.gain = gain;
+      if (q !== undefined && filter.q !== q) filter.q = q;
+      if (type !== undefined && filter.type !== type) filter.type = type;
     }
   }
 
