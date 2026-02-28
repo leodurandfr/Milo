@@ -11,8 +11,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 import uvicorn
 
-from services import EqualizerService, SnapclientService
-from routes import create_health_router, create_snapclient_router, create_equalizer_router
+from services import EqualizerService, SnapclientService, AppUpdateService
+from routes import create_health_router, create_snapclient_router, create_equalizer_router, create_app_update_router
 from routes.health import get_hostname
 
 # Constants
@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 # Create service instances
 equalizer_service = EqualizerService()
 snapclient_service = SnapclientService()
+app_update_service = AppUpdateService()
 
 
 @asynccontextmanager
@@ -82,9 +83,10 @@ app = FastAPI(
 )
 
 # Register routers
-app.include_router(create_health_router(equalizer_service, snapclient_service))
+app.include_router(create_health_router(equalizer_service, snapclient_service, app_update_service))
 app.include_router(create_snapclient_router(snapclient_service))
 app.include_router(create_equalizer_router(equalizer_service))
+app.include_router(create_app_update_router(app_update_service))
 
 
 # Main entry point

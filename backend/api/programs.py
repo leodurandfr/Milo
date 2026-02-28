@@ -75,14 +75,22 @@ def create_programs_router(ws_manager, version_service, update_service, satellit
         try:
             satellites = await satellite_service.discover_satellites()
 
-            # Enrich with available version and update_available
+            # Enrich with available snapclient version and update_available
             latest_version = await satellite_service._get_latest_snapclient_version()
+            server_version = await satellite_service._get_server_version()
 
             for satellite in satellites:
                 satellite["latest_version"] = latest_version
                 satellite["update_available"] = satellite_service._compare_versions(
                     satellite.get("snapclient_version"),
                     latest_version
+                )
+                # App update: available if version differs or satellite has no version
+                satellite["server_version"] = server_version
+                sat_app_version = satellite.get("app_version")
+                satellite["app_update_available"] = (
+                    server_version is not None and
+                    (sat_app_version is None or sat_app_version != server_version)
                 )
 
             return {
@@ -199,6 +207,97 @@ def create_programs_router(ws_manager, version_service, update_service, satellit
         return {
             "status": "success",
             "message": f"Update started for satellite {hostname}"
+        }
+
+    @router.post("/satellites/{hostname}/update-app")
+    async def update_satellite_app(hostname: str, background_tasks: BackgroundTasks):
+        """Launch a satellite app update in the background"""
+
+        satellite_key = f"satellite_app_{hostname}"
+
+        if satellite_key in active_updates:
+            return {
+                "status": "error",
+                "message": f"App update already in progress for {hostname}"
+            }
+
+        active_updates[satellite_key] = {
+            "status": "starting",
+            "progress": 0,
+            "message": "Initializing satellite app update..."
+        }
+
+        async def progress_callback(message: str, progress: int):
+            active_updates[satellite_key] = {
+                "status": "updating",
+                "progress": progress,
+                "message": message
+            }
+
+            await ws_manager.broadcast_dict({
+                "category": "programs",
+                "type": "satellite_app_update_progress",
+                "source": "satellite_update",
+                "data": {
+                    "hostname": hostname,
+                    "progress": progress,
+                    "message": message,
+                    "status": "updating"
+                }
+            })
+
+        async def do_update():
+            try:
+                result = await satellite_service.update_satellite_app(hostname, progress_callback)
+
+                if result["success"]:
+                    del active_updates[satellite_key]
+
+                    await ws_manager.broadcast_dict({
+                        "category": "programs",
+                        "type": "satellite_app_update_complete",
+                        "source": "satellite_update",
+                        "data": {
+                            "hostname": hostname,
+                            "success": True,
+                            "message": result.get("message", "App update completed"),
+                            "new_version": result.get("new_version")
+                        }
+                    })
+                else:
+                    del active_updates[satellite_key]
+
+                    await ws_manager.broadcast_dict({
+                        "category": "programs",
+                        "type": "satellite_app_update_complete",
+                        "source": "satellite_update",
+                        "data": {
+                            "hostname": hostname,
+                            "success": False,
+                            "error": result.get("error", "App update failed")
+                        }
+                    })
+
+            except Exception as e:
+                if satellite_key in active_updates:
+                    del active_updates[satellite_key]
+
+                await ws_manager.broadcast_dict({
+                    "category": "programs",
+                    "type": "satellite_app_update_complete",
+                    "source": "satellite_update",
+                    "data": {
+                        "hostname": hostname,
+                        "success": False,
+                        "error": str(e)
+                    }
+                })
+
+        background_tasks.add_task(do_update)
+
+        return {
+            "status": "success",
+            "message": f"App update started for satellite {hostname}"
         }
 
     @router.get("/satellites/{hostname}/update-status")

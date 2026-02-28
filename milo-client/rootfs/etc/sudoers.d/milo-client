@@ -3,3 +3,5 @@ milo-client ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop milo-client-snapclient.s
 milo-client ALL=(ALL) NOPASSWD: /usr/bin/systemctl start milo-client-snapclient.service
 milo-client ALL=(ALL) NOPASSWD: /usr/bin/systemctl is-active milo-client-snapclient.service
 milo-client ALL=(root) NOPASSWD: /usr/local/bin/milo-client-install-snapclient
+milo-client ALL=(root) NOPASSWD: /usr/local/bin/milo-client-deploy-update
+milo-client ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart milo-client.service

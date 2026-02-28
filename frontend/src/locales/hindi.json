@@ -344,7 +344,9 @@
       "rebooting": "रीबूट हो रहा है...",
       "downloadingSource": "स्रोत डाउनलोड...",
       "configuringSource": "कॉन्फ़िगर...",
-      "compilingSource": "कंपाइल..."
+      "compilingSource": "कंपाइल...",
+      "sendingUpdate": "सैटेलाइट को अपडेट भेजा जा रहा है...",
+      "waitingForRestart": "सैटेलाइट के पुनरारंभ की प्रतीक्षा..."
     }
   },
   "info": {

@@ -344,7 +344,9 @@
       "rebooting": "Rebooting...",
       "downloadingSource": "Downloading sources...",
       "configuringSource": "Configuring...",
-      "compilingSource": "Compiling..."
+      "compilingSource": "Compiling...",
+      "sendingUpdate": "Sending update to satellite...",
+      "waitingForRestart": "Waiting for satellite to restart..."
     }
   },
   "info": {

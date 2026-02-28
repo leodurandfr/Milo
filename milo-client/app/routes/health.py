@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 
 from services.equalizer import EqualizerService
 from services.snapclient import SnapclientService
+from services.app_update import AppUpdateService
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,8 @@ def get_hostname() -> str:
 
 def create_health_router(
     equalizer_service: EqualizerService,
-    snapclient_service: SnapclientService
+    snapclient_service: SnapclientService,
+    app_update_service: AppUpdateService
 ) -> APIRouter:
     """Creates health router with injected dependencies."""
     router = APIRouter(tags=["health"])
@@ -60,6 +62,10 @@ def create_health_router(
                     "version": snapclient_version,
                     "running": snapclient_running,
                     "status": "running" if snapclient_running else "stopped"
+                },
+                "app": {
+                    "version": app_update_service.get_app_version(),
+                    "update_in_progress": app_update_service.update_in_progress
                 },
                 "update_in_progress": snapclient_service.update_in_progress,
                 "timestamp": int(time.time())
