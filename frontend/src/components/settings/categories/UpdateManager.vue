@@ -118,8 +118,8 @@
         </div>
       </SettingsSection>
 
-      <!-- Section 3: Satellite Programs -->
-      <SettingsSection v-if="isMultiroomEnabled && (satellitesLoading || satellitesError || satellites.length > 0)" :title="$t('updates.satelliteProgramsTitle')">
+      <!-- Section 3: Satellite Programs (loading/error) -->
+      <SettingsSection v-if="isMultiroomEnabled && (satellitesLoading || satellitesError)" :title="$t('updates.satelliteProgramsTitle')">
         <div v-if="satellitesError" class="error-state">
           <div class="error-message text-mono">
             {{ $t('updates.errorDetectingSatellites') }}
@@ -129,93 +129,94 @@
           </Button>
         </div>
 
-        <div v-else class="crossfade-wrapper">
-          <Transition name="crossfade">
-            <div v-if="satellitesLoading" key="skeleton" class="programs-list">
-              <div class="program-item-skeleton">
-                <div class="skeleton-icon"></div>
-                <div class="skeleton-text skeleton-name"></div>
-                <div class="skeleton-text skeleton-version"></div>
-              </div>
-            </div>
-
-            <div v-else key="content" class="programs-list">
-              <template v-for="satellite in satellites" :key="satellite.hostname">
-                <!-- Milo-client app row -->
-                <div class="program-item">
-                  <div class="program-info">
-                    <AppIcon name="milo" :size="48" class="program-icon" />
-                    <span class="program-name heading-4">{{ satellite.display_name }}</span>
-                    <span class="program-version text-mono">
-                      milo-client {{ satellite.app_version || $t('updates.notAvailable') }}
-                      <template
-                        v-if="satellite.app_update_available && !isSatelliteAppUpdating(satellite.hostname) && !isSatelliteAppUpdateCompleted(satellite.hostname)">
-                        <span class="version-new">> {{ satellite.server_version }}</span>
-                      </template>
-                    </span>
-                  </div>
-
-                  <div v-if="isSatelliteAppUpdating(satellite.hostname)" class="update-progress">
-                    <p class="progress-message text-mono-small">{{ getSatelliteAppUpdateMessage(satellite.hostname) }}
-                    </p>
-                    <div class="progress-bar">
-                      <div class="progress-fill"
-                        :style="{ width: getSatelliteAppUpdateProgress(satellite.hostname) + '%' }">
-                      </div>
-                    </div>
-                  </div>
-
-                  <Button
-                    v-else-if="satellite.app_update_available && satellite.online && !isSatelliteAppUpdateCompleted(satellite.hostname)"
-                    size="small" variant="brand" class="program-button"
-                    @click="startSatelliteAppUpdate(satellite.hostname)" :disabled="isAnyUpdateInProgress()">
-                    {{ $t('updates.update') }}
-                  </Button>
-                  <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date"
-                    disabled>
-                    {{ $t('updates.upToDate') }}
-                  </Button>
-                </div>
-
-                <!-- Snapclient row -->
-                <div class="program-item">
-                  <div class="program-info">
-                    <AppIcon name="multiroom" :size="48" class="program-icon" />
-                    <span class="program-name heading-4">{{ satellite.display_name }}</span>
-                    <span class="program-version text-mono">
-                      snapclient {{ satellite.snapclient_version || $t('updates.notAvailable') }}
-                      <template
-                        v-if="satellite.update_available && !isSatelliteUpdating(satellite.hostname) && !isSatelliteUpdateCompleted(satellite.hostname)">
-                        <span class="version-new">> {{ satellite.latest_version }}</span>
-                      </template>
-                    </span>
-                  </div>
-
-                  <div v-if="isSatelliteUpdating(satellite.hostname)" class="update-progress">
-                    <p class="progress-message text-mono-small">{{ getSatelliteUpdateMessage(satellite.hostname) }}</p>
-                    <div class="progress-bar">
-                      <div class="progress-fill"
-                        :style="{ width: getSatelliteUpdateProgress(satellite.hostname) + '%' }">
-                      </div>
-                    </div>
-                  </div>
-
-                  <Button
-                    v-else-if="satellite.update_available && satellite.online && !isSatelliteUpdateCompleted(satellite.hostname)"
-                    size="small" variant="brand" class="program-button"
-                    @click="startSatelliteUpdate(satellite.hostname)" :disabled="isAnyUpdateInProgress()">
-                    {{ $t('updates.update') }}
-                  </Button>
-                  <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date"
-                    disabled>
-                    {{ $t('updates.upToDate') }}
-                  </Button>
-                </div>
-              </template>
-            </div>
-          </Transition>
+        <div v-else class="programs-list">
+          <div class="program-item-skeleton">
+            <div class="skeleton-icon"></div>
+            <div class="skeleton-text skeleton-name"></div>
+            <div class="skeleton-text skeleton-version"></div>
+          </div>
         </div>
       </SettingsSection>
+
+      <!-- Section 3: Satellite Programs (one section per client) -->
+      <template v-if="isMultiroomEnabled && !satellitesLoading && !satellitesError">
+        <SettingsSection v-for="satellite in satellites" :key="satellite.hostname">
+          <template #header>
+            <h2 class="heading-2">Programmes de Milō Client <span class="satellite-name">·&nbsp;{{ satellite.display_name }}</span></h2>
+          </template>
+          <div class="programs-list">
+            <!-- Milo Client row -->
+            <div class="program-item">
+              <div class="program-info">
+                <AppIcon name="milo" :size="48" class="program-icon" />
+                <span class="program-name heading-4">Milō Client</span>
+                <span class="program-version text-mono">
+                  milo-client {{ extractBaseTag(satellite.app_version) || $t('updates.notAvailable') }}
+                  <template
+                    v-if="satellite.app_update_available && !isSatelliteAppUpdating(satellite.hostname) && !isSatelliteAppUpdateCompleted(satellite.hostname)">
+                    <span class="version-new">> {{ extractBaseTag(satellite.server_version) }}</span>
+                  </template>
+                </span>
+              </div>
+
+              <div v-if="isSatelliteAppUpdating(satellite.hostname)" class="update-progress">
+                <p class="progress-message text-mono-small">{{ getSatelliteAppUpdateMessage(satellite.hostname) }}</p>
+                <div class="progress-bar">
+                  <div class="progress-fill"
+                    :style="{ width: getSatelliteAppUpdateProgress(satellite.hostname) + '%' }">
+                  </div>
+                </div>
+              </div>
+
+              <Button
+                v-else-if="satellite.app_update_available && satellite.online && !isSatelliteAppUpdateCompleted(satellite.hostname)"
+                size="small" variant="brand" class="program-button"
+                @click="startSatelliteAppUpdate(satellite.hostname)" :disabled="isAnyUpdateInProgress()">
+                {{ $t('updates.update') }}
+              </Button>
+              <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date"
+                disabled>
+                {{ $t('updates.upToDate') }}
+              </Button>
+            </div>
+
+            <!-- Snapclient row -->
+            <div class="program-item">
+              <div class="program-info">
+                <AppIcon name="multiroom" :size="48" class="program-icon" />
+                <span class="program-name heading-4">Multiroom Client</span>
+                <span class="program-version text-mono">
+                  snapclient {{ satellite.snapclient_version || $t('updates.notAvailable') }}
+                  <template
+                    v-if="satellite.update_available && !isSatelliteUpdating(satellite.hostname) && !isSatelliteUpdateCompleted(satellite.hostname)">
+                    <span class="version-new">> {{ satellite.latest_version }}</span>
+                  </template>
+                </span>
+              </div>
+
+              <div v-if="isSatelliteUpdating(satellite.hostname)" class="update-progress">
+                <p class="progress-message text-mono-small">{{ getSatelliteUpdateMessage(satellite.hostname) }}</p>
+                <div class="progress-bar">
+                  <div class="progress-fill"
+                    :style="{ width: getSatelliteUpdateProgress(satellite.hostname) + '%' }">
+                  </div>
+                </div>
+              </div>
+
+              <Button
+                v-else-if="satellite.update_available && satellite.online && !isSatelliteUpdateCompleted(satellite.hostname)"
+                size="small" variant="brand" class="program-button"
+                @click="startSatelliteUpdate(satellite.hostname)" :disabled="isAnyUpdateInProgress()">
+                {{ $t('updates.update') }}
+              </Button>
+              <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date"
+                disabled>
+                {{ $t('updates.upToDate') }}
+              </Button>
+            </div>
+          </div>
+        </SettingsSection>
+      </template>
     </template>
   </SettingsContainer>
 </template>
@@ -260,6 +261,16 @@ function getVersionLabel(key) {
     'shairport-sync': 'shairport-sync'
   };
   return labelOverrides[key] || key;
+}
+
+function extractBaseTag(version) {
+  if (!version) return null;
+  // git describe format: <tag>-<N>-g<hash> or just <tag>
+  const parts = version.split('-');
+  if (parts.length >= 3 && parts[parts.length - 1].startsWith('g')) {
+    return parts.slice(0, -2).join('-');
+  }
+  return version;
 }
 
 const { t } = useI18n();
@@ -630,6 +641,10 @@ onMounted(async () => {
 
 .version-new {
   color: var(--color-brand);
+}
+
+.satellite-name {
+  color: var(--color-text-secondary);
 }
 
 .program-button {
