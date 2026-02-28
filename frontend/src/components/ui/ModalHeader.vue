@@ -108,6 +108,9 @@ function handleBack() {
 .modal-header h2 {
   color: var(--color-text-contrast);
   margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Header content - grid stacking ensures both entering/leaving elements overlap cleanly */
