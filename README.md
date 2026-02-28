@@ -4,7 +4,7 @@
 
 # Milō
 
-> ⚠ Currently in work in progress
+> ⚠ Currently in work in progress — Available soon
 
 ### Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, AirPlay 2, Bluetooth, Internet Radio, Podcasts, and Mac streaming.
 

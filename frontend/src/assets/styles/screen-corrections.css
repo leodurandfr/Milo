@@ -35,4 +35,8 @@
     .dock-indicator {
         bottom: calc(var(--space-05) - 4px + env(safe-area-inset-bottom, 0px)) !important
     }
+    .virtual-keyboard {
+        left: 49.3% !important;
+        width: calc(100% - 28px) !important;
+    }
 }
