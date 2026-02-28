@@ -223,6 +223,7 @@ const macIdToEdit = ref(null);
 let wasScrolled = false;
 let savedScrollTop = 0;
 let enteringEl = null;
+let headerClone = null;
 const SCROLL_FADE_THRESHOLD = 50;
 
 // Dynamic header title based on current view
@@ -270,23 +271,50 @@ const canDeleteStation = computed(() => {
 });
 
 // === Scroll-aware cross-fade transition hooks ===
-// When scrolled: old content stays at scroll position (static), new content overlays at viewport
-// position (absolute+top), header translates into viewport and fades in with the new content.
-// On after-leave: inline styles + scroll reset cancel out for a seamless swap.
+// When scrolled: clone the header DOM node so the old header fades out with the leaving content,
+// while the real header updates to new props and fades in independently at the viewport top.
+// When not scrolled: the single ModalHeader's internal cross-fade handles the title transition.
 
 function onBeforeLeave(el) {
+  // Clean up stale clone from rapid navigation
+  if (headerClone && headerClone.parentNode) {
+    headerClone.parentNode.removeChild(headerClone);
+    headerClone = null;
+  }
+
   const scrollEl = modalContentRef?.value;
   const scrollTop = scrollEl?.scrollTop || 0;
 
   if (scrollTop > SCROLL_FADE_THRESHOLD) {
     wasScrolled = true;
     savedScrollTop = scrollTop;
+
     const headerEl = headerRef.value?.$el;
     if (headerEl) {
+      const settingsModal = headerEl.parentNode;
+
+      // Clone the header DOM (copies scoped data-v-* attrs so styles apply)
+      headerClone = headerEl.cloneNode(true);
+      // Insert clone before real header — clone takes the flow position
+      settingsModal.insertBefore(headerClone, headerEl);
+
+      // Real header: absolute, positioned at viewport top via translateY, hidden
+      headerEl.style.position = 'absolute';
+      headerEl.style.top = '0';
+      headerEl.style.left = '0';
+      headerEl.style.width = '100%';
+      headerEl.style.transform = `translateY(${scrollTop}px)`;
       headerEl.style.transition = 'none';
       headerEl.style.opacity = '0';
-      headerEl.style.transform = `translateY(${scrollTop}px)`;
+
+      // Fade out clone
+      requestAnimationFrame(() => {
+        headerClone.style.transition = 'opacity var(--transition-fast)';
+        headerClone.style.opacity = '0';
+      });
     }
+
+    // Leaving element stays at scroll position (in flow)
     el.style.position = 'static';
   } else {
     wasScrolled = false;
@@ -298,15 +326,18 @@ function onBeforeLeave(el) {
 function onEnter(el) {
   if (wasScrolled) {
     enteringEl = el;
+    // Position entering content at viewport position (overlays at scroll offset)
     el.style.position = 'absolute';
     el.style.top = `${savedScrollTop}px`;
     el.style.left = '0';
     el.style.width = '100%';
+
     // Double rAF syncs with Vue's internal enter transition timing
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         const headerEl = headerRef.value?.$el;
         if (headerEl) {
+          // Fade in real header (uses existing :deep(.modal-header) transition)
           headerEl.style.transition = '';
           headerEl.style.opacity = '';
         }
@@ -316,15 +347,31 @@ function onEnter(el) {
 }
 
 function onAfterLeave() {
-  if (wasScrolled && enteringEl) {
-    enteringEl.style.position = '';
-    enteringEl.style.top = '';
-    enteringEl.style.left = '';
-    enteringEl.style.width = '';
+  if (wasScrolled) {
+    // Remove clone from DOM
+    if (headerClone && headerClone.parentNode) {
+      headerClone.parentNode.removeChild(headerClone);
+      headerClone = null;
+    }
+
+    // Reset real header inline styles
     const headerEl = headerRef.value?.$el;
     if (headerEl) {
+      headerEl.style.position = '';
+      headerEl.style.top = '';
+      headerEl.style.left = '';
+      headerEl.style.width = '';
       headerEl.style.transform = '';
     }
+
+    // Reset entering element inline styles
+    if (enteringEl) {
+      enteringEl.style.position = '';
+      enteringEl.style.top = '';
+      enteringEl.style.left = '';
+      enteringEl.style.width = '';
+    }
+
     resetScroll();
     enteringEl = null;
     wasScrolled = false;
@@ -510,6 +557,7 @@ onMounted(async () => {
 
 <style scoped>
 .settings-modal {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--space-03);
@@ -522,6 +570,11 @@ onMounted(async () => {
 /* Cross-fade wrapper: positioning context for leaving element overlay */
 .transition-wrapper {
   position: relative;
+}
+
+/* Enter starts after leave finishes (sequential fade-out → fade-in) */
+:deep(.fade-slide-enter-active) {
+  transition-delay: 100ms;
 }
 
 /* Cross-fade: leaving content overlays absolutely (doesn't affect height) */
