@@ -333,6 +333,7 @@
       "installingFrontendDeps": "Frontend-Abhängigkeiten installieren...",
       "buildingFrontend": "Frontend kompilieren...",
       "installingPythonDeps": "Python-Abhängigkeiten installieren...",
+      "syncingSystemFiles": "Systemdateien werden synchronisiert...",
       "restartingBackend": "Backend-Dienst neu starten...",
       "restartingKiosk": "Kiosk neu starten...",
       "rollingBack": "Auf vorherige Version zurücksetzen...",

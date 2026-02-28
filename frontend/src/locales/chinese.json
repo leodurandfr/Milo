@@ -333,6 +333,7 @@
       "installingFrontendDeps": "正在安装前端依赖...",
       "buildingFrontend": "正在编译前端...",
       "installingPythonDeps": "正在安装 Python 依赖...",
+      "syncingSystemFiles": "正在同步系统文件...",
       "restartingBackend": "正在重启后端服务...",
       "restartingKiosk": "正在重启 kiosk...",
       "rollingBack": "正在回滚到之前版本...",
