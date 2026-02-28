@@ -140,39 +140,78 @@
             </div>
 
             <div v-else key="content" class="programs-list">
-              <div v-for="satellite in satellites" :key="satellite.hostname" class="program-item">
-                <div class="program-info">
-                  <AppIcon name="multiroom" :size="48" class="program-icon" />
-                  <span class="program-name heading-4">{{ satellite.display_name }}</span>
-                  <span class="program-version text-mono">
-                    snapclient {{ satellite.snapclient_version || $t('updates.notAvailable') }}
-                    <template
-                      v-if="satellite.update_available && !isSatelliteUpdating(satellite.hostname) && !isSatelliteUpdateCompleted(satellite.hostname)">
-                      <span class="version-new">> {{ satellite.latest_version }}</span>
-                    </template>
-                  </span>
-                </div>
+              <template v-for="satellite in satellites" :key="satellite.hostname">
+                <!-- Milo-client app row -->
+                <div class="program-item">
+                  <div class="program-info">
+                    <AppIcon name="milo" :size="48" class="program-icon" />
+                    <span class="program-name heading-4">{{ satellite.display_name }}</span>
+                    <span class="program-version text-mono">
+                      milo-client {{ satellite.app_version || $t('updates.notAvailable') }}
+                      <template
+                        v-if="satellite.app_update_available && !isSatelliteAppUpdating(satellite.hostname) && !isSatelliteAppUpdateCompleted(satellite.hostname)">
+                        <span class="version-new">> {{ satellite.server_version }}</span>
+                      </template>
+                    </span>
+                  </div>
 
-                <!-- Progress bar (shown during update) -->
-                <div v-if="isSatelliteUpdating(satellite.hostname)" class="update-progress">
-                  <p class="progress-message text-mono-small">{{ getSatelliteUpdateMessage(satellite.hostname) }}</p>
-                  <div class="progress-bar">
-                    <div class="progress-fill" :style="{ width: getSatelliteUpdateProgress(satellite.hostname) + '%' }">
+                  <div v-if="isSatelliteAppUpdating(satellite.hostname)" class="update-progress">
+                    <p class="progress-message text-mono-small">{{ getSatelliteAppUpdateMessage(satellite.hostname) }}
+                    </p>
+                    <div class="progress-bar">
+                      <div class="progress-fill"
+                        :style="{ width: getSatelliteAppUpdateProgress(satellite.hostname) + '%' }">
+                      </div>
                     </div>
                   </div>
+
+                  <Button
+                    v-else-if="satellite.app_update_available && satellite.online && !isSatelliteAppUpdateCompleted(satellite.hostname)"
+                    size="small" variant="brand" class="program-button"
+                    @click="startSatelliteAppUpdate(satellite.hostname)" :disabled="isAnyUpdateInProgress()">
+                    {{ $t('updates.update') }}
+                  </Button>
+                  <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date"
+                    disabled>
+                    {{ $t('updates.upToDate') }}
+                  </Button>
                 </div>
 
-                <!-- Update button or Up-to-date button -->
-                <Button
-                  v-else-if="satellite.update_available && satellite.online && !isSatelliteUpdateCompleted(satellite.hostname)"
-                  size="small" variant="brand" class="program-button" @click="startSatelliteUpdate(satellite.hostname)"
-                  :disabled="isAnyUpdateInProgress()">
-                  {{ $t('updates.update') }}
-                </Button>
-                <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
-                  {{ $t('updates.upToDate') }}
-                </Button>
-              </div>
+                <!-- Snapclient row -->
+                <div class="program-item">
+                  <div class="program-info">
+                    <AppIcon name="multiroom" :size="48" class="program-icon" />
+                    <span class="program-name heading-4">{{ satellite.display_name }}</span>
+                    <span class="program-version text-mono">
+                      snapclient {{ satellite.snapclient_version || $t('updates.notAvailable') }}
+                      <template
+                        v-if="satellite.update_available && !isSatelliteUpdating(satellite.hostname) && !isSatelliteUpdateCompleted(satellite.hostname)">
+                        <span class="version-new">> {{ satellite.latest_version }}</span>
+                      </template>
+                    </span>
+                  </div>
+
+                  <div v-if="isSatelliteUpdating(satellite.hostname)" class="update-progress">
+                    <p class="progress-message text-mono-small">{{ getSatelliteUpdateMessage(satellite.hostname) }}</p>
+                    <div class="progress-bar">
+                      <div class="progress-fill"
+                        :style="{ width: getSatelliteUpdateProgress(satellite.hostname) + '%' }">
+                      </div>
+                    </div>
+                  </div>
+
+                  <Button
+                    v-else-if="satellite.update_available && satellite.online && !isSatelliteUpdateCompleted(satellite.hostname)"
+                    size="small" variant="brand" class="program-button"
+                    @click="startSatelliteUpdate(satellite.hostname)" :disabled="isAnyUpdateInProgress()">
+                    {{ $t('updates.update') }}
+                  </Button>
+                  <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date"
+                    disabled>
+                    {{ $t('updates.upToDate') }}
+                  </Button>
+                </div>
+              </template>
             </div>
           </Transition>
         </div>
@@ -244,6 +283,9 @@ const localCompletedUpdates = ref(new Set());
 
 const satelliteUpdateStates = ref({});
 const satelliteCompletedUpdates = ref(new Set());
+
+const satelliteAppUpdateStates = ref({});
+const satelliteAppCompletedUpdates = ref(new Set());
 
 const supportedLocalUpdates = ['milo', 'go-librespot', 'shairport-sync', 'multiroom'];
 
@@ -385,9 +427,50 @@ async function startSatelliteUpdate(hostname) {
   }
 }
 
+// === SATELLITE APP UPDATES ===
+
+function isSatelliteAppUpdating(hostname) {
+  return satelliteAppUpdateStates.value[hostname]?.updating || false;
+}
+
+function isSatelliteAppUpdateCompleted(hostname) {
+  return satelliteAppCompletedUpdates.value.has(hostname);
+}
+
+function getSatelliteAppUpdateProgress(hostname) {
+  return satelliteAppUpdateStates.value[hostname]?.progress || 0;
+}
+
+function getSatelliteAppUpdateMessage(hostname) {
+  return satelliteAppUpdateStates.value[hostname]?.message || '';
+}
+
+async function startSatelliteAppUpdate(hostname) {
+  if (isSatelliteAppUpdating(hostname)) return;
+
+  try {
+    satelliteAppUpdateStates.value[hostname] = {
+      updating: true,
+      progress: 0,
+      message: t('updates.updatingInit')
+    };
+
+    const response = await axios.post(`/api/programs/satellites/${hostname}/update-app`);
+
+    if (response.data.status !== 'success') {
+      throw new Error(response.data.message || 'Failed to start app update');
+    }
+
+  } catch (error) {
+    console.error(`Error starting app update for satellite ${hostname}:`, error);
+    delete satelliteAppUpdateStates.value[hostname];
+  }
+}
+
 function isAnyUpdateInProgress() {
   return Object.values(localUpdateStates.value).some(state => state.updating) ||
-    Object.values(satelliteUpdateStates.value).some(state => state.updating);
+    Object.values(satelliteUpdateStates.value).some(state => state.updating) ||
+    Object.values(satelliteAppUpdateStates.value).some(state => state.updating);
 }
 
 // === WEBSOCKET HANDLERS ===
@@ -433,6 +516,28 @@ const wsListeners = {
 
       if (success) {
         satelliteCompletedUpdates.value.add(hostname);
+        loadSatellites();
+      }
+    }
+  },
+  'satellite_app_update_progress': (msg) => {
+    const { hostname, progress, message, status } = msg.data;
+    if (hostname && satelliteAppUpdateStates.value[hostname]) {
+      satelliteAppUpdateStates.value[hostname] = {
+        updating: status === 'updating',
+        progress: progress || 0,
+        message: t(message) || message
+      };
+    }
+  },
+  'satellite_app_update_complete': (msg) => {
+    const { hostname, success, message, error, new_version } = msg.data;
+
+    if (hostname) {
+      delete satelliteAppUpdateStates.value[hostname];
+
+      if (success) {
+        satelliteAppCompletedUpdates.value.add(hostname);
         loadSatellites();
       }
     }

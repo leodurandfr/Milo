@@ -1,0 +1,83 @@
+#!/bin/bash
+# Milo Client - Secure Update Deployment Wrapper
+# Copies system files and rootfs files from an extracted update tarball
+set -euo pipefail
+
+error_exit() { echo "ERROR: $1" >&2; exit 1; }
+
+[ $# -ne 1 ] && error_exit "Usage: $0 <extracted-tarball-directory>"
+
+UPDATE_DIR="$1"
+
+# Validate absolute path
+[[ "$UPDATE_DIR" != /* ]] && error_exit "Path must be absolute"
+
+# Validate in temp directory only
+case "$UPDATE_DIR" in
+    /tmp/*) ;;
+    *) error_exit "Update directory must be in /tmp" ;;
+esac
+
+# Validate expected structure
+MILO_DIR="$UPDATE_DIR/milo-client"
+[ ! -d "$MILO_DIR/system" ] && error_exit "Missing milo-client/system/ in update"
+[ ! -d "$MILO_DIR/rootfs" ] && error_exit "Missing milo-client/rootfs/ in update"
+
+# --- Deploy systemd service files ---
+echo "Deploying systemd service files..."
+for service_file in "$MILO_DIR"/system/*.service; do
+    [ -f "$service_file" ] || continue
+    cp "$service_file" /etc/systemd/system/
+    echo "  Installed $(basename "$service_file")"
+done
+
+# Deploy avahi override if present
+if [ -f "$MILO_DIR/system/avahi-daemon-override.conf" ]; then
+    mkdir -p /etc/systemd/system/avahi-daemon.service.d/
+    cp "$MILO_DIR/system/avahi-daemon-override.conf" /etc/systemd/system/avahi-daemon.service.d/override.conf
+    echo "  Installed avahi-daemon override"
+fi
+
+systemctl daemon-reload
+echo "  systemctl daemon-reload done"
+
+# --- Deploy rootfs files ---
+echo "Deploying rootfs files..."
+cd "$MILO_DIR/rootfs"
+
+find . -type f | while read -r rel_path; do
+    # Remove leading ./
+    rel_path="${rel_path#./}"
+
+    # Skip directories that are user-configured per-device
+    case "$rel_path" in
+        var/lib/milo-client/*) echo "  Skipping /$rel_path (per-device config)"; continue ;;
+        etc/avahi/*) echo "  Skipping /$rel_path (per-device config)"; continue ;;
+    esac
+
+    target="/$rel_path"
+    target_dir=$(dirname "$target")
+
+    # Create parent directory
+    mkdir -p "$target_dir"
+
+    # Copy file
+    cp "$MILO_DIR/rootfs/$rel_path" "$target"
+    echo "  Installed $target"
+
+    # Set executable for scripts
+    case "$target" in
+        /usr/local/bin/*|*/dispatcher.d/*)
+            chmod +x "$target"
+            ;;
+    esac
+
+    # Set ownership for home files
+    case "$target" in
+        /home/milo-client/*)
+            chown milo-client:milo-client "$target"
+            ;;
+    esac
+done
+
+echo "Update deployment complete"

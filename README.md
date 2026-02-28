@@ -11,26 +11,24 @@
 
 ## Audio Sources
 
-| Source | Description |
-|--------|-------------|
-| 🎵 **Spotify Connect** | Native Spotify Connect receiver — control playback directly |
-| 🍎 **AirPlay** | Stream from any Apple device (iPhone, iPad, Mac) |
-| 📱 **Bluetooth** | Pair any device and stream audio |
-| 📻 **Radio** | Browse 50,000+ stations, save favorites, add custom stations, and identify tracks with Shazam |
-| 🎙️ **Podcasts** | Search, subscribe, and resume episodes with variable speed (0.5x–2x) |
-| 💻 **Mac** | Stream your Mac's system audio (requires [Milō Mac](https://github.com/leodurandfr/Milo-Mac)) |
+| | Source | Description |
+|:---:|--------|-------------|
+| <img src="docs/images/spotify.png" width="32"> | **Spotify Connect** | Spotify Connect receiver — control playback directly |
+| <img src="docs/images/airplay.png" width="32"> | **AirPlay** | Stream from any Apple device (iPhone, iPad, Mac) |
+| <img src="docs/images/bluetooth.png" width="32"> | **Bluetooth** | Pair any device and stream audio |
+| <img src="docs/images/radio.png" width="32"> | **Radio** | Browse 50,000+ stations, save favorites, add custom stations, their image, and identify tracks with Shazam |
+| <img src="docs/images/podcast.png" width="32"> | **Podcasts** | Search, subscribe, and resume episodes with variable speed (0.5x–2x) |
+| <img src="docs/images/macos.png" width="32"> | **Mac** | Stream your Mac's system audio (requires [Milō Mac](https://github.com/leodurandfr/Milo-Mac)) |
 
 ## Features
 
-| Feature | Description |
-|---------|-------------|
-| 🔊 **Multiroom Audio** | Synchronized playback across speakers with zone management and per-speaker volume |
-| 🎛️ **Parametric EQ** | 10-band equalizer with 21 presets, compressor, and loudness compensation (CamillaDSP) |
-| 🎤 **Shazam Recognition** | Automatic track identification on radio streams — see artist, title, and album art |
-| 🖥️ **Now Playing Display** | Fullscreen screensaver with album art during playback on touchscreen |
-| 🔈 **Volume Management** | Rotary encoder support, volume limits, startup volume mode (fixed or restore last) |
-| 🔄 **OTA Updates** | Check and install updates from GitHub, including multi-room client speakers |
-| 🌍 **8 Languages** | English, French, German, Spanish, Portuguese, Italian, Chinese, Hindi |
+| | Feature | Description |
+|:---:|---------|-------------|
+| <img src="docs/images/multiroom.png" width="32"> | **Multiroom Audio** | Synchronized playback across speakers with zone management and per-speaker volume |
+| <img src="docs/images/equalizer.png" width="32"> | **Parametric EQ** | 10-band equalizer with presets, compressor, and loudness compensation (CamillaDSP) |
+| <img src="docs/images/settings.png" width="32"> | **Personalized Settings** | Control how Milō reacts: now playing, volume management, and more |
+| <img src="docs/images/languages.png" width="32"> | **8 Languages** | English, French, German, Spanish, Portuguese, Italian, Chinese, Hindi |
+| <img src="docs/images/updates.png" width="32"> | **OTA Updates** | Check and install updates autonomously, including multi-room client speakers |
 
 ## Hardware
 

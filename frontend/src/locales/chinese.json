@@ -344,7 +344,9 @@
       "rebooting": "正在重启...",
       "downloadingSource": "下载源代码...",
       "configuringSource": "配置中...",
-      "compilingSource": "编译中..."
+      "compilingSource": "编译中...",
+      "sendingUpdate": "正在向卫星发送更新...",
+      "waitingForRestart": "等待卫星重启..."
     }
   },
   "info": {

@@ -344,7 +344,9 @@
       "rebooting": "Reiniciando...",
       "downloadingSource": "Baixando fontes...",
       "configuringSource": "Configurando...",
-      "compilingSource": "Compilando..."
+      "compilingSource": "Compilando...",
+      "sendingUpdate": "Enviando atualização para o satélite...",
+      "waitingForRestart": "Aguardando reinício do satélite..."
     }
   },
   "info": {

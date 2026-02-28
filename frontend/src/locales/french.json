@@ -344,7 +344,9 @@
       "rebooting": "Redémarrage...",
       "downloadingSource": "Téléchargement des sources...",
       "configuringSource": "Configuration...",
-      "compilingSource": "Compilation..."
+      "compilingSource": "Compilation...",
+      "sendingUpdate": "Envoi de la mise à jour au satellite...",
+      "waitingForRestart": "En attente du redémarrage du satellite..."
     }
   },
   "info": {

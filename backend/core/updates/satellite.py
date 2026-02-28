@@ -6,9 +6,18 @@ import asyncio
 import aiohttp
 import logging
 import os
+import tarfile
+import tempfile
+from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 from backend.config.constants import CLIENT_API_PORT
+
+MILO_REPO_DIR = Path("/home/milo/milo")
+MILO_CLIENT_DIR = MILO_REPO_DIR / "milo-client"
+
+# Patterns to exclude from the client tarball
+TARBALL_EXCLUDE_PATTERNS = {"__pycache__", ".pyc", ".pytest_cache", "tests", ".git"}
 
 
 class SatelliteUpdateService:
@@ -78,6 +87,7 @@ class SatelliteUpdateService:
                         "display_name": display_name,
                         "ip": ip,
                         "snapclient_version": satellite_info.get("version"),
+                        "app_version": satellite_info.get("app_version"),
                         "online": True,
                         "uptime": satellite_info.get("uptime"),
                         "snapclient_running": satellite_info.get("running", False)
@@ -105,7 +115,8 @@ class SatelliteUpdateService:
                             "online": True,
                             "version": data.get("snapclient", {}).get("version"),
                             "running": data.get("snapclient", {}).get("running", False),
-                            "uptime": data.get("uptime")
+                            "uptime": data.get("uptime"),
+                            "app_version": data.get("app", {}).get("version")
                         }
 
             return {"online": False}
@@ -296,6 +307,190 @@ class SatelliteUpdateService:
         except Exception as e:
             self.logger.error(f"Error getting latest snapclient version: {e}")
             return None
+
+    async def _get_server_version(self) -> Optional[str]:
+        """Gets the current server version via git describe."""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "git", "-C", str(MILO_REPO_DIR), "describe", "--tags", "--always",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await proc.communicate()
+            if proc.returncode == 0:
+                return stdout.decode().strip()
+            return None
+        except Exception as e:
+            self.logger.error(f"Error getting server version: {e}")
+            return None
+
+    async def _create_client_tarball(self) -> tuple:
+        """Creates a tarball of the milo-client/ directory.
+
+        Returns (tarball_path, version) tuple.
+        """
+        version = await self._get_server_version()
+        if not version:
+            raise RuntimeError("Could not determine server version")
+
+        if not MILO_CLIENT_DIR.is_dir():
+            raise RuntimeError(f"milo-client directory not found: {MILO_CLIENT_DIR}")
+
+        def _should_exclude(tarinfo):
+            name = tarinfo.name
+            for pattern in TARBALL_EXCLUDE_PATTERNS:
+                if pattern.startswith("."):
+                    # Extension match (e.g. .pyc)
+                    if name.endswith(pattern):
+                        return True
+                else:
+                    # Directory/file name match
+                    parts = Path(name).parts
+                    if pattern in parts:
+                        return True
+            return False
+
+        def _filter(tarinfo):
+            if _should_exclude(tarinfo):
+                return None
+            return tarinfo
+
+        def _create():
+            fd, tarball_path = tempfile.mkstemp(suffix=".tar.gz", prefix="milo-client-")
+            os.close(fd)
+            with tarfile.open(tarball_path, "w:gz") as tar:
+                tar.add(str(MILO_CLIENT_DIR), arcname="milo-client", filter=_filter)
+            return tarball_path
+
+        tarball_path = await asyncio.get_event_loop().run_in_executor(None, _create)
+        self.logger.info(f"Created client tarball: {tarball_path} (version: {version})")
+        return tarball_path, version
+
+    async def update_satellite_app(
+        self,
+        hostname: str,
+        progress_callback: Optional[callable] = None
+    ) -> Dict[str, Any]:
+        """Pushes a milo-client app update to a satellite."""
+        tarball_path = None
+        try:
+            # Discover satellite
+            satellites = await self.discover_satellites()
+            satellite = next((s for s in satellites if s["hostname"] == hostname), None)
+
+            if not satellite:
+                return {
+                    "success": False,
+                    "error": f"Satellite {hostname} not found or offline"
+                }
+
+            ip = satellite["ip"]
+
+            if progress_callback:
+                await progress_callback("updates.progress.startingUpdate", 5)
+
+            # Create tarball
+            tarball_path, version = await self._create_client_tarball()
+
+            if progress_callback:
+                await progress_callback("updates.progress.sendingUpdate", 20)
+
+            # POST tarball to satellite
+            url = f"http://{ip}:{self.satellite_api_port}/app/update"
+            timeout = aiohttp.ClientTimeout(total=120)
+
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                with open(tarball_path, "rb") as f:
+                    form = aiohttp.FormData()
+                    form.add_field("tarball", f, filename="milo-client.tar.gz",
+                                   content_type="application/gzip")
+                    form.add_field("version", version)
+
+                    async with session.post(url, data=form) as response:
+                        if response.status != 200:
+                            error_text = await response.text()
+                            return {
+                                "success": False,
+                                "error": f"Satellite rejected update: HTTP {response.status} - {error_text}"
+                            }
+
+            if progress_callback:
+                await progress_callback("updates.progress.waitingForRestart", 50)
+
+            # Poll /status until satellite is back online with matching version
+            result = await self._wait_for_app_update_completion(
+                hostname, ip, version, progress_callback
+            )
+            return result
+
+        except Exception as e:
+            self.logger.error(f"Error updating satellite app {hostname}: {e}")
+            return {"success": False, "error": str(e)}
+
+        finally:
+            # Clean up tarball
+            if tarball_path:
+                try:
+                    os.unlink(tarball_path)
+                except Exception:
+                    pass
+
+    async def _wait_for_app_update_completion(
+        self,
+        hostname: str,
+        ip: str,
+        expected_version: str,
+        progress_callback: Optional[callable] = None
+    ) -> Dict[str, Any]:
+        """Polls satellite /status until it's back online with the expected app version."""
+        max_wait_time = 90
+        check_interval = 5
+        elapsed = 0
+
+        while elapsed < max_wait_time:
+            await asyncio.sleep(check_interval)
+            elapsed += check_interval
+
+            progress = min(50 + (elapsed / max_wait_time * 45), 95)
+
+            if progress_callback:
+                await progress_callback(
+                    "updates.progress.waitingForRestart",
+                    int(progress)
+                )
+
+            try:
+                url = f"http://{ip}:{self.satellite_api_port}/status"
+                timeout = aiohttp.ClientTimeout(total=5)
+
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.get(url) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            app_version = data.get("app", {}).get("version")
+
+                            if app_version == expected_version:
+                                if progress_callback:
+                                    await progress_callback(
+                                        "updates.progress.completed",
+                                        100
+                                    )
+
+                                return {
+                                    "success": True,
+                                    "message": f"Satellite {hostname} app updated successfully",
+                                    "new_version": app_version
+                                }
+
+            except Exception as e:
+                # Connection errors expected during restart
+                self.logger.debug(f"Waiting for satellite {hostname} restart: {e}")
+                continue
+
+        return {
+            "success": False,
+            "error": f"App update timeout for {hostname}"
+        }
 
     def _compare_versions(self, current: Optional[str], latest: Optional[str]) -> bool:
         """Compares two versions (returns True if update available)"""

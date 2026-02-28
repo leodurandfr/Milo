@@ -344,7 +344,9 @@
       "rebooting": "Neustart...",
       "downloadingSource": "Quellcode herunterladen...",
       "configuringSource": "Konfiguration...",
-      "compilingSource": "Kompilierung..."
+      "compilingSource": "Kompilierung...",
+      "sendingUpdate": "Update wird an den Satelliten gesendet...",
+      "waitingForRestart": "Warten auf Neustart des Satelliten..."
     }
   },
   "info": {
