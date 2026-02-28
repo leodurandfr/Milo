@@ -13,9 +13,8 @@
 
 ## Audio Sources
 
-| | |
+| <img src="docs/images/spotify.png" width="40"><br>**Spotify** | <span style="font-weight:normal">Spotify Connect receiver — control playback directly</span> |
 |:---:|---|
-| <img src="docs/images/spotify.png" width="40"><br>**Spotify** | Spotify Connect receiver — control playback directly |
 | <img src="docs/images/airplay.png" width="40"><br>**AirPlay** | Stream from any Apple device (iPhone, iPad, Mac) |
 | <img src="docs/images/bluetooth.png" width="40"><br>**Bluetooth** | Pair any device and stream audio |
 | <img src="docs/images/radio.png" width="40"><br>**Radio** | Browse 50,000+ stations, save favorites, add custom stations, their image, and identify tracks with Shazam |
@@ -24,9 +23,8 @@
 
 ## Features
 
-| | |
+| <img src="docs/images/multiroom.png" width="40"><br>**Multiroom** | <span style="font-weight:normal">Synchronized playback across speakers with zone management and per-speaker volume</span> |
 |:---:|---|
-| <img src="docs/images/multiroom.png" width="40"><br>**Multiroom** | Synchronized playback across speakers with zone management and per-speaker volume |
 | <img src="docs/images/equalizer.png" width="40"><br>**Equalizer** | 10-band equalizer with presets, compressor, and loudness compensation (CamillaDSP) |
 | <img src="docs/images/settings.png" width="40"><br>**Settings** | Control how Milō reacts: now playing, volume management, and more |
 | <img src="docs/images/languages.png" width="40"><br>**Languages** | English, French, German, Spanish, Portuguese, Italian, Chinese, Hindi |
