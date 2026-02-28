@@ -595,7 +595,6 @@ onUnmounted(() => {
   transform: translateX(-50%);
   z-index: 6000;
   width: 100%;
-  max-width: 884px;
   background: var(--color-background-medium-32);
   backdrop-filter: blur(var(--blur-04));
   -webkit-backdrop-filter: blur(var(--blur-04));
