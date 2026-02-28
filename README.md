@@ -2,9 +2,11 @@
   <img style="pointer-events:none" src="https://leodurand.com/_autres/cover-milo-github@2x.png" />
 </picture>
 
-# Milō (⚠️WIP⚠️)
+# Milō
 
-> Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, AirPlay 2, Bluetooth, Internet Radio, Podcasts, and Mac streaming.
+> ⚠ Currently in work in progress
+
+### Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, AirPlay 2, Bluetooth, Internet Radio, Podcasts, and Mac streaming.
 
 <!-- TODO: Add screenshot or GIF of the interface -->
 <!-- ![Milō Interface](docs/assets/screenshot.png) -->
@@ -13,22 +15,22 @@
 
 | | |
 |:---:|---|
-| <img src="docs/images/spotify.png" width="32"> | **Spotify Connect**<br>Spotify Connect receiver — control playback directly |
-| <img src="docs/images/airplay.png" width="32"> | **AirPlay**<br>Stream from any Apple device (iPhone, iPad, Mac) |
-| <img src="docs/images/bluetooth.png" width="32"> | **Bluetooth**<br>Pair any device and stream audio |
-| <img src="docs/images/radio.png" width="32"> | **Radio**<br>Browse 50,000+ stations, save favorites, add custom stations, their image, and identify tracks with Shazam |
-| <img src="docs/images/podcast.png" width="32"> | **Podcasts**<br>Search, subscribe, and resume episodes with variable speed (0.5x–2x) |
-| <img src="docs/images/macos.png" width="32"> | **Mac**<br>Stream your Mac's system audio (requires [Milō Mac](https://github.com/leodurandfr/Milo-Mac)) |
+| <img src="docs/images/spotify.png" width="40"><br>**Spotify** | Spotify Connect receiver — control playback directly |
+| <img src="docs/images/airplay.png" width="40"><br>**AirPlay** | Stream from any Apple device (iPhone, iPad, Mac) |
+| <img src="docs/images/bluetooth.png" width="40"><br>**Bluetooth** | Pair any device and stream audio |
+| <img src="docs/images/radio.png" width="40"><br>**Radio** | Browse 50,000+ stations, save favorites, add custom stations, their image, and identify tracks with Shazam |
+| <img src="docs/images/podcast.png" width="40"><br>**Podcasts** | Search, subscribe, and resume episodes with variable speed (0.5x–2x) |
+| <img src="docs/images/macos.png" width="40"><br>**Mac** | Stream your Mac's system audio (requires [Milō Mac](https://github.com/leodurandfr/Milo-Mac)) |
 
 ## Features
 
 | | |
 |:---:|---|
-| <img src="docs/images/multiroom.png" width="32"> | **Multiroom Audio**<br>Synchronized playback across speakers with zone management and per-speaker volume |
-| <img src="docs/images/equalizer.png" width="32"> | **Parametric EQ**<br>10-band equalizer with presets, compressor, and loudness compensation (CamillaDSP) |
-| <img src="docs/images/settings.png" width="32"> | **Personalized Settings**<br>Control how Milō reacts: now playing, volume management, and more |
-| <img src="docs/images/languages.png" width="32"> | **8 Languages**<br>English, French, German, Spanish, Portuguese, Italian, Chinese, Hindi |
-| <img src="docs/images/updates.png" width="32"> | **OTA Updates**<br>Check and install updates autonomously, including multi-room client speakers |
+| <img src="docs/images/multiroom.png" width="40"><br>**Multiroom** | Synchronized playback across speakers with zone management and per-speaker volume |
+| <img src="docs/images/equalizer.png" width="40"><br>**Equalizer** | 10-band equalizer with presets, compressor, and loudness compensation (CamillaDSP) |
+| <img src="docs/images/settings.png" width="40"><br>**Settings** | Control how Milō reacts: now playing, volume management, and more |
+| <img src="docs/images/languages.png" width="40"><br>**Languages** | English, French, German, Spanish, Portuguese, Italian, Chinese, Hindi |
+| <img src="docs/images/updates.png" width="40"><br>**Updates** | Check and install updates autonomously, including multi-room client speakers |
 
 ## Hardware
 
