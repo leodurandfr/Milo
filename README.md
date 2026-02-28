@@ -15,27 +15,27 @@
 
 <table>
   <tr>
-    <td align="center"><img src="docs/images/margin-top.png"><br><img src="docs/images/spotify.png" width="40"><br><b>Spotify</b><br><img src="docs/images/margin-bottom.png"></td>
+    <td align="center" width="64"><img src="docs/images/margin-top.png"><br><img src="docs/images/spotify.png" width="40"><br><b>Spotify</b><br><img src="docs/images/margin-bottom.png"></td>
     <td>Spotify Connect receiver — control playback directly</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/images/margin-top.png"><br><img src="docs/images/airplay.png" width="40"><br><b>AirPlay</b><br><img src="docs/images/margin-bottom.png"></td>
+    <td align="center" width="64"><img src="docs/images/margin-top.png"><br><img src="docs/images/airplay.png" width="40"><br><b>AirPlay</b><br><img src="docs/images/margin-bottom.png"></td>
     <td>Stream from any Apple device (iPhone, iPad, Mac)</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/images/margin-top.png"><br><img src="docs/images/bluetooth.png" width="40"><br><b>Bluetooth</b><br><img src="docs/images/margin-bottom.png"></td>
+    <td align="center" width="64"><img src="docs/images/margin-top.png"><br><img src="docs/images/bluetooth.png" width="40"><br><b>Bluetooth</b><br><img src="docs/images/margin-bottom.png"></td>
     <td>Pair any device and stream audio</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/images/margin-top.png"><br><img src="docs/images/radio.png" width="40"><br><b>Radio</b><br><img src="docs/images/margin-bottom.png"></td>
+    <td align="center" width="64"><img src="docs/images/margin-top.png"><br><img src="docs/images/radio.png" width="40"><br><b>Radio</b><br><img src="docs/images/margin-bottom.png"></td>
     <td>Browse 50,000+ stations, save favorites, add custom stations, their image, and identify tracks with Shazam</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/images/margin-top.png"><br><img src="docs/images/podcast.png" width="40"><br><b>Podcasts</b><br><img src="docs/images/margin-bottom.png"></td>
+    <td align="center" width="64"><img src="docs/images/margin-top.png"><br><img src="docs/images/podcast.png" width="40"><br><b>Podcasts</b><br><img src="docs/images/margin-bottom.png"></td>
     <td>Search, subscribe, and resume episodes with variable speed (0.5x–2x)</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/images/margin-top.png"><br><img src="docs/images/macos.png" width="40"><br><b>Mac</b><br><img src="docs/images/margin-bottom.png"></td>
+    <td align="center" width="64"><img src="docs/images/margin-top.png"><br><img src="docs/images/macos.png" width="40"><br><b>Mac</b><br><img src="docs/images/margin-bottom.png"></td>
     <td>Stream your Mac's system audio (requires <a href="https://github.com/leodurandfr/Milo-Mac">Milō Mac</a>)</td>
   </tr>
 </table>
@@ -44,35 +44,47 @@
 
 <table>
   <tr>
-    <td align="center"><img src="docs/images/margin-top.png"><br><img src="docs/images/multiroom.png" width="40"><br><b>Multiroom</b><br><img src="docs/images/margin-bottom.png"></td>
+    <td align="center" width="64"><img src="docs/images/margin-top.png"><br><img src="docs/images/multiroom.png" width="40"><br><b>Multiroom</b><br><img src="docs/images/margin-bottom.png"></td>
     <td>Synchronized playback across speakers with zone management and per-speaker volume</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/images/margin-top.png"><br><img src="docs/images/equalizer.png" width="40"><br><b>Equalizer</b><br><img src="docs/images/margin-bottom.png"></td>
+    <td align="center" width="64"><img src="docs/images/margin-top.png"><br><img src="docs/images/equalizer.png" width="40"><br><b>Equalizer</b><br><img src="docs/images/margin-bottom.png"></td>
     <td>10-band equalizer with presets, compressor, and loudness compensation (CamillaDSP)</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/images/margin-top.png"><br><img src="docs/images/settings.png" width="40"><br><b>Settings</b><br><img src="docs/images/margin-bottom.png"></td>
+    <td align="center" width="64"><img src="docs/images/margin-top.png"><br><img src="docs/images/settings.png" width="40"><br><b>Settings</b><br><img src="docs/images/margin-bottom.png"></td>
     <td>Control how Milō reacts: now playing, volume management, and more</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/images/margin-top.png"><br><img src="docs/images/languages.png" width="40"><br><b>Languages</b><br><img src="docs/images/margin-bottom.png"></td>
+    <td align="center" width="64"><img src="docs/images/margin-top.png"><br><img src="docs/images/languages.png" width="40"><br><b>Languages</b><br><img src="docs/images/margin-bottom.png"></td>
     <td>English, French, German, Spanish, Portuguese, Italian, Chinese, Hindi</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/images/margin-top.png"><br><img src="docs/images/updates.png" width="40"><br><b>Updates</b><br><img src="docs/images/margin-bottom.png"></td>
+    <td align="center" width="64"><img src="docs/images/margin-top.png"><br><img src="docs/images/updates.png" width="40"><br><b>Updates</b><br><img src="docs/images/margin-bottom.png"></td>
     <td>Check and install updates autonomously, including multi-room client speakers</td>
   </tr>
 </table>
 
 ## Hardware
 
-| |
-|---|
-| **Board**<br>Raspberry Pi 4 or 5 (64-bit) |
-| **Audio**<br>HiFiBerry HAT — Amplifiers (Amp2, Amp4, Amp4 Pro, Amp100, Beocreate) or DACs (DAC2 HD, DAC+ Pro) |
-| **Display**<br>Waveshare 7" USB or 8" DSI *(optional)* |
-| **Volume**<br>Rotary encoder *(optional)* |
+<table>
+  <tr>
+    <td align="center" width="64"><img src="docs/images/margin-top.png"><br><img src="docs/images/board.png" width="40"><br><b>Board</b><br><img src="docs/images/margin-bottom.png"></td>
+    <td>Raspberry Pi 4 or 5 (64-bit)</td>
+  </tr>
+  <tr>
+    <td align="center" width="64"><img src="docs/images/margin-top.png"><br><img src="docs/images/audio.png" width="40"><br><b>Audio</b><br><img src="docs/images/margin-bottom.png"></td>
+    <td>HiFiBerry HAT — Amplifiers (Amp2, Amp4, Amp4 Pro, Amp100, Beocreate) or DACs (DAC2 HD, DAC+ Pro)</td>
+  </tr>
+  <tr>
+    <td align="center" width="64"><img src="docs/images/margin-top.png"><br><img src="docs/images/display.png" width="40"><br><b>Display</b><br><img src="docs/images/margin-bottom.png"></td>
+    <td>Waveshare 7" USB or 8" DSI <i>(optional)</i></td>
+  </tr>
+  <tr>
+    <td align="center" width="64"><img src="docs/images/margin-top.png"><br><img src="docs/images/volume.png" width="40"><br><b>Volume</b><br><img src="docs/images/margin-bottom.png"></td>
+    <td>Rotary encoder <i>(optional)</i></td>
+  </tr>
+</table>
 
 ## Installation
 
