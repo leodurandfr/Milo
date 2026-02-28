@@ -30,6 +30,9 @@ export const useRadioStore = defineStore('radio', () => {
   const countryFilter = ref('');
   const genreFilter = ref('');
 
+  // Custom stations dict for settings view (modified + manually added)
+  const customStations = ref({});
+
   // Top stations cache (3 minutes, memory only)
   const topStationsCache = ref(null);
   const topStationsCacheTimestamp = ref(null);
@@ -424,6 +427,29 @@ export const useRadioStore = defineStore('radio', () => {
   }
 
   /**
+   * Fetch custom stations dict from API (for settings view)
+   */
+  async function fetchCustomStations() {
+    try {
+      const response = await axios.get('/api/radio/custom');
+      customStations.value = response.data || {};
+    } catch (error) {
+      logger.error('radio', 'Error loading custom stations:', error);
+      customStations.value = {};
+    }
+  }
+
+  /**
+   * Load radio settings data (custom stations + favorites)
+   */
+  async function loadRadioSettingsData() {
+    await Promise.all([
+      fetchCustomStations(),
+      loadStations(true)
+    ]);
+  }
+
+  /**
    * Handle favorite added/removed event from WebSocket
    */
   async function handleFavoriteEvent(stationId, isFavoriteNow) {
@@ -490,9 +516,11 @@ export const useRadioStore = defineStore('radio', () => {
     remainingStations,
     totalStations,
     favoriteStations: sortedFavorites,
+    customStations,
 
     // Actions
     loadStations,
+    loadRadioSettingsData,
     loadMore,
     playStation,
     stopPlayback,
