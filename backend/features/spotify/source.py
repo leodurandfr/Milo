@@ -139,15 +139,6 @@ class SpotifySource(BaseAudioSource):
             await self._cleanup()
             return False
 
-    async def _do_stop(self) -> bool:
-        """Stop WebSocket and service."""
-        try:
-            await self._cleanup()
-            return await self._stop_service()
-        except Exception as e:
-            self._logger.error(f"Stop failed: {e}")
-            return False
-
     async def _do_restart(self) -> bool:
         """Restart service with state reset."""
         try:
@@ -556,16 +547,6 @@ class SpotifySource(BaseAudioSource):
     def api_url(self) -> Optional[str]:
         """Get API URL."""
         return self._api_url
-
-    @property
-    def metadata(self) -> Dict[str, Any]:
-        """Get current metadata."""
-        return dict(self._metadata)
-
-    @property
-    def is_playing(self) -> bool:
-        """Check if currently playing."""
-        return self._is_playing
 
     @property
     def device_connected(self) -> bool:

@@ -90,11 +90,11 @@ class BluetoothSource(BaseAudioSource):
         try:
             # 1. Start system services
             for service in [self.bluetooth_service, self.bluealsa_service]:
-                if not await self._start_service_by_name(service):
+                if not await self._start_service(service):
                     raise RuntimeError(f"Failed to start {service}")
 
             # 2. Start playback service
-            if not await self._start_service_by_name(self.bluealsa_aplay_service):
+            if not await self._start_service(self.bluealsa_aplay_service):
                 raise RuntimeError(f"Failed to start {self.bluealsa_aplay_service}")
 
             # 3. Configure Bluetooth adapter
@@ -134,9 +134,9 @@ class BluetoothSource(BaseAudioSource):
 
             # Stop services if configured
             if self.stop_bluetooth_on_exit:
-                await self._stop_service_by_name(self.bluealsa_aplay_service)
+                await self._stop_service(self.bluealsa_aplay_service)
                 for service in [self.bluealsa_service, self.bluetooth_service]:
-                    await self._stop_service_by_name(service)
+                    await self._stop_service(service)
 
             # Reset state
             self.connected_device = None
@@ -155,7 +155,7 @@ class BluetoothSource(BaseAudioSource):
                 self._restart_in_progress = True
 
                 # Restart playback service
-                if not await self._restart_service_by_name(self.bluealsa_aplay_service):
+                if not await self._restart_service(self.bluealsa_aplay_service):
                     self._restart_in_progress = False
                     return False
 
@@ -176,9 +176,9 @@ class BluetoothSource(BaseAudioSource):
 
     async def _get_status(self) -> Dict[str, Any]:
         """Get Bluetooth-specific status."""
-        bt_active = await self._is_service_active_by_name(self.bluetooth_service)
+        bt_active = await self._is_service_active(self.bluetooth_service)
         bluealsa_active = await self._is_service_active()
-        aplay_active = await self._is_service_active_by_name(self.bluealsa_aplay_service)
+        aplay_active = await self._is_service_active(self.bluealsa_aplay_service)
 
         return {
             "device_connected": self.connected_device is not None,
@@ -349,35 +349,3 @@ class BluetoothSource(BaseAudioSource):
                 "device_address": None
             })
 
-    # === Service Management Helpers ===
-
-    async def _start_service_by_name(self, name: str) -> bool:
-        """Start a systemd service by name."""
-        try:
-            return await self._service_manager.start(name)
-        except Exception as e:
-            self._logger.error(f"Failed to start {name}: {e}")
-            return False
-
-    async def _stop_service_by_name(self, name: str) -> bool:
-        """Stop a systemd service by name."""
-        try:
-            return await self._service_manager.stop(name)
-        except Exception as e:
-            self._logger.error(f"Failed to stop {name}: {e}")
-            return False
-
-    async def _restart_service_by_name(self, name: str) -> bool:
-        """Restart a systemd service by name."""
-        try:
-            return await self._service_manager.restart(name)
-        except Exception as e:
-            self._logger.error(f"Failed to restart {name}: {e}")
-            return False
-
-    async def _is_service_active_by_name(self, name: str) -> bool:
-        """Check if a systemd service is active by name."""
-        try:
-            return await self._service_manager.is_active(name)
-        except Exception:
-            return False

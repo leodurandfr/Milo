@@ -98,15 +98,6 @@ class AirPlaySource(BaseAudioSource):
             await self._cleanup()
             return False
 
-    async def _do_stop(self) -> bool:
-        """Stop metadata reader and service."""
-        try:
-            await self._cleanup()
-            return await self._stop_service()
-        except Exception as e:
-            self._logger.error(f"Stop failed: {e}")
-            return False
-
     async def _do_restart(self) -> bool:
         """Restart service with state reset."""
         try:
@@ -341,13 +332,5 @@ class AirPlaySource(BaseAudioSource):
     # === Public API ===
 
     @property
-    def is_playing(self) -> bool:
-        return self._is_playing
-
-    @property
     def device_connected(self) -> bool:
         return self._device_connected
-
-    @property
-    def metadata(self) -> Dict[str, Any]:
-        return dict(self._metadata)
