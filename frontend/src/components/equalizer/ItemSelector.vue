@@ -40,7 +40,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['targetChange', 'configureZone']);
+const emit = defineEmits(['targetChange']);
 
 // Local state
 const selectedTargetLocal = ref(equalizerStore.selectedTarget);

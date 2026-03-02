@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from pydantic import ValidationError
 
 from backend.api.multiroom import create_multiroom_router
-from backend.api.models import ZoneCreate, ZoneUpdate, ZoneResponse, MAX_ZONE_NAME_LENGTH
+from backend.api.models import ZoneCreate, ZoneUpdate, MAX_ZONE_NAME_LENGTH
 from backend.core.multiroom.models import Client
 
 
@@ -407,35 +407,6 @@ class TestZoneUpdate:
         """Name accepts any characters (accents, special chars, emojis)."""
         update = ZoneUpdate(name="Milō 2.1 🎵")
         assert update.name == "Milō 2.1 🎵"
-
-
-class TestZoneResponse:
-    """Tests for ZoneResponse Pydantic model."""
-
-    def test_valid_zone_response(self):
-        """Valid ZoneResponse with all fields."""
-        response = ZoneResponse(
-            id="550e8400-e29b-41d4-a716-446655440000",
-            name="Living Room",
-            client_ids=["local", "dc:a6:32:7e:d3:43"],
-            equalizer_settings={"filters": [], "compressor": None, "loudness": None}
-        )
-        assert response.id == "550e8400-e29b-41d4-a716-446655440000"
-        assert response.name == "Living Room"
-        assert len(response.client_ids) == 2
-        assert response.equalizer_settings["filters"] == []
-
-    def test_zone_response_from_dict(self):
-        """ZoneResponse can be created from dict."""
-        data = {
-            "id": "zone-1",
-            "name": "Kitchen",
-            "client_ids": ["c1", "c2"],
-            "equalizer_settings": {"filters": [{"freq": 1000}]}
-        }
-        response = ZoneResponse(**data)
-        assert response.id == "zone-1"
-        assert response.equalizer_settings["filters"][0]["freq"] == 1000
 
 
 class TestMaxZoneNameLengthConstant:

@@ -123,7 +123,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['toggle-play', 'after-hide'])
+defineEmits(['toggle-play', 'after-hide'])
 
 // Computed classes for styling based on source
 const playerClasses = computed(() => ({

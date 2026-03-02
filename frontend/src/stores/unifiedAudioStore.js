@@ -79,36 +79,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     }
   }
 
-  async function setEqualizerEnabled(enabled) {
-    try {
-      const response = await axios.put('/api/equalizer/enabled', { enabled });
-      return response.data.status === 'success';
-    } catch (err) {
-      logger.error('store', 'Set equalizer failed', { enabled, error: err.message });
-      return false;
-    }
-  }
-
   // === VOLUME ACTIONS (all in dB) ===
-  async function setVolume(volume_db, showBar = true) {
-    try {
-      const response = await axios.post('/api/volume/set', {
-        volume_db,
-        show_bar: showBar
-      });
-
-      if (response.data.status === 'success') {
-        // Volume state will be updated via WebSocket broadcast
-        return true;
-      }
-      return false;
-
-    } catch (error) {
-      logger.error('store', 'Set volume failed', { volume_db, error: error.message });
-      return false;
-    }
-  }
-
   async function adjustVolume(delta_db, showBar = true) {
     try {
       const response = await axios.post('/api/volume/adjust', { delta_db, show_bar: showBar });
@@ -118,16 +89,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       logger.error('store', 'Adjust volume failed', { delta_db, error: error.message });
       return false;
     }
-  }
-
-  async function increaseVolume() {
-    const step = volumeState.value.step_mobile_db || 3.0;
-    return await adjustVolume(step);
-  }
-
-  async function decreaseVolume() {
-    const step = volumeState.value.step_mobile_db || 3.0;
-    return await adjustVolume(-step);
   }
 
   // === WEBSOCKET STATE UPDATES ===
@@ -217,30 +178,18 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     }
   }
 
-  function hideVolumeBar() {
-    if (volumeBarHideTimer) clearTimeout(volumeBarHideTimer);
-    showVolumeBar.value = false;
-  }
-
   return {
     // State
     systemState,
     volumeState,
     showVolumeBar,
-    isChangingSource,
-    isSendingCommand,
 
     // Actions
     changeSource,
     sendCommand,
     setMultiroomEnabled,
-    setEqualizerEnabled,
     updateState,
-    setVolume,
     adjustVolume,
-    increaseVolume,
-    decreaseVolume,
     handleVolumeEvent,
-    hideVolumeBar
   };
 });

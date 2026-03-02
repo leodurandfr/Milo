@@ -7,7 +7,6 @@ These models represent the core business entities used throughout the applicatio
 from backend.core.models.audio_state import AudioSource, PluginState, SystemAudioState
 from backend.core.models.volume import VolumeConfig
 from backend.core.models.volume_state import VolumeState, ClientVolume, ZoneVolume
-from backend.core.models.audio_routing import AudioRoutingState
 
 __all__ = [
     "AudioSource",
@@ -17,5 +16,4 @@ __all__ = [
     "VolumeState",
     "ClientVolume",
     "ZoneVolume",
-    "AudioRoutingState",
 ]

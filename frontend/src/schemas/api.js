@@ -14,11 +14,11 @@ import { z } from 'zod';
 
 // === AUDIO SOURCE & STATE ===
 
-export const AudioSourceSchema = z.enum([
+const AudioSourceSchema = z.enum([
   'none', 'spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'airplay'
 ]);
 
-export const PluginStateSchema = z.enum([
+const PluginStateSchema = z.enum([
   'starting', 'ready', 'connected', 'error'
 ]);
 
@@ -188,7 +188,7 @@ const EqualizerPresetsResponseSchema = z.object({
  * Registered client metadata from ClientRegistryService.
  * Matches backend Client model (backend/core/multiroom/models.py).
  */
-export const RegisteredClientSchema = z.object({
+const RegisteredClientSchema = z.object({
   mac_id: z.string(),
   name: z.string(),
   ip: z.string(),
@@ -200,7 +200,7 @@ export const RegisteredClientSchema = z.object({
 /**
  * Response from GET /api/multiroom/state endpoint.
  */
-export const MultiroomStateSchema = z.object({
+const MultiroomStateSchema = z.object({
   clients: z.record(z.string(), RegisteredClientSchema),
   zones: z.record(z.string(), z.object({
     id: z.string(),
@@ -215,7 +215,7 @@ export const MultiroomStateSchema = z.object({
 
 // === RADIO ===
 
-export const RadioStationSchema = z.object({
+const RadioStationSchema = z.object({
   id: z.string(),
   name: z.string(),
   url: z.string(),
@@ -294,14 +294,3 @@ export function validateSchema(schema, data, context = 'unknown') {
   return result;
 }
 
-/**
- * Validate and return data with fallback
- * @param {z.ZodSchema} schema
- * @param {unknown} data
- * @param {T} fallback
- * @returns {T}
- */
-export function validateWithFallback(schema, data, fallback) {
-  const result = schema.safeParse(data);
-  return result.success ? result.data : fallback;
-}
