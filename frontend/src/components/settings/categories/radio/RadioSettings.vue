@@ -100,9 +100,10 @@ onMounted(() => {
   radioStore.loadRadioSettingsData();
 });
 
-// Listen for metadata modifications to auto-reload
+// Listen for metadata modifications to refresh custom stations
+// (favorites are already updated in real-time via RadioSource's WebSocket handlers)
 on('radio', 'favorite_modified', () => {
-  logger.debug('radio', 'Station modified, reloading RadioSettings data');
+  logger.debug('radio', 'Station modified, reloading custom stations for settings');
   radioStore.loadRadioSettingsData();
 });
 

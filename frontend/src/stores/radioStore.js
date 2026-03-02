@@ -428,13 +428,11 @@ export const useRadioStore = defineStore('radio', () => {
   }
 
   /**
-   * Load radio settings data (custom stations + favorites)
+   * Load radio settings data (custom stations only — favorites are already
+   * kept fresh via preload + WebSocket events)
    */
   async function loadRadioSettingsData() {
-    await Promise.all([
-      fetchCustomStations(),
-      loadStations(true)
-    ]);
+    await fetchCustomStations();
   }
 
   /**
