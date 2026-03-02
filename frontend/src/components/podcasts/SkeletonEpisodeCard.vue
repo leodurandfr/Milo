@@ -34,11 +34,6 @@
   justify-content: center;
 }
 
-.skeleton-text-line {
-  height: 16px;
-  border-radius: var(--radius-02);
-}
-
 .skeleton-title {
   width: 90%;
   height: 20px;

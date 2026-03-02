@@ -70,6 +70,7 @@
 import { watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { usePodcastStore } from '@/stores/podcastStore'
+import { useDebounce } from '@/composables/useDebounce'
 import { useI18n } from '@/services/i18n'
 import PodcastCard from './PodcastCard.vue'
 import EpisodeCard from './EpisodeCard.vue'
@@ -146,9 +147,8 @@ const genreOptions = [
   { value: 'PODCASTSERIES_TV_AND_FILM', label: t('podcasts.genres.tv_and_film') }
 ]
 
-// Debounce timers (local UI state)
-let filterDebounceTimer = null
-let searchDebounceTimer = null
+const { debounced: debouncedSearch } = useDebounce(() => performSearch())
+const { debounced: debouncedFilterSearch } = useDebounce(() => performSearch())
 
 // Helper to check if all filters and search term are empty
 function isEmptyState() {
@@ -167,13 +167,7 @@ function onSearchInput() {
     return
   }
 
-  // Debounce search
-  if (searchDebounceTimer) {
-    clearTimeout(searchDebounceTimer)
-  }
-  searchDebounceTimer = setTimeout(() => {
-    performSearch()
-  }, 400)
+  debouncedSearch()
 }
 
 // Watch filters and auto-trigger search when they change
@@ -188,12 +182,7 @@ watch(
     }
 
     // Auto-search if filters are active
-    if (filterDebounceTimer) {
-      clearTimeout(filterDebounceTimer)
-    }
-    filterDebounceTimer = setTimeout(() => {
-      performSearch()
-    }, 400)
+    debouncedFilterSearch()
   }
 )
 

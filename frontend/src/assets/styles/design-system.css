@@ -355,6 +355,19 @@
     animation: shimmer 1.5s ease-in-out infinite;
 }
 
+.skeleton-text-line {
+    height: 16px;
+    border-radius: var(--radius-02);
+}
+
+/* Content wrapper for source views inside AudioSourceLayout */
+.source-content {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-04);
+    width: 100%;
+}
+
 /* Horizontal filter bar with mobile full-bleed scroll */
 .filters-bar {
     display: flex;

@@ -37,11 +37,6 @@ defineProps({
   background: var(--color-background-neutral);
 }
 
-.skeleton-text-line {
-  height: 16px;
-  border-radius: var(--radius-02);
-}
-
 /* === CARD VARIANT === */
 .variant-card {
   display: flex;

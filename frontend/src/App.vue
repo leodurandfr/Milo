@@ -357,8 +357,9 @@ onMounted(async () => {
       currentError.value = null;
     }),
     on('system', 'backend_error', (event) => {
+      const level = event.data?.level || 'ERROR';
       const message = event.data?.message || 'Backend error';
-      currentError.value = { title: t('notification.backendErrorTitle'), detail: message, source: 'backend' };
+      currentError.value = { title: `${t('notification.backendErrorTitle')} · ${level === 'WARNING' ? 'Warning' : 'Error'}`, detail: message, source: 'backend' };
     }),
     on('plugin', 'metadata', (event) => {
       unifiedStore.updateState(event);

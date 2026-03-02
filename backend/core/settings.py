@@ -255,12 +255,6 @@ class SettingsService:
             'shazam_enabled': bool(radio_input.get('shazam_enabled', True))
         }
 
-        # Equalizer (linked_groups, presets) - Preserve equalizer section without strict validation
-        equalizer_input = settings.get('equalizer', {})
-        if equalizer_input:
-            # Preserve equalizer section as-is (no strict validation)
-            validated['equalizer'] = equalizer_input
-
         # Multiroom (client_types for crossover) - Preserve multiroom section without strict validation
         multiroom_input = settings.get('multiroom', {})
         if multiroom_input:

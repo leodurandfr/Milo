@@ -31,11 +31,6 @@ import SkeletonEpisodeCard from './SkeletonEpisodeCard.vue'
   gap: var(--space-03);
 }
 
-.skeleton-text-line {
-  height: 16px;
-  border-radius: var(--radius-02);
-}
-
 .skeleton-section-title {
   width: 200px;
   height: 26px;
