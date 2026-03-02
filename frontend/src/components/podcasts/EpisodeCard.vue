@@ -76,7 +76,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['select', 'play', 'pause', 'complete', 'select-podcast'])
+const emit = defineEmits(['select', 'play', 'complete', 'select-podcast'])
 
 const podcastStore = usePodcastStore()
 const unifiedStore = useUnifiedAudioStore()
@@ -125,9 +125,9 @@ const isCurrentEpisodeBuffering = computed(() => {
       (unifiedStore.systemState.metadata?.is_buffering || false))
 })
 
-function handlePlayClick() {
+async function handlePlayClick() {
   if (isCurrentlyPlaying.value) {
-    emit('pause')
+    await podcastStore.pause()
   } else {
     emit('play', props.episode)
   }
