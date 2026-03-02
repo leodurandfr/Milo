@@ -13,7 +13,7 @@
     </ModalHeader>
 
     <div class="main-content">
-      <Transition name="fade-slide" mode="out-in">
+      <Transition name="fade-slide" mode="out-in" @before-leave="onBeforeLeave" @enter="onEnter">
         <!-- State 1: Equalizer disabled -->
         <MessageContent
           v-if="!equalizerStore.isEqualizerEffectsEnabled"
@@ -164,7 +164,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, inject } from 'vue';
 import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
@@ -184,6 +184,9 @@ const { t } = useI18n();
 const equalizerStore = useEqualizerStore();
 const { on } = useWebSocket();
 
+// Inject Modal's height request function for smooth height animations
+const requestHeightDelta = inject('modalRequestHeightDelta', null);
+
 // Local state
 const isMobile = ref(false);
 const zoneTabsRef = ref(null);
@@ -199,6 +202,28 @@ const selectedClientIds = computed(() => {
 });
 
 let unsubscribeFunctions = [];
+
+// === FADE-SLIDE HEIGHT COORDINATION ===
+// Lock ResizeObserver before content swap to prevent double animation
+// (internal fade-slide + modal spring). Only the modal spring should animate height.
+let savedContentHeight = 0;
+
+function onBeforeLeave(el) {
+  savedContentHeight = el.getBoundingClientRect().height;
+  if (requestHeightDelta) {
+    // Lock observer and keep current height during leave phase
+    requestHeightDelta(0, 1200);
+  }
+}
+
+function onEnter(el) {
+  if (requestHeightDelta) {
+    // New content in DOM — set target height for a single smooth spring
+    const newHeight = el.getBoundingClientRect().height;
+    const delta = newHeight - savedContentHeight;
+    requestHeightDelta(delta, 500);
+  }
+}
 
 // === EQUALIZER TOGGLE ===
 async function handleEqualizerToggle(enabled) {
