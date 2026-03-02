@@ -5,7 +5,7 @@
 
     <!-- Episodes section -->
     <div class="skeleton-episodes-section">
-      <div class="skeleton-text-line skeleton-section-title"></div>
+      <div class="skeleton-text-line shimmer skeleton-section-title"></div>
       <div class="skeleton-episodes-list">
         <SkeletonEpisodeCard v-for="i in 5" :key="`skeleton-episode-${i}`" />
       </div>
@@ -34,12 +34,6 @@ import SkeletonEpisodeCard from './SkeletonEpisodeCard.vue'
 .skeleton-text-line {
   height: 16px;
   border-radius: var(--radius-02);
-  background: linear-gradient(90deg,
-      var(--color-background-neutral) 0%,
-      var(--color-background-strong) 50%,
-      var(--color-background-neutral) 100%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s ease-in-out infinite;
 }
 
 .skeleton-section-title {
@@ -52,17 +46,6 @@ import SkeletonEpisodeCard from './SkeletonEpisodeCard.vue'
   flex-direction: column;
   gap: var(--space-02);
 }
-
-@keyframes shimmer {
-  0% {
-    background-position: 200% 0;
-  }
-
-  100% {
-    background-position: -200% 0;
-  }
-}
-
 
 @media (max-aspect-ratio: 4/3) {
   .skeleton-section-title {

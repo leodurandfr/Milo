@@ -9,7 +9,7 @@
       </div>
       <span class="heading-2">Milō OS</span>
       <span class="info-version text-mono">
-        <span v-if="showVersionSkeleton" class="skeleton-line" style="width: 96px"></span>
+        <span v-if="showVersionSkeleton" class="skeleton-line shimmer" style="width: 96px"></span>
         <span v-else-if="miloVersion !== null">Version {{ miloVersion }}</span>
         <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
       </span>
@@ -20,7 +20,7 @@
       <div class="info-item">
         <span class="info-label text-mono">{{ t('info.ipAddress') }}</span>
         <span class="info-value text-mono">
-          <span v-if="showIpSkeleton" class="skeleton-line" style="width: 100px"></span>
+          <span v-if="showIpSkeleton" class="skeleton-line shimmer" style="width: 100px"></span>
           <span v-else-if="ipAddress !== null">{{ ipAddress }}</span>
           <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
         </span>
@@ -29,7 +29,7 @@
       <div class="info-item">
         <span class="info-label text-mono">{{ t('info.temperature') }}</span>
         <span class="info-value text-mono">
-          <span v-if="showTempSkeleton" class="skeleton-line" style="width: 48px"></span>
+          <span v-if="showTempSkeleton" class="skeleton-line shimmer" style="width: 48px"></span>
           <span v-else-if="systemTemperature !== null">{{ systemTemperature.toFixed(1) }}°C</span>
           <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
         </span>
@@ -39,7 +39,7 @@
         <div class="info-item-top">
           <span class="info-label text-mono">{{ t('info.cpu') }}</span>
           <span class="info-value text-mono">
-            <span v-if="showResourcesSkeleton" class="skeleton-line" style="width: 36px"></span>
+            <span v-if="showResourcesSkeleton" class="skeleton-line shimmer" style="width: 36px"></span>
             <span v-else-if="cpuPercent !== null">{{ cpuPercent }}%</span>
             <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
           </span>
@@ -53,7 +53,7 @@
         <div class="info-item-top">
           <span class="info-label text-mono">{{ t('info.ram') }}</span>
           <span class="info-value text-mono">
-            <span v-if="showResourcesSkeleton" class="skeleton-line" style="width: 88px"></span>
+            <span v-if="showResourcesSkeleton" class="skeleton-line shimmer" style="width: 88px"></span>
             <span v-else-if="ram !== null">{{ ram.used_mb }} / {{ ram.total_mb }} MB</span>
             <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
           </span>
@@ -273,24 +273,13 @@ onUnmounted(() => {
   transition: width var(--transition-normal);
 }
 
-/* Skeleton loading (matches MultiroomItem pattern) */
-@keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-
 .skeleton-line {
+  --shimmer-base: var(--color-background-strong);
+  --shimmer-highlight: var(--color-background-medium-16);
   display: inline-block;
   height: var(--line-height-mono);
   border-radius: var(--radius-02);
   vertical-align: top;
-  background: linear-gradient(90deg,
-    var(--color-background-strong) 0%,
-    var(--color-background-medium-16) 50%,
-    var(--color-background-strong) 100%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
 }
 
 .text-secondary {

@@ -20,10 +20,10 @@
           <Transition name="crossfade">
             <div v-if="localProgramsLoading" key="skeleton" class="programs-list">
               <div class="program-item-skeleton">
-                <div class="skeleton-icon"></div>
-                <div class="skeleton-text skeleton-name"></div>
-                <div class="skeleton-text skeleton-version"></div>
-                <div class="skeleton-button"></div>
+                <div class="skeleton-icon shimmer"></div>
+                <div class="skeleton-text shimmer skeleton-name"></div>
+                <div class="skeleton-text shimmer skeleton-version"></div>
+                <div class="skeleton-button shimmer"></div>
               </div>
             </div>
 
@@ -71,10 +71,10 @@
           <Transition name="crossfade">
             <div v-if="localProgramsLoading" key="skeleton" class="programs-list">
               <div v-for="n in 5" :key="n" class="program-item-skeleton">
-                <div class="skeleton-icon"></div>
-                <div class="skeleton-text skeleton-name"></div>
-                <div class="skeleton-text skeleton-version"></div>
-                <div class="skeleton-button"></div>
+                <div class="skeleton-icon shimmer"></div>
+                <div class="skeleton-text shimmer skeleton-name"></div>
+                <div class="skeleton-text shimmer skeleton-version"></div>
+                <div class="skeleton-button shimmer"></div>
               </div>
             </div>
 
@@ -131,9 +131,9 @@
 
         <div v-else class="programs-list">
           <div class="program-item-skeleton">
-            <div class="skeleton-icon"></div>
-            <div class="skeleton-text skeleton-name"></div>
-            <div class="skeleton-text skeleton-version"></div>
+            <div class="skeleton-icon shimmer"></div>
+            <div class="skeleton-text shimmer skeleton-name"></div>
+            <div class="skeleton-text shimmer skeleton-version"></div>
           </div>
         </div>
       </SettingsSection>
@@ -700,17 +700,6 @@ onMounted(async () => {
   opacity: 0;
 }
 
-/* Skeleton shimmer */
-@keyframes shimmer {
-  0% {
-    background-position: 200% 0;
-  }
-
-  100% {
-    background-position: -200% 0;
-  }
-}
-
 .program-item-skeleton {
   display: grid;
   grid-template-columns: auto 1fr auto;
@@ -732,13 +721,10 @@ onMounted(async () => {
 }
 
 .skeleton-icon,
-.skeleton-text {
-  background: linear-gradient(90deg,
-      var(--color-background-strong) 0%,
-      var(--color-background) 50%,
-      var(--color-background-strong) 100%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s ease-in-out infinite;
+.skeleton-text,
+.skeleton-button {
+  --shimmer-base: var(--color-background-strong);
+  --shimmer-highlight: var(--color-background);
 }
 
 .skeleton-icon {
@@ -769,12 +755,6 @@ onMounted(async () => {
   height: 36px;
   border-radius: var(--radius-02);
   justify-self: end;
-  background: linear-gradient(90deg,
-      var(--color-background-strong) 0%,
-      var(--color-background) 50%,
-      var(--color-background-strong) 100%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s ease-in-out infinite;
 }
 
 /* Responsive */

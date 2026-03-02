@@ -1,10 +1,10 @@
 <template>
   <div class="skeleton-episode-card">
-    <div class="skeleton-card-image"></div>
+    <div class="skeleton-card-image shimmer"></div>
     <div class="skeleton-content">
-      <div class="skeleton-text-line skeleton-title"></div>
-      <div class="skeleton-text-line skeleton-podcast"></div>
-      <div class="skeleton-text-line skeleton-meta"></div>
+      <div class="skeleton-text-line shimmer skeleton-title"></div>
+      <div class="skeleton-text-line shimmer skeleton-podcast"></div>
+      <div class="skeleton-text-line shimmer skeleton-meta"></div>
     </div>
   </div>
 </template>
@@ -18,30 +18,11 @@
   background: var(--color-background-neutral);
 }
 
-@keyframes shimmer {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
-}
-
 .skeleton-card-image {
   width: 128px;
   height: 128px;
   border-radius: var(--radius-02);
   flex-shrink: 0;
-
-  /* Gradient shimmer animation */
-  background: linear-gradient(
-    90deg,
-    var(--color-background-neutral) 0%,
-    var(--color-background-strong) 50%,
-    var(--color-background-neutral) 100%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.5s ease-in-out infinite;
 }
 
 .skeleton-content {
@@ -56,16 +37,6 @@
 .skeleton-text-line {
   height: 16px;
   border-radius: var(--radius-02);
-
-  /* Gradient shimmer animation */
-  background: linear-gradient(
-    90deg,
-    var(--color-background-neutral) 0%,
-    var(--color-background-strong) 50%,
-    var(--color-background-neutral) 100%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.5s ease-in-out infinite;
 }
 
 .skeleton-title {
