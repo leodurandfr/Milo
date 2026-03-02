@@ -2,6 +2,7 @@
 """
 Unit tests for AudioRoutingService
 """
+import asyncio
 import pytest
 import os
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
@@ -31,9 +32,12 @@ class TestAudioRoutingService:
         # Initialize _initial_detection_done to avoid automatic detection
         service._initial_detection_done = True
         # Set up transition callbacks (normally done in initialize())
+        mock_state_machine = Mock()
+        mock_state_machine._transition_lock = asyncio.Lock()
         service._transitions.set_callbacks(
             start_snapcast=service._start_snapcast,
             stop_snapcast=service._stop_snapcast,
+            state_machine=mock_state_machine,
         )
         return service
 
