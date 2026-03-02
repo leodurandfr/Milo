@@ -176,6 +176,10 @@ export const useEqualizerStore = defineStore('equalizer', () => {
    * @returns {string|null} Zone ID or null if standalone client
    */
   function getSelectedZoneId() {
+    // Zone routing only applies when multiroom is enabled
+    const audioStore = useUnifiedAudioStore();
+    if (!audioStore.systemState.multiroom_enabled) return null;
+
     const zone = registryStore.getZoneForClient(selectedTarget.value);
     return zone ? zone.id : null;
   }
@@ -244,10 +248,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
   async function sendFilterUpdate(filterId, filterData) {
     try {
-      // Check if we should use zone endpoint
-      const audioStore = useUnifiedAudioStore();
-      const multiroomEnabled = audioStore.systemState.multiroom_enabled;
-      const zoneId = multiroomEnabled ? getSelectedZoneId() : null;
+      const zoneId = getSelectedZoneId();
 
       if (zoneId) {
         // Zone: use zone endpoint
