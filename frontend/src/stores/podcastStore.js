@@ -4,6 +4,7 @@ import { ref, computed } from 'vue'
 import axios from 'axios'
 import { useUnifiedAudioStore } from './unifiedAudioStore'
 import { logger } from '@/services/logger'
+import { apiCall } from '@/services/apiCall'
 
 // Maximum progress entries to cache (prevents unbounded memory growth)
 const MAX_PROGRESS_ENTRIES = 200
@@ -110,77 +111,53 @@ export const usePodcastStore = defineStore('podcast', () => {
   }
 
   async function pause() {
-    try {
-      await axios.post('/api/podcast/pause')
-      // State will be updated via WebSocket broadcast from backend
-    } catch (error) {
-      logger.error('store', 'Error pausing', error)
-    }
+    await apiCall('store', 'Error pausing', () => axios.post('/api/podcast/pause'))
   }
 
   async function resume() {
-    try {
-      await axios.post('/api/podcast/resume')
-      // State will be updated via WebSocket broadcast from backend
-    } catch (error) {
-      logger.error('store', 'Error resuming', error)
-    }
+    await apiCall('store', 'Error resuming', () => axios.post('/api/podcast/resume'))
   }
 
   async function seek(position) {
-    try {
+    await apiCall('store', 'Error seeking', async () => {
       await axios.post('/api/podcast/seek', { position: Math.floor(position) })
       currentPosition.value = position
-    } catch (error) {
-      logger.error('store', 'Error seeking', error)
-    }
+    })
   }
 
   async function stop() {
-    try {
+    await apiCall('store', 'Error stopping', async () => {
       await axios.post('/api/podcast/stop')
-      // Don't clear displayEpisode, currentPosition, or currentDuration here —
-      // preserve all metadata during fade-out animation.
-      // clearDisplayEpisode() handles cleanup after animation completes,
-      // and clearState() handles cleanup on source switch.
       currentEpisode.value = null
-    } catch (error) {
-      logger.error('store', 'Error stopping', error)
-    }
+    })
   }
 
   async function setSpeed(speed) {
-    try {
+    await apiCall('store', 'Error setting speed', async () => {
       const response = await axios.post('/api/podcast/speed', { speed })
       if (response.data.success) {
         playbackSpeed.value = response.data.speed
       }
-    } catch (error) {
-      logger.error('store', 'Error setting speed', error)
-    }
+    })
   }
 
   // === SETTINGS ACTIONS ===
 
   async function loadSettings() {
-    try {
+    await apiCall('store', 'Error loading settings', async () => {
       const response = await axios.get('/api/podcast/settings')
       if (response.data.settings) {
         settings.value = { ...settings.value, ...response.data.settings }
         playbackSpeed.value = response.data.settings.playbackSpeed || 1.0
       }
-    } catch (error) {
-      logger.error('store', 'Error loading settings', error)
-    }
+    })
   }
 
   async function updateSettings(newSettings) {
-    try {
+    await apiCall('store', 'Error updating settings', async () => {
       await axios.post('/api/podcast/settings', newSettings)
       settings.value = { ...settings.value, ...newSettings }
-    } catch (error) {
-      logger.error('store', 'Error updating settings', error)
-    }
+    })
   }
 
   // === WEBSOCKET STATE HANDLER ===
@@ -330,14 +307,11 @@ export const usePodcastStore = defineStore('podcast', () => {
   // Called at app startup for instant hasSubscriptions check
   async function preloadSubscriptionsList() {
     if (subscriptionsListLoaded.value) return
-
-    try {
+    await apiCall('store', 'Error preloading subscriptions list', async () => {
       const response = await axios.get('/api/podcast/subscriptions')
       subscriptions.value = arrayToSubscriptionsMap(response.data.subscriptions || [])
       subscriptionsListLoaded.value = true
-    } catch (error) {
-      logger.error('store', 'Error preloading subscriptions list', error)
-    }
+    })
   }
 
   // Full load - fetches subscriptions list + latest episodes (Taddy API call)

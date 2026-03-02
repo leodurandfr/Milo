@@ -34,6 +34,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
+import { useAsyncData } from '@/composables/useAsyncData'
 import EpisodeCard from './EpisodeCard.vue'
 import SkeletonEpisodeDetails from './SkeletonEpisodeDetails.vue'
 
@@ -49,7 +50,6 @@ const props = defineProps({
 const emit = defineEmits(['play-episode', 'select-podcast'])
 
 const podcastStore = usePodcastStore()
-const loading = ref(false)
 const episode = ref(null)
 
 // Enriched episode with podcast info for EpisodeCard
@@ -61,23 +61,13 @@ const enrichedEpisode = computed(() => {
   }
 })
 
-async function loadEpisode() {
-  loading.value = true
-  try {
-    const response = await fetch(`/api/podcast/episode/${props.uuid}`)
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    episode.value = await response.json()
+const { loading, execute: loadEpisode } = useAsyncData(async () => {
+  const response = await fetch(`/api/podcast/episode/${props.uuid}`)
+  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  episode.value = await response.json()
 
-    // Enrich with progress cache if available
-    if (episode.value && episode.value.playback_progress) {
-      podcastStore.enrichEpisodesWithProgress([episode.value])
-    }
-  } catch (error) {
-    console.error('Error loading episode:', error)
-  } finally {
-    loading.value = false
-  }
-}
+  podcastStore.enrichEpisodesWithProgress([episode.value])
+}, { logTag: 'podcast' })
 
 function handlePlayClick() {
   emit('play-episode', episode.value)
@@ -91,13 +81,8 @@ function handleSelectPodcast(podcast) {
   emit('select-podcast', podcast)
 }
 
-watch(() => props.uuid, async () => {
-  await loadEpisode()
-}, { immediate: false })
-
-onMounted(() => {
-  loadEpisode()
-})
+watch(() => props.uuid, loadEpisode, { immediate: false })
+onMounted(loadEpisode)
 </script>
 
 <style scoped>

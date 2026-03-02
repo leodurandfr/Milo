@@ -4,6 +4,7 @@ import { ref, computed } from 'vue';
 import axios from 'axios';
 import { useUnifiedAudioStore } from './unifiedAudioStore';
 import { logger } from '@/services/logger';
+import { apiCall } from '@/services/apiCall';
 
 export const useRadioStore = defineStore('radio', () => {
   // === STATE ===
@@ -259,71 +260,46 @@ export const useRadioStore = defineStore('radio', () => {
    * Play a station
    */
   async function playStation(stationId) {
-    try {
-      // Find station in search results or favorites
+    return apiCall('radio', 'Error playing station:', async () => {
       let station = searchResults.value.find(s => s.id === stationId);
-      if (!station) {
-        station = favoriteStations.value.find(s => s.id === stationId);
-      }
-
-      const payload = station
-        ? { station_id: stationId, station }
-        : { station_id: stationId };
-
+      if (!station) station = favoriteStations.value.find(s => s.id === stationId);
+      const payload = station ? { station_id: stationId, station } : { station_id: stationId };
       const response = await axios.post('/api/radio/play', payload);
       return response.data.success;
-    } catch (error) {
-      logger.error('radio', 'Error playing station:', error);
-      return false;
-    }
+    });
   }
 
   /**
    * Stop playback
    */
   async function stopPlayback() {
-    try {
+    return apiCall('radio', 'Error stopping playback:', async () => {
       const response = await axios.post('/api/radio/stop');
       return response.data.success;
-    } catch (error) {
-      logger.error('radio', 'Error stopping playback:', error);
-      return false;
-    }
+    });
   }
 
   /**
    * Add a station to favorites
    */
   async function addFavorite(stationId) {
-    try {
+    return apiCall('radio', 'Error adding favorite:', async () => {
       let station = searchResults.value.find(s => s.id === stationId);
-      if (!station) {
-        station = favoriteStations.value.find(s => s.id === stationId);
-      }
-
-      const payload = station
-        ? { station_id: stationId, station }
-        : { station_id: stationId };
-
+      if (!station) station = favoriteStations.value.find(s => s.id === stationId);
+      const payload = station ? { station_id: stationId, station } : { station_id: stationId };
       const response = await axios.post('/api/radio/favorites/add', payload);
       return response.data.success;
-    } catch (error) {
-      logger.error('radio', 'Error adding favorite:', error);
-      return false;
-    }
+    });
   }
 
   /**
    * Remove a station from favorites
    */
   async function removeFavorite(stationId) {
-    try {
+    return apiCall('radio', 'Error removing favorite:', async () => {
       const response = await axios.post('/api/radio/favorites/remove', { station_id: stationId });
       return response.data.success;
-    } catch (error) {
-      logger.error('radio', 'Error removing favorite:', error);
-      return false;
-    }
+    });
   }
 
   /**
@@ -375,23 +351,16 @@ export const useRadioStore = defineStore('radio', () => {
    * Remove a custom station
    */
   async function removeCustomStation(stationId) {
-    try {
+    return apiCall('radio', 'Error removing custom station:', async () => {
       const response = await axios.post('/api/radio/custom/remove', { station_id: stationId });
-
       if (response.data.success) {
         logger.info('radio', `Custom station removed: ${stationId}`);
-
-        // Remove from search results
         searchResults.value = searchResults.value.filter(s => s.id !== stationId);
         totalResults.value = Math.max(0, totalResults.value - 1);
-
         return true;
       }
       return false;
-    } catch (error) {
-      logger.error('radio', 'Error removing custom station:', error);
-      return false;
-    }
+    });
   }
 
   /**
@@ -430,13 +399,10 @@ export const useRadioStore = defineStore('radio', () => {
    * Fetch custom stations dict from API (for settings view)
    */
   async function fetchCustomStations() {
-    try {
+    customStations.value = await apiCall('radio', 'Error loading custom stations:', async () => {
       const response = await axios.get('/api/radio/custom');
-      customStations.value = response.data || {};
-    } catch (error) {
-      logger.error('radio', 'Error loading custom stations:', error);
-      customStations.value = {};
-    }
+      return response.data || {};
+    }, { fallback: {} });
   }
 
   /**

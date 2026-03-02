@@ -55,6 +55,8 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
+import { logger } from '@/services/logger'
+import { useAsyncData } from '@/composables/useAsyncData'
 import PodcastCard from './PodcastCard.vue'
 import EpisodeCard from './EpisodeCard.vue'
 import Button from '@/components/ui/Button.vue'
@@ -76,7 +78,6 @@ async function handlePause() {
   await podcastStore.pause()
 }
 
-const loading = ref(false)
 const podcast = ref(null)
 const currentPage = ref(1)
 const loadingMore = ref(false)
@@ -88,26 +89,14 @@ const hasMoreEpisodes = computed(() => {
   return allEpisodes.value.length < podcast.value.total_episodes
 })
 
-async function loadPodcast() {
-  loading.value = true
+const { loading, execute: loadPodcast } = useAsyncData(async () => {
   currentPage.value = 1
-  try {
-    const response = await fetch(`/api/podcast/series/${props.uuid}?page=1&limit=25`)
-    podcast.value = await response.json()
-
-    // Initialize episodes array
-    allEpisodes.value = podcast.value.episodes || []
-
-    // Enrich episodes with progress cache
-    if (allEpisodes.value.length > 0) {
-      podcastStore.enrichEpisodesWithProgress(allEpisodes.value)
-    }
-  } catch (error) {
-    console.error('Error loading podcast:', error)
-  } finally {
-    loading.value = false
-  }
-}
+  const response = await fetch(`/api/podcast/series/${props.uuid}?page=1&limit=25`)
+  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  podcast.value = await response.json()
+  allEpisodes.value = podcast.value.episodes || []
+  podcastStore.enrichEpisodesWithProgress(allEpisodes.value)
+}, { logTag: 'podcast' })
 
 async function handleSubscribe() {
   if (!podcast.value) return
@@ -131,10 +120,10 @@ async function handleSubscribe() {
         imageUrl: podcast.value.image_url || ''
       })
     } else {
-      console.error('Failed to subscribe:', await response.text())
+      logger.error('podcast', 'Failed to subscribe:', await response.text())
     }
   } catch (error) {
-    console.error('Error subscribing:', error)
+    logger.error('podcast', 'Error subscribing:', error)
   }
 }
 
@@ -147,10 +136,10 @@ async function handleUnsubscribe() {
       podcast.value.is_subscribed = false
       podcastStore.removeSubscription(props.uuid)
     } else {
-      console.error('Failed to unsubscribe:', await response.text())
+      logger.error('podcast', 'Failed to unsubscribe:', await response.text())
     }
   } catch (error) {
-    console.error('Error unsubscribing:', error)
+    logger.error('podcast', 'Error unsubscribing:', error)
   }
 }
 
@@ -174,20 +163,15 @@ async function loadMoreEpisodes() {
     // Append to existing episodes
     allEpisodes.value = [...allEpisodes.value, ...newEpisodes]
   } catch (error) {
-    console.error('Error loading more episodes:', error)
+    logger.error('podcast', 'Error loading more episodes:', error)
     currentPage.value-- // Rollback on error
   } finally {
     loadingMore.value = false
   }
 }
 
-watch(() => props.uuid, async () => {
-  await loadPodcast()
-}, { immediate: false })
-
-onMounted(() => {
-  loadPodcast()
-})
+watch(() => props.uuid, loadPodcast, { immediate: false })
+onMounted(loadPodcast)
 </script>
 
 <style scoped>

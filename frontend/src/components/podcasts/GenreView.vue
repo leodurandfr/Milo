@@ -14,9 +14,9 @@
 
 <script setup>
 import { ref, onMounted, watch } from 'vue'
-import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
 import { logger } from '@/services/logger'
+import { useAsyncData } from '@/composables/useAsyncData'
 import PodcastCard from './PodcastCard.vue'
 import MessageContent from '@/components/ui/MessageContent.vue'
 
@@ -39,10 +39,6 @@ const props = defineProps({
 
 const emit = defineEmits(['select-podcast'])
 
-const podcastStore = usePodcastStore()
-
-const loading = ref(false)
-
 // Check if a specific podcast is currently loading (lookup in progress)
 function isPodcastLoading(podcast) {
   if (!props.loadingPodcastId) return false
@@ -50,40 +46,18 @@ function isPodcastLoading(podcast) {
 }
 const topPodcasts = ref([])
 
-async function loadData() {
-  // Fetch top podcasts for this genre
-  // Language is automatically retrieved from /var/lib/milo/settings.json
-  // Default limit is 30 podcasts (configurable up to 200)
-  loading.value = true
-
-  try {
-    const response = await fetch(
-      `/api/podcast/discover/by-genre?genre=${props.genre}&limit=30`
-    )
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-
-    const data = await response.json()
-
-    // Update podcasts (from iTunes RSS with Taddy UUIDs)
-    topPodcasts.value = data.podcasts || []
-
-    logger.debug('podcast', `Loaded ${topPodcasts.value.length} podcasts for genre ${props.genre} in ${data.language}/${data.country}`)
-  } catch (error) {
-    console.error('Error loading genre content:', error)
-    topPodcasts.value = []
-  } finally {
-    loading.value = false
-  }
-}
+const { loading, execute: loadData } = useAsyncData(async () => {
+  const response = await fetch(
+    `/api/podcast/discover/by-genre?genre=${props.genre}&limit=30`
+  )
+  if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
+  const data = await response.json()
+  topPodcasts.value = data.podcasts || []
+  logger.debug('podcast', `Loaded ${topPodcasts.value.length} podcasts for genre ${props.genre} in ${data.language}/${data.country}`)
+}, { logTag: 'podcast' })
 
 watch(() => props.genre, loadData)
-
-onMounted(() => {
-  loadData()
-})
+onMounted(loadData)
 </script>
 
 <style scoped>
@@ -97,13 +71,6 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--space-03);
-}
-
-.section-title {
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text);
-  margin: 0;
 }
 
 .podcasts-grid {
