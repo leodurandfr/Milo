@@ -79,6 +79,7 @@
 <script setup>
 import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRadioStore } from '@/stores/radioStore'
+import { useDebounce } from '@/composables/useDebounce'
 import { useI18n } from '@/services/i18n'
 import { logger } from '@/services/logger'
 import StationCard from './StationCard.vue'
@@ -155,9 +156,6 @@ const MIN_SEARCH_CHARS = 3
 // State for showing minimum characters message
 const showMinCharMessage = ref(false)
 
-// Debounce timer for search input
-const searchDebounceTimer = ref(null)
-
 // Sentinel element ref for IntersectionObserver
 const scrollSentinel = ref(null)
 
@@ -169,35 +167,30 @@ function hasActiveFilters() {
   return radioStore.countryFilter !== '' || radioStore.genreFilter !== ''
 }
 
-function onSearchInput() {
-  if (searchDebounceTimer.value) {
-    clearTimeout(searchDebounceTimer.value)
+const { debounced: debouncedSearch, cancel: cancelSearch } = useDebounce((query) => {
+  if (query.length === 0) {
+    emit('search')
+  } else {
+    showMinCharMessage.value = false
+    emit('search')
   }
+})
 
+function onSearchInput() {
   const query = radioStore.searchQuery.trim()
 
   // Hide message only when returning to top stations (empty field)
   if (query.length === 0) {
     showMinCharMessage.value = false
-    searchDebounceTimer.value = setTimeout(() => {
-      emit('search')
-    }, 400)
+    debouncedSearch(query)
   } else if (query.length >= MIN_SEARCH_CHARS) {
-    // For 3+ chars: trigger search
-    searchDebounceTimer.value = setTimeout(() => {
-      showMinCharMessage.value = false
-      emit('search')
-    }, 400)
+    debouncedSearch(query)
   }
   // For 1-2 chars: do nothing (wait for more input or Enter key)
 }
 
 function onSearchSubmit() {
-  // Clear any pending debounce
-  if (searchDebounceTimer.value) {
-    clearTimeout(searchDebounceTimer.value)
-    searchDebounceTimer.value = null
-  }
+  cancelSearch()
 
   const query = radioStore.searchQuery.trim()
 
@@ -281,9 +274,6 @@ onBeforeUnmount(() => {
   if (observer) {
     observer.disconnect()
     observer = null
-  }
-  if (searchDebounceTimer.value) {
-    clearTimeout(searchDebounceTimer.value)
   }
 })
 </script>

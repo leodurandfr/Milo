@@ -12,7 +12,7 @@
 
     <!-- Content slot: scrollable views -->
     <template #content>
-      <div class="radio-content">
+      <div class="source-content">
         <!-- Favorites View -->
         <FavoritesView v-if="!isSearchMode" key="favorites" :is-loading="radioStore.loading"
           :current-station="radioStore.currentStation" :is-playing="isCurrentlyPlaying"
@@ -279,14 +279,6 @@ async function loadAvailableCountries() {
 <style scoped>
 ::-webkit-scrollbar {
   display: none;
-}
-
-/* Radio content: wraps the views inside AudioSourceLayout's content slot */
-.radio-content {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-04);
-  width: 100%;
 }
 
 /* Radio controls layout */

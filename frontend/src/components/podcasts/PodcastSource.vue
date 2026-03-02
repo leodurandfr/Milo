@@ -21,7 +21,7 @@
 
     <!-- Content slot: scrollable views -->
     <template #content>
-      <div class="podcast-content" :class="{ 'search-spacing': currentView === 'search' && !hasCredentialsError }">
+      <div class="source-content" :class="{ 'search-spacing': currentView === 'search' && !hasCredentialsError }">
         <!-- Credentials Required -->
         <CredentialsRequired v-if="hasCredentialsError" key="credentials" @configure="openPodcastSettings" />
 
@@ -369,16 +369,6 @@ onBeforeUnmount(() => {
 ::-webkit-scrollbar {
   display: none;
 }
-
-/* Podcast content: wraps the views inside AudioSourceLayout's content slot */
-.podcast-content {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-04);
-  width: 100%;
-}
-
-
 
 /* Player control styles (from PodcastPlayer.vue) */
 .speed-selector {
