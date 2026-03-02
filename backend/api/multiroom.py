@@ -24,6 +24,8 @@ from typing import Optional, Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, field_validator
 
+from backend.api.route_helpers import api_error_handler
+
 from backend.core.multiroom.models import SPEAKER_TYPES
 from backend.api.models import ZoneCreate, ZoneUpdate, ZoneAddClient
 
@@ -80,15 +82,13 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None):
                 "zones": {zone_id: {...}, ...} with enriched computed fields
             }
         """
-        try:
-            # Get clients indexed by mac_id
+        async with api_error_handler("Error getting registry state", logger):
             clients = registry_service.get_all_clients()
             clients_dict = {
                 mac_id: _client_with_online(client)
                 for mac_id, client in clients.items()
             }
 
-            # Get zones indexed by zone_id with enriched fields
             zones = registry_service.get_all_zones()
             zones_dict = {
                 zone_id: registry_service.zone_to_enriched_dict(zone)
@@ -96,9 +96,6 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None):
             }
 
             return {"clients": clients_dict, "zones": zones_dict}
-        except Exception as e:
-            logger.error(f"Error getting registry state: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
     # === CLIENT ENDPOINTS ===
 
@@ -110,14 +107,11 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None):
         Returns:
             {"clients": [...]} with each client including runtime 'online' status
         """
-        try:
+        async with api_error_handler("Error getting clients", logger):
             clients = registry_service.get_all_clients()
             return {
                 "clients": [_client_with_online(c) for c in clients.values()]
             }
-        except Exception as e:
-            logger.error(f"Error getting clients: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
     @router.get("/clients/{mac_id}")
     async def get_client(mac_id: str):
@@ -130,7 +124,7 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None):
         Raises:
             404: Client not found
         """
-        try:
+        async with api_error_handler(f"Error getting client {mac_id}", logger):
             client = registry_service.get_client(mac_id)
             if not client:
                 raise HTTPException(
@@ -138,11 +132,6 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None):
                     detail=f"Client with mac_id '{mac_id}' not found"
                 )
             return _client_with_online(client)
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error getting client {mac_id}: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
     @router.patch("/clients/{mac_id}")
     async def update_client(mac_id: str, request: ClientUpdateRequest):
@@ -163,7 +152,7 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None):
             404: Client not found
             400: Invalid speaker_type (validation handled by Pydantic)
         """
-        try:
+        async with api_error_handler(f"Error updating client {mac_id}", logger):
             client = registry_service.get_client(mac_id)
             if not client:
                 raise HTTPException(
@@ -178,11 +167,6 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None):
             )
 
             return {"status": "success", "client": _client_with_online(updated_client)}
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error updating client {mac_id}: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
     @router.delete("/clients/{mac_id}")
     async def delete_client(mac_id: str):
@@ -202,7 +186,7 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None):
         Raises:
             404: Client not found
         """
-        try:
+        async with api_error_handler(f"Error deleting client {mac_id}", logger):
             success = await registry_service.unregister_client(mac_id)
             if not success:
                 raise HTTPException(
@@ -213,11 +197,6 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None):
                 "status": "success",
                 "message": f"Client '{mac_id}' deleted"
             }
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error deleting client {mac_id}: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
     # === ZONE ENDPOINTS ===
 
@@ -232,14 +211,11 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None):
             - has_subwoofer: Whether zone has a subwoofer client
             - crossover_enabled: Whether crossover is active
         """
-        try:
+        async with api_error_handler("Error getting zones", logger):
             zones = registry_service.get_all_zones()
             return {
                 "zones": [registry_service.zone_to_enriched_dict(z) for z in zones.values()]
             }
-        except Exception as e:
-            logger.error(f"Error getting zones: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
     @router.get("/zones/{zone_id}")
     async def get_zone(zone_id: str):
@@ -252,7 +228,7 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None):
         Raises:
             404: Zone not found
         """
-        try:
+        async with api_error_handler(f"Error getting zone {zone_id}", logger):
             zone = registry_service.get_zone(zone_id)
             if not zone:
                 raise HTTPException(
@@ -260,11 +236,6 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None):
                     detail=f"Zone '{zone_id}' not found"
                 )
             return registry_service.zone_to_enriched_dict(zone)
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error getting zone {zone_id}: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
     @router.post("/zones", status_code=201)
     async def create_zone(request: ZoneCreate):
@@ -284,14 +255,17 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None):
         Raises:
             400: Less than 2 clients, client not found, or validation error
         """
-        try:
+        async with api_error_handler("Error creating zone", logger):
             zone_id = str(uuid.uuid4())
 
-            zone = await registry_service.create_zone(
-                zone_id=zone_id,
-                name=request.name,
-                client_ids=request.client_ids
-            )
+            try:
+                zone = await registry_service.create_zone(
+                    zone_id=zone_id,
+                    name=request.name,
+                    client_ids=request.client_ids
+                )
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
 
             # Apply zone's default DSP settings to CamillaDSP
             # This ensures CamillaDSP has flat EQ when a new zone is created,
@@ -306,11 +280,6 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None):
                 "status": "success",
                 "zone": registry_service.zone_to_enriched_dict(zone)
             }
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-        except Exception as e:
-            logger.error(f"Error creating zone: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
     @router.patch("/zones/{zone_id}")
     async def update_zone(zone_id: str, request: ZoneUpdate):
@@ -331,8 +300,11 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None):
             404: Zone not found
             400: Validation error (e.g., name too long)
         """
-        try:
-            zone = await registry_service.update_zone(zone_id, name=request.name)
+        async with api_error_handler(f"Error updating zone {zone_id}", logger):
+            try:
+                zone = await registry_service.update_zone(zone_id, name=request.name)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
             if not zone:
                 raise HTTPException(
                     status_code=404,
@@ -342,13 +314,6 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None):
                 "status": "success",
                 "zone": registry_service.zone_to_enriched_dict(zone)
             }
-        except HTTPException:
-            raise
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-        except Exception as e:
-            logger.error(f"Error updating zone {zone_id}: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
     @router.delete("/zones/{zone_id}")
     async def delete_zone(zone_id: str):
@@ -369,7 +334,7 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None):
         Raises:
             404: Zone not found
         """
-        try:
+        async with api_error_handler(f"Error deleting zone {zone_id}", logger):
             success = await registry_service.delete_zone(zone_id)
             if not success:
                 raise HTTPException(
@@ -380,11 +345,6 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None):
                 "status": "success",
                 "message": f"Zone '{zone_id}' deleted"
             }
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error deleting zone {zone_id}: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
     # === ZONE MEMBERSHIP ENDPOINTS ===
 
@@ -408,7 +368,7 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None):
             404: Zone not found
             400: Client not found or failed to add
         """
-        try:
+        async with api_error_handler(f"Error adding client {request.mac_id} to zone {zone_id}", logger):
             zone = registry_service.get_zone(zone_id)
             if not zone:
                 raise HTTPException(
@@ -435,11 +395,6 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None):
                 "status": "success",
                 "zone": registry_service.zone_to_enriched_dict(zone)
             }
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error adding client {request.mac_id} to zone {zone_id}: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
     @router.delete("/zones/{zone_id}/clients/{mac_id}")
     async def remove_client_from_zone(zone_id: str, mac_id: str):
@@ -462,7 +417,7 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None):
             404: Zone not found
             400: Client not found in zone
         """
-        try:
+        async with api_error_handler(f"Error removing client {mac_id} from zone {zone_id}", logger):
             zone = registry_service.get_zone(zone_id)
             if not zone:
                 raise HTTPException(
@@ -495,10 +450,5 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None):
                     "status": "success",
                     "message": f"Client removed, zone '{zone_id}' deleted (< 2 clients)"
                 }
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error removing client {mac_id} from zone {zone_id}: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
     return router

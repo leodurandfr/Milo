@@ -6,9 +6,10 @@ Provides REST API endpoints for:
 - Status: Get current AirPlay source status with metadata
 - Restart: Restart shairport-sync service
 """
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Depends
 from typing import Dict, Any
 
+from backend.api.route_helpers import run_source_command
 from backend.api.source_dependency import make_source_dependency
 from backend.features.airplay.source import AirPlaySource
 
@@ -32,14 +33,7 @@ async def get_status(source: AirPlaySource = Depends(get_source)) -> Dict[str, A
     """Get current AirPlay source status with metadata."""
     try:
         status = await source.status()
-        return {
-            "status": "ok",
-            "state": status.get("state", "unknown"),
-            "service_active": status.get("service_active", False),
-            "device_connected": status.get("device_connected", False),
-            "is_playing": status.get("is_playing", False),
-            "metadata": status.get("metadata", {}),
-        }
+        return {"status": "ok", **status}
     except Exception as e:
         return {
             "status": "error",
@@ -54,18 +48,4 @@ async def get_status(source: AirPlaySource = Depends(get_source)) -> Dict[str, A
 @router.post("/restart")
 async def restart_service(source: AirPlaySource = Depends(get_source)) -> Dict[str, Any]:
     """Restart shairport-sync service."""
-    try:
-        result = await source.command("restart_service", {})
-
-        if not result.get("success"):
-            raise HTTPException(
-                status_code=400,
-                detail=result.get("error", "Restart failed")
-            )
-
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Restart error: {str(e)}")
+    return await run_source_command(source, "restart_service", {}, "Restart")

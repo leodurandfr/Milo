@@ -8,6 +8,8 @@ import asyncio
 import logging
 from fastapi import APIRouter, HTTPException, Request
 
+from backend.api.route_helpers import api_error_handler
+
 from backend.api.models import (
     EqualizerFilterRequest,
     EqualizerFilterUpdateRequest,
@@ -87,17 +89,15 @@ def create_equalizer_router(
     @router.put("/enabled")
     async def set_equalizer_effects_enabled(request: Request):
         """Set equalizer effects enabled state (EQ, compressor, loudness). Volume always works."""
-        try:
+        async with api_error_handler("Error setting equalizer effects enabled state", logger):
             body = await request.json()
             enabled = body.get("enabled", True)
 
-            # Get active source for potential restart
             active_source = None
             if state_machine:
                 async with state_machine._state_lock:
                     active_source = state_machine.system_state.active_source
 
-            # Use routing_service to toggle equalizer effects
             if not routing_service:
                 return {"status": "error", "message": "Routing service not available"}
 
@@ -107,9 +107,6 @@ def create_equalizer_router(
                 return {"status": "success", "enabled": enabled}
             else:
                 return {"status": "error", "message": "Failed to change equalizer effects state"}
-        except Exception as e:
-            logger.error(f"Error setting Equalizer effects enabled state: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
     # === Status & Connection ===
 
@@ -182,22 +179,18 @@ def create_equalizer_router(
     @router.post("/connect")
     async def connect_equalizer():
         """Manually trigger connection to CamillaDSP daemon"""
-        try:
+        async with api_error_handler("Error connecting to CamillaDSP"):
             success = await camilladsp_service.connect()
             if success:
                 return {"status": "success", "message": "Connected to CamillaDSP"}
             return {"status": "error", "message": "Failed to connect"}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
 
     @router.post("/disconnect")
     async def disconnect_equalizer():
         """Disconnect from CamillaDSP daemon"""
-        try:
+        async with api_error_handler("Error disconnecting from CamillaDSP"):
             await camilladsp_service.disconnect()
             return {"status": "success", "message": "Disconnected from CamillaDSP"}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
 
     # === Filter Management ===
 
@@ -213,8 +206,7 @@ def create_equalizer_router(
     @router.post("/filter")
     async def add_filter(payload: EqualizerFilterRequest):
         """Add a new filter band"""
-        try:
-            # Generate unique filter ID
+        async with api_error_handler("Error adding filter"):
             existing_filters = await camilladsp_service.get_filters()
             filter_num = len(existing_filters)
             filter_id = f"eq_band_{filter_num:02d}"
@@ -239,21 +231,16 @@ def create_equalizer_router(
 
             return {"status": "error", "message": "Failed to add filter"}
 
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-
     @router.put("/filter/{filter_id}")
     async def update_filter(filter_id: str, payload: EqualizerFilterUpdateRequest):
         """Update an existing filter band"""
-        try:
-            # Get current filter to merge with updates
+        async with api_error_handler("Error updating filter"):
             filters = await camilladsp_service.get_filters()
             current_filter = next((f for f in filters if f["id"] == filter_id), None)
 
             if not current_filter:
                 raise HTTPException(status_code=404, detail=f"Filter {filter_id} not found")
 
-            # Merge current values with updates
             freq = payload.freq if payload.freq is not None else current_filter["freq"]
             gain = payload.gain if payload.gain is not None else current_filter["gain"]
             q = payload.q if payload.q is not None else current_filter.get("q", 1.0)
@@ -270,8 +257,6 @@ def create_equalizer_router(
             )
 
             if success:
-                # Note: camilladsp_service.set_filter() already broadcasts filter_changed event
-                # No need to broadcast again here (was causing duplicate events)
                 return {
                     "status": "success",
                     "id": filter_id,
@@ -283,15 +268,10 @@ def create_equalizer_router(
 
             return {"status": "error", "message": "Failed to update filter"}
 
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-
     @router.delete("/filter/{filter_id}")
     async def delete_filter(filter_id: str):
         """Remove a filter band"""
-        try:
+        async with api_error_handler("Error removing filter"):
             success = await camilladsp_service.remove_filter(filter_id)
 
             if success:
@@ -300,25 +280,16 @@ def create_equalizer_router(
 
             raise HTTPException(status_code=404, detail=f"Filter {filter_id} not found")
 
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-
     @router.post("/reset")
     async def reset_all_filters():
         """Reset all filters to flat (0 dB gain)"""
-        try:
+        async with api_error_handler("Error resetting filters"):
             success = await camilladsp_service.reset_filters()
 
             if success:
-                # Note: filters_reset event is already broadcast by camilladsp_service.reset_filters()
                 return {"status": "success", "message": "All filters reset to flat"}
 
             return {"status": "error", "message": "Failed to reset filters"}
-
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
 
     # === Preset Management ===
 
@@ -340,95 +311,66 @@ def create_equalizer_router(
     @router.put("/preset/{preset_id}")
     async def load_preset(preset_id: str):
         """Load a builtin preset by ID."""
-        try:
+        async with api_error_handler("Error loading preset"):
             success = await camilladsp_service.load_preset(preset_id)
 
             if success:
-                # Note: preset_loaded event is already broadcast by camilladsp_service.load_preset()
                 return {"status": "success", "id": preset_id}
 
             raise HTTPException(status_code=404, detail=f"Preset '{preset_id}' not found")
 
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-
     @router.post("/save-custom")
     async def save_custom_preset():
         """Save current filter gains as the custom preset and activate it."""
-        try:
-            # Save current gains to custom preset
+        async with api_error_handler("Error saving custom preset", logger):
             await camilladsp_service._save_custom_gains()
 
-            # Set active preset to "custom"
             if settings_service:
                 await settings_service.set_setting("equalizer.active_preset", "custom")
 
-            # No broadcast: frontend handles state locally in saveCustomPreset()
-            # Broadcasting preset_loaded would trigger handlePresetLoaded which
-            # overwrites current filter gains with stale customGains
-
             return {"status": "success", "preset_id": "custom"}
-        except Exception as e:
-            logger.error(f"Error saving custom preset: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
     @router.post("/zone/{zone_id}/save-custom")
     async def save_zone_custom_preset(zone_id: str):
         """Save current zone EQ gains as the custom preset and activate it."""
-        try:
-            current = await multiroom_equalizer_service.get_equalizer("zone", zone_id)
+        async with api_error_handler(f"Error saving custom preset for zone {zone_id}", logger):
+            try:
+                current = await multiroom_equalizer_service.get_equalizer("zone", zone_id)
+            except ValueError as e:
+                raise HTTPException(status_code=404, detail=str(e))
             if not current:
                 raise HTTPException(status_code=404, detail=f"Zone not found: {zone_id}")
 
-            # Gains are already persisted in the zone's registry EqualizerSettings.filters.
-            # Just update the active preset — no need to write to the shared global key.
             await multiroom_equalizer_service.set_zone_active_preset(zone_id, "custom")
 
             return {"status": "success", "zone_id": zone_id, "preset_id": "custom"}
-        except HTTPException:
-            raise
-        except ValueError as e:
-            raise HTTPException(status_code=404, detail=str(e))
-        except Exception as e:
-            logger.error(f"Error saving custom preset for zone {zone_id}: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
     @router.post("/client/{mac_id}/save-custom")
     async def save_client_custom_preset(mac_id: str):
         """Save current client EQ gains as the custom preset and activate it."""
-        try:
-            current = await multiroom_equalizer_service.get_equalizer("client", mac_id)
+        async with api_error_handler(f"Error saving custom preset for client {mac_id}", logger):
+            try:
+                current = await multiroom_equalizer_service.get_equalizer("client", mac_id)
+            except ValueError as e:
+                raise HTTPException(status_code=404, detail=str(e))
             if not current:
                 raise HTTPException(status_code=404, detail=f"Client not found: {mac_id}")
 
-            # Gains are already persisted in the client's registry EqualizerSettings.filters.
-            # Just update the active preset — no need to write to the shared global key.
             await multiroom_equalizer_service.set_client_active_preset(mac_id, "custom")
 
             return {"status": "success", "client_id": mac_id, "preset_id": "custom"}
-        except HTTPException:
-            raise
-        except ValueError as e:
-            raise HTTPException(status_code=404, detail=str(e))
-        except Exception as e:
-            logger.error(f"Error saving custom preset for client {mac_id}: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
     @router.get("/zone/{zone_id}")
     async def get_zone_equalizer(zone_id: str):
         """Get equalizer settings for a zone (source of truth for zone context)."""
-        try:
-            settings = await multiroom_equalizer_service.get_equalizer("zone", zone_id)
+        async with api_error_handler(f"Error getting equalizer for zone {zone_id}", logger):
+            try:
+                settings = await multiroom_equalizer_service.get_equalizer("zone", zone_id)
+            except ValueError as e:
+                raise HTTPException(status_code=404, detail=str(e))
             if not settings:
                 raise HTTPException(status_code=404, detail=f"Zone not found: {zone_id}")
             return settings.to_dict()
-        except ValueError as e:
-            raise HTTPException(status_code=404, detail=str(e))
-        except Exception as e:
-            logger.error(f"Error getting equalizer for zone {zone_id}: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
     @router.post("/zone/{zone_id}/preset")
     async def load_preset_for_zone(zone_id: str, payload: EqualizerPresetRequest):
@@ -438,18 +380,16 @@ def create_equalizer_router(
         Applies the preset to all ONLINE zone members. OFFLINE clients will
         receive settings on reconnection via sync service.
         """
-        try:
-            success = await multiroom_equalizer_service.load_zone_preset(zone_id, payload.preset_id)
+        async with api_error_handler(f"Error loading preset for zone {zone_id}", logger):
+            try:
+                success = await multiroom_equalizer_service.load_zone_preset(zone_id, payload.preset_id)
+            except ValueError as e:
+                raise HTTPException(status_code=404, detail=str(e))
             return {
                 "status": "success" if success else "error",
                 "zone_id": zone_id,
                 "preset_id": payload.preset_id
             }
-        except ValueError as e:
-            raise HTTPException(status_code=404, detail=str(e))
-        except Exception as e:
-            logger.error(f"Error loading preset for zone {zone_id}: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
     @router.patch("/zone/{zone_id}/filter/{filter_id}")
     async def update_zone_filter(zone_id: str, filter_id: str, payload: EqualizerFilterUpdateRequest):
@@ -459,27 +399,25 @@ def create_equalizer_router(
         Applies the filter change to all ONLINE zone members. OFFLINE clients will
         receive settings on reconnection via sync service.
         """
-        try:
-            success = await multiroom_equalizer_service.update_filter(
-                target_type="zone",
-                target_id=zone_id,
-                filter_id=filter_id,
-                frequency=payload.freq,
-                gain=payload.gain,
-                q=payload.q,
-                filter_type=payload.filter_type,
-                enabled=payload.enabled
-            )
+        async with api_error_handler(f"Error updating filter for zone {zone_id}", logger):
+            try:
+                success = await multiroom_equalizer_service.update_filter(
+                    target_type="zone",
+                    target_id=zone_id,
+                    filter_id=filter_id,
+                    frequency=payload.freq,
+                    gain=payload.gain,
+                    q=payload.q,
+                    filter_type=payload.filter_type,
+                    enabled=payload.enabled
+                )
+            except ValueError as e:
+                raise HTTPException(status_code=404, detail=str(e))
             return {
                 "status": "success" if success else "error",
                 "zone_id": zone_id,
                 "filter_id": filter_id
             }
-        except ValueError as e:
-            raise HTTPException(status_code=404, detail=str(e))
-        except Exception as e:
-            logger.error(f"Error updating filter for zone {zone_id}: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
     @router.patch("/zone/{zone_id}/compressor")
     async def update_zone_compressor(zone_id: str, payload: EqualizerCompressorRequest):
@@ -489,23 +427,21 @@ def create_equalizer_router(
         Applies compressor changes to all ONLINE zone members. OFFLINE clients will
         receive settings on reconnection via sync service.
         """
-        try:
-            success = await multiroom_equalizer_service.update_compressor(
-                target_type="zone",
-                target_id=zone_id,
-                enabled=payload.enabled,
-                threshold=payload.threshold,
-                ratio=payload.ratio,
-                attack=payload.attack,
-                release=payload.release,
-                makeup_gain=payload.makeup_gain
-            )
+        async with api_error_handler(f"Error updating compressor for zone {zone_id}", logger):
+            try:
+                success = await multiroom_equalizer_service.update_compressor(
+                    target_type="zone",
+                    target_id=zone_id,
+                    enabled=payload.enabled,
+                    threshold=payload.threshold,
+                    ratio=payload.ratio,
+                    attack=payload.attack,
+                    release=payload.release,
+                    makeup_gain=payload.makeup_gain
+                )
+            except ValueError as e:
+                raise HTTPException(status_code=404, detail=str(e))
             return {"status": "success" if success else "error", "zone_id": zone_id}
-        except ValueError as e:
-            raise HTTPException(status_code=404, detail=str(e))
-        except Exception as e:
-            logger.error(f"Error updating compressor for zone {zone_id}: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
     @router.patch("/zone/{zone_id}/loudness")
     async def update_zone_loudness(zone_id: str, payload: EqualizerLoudnessRequest):
@@ -515,20 +451,18 @@ def create_equalizer_router(
         Applies loudness changes to all ONLINE zone members. OFFLINE clients will
         receive settings on reconnection via sync service.
         """
-        try:
-            success = await multiroom_equalizer_service.update_loudness(
-                target_type="zone",
-                target_id=zone_id,
-                enabled=payload.enabled,
-                high_boost=payload.high_boost,
-                low_boost=payload.low_boost
-            )
+        async with api_error_handler(f"Error updating loudness for zone {zone_id}", logger):
+            try:
+                success = await multiroom_equalizer_service.update_loudness(
+                    target_type="zone",
+                    target_id=zone_id,
+                    enabled=payload.enabled,
+                    high_boost=payload.high_boost,
+                    low_boost=payload.low_boost
+                )
+            except ValueError as e:
+                raise HTTPException(status_code=404, detail=str(e))
             return {"status": "success" if success else "error", "zone_id": zone_id}
-        except ValueError as e:
-            raise HTTPException(status_code=404, detail=str(e))
-        except Exception as e:
-            logger.error(f"Error updating loudness for zone {zone_id}: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
     @router.patch("/zone/{zone_id}/enabled")
     async def update_zone_equalizer_enabled(zone_id: str, request: Request):
@@ -539,26 +473,22 @@ def create_equalizer_router(
         volume control remains active. Crossover filters are NOT affected.
         OFFLINE clients will receive settings on reconnection via sync service.
         """
-        try:
+        async with api_error_handler(f"Error updating equalizer enabled for zone {zone_id}", logger):
             body = await request.json()
             enabled = body.get("enabled")
 
             if enabled is None:
                 raise HTTPException(status_code=400, detail="'enabled' field is required")
 
-            success = await multiroom_equalizer_service.set_zone_equalizer_effects_enabled(zone_id, enabled)
+            try:
+                success = await multiroom_equalizer_service.set_zone_equalizer_effects_enabled(zone_id, enabled)
+            except ValueError as e:
+                raise HTTPException(status_code=404, detail=str(e))
             return {
                 "status": "success" if success else "error",
                 "zone_id": zone_id,
                 "enabled": enabled
             }
-        except HTTPException:
-            raise
-        except ValueError as e:
-            raise HTTPException(status_code=404, detail=str(e))
-        except Exception as e:
-            logger.error(f"Error updating equalizer enabled for zone {zone_id}: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
     @router.post("/client/{mac_id}/preset")
     async def load_preset_for_client(mac_id: str, payload: EqualizerPresetRequest):
@@ -567,18 +497,16 @@ def create_equalizer_router(
 
         Applies the preset to the client. For zone clients, use the zone preset endpoint.
         """
-        try:
-            success = await multiroom_equalizer_service.load_client_preset(mac_id, payload.preset_id)
+        async with api_error_handler(f"Error loading preset for client {mac_id}", logger):
+            try:
+                success = await multiroom_equalizer_service.load_client_preset(mac_id, payload.preset_id)
+            except ValueError as e:
+                raise HTTPException(status_code=404, detail=str(e))
             return {
                 "status": "success" if success else "error",
                 "client_id": mac_id,
                 "preset_id": payload.preset_id
             }
-        except ValueError as e:
-            raise HTTPException(status_code=404, detail=str(e))
-        except Exception as e:
-            logger.error(f"Error loading preset for client {mac_id}: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
     # === Mute Control ===
     # Note: Volume control is handled by /api/volume/* endpoints.
@@ -619,7 +547,7 @@ def create_equalizer_router(
     @router.put("/compressor")
     async def set_compressor(payload: EqualizerCompressorRequest):
         """Update compressor settings"""
-        try:
+        async with api_error_handler("Error updating compressor"):
             success = await camilladsp_service.set_compressor(
                 enabled=payload.enabled,
                 threshold=payload.threshold,
@@ -631,13 +559,9 @@ def create_equalizer_router(
 
             if success:
                 compressor = await camilladsp_service.get_compressor()
-                # Note: WebSocket broadcast is handled by camilladsp_service.set_compressor()
                 return {"status": "success", **compressor}
 
             return {"status": "error", "message": "Failed to update compressor"}
-
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
 
     # === Loudness Compensation ===
 
@@ -653,7 +577,7 @@ def create_equalizer_router(
     @router.put("/loudness")
     async def set_loudness(payload: EqualizerLoudnessRequest):
         """Update loudness compensation settings"""
-        try:
+        async with api_error_handler("Error updating loudness"):
             success = await camilladsp_service.set_loudness(
                 enabled=payload.enabled,
                 high_boost=payload.high_boost,
@@ -662,29 +586,22 @@ def create_equalizer_router(
 
             if success:
                 loudness = await camilladsp_service.get_loudness()
-                # Note: WebSocket broadcast is handled by camilladsp_service.set_loudness()
                 return {"status": "success", **loudness}
 
             return {"status": "error", "message": "Failed to update loudness"}
-
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
 
     # === Configuration Persistence ===
 
     @router.post("/save")
     async def save_configuration():
         """Save current configuration to disk"""
-        try:
+        async with api_error_handler("Error saving configuration"):
             success = await camilladsp_service.save_current_config()
 
             if success:
                 return {"status": "success", "message": "Configuration saved"}
 
             return {"status": "error", "message": "Failed to save configuration"}
-
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
 
     # === Speaker Type / Crossover Management ===
     # Note: Zone CRUD moved to /api/multiroom/zones, speaker-type to /api/multiroom/clients
@@ -703,7 +620,7 @@ def create_equalizer_router(
     @router.put("/client/{client_id}/crossover-frequency")
     async def set_client_crossover_frequency(client_id: str, payload: dict):
         """Set custom crossover frequency for a client"""
-        try:
+        async with api_error_handler("Error setting client crossover frequency", logger):
             freq = payload.get("frequency")
             if freq is None:
                 raise HTTPException(status_code=400, detail="frequency is required")
@@ -713,11 +630,6 @@ def create_equalizer_router(
             ct = await cs.get_client_type(client_id)
             return {"status": "success", "client_id": client_id, "speaker_type": ct.get("speaker_type"),
                     "crossover_frequency": ct.get("crossover_frequency")}
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error setting client crossover frequency: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
     @router.get("/client-types")
     async def get_all_client_types():
@@ -749,29 +661,19 @@ def create_equalizer_router(
     @router.put("/links/{zone_id}/crossover")
     async def set_zone_crossover(zone_id: str, payload: ZoneCrossoverRequest):
         """Set crossover frequency for a zone"""
-        try:
+        async with api_error_handler("Error setting zone crossover", logger):
             cs = crossover_service
             if not await cs.set_zone_crossover_frequency(zone_id, payload.frequency):
                 raise HTTPException(status_code=500, detail="Failed to update zone crossover")
             return {"status": "success", "zone_id": zone_id, **await cs.get_zone_crossover(zone_id)}
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error setting zone crossover: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
     @router.post("/links/{zone_id}/crossover/apply")
     async def apply_zone_crossover(zone_id: str):
         """Manually apply crossover settings to all clients in a zone"""
-        try:
+        async with api_error_handler("Error applying zone crossover", logger):
             if not await crossover_service.apply_zone_crossover(zone_id):
                 raise HTTPException(status_code=500, detail="Failed to apply crossover")
             return {"status": "success", "message": f"Crossover applied to zone {zone_id}"}
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error applying zone crossover: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
     @router.get("/crossover")
     async def get_local_crossover():
@@ -786,7 +688,7 @@ def create_equalizer_router(
     @router.put("/crossover")
     async def set_local_crossover(payload: CrossoverFilterRequest):
         """Set local crossover filter (direct control)"""
-        try:
+        async with api_error_handler("Error setting local crossover", logger):
             success = await camilladsp_service.set_crossover_filter(
                 enabled=payload.enabled,
                 frequency=payload.frequency,
@@ -798,12 +700,6 @@ def create_equalizer_router(
                 return {"status": "success", **crossover}
 
             raise HTTPException(status_code=500, detail="Failed to update crossover")
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error setting local crossover: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
     # === Client Equalizer Proxy Routes ===
 

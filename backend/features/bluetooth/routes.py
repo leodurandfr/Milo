@@ -13,9 +13,10 @@ Usage:
     setup_bluetooth_routes(lambda: source)
     app.include_router(router, prefix="/api")
 """
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Depends
 from typing import Dict, Any
 
+from backend.api.route_helpers import run_source_command
 from backend.api.source_dependency import make_source_dependency
 from backend.features.bluetooth.source import BluetoothSource
 
@@ -39,20 +40,7 @@ async def get_status(source: BluetoothSource = Depends(get_source)) -> Dict[str,
     """Get current Bluetooth source status."""
     try:
         status = await source.status()
-
-        return {
-            "status": "ok",
-            "state": status.get("state", "unknown"),
-            "service_active": status.get("service_active", False),
-            "device_connected": status.get("device_connected", False),
-            "device_name": status.get("device_name"),
-            "device_address": status.get("device_address"),
-            "bluetooth_running": status.get("bluetooth_running", False),
-            "bluealsa_running": status.get("bluealsa_running", False),
-            "aplay_running": status.get("aplay_running", False),
-            "auto_agent": status.get("auto_agent", True)
-        }
-
+        return {"status": "ok", **status}
     except Exception as e:
         return {
             "status": "error",
@@ -64,18 +52,4 @@ async def get_status(source: BluetoothSource = Depends(get_source)) -> Dict[str,
 @router.post("/disconnect")
 async def disconnect_device(source: BluetoothSource = Depends(get_source)) -> Dict[str, Any]:
     """Disconnect current Bluetooth device."""
-    try:
-        result = await source.command("disconnect", {})
-
-        if not result.get("success"):
-            raise HTTPException(
-                status_code=400,
-                detail=result.get("error", result.get("message", "Disconnect failed"))
-            )
-
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Disconnect error: {str(e)}")
+    return await run_source_command(source, "disconnect", {}, "Disconnect")

@@ -12,6 +12,7 @@ Provides REST API for:
 - Settings (podcast-specific settings)
 """
 from fastapi import APIRouter, HTTPException, Query, Depends
+from backend.api.route_helpers import run_source_command
 from typing import Dict, Any
 import logging
 
@@ -416,12 +417,7 @@ async def stop_playback(
     source: PodcastSource = Depends(get_source)
 ) -> Dict[str, Any]:
     """Stop playback."""
-    try:
-        result = await source.command("stop", {})
-        return result
-    except Exception as e:
-        logger.error(f"Error stopping: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return await run_source_command(source, "stop", {}, "Stop")
 
 
 @router.post("/speed")

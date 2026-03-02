@@ -19,6 +19,7 @@ import aiohttp
 from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import Dict, Any
 
+from backend.api.route_helpers import run_source_command
 from backend.api.source_dependency import make_source_dependency
 from backend.features.spotify.source import SpotifySource
 
@@ -41,22 +42,11 @@ def setup_spotify_routes(source_provider) -> APIRouter:
 async def get_status(source: SpotifySource = Depends(get_source)) -> Dict[str, Any]:
     """Get current Spotify source status with metadata."""
     try:
-        # Refresh metadata if session is active
         if source.has_active_session:
             await source._refresh_metadata()
 
         status = await source.status()
-
-        return {
-            "status": "ok",
-            "state": status.get("state", "unknown"),
-            "service_active": status.get("service_active", False),
-            "device_connected": status.get("device_connected", False),
-            "is_playing": status.get("is_playing", False),
-            "ws_connected": status.get("ws_connected", False),
-            "metadata": status.get("metadata", {}),
-            "auto_disconnect_config": status.get("auto_disconnect_config", {})
-        }
+        return {"status": "ok", **status}
 
     except Exception as e:
         return {
@@ -139,41 +129,13 @@ async def get_fresh_status(source: SpotifySource = Depends(get_source)) -> Dict[
 @router.post("/restart")
 async def restart_service(source: SpotifySource = Depends(get_source)) -> Dict[str, Any]:
     """Restart the go-librespot service."""
-    try:
-        result = await source.command("restart_service", {})
-
-        if not result.get("success"):
-            raise HTTPException(
-                status_code=400,
-                detail=result.get("error", "Restart failed")
-            )
-
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Restart error: {str(e)}")
+    return await run_source_command(source, "restart_service", {}, "Restart")
 
 
 @router.post("/connect")
 async def refresh_connection(source: SpotifySource = Depends(get_source)) -> Dict[str, Any]:
     """Refresh metadata connection to go-librespot."""
-    try:
-        result = await source.command("refresh_metadata", {})
-
-        if not result.get("success"):
-            raise HTTPException(
-                status_code=400,
-                detail=result.get("error", "Refresh failed")
-            )
-
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Connection refresh error: {str(e)}")
+    return await run_source_command(source, "refresh_metadata", {}, "Connection refresh")
 
 
 @router.post("/command/{command}")
@@ -182,21 +144,7 @@ async def send_command(
     source: SpotifySource = Depends(get_source)
 ) -> Dict[str, Any]:
     """Send playback command to Spotify."""
-    try:
-        result = await source.command(command, {})
-
-        if not result.get("success"):
-            raise HTTPException(
-                status_code=400,
-                detail=result.get("error", f"Command {command} failed")
-            )
-
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Command error: {str(e)}")
+    return await run_source_command(source, command, {}, f"Command {command}")
 
 
 @router.post("/seek")
@@ -205,21 +153,7 @@ async def seek_to_position(
     source: SpotifySource = Depends(get_source)
 ) -> Dict[str, Any]:
     """Seek to position in current track."""
-    try:
-        result = await source.command("seek", {"position_ms": position_ms})
-
-        if not result.get("success"):
-            raise HTTPException(
-                status_code=400,
-                detail=result.get("error", "Seek failed")
-            )
-
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Seek error: {str(e)}")
+    return await run_source_command(source, "seek", {"position_ms": position_ms}, "Seek")
 
 
 @router.get("/info")
