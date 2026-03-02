@@ -233,6 +233,7 @@ class BaseAudioSource:
 
         self._state = SourceState.READY
         self._metadata: Dict[str, Any] = {}
+        self._is_playing = False
         self._error: Optional[str] = None
         self._initialized = False
 
@@ -243,6 +244,7 @@ class BaseAudioSource:
         self.auto_disconnect_enabled: bool = False
         self.pause_disconnect_delay: float = 10.0
         self._pause_timer: Optional[asyncio.Task] = None
+        self._monitor_task: Optional[asyncio.Task] = None
 
     @property
     def state(self) -> str:
@@ -250,20 +252,14 @@ class BaseAudioSource:
         return self._state
 
     @property
-    def current_state(self) -> PluginState:
-        """Current state as PluginState enum (for API compatibility)."""
-        state_map = {
-            SourceState.STARTING: PluginState.STARTING,
-            SourceState.READY: PluginState.READY,
-            SourceState.CONNECTED: PluginState.CONNECTED,
-            SourceState.ERROR: PluginState.ERROR,
-        }
-        return state_map.get(self._state, PluginState.READY)
-
-    @property
     def metadata(self) -> Dict[str, Any]:
         """Current metadata."""
         return self._metadata.copy()
+
+    @property
+    def is_playing(self) -> bool:
+        """Whether the source is currently playing."""
+        return self._is_playing
 
     @property
     def source(self):
@@ -445,21 +441,29 @@ class BaseAudioSource:
         """
         pass
 
-    @abstractmethod
+    async def _cleanup(self) -> None:
+        """
+        Source-specific resource cleanup (connections, tasks, state).
+
+        Override in subclasses to clean up before service stop.
+        Called by the default _do_stop() and can be called from _do_start()
+        on failure. The outer stop() method handles exceptions.
+        """
+        pass
+
     async def _do_stop(self) -> bool:
         """
-        Source-specific shutdown implementation.
+        Stop the source: cleanup resources then stop the service.
 
-        Should:
-        - Stop playback
-        - Close connections
-        - Cancel tasks
-        - Optionally stop systemd service
+        Default implementation calls _cleanup() then _stop_service().
+        Override for custom shutdown logic (e.g., saving state before cleanup).
+        The outer stop() method handles exceptions.
 
         Returns:
             True if shutdown successful
         """
-        pass
+        await self._cleanup()
+        return await self._stop_service()
 
     async def _do_restart(self) -> bool:
         """
@@ -621,48 +625,66 @@ class BaseAudioSource:
 
         return True
 
+    # === Monitor task ===
+
+    def _start_monitor(self) -> None:
+        """Start the monitor loop task. Subclasses must implement _monitor_loop()."""
+        if self._monitor_task:
+            return
+        self._monitor_task = asyncio.create_task(self._monitor_loop())
+
+    def _stop_monitor(self) -> None:
+        """Stop the monitor loop task."""
+        if self._monitor_task:
+            self._monitor_task.cancel()
+            self._monitor_task = None
+
     # === Helper methods ===
 
-    async def _start_service(self) -> bool:
-        """Start the systemd service."""
-        if not self.service_name:
+    async def _start_service(self, service_name: str = None) -> bool:
+        """Start a systemd service (defaults to self.service_name)."""
+        name = service_name or self.service_name
+        if not name:
             return True
 
         try:
-            return await self._service_manager.start(self.service_name)
+            return await self._service_manager.start(name)
         except Exception as e:
-            self._logger.error(f"Failed to start service {self.service_name}: {e}")
+            self._logger.error(f"Failed to start service {name}: {e}")
             return False
 
-    async def _stop_service(self) -> bool:
-        """Stop the systemd service."""
-        if not self.service_name:
+    async def _stop_service(self, service_name: str = None) -> bool:
+        """Stop a systemd service (defaults to self.service_name)."""
+        name = service_name or self.service_name
+        if not name:
             return True
 
         try:
-            return await self._service_manager.stop(self.service_name)
+            return await self._service_manager.stop(name)
         except Exception as e:
-            self._logger.error(f"Failed to stop service {self.service_name}: {e}")
+            self._logger.error(f"Failed to stop service {name}: {e}")
             return False
 
-    async def _restart_service(self) -> bool:
-        """Restart the systemd service."""
-        if not self.service_name:
+    async def _restart_service(self, service_name: str = None) -> bool:
+        """Restart a systemd service (defaults to self.service_name)."""
+        name = service_name or self.service_name
+        if not name:
             return True
 
         try:
-            return await self._service_manager.restart(self.service_name)
+            return await self._service_manager.restart(name)
         except Exception as e:
-            self._logger.error(f"Failed to restart service {self.service_name}: {e}")
+            self._logger.error(f"Failed to restart service {name}: {e}")
             return False
 
-    async def _is_service_active(self) -> bool:
-        """Check if systemd service is active."""
-        if not self.service_name:
+    async def _is_service_active(self, service_name: str = None) -> bool:
+        """Check if a systemd service is active (defaults to self.service_name)."""
+        name = service_name or self.service_name
+        if not name:
             return True
 
         try:
-            return await self._service_manager.is_active(self.service_name)
+            return await self._service_manager.is_active(name)
         except Exception:
             return False
 
@@ -714,26 +736,6 @@ class BaseAudioSource:
             Response dict from command()
         """
         return await self.command(command, data)
-
-    def is_active_plugin(self) -> bool:
-        """
-        Backward compatibility: check if this plugin is active.
-
-        Checks with state_machine if available.
-
-        Returns:
-            True if this is the active source
-        """
-        if self.state_machine:
-            try:
-                active = self.state_machine.system_state.active_source
-                # Map source_id to AudioSource enum
-                from backend.core.models.audio_state import AudioSource
-                source_enum = AudioSource(self.source_id.upper()) if self.source_id else None
-                return active == source_enum
-            except Exception:
-                pass
-        return False
 
     def set_state(self, state: str, metadata: Optional[Dict[str, Any]] = None) -> None:
         """

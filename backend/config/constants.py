@@ -27,30 +27,17 @@ ERROR_LOG_FILE = MILO_DATA_DIR / "errors.log"
 # DIRECTORIES (derived from MILO_DATA_DIR)
 # =============================================================================
 RADIO_IMAGES_DIR = MILO_DATA_DIR / "radio_images"
-CAMILLADSP_CONFIG_DIR = MILO_DATA_DIR / "camilladsp"
-BACKUPS_DIR = MILO_DATA_DIR / "backups"
-GO_LIBRESPOT_CONFIG_DIR = MILO_DATA_DIR / "go-librespot"
 
 # =============================================================================
 # NETWORK PORTS
 # =============================================================================
 CLIENT_API_PORT = 8001          # Milo-client API port (equalizer, health, etc.)
-SNAPCAST_PORT = 1780            # Snapcast JSON-RPC port
-CAMILLADSP_PORT = 1234          # CamillaDSP WebSocket port
-SPOTIFY_PORT = 3678             # go-librespot API port
 
 # =============================================================================
 # TIMEOUTS (in seconds)
 # =============================================================================
 CLIENT_REQUEST_TIMEOUT = 2.0    # Timeout for requests to milo-client
-EQUALIZER_LEVELS_TIMEOUT = 1.0        # Timeout for equalizer level polling
 HEALTH_CHECK_TIMEOUT = 2.0      # Timeout for health checks
-
-# =============================================================================
-# CAMILLADSP SETTINGS
-# =============================================================================
-CAMILLADSP_RECONNECT_DELAY = 5  # Seconds between reconnection attempts
-CAMILLADSP_COMMAND_TIMEOUT = 5  # Timeout for CamillaDSP commands
 
 # =============================================================================
 # GPIO PINS (rotary encoder)
@@ -66,11 +53,6 @@ MAC_RTP_PORT = 10001
 MAC_RS8M_PORT = 10002
 MAC_RTCP_PORT = 10003
 MAC_AUDIO_OUTPUT = "hw:1,0"
-
-# =============================================================================
-# MULTIROOM SETTINGS
-# =============================================================================
-SNAPCAST_CACHE_MS = 5000        # Client cache duration in milliseconds
 
 # =============================================================================
 # VOLUME SETTINGS (in dB)
