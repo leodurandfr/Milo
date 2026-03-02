@@ -54,21 +54,6 @@ class ClientMuteRequest(BaseModel):
 # SNAPCAST
 # =============================================================================
 
-class SnapcastVolumeRequest(BaseModel):
-    """Snapcast volume request"""
-    volume: int = Field(..., ge=0, le=100)
-
-
-class SnapcastClientMuteRequest(BaseModel):
-    """Snapcast client mute request"""
-    muted: bool
-
-
-class SnapcastGroupStreamRequest(BaseModel):
-    """Group stream change request"""
-    stream_id: str = Field(..., min_length=1, max_length=100)
-
-
 class SnapcastClientNameRequest(BaseModel):
     """Snapcast client name request"""
     name: str = Field(..., min_length=1, max_length=100)
@@ -87,16 +72,6 @@ class SnapcastServerConfigRequest(BaseModel):
 # =============================================================================
 # EQUALIZER
 # =============================================================================
-
-class EqualizerBandRequest(BaseModel):
-    """Equalizer band value request"""
-    value: int = Field(..., ge=0, le=100)
-
-
-class EqualizerResetRequest(BaseModel):
-    """Equalizer reset request"""
-    value: int = Field(default=50, ge=0, le=100)
-
 
 # =============================================================================
 # SETTINGS - LANGUAGE
@@ -261,11 +236,6 @@ class EqualizerFilterUpdateRequest(BaseModel):
     enabled: Optional[bool] = None
 
 
-class EqualizerVolumeRequest(BaseModel):
-    """Equalizer volume request"""
-    volume: float = Field(..., ge=-100, le=0, description="Volume in dB")
-
-
 class EqualizerMuteRequest(BaseModel):
     """Equalizer mute request"""
     muted: bool
@@ -286,28 +256,6 @@ class EqualizerLoudnessRequest(BaseModel):
     enabled: Optional[bool] = None
     high_boost: Optional[float] = Field(None, ge=0, le=15, description="High frequency boost in dB")
     low_boost: Optional[float] = Field(None, ge=0, le=15, description="Low frequency boost in dB")
-
-
-class EqualizerLinkedClientsRequest(BaseModel):
-    """Equalizer linked clients request - clients that share the same equalizer settings"""
-    client_ids: List[str] = Field(..., min_length=2, description="List of client IDs to link together")
-    source_client: Optional[str] = Field(None, description="Client whose settings will be pushed to others (defaults to first in list)")
-    name: Optional[str] = Field(None, description="Custom zone name")
-
-    @field_validator('client_ids')
-    @classmethod
-    def validate_client_ids(cls, v: List[str]) -> List[str]:
-        # Remove duplicates while preserving order
-        seen = set()
-        result = []
-        for client_id in v:
-            cleaned = client_id.strip()
-            if cleaned and cleaned not in seen:
-                seen.add(cleaned)
-                result.append(cleaned)
-        if len(result) < 2:
-            raise ValueError('At least 2 different clients must be linked')
-        return result
 
 
 # =============================================================================
@@ -361,14 +309,6 @@ class ZoneUpdate(BaseModel):
         return stripped
 
 
-class ZoneResponse(BaseModel):
-    """Response model for zone data."""
-    id: str
-    name: str
-    client_ids: List[str]
-    equalizer_settings: Dict[str, Any]
-
-
 class ZoneAddClient(BaseModel):
     """Request model for adding a client to a zone."""
     mac_id: str = Field(..., min_length=1, description="MAC address of client to add")
@@ -382,14 +322,6 @@ class ZoneAddClient(BaseModel):
 # =============================================================================
 # Speaker Types / Crossover Integration
 # =============================================================================
-
-SPEAKER_TYPES = Literal['satellite', 'bookshelf', 'tower', 'subwoofer']
-
-
-class ClientSpeakerTypeRequest(BaseModel):
-    """Request to set client speaker type"""
-    speaker_type: SPEAKER_TYPES = Field(..., description="Speaker type: satellite, bookshelf, tower, or subwoofer")
-
 
 class ZoneCrossoverRequest(BaseModel):
     """Zone crossover frequency configuration"""

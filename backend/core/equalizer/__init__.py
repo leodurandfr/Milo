@@ -18,7 +18,6 @@ from backend.core.equalizer.presets import (
     get_builtin_presets,
     get_preset_by_id,
     DEFAULT_CUSTOM_GAINS,
-    DEFAULT_MANUAL_GAINS,
     BUILTIN_PRESETS,
 )
 from backend.core.equalizer.client_proxy import EqualizerClientProxyService, is_ip_address
@@ -41,6 +40,5 @@ __all__ = [
     "get_builtin_presets",
     "get_preset_by_id",
     "DEFAULT_CUSTOM_GAINS",
-    "DEFAULT_MANUAL_GAINS",
     "BUILTIN_PRESETS",
 ]

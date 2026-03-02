@@ -11,7 +11,6 @@ from fastapi import APIRouter, HTTPException, Request
 from backend.api.models import (
     EqualizerFilterRequest,
     EqualizerFilterUpdateRequest,
-    EqualizerVolumeRequest,
     EqualizerMuteRequest,
     EqualizerCompressorRequest,
     EqualizerLoudnessRequest,
