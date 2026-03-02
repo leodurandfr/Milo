@@ -70,12 +70,12 @@ class SpotifySource(BaseAudioSource):
             service_name="milo-spotify.service",
             event_bus=event_bus,
             state_machine=state_machine,
-            systemd_manager=systemd_manager
+            systemd_manager=systemd_manager,
+            settings_service=settings_service,
+            config=config
         )
 
-        config = config or {}
-        self._config_path = os.path.expanduser(config.get("config_path", ""))
-        self._settings_service = settings_service
+        self._config_path = os.path.expanduser(self._config.get("config_path", ""))
 
         # API endpoints (loaded from config file)
         self._api_url: Optional[str] = None
@@ -102,6 +102,10 @@ class SpotifySource(BaseAudioSource):
         self._connection_error_count = 0
         self._last_error_time = 0.0
 
+    def _reset_playback_state(self) -> None:
+        super()._reset_playback_state()
+        self._device_connected = False
+
     async def _do_start(self) -> bool:
         """Start go-librespot service and WebSocket."""
         try:
@@ -110,15 +114,11 @@ class SpotifySource(BaseAudioSource):
                 return False
 
             # 2. Start service
-            if not await self._start_service():
+            if not await self._start_service_and_wait():
                 return False
 
-            await asyncio.sleep(0.5)  # Wait for service
-
             # 3. Reset state
-            self._device_connected = False
-            self._is_playing = False
-            self._metadata = {}
+            self._reset_playback_state()
             self._cancel_pause_timer()
 
             # 4. Create HTTP session
@@ -145,23 +145,16 @@ class SpotifySource(BaseAudioSource):
         """Restart service with state reset."""
         self._logger.info("Restarting Spotify source")
 
-        # Cancel timer
         self._cancel_pause_timer()
-
-        # Reset state
-        self._device_connected = False
-        self._is_playing = False
-        self._metadata = {}
+        self._reset_playback_state()
 
         # Stop WebSocket
         if self._ws_client:
             await self._ws_client.stop()
 
         # Restart service
-        if not await self._restart_service():
+        if not await self._restart_service_and_wait():
             return False
-
-        await asyncio.sleep(0.5)
 
         # Reconnect WebSocket
         await self._start_websocket()
@@ -516,23 +509,15 @@ class SpotifySource(BaseAudioSource):
             self._session = None
 
         self._ws_connected = False
-        self._device_connected = False
-        self._is_playing = False
-        self._metadata = {}
+        self._reset_playback_state()
 
     def _update_connection_state(self) -> None:
         """Update state based on device connection."""
-        if self._device_connected:
-            self.set_state(SourceState.CONNECTED, {
-                **self._metadata,
-                "device_connected": True,
-                "is_playing": self._is_playing
-            })
-        else:
-            self.set_state(SourceState.READY, {
-                "device_connected": False,
-                "is_playing": False
-            })
+        self._set_connected_or_ready(
+            self._device_connected,
+            {**self._metadata, "device_connected": True, "is_playing": self._is_playing},
+            {"device_connected": False, "is_playing": False}
+        )
 
     # === Public API ===
 

@@ -214,7 +214,9 @@ class BaseAudioSource:
         service_name: str,
         event_bus: EventBus,
         state_machine=None,
-        systemd_manager=None
+        systemd_manager=None,
+        settings_service=None,
+        config=None
     ):
         """
         Initialize the audio source.
@@ -225,6 +227,8 @@ class BaseAudioSource:
             event_bus: EventBus for state notifications
             state_machine: Optional state machine for state synchronization
             systemd_manager: Optional SystemdServiceManager (injected via DI)
+            settings_service: Optional SettingsService for persisting configuration
+            config: Optional source-specific configuration dict
         """
         self.source_id = source_id
         self.service_name = service_name
@@ -238,6 +242,8 @@ class BaseAudioSource:
         self._initialized = False
 
         self._service_manager = systemd_manager
+        self._settings_service = settings_service
+        self._config = config or {}
         self._logger = logging.getLogger(f"source.{source_id}")
 
         # Auto-disconnect timer (opt-in, subclasses override _on_auto_disconnect)
@@ -450,6 +456,15 @@ class BaseAudioSource:
         on failure. The outer stop() method handles exceptions.
         """
         pass
+
+    def _reset_playback_state(self) -> None:
+        """Reset playback state to idle defaults.
+
+        Subclasses should call super()._reset_playback_state() then clear
+        their own fields (e.g. _is_buffering, _device_connected, _current_station).
+        """
+        self._is_playing = False
+        self._metadata = {}
 
     async def _do_stop(self) -> bool:
         """
@@ -688,6 +703,20 @@ class BaseAudioSource:
         except Exception:
             return False
 
+    async def _start_service_and_wait(self, settle: float = 0.5) -> bool:
+        """Start the systemd service and wait for it to settle."""
+        if not await self._start_service():
+            return False
+        await asyncio.sleep(settle)
+        return True
+
+    async def _restart_service_and_wait(self, settle: float = 0.5) -> bool:
+        """Restart the systemd service and wait for it to settle."""
+        if not await self._restart_service():
+            return False
+        await asyncio.sleep(settle)
+        return True
+
     async def _emit_error(self, error: str) -> None:
         """Emit error event."""
         await self.event_bus.emit(Events.SOURCE_ERROR, {
@@ -772,6 +801,18 @@ class BaseAudioSource:
                 )
             except RuntimeError:
                 pass
+
+    def _set_connected_or_ready(
+        self,
+        is_connected: bool,
+        connected_meta: Dict[str, Any],
+        ready_meta: Dict[str, Any]
+    ) -> None:
+        """Set state to CONNECTED or READY based on connection status."""
+        self.set_state(
+            SourceState.CONNECTED if is_connected else SourceState.READY,
+            connected_meta if is_connected else ready_meta
+        )
 
     def broadcast_error(self, error_message: str) -> None:
         """

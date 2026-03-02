@@ -92,30 +92,30 @@ class MacSource(BaseAudioSource):
             service_name="milo-mac",
             event_bus=event_bus,
             state_machine=state_machine,
-            systemd_manager=systemd_manager
+            systemd_manager=systemd_manager,
+            config=config
         )
 
-        config = config or {}
-        self.rtp_port = config.get("rtp_port", 10001)
-        self.rs8m_port = config.get("rs8m_port", 10002)
-        self.rtcp_port = config.get("rtcp_port", 10003)
-        self.audio_output = config.get("audio_output", "hw:1,0")
-        self.network_interface = config.get("network_interface")
+        self.rtp_port = self._config.get("rtp_port", 10001)
+        self.rs8m_port = self._config.get("rs8m_port", 10002)
+        self.rtcp_port = self._config.get("rtcp_port", 10003)
+        self.audio_output = self._config.get("audio_output", "hw:1,0")
+        self.network_interface = self._config.get("network_interface")
 
         # State
         self.connected_clients: Dict[str, str] = {}  # {ip: hostname}
         self._monitor_task: Optional[asyncio.Task] = None
         self._stopping = False
 
+    def _reset_playback_state(self) -> None:
+        super()._reset_playback_state()
+        self.connected_clients.clear()
+
     @handle_errors(default=False)
     async def _do_start(self) -> bool:
         """Start ROC service and monitoring."""
-        # Start systemd service
-        if not await self._start_service():
+        if not await self._start_service_and_wait(settle=1):
             return False
-
-        # Wait for service to be ready
-        await asyncio.sleep(1)
 
         if not await self._is_service_active():
             self._logger.error("Service not active after start")
@@ -147,8 +147,7 @@ class MacSource(BaseAudioSource):
                 pass
             self._monitor_task = None
 
-        # Clear state
-        self.connected_clients.clear()
+        self._reset_playback_state()
 
         # Stop service
         return await self._stop_service()
@@ -167,14 +166,12 @@ class MacSource(BaseAudioSource):
             self._monitor_task = None
 
         # Restart service
-        if not await self._restart_service():
+        if not await self._restart_service_and_wait(settle=1):
             return False
-
-        await asyncio.sleep(1)
 
         # Restart monitoring
         self._stopping = False
-        self.connected_clients.clear()
+        self._reset_playback_state()
         await self._check_initial_state()
         self._monitor_task = asyncio.create_task(self._monitor_events())
         self._update_connection_state()
@@ -374,21 +371,11 @@ class MacSource(BaseAudioSource):
 
     def _update_connection_state(self) -> None:
         """Update state based on connected clients."""
-        if self.connected_clients:
-            self.set_state(SourceState.CONNECTED, {
-                "listening": True,
-                "rtp_port": self.rtp_port,
-                "audio_output": self.audio_output,
-                "connected": True,
-                "client_names": list(self.connected_clients.values()),
-                "client_count": len(self.connected_clients)
-            })
-        else:
-            self.set_state(SourceState.READY, {
-                "listening": True,
-                "rtp_port": self.rtp_port,
-                "audio_output": self.audio_output,
-                "connected": False,
-                "client_names": [],
-                "client_count": 0
-            })
+        base = {"listening": True, "rtp_port": self.rtp_port, "audio_output": self.audio_output}
+        self._set_connected_or_ready(
+            bool(self.connected_clients),
+            {**base, "connected": True,
+             "client_names": list(self.connected_clients.values()),
+             "client_count": len(self.connected_clients)},
+            {**base, "connected": False, "client_names": [], "client_count": 0}
+        )

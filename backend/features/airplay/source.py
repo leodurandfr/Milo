@@ -35,12 +35,12 @@ class AirPlaySource(BaseAudioSource):
             service_name="milo-airplay.service",
             event_bus=event_bus,
             state_machine=state_machine,
-            systemd_manager=systemd_manager
+            systemd_manager=systemd_manager,
+            settings_service=settings_service,
+            config=config
         )
 
-        config = config or {}
-        self._metadata_pipe = config.get("metadata_pipe", "/tmp/shairport-sync-metadata")
-        self._settings_service = settings_service
+        self._metadata_pipe = self._config.get("metadata_pipe", "/tmp/shairport-sync-metadata")
 
         # Metadata reader
         self._metadata_reader: Optional[MetadataReader] = None
@@ -60,18 +60,18 @@ class AirPlaySource(BaseAudioSource):
         self.auto_disconnect_enabled = True
         self.pause_disconnect_delay = 10.0
 
+    def _reset_playback_state(self) -> None:
+        super()._reset_playback_state()
+        self._device_connected = False
+        self._client_name = None
+
     async def _do_start(self) -> bool:
         """Start shairport-sync service and metadata reader."""
         try:
-            if not await self._start_service():
+            if not await self._start_service_and_wait():
                 return False
 
-            await asyncio.sleep(0.5)
-
-            self._device_connected = False
-            self._is_playing = False
-            self._metadata = {}
-            self._client_name = None
+            self._reset_playback_state()
             self._cancel_pause_timer()
 
             # Load auto-disconnect config from settings
@@ -104,19 +104,14 @@ class AirPlaySource(BaseAudioSource):
         self._logger.info("Restarting AirPlay source")
 
         self._cancel_pause_timer()
-        self._device_connected = False
-        self._is_playing = False
-        self._metadata = {}
-        self._client_name = None
+        self._reset_playback_state()
 
         if self._metadata_reader:
             await self._metadata_reader.stop()
             self._metadata_reader = None
 
-        if not await self._restart_service():
+        if not await self._restart_service_and_wait():
             return False
-
-        await asyncio.sleep(0.5)
 
         await self._ensure_metadata_pipe()
         self._metadata_reader = MetadataReader(
@@ -274,29 +269,16 @@ class AirPlaySource(BaseAudioSource):
         """
         # Base keys ensure old values are always overwritten during merge
         base_metadata = {
-            "title": "",
-            "artist": "",
-            "album": "",
-            "album_art_url": "",
-            "duration": 0,
-            "position": 0,
+            "title": "", "artist": "", "album": "",
+            "album_art_url": "", "duration": 0, "position": 0,
         }
-
-        if self._device_connected:
-            self.set_state(SourceState.CONNECTED, {
-                **base_metadata,
-                **self._metadata,
-                "device_connected": True,
-                "is_playing": self._is_playing,
-                "client_name": self._client_name,
-            })
-        else:
-            self.set_state(SourceState.READY, {
-                **base_metadata,
-                "device_connected": False,
-                "is_playing": False,
-                "client_name": None,
-            })
+        self._set_connected_or_ready(
+            self._device_connected,
+            {**base_metadata, **self._metadata, "device_connected": True,
+             "is_playing": self._is_playing, "client_name": self._client_name},
+            {**base_metadata, "device_connected": False,
+             "is_playing": False, "client_name": None},
+        )
 
     async def _cleanup(self) -> None:
         """Clean up resources."""
@@ -306,10 +288,7 @@ class AirPlaySource(BaseAudioSource):
             await self._metadata_reader.stop()
             self._metadata_reader = None
 
-        self._device_connected = False
-        self._is_playing = False
-        self._metadata = {}
-        self._client_name = None
+        self._reset_playback_state()
 
     async def _on_auto_disconnect(self) -> None:
         """After pause/stop timeout: clear metadata but stay connected.

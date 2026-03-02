@@ -67,14 +67,14 @@ class PodcastSource(BaseAudioSource):
             service_name="milo-podcast.service",
             event_bus=event_bus,
             state_machine=state_machine,
-            systemd_manager=systemd_manager
+            systemd_manager=systemd_manager,
+            settings_service=settings_service,
+            config=config
         )
 
-        config = config or {}
-        self._mpv_socket = config.get("mpv_socket", "/run/milo/podcast-ipc.sock")
-        self._taddy_user_id = config.get("taddy_user_id", "")
-        self._taddy_api_key = config.get("taddy_api_key", "")
-        self._settings_service = settings_service
+        self._mpv_socket = self._config.get("mpv_socket", "/run/milo/podcast-ipc.sock")
+        self._taddy_user_id = self._config.get("taddy_user_id", "")
+        self._taddy_api_key = self._config.get("taddy_api_key", "")
 
         # MPV controller
         self._mpv: Optional[MpvController] = None
@@ -105,14 +105,19 @@ class PodcastSource(BaseAudioSource):
         self._monitor_task: Optional[asyncio.Task] = None
         self._progress_save_task: Optional[asyncio.Task] = None
 
+    def _reset_playback_state(self) -> None:
+        super()._reset_playback_state()
+        self._current_episode = None
+        self._is_buffering = False
+        self._position = 0
+        self._duration = 0
+
     async def _do_start(self) -> bool:
         """Start MPV service and initialize components."""
         try:
             # 1. Start service
-            if not await self._start_service():
+            if not await self._start_service_and_wait():
                 return False
-
-            await asyncio.sleep(0.5)  # Wait for service
 
             # 2. Connect to MPV IPC
             self._mpv = MpvController(ipc_socket_path=self._mpv_socket)
@@ -125,12 +130,7 @@ class PodcastSource(BaseAudioSource):
             self._playback_speed = saved_speed
 
             # 4. Reset state
-            self._current_episode = None
-            self._is_playing = False
-            self._is_buffering = False
-            self._position = 0
-            self._duration = 0
-            self._metadata = {}
+            self._reset_playback_state()
 
             # 5. Start monitor task
             self._start_monitor()
@@ -168,23 +168,15 @@ class PodcastSource(BaseAudioSource):
         if self._current_episode and self._position > 0:
             await self._save_progress()
 
-        # Reset state
-        self._current_episode = None
-        self._is_playing = False
-        self._is_buffering = False
-        self._position = 0
-        self._duration = 0
-        self._metadata = {}
+        self._reset_playback_state()
 
         # Disconnect MPV
         if self._mpv:
             await self._mpv.disconnect()
 
         # Restart service
-        if not await self._restart_service():
+        if not await self._restart_service_and_wait():
             return False
-
-        await asyncio.sleep(0.5)
 
         # Reconnect MPV
         if not await self._mpv.connect():
@@ -496,21 +488,14 @@ class PodcastSource(BaseAudioSource):
 
     def _update_connection_state(self) -> None:
         """Update state based on playback."""
-        if self._current_episode:
-            self.set_state(SourceState.CONNECTED, {
-                "current_episode": self._current_episode,
-                "is_playing": self._is_playing,
-                "is_buffering": self._is_buffering,
-                "position": self._position,
-                "duration": self._duration,
-                "playback_speed": self._playback_speed
-            })
-        else:
-            self.set_state(SourceState.READY, {
-                "is_playing": False,
-                "is_buffering": False,
-                "ready": True
-            })
+        self._set_connected_or_ready(
+            bool(self._current_episode),
+            {"current_episode": self._current_episode,
+             "is_playing": self._is_playing, "is_buffering": self._is_buffering,
+             "position": self._position, "duration": self._duration,
+             "playback_speed": self._playback_speed},
+            {"is_playing": False, "is_buffering": False, "ready": True}
+        )
 
     async def _save_progress(self) -> None:
         """Save current playback progress with full metadata."""
@@ -545,12 +530,7 @@ class PodcastSource(BaseAudioSource):
             await self._mpv.disconnect()
             self._mpv = None
 
-        self._current_episode = None
-        self._is_playing = False
-        self._is_buffering = False
-        self._position = 0
-        self._duration = 0
-        self._metadata = {}
+        self._reset_playback_state()
 
     # === Monitor ===
 
