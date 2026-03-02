@@ -383,53 +383,76 @@ class AudioRoutingService:
         else:
             self.logger.warning("VolumeService not available for equalizer sync")
 
+    async def _guarded_state_transition(
+        self,
+        get_fn,
+        set_fn,
+        desired: bool,
+        operation_name: str,
+        body_fn,
+    ) -> bool:
+        """
+        Execute a state transition with lock, idempotency check, and rollback.
+
+        Args:
+            get_fn: async () -> bool — read current state
+            set_fn: async (bool) -> None — set state + any side effects (e.g., systemd env)
+            desired: Target state value
+            operation_name: For logging (e.g., "multiroom", "equalizer_effects")
+            body_fn: async (bool) -> bool — the transition body, returns success
+        """
+        async with self._routing_lock:
+            current = await get_fn()
+            if current == desired:
+                self.logger.info(f"{operation_name} already {'enabled' if desired else 'disabled'}")
+                return True
+
+            old_state = current
+            try:
+                await set_fn(desired)
+                success = await body_fn(desired)
+                if not success:
+                    await set_fn(old_state)
+                    self.logger.error(f"Failed to transition {operation_name} to {desired}, reverting to {old_state}")
+                    return False
+                return True
+            except Exception as e:
+                await set_fn(old_state)
+                self.logger.error(f"Error changing {operation_name} state: {e}")
+                return False
+
     async def set_multiroom_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
         """Enables/disables multiroom mode with early notification"""
-        async with self._routing_lock:  # Guarantee atomicity of routing operations
-            if not self._initial_detection_done:
-                await self._detect_initial_state()
+        if not self._initial_detection_done:
+            await self._detect_initial_state()
 
-            current_state = await self._get_multiroom_enabled()
-            if current_state == enabled:
-                self.logger.info(f"Multiroom already {'enabled' if enabled else 'disabled'}")
-                return True
+        async def set_multiroom_with_env(value: bool) -> None:
+            await self._set_multiroom_state(value)
+            await self._update_systemd_environment()
 
-            try:
-                old_state = current_state
-                self.logger.info(f"Changing multiroom from {old_state} to {enabled}")
+        async def body(enabled: bool) -> bool:
+            self.logger.info(f"Changing multiroom to {enabled}")
+            await self._broadcast_transition_event(enabled)
 
-                await self._set_multiroom_state(enabled)
-                await self._update_systemd_environment()
+            if enabled:
+                success = await self._transition_to_multiroom(active_source)
+            else:
+                success = await self._transition_to_direct(active_source)
 
-                # Notify frontend before transition
-                await self._broadcast_transition_event(enabled)
-
-                # Execute routing transition
-                if enabled:
-                    success = await self._transition_to_multiroom(active_source)
-                else:
-                    success = await self._transition_to_direct(active_source)
-
-                if not success:
-                    await self._set_multiroom_state(old_state)
-                    await self._update_systemd_environment()
-                    self.logger.error(f"Failed to transition multiroom to {enabled}, reverting to {old_state}")
-                    return False
-
-                if enabled:
-                    await self._auto_configure_multiroom()
-
-                # Post-transition: WebSocket, volume, settings
-                await self._post_transition_setup(enabled)
-
-                self.logger.info(f"Multiroom state changed and saved: {enabled}")
-                return True
-
-            except Exception as e:
-                await self._set_multiroom_state(old_state)
-                await self._update_systemd_environment()
-                self.logger.error(f"Error changing multiroom state: {e}")
+            if not success:
                 return False
+
+            if enabled:
+                await self._auto_configure_multiroom()
+
+            await self._post_transition_setup(enabled)
+            self.logger.info(f"Multiroom state changed and saved: {enabled}")
+            return True
+
+        return await self._guarded_state_transition(
+            self._get_multiroom_enabled, set_multiroom_with_env,
+            enabled, "multiroom", body,
+        )
 
     async def _broadcast_transition_event(self, enabled: bool) -> None:
         """Broadcast pre-transition event to let frontend react."""
@@ -503,53 +526,39 @@ class AudioRoutingService:
 
         Volume control via CamillaDSP is ALWAYS active regardless of this setting.
         """
-        async with self._routing_lock:  # Guarantee atomicity of routing operations
-            current_state = await self._get_equalizer_effects_enabled()
-            if current_state == enabled:
-                self.logger.info(f"Equalizer effects already {'enabled' if enabled else 'bypassed'}")
-                return True
+        async def body(enabled: bool) -> bool:
+            self.logger.info(f"{'Enabling' if enabled else 'Bypassing'} Equalizer effects")
 
-            try:
-                old_state = current_state
-                self.logger.info(f"{'Enabling' if enabled else 'Bypassing'} Equalizer effects")
+            success = True
+            if self.camilladsp_service:
+                if enabled:
+                    success = await self.camilladsp_service.restore_effects()
+                    self.logger.info("Equalizer effects restored from settings" if success
+                                     else "Failed to restore Equalizer effects")
+                else:
+                    success = await self.camilladsp_service.bypass_effects()
+                    self.logger.info("Equalizer effects bypassed (volume unchanged)" if success
+                                     else "Failed to bypass Equalizer effects")
 
-                await self._set_equalizer_effects_state(enabled)
+                if not success:
+                    return False
 
-                # Toggle Equalizer effects (NOT the service!)
-                if self.camilladsp_service:
-                    if enabled:
-                        # Restore all Equalizer effects from settings
-                        success = await self.camilladsp_service.restore_effects()
-                        if success:
-                            self.logger.info("Equalizer effects restored from settings")
-                        else:
-                            self.logger.warning("Failed to restore Equalizer effects")
-                    else:
-                        # Bypass all Equalizer effects (but keep volume!)
-                        success = await self.camilladsp_service.bypass_effects()
-                        if success:
-                            self.logger.info("Equalizer effects bypassed (volume unchanged)")
-                        else:
-                            self.logger.warning("Failed to bypass Equalizer effects")
+            if self.state_machine:
+                await self.state_machine.broadcast_event("equalizer", "enabled_changed", {
+                    "enabled": enabled,
+                    "effects_bypassed": not enabled,
+                })
 
-                # Broadcast equalizer state change event
-                if self.state_machine:
-                    await self.state_machine.broadcast_event("equalizer", "enabled_changed", {
-                        "enabled": enabled,
-                        "effects_bypassed": not enabled
-                    })
+            if self.settings_service:
+                await self.settings_service.set_setting('equalizer.effects_enabled', enabled)
 
-                # Save state via SettingsService
-                if self.settings_service:
-                    await self.settings_service.set_setting('equalizer.effects_enabled', enabled)
+            self.logger.info(f"Equalizer effects {'enabled' if enabled else 'bypassed'}")
+            return True
 
-                self.logger.info(f"Equalizer effects {'enabled' if enabled else 'bypassed'}")
-                return True
-
-            except Exception as e:
-                await self._set_equalizer_effects_state(old_state)
-                self.logger.error(f"Error changing Equalizer effects state: {e}")
-                return False
+        return await self._guarded_state_transition(
+            self._get_equalizer_effects_enabled, self._set_equalizer_effects_state,
+            enabled, "equalizer_effects", body,
+        )
     
     async def _update_systemd_environment(self) -> None:
         """Updates ALSA environment variables via static routing.env file."""
