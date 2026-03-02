@@ -10,6 +10,8 @@ import logging
 import re
 from typing import Dict, Any, Optional, Callable, Awaitable
 
+from backend.shared.decorators import handle_errors
+
 
 # Type for async callbacks
 ConnectionCallback = Callable[[str, str], Awaitable[None]]
@@ -48,6 +50,7 @@ class BlueAlsaMonitor:
         self._on_connect = on_connect
         self._on_disconnect = on_disconnect
 
+    @handle_errors(default=False)
     async def start(self) -> bool:
         """
         Start BlueALSA PCM monitoring.
@@ -55,25 +58,20 @@ class BlueAlsaMonitor:
         Returns:
             True if monitoring started successfully
         """
-        try:
-            self._stopped = False
+        self._stopped = False
 
-            # Launch bluealsa-cli monitor
-            self._process = await asyncio.create_subprocess_exec(
-                "bluealsa-cli", "monitor", "-p",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
+        # Launch bluealsa-cli monitor
+        self._process = await asyncio.create_subprocess_exec(
+            "bluealsa-cli", "monitor", "-p",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
 
-            # Start reading task
-            self._read_task = asyncio.create_task(self._read_output())
+        # Start reading task
+        self._read_task = asyncio.create_task(self._read_output())
 
-            self._logger.info("BlueALSA monitoring started")
-            return True
-
-        except Exception as e:
-            self._logger.error(f"Failed to start monitoring: {e}")
-            return False
+        self._logger.info("BlueALSA monitoring started")
+        return True
 
     async def stop(self) -> None:
         """Stop BlueALSA PCM monitoring."""
@@ -128,6 +126,7 @@ class BlueAlsaMonitor:
             if not self._stopped:
                 self._logger.error(f"Monitor read error: {e}")
 
+    @handle_errors(default=None)
     async def _process_line(self, line: str) -> None:
         """
         Process a single monitor output line.
@@ -135,13 +134,10 @@ class BlueAlsaMonitor:
         Args:
             line: Output line from bluealsa-cli monitor
         """
-        try:
-            if line.startswith("PCMAdded"):
-                await self._handle_pcm_added(line)
-            elif line.startswith("PCMRemoved"):
-                await self._handle_pcm_removed(line)
-        except Exception as e:
-            self._logger.error(f"Error processing line: {e}")
+        if line.startswith("PCMAdded"):
+            await self._handle_pcm_added(line)
+        elif line.startswith("PCMRemoved"):
+            await self._handle_pcm_removed(line)
 
     async def _handle_pcm_added(self, line: str) -> None:
         """Handle PCM added event."""

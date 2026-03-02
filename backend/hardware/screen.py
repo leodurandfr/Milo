@@ -8,6 +8,8 @@ import logging
 import os
 from time import monotonic
 
+from backend.shared.decorators import handle_errors
+
 class ScreenController:
     """Screen controller with timeout_seconds = 0 to disable"""
 
@@ -113,74 +115,62 @@ class ScreenController:
             self.brightness_on = 5
             self._update_screen_commands()
     
+    @handle_errors(default=False)
     async def reload_timeout_config(self) -> bool:
         """Reloads timeout/brightness config"""
-        try:
-            self.logger.debug(f"Reloading screen config (old timeout: {self.timeout_seconds}s)")
-            await self._load_config()
-            self.logger.debug(f"Screen config reloaded (new timeout: {self.timeout_seconds}s)")
-            self.last_activity_time = monotonic()
-            return True
-        except Exception as e:
-            self.logger.error(f"Error reloading screen config: {e}")
-            return False
+        self.logger.debug(f"Reloading screen config (old timeout: {self.timeout_seconds}s)")
+        await self._load_config()
+        self.logger.debug(f"Screen config reloaded (new timeout: {self.timeout_seconds}s)")
+        self.last_activity_time = monotonic()
+        return True
     
+    @handle_errors(default=False)
     async def initialize(self) -> bool:
         """Initializes the controller"""
-        try:
-            await self._load_config()
+        await self._load_config()
 
-            # Calculate grace period: max between 30s and configured timeout
-            # This ensures we always see at least 30s of boot, even if timeout is short
-            self.boot_grace_period = max(30, self.timeout_seconds if self.timeout_seconds != 0 else 30)
+        # Calculate grace period: max between 30s and configured timeout
+        # This ensures we always see at least 30s of boot, even if timeout is short
+        self.boot_grace_period = max(30, self.timeout_seconds if self.timeout_seconds != 0 else 30)
 
-            await self._screen_cmd(self.screen_on_cmd)
-            self.boot_time = monotonic()  # Record boot time
-            self.last_activity_time = monotonic()
-            self.running = True
+        await self._screen_cmd(self.screen_on_cmd)
+        self.boot_time = monotonic()  # Record boot time
+        self.last_activity_time = monotonic()
+        self.running = True
 
-            self.logger.info(f"Screen controller initialized with {self.boot_grace_period}s boot grace period (timeout_seconds={self.timeout_seconds}s)")
+        self.logger.info(f"Screen controller initialized with {self.boot_grace_period}s boot grace period (timeout_seconds={self.timeout_seconds}s)")
 
-            # Start monitoring
-            asyncio.create_task(self._monitor_plugin_state())
-            asyncio.create_task(self._monitor_timeout())
-            # asyncio.create_task(self._monitor_touch_events())  # Disabled - detection via frontend
+        # Start monitoring
+        asyncio.create_task(self._monitor_plugin_state())
+        asyncio.create_task(self._monitor_timeout())
+        # asyncio.create_task(self._monitor_touch_events())  # Disabled - detection via frontend
 
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Failed to initialize: {e}")
-            return False
+        return True
     
+    @handle_errors(default=None)
     async def _screen_cmd(self, cmd):
         """Executes a screen command"""
         # Do nothing if no screen is configured or command is empty
         if not cmd or self.screen_type == "none":
             return
 
-        try:
-            process = await asyncio.create_subprocess_shell(
-                cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-            )
-            await process.communicate()
+        process = await asyncio.create_subprocess_shell(
+            cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        await process.communicate()
 
-            # Determine if screen is on by comparing with screen_off_cmd
-            # (if command is screen_off_cmd, screen is off, otherwise it's on)
-            self.screen_on = (cmd != self.screen_off_cmd)
-
-        except Exception as e:
-            self.logger.error(f"Screen command failed: {e}")
+        # Determine if screen is on by comparing with screen_off_cmd
+        # (if command is screen_off_cmd, screen is off, otherwise it's on)
+        self.screen_on = (cmd != self.screen_off_cmd)
     
+    @handle_errors(default=None)
     async def _broadcast_sleep_state(self, sleeping: bool):
         """Broadcast screen sleep state change to frontend via WebSocket"""
-        try:
-            await self.state_machine.broadcast_event(
-                "settings",
-                "screen_sleep_changed",
-                {"sleeping": sleeping}
-            )
-        except Exception as e:
-            self.logger.error(f"Error broadcasting screen sleep state: {e}")
+        await self.state_machine.broadcast_event(
+            "settings",
+            "screen_sleep_changed",
+            {"sleeping": sleeping}
+        )
 
     async def _monitor_plugin_state(self):
         """Monitors plugin state"""

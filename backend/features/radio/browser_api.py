@@ -8,6 +8,7 @@ import re
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from backend.features.radio.genres import extract_valid_genre
+from backend.shared.decorators import handle_errors
 
 
 class RadioBrowserAPI:
@@ -406,6 +407,7 @@ class RadioBrowserAPI:
             self._set_favicon_cache(favicon_url, -1, 0)
             return (-1, 0)
 
+    @handle_errors(default=[])
     async def find_alternative_urls(self, station_name: str, exclude_url: str = "") -> List[Dict[str, Any]]:
         """
         Finds alternative URLs for a station by searching by name.
@@ -423,34 +425,29 @@ class RadioBrowserAPI:
         if not station_name:
             return []
 
-        try:
-            # Search by exact name (reuses existing functionality)
-            search_results = await self._fetch_stations_by_query(station_name)
+        # Search by exact name (reuses existing functionality)
+        search_results = await self._fetch_stations_by_query(station_name)
 
-            # Filter to exact name matches only (case-insensitive)
-            alternatives = [
-                s for s in search_results
-                if s.get('name', '').lower().strip() == station_name.lower().strip()
-                and s.get('url') != exclude_url
-                and s.get('url')  # Must have a URL
-            ]
+        # Filter to exact name matches only (case-insensitive)
+        alternatives = [
+            s for s in search_results
+            if s.get('name', '').lower().strip() == station_name.lower().strip()
+            and s.get('url') != exclude_url
+            and s.get('url')  # Must have a URL
+        ]
 
-            # Sort by quality: score (votes + clicks) descending, then bitrate descending
-            alternatives.sort(
-                key=lambda s: (s.get('score', 0), s.get('bitrate', 0)),
-                reverse=True
-            )
+        # Sort by quality: score (votes + clicks) descending, then bitrate descending
+        alternatives.sort(
+            key=lambda s: (s.get('score', 0), s.get('bitrate', 0)),
+            reverse=True
+        )
 
-            self.logger.debug(
-                f"Found {len(alternatives)} alternative URLs for '{station_name}' "
-                f"(excluded: {exclude_url[:50] if exclude_url else 'none'})"
-            )
+        self.logger.debug(
+            f"Found {len(alternatives)} alternative URLs for '{station_name}' "
+            f"(excluded: {exclude_url[:50] if exclude_url else 'none'})"
+        )
 
-            return alternatives
-
-        except Exception as e:
-            self.logger.error(f"Error finding alternative URLs for '{station_name}': {e}")
-            return []
+        return alternatives
 
     def _normalize_station(self, station: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -893,6 +890,7 @@ class RadioBrowserAPI:
 
         return deduplicated_stations
 
+    @handle_errors(default=False, level='warning')
     async def increment_station_clicks(self, station_id: str) -> bool:
         """
         Increments click counter for a station
@@ -907,17 +905,12 @@ class RadioBrowserAPI:
         """
         await self._ensure_session()
 
-        try:
-            url = f"{self.BASE_URL}/url/{station_id}"
-            async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                success = resp.status == 200
-                if success:
-                    self.logger.debug(f"Incremented click count for station {station_id}")
-                return success
-
-        except Exception as e:
-            self.logger.warning(f"Failed to increment clicks for {station_id}: {e}")
-            return False
+        url = f"{self.BASE_URL}/url/{station_id}"
+        async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+            success = resp.status == 200
+            if success:
+                self.logger.debug(f"Incremented click count for station {station_id}")
+            return success
 
     async def _fetch_stations_by_country_name(self, country_name: str) -> List[Dict[str, Any]]:
         """

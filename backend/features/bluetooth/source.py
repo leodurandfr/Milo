@@ -19,6 +19,7 @@ from backend.core.audio_source import BaseAudioSource, SourceState
 from backend.core.events import EventBus
 from backend.features.bluetooth.agent import BluetoothAgent
 from backend.features.bluetooth.monitor import BlueAlsaMonitor
+from backend.shared.decorators import handle_errors
 
 
 class BluetoothSource(BaseAudioSource):
@@ -124,28 +125,24 @@ class BluetoothSource(BaseAudioSource):
             await self._cleanup()
             return False
 
+    @handle_errors(default=False)
     async def _do_stop(self) -> bool:
         """Stop monitoring and services."""
-        try:
-            await self._cleanup()
+        await self._cleanup()
 
-            # Disable discoverability
-            await self._run_bluetoothctl("discoverable off\npairable off\nquit")
+        # Disable discoverability
+        await self._run_bluetoothctl("discoverable off\npairable off\nquit")
 
-            # Stop services if configured
-            if self.stop_bluetooth_on_exit:
-                await self._stop_service(self.bluealsa_aplay_service)
-                for service in [self.bluealsa_service, self.bluetooth_service]:
-                    await self._stop_service(service)
+        # Stop services if configured
+        if self.stop_bluetooth_on_exit:
+            await self._stop_service(self.bluealsa_aplay_service)
+            for service in [self.bluealsa_service, self.bluetooth_service]:
+                await self._stop_service(service)
 
-            # Reset state
-            self.connected_device = None
+        # Reset state
+        self.connected_device = None
 
-            return True
-
-        except Exception as e:
-            self._logger.error(f"Stop failed: {e}")
-            return False
+        return True
 
     async def _do_restart(self) -> bool:
         """Restart audio playback service and re-detect device."""
@@ -234,24 +231,21 @@ class BluetoothSource(BaseAudioSource):
             self._logger.info(f"Device connected: {name} ({address})")
             self._update_connection_state()
 
+    @handle_errors(default=False)
     async def _disconnect_device(self, address: str) -> bool:
         """Disconnect a device by address."""
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "bluetoothctl", "disconnect", address,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.PIPE
-            )
-            _, stderr = await proc.communicate()
+        proc = await asyncio.create_subprocess_exec(
+            "bluetoothctl", "disconnect", address,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE
+        )
+        _, stderr = await proc.communicate()
 
-            if proc.returncode != 0:
-                self._logger.error(f"Disconnect failed: {stderr.decode().strip()}")
-                return False
-
-            return True
-        except Exception as e:
-            self._logger.error(f"Disconnect error: {e}")
+        if proc.returncode != 0:
+            self._logger.error(f"Disconnect failed: {stderr.decode().strip()}")
             return False
+
+        return True
 
     async def _on_device_disconnected(self, address: str, name: str) -> None:
         """Handle device disconnection from BlueALSA monitor."""
@@ -284,46 +278,40 @@ class BluetoothSource(BaseAudioSource):
         ])
         return await self._run_bluetoothctl(commands)
 
+    @handle_errors(default=False)
     async def _run_bluetoothctl(self, commands: str) -> bool:
         """Execute bluetoothctl commands."""
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "bluetoothctl",
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL
-            )
-            await proc.communicate(input=commands.encode())
-            return proc.returncode == 0
-        except Exception as e:
-            self._logger.error(f"bluetoothctl error: {e}")
-            return False
+        proc = await asyncio.create_subprocess_exec(
+            "bluetoothctl",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL
+        )
+        await proc.communicate(input=commands.encode())
+        return proc.returncode == 0
 
+    @handle_errors(default=None)
     async def _detect_connected_device(self) -> None:
         """Detect currently connected device via bluetoothctl."""
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "bluetoothctl", "devices", "Connected",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL
-            )
-            stdout, _ = await proc.communicate()
+        proc = await asyncio.create_subprocess_exec(
+            "bluetoothctl", "devices", "Connected",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL
+        )
+        stdout, _ = await proc.communicate()
 
-            if proc.returncode == 0:
-                for line in stdout.decode().splitlines():
-                    if line.startswith("Device "):
-                        parts = line.split(" ", 2)
-                        if len(parts) >= 3:
-                            address = parts[1]
-                            name = parts[2] if len(parts) > 2 else address
-                            self.connected_device = {"address": address, "name": name}
-                            return
+        if proc.returncode == 0:
+            for line in stdout.decode().splitlines():
+                if line.startswith("Device "):
+                    parts = line.split(" ", 2)
+                    if len(parts) >= 3:
+                        address = parts[1]
+                        name = parts[2] if len(parts) > 2 else address
+                        self.connected_device = {"address": address, "name": name}
+                        return
 
-            # No device found
-            self.connected_device = None
-
-        except Exception as e:
-            self._logger.error(f"Device detection error: {e}")
+        # No device found
+        self.connected_device = None
 
     async def _cleanup(self) -> None:
         """Clean up resources."""

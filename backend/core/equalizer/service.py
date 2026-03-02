@@ -10,6 +10,7 @@ from enum import Enum
 
 from backend.core.events import EventBus, get_event_bus
 from backend.core.equalizer.presets import get_builtin_presets, get_preset_by_id, DEFAULT_CUSTOM_GAINS, DEFAULT_EQ_FREQS
+from backend.shared.decorators import handle_errors
 
 
 class CamillaDspState(str, Enum):
@@ -225,27 +226,23 @@ class CamillaDSPService:
             # Broadcast state change event (frontend listens for 'state_changed')
             await self._broadcast_event("state_changed", {"state": self._state.value})
 
+    @handle_errors(default=CamillaDspState.DISCONNECTED)
     async def _get_daemon_state(self) -> CamillaDspState:
         if not self._client:
             return CamillaDspState.DISCONNECTED
 
-        try:
-            # pycamilladsp v3 API: general.state() returns ProcessingState enum
-            state = await self._run(self._client.general.state)
+        # pycamilladsp v3 API: general.state() returns ProcessingState enum
+        state = await self._run(self._client.general.state)
 
-            # Map ProcessingState enum to our CamillaDspState
-            state_str = str(state).split('.')[-1].upper()
-            state_map = {
-                "RUNNING": CamillaDspState.RUNNING,
-                "PAUSED": CamillaDspState.PAUSED,
-                "INACTIVE": CamillaDspState.INACTIVE,
-            }
+        # Map ProcessingState enum to our CamillaDspState
+        state_str = str(state).split('.')[-1].upper()
+        state_map = {
+            "RUNNING": CamillaDspState.RUNNING,
+            "PAUSED": CamillaDspState.PAUSED,
+            "INACTIVE": CamillaDspState.INACTIVE,
+        }
 
-            return state_map.get(state_str, CamillaDspState.INACTIVE)
-
-        except Exception as e:
-            self.logger.error(f"Error getting daemon state: {e}")
-            return CamillaDspState.DISCONNECTED
+        return state_map.get(state_str, CamillaDspState.INACTIVE)
 
     async def get_status(self) -> Dict[str, Any]:
         try:
@@ -311,6 +308,7 @@ class CamillaDSPService:
     # === Filter Management ===
 
     async def get_filters(self) -> List[Dict[str, Any]]:
+        """Get current EQ filters. Returns cached value on error."""
         if not self._connected:
             return self._filters
 
@@ -318,9 +316,8 @@ class CamillaDSPService:
             config = await self._get_config()
             self._filters = self._parse_filters(config["filters"])
             return self._filters
-
         except Exception as e:
-            self.logger.error(f"Error getting filters: {e}")
+            self.logger.error(f"Error in get_filters: {e}")
             return self._filters
 
     def _parse_filters(self, filters_config: Dict) -> List[Dict[str, Any]]:
@@ -353,6 +350,7 @@ class CamillaDSPService:
 
         return result
 
+    @handle_errors(default=False)
     async def set_filter(self, filter_id: str, freq: float, gain: float,
                          q: float, filter_type: str = "Peaking",
                          enabled: bool = True, persist: bool = True,
@@ -368,146 +366,130 @@ class CamillaDSPService:
             self.logger.warning("Cannot set filter: not connected")
             return False
 
-        try:
-            # Build filter configuration
-            filter_config = {
-                "type": "Biquad",
-                "parameters": {
+        # Build filter configuration
+        filter_config = {
+            "type": "Biquad",
+            "parameters": {
+                "type": filter_type,
+                "freq": freq,
+                "gain": gain,
+                "q": q
+            }
+        }
+
+        config = await self._get_config()
+        config["filters"][filter_id] = filter_config
+        await self._set_config(config)
+
+        # Update local cache
+        for f in self._filters:
+            if f["id"] == filter_id:
+                f.update({
                     "type": filter_type,
                     "freq": freq,
                     "gain": gain,
-                    "q": q
-                }
-            }
-
-            config = await self._get_config()
-            config["filters"][filter_id] = filter_config
-            await self._set_config(config)
-
-            # Update local cache
-            for f in self._filters:
-                if f["id"] == filter_id:
-                    f.update({
-                        "type": filter_type,
-                        "freq": freq,
-                        "gain": gain,
-                        "q": q,
-                        "enabled": enabled
-                    })
-                    break
-
-            # Broadcast update (can be suppressed for batch updates)
-            if broadcast:
-                await self._broadcast_event("filter_changed", {
-                    "id": filter_id,
-                    "freq": freq,
-                    "gain": gain,
                     "q": q,
-                    "type": filter_type
+                    "enabled": enabled
                 })
+                break
 
-            # Persist filters to settings (skip during bypass operations)
-            if persist:
-                await self._save_filters()
+        # Broadcast update (can be suppressed for batch updates)
+        if broadcast:
+            await self._broadcast_event("filter_changed", {
+                "id": filter_id,
+                "freq": freq,
+                "gain": gain,
+                "q": q,
+                "type": filter_type
+            })
 
-            return True
+        # Persist filters to settings (skip during bypass operations)
+        if persist:
+            await self._save_filters()
 
-        except Exception as e:
-            self.logger.error(f"Error setting filter {filter_id}: {e}")
-            return False
+        return True
 
+    @handle_errors(default=False)
     async def add_filter(self, filter_id: str, freq: float = 1000,
                          gain: float = 0, q: float = 1.0,
                          filter_type: str = "Peaking") -> bool:
         if not self._connected:
             return False
 
-        try:
-            filter_config = {
-                "type": "Biquad",
-                "parameters": {
-                    "type": filter_type,
-                    "freq": freq,
-                    "gain": gain,
-                    "q": q
-                }
-            }
-
-            config = await self._get_config()
-            config["filters"][filter_id] = filter_config
-
-            await self._set_config(config)
-
-            # Update local cache
-            self._filters.append({
-                "id": filter_id,
+        filter_config = {
+            "type": "Biquad",
+            "parameters": {
                 "type": filter_type,
                 "freq": freq,
                 "gain": gain,
-                "q": q,
-                "enabled": True
-            })
+                "q": q
+            }
+        }
 
-            await self._broadcast_event("filter_added", {"id": filter_id})
+        config = await self._get_config()
+        config["filters"][filter_id] = filter_config
 
-            return True
+        await self._set_config(config)
 
-        except Exception as e:
-            self.logger.error(f"Error adding filter: {e}")
-            return False
+        # Update local cache
+        self._filters.append({
+            "id": filter_id,
+            "type": filter_type,
+            "freq": freq,
+            "gain": gain,
+            "q": q,
+            "enabled": True
+        })
 
+        await self._broadcast_event("filter_added", {"id": filter_id})
+
+        return True
+
+    @handle_errors(default=False)
     async def remove_filter(self, filter_id: str) -> bool:
         if not self._connected:
             return False
 
-        try:
-            config = await self._get_config()
+        config = await self._get_config()
 
-            if filter_id in config["filters"]:
-                del config["filters"][filter_id]
+        if filter_id in config["filters"]:
+            del config["filters"][filter_id]
 
-                await self._set_config(config)
+            await self._set_config(config)
 
-                # Update local cache
-                self._filters = [f for f in self._filters if f["id"] != filter_id]
+            # Update local cache
+            self._filters = [f for f in self._filters if f["id"] != filter_id]
 
-                await self._broadcast_event("filter_removed", {"id": filter_id})
+            await self._broadcast_event("filter_removed", {"id": filter_id})
 
-                return True
+            return True
 
-            return False
+        return False
 
-        except Exception as e:
-            self.logger.error(f"Error removing filter: {e}")
-            return False
-
+    @handle_errors(default=False)
     async def reset_filters(self) -> bool:
         if not self._connected:
             return False
 
-        try:
-            # Suppress per-filter broadcasts during reset (filters_reset event handles it)
-            for f in self._filters:
-                await self.set_filter(
-                    filter_id=f["id"],
-                    freq=f["freq"],
-                    gain=0,
-                    q=f.get("q", 1.0),
-                    filter_type=f.get("type", "Peaking"),
-                    broadcast=False
-                )
+        # Suppress per-filter broadcasts during reset (filters_reset event handles it)
+        for f in self._filters:
+            await self.set_filter(
+                filter_id=f["id"],
+                freq=f["freq"],
+                gain=0,
+                q=f.get("q", 1.0),
+                filter_type=f.get("type", "Peaking"),
+                broadcast=False
+            )
 
-            await self._broadcast_event("filters_reset", {})
+        await self._broadcast_event("filters_reset", {})
 
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Error resetting filters: {e}")
-            return False
+        return True
 
     # === Volume Control ===
 
     async def get_volume(self) -> Dict[str, Any]:
+        """Get current volume state. Returns cached value on error."""
         if not self._connected:
             return self._volume
 
@@ -517,32 +499,26 @@ class CamillaDSPService:
             self._volume = {"main": volume, "mute": mute}
             return self._volume
         except Exception as e:
-            self.logger.debug(f"Error getting volume: {e}")
+            self.logger.debug(f"Error in get_volume: {e}")
             return self._volume
 
+    @handle_errors(default=False)
     async def set_volume(self, volume: float) -> bool:
         """Set main volume in dB"""
         if not self._connected:
             return False
-        try:
-            await self._run(lambda: self._client.volume.set_main_volume(volume))
-            self._volume["main"] = volume
-            return True
-        except Exception as e:
-            self.logger.error(f"Error setting volume: {e}")
-            return False
+        await self._run(lambda: self._client.volume.set_main_volume(volume))
+        self._volume["main"] = volume
+        return True
 
+    @handle_errors(default=False)
     async def set_mute(self, muted: bool) -> bool:
         if not self._connected:
             return False
-        try:
-            await self._run(lambda: self._client.volume.set_main_mute(muted))
-            self._volume["mute"] = muted
-            await self._broadcast_event("mute_changed", {"muted": muted})
-            return True
-        except Exception as e:
-            self.logger.error(f"Error setting mute: {e}")
-            return False
+        await self._run(lambda: self._client.volume.set_main_mute(muted))
+        self._volume["mute"] = muted
+        await self._broadcast_event("mute_changed", {"muted": muted})
+        return True
 
     # === Pipeline Management ===
 
@@ -610,49 +586,49 @@ class CamillaDSPService:
         if not self._connected:
             return True
 
-        try:
-            config = await self._get_config()
+        return await self._apply_compressor_config(persist=persist, broadcast=broadcast)
 
-            # Compressor is a Processor in CamillaDSP, not a Filter
-            if not config.get("processors"):
-                config["processors"] = {}
+    @handle_errors(default=False)
+    async def _apply_compressor_config(self, persist: bool, broadcast: bool) -> bool:
+        """Apply compressor configuration to CamillaDSP daemon"""
+        config = await self._get_config()
 
-            if self._compressor["enabled"]:
-                compressor_config = {
-                    "type": "Compressor",
-                    "parameters": {
-                        "channels": 2,
-                        "threshold": self._compressor["threshold"],
-                        "factor": self._compressor["ratio"],
-                        "attack": self._compressor["attack"] / 1000.0,  # ms to s
-                        "release": self._compressor["release"] / 1000.0,
-                        "makeup_gain": self._compressor["makeup_gain"]
-                    }
+        # Compressor is a Processor in CamillaDSP, not a Filter
+        if not config.get("processors"):
+            config["processors"] = {}
+
+        if self._compressor["enabled"]:
+            compressor_config = {
+                "type": "Compressor",
+                "parameters": {
+                    "channels": 2,
+                    "threshold": self._compressor["threshold"],
+                    "factor": self._compressor["ratio"],
+                    "attack": self._compressor["attack"] / 1000.0,  # ms to s
+                    "release": self._compressor["release"] / 1000.0,
+                    "makeup_gain": self._compressor["makeup_gain"]
                 }
-                config["processors"]["compressor"] = compressor_config
-                # Add compressor to pipeline as Processor type
-                self._add_processor_to_pipeline(config, "compressor")
-            else:
-                # Remove compressor from processors and pipeline when disabled
-                if "compressor" in config.get("processors", {}):
-                    del config["processors"]["compressor"]
-                self._remove_processor_from_pipeline(config, "compressor")
+            }
+            config["processors"]["compressor"] = compressor_config
+            # Add compressor to pipeline as Processor type
+            self._add_processor_to_pipeline(config, "compressor")
+        else:
+            # Remove compressor from processors and pipeline when disabled
+            if "compressor" in config.get("processors", {}):
+                del config["processors"]["compressor"]
+            self._remove_processor_from_pipeline(config, "compressor")
 
-            await self._set_config(config)
+        await self._set_config(config)
 
-            # Broadcast change event (can be suppressed for batch zone updates)
-            if broadcast:
-                await self._broadcast_event("compressor_changed", self._compressor)
+        # Broadcast change event (can be suppressed for batch zone updates)
+        if broadcast:
+            await self._broadcast_event("compressor_changed", self._compressor)
 
-            # Persist compressor settings (skip during bypass operations)
-            if persist and self.settings_service:
-                await self.settings_service.set_setting("equalizer.compressor", self._compressor)
+        # Persist compressor settings (skip during bypass operations)
+        if persist and self.settings_service:
+            await self.settings_service.set_setting("equalizer.compressor", self._compressor)
 
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Error setting compressor: {e}")
-            return False
+        return True
 
     # === Loudness Compensation ===
 
@@ -685,86 +661,84 @@ class CamillaDSPService:
         if not self._connected:
             return True
 
-        try:
-            config = await self._get_config()
+        return await self._apply_loudness_config(persist=persist, broadcast=broadcast)
 
-            if self._loudness["enabled"]:
-                # Loudness is implemented via low and high shelf filters
-                # adjusted based on current volume vs reference level
-                config["filters"]["loudness_low"] = {
-                    "type": "Biquad",
-                    "parameters": {
-                        "type": "Lowshelf",
-                        "freq": 100,
-                        "gain": self._loudness["low_boost"],
-                        "slope": 6.0
-                    }
+    @handle_errors(default=False)
+    async def _apply_loudness_config(self, persist: bool, broadcast: bool) -> bool:
+        """Apply loudness configuration to CamillaDSP daemon"""
+        config = await self._get_config()
+
+        if self._loudness["enabled"]:
+            # Loudness is implemented via low and high shelf filters
+            # adjusted based on current volume vs reference level
+            config["filters"]["loudness_low"] = {
+                "type": "Biquad",
+                "parameters": {
+                    "type": "Lowshelf",
+                    "freq": 100,
+                    "gain": self._loudness["low_boost"],
+                    "slope": 6.0
                 }
+            }
 
-                config["filters"]["loudness_high"] = {
-                    "type": "Biquad",
-                    "parameters": {
-                        "type": "Highshelf",
-                        "freq": 8000,
-                        "gain": self._loudness["high_boost"],
-                        "slope": 6.0
-                    }
+            config["filters"]["loudness_high"] = {
+                "type": "Biquad",
+                "parameters": {
+                    "type": "Highshelf",
+                    "freq": 8000,
+                    "gain": self._loudness["high_boost"],
+                    "slope": 6.0
                 }
-                # Add loudness filters to pipeline for both channels
-                self._add_filter_to_pipeline(config, "loudness_low")
-                self._add_filter_to_pipeline(config, "loudness_high")
-            else:
-                # Remove loudness filters from filters and pipeline
-                if "loudness_low" in config["filters"]:
-                    del config["filters"]["loudness_low"]
-                if "loudness_high" in config["filters"]:
-                    del config["filters"]["loudness_high"]
-                self._remove_filter_from_pipeline(config, "loudness_low")
-                self._remove_filter_from_pipeline(config, "loudness_high")
+            }
+            # Add loudness filters to pipeline for both channels
+            self._add_filter_to_pipeline(config, "loudness_low")
+            self._add_filter_to_pipeline(config, "loudness_high")
+        else:
+            # Remove loudness filters from filters and pipeline
+            if "loudness_low" in config["filters"]:
+                del config["filters"]["loudness_low"]
+            if "loudness_high" in config["filters"]:
+                del config["filters"]["loudness_high"]
+            self._remove_filter_from_pipeline(config, "loudness_low")
+            self._remove_filter_from_pipeline(config, "loudness_high")
 
-            await self._set_config(config)
+        await self._set_config(config)
 
-            # Broadcast change event (can be suppressed for batch zone updates)
-            if broadcast:
-                await self._broadcast_event("loudness_changed", self._loudness)
+        # Broadcast change event (can be suppressed for batch zone updates)
+        if broadcast:
+            await self._broadcast_event("loudness_changed", self._loudness)
 
-            # Persist loudness settings (skip during bypass operations)
-            if persist and self.settings_service:
-                await self.settings_service.set_setting("equalizer.loudness", self._loudness)
+        # Persist loudness settings (skip during bypass operations)
+        if persist and self.settings_service:
+            await self.settings_service.set_setting("equalizer.loudness", self._loudness)
 
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Error setting loudness: {e}")
-            return False
+        return True
 
     # === Crossover Filters ===
 
+    @handle_errors(default=False)
     async def _set_passband_filter(self, filter_name: str, filter_type: str,
                                     enabled: bool, freq: float, q: float, event: str) -> bool:
         """Internal helper for highpass/lowpass filters"""
         if not self._connected:
             return False
-        try:
-            config = await self._get_config()
 
-            if enabled:
-                config["filters"][filter_name] = {
-                    "type": "Biquad",
-                    "parameters": {"type": filter_type, "freq": freq, "q": q}
-                }
-                self._add_filter_to_pipeline(config, filter_name)
-            else:
-                if filter_name in config["filters"]:
-                    del config["filters"][filter_name]
-                self._remove_filter_from_pipeline(config, filter_name)
+        config = await self._get_config()
 
-            await self._set_config(config)
-            await self._broadcast_event(event, {"enabled": enabled, "frequency": freq, "q": q})
-            return True
-        except Exception as e:
-            self.logger.error(f"Error setting {filter_name}: {e}")
-            return False
+        if enabled:
+            config["filters"][filter_name] = {
+                "type": "Biquad",
+                "parameters": {"type": filter_type, "freq": freq, "q": q}
+            }
+            self._add_filter_to_pipeline(config, filter_name)
+        else:
+            if filter_name in config["filters"]:
+                del config["filters"][filter_name]
+            self._remove_filter_from_pipeline(config, filter_name)
+
+        await self._set_config(config)
+        await self._broadcast_event(event, {"enabled": enabled, "frequency": freq, "q": q})
+        return True
 
     async def get_crossover_filter(self) -> Dict[str, Any]:
         if not self._connected:
@@ -788,18 +762,15 @@ class CamillaDSPService:
 
     # === Level Monitoring ===
 
+    @handle_errors(default={"available": False}, level='debug')
     async def get_levels(self) -> Dict[str, Any]:
         """Get current audio levels (peak/RMS)"""
         if not self._connected:
             return {"available": False}
 
-        try:
-            capture = await self._run(self._client.levels.capture_peak)
-            playback = await self._run(self._client.levels.playback_peak)
-            return {"available": True, "input_peak": capture, "output_peak": playback}
-        except Exception as e:
-            self.logger.debug(f"Error getting levels: {e}")
-            return {"available": False}
+        capture = await self._run(self._client.levels.capture_peak)
+        playback = await self._run(self._client.levels.playback_peak)
+        return {"available": True, "input_peak": capture, "output_peak": playback}
 
     # === Preset Management ===
 
@@ -834,6 +805,7 @@ class CamillaDSPService:
         preset = get_preset_by_id(preset_id)
         return preset["gains"] if preset else None
 
+    @handle_errors(default=False)
     async def load_preset(self, preset_id: str) -> bool:
         """Load a builtin or custom preset"""
         # Early return if already on the same preset (avoids overwriting current values)
@@ -847,17 +819,13 @@ class CamillaDSPService:
             self.logger.warning(f"Preset not found: {preset_id}")
             return False
 
-        try:
-            await self._apply_gains(gains)
+        await self._apply_gains(gains)
 
-            if self.settings_service:
-                await self.settings_service.set_setting("equalizer.active_preset", preset_id)
-                self.logger.info(f"Saved active preset: {preset_id}")
-            await self._broadcast_event("preset_loaded", {"id": preset_id})
-            return True
-        except Exception as e:
-            self.logger.error(f"Error loading preset: {e}")
-            return False
+        if self.settings_service:
+            await self.settings_service.set_setting("equalizer.active_preset", preset_id)
+            self.logger.info(f"Saved active preset: {preset_id}")
+        await self._broadcast_event("preset_loaded", {"id": preset_id})
+        return True
 
     async def _save_custom_gains(self) -> None:
         if self.settings_service:
@@ -882,6 +850,7 @@ class CamillaDSPService:
 
     # === Effects Bypass/Restore (for equalizer toggle) ===
 
+    @handle_errors(default=False)
     async def bypass_effects(self) -> bool:
         """
         Bypass all equalizer effects while keeping volume control active.
@@ -893,38 +862,34 @@ class CamillaDSPService:
             self.logger.warning("Cannot bypass effects: not connected")
             return False
 
-        try:
-            self.logger.info("Bypassing all equalizer effects...")
+        self.logger.info("Bypassing all equalizer effects...")
 
-            # Save current config before bypassing (filters, compressor, loudness)
-            await self.save_current_config()
+        # Save current config before bypassing (filters, compressor, loudness)
+        await self.save_current_config()
 
-            # 1. Reset all EQ filters to 0 dB gain (persist=False to keep saved values)
-            for f in self._filters:
-                await self.set_filter(
-                    filter_id=f["id"],
-                    freq=f["freq"],
-                    gain=0,  # Bypass = 0 dB gain
-                    q=f.get("q", 1.0),
-                    filter_type=f.get("type", "Peaking"),
-                    persist=False,  # Don't overwrite saved settings
-                    broadcast=False  # Suppress per-filter broadcasts (effects_bypassed handles it)
-                )
+        # 1. Reset all EQ filters to 0 dB gain (persist=False to keep saved values)
+        for f in self._filters:
+            await self.set_filter(
+                filter_id=f["id"],
+                freq=f["freq"],
+                gain=0,  # Bypass = 0 dB gain
+                q=f.get("q", 1.0),
+                filter_type=f.get("type", "Peaking"),
+                persist=False,  # Don't overwrite saved settings
+                broadcast=False  # Suppress per-filter broadcasts (effects_bypassed handles it)
+            )
 
-            # 2. Disable compressor (persist=False to keep settings for restore)
-            await self.set_compressor(enabled=False, persist=False)
+        # 2. Disable compressor (persist=False to keep settings for restore)
+        await self.set_compressor(enabled=False, persist=False)
 
-            # 3. Disable loudness (persist=False to keep settings for restore)
-            await self.set_loudness(enabled=False, persist=False)
+        # 3. Disable loudness (persist=False to keep settings for restore)
+        await self.set_loudness(enabled=False, persist=False)
 
-            self.logger.info("Equalizer effects bypassed (volume unchanged)")
-            await self._broadcast_event("effects_bypassed", {"bypassed": True})
-            return True
+        self.logger.info("Equalizer effects bypassed (volume unchanged)")
+        await self._broadcast_event("effects_bypassed", {"bypassed": True})
+        return True
 
-        except Exception as e:
-            self.logger.error(f"Error bypassing effects: {e}")
-            return False
-
+    @handle_errors(default=False)
     async def restore_effects(self) -> bool:
         """
         Restore all equalizer effects from saved settings.
@@ -936,109 +901,94 @@ class CamillaDSPService:
             self.logger.warning("Cannot restore effects: not connected")
             return False
 
-        try:
-            self.logger.info("Restoring equalizer effects from settings...")
+        self.logger.info("Restoring equalizer effects from settings...")
 
-            # 1. Restore EQ filters from settings
-            if self.settings_service:
-                saved_filters = await self.settings_service.get_setting("equalizer.filters")
-                if saved_filters:
-                    for f in saved_filters:
-                        await self.set_filter(
-                            filter_id=f["id"],
-                            freq=f["freq"],
-                            gain=f.get("gain", 0),
-                            q=f.get("q", 1.0),
-                            filter_type=f.get("type", "Peaking"),
-                            broadcast=False  # Suppress per-filter broadcasts (effects_restored handles it)
-                        )
-                    self._filters = saved_filters
-
-                # 2. Restore compressor settings
-                saved_compressor = await self.settings_service.get_setting("equalizer.compressor")
-                if saved_compressor:
-                    await self.set_compressor(**saved_compressor)
-
-                # 3. Restore loudness settings
-                saved_loudness = await self.settings_service.get_setting("equalizer.loudness")
-                if saved_loudness:
-                    await self.set_loudness(
-                        enabled=saved_loudness.get("enabled"),
-                        high_boost=saved_loudness.get("high_boost"),
-                        low_boost=saved_loudness.get("low_boost")
+        # 1. Restore EQ filters from settings
+        if self.settings_service:
+            saved_filters = await self.settings_service.get_setting("equalizer.filters")
+            if saved_filters:
+                for f in saved_filters:
+                    await self.set_filter(
+                        filter_id=f["id"],
+                        freq=f["freq"],
+                        gain=f.get("gain", 0),
+                        q=f.get("q", 1.0),
+                        filter_type=f.get("type", "Peaking"),
+                        broadcast=False  # Suppress per-filter broadcasts (effects_restored handles it)
                     )
+                self._filters = saved_filters
 
-            self.logger.info("Equalizer effects restored from settings")
-            await self._broadcast_event("effects_restored", {"bypassed": False})
-            return True
+            # 2. Restore compressor settings
+            saved_compressor = await self.settings_service.get_setting("equalizer.compressor")
+            if saved_compressor:
+                await self.set_compressor(**saved_compressor)
 
-        except Exception as e:
-            self.logger.error(f"Error restoring effects: {e}")
-            return False
+            # 3. Restore loudness settings
+            saved_loudness = await self.settings_service.get_setting("equalizer.loudness")
+            if saved_loudness:
+                await self.set_loudness(
+                    enabled=saved_loudness.get("enabled"),
+                    high_boost=saved_loudness.get("high_boost"),
+                    low_boost=saved_loudness.get("low_boost")
+                )
+
+        self.logger.info("Equalizer effects restored from settings")
+        await self._broadcast_event("effects_restored", {"bypassed": False})
+        return True
 
     # === Configuration Persistence ===
 
+    @handle_errors(default=None)
     async def _load_saved_config(self) -> None:
         """Load saved equalizer configuration from settings"""
         if not self.settings_service:
             return
 
-        try:
-            # Load filters
-            saved_filters = await self.settings_service.get_setting("equalizer.filters")
-            if saved_filters:
-                self._filters = saved_filters
-                self.logger.info(f"Loaded {len(self._filters)} saved equalizer filters")
+        # Load filters
+        saved_filters = await self.settings_service.get_setting("equalizer.filters")
+        if saved_filters:
+            self._filters = saved_filters
+            self.logger.info(f"Loaded {len(self._filters)} saved equalizer filters")
 
-            # Load compressor
-            saved_compressor = await self.settings_service.get_setting("equalizer.compressor")
-            if saved_compressor:
-                self._compressor.update(saved_compressor)
-                self.logger.info("Loaded saved compressor settings")
+        # Load compressor
+        saved_compressor = await self.settings_service.get_setting("equalizer.compressor")
+        if saved_compressor:
+            self._compressor.update(saved_compressor)
+            self.logger.info("Loaded saved compressor settings")
 
-            # Load loudness
-            saved_loudness = await self.settings_service.get_setting("equalizer.loudness")
-            if saved_loudness:
-                self._loudness.update(saved_loudness)
-                self.logger.info("Loaded saved loudness settings")
+        # Load loudness
+        saved_loudness = await self.settings_service.get_setting("equalizer.loudness")
+        if saved_loudness:
+            self._loudness.update(saved_loudness)
+            self.logger.info("Loaded saved loudness settings")
 
-        except Exception as e:
-            self.logger.error(f"Error loading saved config: {e}")
-
+    @handle_errors(default=None)
     async def _apply_saved_preset(self) -> None:
         """Apply saved preset on startup"""
         if not self.settings_service:
             return
-        try:
-            preset_id = await self.settings_service.get_setting("equalizer.active_preset")
-            if preset_id:
-                gains = await self._get_preset_gains(preset_id)
-                if gains:
-                    await self._apply_gains(gains)
-        except Exception as e:
-            self.logger.error(f"Error applying saved preset: {e}")
+        preset_id = await self.settings_service.get_setting("equalizer.active_preset")
+        if preset_id:
+            gains = await self._get_preset_gains(preset_id)
+            if gains:
+                await self._apply_gains(gains)
 
+    @handle_errors(default=False)
     async def save_current_config(self) -> bool:
         """Save current configuration to settings"""
         if not self.settings_service:
             return False
 
-        try:
-            await self.settings_service.set_setting("equalizer.filters", self._filters)
-            await self.settings_service.set_setting("equalizer.compressor", self._compressor)
-            await self.settings_service.set_setting("equalizer.loudness", self._loudness)
-            return True
-        except Exception as e:
-            self.logger.error(f"Error saving config: {e}")
-            return False
+        await self.settings_service.set_setting("equalizer.filters", self._filters)
+        await self.settings_service.set_setting("equalizer.compressor", self._compressor)
+        await self.settings_service.set_setting("equalizer.loudness", self._loudness)
+        return True
 
+    @handle_errors(default=None)
     async def _save_filters(self) -> None:
         """Save filters to settings (used by set_filter for auto-persistence)"""
         if self.settings_service:
-            try:
-                await self.settings_service.set_setting("equalizer.filters", self._filters)
-            except Exception as e:
-                self.logger.error(f"Error saving filters: {e}")
+            await self.settings_service.set_setting("equalizer.filters", self._filters)
 
     # === Event Broadcasting ===
 

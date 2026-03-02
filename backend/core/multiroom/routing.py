@@ -10,6 +10,7 @@ from typing import Dict, Any, Callable, Optional, Literal
 from backend.core.models.audio_state import AudioSource
 from backend.core.systemd import SystemdServiceManager
 from backend.core.multiroom.routing_transitions import RoutingTransitions
+from backend.shared.decorators import handle_errors
 
 
 # =============================================================================
@@ -361,29 +362,26 @@ class AudioRoutingService:
             else:
                 self.logger.warning("Failed to connect to CamillaDSP daemon on startup")
 
+    @handle_errors(default=None)
     async def _delayed_multiroom_sync(self):
         """Sync client volumes from equalizer after startup delay (ensures all services ready)."""
-        try:
-            self.logger.info(f"[{time.time():.3f}] DELAYED_SYNC: Waiting 3s before startup sync...")
-            # Wait for all services to be fully initialized
-            await asyncio.sleep(3.0)
+        self.logger.info(f"[{time.time():.3f}] DELAYED_SYNC: Waiting 3s before startup sync...")
+        # Wait for all services to be fully initialized
+        await asyncio.sleep(3.0)
 
-            # Check multiroom is still enabled
-            if not await self._get_multiroom_enabled():
-                self.logger.info(f"[{time.time():.3f}] DELAYED_SYNC: Multiroom disabled, skipping sync")
-                return
+        # Check multiroom is still enabled
+        if not await self._get_multiroom_enabled():
+            self.logger.info(f"[{time.time():.3f}] DELAYED_SYNC: Multiroom disabled, skipping sync")
+            return
 
-            # Sync volumes from equalizer
-            volume_service = getattr(self.state_machine, 'volume_service', None) if self.state_machine else None
-            if volume_service:
-                self.logger.info(f"[{time.time():.3f}] DELAYED_SYNC: Starting sync_all_clients_from_equalizer")
-                await volume_service.sync_all_clients_from_equalizer()
-                self.logger.info(f"[{time.time():.3f}] DELAYED_SYNC: sync_all_clients_from_equalizer complete")
-            else:
-                self.logger.warning("VolumeService not available for equalizer sync")
-
-        except Exception as e:
-            self.logger.error(f"Error in delayed multiroom sync: {e}")
+        # Sync volumes from equalizer
+        volume_service = getattr(self.state_machine, 'volume_service', None) if self.state_machine else None
+        if volume_service:
+            self.logger.info(f"[{time.time():.3f}] DELAYED_SYNC: Starting sync_all_clients_from_equalizer")
+            await volume_service.sync_all_clients_from_equalizer()
+            self.logger.info(f"[{time.time():.3f}] DELAYED_SYNC: sync_all_clients_from_equalizer complete")
+        else:
+            self.logger.warning("VolumeService not available for equalizer sync")
 
     async def set_multiroom_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
         """Enables/disables multiroom mode with early notification"""
@@ -482,20 +480,17 @@ class AudioRoutingService:
         if self.settings_service:
             await self.settings_service.set_setting('routing.multiroom_enabled', enabled)
     
+    @handle_errors(default=None)
     async def _auto_configure_multiroom(self):
         """Automatically configures all groups to Multiroom"""
-        try:
-            for _ in range(10):
-                if await self.snapcast_service.is_available():
-                    await self.snapcast_service.set_all_groups_to_multiroom()
-                    self.logger.info("Groups automatically configured to Multiroom")
-                    return
-                await asyncio.sleep(1)
+        for _ in range(10):
+            if await self.snapcast_service.is_available():
+                await self.snapcast_service.set_all_groups_to_multiroom()
+                self.logger.info("Groups automatically configured to Multiroom")
+                return
+            await asyncio.sleep(1)
 
-            self.logger.warning("Snapserver not available after 10 seconds")
-
-        except Exception as e:
-            self.logger.error(f"Auto-configure multiroom failed: {e}")
+        self.logger.warning("Snapserver not available after 10 seconds")
 
     async def set_equalizer_effects_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
         """
@@ -568,28 +563,22 @@ class AudioRoutingService:
         """Transition to direct mode."""
         return await self._transitions.transition("direct", active_source)
     
+    @handle_errors(default=False)
     async def _start_snapcast(self) -> bool:
         """Starts snapcast services"""
-        try:
-            success = await self.service_manager.start(self.snapserver_service)
-            if not success:
-                return False
-            
-            await asyncio.sleep(0.5)
-            success = await self.service_manager.start(self.snapclient_service)
-            return success
-            
-        except Exception as e:
-            self.logger.error(f"Error starting snapcast: {e}")
+        success = await self.service_manager.start(self.snapserver_service)
+        if not success:
             return False
+
+        await asyncio.sleep(0.5)
+        success = await self.service_manager.start(self.snapclient_service)
+        return success
     
+    @handle_errors(default=None)
     async def _stop_snapcast(self) -> None:
         """Stops snapcast services"""
-        try:
-            await self.service_manager.stop(self.snapclient_service)
-            await self.service_manager.stop(self.snapserver_service)
-        except Exception as e:
-            self.logger.error(f"Error stopping snapcast: {e}")
+        await self.service_manager.stop(self.snapclient_service)
+        await self.service_manager.stop(self.snapserver_service)
     
     def get_state(self) -> Dict[str, bool]:
         """

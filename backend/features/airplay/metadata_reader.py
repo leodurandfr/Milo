@@ -37,6 +37,8 @@ import os
 import re
 from typing import Callable, Dict, Any, Optional
 
+from backend.shared.decorators import handle_errors
+
 logger = logging.getLogger(__name__)
 
 # Hex-decode helper: converts hex string to ASCII
@@ -176,15 +178,13 @@ class MetadataReader:
 
         await self._handle_item(item_type, code, raw_data)
 
+    @handle_errors(default=None)
     async def _handle_item(self, item_type: str, code: str, data: Optional[bytes]) -> None:
         """Route parsed item to appropriate handler."""
-        try:
-            if item_type == "ssnc":
-                await self._handle_ssnc(code, data)
-            elif item_type == "core":
-                self._handle_core(code, data)
-        except Exception as e:
-            logger.error(f"Error handling metadata item {item_type}/{code}: {e}")
+        if item_type == "ssnc":
+            await self._handle_ssnc(code, data)
+        elif item_type == "core":
+            self._handle_core(code, data)
 
     async def _handle_ssnc(self, code: str, data: Optional[bytes]) -> None:
         """Handle shairport-sync control codes."""

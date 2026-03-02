@@ -13,6 +13,7 @@ from typing import Dict, Any, List, Optional
 
 from backend.config.constants import CLIENT_API_PORT
 from backend.core.updates.helpers import compare_versions, extract_base_tag
+from backend.shared.decorators import handle_errors
 
 MILO_REPO_DIR = Path("/home/milo/milo")
 MILO_CLIENT_DIR = MILO_REPO_DIR / "milo-client"
@@ -52,79 +53,71 @@ class SatelliteUpdateService:
 
         return headers
 
+    @handle_errors(default=[])
     async def discover_satellites(self) -> List[Dict[str, Any]]:
         """Discovers active satellites on the network"""
-        try:
-            # Get Snapcast clients
-            clients = await self.snapcast_service.get_clients()
+        # Get Snapcast clients
+        clients = await self.snapcast_service.get_clients()
 
-            satellites = []
+        satellites = []
 
-            for client in clients:
-                # Filter only clients with hostname milo-client-*
-                hostname = client.get("host", "")
-                if not hostname.startswith("milo-client-"):
-                    continue
+        for client in clients:
+            # Filter only clients with hostname milo-client-*
+            hostname = client.get("host", "")
+            if not hostname.startswith("milo-client-"):
+                continue
 
-                ip = client.get("ip", "")
-                if not ip:
-                    continue
+            ip = client.get("ip", "")
+            if not ip:
+                continue
 
-                # Check if satellite API responds
-                satellite_info = await self._check_satellite_api(hostname, ip)
+            # Check if satellite API responds
+            satellite_info = await self._check_satellite_api(hostname, ip)
 
-                if satellite_info["online"]:
-                    # Display name: registry > hostname
-                    display_name = hostname
-                    if self.client_registry_service:
-                        mac_id = client.get("mac_id")
-                        if mac_id:
-                            registry_client = self.client_registry_service.get_client(mac_id)
-                            if registry_client and registry_client.name:
-                                display_name = registry_client.name
+            if satellite_info["online"]:
+                # Display name: registry > hostname
+                display_name = hostname
+                if self.client_registry_service:
+                    mac_id = client.get("mac_id")
+                    if mac_id:
+                        registry_client = self.client_registry_service.get_client(mac_id)
+                        if registry_client and registry_client.name:
+                            display_name = registry_client.name
 
-                    satellites.append({
-                        "hostname": hostname,
-                        "display_name": display_name,
-                        "ip": ip,
-                        "snapclient_version": satellite_info.get("version"),
-                        "app_version": satellite_info.get("app_version"),
-                        "online": True,
-                        "uptime": satellite_info.get("uptime"),
-                        "snapclient_running": satellite_info.get("running", False)
-                    })
+                satellites.append({
+                    "hostname": hostname,
+                    "display_name": display_name,
+                    "ip": ip,
+                    "snapclient_version": satellite_info.get("version"),
+                    "app_version": satellite_info.get("app_version"),
+                    "online": True,
+                    "uptime": satellite_info.get("uptime"),
+                    "snapclient_running": satellite_info.get("running", False)
+                })
 
-            self.logger.info(f"Discovered {len(satellites)} satellites")
-            return satellites
+        self.logger.info(f"Discovered {len(satellites)} satellites")
+        return satellites
 
-        except Exception as e:
-            self.logger.error(f"Error discovering satellites: {e}")
-            return []
-
+    @handle_errors(default={"online": False}, level='debug')
     async def _check_satellite_api(self, hostname: str, ip: str) -> Dict[str, Any]:
         """Checks if a satellite API responds and retrieves its info"""
-        try:
-            url = f"http://{ip}:{self.satellite_api_port}/status"
+        url = f"http://{ip}:{self.satellite_api_port}/status"
 
-            timeout = aiohttp.ClientTimeout(total=3)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url) as response:
-                    if response.status == 200:
-                        data = await response.json()
+        timeout = aiohttp.ClientTimeout(total=3)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url) as response:
+                if response.status == 200:
+                    data = await response.json()
 
-                        return {
-                            "online": True,
-                            "version": data.get("snapclient", {}).get("version"),
-                            "running": data.get("snapclient", {}).get("running", False),
-                            "uptime": data.get("uptime"),
-                            "app_version": data.get("app", {}).get("version")
-                        }
+                    return {
+                        "online": True,
+                        "version": data.get("snapclient", {}).get("version"),
+                        "running": data.get("snapclient", {}).get("running", False),
+                        "uptime": data.get("uptime"),
+                        "app_version": data.get("app", {}).get("version")
+                    }
 
-            return {"online": False}
-
-        except Exception as e:
-            self.logger.debug(f"Satellite {hostname} ({ip}) not reachable: {e}")
-            return {"online": False}
+        return {"online": False}
 
     async def get_satellite_status(self, hostname: str) -> Dict[str, Any]:
         """Gets complete status of a specific satellite"""
@@ -285,45 +278,38 @@ class SatelliteUpdateService:
             "error": f"Update timeout for {hostname}"
         }
 
+    @handle_errors(default=None)
     async def _get_latest_snapclient_version(self) -> Optional[str]:
         """Gets latest snapclient version from GitHub with token"""
-        try:
-            url = "https://api.github.com/repos/badaix/snapcast/releases/latest"
-            headers = self._get_github_headers()
+        url = "https://api.github.com/repos/badaix/snapcast/releases/latest"
+        headers = self._get_github_headers()
 
-            timeout = aiohttp.ClientTimeout(total=10)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url, headers=headers) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        tag_name = data.get("tag_name", "")
+        timeout = aiohttp.ClientTimeout(total=10)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url, headers=headers) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    tag_name = data.get("tag_name", "")
 
-                        # Extract version number (v0.31.0 -> 0.31.0)
-                        return tag_name.lstrip('v')
-                    elif response.status == 403:
-                        self.logger.warning("GitHub API rate limit - snapclient version unavailable")
+                    # Extract version number (v0.31.0 -> 0.31.0)
+                    return tag_name.lstrip('v')
+                elif response.status == 403:
+                    self.logger.warning("GitHub API rate limit - snapclient version unavailable")
 
-            return None
+        return None
 
-        except Exception as e:
-            self.logger.error(f"Error getting latest snapclient version: {e}")
-            return None
-
+    @handle_errors(default=None)
     async def _get_server_version(self) -> Optional[str]:
         """Gets the current server version via git describe."""
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "git", "-C", str(MILO_REPO_DIR), "describe", "--tags", "--always",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, _ = await proc.communicate()
-            if proc.returncode == 0:
-                return stdout.decode().strip()
-            return None
-        except Exception as e:
-            self.logger.error(f"Error getting server version: {e}")
-            return None
+        proc = await asyncio.create_subprocess_exec(
+            "git", "-C", str(MILO_REPO_DIR), "describe", "--tags", "--always",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, _ = await proc.communicate()
+        if proc.returncode == 0:
+            return stdout.decode().strip()
+        return None
 
     async def _create_client_tarball(self) -> tuple:
         """Creates a tarball of the milo-client/ directory.

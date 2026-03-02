@@ -27,6 +27,8 @@ from typing import Dict, List, Optional, TYPE_CHECKING
 from dataclasses import dataclass
 import aiofiles
 
+from backend.shared.decorators import handle_errors
+
 # Use existing domain models
 from backend.core.models.volume_state import VolumeState, ClientVolume, ZoneVolume
 from backend.config.constants import DEFAULT_VOLUME_DB, MIN_VOLUME_DB, MAX_VOLUME_DB
@@ -225,12 +227,10 @@ class VolumeStateStore:
 
     # ========== Storage Directory ==========
 
+    @handle_errors(default=None)
     def _ensure_storage_directory(self) -> None:
         """Create storage directory if it doesn't exist."""
-        try:
-            self.STORAGE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        except Exception as e:
-            self.logger.error(f"Failed to create storage directory: {e}")
+        self.STORAGE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     # ========== Initialization ==========
 

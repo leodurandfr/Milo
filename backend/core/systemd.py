@@ -5,6 +5,8 @@ import asyncio
 import logging
 from typing import Dict, Any
 
+from backend.shared.decorators import handle_errors
+
 class SystemdServiceManager:
     """Generic manager for systemd services."""
     
@@ -23,19 +25,16 @@ class SystemdServiceManager:
         """Restarts a systemd service."""
         return await self._control_service(service, "restart")
     
+    @handle_errors(default=False)
     async def is_active(self, service: str) -> bool:
         """Checks if a service is active."""
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "systemctl", "is-active", service,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL
-            )
-            stdout, _ = await proc.communicate()
-            return stdout.decode().strip() == "active"
-        except Exception as e:
-            self.logger.error(f"Error checking service {service}: {e}")
-            return False
+        proc = await asyncio.create_subprocess_exec(
+            "systemctl", "is-active", service,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL
+        )
+        stdout, _ = await proc.communicate()
+        return stdout.decode().strip() == "active"
     
     async def get_status(self, service: str) -> Dict[str, Any]:
         """Retrieves detailed status of a service."""

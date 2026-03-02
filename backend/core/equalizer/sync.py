@@ -14,6 +14,7 @@ from typing import Dict, List, Any, Optional, TYPE_CHECKING
 
 from backend.config.constants import CLIENT_EQUALIZER_FILE
 from backend.core.equalizer.client_proxy import is_ip_address
+from backend.shared.decorators import handle_errors
 
 if TYPE_CHECKING:
     from backend.core.equalizer.client_proxy import EqualizerClientProxyService
@@ -92,6 +93,7 @@ class EqualizerSettingsSyncService:
     # Settings Persistence
     # =========================================================================
 
+    @handle_errors(default={})
     async def load_settings(self) -> Dict[str, Any]:
         """
         Load all client equalizer settings from disk.
@@ -105,12 +107,9 @@ class EqualizerSettingsSyncService:
                     return json.load(f)
             return {}
 
-        try:
-            return await asyncio.to_thread(_read_file)
-        except Exception as e:
-            self.logger.error(f"Error loading client equalizer settings: {e}")
-            return {}
+        return await asyncio.to_thread(_read_file)
 
+    @handle_errors(default=None)
     async def save_settings(self, settings: Dict[str, Any]) -> None:
         """
         Save all client equalizer settings to disk atomically.
@@ -126,10 +125,7 @@ class EqualizerSettingsSyncService:
             temp_file.replace(CLIENT_EQUALIZER_FILE)
 
         async with self._lock:
-            try:
-                await asyncio.to_thread(_write_file)
-            except Exception as e:
-                self.logger.error(f"Error saving client equalizer settings: {e}")
+            await asyncio.to_thread(_write_file)
 
     async def get_client_settings(self, hostname: str) -> Dict[str, Any]:
         """
@@ -271,6 +267,7 @@ class EqualizerSettingsSyncService:
 
             return source_settings
 
+    @handle_errors(default=False, level='warning')
     async def _push_setting_to_target(
         self,
         target: str,
@@ -290,33 +287,28 @@ class EqualizerSettingsSyncService:
         Returns:
             True if successful, False otherwise
         """
-        try:
-            if self._is_local_client(target):
-                if not self.camilladsp_service:
-                    return False
-                if category == 'compressor':
-                    await self.camilladsp_service.set_compressor(**data)
-                elif category == 'loudness':
-                    await self.camilladsp_service.set_loudness(**data)
-                elif category == 'filter' and filter_id:
-                    await self.camilladsp_service.set_filter(filter_id, **data)
-                elif category == 'volume':
-                    await self.camilladsp_service.set_volume(data.get("volume", data.get("main", 0)))
-                elif category == 'mute':
-                    await self.camilladsp_service.set_mute(data.get("muted", False))
-            else:
-                client_ip = self._get_client_ip(target)
-                if not self.proxy_service or not client_ip:
-                    return False
-                path = f"/equalizer/filter/{filter_id}" if filter_id else f"/equalizer/{category}"
-                await self.proxy_service.request(client_ip, "PUT", path, data)
-                if not filter_id:
-                    await self.update_client_settings(target, category, data)
-            return True
-        except Exception as e:
-            label = f"filter {filter_id}" if filter_id else category
-            self.logger.warning(f"Failed to push {label} to {target}: {e}")
-            return False
+        if self._is_local_client(target):
+            if not self.camilladsp_service:
+                return False
+            if category == 'compressor':
+                await self.camilladsp_service.set_compressor(**data)
+            elif category == 'loudness':
+                await self.camilladsp_service.set_loudness(**data)
+            elif category == 'filter' and filter_id:
+                await self.camilladsp_service.set_filter(filter_id, **data)
+            elif category == 'volume':
+                await self.camilladsp_service.set_volume(data.get("volume", data.get("main", 0)))
+            elif category == 'mute':
+                await self.camilladsp_service.set_mute(data.get("muted", False))
+        else:
+            client_ip = self._get_client_ip(target)
+            if not self.proxy_service or not client_ip:
+                return False
+            path = f"/equalizer/filter/{filter_id}" if filter_id else f"/equalizer/{category}"
+            await self.proxy_service.request(client_ip, "PUT", path, data)
+            if not filter_id:
+                await self.update_client_settings(target, category, data)
+        return True
 
     async def sync_settings(
         self,

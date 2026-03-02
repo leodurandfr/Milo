@@ -13,6 +13,8 @@ from dbus_next.aio import MessageBus
 from dbus_next.service import ServiceInterface, method
 from dbus_next.constants import BusType
 
+from backend.shared.decorators import handle_errors
+
 
 class BluetoothAgent(ServiceInterface):
     """
@@ -40,6 +42,7 @@ class BluetoothAgent(ServiceInterface):
         """Check if agent is registered."""
         return self._registered
 
+    @handle_errors(default=False)
     async def register(self) -> bool:
         """
         Register agent with BlueZ.
@@ -47,32 +50,28 @@ class BluetoothAgent(ServiceInterface):
         Returns:
             True if registration succeeded
         """
-        try:
-            # Connect to system bus
-            self._bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+        # Connect to system bus
+        self._bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
 
-            # Export agent interface
-            self._bus.export(self._path, self)
+        # Export agent interface
+        self._bus.export(self._path, self)
 
-            # Get AgentManager1 interface
-            introspect = await self._bus.introspect('org.bluez', '/org/bluez')
-            agent_manager = self._bus.get_proxy_object(
-                'org.bluez', '/org/bluez', introspect
-            )
-            agent_iface = agent_manager.get_interface('org.bluez.AgentManager1')
+        # Get AgentManager1 interface
+        introspect = await self._bus.introspect('org.bluez', '/org/bluez')
+        agent_manager = self._bus.get_proxy_object(
+            'org.bluez', '/org/bluez', introspect
+        )
+        agent_iface = agent_manager.get_interface('org.bluez.AgentManager1')
 
-            # Register and set as default
-            await agent_iface.call_register_agent(self._path, 'NoInputNoOutput')
-            await agent_iface.call_request_default_agent(self._path)
+        # Register and set as default
+        await agent_iface.call_register_agent(self._path, 'NoInputNoOutput')
+        await agent_iface.call_request_default_agent(self._path)
 
-            self._registered = True
-            self._logger.info(f"Agent registered at {self._path}")
-            return True
+        self._registered = True
+        self._logger.info(f"Agent registered at {self._path}")
+        return True
 
-        except Exception as e:
-            self._logger.error(f"Agent registration failed: {e}")
-            return False
-
+    @handle_errors(default=False)
     async def unregister(self) -> bool:
         """
         Unregister agent from BlueZ.
@@ -83,27 +82,22 @@ class BluetoothAgent(ServiceInterface):
         if not self._registered or not self._bus:
             return True
 
-        try:
-            # Get AgentManager1 interface
-            introspect = await self._bus.introspect('org.bluez', '/org/bluez')
-            agent_manager = self._bus.get_proxy_object(
-                'org.bluez', '/org/bluez', introspect
-            )
-            agent_iface = agent_manager.get_interface('org.bluez.AgentManager1')
+        # Get AgentManager1 interface
+        introspect = await self._bus.introspect('org.bluez', '/org/bluez')
+        agent_manager = self._bus.get_proxy_object(
+            'org.bluez', '/org/bluez', introspect
+        )
+        agent_iface = agent_manager.get_interface('org.bluez.AgentManager1')
 
-            # Unregister agent
-            await agent_iface.call_unregister_agent(self._path)
+        # Unregister agent
+        await agent_iface.call_unregister_agent(self._path)
 
-            # Clean up resources
-            self._bus.unexport(self._path)
-            self._registered = False
+        # Clean up resources
+        self._bus.unexport(self._path)
+        self._registered = False
 
-            self._logger.info("Agent unregistered")
-            return True
-
-        except Exception as e:
-            self._logger.error(f"Agent unregistration failed: {e}")
-            return False
+        self._logger.info("Agent unregistered")
+        return True
 
     # === org.bluez.Agent1 Interface Methods ===
 

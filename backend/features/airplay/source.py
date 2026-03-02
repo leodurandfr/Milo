@@ -8,13 +8,13 @@ and is broadcast to the frontend via WebSocket, just like other sources.
 """
 import asyncio
 import base64
-import logging
 import os
 from typing import Dict, Any, Optional
 
 from backend.core.audio_source import BaseAudioSource, SourceState
 from backend.core.events import EventBus
 from backend.features.airplay.metadata_reader import MetadataReader
+from backend.shared.decorators import handle_errors
 
 # Sample rate for RTP frame to millisecond conversion
 AIRPLAY_SAMPLE_RATE = 44100
@@ -98,44 +98,40 @@ class AirPlaySource(BaseAudioSource):
             await self._cleanup()
             return False
 
+    @handle_errors(default=False)
     async def _do_restart(self) -> bool:
         """Restart service with state reset."""
-        try:
-            self._logger.info("Restarting AirPlay source")
+        self._logger.info("Restarting AirPlay source")
 
-            self._cancel_pause_timer()
-            self._device_connected = False
-            self._is_playing = False
-            self._metadata = {}
-            self._client_name = None
+        self._cancel_pause_timer()
+        self._device_connected = False
+        self._is_playing = False
+        self._metadata = {}
+        self._client_name = None
 
-            if self._metadata_reader:
-                await self._metadata_reader.stop()
-                self._metadata_reader = None
+        if self._metadata_reader:
+            await self._metadata_reader.stop()
+            self._metadata_reader = None
 
-            if not await self._restart_service():
-                return False
-
-            await asyncio.sleep(0.5)
-
-            await self._ensure_metadata_pipe()
-            self._metadata_reader = MetadataReader(
-                pipe_path=self._metadata_pipe,
-                on_metadata=self._on_metadata_update,
-                on_play_state=self._on_play_state,
-                on_artwork=self._on_artwork,
-                on_progress=self._on_progress,
-                on_client_name=self._on_client_name,
-                on_connection=self._on_connection,
-            )
-            await self._metadata_reader.start()
-
-            self._update_connection_state()
-            return True
-
-        except Exception as e:
-            self._logger.error(f"Restart failed: {e}")
+        if not await self._restart_service():
             return False
+
+        await asyncio.sleep(0.5)
+
+        await self._ensure_metadata_pipe()
+        self._metadata_reader = MetadataReader(
+            pipe_path=self._metadata_pipe,
+            on_metadata=self._on_metadata_update,
+            on_play_state=self._on_play_state,
+            on_artwork=self._on_artwork,
+            on_progress=self._on_progress,
+            on_client_name=self._on_client_name,
+            on_connection=self._on_connection,
+        )
+        await self._metadata_reader.start()
+
+        self._update_connection_state()
+        return True
 
     async def _get_status(self) -> Dict[str, Any]:
         """Get AirPlay-specific status."""
@@ -198,19 +194,17 @@ class AirPlaySource(BaseAudioSource):
         self._metadata["is_playing"] = self._is_playing
         self._update_connection_state()
 
+    @handle_errors(default=None)
     async def _on_artwork(self, data: bytes) -> None:
         """Handle artwork from pipe: encode as base64 data URI in metadata."""
-        try:
-            # Detect image format from magic bytes (shairport-sync sends JPEG or PNG)
-            if data[:8] == b'\x89PNG\r\n\x1a\n':
-                mime_type = "image/png"
-            else:
-                mime_type = "image/jpeg"
-            b64 = base64.b64encode(data).decode("ascii")
-            self._metadata["album_art_url"] = f"data:{mime_type};base64,{b64}"
-            self._update_connection_state()
-        except Exception as e:
-            self._logger.error(f"Failed to encode artwork: {e}")
+        # Detect image format from magic bytes (shairport-sync sends JPEG or PNG)
+        if data[:8] == b'\x89PNG\r\n\x1a\n':
+            mime_type = "image/png"
+        else:
+            mime_type = "image/jpeg"
+        b64 = base64.b64encode(data).decode("ascii")
+        self._metadata["album_art_url"] = f"data:{mime_type};base64,{b64}"
+        self._update_connection_state()
 
     async def _on_client_name(self, name: str) -> None:
         """Handle client name from pipe (X-Apple-Client-Name)."""
