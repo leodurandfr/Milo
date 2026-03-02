@@ -62,7 +62,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed } from 'vue'
 import axios from 'axios'
 import { useRadioStore } from '@/stores/radioStore'
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore'
@@ -200,8 +200,8 @@ function closeSearch() {
   radioStore.countryFilter = ''
   radioStore.genreFilter = ''
 
-  // Reload favorites if not in cache
-  if (radioStore.favoriteStations.length === 0) {
+  // Reload favorites only if preload never completed (edge case: opened very early)
+  if (!radioStore.favoritesInitialized) {
     radioStore.loadStations(true)
   }
 }
@@ -272,14 +272,8 @@ async function loadAvailableCountries() {
 }
 
 // === LIFECYCLE ===
-onMounted(async () => {
-  logger.debug('radio', 'RadioSource mounted')
-
-  await radioStore.loadStations(true) // Load only favorites at startup
-  // currentStation now reads directly from unifiedStore - no manual sync needed
-})
-
-// currentStation reads from unifiedStore - no cleanup needed
+// Favorites are preloaded at app boot (App.vue → radioStore.preloadFavorites)
+// No need to load them here — they're already available when this component mounts
 </script>
 
 <style scoped>
