@@ -52,30 +52,22 @@ class EqualizerController:
         """Set the client registry (for dependency injection after init)."""
         self._registry = registry
 
-    def _get_client_ip(self, mac_id: str) -> Optional[str]:
-        """Get IP for a client from registry. Returns None for local or if not found."""
-        if not self._registry:
-            return None
-        client = self._registry.get_client(mac_id)
-        return client.ip if client and client.ip else None
-
-    def _is_local(self, mac_id: str) -> bool:
-        """Check if mac_id is local client."""
-        if not self._registry:
-            return False
-        client = self._registry.get_client(mac_id)
-        return client.is_local if client else False
+    def _has_registry(self) -> bool:
+        """Check if registry is available for client lookups."""
+        return self._registry is not None
 
     # ========== Client Readiness ==========
 
     async def wait_for_client_ready(self, mac_id: str, max_wait: float = 10.0, interval: float = 0.5) -> bool:
         """Wait for a client's equalizer to become available."""
-        if self._is_local(mac_id):
+        if not self._has_registry():
+            return False
+        if self._registry.is_local_client(mac_id):
             if self._camilladsp_service and hasattr(self._camilladsp_service, 'wait_for_connection'):
                 return await self._camilladsp_service.wait_for_connection(timeout=max_wait)
             return True
 
-        client_ip = self._get_client_ip(mac_id)
+        client_ip = self._registry.get_client_ip(mac_id)
         if not client_ip:
             return False
 
@@ -104,11 +96,13 @@ class EqualizerController:
             True if successful, False otherwise
         """
         try:
-            if self._is_local(mac_id):
+            if not self._has_registry():
+                return False
+            if self._registry.is_local_client(mac_id):
                 return await self._set_local_volume(volume_db)
 
             # Remote client: get IP from registry
-            client_ip = self._get_client_ip(mac_id)
+            client_ip = self._registry.get_client_ip(mac_id)
             if not client_ip:
                 return False
             return await self._set_remote_volume(client_ip, volume_db)
@@ -186,11 +180,13 @@ class EqualizerController:
     async def set_equalizer_mute(self, mac_id: str, mute: bool) -> bool:
         """Set mute state for a client's equalizer."""
         try:
-            if self._is_local(mac_id):
+            if not self._has_registry():
+                return False
+            if self._registry.is_local_client(mac_id):
                 result = await asyncio.wait_for(self._camilladsp_service.set_mute(mute), timeout=self._timeout)
                 return bool(result)
 
-            client_ip = self._get_client_ip(mac_id)
+            client_ip = self._registry.get_client_ip(mac_id)
             if not client_ip:
                 return False
 
@@ -219,13 +215,16 @@ class EqualizerController:
 
         self.logger.info(f"Applying parallel volume updates to {len(updates)} clients")
 
+        if not self._has_registry():
+            return {k: False for k in updates}
+
         # Build IP map for remote clients and check availability
         available_map = {}
         for mac_id in updates.keys():
-            if self._is_local(mac_id):
+            if self._registry.is_local_client(mac_id):
                 available_map[mac_id] = True
             else:
-                client_ip = self._get_client_ip(mac_id)
+                client_ip = self._registry.get_client_ip(mac_id)
                 if client_ip:
                     try:
                         available_map[mac_id] = await self._proxy_service.check_available(client_ip)
@@ -256,11 +255,13 @@ class EqualizerController:
     async def read_current_volume(self, mac_id: str) -> Optional[float]:
         """Read current volume from hardware."""
         try:
-            if self._is_local(mac_id):
+            if not self._has_registry():
+                return None
+            if self._registry.is_local_client(mac_id):
                 vol = await asyncio.wait_for(self._camilladsp_service.get_volume(), timeout=self._timeout)
                 return vol.get("main") if vol else None
 
-            client_ip = self._get_client_ip(mac_id)
+            client_ip = self._registry.get_client_ip(mac_id)
             if not client_ip:
                 return None
 

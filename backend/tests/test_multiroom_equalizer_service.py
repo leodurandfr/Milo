@@ -39,6 +39,8 @@ def mock_registry():
     registry.get_online_zone_clients = Mock(return_value=[])
     registry.set_standalone_equalizer = AsyncMock()
     registry.set_zone_equalizer = AsyncMock(return_value=True)
+    registry.is_local_client = Mock(side_effect=lambda mac_id: mac_id == "local")
+    registry.get_client_ip = Mock(side_effect=lambda mac_id: None if mac_id == "local" else "192.168.1.100")
     return registry
 
 

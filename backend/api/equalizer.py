@@ -42,15 +42,14 @@ def create_equalizer_router(
 
     # === Internal Helpers ===
 
-    def _get_client_ip(identifier: str):
-        """Get client IP from registry, or None if not found or offline."""
+    def _get_online_client_ip(identifier: str):
+        """Get client IP from registry, only if the client is online."""
         if not client_registry_service:
             return None
         client = client_registry_service.get_client(identifier)
-        # Only return IP if client exists, has a valid IP, and is ONLINE
-        if client and client.ip and client.ip != "127.0.0.1" and client.online:
-            return client.ip
-        return None
+        if not client or not client.online:
+            return None
+        return client_registry_service.get_client_ip(identifier)
 
     def _get_local_client_mac():
         """Get the MAC address of the local client from registry."""
@@ -884,7 +883,7 @@ def create_equalizer_router(
             return {"status": "skipped", "message": "Local client settings are managed directly", "restored": []}
 
         # Get IP for remote client
-        client_ip = _get_client_ip(hostname)
+        client_ip = _get_online_client_ip(hostname)
         if not client_ip:
             return {"status": "error", "restored": [], "errors": [f"Client {hostname} not found or offline"]}
 

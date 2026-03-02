@@ -124,6 +124,16 @@ class TestEqualizerController:
                 return remote_client
             return None
         registry.get_client = get_client
+        def is_local_client(mac_id):
+            client = get_client(mac_id)
+            return client.is_local if client else False
+        registry.is_local_client = is_local_client
+        def get_client_ip(mac_id):
+            client = get_client(mac_id)
+            if not client or client.is_local:
+                return None
+            return client.ip if client.ip else None
+        registry.get_client_ip = get_client_ip
         return registry
 
     @pytest.fixture

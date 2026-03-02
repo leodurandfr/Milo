@@ -347,5 +347,4 @@ class EqualizerRouter:
 
     def is_local_client(self, mac_id: str) -> bool:
         """Check if mac_id belongs to the local client."""
-        client = self._get_client(mac_id)
-        return self._is_local(client)
+        return self._registry.is_local_client(mac_id) if self._registry else False
