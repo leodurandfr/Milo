@@ -926,7 +926,7 @@ class SnapcastWebSocketService:
                 return False
 
             hostname = client.ip
-            is_local = (client.ip == "127.0.0.1")
+            is_local = client.is_local
 
             # Guard: need the appropriate service for the routing path
             if is_local and not self._camilladsp_service:
@@ -1004,7 +1004,7 @@ class SnapcastWebSocketService:
                 return False
 
             hostname = client.ip
-            is_local = (client.ip == "127.0.0.1")
+            is_local = client.is_local
             saved = await self._equalizer_settings_sync_service.get_client_settings(mac_id)
 
             if not saved:

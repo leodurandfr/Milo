@@ -115,8 +115,8 @@ class TestEqualizerController:
     def mock_registry(self):
         """Create mock client registry."""
         registry = Mock()
-        local_client = Mock(ip="127.0.0.1")
-        remote_client = Mock(ip="192.168.1.100")
+        local_client = Mock(ip="127.0.0.1", is_local=True)
+        remote_client = Mock(ip="192.168.1.100", is_local=False)
         def get_client(mac_id):
             if mac_id == "local":
                 return local_client

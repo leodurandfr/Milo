@@ -2,8 +2,7 @@
 """
 API routes for program management — Full version with satellites
 """
-from fastapi import APIRouter, HTTPException, BackgroundTasks
-from typing import Dict, Any
+from fastapi import APIRouter, BackgroundTasks
 from backend.core.models.audio_state import AudioSource
 from backend.core.updates.helpers import compare_versions, extract_base_tag
 
@@ -31,6 +30,78 @@ def create_programs_router(ws_manager, version_service, update_service, satellit
 
     # Store to track ongoing updates
     active_updates = {}
+
+    def _create_background_update(
+        update_key: str,
+        update_fn,
+        progress_event_type: str,
+        complete_event_type: str,
+        ws_source: str,
+        identifier_data: dict,
+        default_success_msg: str = "Update completed",
+        pre_update_fn=None,
+    ):
+        """Create a background update task with progress tracking and WS broadcasting.
+
+        Returns an async do_update coroutine to pass to background_tasks.add_task().
+        """
+        active_updates[update_key] = {
+            "status": "starting",
+            "progress": 0,
+            "message": "Initializing update..."
+        }
+
+        async def progress_callback(message: str, progress: int):
+            active_updates[update_key] = {
+                "status": "updating",
+                "progress": progress,
+                "message": message
+            }
+            await ws_manager.broadcast_dict({
+                "category": "programs",
+                "type": progress_event_type,
+                "source": ws_source,
+                "data": {**identifier_data, "progress": progress, "message": message, "status": "updating"}
+            })
+
+        async def do_update():
+            try:
+                if pre_update_fn:
+                    await pre_update_fn(progress_callback)
+
+                result = await update_fn(progress_callback)
+                del active_updates[update_key]
+
+                if result["success"]:
+                    success_data = {**identifier_data, "success": True, "message": result.get("message", default_success_msg)}
+                    for key in ("new_version", "old_version"):
+                        if key in result:
+                            success_data[key] = result[key]
+                    await ws_manager.broadcast_dict({
+                        "category": "programs",
+                        "type": complete_event_type,
+                        "source": ws_source,
+                        "data": success_data
+                    })
+                else:
+                    await ws_manager.broadcast_dict({
+                        "category": "programs",
+                        "type": complete_event_type,
+                        "source": ws_source,
+                        "data": {**identifier_data, "success": False, "error": result.get("error", "Update failed")}
+                    })
+
+            except Exception as e:
+                if update_key in active_updates:
+                    del active_updates[update_key]
+                await ws_manager.broadcast_dict({
+                    "category": "programs",
+                    "type": complete_event_type,
+                    "source": ws_source,
+                    "data": {**identifier_data, "success": False, "error": str(e)}
+                })
+
+        return do_update
 
     # === SPECIFIC ROUTES (must come BEFORE generic routes) ===
 
@@ -131,77 +202,14 @@ def create_programs_router(ws_manager, version_service, update_service, satellit
                 "message": f"Update already in progress for {hostname}"
             }
 
-        active_updates[satellite_key] = {
-            "status": "starting",
-            "progress": 0,
-            "message": "Initializing satellite update..."
-        }
-
-        async def progress_callback(message: str, progress: int):
-            active_updates[satellite_key] = {
-                "status": "updating",
-                "progress": progress,
-                "message": message
-            }
-
-            await ws_manager.broadcast_dict({
-                "category": "programs",
-                "type": "satellite_update_progress",
-                "source": "satellite_update",
-                "data": {
-                    "hostname": hostname,
-                    "progress": progress,
-                    "message": message,
-                    "status": "updating"
-                }
-            })
-
-        async def do_update():
-            try:
-                result = await satellite_service.update_satellite(hostname, progress_callback)
-
-                if result["success"]:
-                    del active_updates[satellite_key]
-
-                    await ws_manager.broadcast_dict({
-                        "category": "programs",
-                        "type": "satellite_update_complete",
-                        "source": "satellite_update",
-                        "data": {
-                            "hostname": hostname,
-                            "success": True,
-                            "message": result.get("message", "Update completed"),
-                            "new_version": result.get("new_version")
-                        }
-                    })
-                else:
-                    del active_updates[satellite_key]
-
-                    await ws_manager.broadcast_dict({
-                        "category": "programs",
-                        "type": "satellite_update_complete",
-                        "source": "satellite_update",
-                        "data": {
-                            "hostname": hostname,
-                            "success": False,
-                            "error": result.get("error", "Update failed")
-                        }
-                    })
-
-            except Exception as e:
-                if satellite_key in active_updates:
-                    del active_updates[satellite_key]
-
-                await ws_manager.broadcast_dict({
-                    "category": "programs",
-                    "type": "satellite_update_complete",
-                    "source": "satellite_update",
-                    "data": {
-                        "hostname": hostname,
-                        "success": False,
-                        "error": str(e)
-                    }
-                })
+        do_update = _create_background_update(
+            update_key=satellite_key,
+            update_fn=lambda cb: satellite_service.update_satellite(hostname, cb),
+            progress_event_type="satellite_update_progress",
+            complete_event_type="satellite_update_complete",
+            ws_source="satellite_update",
+            identifier_data={"hostname": hostname},
+        )
 
         background_tasks.add_task(do_update)
 
@@ -222,77 +230,15 @@ def create_programs_router(ws_manager, version_service, update_service, satellit
                 "message": f"App update already in progress for {hostname}"
             }
 
-        active_updates[satellite_key] = {
-            "status": "starting",
-            "progress": 0,
-            "message": "Initializing satellite app update..."
-        }
-
-        async def progress_callback(message: str, progress: int):
-            active_updates[satellite_key] = {
-                "status": "updating",
-                "progress": progress,
-                "message": message
-            }
-
-            await ws_manager.broadcast_dict({
-                "category": "programs",
-                "type": "satellite_app_update_progress",
-                "source": "satellite_update",
-                "data": {
-                    "hostname": hostname,
-                    "progress": progress,
-                    "message": message,
-                    "status": "updating"
-                }
-            })
-
-        async def do_update():
-            try:
-                result = await satellite_service.update_satellite_app(hostname, progress_callback)
-
-                if result["success"]:
-                    del active_updates[satellite_key]
-
-                    await ws_manager.broadcast_dict({
-                        "category": "programs",
-                        "type": "satellite_app_update_complete",
-                        "source": "satellite_update",
-                        "data": {
-                            "hostname": hostname,
-                            "success": True,
-                            "message": result.get("message", "App update completed"),
-                            "new_version": result.get("new_version")
-                        }
-                    })
-                else:
-                    del active_updates[satellite_key]
-
-                    await ws_manager.broadcast_dict({
-                        "category": "programs",
-                        "type": "satellite_app_update_complete",
-                        "source": "satellite_update",
-                        "data": {
-                            "hostname": hostname,
-                            "success": False,
-                            "error": result.get("error", "App update failed")
-                        }
-                    })
-
-            except Exception as e:
-                if satellite_key in active_updates:
-                    del active_updates[satellite_key]
-
-                await ws_manager.broadcast_dict({
-                    "category": "programs",
-                    "type": "satellite_app_update_complete",
-                    "source": "satellite_update",
-                    "data": {
-                        "hostname": hostname,
-                        "success": False,
-                        "error": str(e)
-                    }
-                })
+        do_update = _create_background_update(
+            update_key=satellite_key,
+            update_fn=lambda cb: satellite_service.update_satellite_app(hostname, cb),
+            progress_event_type="satellite_app_update_progress",
+            complete_event_type="satellite_app_update_complete",
+            ws_source="satellite_update",
+            identifier_data={"hostname": hostname},
+            default_success_msg="App update completed",
+        )
 
         background_tasks.add_task(do_update)
 
@@ -402,84 +348,21 @@ def create_programs_router(ws_manager, version_service, update_service, satellit
                 "message": can_update.get("reason", "Cannot update")
             }
 
-        active_updates[program_key] = {
-            "status": "starting",
-            "progress": 0,
-            "message": "Initializing update..."
-        }
+        async def _deactivate_if_needed(progress_callback):
+            audio_source = PROGRAM_TO_AUDIO_SOURCE.get(program_key)
+            if audio_source and state_machine.system_state.active_source == audio_source:
+                await progress_callback("updates.progress.stoppingActiveSource", 2)
+                await state_machine.deactivate_source()
 
-        async def progress_callback(message: str, progress: int):
-            active_updates[program_key] = {
-                "status": "updating",
-                "progress": progress,
-                "message": message
-            }
-
-            await ws_manager.broadcast_dict({
-                "category": "programs",
-                "type": "program_update_progress",
-                "source": "program_update",
-                "data": {
-                    "program": program_key,
-                    "progress": progress,
-                    "message": message,
-                    "status": "updating"
-                }
-            })
-
-        async def do_update():
-            try:
-                # Stop active audio source if it corresponds to the program being updated
-                audio_source = PROGRAM_TO_AUDIO_SOURCE.get(program_key)
-                if audio_source and state_machine.system_state.active_source == audio_source:
-                    await progress_callback("updates.progress.stoppingActiveSource", 2)
-                    await state_machine.deactivate_source()
-
-                result = await update_service.update_program(program_key, progress_callback)
-
-                if result["success"]:
-                    del active_updates[program_key]
-
-                    await ws_manager.broadcast_dict({
-                        "category": "programs",
-                        "type": "program_update_complete",
-                        "source": "program_update",
-                        "data": {
-                            "program": program_key,
-                            "success": True,
-                            "message": result.get("message", "Update completed"),
-                            "old_version": result.get("old_version"),
-                            "new_version": result.get("new_version")
-                        }
-                    })
-                else:
-                    del active_updates[program_key]
-
-                    await ws_manager.broadcast_dict({
-                        "category": "programs",
-                        "type": "program_update_complete",
-                        "source": "program_update",
-                        "data": {
-                            "program": program_key,
-                            "success": False,
-                            "error": result.get("error", "Update failed")
-                        }
-                    })
-
-            except Exception as e:
-                if program_key in active_updates:
-                    del active_updates[program_key]
-
-                await ws_manager.broadcast_dict({
-                    "category": "programs",
-                    "type": "program_update_complete",
-                    "source": "program_update",
-                    "data": {
-                        "program": program_key,
-                        "success": False,
-                        "error": str(e)
-                    }
-                })
+        do_update = _create_background_update(
+            update_key=program_key,
+            update_fn=lambda cb: update_service.update_program(program_key, cb),
+            progress_event_type="program_update_progress",
+            complete_event_type="program_update_complete",
+            ws_source="program_update",
+            identifier_data={"program": program_key},
+            pre_update_fn=_deactivate_if_needed,
+        )
 
         background_tasks.add_task(do_update)
 

@@ -7,7 +7,7 @@ based on client IP address. Eliminates if/else duplication in endpoints.
 
 Architecture:
 - Lookup client in ClientRegistry by mac_id
-- If client.ip == "127.0.0.1" → local camilladsp_service
+- If client.is_local → local camilladsp_service
 - Else → proxy_service to remote client
 """
 import logging
@@ -44,7 +44,7 @@ class EqualizerRouter:
 
     def _is_local(self, client) -> bool:
         """Check if client is local (running on this device)."""
-        return client and client.ip == "127.0.0.1"
+        return client.is_local if client else False
 
     async def _route(
         self,
