@@ -3,6 +3,8 @@ API routes for volume management - All values in dB (-80 to 0)
 """
 import logging
 from fastapi import APIRouter, HTTPException
+
+from backend.api.route_helpers import api_error_handler
 from backend.api.models import (
     VolumeSetRequest,
     VolumeAdjustRequest,
@@ -48,7 +50,7 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
     @router.post("/set")
     async def set_volume(request: VolumeSetRequest):
         """Sets volume in dB (-80 to 0)"""
-        try:
+        async with api_error_handler("Failed to set volume"):
             success = await volume_service.set_volume_db(request.volume_db, show_bar=request.show_bar)
 
             if success:
@@ -57,15 +59,10 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
             else:
                 raise HTTPException(status_code=500, detail="Failed to set volume")
 
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-
     @router.post("/adjust")
     async def adjust_volume(request: VolumeAdjustRequest):
         """Adjusts volume by delta in dB"""
-        try:
+        async with api_error_handler("Failed to adjust volume"):
             success = await volume_service.adjust_volume_db(request.delta_db, show_bar=request.show_bar)
 
             if success:
@@ -73,11 +70,6 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
                 return {"status": "success", "volume_db": volume_db, "delta_db": request.delta_db}
             else:
                 raise HTTPException(status_code=500, detail="Failed to adjust volume")
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
 
     @router.post("/increase")
     async def increase_volume():
@@ -189,7 +181,7 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
         Returns:
             New zone average, list of affected clients, and offline clients
         """
-        try:
+        async with api_error_handler("Error applying zone delta"):
             # Validate zone exists
             if client_registry_service:
                 zone = client_registry_service.get_zone(zone_id)
@@ -197,7 +189,10 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
                     raise HTTPException(status_code=404, detail=f"Zone {zone_id} not found")
 
             # Apply delta atomically using new architecture
-            new_average = await volume_service.apply_zone_volume_delta(zone_id, request.delta_db)
+            try:
+                new_average = await volume_service.apply_zone_volume_delta(zone_id, request.delta_db)
+            except ValueError as e:
+                raise HTTPException(status_code=404, detail=str(e))
 
             # Get applied/offline client lists
             applied_to = []
@@ -220,15 +215,6 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
                 "offline_clients": offline_clients
             }
 
-        except ValueError as e:
-            raise HTTPException(status_code=404, detail=str(e))
-
-        except HTTPException:
-            raise
-
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error applying zone delta: {str(e)}")
-
     @router.post("/zone/{zone_id}/delta")
     async def apply_zone_delta(zone_id: str, request: VolumeAdjustRequest):
         """
@@ -248,11 +234,12 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
         Returns:
             New zone average and status
         """
-        try:
-            # Apply delta atomically using new architecture
-            new_average = await volume_service.apply_zone_volume_delta(zone_id, request.delta_db)
+        async with api_error_handler("Error applying zone delta"):
+            try:
+                new_average = await volume_service.apply_zone_volume_delta(zone_id, request.delta_db)
+            except ValueError as e:
+                raise HTTPException(status_code=404, detail=str(e))
 
-            # Get zone info for response
             volume_state = await volume_service.get_volume_state()
             zone = volume_state.zones.get(zone_id)
 
@@ -272,12 +259,6 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
                 "clients_updated": clients_updated
             }
 
-        except ValueError as e:
-            raise HTTPException(status_code=404, detail=str(e))
-
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error applying zone delta: {str(e)}")
-
     @router.get("/zone/{zone_id}")
     async def get_zone_info(zone_id: str):
         """
@@ -285,7 +266,7 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
 
         Returns zone details including average volume, clients, mute status.
         """
-        try:
+        async with api_error_handler("Error getting zone info"):
             volume_state = await volume_service.get_volume_state()
             zone = volume_state.zones.get(zone_id)
 
@@ -293,11 +274,6 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
                 raise HTTPException(status_code=404, detail=f"Zone {zone_id} not found")
 
             return {"status": "success", "data": zone.to_dict()}
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
 
     # ============================================================================
     # CLIENT VOLUME OPERATIONS
@@ -368,11 +344,10 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
             - For offline clients: Volume is persisted and applied when client reconnects
             - A WebSocket event `volume_changed` is broadcast after the update
         """
-        try:
+        async with api_error_handler("Error setting client volume", logger):
             client = _validate_client_exists(client_id)
             _validate_volume_limits(request.volume_db)
 
-            # Check if client is offline and log warning
             if client.get("status") == "OFFLINE":
                 logger.warning(f"Setting volume for offline client {client_id}: will be applied on reconnection")
 
@@ -383,12 +358,6 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
                 "client_id": client_id,
                 "volume_db": request.volume_db
             }
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error setting client volume: {e}")
-            raise HTTPException(status_code=500, detail=f"Error setting client volume: {str(e)}")
 
     @router.patch("/client/{client_id}/mute")
     async def set_client_mute(client_id: str, request: ClientMuteRequest):
@@ -407,7 +376,7 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
             - For offline clients: Mute is persisted and applied when client reconnects
             - A WebSocket event `volume_changed` is broadcast after the update
         """
-        try:
+        async with api_error_handler("Error setting client mute", logger):
             _validate_client_exists(client_id)
 
             await volume_service.set_client_mute(client_id, request.mute)
@@ -417,12 +386,6 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
                 "client_id": client_id,
                 "mute": request.mute
             }
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error setting client mute: {e}")
-            raise HTTPException(status_code=500, detail=f"Error setting client mute: {str(e)}")
 
     @router.get("/client/{client_id}")
     async def get_client_volume(client_id: str):
@@ -435,12 +398,11 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
         Returns:
             Client volume state including volume_db, mute, and online status
         """
-        try:
+        async with api_error_handler("Error getting client volume", logger):
             client = _validate_client_exists(client_id)
 
             volume_data = await volume_service.get_client_volume(client_id)
 
-            # Determine online status from client registry
             online = client.get("status") == "ONLINE" if client_registry_service else True
 
             return {
@@ -450,12 +412,6 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
                 "mute": volume_data.get("mute", False),
                 "online": online
             }
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error getting client volume: {e}")
-            raise HTTPException(status_code=500, detail=f"Error getting client volume: {str(e)}")
 
     # ============================================================================
     # MAC ADDRESS BASED CLIENT ENDPOINTS (Story 3.4 - AC1, AC3)
@@ -478,17 +434,11 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
             - MAC format in response: with colons (dc:a6:32:7e:d3:43)
             - A WebSocket event `volume_changed` is broadcast after the update
         """
-        try:
-            # Convert URL format to internal format
+        async with api_error_handler("Error setting client volume by MAC", logger):
             mac_id = _mac_from_url(mac_url)
-
-            # Validate MAC exists in registry
             client = _validate_mac_exists(mac_id)
-
-            # Validate volume against limits
             _validate_volume_limits(request.volume_db)
 
-            # Check if client is offline and log warning
             if hasattr(client, 'online') and not client.online:
                 logger.warning(f"Setting volume for offline client {mac_id}: will be applied on reconnection")
 
@@ -499,12 +449,6 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
                 "mac_id": mac_id,
                 "volume_db": request.volume_db
             }
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error setting client volume by MAC: {e}")
-            raise HTTPException(status_code=500, detail=f"Error setting client volume: {str(e)}")
 
     @router.patch("/client/mac/{mac_url}/mute")
     async def set_client_mute_by_mac(mac_url: str, request: ClientMuteRequest):
@@ -523,11 +467,8 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
             - MAC format in response: with colons (dc:a6:32:7e:d3:43)
             - A WebSocket event is broadcast after the update
         """
-        try:
-            # Convert URL format to internal format
+        async with api_error_handler("Error setting client mute by MAC", logger):
             mac_id = _mac_from_url(mac_url)
-
-            # Validate MAC exists in registry
             _validate_mac_exists(mac_id)
 
             await volume_service.set_client_mute(mac_id, request.mute)
@@ -537,12 +478,6 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
                 "mac_id": mac_id,
                 "mute": request.mute
             }
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error setting client mute by MAC: {e}")
-            raise HTTPException(status_code=500, detail=f"Error setting client mute: {str(e)}")
 
     # ============================================================================
     # VOLUME SETTINGS ENDPOINTS (Story 3.4 - AC4, AC5)
@@ -556,15 +491,12 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
         Returns:
             Current startup_volume_db and restore_last_volume values
         """
-        try:
+        async with api_error_handler("Error getting volume settings", logger):
             return {
                 "status": "success",
                 "startup_volume_db": volume_service.config.config.startup_volume_db,
                 "restore_last_volume": volume_service.config.config.restore_last_volume
             }
-        except Exception as e:
-            logger.error(f"Error getting volume settings: {e}")
-            raise HTTPException(status_code=500, detail=f"Error getting volume settings: {str(e)}")
 
     @router.patch("/settings")
     async def update_volume_settings(request: VolumeSettingsPatchRequest):
@@ -581,21 +513,19 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
             - Settings are persisted via SettingsService
             - VolumeService config is reloaded after change
         """
-        try:
+        async with api_error_handler("Error updating volume settings", logger):
             if settings_service is None:
                 raise HTTPException(
                     status_code=500,
                     detail="Settings service not available"
                 )
 
-            # Update each provided field
             if request.startup_volume_db is not None:
                 await settings_service.set_setting('volume.startup_volume_db', request.startup_volume_db)
 
             if request.restore_last_volume is not None:
                 await settings_service.set_setting('volume.restore_last_volume', request.restore_last_volume)
 
-            # Reload VolumeService config to pick up changes
             await volume_service.reload_startup_config()
 
             return {
@@ -603,11 +533,5 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
                 "startup_volume_db": volume_service.config.config.startup_volume_db,
                 "restore_last_volume": volume_service.config.config.restore_last_volume
             }
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error updating volume settings: {e}")
-            raise HTTPException(status_code=500, detail=f"Error updating volume settings: {str(e)}")
 
     return router

@@ -17,6 +17,7 @@ from typing import Dict, Any, Optional
 
 import aiohttp
 from fastapi import APIRouter, HTTPException, Query, File, UploadFile, Form, Depends
+from backend.api.route_helpers import run_source_command
 from fastapi.responses import FileResponse, Response
 
 from backend.api.source_dependency import make_source_dependency
@@ -106,22 +107,11 @@ async def play_station(
     Returns:
         Command result
     """
-    try:
-        command_data = {"station_id": request.station_id, "station": request.station}
-        result = await source.command("play_station", command_data)
-
-        if not result.get("success"):
-            raise HTTPException(
-                status_code=400,
-                detail=result.get("error", "Playback failed")
-            )
-
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Playback error: {str(e)}")
+    return await run_source_command(
+        source, "play_station",
+        {"station_id": request.station_id, "station": request.station},
+        "Playback"
+    )
 
 
 @router.post("/stop")
@@ -132,21 +122,7 @@ async def stop_playback(source: RadioSource = Depends(get_source)) -> Dict[str, 
     Returns:
         Command result
     """
-    try:
-        result = await source.command("stop_playback", {})
-
-        if not result.get("success"):
-            raise HTTPException(
-                status_code=400,
-                detail=result.get("error", "Stop failed")
-            )
-
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Stop error: {str(e)}")
+    return await run_source_command(source, "stop_playback", {}, "Stop")
 
 
 # === Search Routes ===
@@ -295,25 +271,10 @@ async def add_favorite(
     Returns:
         Operation result
     """
-    try:
-        command_data = {"station_id": request.station_id}
-        if request.station:
-            command_data["station"] = request.station
-
-        result = await source.command("add_favorite", command_data)
-
-        if not result.get("success"):
-            raise HTTPException(
-                status_code=400,
-                detail=result.get("error", "Add favorite failed")
-            )
-
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Add favorite error: {str(e)}")
+    command_data = {"station_id": request.station_id}
+    if request.station:
+        command_data["station"] = request.station
+    return await run_source_command(source, "add_favorite", command_data, "Add favorite")
 
 
 @router.post("/favorites/remove")
@@ -330,21 +291,9 @@ async def remove_favorite(
     Returns:
         Operation result
     """
-    try:
-        result = await source.command("remove_favorite", {"station_id": request.station_id})
-
-        if not result.get("success"):
-            raise HTTPException(
-                status_code=400,
-                detail=result.get("error", "Remove favorite failed")
-            )
-
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Remove favorite error: {str(e)}")
+    return await run_source_command(
+        source, "remove_favorite", {"station_id": request.station_id}, "Remove favorite"
+    )
 
 
 @router.post("/favorites/modify-metadata")
