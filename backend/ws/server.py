@@ -1,4 +1,4 @@
-# backend/presentation/websockets/server.py
+# backend/ws/server.py
 """
 WebSocket server with fresh initial state and ping/pong
 """

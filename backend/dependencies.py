@@ -89,7 +89,7 @@ def _create_service(name: str) -> Any:
     from backend.core.volume import VolumeService
     from backend.core.updates import VersionService, UpdateService, SatelliteUpdateService
     from backend.hardware import HardwareService, RotaryVolumeController, ScreenController
-    from backend.ws import WebSocketManager, WebSocketEventHandler
+    from backend.ws import WebSocketManager
     from backend.features.spotify import SpotifySource
     from backend.features.mac import MacSource
     from backend.features.bluetooth import BluetoothSource
@@ -115,9 +115,6 @@ def _create_service(name: str) -> Any:
         ),
         "camilladsp_service": lambda: CamillaDSPService(
             settings_service=get_service("settings_service")
-        ),
-        "websocket_event_handler": lambda: WebSocketEventHandler(
-            ws_manager=get_service("websocket_manager")
         ),
         "audio_routing_service": lambda: AudioRoutingService(
             settings_service=get_service("settings_service"),
@@ -288,13 +285,12 @@ def initialize_services() -> None:
     camilladsp_service = get_service("camilladsp_service")
     crossover_service = get_service("crossover_service")
     client_registry_service = get_service("client_registry_service")
-    websocket_event_handler = get_service("websocket_event_handler")
+    websocket_manager = get_service("websocket_manager")
     equalizer_settings_sync_service = get_service("equalizer_settings_sync_service")
     equalizer_client_proxy_service = get_service("equalizer_client_proxy_service")
     multiroom_equalizer_service = get_service("multiroom_equalizer_service")
 
-    # Set websocket handler on state machine for backward compatibility
-    state_machine.websocket_handler = websocket_event_handler
+    state_machine.ws_manager = websocket_manager
 
     # =========================================================================
     # STEP 2: Resolve circular dependencies (CRITICAL ORDER)

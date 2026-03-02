@@ -33,20 +33,17 @@ logger = logging.getLogger(__name__)
 
 class AudioStateMachine:
     """
-    Simplified state machine using EventBus for communication.
-
-    Key improvements over UnifiedAudioStateMachine:
-    - Uses EventBus instead of direct websocket_handler coupling
-    - Simpler code (~150 LOC vs ~400 LOC)
-    - Easier to test with mock EventBus
-
-    Backward Compatibility:
-    - broadcast_event() method kept for existing services
-    - websocket_handler optional during transition period
+    Audio state machine using EventBus for internal communication
+    and WebSocketManager for frontend broadcasting.
     """
 
     TRANSITION_TIMEOUT = 10.0
     INACTIVITY_TIMEOUT = 7200  # 2 hours in seconds
+
+    # Only plugin/system events include full_state (used by unifiedAudioStore).
+    # Other categories (volume, equalizer, multiroom, settings) send only
+    # their specific data — their frontend stores don't read full_state.
+    _FULL_STATE_CATEGORIES = frozenset({"plugin", "system"})
 
     def __init__(self, event_bus: EventBus):
         self.event_bus = event_bus
@@ -63,9 +60,8 @@ class AudioStateMachine:
         self._last_activity_time: float = monotonic()
         self._inactivity_monitor_task: Optional[asyncio.Task] = None
 
-        # Backward compatibility: optional websocket handler
-        self.websocket_handler = None
-        # Backward compatibility: routing_service (resolved later)
+        # Set after creation in dependencies.py (circular dependency resolution)
+        self.ws_manager = None
         self.routing_service = None
 
     def register_plugin(self, source: AudioSource, plugin: AudioSourceProtocol) -> None:
@@ -148,8 +144,7 @@ class AudioStateMachine:
                         "to_source": target_source.value
                     })
 
-                    # Broadcast for WebSocket (backward compatibility)
-                    await self._broadcast_websocket("system", "transition_start", {
+                    await self.broadcast_event("system", "transition_start", {
                         "from_source": old_source.value,
                         "to_source": target_source.value,
                         "source": "system"
@@ -183,8 +178,7 @@ class AudioStateMachine:
                             "old_source": old_source.value
                         })
 
-                    # Broadcast for WebSocket (backward compatibility)
-                    await self._broadcast_websocket("system", "transition_complete", {
+                    await self.broadcast_event("system", "transition_complete", {
                         "active_source": target_source.value,
                         "plugin_state": self.system_state.plugin_state.value,
                         "source": "system"
@@ -203,7 +197,7 @@ class AudioStateMachine:
                     self.system_state.error = "Transition timeout"
 
                 # Broadcast error to WebSocket before emergency_stop clears state
-                await self._broadcast_websocket("system", "error", {
+                await self.broadcast_event("system", "error", {
                     "source": target_source.value,
                     "error": "Transition timeout",
                     "message": f"Transition timeout after {self.TRANSITION_TIMEOUT}s"
@@ -224,7 +218,7 @@ class AudioStateMachine:
                     self.system_state.error = str(e)
 
                 # Broadcast error to WebSocket before emergency_stop clears state
-                await self._broadcast_websocket("system", "error", {
+                await self.broadcast_event("system", "error", {
                     "source": target_source.value,
                     "error": str(e),
                     "message": str(e)
@@ -277,8 +271,7 @@ class AudioStateMachine:
             "metadata": metadata
         })
 
-        # Broadcast for WebSocket (backward compatibility)
-        await self._broadcast_websocket("plugin", "state_changed", {
+        await self.broadcast_event("plugin", "state_changed", {
             "source": source.value,
             "old_state": old_state.value,
             "new_state": new_state.value,
@@ -295,7 +288,7 @@ class AudioStateMachine:
             "multiroom_enabled": enabled
         })
 
-        await self._broadcast_websocket("system", "state_changed", {
+        await self.broadcast_event("system", "state_changed", {
             "old_state": old_state,
             "new_state": enabled,
             "multiroom_changed": True,
@@ -313,7 +306,7 @@ class AudioStateMachine:
             "equalizer_effects_enabled": enabled
         })
 
-        await self._broadcast_websocket("system", "state_changed", {
+        await self.broadcast_event("system", "state_changed", {
             "old_state": old_state,
             "new_state": enabled,
             "equalizer_effects_changed": True,
@@ -436,7 +429,7 @@ class AudioStateMachine:
             self._inactivity_monitor_task.cancel()
             self._inactivity_monitor_task = None
 
-    # === Backward Compatibility Methods ===
+    # === WebSocket Broadcasting ===
 
     async def broadcast_event(
         self,
@@ -445,29 +438,23 @@ class AudioStateMachine:
         data: Dict[str, Any]
     ) -> None:
         """
-        Broadcast event to WebSocket (backward compatibility).
+        Broadcast event to all connected WebSocket clients.
 
-        This method is kept for existing services that call
-        state_machine.broadcast_event() directly.
+        Plugin/system events include full_state for unifiedAudioStore.
+        Other categories (volume, equalizer, multiroom, settings) send
+        only their specific data.
         """
-        await self._broadcast_websocket(category, event_type, data)
-
-    async def _broadcast_websocket(
-        self,
-        category: str,
-        event_type: str,
-        data: Dict[str, Any]
-    ) -> None:
-        """Internal method to broadcast to WebSocket handler if available."""
-        if not self.websocket_handler:
+        if not self.ws_manager:
             return
 
-        event_data = {
+        event_payload = dict(data)
+        if category in self._FULL_STATE_CATEGORIES:
+            event_payload["full_state"] = self.system_state.to_dict()
+
+        await self.ws_manager.broadcast_dict({
             "category": category,
             "type": event_type,
             "source": data.get("source", category),
-            "data": {**data, "full_state": self.system_state.to_dict()},
+            "data": event_payload,
             "timestamp": time.time()
-        }
-
-        await self.websocket_handler.handle_event(event_data)
+        })

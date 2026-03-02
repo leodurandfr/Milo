@@ -42,7 +42,7 @@ pytest -m asyncio
 
 ## Fixtures disponibles
 
-- `mock_websocket_handler` : Mock du WebSocket handler
+- `mock_ws_manager` : Mock du WebSocketManager
 - `mock_routing_service` : Mock du routing service
 - `mock_plugin` : Mock d'un plugin audio
 - `mock_settings_service` : Mock du SettingsService

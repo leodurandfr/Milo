@@ -14,12 +14,12 @@ class TestAudioStateMachine:
     """Tests for the audio state machine"""
 
     @pytest.fixture
-    def state_machine(self, mock_websocket_handler, mock_routing_service):
+    def state_machine(self, mock_ws_manager, mock_routing_service):
         """Fixture to create a state machine"""
         event_bus = EventBus()
         sm = AudioStateMachine(event_bus=event_bus)
         sm.routing_service = mock_routing_service
-        sm.websocket_handler = mock_websocket_handler
+        sm.ws_manager = mock_ws_manager
         return sm
 
     def test_initialization(self, state_machine):
@@ -214,12 +214,12 @@ class TestAudioStateMachine:
         assert state_machine.system_state.equalizer_effects_enabled is True
 
     @pytest.mark.asyncio
-    async def test_broadcast_event(self, state_machine, mock_websocket_handler):
+    async def test_broadcast_event(self, state_machine, mock_ws_manager):
         """Event broadcast test"""
         await state_machine.broadcast_event("test", "test_event", {"data": "value"})
 
-        mock_websocket_handler.handle_event.assert_called_once()
-        call_args = mock_websocket_handler.handle_event.call_args[0][0]
+        mock_ws_manager.broadcast_dict.assert_called_once()
+        call_args = mock_ws_manager.broadcast_dict.call_args[0][0]
 
         assert call_args["category"] == "test"
         assert call_args["type"] == "test_event"

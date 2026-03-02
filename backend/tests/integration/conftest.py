@@ -20,16 +20,16 @@ class WebSocketEventCollector:
     """
     Collects WebSocket events for test assertions.
 
-    Captures all events broadcast through the state machine's websocket handler,
-    allowing tests to verify event sequences and formats.
+    Mimics WebSocketManager.broadcast_dict() to capture all events
+    broadcast through the state machine during tests.
     """
 
     def __init__(self):
         self.events: List[Dict[str, Any]] = []
         self._lock = asyncio.Lock()
 
-    async def handle_event(self, event_data: Dict[str, Any]) -> None:
-        """Capture event for later inspection."""
+    async def broadcast_dict(self, event_data: Dict[str, Any]) -> None:
+        """Capture event for later inspection (same signature as WebSocketManager)."""
         async with self._lock:
             self.events.append(event_data)
 
@@ -140,7 +140,7 @@ def integration_state_machine(
     event_bus = EventBus()
     state_machine = AudioStateMachine(event_bus=event_bus)
     state_machine.routing_service = mock_routing_service
-    state_machine.websocket_handler = websocket_collector
+    state_machine.ws_manager = websocket_collector
     return state_machine
 
 
