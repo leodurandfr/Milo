@@ -1,8 +1,10 @@
 <template>
   <div class="favorites-view">
     <Transition name="fade-slide" mode="out-in">
-      <!-- Loading state: shown when loading OR favorites not yet initialized -->
-      <MessageContent v-if="isLoading || !radioStore.favoritesInitialized" key="loading" loading :loading-delay="0" :title="t('audioSources.radioSource.loadingStations')" />
+      <!-- Loading state: skeleton grid while favorites load -->
+      <div v-if="isLoading || !radioStore.favoritesInitialized" key="loading" class="favorites-grid">
+        <SkeletonStationCard v-for="i in 16" :key="`skeleton-${i}`" />
+      </div>
 
       <!-- Empty state: only after initialization confirms no favorites -->
       <MessageContent v-else-if="favoriteStations.length === 0" key="empty" icon="radio" :title="t('audioSources.radioSource.noFavorites')" />
@@ -28,6 +30,7 @@ import { computed } from 'vue'
 import { useRadioStore } from '@/stores/radioStore'
 import { useI18n } from '@/services/i18n'
 import StationCard from './StationCard.vue'
+import SkeletonStationCard from './SkeletonStationCard.vue'
 import MessageContent from '@/components/ui/MessageContent.vue'
 
 const { t } = useI18n()
