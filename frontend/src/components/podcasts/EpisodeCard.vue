@@ -1,23 +1,11 @@
 <template>
   <div v-press class="episode-card" :class="{ clickable, contrast }" @click="handleCardClick">
-    <div class="card-image">
-      <img
-        ref="imgRef"
-        :src="imageUrl"
-        :alt="episode.name"
-        loading="lazy"
-        @load="handleImageLoad"
-        @error="handleImageError"
-        :class="{ loaded: imageLoaded }"
-        class="main-image"
-      />
-      <img
-        v-if="!imageLoaded && !imageError"
-        :src="episodePlaceholder"
-        class="placeholder-image"
-        alt=""
-      />
-    </div>
+    <LazyImage
+      :src="episode.image_url || episode.podcast?.image_url"
+      :fallback="episodePlaceholder"
+      :alt="episode.name"
+      class="card-image"
+    />
 
     <div class="card-content">
       <div class="content-info">
@@ -48,11 +36,12 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted } from 'vue'
+import { computed } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore'
 import { useI18n } from '@/services/i18n'
 import IconButton from '@/components/ui/IconButton.vue'
+import LazyImage from '@/components/ui/LazyImage.vue'
 import episodePlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
 
 const { t } = useI18n()
@@ -92,17 +81,6 @@ function handlePodcastClick() {
     emit('select-podcast', props.episode.podcast)
   }
 }
-const imageError = ref(false)
-const imageLoaded = ref(false)
-const imgRef = ref(null)
-
-const imageUrl = computed(() => {
-  if (imageError.value) return episodePlaceholder
-  return props.episode.image_url ||
-    props.episode.podcast?.image_url ||
-    episodePlaceholder
-})
-
 const podcastName = computed(() => {
   return props.episode.podcast?.name || ''
 })
@@ -212,19 +190,7 @@ function formatRelativeDate(epochSeconds) {
   return t('podcasts.yearsAgo', { count: Math.floor(days / 365) })
 }
 
-function handleImageError() {
-  imageError.value = true
-}
 
-function handleImageLoad() {
-  imageLoaded.value = true
-}
-
-onMounted(() => {
-  if (imgRef.value && imgRef.value.complete && imgRef.value.naturalHeight !== 0) {
-    imageLoaded.value = true
-  }
-})
 </script>
 
 <style scoped>
@@ -243,35 +209,10 @@ onMounted(() => {
 
 
 .card-image {
-  position: relative;
   width: 128px;
   height: 128px;
   flex-shrink: 0;
   border-radius: var(--radius-02);
-  overflow: hidden;
-}
-
-.card-image img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  position: absolute;
-  inset: 0;
-}
-
-.card-image .main-image {
-  opacity: 0;
-  transition: opacity var(--transition-normal);
-  z-index: 1;
-}
-
-.card-image .main-image.loaded {
-  opacity: 1;
-}
-
-.card-image .placeholder-image {
-  opacity: 1;
-  z-index: 0;
 }
 
 .card-content {

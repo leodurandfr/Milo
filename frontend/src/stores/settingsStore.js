@@ -93,6 +93,14 @@ export const useSettingsStore = defineStore('settings', () => {
   // === ACTIONS ===
 
   /**
+   * Factory: creates a partial-merge updater for an object ref.
+   * Usage: const updateFoo = makeUpdater(fooRef)
+   */
+  function makeUpdater(target) {
+    return (config) => { target.value = { ...target.value, ...config }; };
+  }
+
+  /**
    * Load all settings in parallel
    */
   async function loadAllSettings() {
@@ -194,26 +202,9 @@ export const useSettingsStore = defineStore('settings', () => {
     language.value = newLanguage;
   }
 
-  /**
-   * Update volume limits (in dB)
-   */
-  function updateVolumeLimits(limits) {
-    volumeLimits.value = { ...volumeLimits.value, ...limits };
-  }
-
-  /**
-   * Update startup volume (in dB)
-   */
-  function updateVolumeStartup(config) {
-    volumeStartup.value = { ...volumeStartup.value, ...config };
-  }
-
-  /**
-   * Update volume steps (in dB)
-   */
-  function updateVolumeSteps(steps) {
-    volumeSteps.value = { ...volumeSteps.value, ...steps };
-  }
+  const updateVolumeLimits = makeUpdater(volumeLimits);
+  const updateVolumeStartup = makeUpdater(volumeStartup);
+  const updateVolumeSteps = makeUpdater(volumeSteps);
 
   /**
    * Update dock apps (from WebSocket or API response)
@@ -261,19 +252,8 @@ export const useSettingsStore = defineStore('settings', () => {
     return [...orderedAudio, ...utilities];
   }
 
-  /**
-   * Update Spotify config
-   */
-  function updateSpotifyDisconnect(config) {
-    spotifyDisconnect.value = { ...spotifyDisconnect.value, ...config };
-  }
-
-  /**
-   * Update podcast credentials
-   */
-  function updatePodcastCredentials(config) {
-    podcastCredentials.value = { ...podcastCredentials.value, ...config };
-  }
+  const updateSpotifyDisconnect = makeUpdater(spotifyDisconnect);
+  const updatePodcastCredentials = makeUpdater(podcastCredentials);
 
   /**
    * Refresh podcast credentials status (after validation/save)
@@ -299,40 +279,11 @@ export const useSettingsStore = defineStore('settings', () => {
     isScreenSleeping.value = sleeping;
   }
 
-  /**
-   * Update screen timeout
-   */
-  function updateScreenTimeout(config) {
-    screenTimeout.value = { ...screenTimeout.value, ...config };
-  }
-
-  /**
-   * Update screen brightness
-   */
-  function updateScreenBrightness(config) {
-    screenBrightness.value = { ...screenBrightness.value, ...config };
-  }
-
-  /**
-   * Update screen screensaver
-   */
-  function updateScreenScreensaver(config) {
-    screenScreensaver.value = { ...screenScreensaver.value, ...config };
-  }
-
-  /**
-   * Update inactivity timeout
-   */
-  function updateInactivityTimeout(config) {
-    inactivityTimeout.value = { ...inactivityTimeout.value, ...config };
-  }
-
-  /**
-   * Update radio settings
-   */
-  function updateRadioSettings(config) {
-    radioSettings.value = { ...radioSettings.value, ...config };
-  }
+  const updateScreenTimeout = makeUpdater(screenTimeout);
+  const updateScreenBrightness = makeUpdater(screenBrightness);
+  const updateScreenScreensaver = makeUpdater(screenScreensaver);
+  const updateInactivityTimeout = makeUpdater(inactivityTimeout);
+  const updateRadioSettings = makeUpdater(radioSettings);
 
   return {
     // State

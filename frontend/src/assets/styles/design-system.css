@@ -421,6 +421,20 @@
     opacity: 0.6 !important;
 }
 
+/* === CARD LOADING OVERLAY === */
+/* Blurred overlay centered on a card image container (position: relative parent) */
+.card-loading-overlay {
+    position: absolute;
+    inset: 0;
+    background: var(--color-background-contrast-32);
+    backdrop-filter: blur(var(--blur-01));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    color: var(--color-text-contrast);
+}
+
 /* === VUE TRANSITIONS === */
 
 /* Fade + slide (pour MessageContent, grilles, etc.) */
@@ -440,4 +454,15 @@
 .fade-slide-leave-to {
     opacity: 0;
     transform: translateY(calc(-1 * var(--space-03)));
+}
+
+/* Loading fade (for card loading overlays) */
+.loading-fade-enter-active,
+.loading-fade-leave-active {
+    transition: opacity var(--transition-fast);
+}
+
+.loading-fade-enter-from,
+.loading-fade-leave-to {
+    opacity: 0;
 }
