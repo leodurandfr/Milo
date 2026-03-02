@@ -337,6 +337,62 @@
     }
 }
 
+/* Shimmer skeleton loading animation
+   Override --shimmer-base / --shimmer-highlight on the element for custom colors */
+@keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+.shimmer {
+    background: linear-gradient(
+        90deg,
+        var(--shimmer-base, var(--color-background-neutral)) 0%,
+        var(--shimmer-highlight, var(--color-background-strong)) 50%,
+        var(--shimmer-base, var(--color-background-neutral)) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* Horizontal filter bar with mobile full-bleed scroll */
+.filters-bar {
+    display: flex;
+    gap: var(--space-02);
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.filters-bar > * {
+    flex: 1;
+    min-width: 180px;
+}
+
+@media (max-aspect-ratio: 4/3) {
+    .filters-bar {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+
+        /* Full-bleed: compensate parent AudioSourceLayout padding */
+        margin-left: calc(-1 * var(--space-05));
+        margin-right: calc(-1 * var(--space-05));
+        padding-left: var(--space-05);
+        padding-right: var(--space-05);
+
+        /* Hide scrollbar */
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+
+    .filters-bar::-webkit-scrollbar {
+        display: none;
+    }
+
+    .filters-bar > * {
+        flex-shrink: 0;
+    }
+}
+
 /* === INTERACTIVE PRESS EFFECTS === */
 /* Pixel-based: all elements shrink by 4px regardless of size */
 

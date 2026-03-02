@@ -1,20 +1,20 @@
 <template>
   <!-- Card variant (default) -->
   <div v-if="variant === 'card'" class="skeleton-podcast-card variant-card">
-    <div class="skeleton-card-image"></div>
-    <div class="skeleton-text-line skeleton-tag"></div>
-    <div class="skeleton-text-line skeleton-title"></div>
-    <div class="skeleton-text-line skeleton-publisher"></div>
+    <div class="skeleton-card-image shimmer"></div>
+    <div class="skeleton-text-line shimmer skeleton-tag"></div>
+    <div class="skeleton-text-line shimmer skeleton-title"></div>
+    <div class="skeleton-text-line shimmer skeleton-publisher"></div>
   </div>
 
   <!-- Row variant -->
   <div v-else class="skeleton-podcast-card variant-row">
-    <div class="skeleton-row-image"></div>
+    <div class="skeleton-row-image shimmer"></div>
     <div class="skeleton-row-content">
       <div class="skeleton-row-info">
-        <div class="skeleton-text-line skeleton-name"></div>
-        <div class="skeleton-text-line skeleton-publisher"></div>
-        <div class="skeleton-text-line skeleton-meta"></div>
+        <div class="skeleton-text-line shimmer skeleton-name"></div>
+        <div class="skeleton-text-line shimmer skeleton-publisher"></div>
+        <div class="skeleton-text-line shimmer skeleton-meta"></div>
       </div>
     </div>
   </div>
@@ -37,26 +37,9 @@ defineProps({
   background: var(--color-background-neutral);
 }
 
-@keyframes shimmer {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
-}
-
 .skeleton-text-line {
   height: 16px;
   border-radius: var(--radius-02);
-  background: linear-gradient(
-    90deg,
-    var(--color-background-neutral) 0%,
-    var(--color-background-strong) 50%,
-    var(--color-background-neutral) 100%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.5s ease-in-out infinite;
 }
 
 /* === CARD VARIANT === */
@@ -72,14 +55,6 @@ defineProps({
   aspect-ratio: 1;
   border-radius: var(--radius-02);
   flex-shrink: 0;
-  background: linear-gradient(
-    90deg,
-    var(--color-background-neutral) 0%,
-    var(--color-background-strong) 50%,
-    var(--color-background-neutral) 100%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.5s ease-in-out infinite;
 }
 
 .variant-card .skeleton-tag {
@@ -106,14 +81,6 @@ defineProps({
   height: 128px;
   flex-shrink: 0;
   border-radius: var(--radius-02);
-  background: linear-gradient(
-    90deg,
-    var(--color-background-neutral) 0%,
-    var(--color-background-strong) 50%,
-    var(--color-background-neutral) 100%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.5s ease-in-out infinite;
 }
 
 .variant-row .skeleton-row-content {

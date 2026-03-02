@@ -5,11 +5,11 @@
 
     <!-- Description block skeleton -->
     <div class="skeleton-description-block">
-      <div class="skeleton-text-line skeleton-section-title"></div>
-      <div class="skeleton-text-line skeleton-description-line-1"></div>
-      <div class="skeleton-text-line skeleton-description-line-2"></div>
-      <div class="skeleton-text-line skeleton-description-line-3"></div>
-      <div class="skeleton-text-line skeleton-description-line-4"></div>
+      <div class="skeleton-text-line shimmer skeleton-section-title"></div>
+      <div class="skeleton-text-line shimmer skeleton-description-line-1"></div>
+      <div class="skeleton-text-line shimmer skeleton-description-line-2"></div>
+      <div class="skeleton-text-line shimmer skeleton-description-line-3"></div>
+      <div class="skeleton-text-line shimmer skeleton-description-line-4"></div>
     </div>
   </div>
 </template>
@@ -35,15 +35,6 @@ import SkeletonEpisodeCard from './SkeletonEpisodeCard.vue'
 .skeleton-text-line {
   height: 16px;
   border-radius: var(--radius-02);
-
-  background: linear-gradient(
-    90deg,
-    var(--color-background-neutral) 0%,
-    var(--color-background-strong) 50%,
-    var(--color-background-neutral) 100%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.5s ease-in-out infinite;
 }
 
 .skeleton-section-title {
@@ -65,14 +56,5 @@ import SkeletonEpisodeCard from './SkeletonEpisodeCard.vue'
 
 .skeleton-description-line-4 {
   width: 70%;
-}
-
-@keyframes shimmer {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
 }
 </style>

@@ -291,20 +291,6 @@ async function loadMoreEpisodes() {
   width: 100%;
 }
 
-.filters-bar {
-  display: flex;
-  gap: var(--space-02);
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.filters-bar>* {
-  flex: 1;
-  min-width: 180px;
-}
-
-
-
 .results {
   display: flex;
   flex-direction: column;
@@ -349,29 +335,4 @@ async function loadMoreEpisodes() {
   margin-top: var(--space-02);
 }
 
-/* Mobile: scroll horizontal au lieu de wrap vertical */
-@media (max-aspect-ratio: 4/3) {
-  .filters-bar {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-
-    /* Full-bleed: compense le padding du parent AudioSourceLayout */
-    margin-left: calc(-1 * var(--space-05));
-    margin-right: calc(-1 * var(--space-05));
-    padding-left: var(--space-05);
-    padding-right: var(--space-05);
-
-    /* Masquer la scrollbar */
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-  }
-
-  .filters-bar::-webkit-scrollbar {
-    display: none;
-  }
-
-  .filters-bar > * {
-    flex-shrink: 0;
-  }
-}
 </style>

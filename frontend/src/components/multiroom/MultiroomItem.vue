@@ -7,7 +7,7 @@
       <div class="icon-column">
         <!-- Skeleton shimmer -->
         <div
-          class="icon-skeleton"
+          class="icon-skeleton shimmer"
           :class="{ 'visible': isLoading }"
         ></div>
 
@@ -45,7 +45,7 @@
           class="client-name-skeletons"
           :class="{ 'visible': isLoading }"
         >
-          <div class="item-name-skeleton"></div>
+          <div class="item-name-skeleton shimmer"></div>
         </div>
 
         <!-- Real content -->
@@ -65,7 +65,7 @@
       <div class="volume-wrapper">
         <!-- Skeleton shimmer -->
         <div
-          class="volume-skeleton"
+          class="volume-skeleton shimmer"
           :class="{ 'visible': isLoading }"
         ></div>
 
@@ -106,7 +106,7 @@
       <div class="toggle-wrapper">
         <!-- Skeleton shimmer -->
         <div
-          class="toggle-skeleton"
+          class="toggle-skeleton shimmer"
           :class="{ 'visible': isLoading }"
         ></div>
 
@@ -463,14 +463,6 @@ function handleClientMuteToggle(clientMacId, muted) {
   width: 40px;
   height: 40px;
   border-radius: var(--radius-03);
-  background: linear-gradient(
-    90deg,
-    var(--color-background-strong) 0%,
-    var(--color-background-medium-16) 50%,
-    var(--color-background-strong) 100%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
   opacity: 0;
   transition: opacity 300ms ease 0ms;
   pointer-events: none;
@@ -550,14 +542,6 @@ function handleClientMuteToggle(clientMacId, muted) {
   height: 20px;
   width: 64%;
   border-radius: var(--radius-full);
-  background: linear-gradient(
-    90deg,
-    var(--color-background-strong) 0%,
-    var(--color-background-medium-16) 50%,
-    var(--color-background-strong) 100%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
 }
 
 /* Real name content */
@@ -603,14 +587,6 @@ function handleClientMuteToggle(clientMacId, muted) {
   position: absolute;
   inset: 0;
   border-radius: var(--radius-full);
-  background: linear-gradient(
-    90deg,
-    var(--color-background-strong) 0%,
-    var(--color-background-medium-16) 50%,
-    var(--color-background-strong) 100%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
   opacity: 0;
   transition: opacity 300ms ease 0ms;
   pointer-events: none;
@@ -656,14 +632,6 @@ function handleClientMuteToggle(clientMacId, muted) {
   width: 70px;
   height: 40px;
   border-radius: var(--radius-full);
-  background: linear-gradient(
-    90deg,
-    var(--color-background-strong) 0%,
-    var(--color-background-medium-16) 50%,
-    var(--color-background-strong) 100%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
   opacity: 0;
   transition: opacity 300ms ease 0ms;
   pointer-events: none;
@@ -826,10 +794,13 @@ function handleClientMuteToggle(clientMacId, muted) {
   }
 }
 
-/* === ANIMATIONS === */
-@keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+/* Custom shimmer colors for multiroom skeletons */
+.icon-skeleton,
+.item-name-skeleton,
+.volume-skeleton,
+.toggle-skeleton {
+  --shimmer-base: var(--color-background-strong);
+  --shimmer-highlight: var(--color-background-medium-16);
 }
 
 /* === MOBILE ADJUSTMENTS === */
