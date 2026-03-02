@@ -60,9 +60,11 @@ class EqualizerController:
         return client.ip if client and client.ip else None
 
     def _is_local(self, mac_id: str) -> bool:
-        """Check if mac_id is local client (127.0.0.1)."""
-        ip = self._get_client_ip(mac_id)
-        return ip == "127.0.0.1"
+        """Check if mac_id is local client."""
+        if not self._registry:
+            return False
+        client = self._registry.get_client(mac_id)
+        return client.is_local if client else False
 
     # ========== Client Readiness ==========
 

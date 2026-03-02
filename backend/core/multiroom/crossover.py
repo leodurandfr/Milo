@@ -18,6 +18,7 @@ from typing import Dict, List, Any, Optional, TYPE_CHECKING
 
 import aiohttp
 
+from backend.shared.decorators import handle_errors
 from backend.core.events import EventBus, get_event_bus
 from backend.config.constants import CLIENT_API_PORT as _CLIENT_API_PORT
 from backend.core.multiroom.models import (
@@ -160,16 +161,12 @@ class CrossoverService:
             except Exception as e:
                 self.logger.error(f"Error handling client {mac_id} removal from zone {zone_id}: {e}")
 
+    @handle_errors(default=False)
     async def initialize(self) -> bool:
         """Initialize the crossover service."""
-        try:
-            self.logger.info("Initializing CrossoverService...")
-            self.logger.info("CrossoverService initialized (using ClientRegistryService for speaker types)")
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Error initializing CrossoverService: {e}")
-            return False
+        self.logger.info("Initializing CrossoverService...")
+        self.logger.info("CrossoverService initialized (using ClientRegistryService for speaker types)")
+        return True
 
     # === Client Type Management ===
 
@@ -188,6 +185,7 @@ class CrossoverService:
             "crossover_frequency": DEFAULT_CROSSOVER_FREQUENCIES.get(DEFAULT_SPEAKER_TYPE)
         }
 
+    @handle_errors(default=False)
     async def set_client_speaker_type(
         self,
         client_id: str,
@@ -195,71 +193,62 @@ class CrossoverService:
         crossover_frequency: Optional[float] = None
     ) -> bool:
         """Set the speaker type for a client."""
-        try:
-            if speaker_type not in SPEAKER_TYPES:
-                self.logger.error(f"Invalid speaker type: {speaker_type}")
-                return False
+        if speaker_type not in SPEAKER_TYPES:
+            self.logger.error(f"Invalid speaker type: {speaker_type}")
+            return False
 
-            if crossover_frequency is None:
-                crossover_frequency = DEFAULT_CROSSOVER_FREQUENCIES.get(speaker_type)
+        if crossover_frequency is None:
+            crossover_frequency = DEFAULT_CROSSOVER_FREQUENCIES.get(speaker_type)
 
-            if self._registry:
-                await self._registry.update_speaker_type(
-                    client_id,
-                    speaker_type,
-                    int(crossover_frequency) if crossover_frequency else None
-                )
-
-            self.logger.info(
-                f"Client {client_id} speaker type set to '{speaker_type}' "
-                f"with crossover {crossover_frequency}Hz"
+        if self._registry:
+            await self._registry.update_speaker_type(
+                client_id,
+                speaker_type,
+                int(crossover_frequency) if crossover_frequency else None
             )
 
-            if crossover_frequency is not None and speaker_type != 'subwoofer':
-                await self._set_client_filter(client_id, "crossover", True, crossover_frequency)
-            else:
-                await self._set_client_filter(client_id, "crossover", False, 80)
+        self.logger.info(
+            f"Client {client_id} speaker type set to '{speaker_type}' "
+            f"with crossover {crossover_frequency}Hz"
+        )
 
-            await self._broadcast_event("client_type_changed", {
-                "client_id": client_id,
-                "speaker_type": speaker_type,
-                "crossover_frequency": crossover_frequency
-            })
+        if crossover_frequency is not None and speaker_type != 'subwoofer':
+            await self._set_client_filter(client_id, "crossover", True, crossover_frequency)
+        else:
+            await self._set_client_filter(client_id, "crossover", False, 80)
 
-            return True
+        await self._broadcast_event("client_type_changed", {
+            "client_id": client_id,
+            "speaker_type": speaker_type,
+            "crossover_frequency": crossover_frequency
+        })
 
-        except Exception as e:
-            self.logger.error(f"Error setting client speaker type: {e}")
-            return False
+        return True
 
+    @handle_errors(default=False)
     async def set_client_crossover_frequency(self, client_id: str, frequency: float) -> bool:
         """Set a custom crossover frequency for a client."""
-        try:
-            frequency = max(20, min(200, frequency))
-            speaker_type = self.get_client_speaker_type(client_id)
+        frequency = max(20, min(200, frequency))
+        speaker_type = self.get_client_speaker_type(client_id)
 
-            if self._registry:
-                await self._registry.update_speaker_type(
-                    client_id,
-                    speaker_type,
-                    int(frequency)
-                )
+        if self._registry:
+            await self._registry.update_speaker_type(
+                client_id,
+                speaker_type,
+                int(frequency)
+            )
 
-            self.logger.info(f"Client {client_id} crossover frequency set to {frequency}Hz")
+        self.logger.info(f"Client {client_id} crossover frequency set to {frequency}Hz")
 
-            if speaker_type != 'subwoofer':
-                await self._set_client_filter(client_id, "crossover", True, frequency)
+        if speaker_type != 'subwoofer':
+            await self._set_client_filter(client_id, "crossover", True, frequency)
 
-            await self._broadcast_event("client_crossover_changed", {
-                "client_id": client_id,
-                "crossover_frequency": frequency
-            })
+        await self._broadcast_event("client_crossover_changed", {
+            "client_id": client_id,
+            "crossover_frequency": frequency
+        })
 
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Error setting client crossover frequency: {e}")
-            return False
+        return True
 
     def get_client_speaker_type(self, client_id: str) -> str:
         """Get the speaker type for a client."""
@@ -297,6 +286,7 @@ class CrossoverService:
 
     # === Zone Crossover Management ===
 
+    @handle_errors(default={"frequency": 80, "enabled": False, "has_subwoofer": False})
     async def get_zone_crossover(self, zone_id: str) -> Dict[str, Any]:
         """Get crossover settings for a zone."""
         if not self._registry:
@@ -306,91 +296,74 @@ class CrossoverService:
                 "has_subwoofer": False
             }
 
-        try:
-            zone = self._registry.get_zone(zone_id)
-            if not zone:
-                return {
-                    "frequency": self.DEFAULT_CROSSOVER_FREQUENCY,
-                    "enabled": False,
-                    "has_subwoofer": False
-                }
-
-            has_subwoofer = any(self.is_client_subwoofer(cid) for cid in zone.client_ids)
-
-            return {
-                "frequency": zone.crossover_frequency,
-                "enabled": zone.crossover_enabled if zone.crossover_enabled is not None else has_subwoofer,
-                "has_subwoofer": has_subwoofer
-            }
-
-        except Exception as e:
-            self.logger.error(f"Error getting zone crossover: {e}")
+        zone = self._registry.get_zone(zone_id)
+        if not zone:
             return {
                 "frequency": self.DEFAULT_CROSSOVER_FREQUENCY,
                 "enabled": False,
                 "has_subwoofer": False
             }
 
+        has_subwoofer = any(self.is_client_subwoofer(cid) for cid in zone.client_ids)
+
+        return {
+            "frequency": zone.crossover_frequency,
+            "enabled": zone.crossover_enabled if zone.crossover_enabled is not None else has_subwoofer,
+            "has_subwoofer": has_subwoofer
+        }
+
+    @handle_errors(default=80)
     async def get_zone_auto_crossover(self, zone_id: str) -> int:
         """Calculate automatic crossover frequency for a zone."""
         if not self._registry:
             return self.DEFAULT_CROSSOVER_FREQUENCY
 
-        try:
-            zone = self._registry.get_zone(zone_id)
-            if not zone:
-                return self.DEFAULT_CROSSOVER_FREQUENCY
-
-            frequencies = []
-            for client_id in zone.client_ids:
-                speaker_type = self.get_client_speaker_type(client_id)
-                if speaker_type != "subwoofer":
-                    freq = DEFAULT_CROSSOVER_FREQUENCIES.get(speaker_type)
-                    if freq:
-                        frequencies.append(freq)
-
-            return min(frequencies) if frequencies else self.DEFAULT_CROSSOVER_FREQUENCY
-
-        except Exception as e:
-            self.logger.error(f"Error getting zone auto crossover: {e}")
+        zone = self._registry.get_zone(zone_id)
+        if not zone:
             return self.DEFAULT_CROSSOVER_FREQUENCY
 
+        frequencies = []
+        for client_id in zone.client_ids:
+            speaker_type = self.get_client_speaker_type(client_id)
+            if speaker_type != "subwoofer":
+                freq = DEFAULT_CROSSOVER_FREQUENCIES.get(speaker_type)
+                if freq:
+                    frequencies.append(freq)
+
+        return min(frequencies) if frequencies else self.DEFAULT_CROSSOVER_FREQUENCY
+
+    @handle_errors(default=False)
     async def set_zone_crossover_frequency(self, zone_id: str, frequency: float) -> bool:
         """Set the crossover frequency for a zone."""
         if not self._registry:
             return False
 
-        try:
-            frequency = max(20, min(200, frequency))
+        frequency = max(20, min(200, frequency))
 
-            zone = self._registry.get_zone(zone_id)
-            if not zone:
-                self.logger.warning(f"Zone {zone_id} not found")
-                return False
-
-            await self._registry.update_zone(zone_id, crossover_frequency=int(frequency))
-
-            self.logger.info(f"Zone {zone_id} crossover frequency set to {frequency} Hz")
-
-            # Get updated crossover state for complete event data (AC4)
-            crossover_state = await self.get_zone_crossover(zone_id)
-
-            await self._broadcast_event("zone_crossover_changed", {
-                "zone_id": zone_id,
-                "crossover_enabled": crossover_state["enabled"],
-                "crossover_frequency": int(frequency),
-                # Backward compatibility
-                "frequency": frequency
-            })
-
-            # Apply the updated crossover filters to all zone clients
-            await self.apply_zone_crossover(zone_id)
-
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Error setting zone crossover frequency: {e}")
+        zone = self._registry.get_zone(zone_id)
+        if not zone:
+            self.logger.warning(f"Zone {zone_id} not found")
             return False
+
+        await self._registry.update_zone(zone_id, crossover_frequency=int(frequency))
+
+        self.logger.info(f"Zone {zone_id} crossover frequency set to {frequency} Hz")
+
+        # Get updated crossover state for complete event data (AC4)
+        crossover_state = await self.get_zone_crossover(zone_id)
+
+        await self._broadcast_event("zone_crossover_changed", {
+            "zone_id": zone_id,
+            "crossover_enabled": crossover_state["enabled"],
+            "crossover_frequency": int(frequency),
+            # Backward compatibility
+            "frequency": frequency
+        })
+
+        # Apply the updated crossover filters to all zone clients
+        await self.apply_zone_crossover(zone_id)
+
+        return True
 
     async def apply_zone_crossover(self, zone_id: str) -> bool:
         """Apply crossover settings to all clients in a zone."""
