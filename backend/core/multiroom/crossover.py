@@ -130,8 +130,8 @@ class CrossoverService:
                 try:
                     self.logger.info(f"Zone {zone_id} deleted, disabling filters for {len(client_ids)} clients")
                     for client_id in client_ids:
-                        await self._set_client_crossover(client_id, False, self.DEFAULT_CROSSOVER_FREQUENCY)
-                        await self._set_client_lowpass(client_id, False, self.DEFAULT_CROSSOVER_FREQUENCY)
+                        await self._set_client_filter(client_id, "crossover", False, self.DEFAULT_CROSSOVER_FREQUENCY)
+                        await self._set_client_filter(client_id, "lowpass", False, self.DEFAULT_CROSSOVER_FREQUENCY)
                 except Exception as e:
                     self.logger.error(f"Error disabling filters after zone {zone_id} deletion: {e}")
 
@@ -153,8 +153,8 @@ class CrossoverService:
             try:
                 if mac_id:
                     self.logger.info(f"Client {mac_id} removed from zone {zone_id}, disabling filters")
-                    await self._set_client_crossover(mac_id, False, self.DEFAULT_CROSSOVER_FREQUENCY)
-                    await self._set_client_lowpass(mac_id, False, self.DEFAULT_CROSSOVER_FREQUENCY)
+                    await self._set_client_filter(mac_id, "crossover", False, self.DEFAULT_CROSSOVER_FREQUENCY)
+                    await self._set_client_filter(mac_id, "lowpass", False, self.DEFAULT_CROSSOVER_FREQUENCY)
                 if zone_id and isinstance(zone_id, str):
                     await self.apply_zone_crossover(zone_id)
             except Exception as e:
@@ -216,9 +216,9 @@ class CrossoverService:
             )
 
             if crossover_frequency is not None and speaker_type != 'subwoofer':
-                await self._set_client_crossover(client_id, True, crossover_frequency)
+                await self._set_client_filter(client_id, "crossover", True, crossover_frequency)
             else:
-                await self._set_client_crossover(client_id, False, 80)
+                await self._set_client_filter(client_id, "crossover", False, 80)
 
             await self._broadcast_event("client_type_changed", {
                 "client_id": client_id,
@@ -248,7 +248,7 @@ class CrossoverService:
             self.logger.info(f"Client {client_id} crossover frequency set to {frequency}Hz")
 
             if speaker_type != 'subwoofer':
-                await self._set_client_crossover(client_id, True, frequency)
+                await self._set_client_filter(client_id, "crossover", True, frequency)
 
             await self._broadcast_event("client_crossover_changed", {
                 "client_id": client_id,
@@ -441,14 +441,14 @@ class CrossoverService:
 
                 if should_apply_crossover:
                     if is_sub:
-                        await self._set_client_lowpass(client_id, True, frequency)
-                        await self._set_client_crossover(client_id, False, frequency)
+                        await self._set_client_filter(client_id, "lowpass", True, frequency)
+                        await self._set_client_filter(client_id, "crossover", False, frequency)
                     else:
-                        await self._set_client_crossover(client_id, True, frequency)
-                        await self._set_client_lowpass(client_id, False, frequency)
+                        await self._set_client_filter(client_id, "crossover", True, frequency)
+                        await self._set_client_filter(client_id, "lowpass", False, frequency)
                 else:
-                    await self._set_client_crossover(client_id, False, frequency)
-                    await self._set_client_lowpass(client_id, False, frequency)
+                    await self._set_client_filter(client_id, "crossover", False, frequency)
+                    await self._set_client_filter(client_id, "lowpass", False, frequency)
 
             return True
 
@@ -456,104 +456,72 @@ class CrossoverService:
             self.logger.error(f"Error applying zone crossover: {e}")
             return False
 
-    async def _set_client_crossover(
+    async def _set_client_filter(
         self,
         client_id: str,
+        filter_name: str,
         enabled: bool,
         frequency: float
     ) -> bool:
-        """Apply or remove crossover filter on a specific client."""
+        """Apply or remove a filter (crossover or lowpass) on a specific client.
+
+        Args:
+            client_id: Client MAC address
+            filter_name: Filter type ("crossover" or "lowpass")
+            enabled: Whether the filter is enabled
+            frequency: Filter frequency in Hz
+        """
         try:
-            # Check if this is the local client via registry lookup
             client = self._registry.get_client(client_id) if self._registry else None
-            is_local = (client.ip == "127.0.0.1") if client else False
+            is_local = client.is_local if client else False
 
             if is_local:
                 if self.camilladsp_service:
-                    return await self.camilladsp_service.set_crossover_filter(
+                    method = getattr(self.camilladsp_service, f"set_{filter_name}_filter")
+                    return await method(
                         enabled=enabled,
                         frequency=frequency,
                         q=self.DEFAULT_Q
                     )
                 return False
             else:
-                # Use client IP for remote requests
                 if not client or not client.ip:
-                    self.logger.error(f"Cannot proxy crossover: client {client_id} has no IP address")
+                    self.logger.error(f"Cannot proxy {filter_name}: client {client_id} has no IP address")
                     return False
-                # Skip HTTP for offline clients - queue settings for when they reconnect
                 if self._registry and not self._registry.is_client_online(client_id):
-                    await self.queue_pending_settings(client_id, "crossover", {
+                    await self.queue_pending_settings(client_id, filter_name, {
                         "enabled": enabled,
                         "frequency": frequency
                     })
                     return False
-                return await self._proxy_crossover_to_client(
-                    client.ip, enabled, frequency, client_id=client_id
+                return await self._proxy_filter_to_client(
+                    filter_name, client.ip, enabled, frequency, client_id=client_id
                 )
 
         except Exception as e:
-            self.logger.error(f"Error setting crossover for client {client_id}: {e}")
+            self.logger.error(f"Error setting {filter_name} for client {client_id}: {e}")
             return False
 
-    async def _set_client_lowpass(
+    async def _proxy_filter_to_client(
         self,
-        client_id: str,
-        enabled: bool,
-        frequency: float
-    ) -> bool:
-        """Apply or remove lowpass filter on a specific client (subwoofer)."""
-        try:
-            # Check if this is the local client via registry lookup
-            client = self._registry.get_client(client_id) if self._registry else None
-            is_local = (client.ip == "127.0.0.1") if client else False
-
-            if is_local:
-                if self.camilladsp_service:
-                    return await self.camilladsp_service.set_lowpass_filter(
-                        enabled=enabled,
-                        frequency=frequency,
-                        q=self.DEFAULT_Q
-                    )
-                return False
-            else:
-                # Use client IP for remote requests
-                if not client or not client.ip:
-                    self.logger.error(f"Cannot proxy lowpass: client {client_id} has no IP address")
-                    return False
-                # Skip HTTP for offline clients - queue settings for when they reconnect
-                if self._registry and not self._registry.is_client_online(client_id):
-                    await self.queue_pending_settings(client_id, "lowpass", {
-                        "enabled": enabled,
-                        "frequency": frequency
-                    })
-                    return False
-                return await self._proxy_lowpass_to_client(
-                    client.ip, enabled, frequency, client_id=client_id
-                )
-
-        except Exception as e:
-            self.logger.error(f"Error setting lowpass for client {client_id}: {e}")
-            return False
-
-    async def _proxy_crossover_to_client(
-        self,
+        filter_name: str,
         ip_address: str,
         enabled: bool,
         frequency: float,
         client_id: str = None
     ) -> bool:
-        """Proxy crossover settings to a remote milo-client.
+        """Proxy filter settings (crossover or lowpass) to a remote milo-client.
 
         Args:
+            filter_name: Filter type ("crossover" or "lowpass")
             ip_address: The client's IP address for HTTP requests
-            enabled: Whether crossover is enabled
-            frequency: Crossover frequency in Hz
+            enabled: Whether the filter is enabled
+            frequency: Filter frequency in Hz
             client_id: MAC address for logging and queue_pending_settings (optional)
         """
         identifier = client_id or ip_address
         try:
-            url = f"http://{ip_address}:{self.CLIENT_API_PORT}/equalizer/crossover"
+            url = f"http://{ip_address}:{self.CLIENT_API_PORT}/equalizer/{filter_name}"
 
             payload = {
                 "enabled": enabled,
@@ -566,76 +534,25 @@ class CrossoverService:
                 async with session.put(url, json=payload) as response:
                     if response.status == 200:
                         self.logger.info(
-                            f"Crossover {'enabled' if enabled else 'disabled'} on client {identifier} "
-                            f"at {frequency} Hz"
+                            f"{filter_name.capitalize()} {'enabled' if enabled else 'disabled'} "
+                            f"on client {identifier} at {frequency} Hz"
                         )
                         return True
                     else:
                         self.logger.error(
-                            f"Failed to set crossover on client {identifier}: HTTP {response.status}"
+                            f"Failed to set {filter_name} on client {identifier}: HTTP {response.status}"
                         )
                         return False
 
-        except aiohttp.ClientError as e:
-            self.logger.warning(f"Cannot reach client {identifier} for crossover update: {url}")
-            await self.queue_pending_settings(identifier, "crossover", {
+        except aiohttp.ClientError:
+            self.logger.warning(f"Cannot reach client {identifier} for {filter_name} update: {url}")
+            await self.queue_pending_settings(identifier, filter_name, {
                 "enabled": enabled,
                 "frequency": frequency
             })
             return False
         except Exception as e:
-            self.logger.error(f"Error proxying crossover to client {identifier}: {e}")
-            return False
-
-    async def _proxy_lowpass_to_client(
-        self,
-        ip_address: str,
-        enabled: bool,
-        frequency: float,
-        client_id: str = None
-    ) -> bool:
-        """Proxy lowpass settings to a remote milo-client (subwoofer).
-
-        Args:
-            ip_address: The client's IP address for HTTP requests
-            enabled: Whether lowpass is enabled
-            frequency: Lowpass frequency in Hz
-            client_id: MAC address for logging and queue_pending_settings (optional)
-        """
-        identifier = client_id or ip_address
-        try:
-            url = f"http://{ip_address}:{self.CLIENT_API_PORT}/equalizer/lowpass"
-
-            payload = {
-                "enabled": enabled,
-                "frequency": frequency,
-                "q": self.DEFAULT_Q
-            }
-
-            timeout = aiohttp.ClientTimeout(total=5)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.put(url, json=payload) as response:
-                    if response.status == 200:
-                        self.logger.info(
-                            f"Lowpass {'enabled' if enabled else 'disabled'} on client {identifier} "
-                            f"at {frequency} Hz"
-                        )
-                        return True
-                    else:
-                        self.logger.error(
-                            f"Failed to set lowpass on client {identifier}: HTTP {response.status}"
-                        )
-                        return False
-
-        except aiohttp.ClientError as e:
-            self.logger.warning(f"Cannot reach client {identifier} for lowpass update: {url}")
-            await self.queue_pending_settings(identifier, "lowpass", {
-                "enabled": enabled,
-                "frequency": frequency
-            })
-            return False
-        except Exception as e:
-            self.logger.error(f"Error proxying lowpass to client {identifier}: {e}")
+            self.logger.error(f"Error proxying {filter_name} to client {identifier}: {e}")
             return False
 
     async def _recalculate_zones_for_client(self, client_id: str) -> None:
@@ -700,8 +617,8 @@ class CrossoverService:
 
         if "crossover" in pending:
             crossover = pending["crossover"]
-            result = await self._set_client_crossover(
-                client_id,
+            result = await self._set_client_filter(
+                client_id, "crossover",
                 crossover.get("enabled", False),
                 crossover.get("frequency", self.DEFAULT_CROSSOVER_FREQUENCY)
             )
@@ -711,8 +628,8 @@ class CrossoverService:
 
         if "lowpass" in pending:
             lowpass = pending["lowpass"]
-            result = await self._set_client_lowpass(
-                client_id,
+            result = await self._set_client_filter(
+                client_id, "lowpass",
                 lowpass.get("enabled", False),
                 lowpass.get("frequency", self.DEFAULT_CROSSOVER_FREQUENCY)
             )
@@ -734,30 +651,49 @@ class CrossoverService:
 
         if "mute" in pending:
             muted = pending["mute"].get("muted", False)
-            await self._apply_pending_mute(client_id, muted)
+            await self._dispatch_to_client(
+                client_id, "/equalizer/mute", {"muted": muted},
+                lambda: self.camilladsp_service.set_mute(muted), "mute"
+            )
 
-        # Apply EQ filters (zone equalizer settings)
         if "filters" in pending:
-            filters = pending["filters"]
-            for flt in filters:
+            for flt in pending["filters"]:
                 filter_id = flt.get("id")
                 if not filter_id:
                     continue
-                result = await self._apply_pending_filter(client_id, filter_id, flt)
+                data = {
+                    "freq": flt.get("freq"),
+                    "gain": flt.get("gain"),
+                    "q": flt.get("q"),
+                    "filter_type": flt.get("type")
+                }
+                result = await self._dispatch_to_client(
+                    client_id, f"/equalizer/filter/{filter_id}", data,
+                    lambda fid=filter_id, d=data: self.camilladsp_service.set_filter(fid, **d),
+                    f"filter {filter_id}"
+                )
                 if not result:
                     success = False
                     self.logger.warning(f"Failed to apply pending filter {filter_id} to {client_id}")
 
-        # Apply compressor settings
         if "compressor" in pending:
-            result = await self._apply_pending_compressor(client_id, pending["compressor"])
+            compressor_data = pending["compressor"]
+            result = await self._dispatch_to_client(
+                client_id, "/equalizer/compressor", compressor_data,
+                lambda: self.camilladsp_service.set_compressor(**compressor_data),
+                "compressor"
+            )
             if not result:
                 success = False
                 self.logger.warning(f"Failed to apply pending compressor to {client_id}")
 
-        # Apply loudness settings
         if "loudness" in pending:
-            result = await self._apply_pending_loudness(client_id, pending["loudness"])
+            loudness_data = pending["loudness"]
+            result = await self._dispatch_to_client(
+                client_id, "/equalizer/loudness", loudness_data,
+                lambda: self.camilladsp_service.set_loudness(**loudness_data),
+                "loudness"
+            )
             if not result:
                 success = False
                 self.logger.warning(f"Failed to apply pending loudness to {client_id}")
@@ -769,119 +705,45 @@ class CrossoverService:
 
         return success
 
-    async def _apply_pending_mute(self, client_id: str, muted: bool) -> bool:
-        """Apply pending mute settings to a client."""
+    async def _dispatch_to_client(
+        self,
+        client_id: str,
+        endpoint: str,
+        payload: Dict[str, Any],
+        local_action,
+        label: str
+    ) -> bool:
+        """Dispatch a pending setting to a client (local CamillaDSP or remote HTTP PUT).
+
+        Args:
+            client_id: Client MAC address
+            endpoint: URL path suffix (e.g. "/equalizer/mute")
+            payload: JSON payload for remote PUT request
+            local_action: Callable returning a coroutine for local execution
+            label: Human-readable label for log messages
+        """
         try:
-            # Check if this is the local client via registry lookup
             client = self._registry.get_client(client_id) if self._registry else None
-            is_local = (client.ip == "127.0.0.1") if client else False
+            is_local = client.is_local if client else False
 
             if is_local:
                 if self.camilladsp_service:
-                    await self.camilladsp_service.set_mute(muted)
+                    await local_action()
                     return True
+                return False
             else:
-                # Use client IP for remote requests
                 if not client or not client.ip:
-                    self.logger.warning(f"Cannot apply pending mute: client {client_id} has no IP address")
+                    self.logger.warning(f"Cannot apply pending {label}: client {client_id} has no IP address")
                     return False
-                url = f"http://{client.ip}:{self.CLIENT_API_PORT}/equalizer/mute"
+                url = f"http://{client.ip}:{self.CLIENT_API_PORT}{endpoint}"
 
                 timeout = aiohttp.ClientTimeout(total=5)
                 async with aiohttp.ClientSession(timeout=timeout) as session:
-                    async with session.put(url, json={"muted": muted}) as response:
+                    async with session.put(url, json=payload) as response:
                         return response.status == 200
 
         except Exception as e:
-            self.logger.warning(f"Failed to apply pending mute to {client_id}: {e}")
-            return False
-
-    async def _apply_pending_filter(self, client_id: str, filter_id: str, filter_data: Dict[str, Any]) -> bool:
-        """Apply pending EQ filter settings to a client."""
-        try:
-            data = {
-                "freq": filter_data.get("freq"),
-                "gain": filter_data.get("gain"),
-                "q": filter_data.get("q"),
-                "filter_type": filter_data.get("type")
-            }
-
-            # Check if this is the local client via registry lookup
-            client = self._registry.get_client(client_id) if self._registry else None
-            is_local = (client.ip == "127.0.0.1") if client else False
-
-            if is_local:
-                if self.camilladsp_service:
-                    await self.camilladsp_service.set_filter(filter_id, **data)
-                    return True
-            else:
-                # Use client IP for remote requests
-                if not client or not client.ip:
-                    self.logger.warning(f"Cannot apply pending filter: client {client_id} has no IP address")
-                    return False
-                url = f"http://{client.ip}:{self.CLIENT_API_PORT}/equalizer/filter/{filter_id}"
-
-                timeout = aiohttp.ClientTimeout(total=5)
-                async with aiohttp.ClientSession(timeout=timeout) as session:
-                    async with session.put(url, json=data) as response:
-                        return response.status == 200
-
-        except Exception as e:
-            self.logger.warning(f"Failed to apply pending filter {filter_id} to {client_id}: {e}")
-            return False
-
-    async def _apply_pending_compressor(self, client_id: str, settings: Dict[str, Any]) -> bool:
-        """Apply pending compressor settings to a client."""
-        try:
-            # Check if this is the local client via registry lookup
-            client = self._registry.get_client(client_id) if self._registry else None
-            is_local = (client.ip == "127.0.0.1") if client else False
-
-            if is_local:
-                if self.camilladsp_service:
-                    await self.camilladsp_service.set_compressor(**settings)
-                    return True
-            else:
-                # Use client IP for remote requests
-                if not client or not client.ip:
-                    self.logger.warning(f"Cannot apply pending compressor: client {client_id} has no IP address")
-                    return False
-                url = f"http://{client.ip}:{self.CLIENT_API_PORT}/equalizer/compressor"
-
-                timeout = aiohttp.ClientTimeout(total=5)
-                async with aiohttp.ClientSession(timeout=timeout) as session:
-                    async with session.put(url, json=settings) as response:
-                        return response.status == 200
-
-        except Exception as e:
-            self.logger.warning(f"Failed to apply pending compressor to {client_id}: {e}")
-            return False
-
-    async def _apply_pending_loudness(self, client_id: str, settings: Dict[str, Any]) -> bool:
-        """Apply pending loudness settings to a client."""
-        try:
-            # Check if this is the local client via registry lookup
-            client = self._registry.get_client(client_id) if self._registry else None
-            is_local = (client.ip == "127.0.0.1") if client else False
-
-            if is_local:
-                if self.camilladsp_service:
-                    await self.camilladsp_service.set_loudness(**settings)
-                    return True
-            else:
-                # Use client IP for remote requests
-                if not client or not client.ip:
-                    self.logger.warning(f"Cannot apply pending loudness: client {client_id} has no IP address")
-                    return False
-                url = f"http://{client.ip}:{self.CLIENT_API_PORT}/equalizer/loudness"
-
-                timeout = aiohttp.ClientTimeout(total=5)
-                async with aiohttp.ClientSession(timeout=timeout) as session:
-                    async with session.put(url, json=settings) as response:
-                        return response.status == 200
-
-        except Exception as e:
-            self.logger.warning(f"Failed to apply pending loudness to {client_id}: {e}")
+            self.logger.warning(f"Failed to apply pending {label} to {client_id}: {e}")
             return False
 
     def has_pending_settings(self, client_id: str) -> bool:
