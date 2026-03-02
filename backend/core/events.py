@@ -32,12 +32,8 @@ Standard Events:
     source.stopped      {source_id: str}
     source.error        {source_id: str, error: str}
     volume.changed      {volume_db: float, mute: bool}
-    volume.muted        {mute: bool}
     routing.mode_changed {multiroom_enabled: bool, equalizer_effects_enabled: bool}
     equalizer.config_changed  {config: dict}
-    multiroom.client_state_changed {client: dict}
-    multiroom.zone_changed {zone: dict}
-    multiroom.crossover_changed {zone_id: str, enabled: bool, frequency: int}
 """
 from typing import Any, Callable, Dict, List, Optional
 import asyncio
@@ -152,8 +148,6 @@ class Events:
 
     # Volume events
     VOLUME_CHANGED = "volume.changed"
-    VOLUME_MUTED = "volume.muted"
-    VOLUME_ERROR = "volume.error"
 
     # Routing events
     ROUTING_MODE_CHANGED = "routing.mode_changed"
@@ -161,17 +155,7 @@ class Events:
     # Equalizer events
     EQUALIZER_CONFIG_CHANGED = "equalizer.config_changed"
 
-    # Multiroom events (formerly registry.*)
-    CLIENT_REGISTERED = "multiroom.client_state_changed"
-    CLIENT_UNREGISTERED = "multiroom.client_state_changed"
-    ZONE_CREATED = "multiroom.zone_changed"
-    ZONE_DELETED = "multiroom.zone_changed"
-    ZONE_UPDATED = "multiroom.zone_changed"
-
     # Radio events
-    RADIO_FAVORITE_ADDED = "radio.favorite_added"
-    RADIO_FAVORITE_REMOVED = "radio.favorite_removed"
-    RADIO_FAVORITE_MODIFIED = "radio.favorite_modified"
     RADIO_FAVORITE_RESTORED = "radio.favorite_restored"
     RADIO_CUSTOM_STATION_ADDED = "radio.custom_station_added"
     RADIO_CUSTOM_STATION_REMOVED = "radio.custom_station_removed"

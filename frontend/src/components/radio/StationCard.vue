@@ -117,7 +117,7 @@ const props = defineProps({
   }
 });
 
-defineEmits(['click', 'play', 'favorite']);
+defineEmits(['click', 'play']);
 
 const imageError = ref(false);
 const imageLoaded = ref(false);

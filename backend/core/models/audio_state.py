@@ -60,15 +60,3 @@ class SystemAudioState:
             "equalizer_effects_enabled": self.equalizer_effects_enabled
         }
     
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'SystemAudioState':
-        """Create state from dictionary."""
-        return cls(
-            active_source=AudioSource(data.get("active_source", "none")),
-            plugin_state=PluginState(data.get("plugin_state", "ready")),
-            transitioning=data.get("transitioning", False),
-            metadata=data.get("metadata", {}),
-            error=data.get("error"),
-            multiroom_enabled=data.get("multiroom_enabled", False),
-            equalizer_effects_enabled=data.get("equalizer_effects_enabled", False)
-        )

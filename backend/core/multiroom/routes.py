@@ -230,21 +230,3 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine, cam
             return {"status": "error", "message": str(e)}
 
     return router
-
-
-def setup_multiroom_routes(app, routing_service, snapcast_service, state_machine, camilladsp_service=None, proxy_service=None, settings_service=None):
-    """Set up all multiroom routes on the FastAPI app."""
-    router = create_snapcast_router(
-        routing_service=routing_service,
-        snapcast_service=snapcast_service,
-        state_machine=state_machine,
-        camilladsp_service=camilladsp_service,
-        proxy_service=proxy_service,
-        settings_service=settings_service
-    )
-    app.include_router(router)
-    return router
-
-
-# Default router for direct import
-router = APIRouter(prefix="/api/routing/snapcast", tags=["snapcast"])

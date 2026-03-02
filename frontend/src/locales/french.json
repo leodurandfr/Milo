@@ -91,11 +91,9 @@
   },
   "equalizer": {
     "title": "Égaliseur",
-    "disabled": "L'égaliseur est désactivé",
     "effects_disabled": "Les effets de l'égaliseur sont désactivés",
     "connecting": "Connexion à l'égaliseur...",
     "selectPreset": "Preset",
-    "selectTarget": "Appareil",
     "zones": {
       "title": "Zones",
       "configure": "Configurer les zones",
@@ -119,28 +117,6 @@
     "equalizer": {
       "title": "Égaliseur 10 bandes"
     },
-    "advanced": {
-      "title": "Effets avancés"
-    },
-    "filters": "Filtres",
-    "addFilter": "Ajouter un filtre",
-    "removeFilter": "Supprimer le filtre",
-    "resetFilters": "Réinitialiser",
-    "frequency": "Fréquence",
-    "gain": "Gain",
-    "qFactor": "Facteur Q",
-    "filterType": "Type",
-    "filterTypes": {
-      "peaking": "Cloche",
-      "lowshelf": "Graves",
-      "highshelf": "Aigus",
-      "lowpass": "Passe-bas",
-      "highpass": "Passe-haut",
-      "notch": "Coupe-bande",
-      "allpass": "Passe-tout"
-    },
-    "showAdvanced": "Options avancées",
-    "hideAdvanced": "Masquer options",
     "compressor": {
       "title": "Compresseur",
       "enable": "Activer le compresseur",
@@ -155,11 +131,6 @@
       "enable": "Activer le loudness",
       "lowBoost": "Boost graves",
       "highBoost": "Boost aigus"
-    },
-    "volume": {
-      "title": "Volume",
-      "level": "Niveau",
-      "muted": "Muet"
     },
     "presets": {
       "custom": "Personnalisé",
@@ -189,15 +160,6 @@
     },
     "meters": {
       "title": "Niveaux de sortie audio"
-    },
-    "linkedClients": {
-      "title": "Lier les clients",
-      "description": "Les clients liés partagent les mêmes réglages de l'égaliseur. Les modifications s'appliquent à tous.",
-      "linked": "Lié",
-      "offline": "Hors ligne",
-      "currentGroup": "Actuellement liés\u00a0:",
-      "link": "Lier la sélection",
-      "unlink": "Délier"
     }
   },
   "status": {
@@ -361,7 +323,6 @@
     "credits": "Credits"
   },
   "applications": {
-    "title": "Applications",
     "features": "Fonctionnalités"
   },
   "applicationsSettings": {
@@ -390,10 +351,6 @@
     "errorLoadingDetails": "Impossible de charger les détails du client",
     "errorValidating": "Erreur lors de la validation des modifications"
   },
-  "playback": {
-    "unknownTitle": "Titre inconnu",
-    "unknownArtist": "Artiste inconnu"
-  },
   "time": {
     "5sec": "5 sec",
     "10sec": "10 sec",
@@ -413,37 +370,17 @@
   },
   "common": {
     "settings": "Paramètres",
-    "parameters": "Paramètres",
-    "configuration": "Configuration",
-    "language": "Langue",
-    "unknown": "Inconnu",
     "cancel": "Annuler",
     "save": "Enregistrer",
     "saving": "Enregistrement...",
     "confirm": "Confirmer",
     "restore": "Restaurer",
     "delete": "Supprimer",
-    "deleting": "Suppression...",
-    "modify": "Modifier"
+    "deleting": "Suppression..."
   },
   "radio": {
-    "edit_station_title": "Modifier {name}",
-    "station_image_optional": "Image de la station (optionnel)",
-    "click_to_choose": "Cliquez pour choisir",
-    "change_image": "Changer l'image",
-    "choose_image": "Choisir une image",
-    "image_formats": "JPG, PNG, WEBP, GIF - Max 5MB",
-    "station_name": "Nom de la station",
-    "station_name_placeholder": "Ex: RTL",
-    "stream_url": "URL du flux audio",
-    "stream_url_placeholder": "Ex: http://streaming.radio.fr/stream",
     "country": "Pays",
     "genre": "Genre",
-    "invalid_image_format": "Format d'image non supporté. Utilisez JPG, PNG, WEBP ou GIF.",
-    "image_too_large": "Image trop volumineuse. Maximum 5MB.",
-    "edit_failed": "Échec de la modification de la station",
-    "error_occurred": "Une erreur est survenue",
-    "saving": "Enregistrement en cours...",
     "manageStation": {
       "name": "Nom de la station",
       "namePlaceholder": "Ex: RTL",
@@ -478,14 +415,8 @@
     "unmodifiedFavoritesTitle": "Favoris non modifiés",
     "modifiedStationsTitle": "Stations modifiées",
     "noModifiedStations": "Aucune station modifiée",
-    "restoreStationConfirm": "Restaurer la station originale\u00a0?",
-    "modificationsWillBeLost": "Toutes les modifications seront perdues et la station originale sera restaurée.",
     "addedStationsTitle": "Stations ajoutées",
-    "noAddedStations": "Aucune station ajoutée. Cliquez sur \"Ajouter une station\" pour commencer.",
     "addStation": "Ajouter une station",
-    "deleteStationConfirm": "Supprimer la station\u00a0?",
-    "cancel": "Annuler",
-    "delete": "Supprimer",
     "trackRecognition": "Reconnaissance des morceaux",
     "trackRecognitionDescription": "Identifier les morceaux en cours de lecture via Shazam"
   },
@@ -507,7 +438,6 @@
       "news": "Actualités",
       "comedy": "Comédie",
       "trueCrime": "True Crime",
-      "tech": "Tech",
       "sports": "Sports",
       "education": "Éducation",
       "business": "Business",

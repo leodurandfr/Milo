@@ -341,12 +341,6 @@ class TestEventConstants:
     def test_volume_events_defined(self):
         """Test volume event constants."""
         assert Events.VOLUME_CHANGED == "volume.changed"
-        assert Events.VOLUME_MUTED == "volume.muted"
-
-    def test_multiroom_events_defined(self):
-        """Test multiroom event constants (formerly registry)."""
-        assert Events.ZONE_CREATED == "multiroom.zone_changed"
-        assert Events.ZONE_DELETED == "multiroom.zone_changed"
 
 
 class TestSingleton:

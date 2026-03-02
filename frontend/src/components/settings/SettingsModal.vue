@@ -117,7 +117,7 @@
 
       <!-- Multiroom client edit view -->
       <ClientEdit v-else-if="currentView === 'multiroom-client-edit'" key="multiroom-client-edit" class="view-content"
-        :mac-id="macIdToEdit" @back="handleClientSaved" @saved="handleClientSaved" />
+        :mac-id="macIdToEdit" @back="handleClientSaved" />
 
       <!-- Radio view -->
       <RadioSettings v-else-if="currentView === 'radio'" key="radio" class="view-content"

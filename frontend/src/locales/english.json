@@ -91,11 +91,9 @@
   },
   "equalizer": {
     "title": "Equalizer",
-    "disabled": "Equalizer is disabled",
     "effects_disabled": "Equalizer effects are disabled",
     "connecting": "Connecting to equalizer...",
     "selectPreset": "Preset",
-    "selectTarget": "Device",
     "zones": {
       "title": "Zones",
       "configure": "Configure zones",
@@ -119,28 +117,6 @@
     "equalizer": {
       "title": "10 bands equalizer"
     },
-    "advanced": {
-      "title": "Advanced effects"
-    },
-    "filters": "Filters",
-    "addFilter": "Add filter",
-    "removeFilter": "Remove filter",
-    "resetFilters": "Reset all",
-    "frequency": "Frequency",
-    "gain": "Gain",
-    "qFactor": "Q factor",
-    "filterType": "Type",
-    "filterTypes": {
-      "peaking": "Peaking",
-      "lowshelf": "Low shelf",
-      "highshelf": "High shelf",
-      "lowpass": "Low pass",
-      "highpass": "High pass",
-      "notch": "Notch",
-      "allpass": "All pass"
-    },
-    "showAdvanced": "Show advanced",
-    "hideAdvanced": "Hide advanced",
     "compressor": {
       "title": "Compressor",
       "enable": "Enable compressor",
@@ -155,11 +131,6 @@
       "enable": "Enable loudness",
       "lowBoost": "Bass boost",
       "highBoost": "Treble boost"
-    },
-    "volume": {
-      "title": "Volume",
-      "level": "Level",
-      "muted": "Muted"
     },
     "presets": {
       "custom": "Custom",
@@ -189,15 +160,6 @@
     },
     "meters": {
       "title": "Audio output levels"
-    },
-    "linkedClients": {
-      "title": "Link clients",
-      "description": "Linked clients share the same equalizer settings. Changes to one will apply to all.",
-      "linked": "Linked",
-      "offline": "Offline",
-      "currentGroup": "Currently linked:",
-      "link": "Link selected",
-      "unlink": "Unlink"
     }
   },
   "status": {
@@ -361,7 +323,6 @@
     "credits": "Credits"
   },
   "applications": {
-    "title": "Applications",
     "features": "Features"
   },
   "applicationsSettings": {
@@ -390,10 +351,6 @@
     "errorLoadingDetails": "Unable to load client details",
     "errorValidating": "Error validating changes"
   },
-  "playback": {
-    "unknownTitle": "Unknown title",
-    "unknownArtist": "Unknown artist"
-  },
   "time": {
     "5sec": "5 sec",
     "10sec": "10 sec",
@@ -413,37 +370,17 @@
   },
   "common": {
     "settings": "Settings",
-    "parameters": "Settings",
-    "configuration": "Settings",
-    "language": "Language",
-    "unknown": "Unknown",
     "cancel": "Cancel",
     "save": "Save",
     "saving": "Saving...",
     "confirm": "Confirm",
     "restore": "Restore",
     "delete": "Delete",
-    "deleting": "Deleting...",
-    "modify": "Modify"
+    "deleting": "Deleting..."
   },
   "radio": {
-    "edit_station_title": "Edit {name}",
-    "station_image_optional": "Station image (optional)",
-    "click_to_choose": "Click to choose",
-    "change_image": "Change image",
-    "choose_image": "Choose image",
-    "image_formats": "JPG, PNG, WEBP, GIF - Max 5MB",
-    "station_name": "Station name",
-    "station_name_placeholder": "Ex: BBC Radio",
-    "stream_url": "Stream URL",
-    "stream_url_placeholder": "Ex: http://streaming.radio.com/stream",
     "country": "Country",
     "genre": "Genre",
-    "invalid_image_format": "Unsupported image format. Use JPG, PNG, WEBP or GIF.",
-    "image_too_large": "Image too large. Maximum 5MB.",
-    "edit_failed": "Failed to edit station",
-    "error_occurred": "An error occurred",
-    "saving": "Saving...",
     "manageStation": {
       "name": "Station name",
       "namePlaceholder": "Ex: BBC Radio",
@@ -478,14 +415,8 @@
     "unmodifiedFavoritesTitle": "Unmodified favorites",
     "modifiedStationsTitle": "Modified stations",
     "noModifiedStations": "No modified stations",
-    "restoreStationConfirm": "Restore original station?",
-    "modificationsWillBeLost": "All modifications will be lost and the original station will be restored.",
     "addedStationsTitle": "Added stations",
-    "noAddedStations": "No station added. Click \"Add station\" to begin.",
     "addStation": "Add station",
-    "deleteStationConfirm": "Delete station?",
-    "cancel": "Cancel",
-    "delete": "Delete",
     "trackRecognition": "Track recognition",
     "trackRecognitionDescription": "Identify playing songs using Shazam"
   },
@@ -507,7 +438,6 @@
       "news": "News",
       "comedy": "Comedy",
       "trueCrime": "True Crime",
-      "tech": "Tech",
       "sports": "Sports",
       "education": "Education",
       "business": "Business",
