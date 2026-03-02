@@ -1,42 +1,24 @@
 <template>
   <!-- "image" variant: Image only for favorites grid -->
   <div v-if="variant === 'image'" v-press class="station-image-wrapper" @click="$emit('click')">
-    <!-- Real content (always present so image can load) -->
-    <div
-      :class="['station-image', {
-        playing: isPlaying,
-        loading: isLoading
-      }]"
+    <LazyImage
+      ref="lazyImg"
+      :src="getFaviconUrl(station.favicon)"
+      :fallback="placeholderImg"
+      :alt="station.name"
+      :class="['station-image', { playing: isPlaying, loading: isLoading }]"
     >
-      <img
-        ref="imgRef"
-        :src="getFaviconUrl(station.favicon)"
-        :alt="station.name"
-        class="station-img"
-        :class="{ loaded: imageLoaded }"
-        loading="lazy"
-        decoding="async"
-        @load="handleImageLoad"
-        @error="handleImageError"
-      />
-      <img
-        :src="placeholderImg"
-        :alt="t('audioSources.radioSource.stationNoImage')"
-        class="image-placeholder"
-      />
-
-      <!-- Loading overlay (buffering) -->
       <transition name="loading-fade">
-        <div v-if="isLoading" class="loading-overlay">
+        <div v-if="isLoading" class="card-loading-overlay">
           <LoadingSpinner :size="48" />
         </div>
       </transition>
-    </div>
+    </LazyImage>
 
     <!-- Skeleton overlay (on top, fades out when loaded) -->
     <transition name="content-fade">
       <SkeletonStationCard
-        v-if="!imageLoaded && !imageError && station.favicon"
+        v-if="!lazyImg?.imageLoaded && !lazyImg?.imageError && station.favicon"
         class="skeleton-overlay"
       />
     </transition>
@@ -48,31 +30,18 @@
     playing: isPlaying,
     loading: isLoading
   }]" @click="$emit('click')">
-    <div class="station-logo">
-      <img
-        ref="imgRef"
-        :src="getFaviconUrl(station.favicon)"
-        :alt="station.name"
-        class="station-favicon"
-        :class="{ loaded: imageLoaded }"
-        loading="lazy"
-        decoding="async"
-        @load="handleImageLoad"
-        @error="handleImageError"
-      />
-      <img
-        :src="placeholderImg"
-        :alt="t('audioSources.radioSource.stationNoImage')"
-        class="logo-placeholder"
-      />
-
-      <!-- Loading overlay -->
+    <LazyImage
+      :src="getFaviconUrl(station.favicon)"
+      :fallback="placeholderImg"
+      :alt="station.name"
+      class="station-logo"
+    >
       <transition name="loading-fade">
-        <div v-if="isLoading" class="loading-overlay">
+        <div v-if="isLoading" class="card-loading-overlay">
           <LoadingSpinner :size="32" />
         </div>
       </transition>
-    </div>
+    </LazyImage>
 
     <div class="station-details">
       <p class="station-title heading-3">{{ station.name }}</p>
@@ -88,10 +57,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { getTranslatedCountryName } from '@/constants/countries';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
+import LazyImage from '@/components/ui/LazyImage.vue';
 import SkeletonStationCard from './SkeletonStationCard.vue';
 import placeholderImg from '@/assets/radio/station-placeholder.jpg';
 
@@ -119,9 +89,7 @@ const props = defineProps({
 
 defineEmits(['click', 'play']);
 
-const imageError = ref(false);
-const imageLoaded = ref(false);
-const imgRef = ref(null);
+const lazyImg = ref(null);
 
 // Helper function to capitalize first letter
 function capitalizeGenre(genre) {
@@ -169,23 +137,7 @@ function getFaviconUrl(faviconUrl) {
   return `/api/radio/favicon?url=${encodeURIComponent(faviconUrl)}`;
 }
 
-function handleImageError() {
-  imageError.value = true;
-}
 
-function handleImageLoad() {
-  imageLoaded.value = true;
-}
-
-function checkImageLoaded() {
-  if (imgRef.value && imgRef.value.complete && imgRef.value.naturalHeight !== 0) {
-    imageLoaded.value = true;
-  }
-}
-
-onMounted(() => {
-  checkImageLoaded();
-});
 </script>
 
 <style scoped>
@@ -219,68 +171,11 @@ onMounted(() => {
   aspect-ratio: 1 / 1;
   width: 100%;
   border-radius: var(--radius-05);
-  overflow: hidden;
   transition: transform var(--transition-fast);
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
-
 
 .station-image.playing {
   box-shadow: 0 0 0 3px var(--color-brand);
-}
-
-.station-image .station-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center;
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  transition: opacity var(--transition-normal);
-  z-index: 1;
-  background: var(--color-background-neutral);
-}
-
-.station-image .station-img.loaded {
-  opacity: 1;
-}
-
-.station-image .image-placeholder {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  position: absolute;
-  inset: 0;
-  opacity: 1;
-  z-index: 0;
-}
-
-
-.loading-overlay {
-  position: absolute;
-  inset: 0;
-  background: var(--color-background-contrast-32);
-  backdrop-filter: blur(var(--blur-01));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 10;
-  color: var(--color-text-contrast);
-}
-
-/* Loading overlay fade transition */
-.loading-fade-enter-active,
-.loading-fade-leave-active {
-  transition: opacity var(--transition-fast);
-}
-
-.loading-fade-enter-from,
-.loading-fade-leave-to {
-  opacity: 0;
 }
 
 /* === "CARD" VARIANT: Horizontal layout === */
@@ -309,36 +204,8 @@ onMounted(() => {
   flex-shrink: 0;
   width: 60px;
   height: 60px;
-  position: relative;
   border-radius: var(--radius-02);
-  overflow: hidden;
   background: var(--color-background);
-}
-
-.station-logo .station-favicon {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center;
-  opacity: 0;
-  transition: opacity var(--transition-normal);
-  z-index: 1;
-}
-
-.station-logo .station-favicon.loaded {
-  opacity: 1;
-}
-
-.logo-placeholder {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  opacity: 1;
-  z-index: 0;
 }
 
 .station-details {

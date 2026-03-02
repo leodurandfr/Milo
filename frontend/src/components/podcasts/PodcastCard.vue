@@ -2,15 +2,11 @@
   <!-- Card variant (default) -->
   <div v-if="variant === 'card'" class="podcast-card variant-card"
     :class="{ 'is-subscribed': isSubscribed, clickable, contrast }" @click="handleCardClick">
-    <div class="card-image">
-      <img ref="imgRef" :src="imageUrl" :alt="podcast.name" loading="lazy" @load="handleImageLoad"
-        @error="handleImageError" :class="{ loaded: imageLoaded }" class="main-image" />
-      <img v-if="!imageLoaded && !imageError" :src="podcastPlaceholder" class="placeholder-image" alt="" />
-      <!-- Loading overlay -->
-      <div v-if="isLoading" class="loading-overlay">
+    <LazyImage :src="podcast.image_url" :fallback="podcastPlaceholder" :alt="podcast.name" class="card-image">
+      <div v-if="isLoading" class="card-loading-overlay">
         <LoadingSpinner :size="48" />
       </div>
-    </div>
+    </LazyImage>
 
     <div class="card-info">
       <span v-if="tagText" class="podcast-tag text-mono">{{ tagText }}</span>
@@ -32,16 +28,11 @@
   <!-- Row variant -->
   <div v-else class="podcast-card variant-row" :class="{ 'is-subscribed': isSubscribed, clickable, contrast }"
     @click="handleCardClick">
-    <div class="row-image">
-      <img ref="imgRef" :src="imageUrl" :alt="podcast.name" loading="lazy" @load="handleImageLoad"
-        @error="handleImageError" :class="{ loaded: imageLoaded }" class="main-image" />
-      <img v-if="!imageLoaded && !imageError" :src="podcastPlaceholder" class="placeholder-image" alt="" />
-
-      <!-- Loading overlay -->
-      <div v-if="isLoading" class="loading-overlay">
+    <LazyImage :src="podcast.image_url" :fallback="podcastPlaceholder" :alt="podcast.name" class="row-image">
+      <div v-if="isLoading" class="card-loading-overlay">
         <LoadingSpinner :size="32" />
       </div>
-    </div>
+    </LazyImage>
 
     <div class="row-content">
       <div class="row-info">
@@ -68,10 +59,11 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from '@/services/i18n'
 import Button from '@/components/ui/Button.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
+import LazyImage from '@/components/ui/LazyImage.vue'
 import podcastPlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
 
 const { t } = useI18n()
@@ -110,15 +102,6 @@ const props = defineProps({
 
 const emit = defineEmits(['select', 'subscribe', 'unsubscribe'])
 
-const imageError = ref(false)
-const imageLoaded = ref(false)
-const imgRef = ref(null)
-
-const imageUrl = computed(() => {
-  if (imageError.value) return podcastPlaceholder
-  return props.podcast.image_url || podcastPlaceholder
-})
-
 const isSubscribed = computed(() => {
   return props.podcast.is_subscribed || false
 })
@@ -143,19 +126,7 @@ function handleCardClick() {
   }
 }
 
-function handleImageError() {
-  imageError.value = true
-}
 
-function handleImageLoad() {
-  imageLoaded.value = true
-}
-
-onMounted(() => {
-  if (imgRef.value && imgRef.value.complete && imgRef.value.naturalHeight !== 0) {
-    imageLoaded.value = true
-  }
-})
 </script>
 
 <style scoped>
@@ -198,46 +169,8 @@ onMounted(() => {
 }
 
 .variant-card .card-image {
-  position: relative;
   aspect-ratio: 1;
-  overflow: hidden;
   border-radius: var(--radius-02);
-}
-
-.variant-card .card-image img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  position: absolute;
-  inset: 0;
-}
-
-.variant-card .card-image .main-image {
-  opacity: 0;
-  transition: opacity var(--transition-normal);
-  z-index: 1;
-}
-
-.variant-card .card-image .main-image.loaded {
-  opacity: 1;
-}
-
-.variant-card .card-image .placeholder-image {
-  opacity: 1;
-  z-index: 0;
-}
-
-.variant-card .card-image .loading-overlay {
-  position: absolute;
-  inset: 0;
-  background: var(--color-background-contrast-32);
-  border-radius: var(--radius-02);
-  backdrop-filter: blur(var(--blur-01));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 10;
-  color: var(--color-text-contrast);
 }
 
 .variant-card .card-info {
@@ -269,48 +202,10 @@ onMounted(() => {
 }
 
 .variant-row .row-image {
-  position: relative;
   width: 128px;
   height: 128px;
   flex-shrink: 0;
   border-radius: var(--radius-02);
-  overflow: hidden;
-}
-
-.variant-row .row-image img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  position: absolute;
-  inset: 0;
-}
-
-.variant-row .row-image .main-image {
-  opacity: 0;
-  transition: opacity var(--transition-normal);
-  z-index: 1;
-}
-
-.variant-row .row-image .main-image.loaded {
-  opacity: 1;
-}
-
-.variant-row .row-image .placeholder-image {
-  opacity: 1;
-  z-index: 0;
-}
-
-.variant-row .row-image .loading-overlay {
-  position: absolute;
-  inset: 0;
-  background: var(--color-background-contrast-32);
-  border-radius: var(--radius-02);
-  backdrop-filter: blur(var(--blur-01));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 10;
-  color: var(--color-text-contrast);
 }
 
 .variant-row .row-content {

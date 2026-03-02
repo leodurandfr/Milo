@@ -77,11 +77,11 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { useRadioStore } from '@/stores/radioStore'
 import { useDebounce } from '@/composables/useDebounce'
+import { useInfiniteScroll } from '@/composables/useInfiniteScroll'
 import { useI18n } from '@/services/i18n'
-import { logger } from '@/services/logger'
 import StationCard from './StationCard.vue'
 import InputText from '@/components/ui/InputText.vue'
 import Dropdown from '@/components/ui/Dropdown.vue'
@@ -156,12 +156,6 @@ const MIN_SEARCH_CHARS = 3
 // State for showing minimum characters message
 const showMinCharMessage = ref(false)
 
-// Sentinel element ref for IntersectionObserver
-const scrollSentinel = ref(null)
-
-// IntersectionObserver instance
-let observer = null
-
 // Check if any filter (country or genre) is active
 function hasActiveFilters() {
   return radioStore.countryFilter !== '' || radioStore.genreFilter !== ''
@@ -227,54 +221,11 @@ const searchResults = computed(() => radioStore.displayedStations || [])
 // Has more stations to load
 const hasMoreStations = computed(() => radioStore.hasMoreStations)
 
-// Setup IntersectionObserver for infinite scroll
-function setupIntersectionObserver() {
-  if (observer) {
-    observer.disconnect()
-  }
-
-  observer = new IntersectionObserver(
-    (entries) => {
-      const [entry] = entries
-      if (entry.isIntersecting && radioStore.hasMoreStations && !radioStore.loading) {
-        logger.debug('radio', 'Sentinel visible, loading more')
-        radioStore.loadMore()
-      }
-    },
-    {
-      rootMargin: '100px', // Start loading 100px before sentinel is visible
-      threshold: 0
-    }
-  )
-
-  if (scrollSentinel.value) {
-    observer.observe(scrollSentinel.value)
-  }
-}
-
-// Watch for sentinel ref changes (when results appear/disappear)
-watch(scrollSentinel, (newRef) => {
-  if (newRef && observer) {
-    observer.observe(newRef)
-  }
-})
-
-// Watch for hasMoreStations changes to reconnect observer
-watch(hasMoreStations, (hasMore) => {
-  if (hasMore && scrollSentinel.value && observer) {
-    observer.observe(scrollSentinel.value)
-  }
-})
-
-onMounted(() => {
-  setupIntersectionObserver()
-})
-
-onBeforeUnmount(() => {
-  if (observer) {
-    observer.disconnect()
-    observer = null
-  }
+// Infinite scroll
+const { sentinelRef: scrollSentinel } = useInfiniteScroll({
+  onLoadMore: () => radioStore.loadMore(),
+  canLoadMore: hasMoreStations,
+  isLoading: computed(() => radioStore.loading)
 })
 </script>
 
