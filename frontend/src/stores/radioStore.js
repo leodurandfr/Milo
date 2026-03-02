@@ -148,6 +148,28 @@ export const useRadioStore = defineStore('radio', () => {
 
   // === ACTIONS ===
 
+  // Guard against concurrent preload calls
+  let preloadPromise = null;
+
+  /**
+   * Preload favorites at app boot (fire-and-forget, like podcastStore.preloadSubscriptionsList)
+   * Ensures favorites are available instantly when the user opens Radio.
+   */
+  async function preloadFavorites() {
+    if (favoritesInitialized.value) return;
+    if (preloadPromise) return preloadPromise;
+    preloadPromise = apiCall('radio', 'Error preloading favorites:', async () => {
+      const response = await axios.get('/api/radio/stations', {
+        params: { favorites_only: true }
+      });
+      favoriteStations.value = response.data.stations;
+      favoritesInitialized.value = true;
+      logger.debug('radio', `Preloaded ${favoriteStations.value.length} favorites`);
+    });
+    await preloadPromise;
+    preloadPromise = null;
+  }
+
   /**
    * Load stations according to active filters
    */
@@ -485,6 +507,7 @@ export const useRadioStore = defineStore('radio', () => {
     customStations,
 
     // Actions
+    preloadFavorites,
     loadStations,
     loadRadioSettingsData,
     loadMore,

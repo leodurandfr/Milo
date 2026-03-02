@@ -73,6 +73,7 @@ const VirtualKeyboard = defineAsyncComponent(() =>
 import axios from 'axios';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { usePodcastStore } from '@/stores/podcastStore';
+import { useRadioStore } from '@/stores/radioStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useEqualizerStore } from '@/stores/equalizerStore';
@@ -96,6 +97,7 @@ const SCREEN_FADE_DELAY = isFastBoot ? 100 : 500;
 const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
 const podcastStore = usePodcastStore();
+const radioStore = useRadioStore();
 const settingsStore = useSettingsStore();
 const multiroomStore = useMultiroomStore();
 const equalizerStore = useEqualizerStore();
@@ -402,6 +404,9 @@ onMounted(async () => {
   // Preload podcast subscriptions list in background (for instant hasSubscriptions check)
   // Only fetches local data, no Taddy API call - episodes loaded when HomeView opens
   podcastStore.preloadSubscriptionsList()
+
+  // Preload radio favorites in background (for instant display when user opens Radio)
+  radioStore.preloadFavorites()
 
   // Preload modals in background for instant display when user opens them
   Promise.all([
