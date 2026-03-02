@@ -4,6 +4,7 @@ import { ref, computed } from 'vue';
 import axios from 'axios';
 import { useSettingsStore } from './settingsStore';
 import { logger } from '@/services/logger';
+import { apiCall } from '@/services/apiCall';
 import { SystemStateSchema, VolumeStateSchema, validateSchema } from '@/schemas/api';
 
 export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
@@ -56,39 +57,28 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   async function sendCommand(source, command, data = {}) {
     isSendingCommand.value = true;
     try {
-      const response = await axios.post(`/api/audio/control/${source}`, {
-        command,
-        data
+      return await apiCall('store', `Command failed: ${source}/${command}`, async () => {
+        const response = await axios.post(`/api/audio/control/${source}`, { command, data });
+        return response.data.status === 'success';
       });
-      return response.data.status === 'success';
-    } catch (err) {
-      logger.error('store', `Command failed: ${source}/${command}`, { error: err.message });
-      return false;
     } finally {
       isSendingCommand.value = false;
     }
   }
 
   async function setMultiroomEnabled(enabled) {
-    try {
+    return apiCall('store', 'Set multiroom failed', async () => {
       const response = await axios.post(`/api/routing/multiroom/${enabled}`);
       return response.data.status === 'success';
-    } catch (err) {
-      logger.error('store', 'Set multiroom failed', { enabled, error: err.message });
-      return false;
-    }
+    });
   }
 
   // === VOLUME ACTIONS (all in dB) ===
   async function adjustVolume(delta_db, showBar = true) {
-    try {
+    return apiCall('store', 'Adjust volume failed', async () => {
       const response = await axios.post('/api/volume/adjust', { delta_db, show_bar: showBar });
-      // Volume state will be updated via WebSocket broadcast
       return response.data.status === 'success';
-    } catch (error) {
-      logger.error('store', 'Adjust volume failed', { delta_db, error: error.message });
-      return false;
-    }
+    });
   }
 
   // === WEBSOCKET STATE UPDATES ===

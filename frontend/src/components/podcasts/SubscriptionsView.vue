@@ -34,9 +34,11 @@
   </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { computed, onMounted } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
+import { logger } from '@/services/logger'
+import { useAsyncData } from '@/composables/useAsyncData'
 import PodcastCard from './PodcastCard.vue'
 import EpisodeCard from './EpisodeCard.vue'
 import MessageContent from '@/components/ui/MessageContent.vue'
@@ -48,8 +50,6 @@ const podcastStore = usePodcastStore()
 async function handlePause() {
   await podcastStore.pause()
 }
-
-const loading = ref(false)
 
 // Use store's cached data directly via computed
 const subscriptions = computed(() => podcastStore.subscriptions)
@@ -75,28 +75,16 @@ async function handleUnsubscribe(uuid) {
       podcastStore.removeSubscription(uuid)
     }
   } catch (error) {
-    console.error('Error unsubscribing:', error)
+    logger.error('podcast', 'Error unsubscribing:', error)
   }
 }
 
-async function loadData() {
-  // Only show loading if no cached data available
-  if (!podcastStore.subscriptionsLoaded) {
-    loading.value = true
-  }
+const { loading, execute: loadData } = useAsyncData(
+  () => podcastStore.loadSubscriptions(),
+  { logTag: 'podcast' }
+)
 
-  try {
-    await podcastStore.loadSubscriptions()
-  } catch (error) {
-    console.error('Error loading subscriptions:', error)
-  } finally {
-    loading.value = false
-  }
-}
-
-onMounted(() => {
-  loadData()
-})
+onMounted(loadData)
 </script>
 
 <style scoped>

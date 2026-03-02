@@ -14,6 +14,7 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
 import { logger } from '@/services/logger';
+import { apiCall } from '@/services/apiCall';
 
 const CACHE_KEY = 'multiroom_cache';
 
@@ -329,22 +330,15 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * Uses canonical /api/multiroom/zones endpoint (Story 2-4).
    */
   async function createZone(name, clientIds = []) {
-    try {
-      const response = await axios.post('/api/multiroom/zones', {
-        name,
-        client_ids: clientIds
-      });
-      // Immediate local state update - don't wait for WebSocket
+    return apiCall('store', 'Error creating zone', async () => {
+      const response = await axios.post('/api/multiroom/zones', { name, client_ids: clientIds });
       const newZone = response.data.zone;
       if (newZone && newZone.id) {
         zones.value.set(newZone.id, newZone);
         saveCache();
       }
       return response.data;
-    } catch (error) {
-      logger.error('store', 'Error creating zone', error);
-      throw error;
-    }
+    }, { rethrow: true });
   }
 
   /**
@@ -352,16 +346,12 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * Uses canonical /api/multiroom/zones endpoint (Story 2-4).
    */
   async function deleteZone(zoneId) {
-    try {
+    return apiCall('store', 'Error deleting zone', async () => {
       await axios.delete(`/api/multiroom/zones/${zoneId}`);
-      // Immediate local state update - don't wait for WebSocket
       zones.value.delete(zoneId);
       saveCache();
       return true;
-    } catch (error) {
-      logger.error('store', 'Error deleting zone', error);
-      throw error;
-    }
+    }, { rethrow: true });
   }
 
   /**
@@ -369,18 +359,14 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * Uses canonical /api/multiroom/zones endpoint (Story 2-4).
    */
   async function updateZone(zoneId, updates) {
-    try {
+    return apiCall('store', 'Error updating zone', async () => {
       const response = await axios.patch(`/api/multiroom/zones/${zoneId}`, updates);
-      // Immediate local state update - don't wait for WebSocket
       if (response.data.zone) {
         zones.value.set(zoneId, response.data.zone);
         saveCache();
       }
       return response.data;
-    } catch (error) {
-      logger.error('store', 'Error updating zone', error);
-      throw error;
-    }
+    }, { rethrow: true });
   }
 
   /**
@@ -391,20 +377,14 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * @returns {Promise<Object>} Response with updated zone data
    */
   async function addClientToZone(zoneId, macId) {
-    try {
-      const response = await axios.post(`/api/multiroom/zones/${zoneId}/clients`, {
-        mac_id: macId
-      });
-      // Immediate local state update - don't wait for WebSocket
+    return apiCall('store', 'Error adding client to zone', async () => {
+      const response = await axios.post(`/api/multiroom/zones/${zoneId}/clients`, { mac_id: macId });
       if (response.data.zone) {
         zones.value.set(zoneId, response.data.zone);
         saveCache();
       }
       return response.data;
-    } catch (error) {
-      logger.error('store', 'Error adding client to zone', error);
-      throw error;
-    }
+    }, { rethrow: true });
   }
 
   /**
@@ -416,22 +396,16 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * @returns {Promise<Object>} Response with zone data or deletion message
    */
   async function removeClientFromZone(zoneId, macId) {
-    try {
+    return apiCall('store', 'Error removing client from zone', async () => {
       const response = await axios.delete(`/api/multiroom/zones/${zoneId}/clients/${macId}`);
-      // Immediate local state update - don't wait for WebSocket
       if (response.data.zone) {
-        // Zone still exists with updated client list
         zones.value.set(zoneId, response.data.zone);
       } else if (response.data.message?.includes('deleted')) {
-        // Zone was auto-deleted (< 2 clients remaining)
         zones.value.delete(zoneId);
       }
       saveCache();
       return response.data;
-    } catch (error) {
-      logger.error('store', 'Error removing client from zone', error);
-      throw error;
-    }
+    }, { rethrow: true });
   }
 
   /**
@@ -453,14 +427,10 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * @returns {Promise<Object>} Updated client data
    */
   async function updateClient(macId, updates) {
-    try {
+    return apiCall('store', 'Error updating client', async () => {
       const response = await axios.patch(`/api/multiroom/clients/${macId}`, updates);
-      // State update will come via WebSocket (registry:client_updated)
       return response.data;
-    } catch (error) {
-      logger.error('store', 'Error updating client', error);
-      throw error;
-    }
+    }, { rethrow: true });
   }
 
   /**
@@ -470,14 +440,10 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * @returns {Promise<boolean>} Success status
    */
   async function deleteClient(macId) {
-    try {
+    return apiCall('store', 'Error deleting client', async () => {
       const response = await axios.delete(`/api/multiroom/clients/${macId}`);
-      // State update will come via WebSocket (client_state_changed without client object)
       return response.data.status === 'success';
-    } catch (error) {
-      logger.error('store', 'Error deleting client', error);
-      return false;
-    }
+    });
   }
 
   // === SYNC STATUS HELPERS ===
