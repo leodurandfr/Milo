@@ -455,13 +455,6 @@ class MultiroomEqualizerService:
     # CamillaDSP Application with Error Handling (AC4)
     # =========================================================================
 
-    def _is_local_client(self, mac_id: str) -> bool:
-        """Check if a client is the local device via registry."""
-        if not self._registry:
-            return False
-        client = self._registry.get_client(mac_id)
-        return client.is_local if client else False
-
     async def _apply_to_camilladsp(
         self, mac_id: str, settings: EqualizerSettings
     ) -> bool:
@@ -484,7 +477,7 @@ class MultiroomEqualizerService:
         Returns:
             True if applied successfully, False on failure
         """
-        if self._is_local_client(mac_id):
+        if self._registry.is_local_client(mac_id):
             return await self._apply_to_local(settings)
         else:
             return await self._apply_to_remote(mac_id, settings)
@@ -618,6 +611,66 @@ class MultiroomEqualizerService:
     # Partial Equalizer Update Methods (AC2, AC3)
     # =========================================================================
 
+    async def _apply_partial_update(
+        self,
+        target_type: str,
+        target_id: str,
+        current: EqualizerSettings,
+        router_method: str,
+        router_kwargs: dict,
+        broadcast_settings: dict,
+    ) -> bool:
+        """
+        Shared logic for partial equalizer updates (save → route → broadcast).
+
+        1. Save current settings to registry (source of truth) without full broadcast
+        2. Route update to zone clients or standalone client via EqualizerRouter
+        3. Broadcast targeted WebSocket event with only the changed sub-object
+
+        Args:
+            target_type: "zone" or "client"
+            target_id: Zone ID or client MAC ID
+            current: The mutated EqualizerSettings to persist
+            router_method: EqualizerRouter method name (e.g., "update_filter")
+            router_kwargs: Kwargs for the router method (excluding mac_id, persist, broadcast)
+            broadcast_settings: Partial equalizer_settings dict for the WebSocket broadcast
+        """
+        # Save to registry (source of truth) without broadcasting full settings
+        if target_type == "zone":
+            await self._registry.set_zone_equalizer(target_id, current, broadcast=False)
+        else:
+            await self._registry.set_standalone_equalizer(target_id, current, broadcast=False)
+
+        # Route to clients via EqualizerRouter
+        if self._equalizer_router:
+            method = getattr(self._equalizer_router, router_method)
+            if target_type == "zone":
+                online_clients = self._registry.get_online_zone_clients(target_id)
+                if online_clients:
+                    await asyncio.gather(
+                        *[method(mac_id=c.mac_id, persist=False, broadcast=False, **router_kwargs)
+                          for c in online_clients],
+                        return_exceptions=True,
+                    )
+            else:
+                await method(mac_id=target_id, persist=False, broadcast=False, **router_kwargs)
+        else:
+            self.logger.warning(f"EqualizerRouter not available, {router_method} not applied to clients")
+
+        # Broadcast targeted WebSocket event
+        if self._state_machine:
+            await self._state_machine.broadcast_event(
+                "multiroom",
+                "equalizer_changed",
+                {
+                    "target_type": target_type,
+                    "target_id": target_id,
+                    "equalizer_settings": broadcast_settings,
+                },
+            )
+
+        return True
+
     async def update_filter(
         self,
         target_type: str,
@@ -673,61 +726,24 @@ class MultiroomEqualizerService:
         if not updated_filter:
             raise ValueError(f"Filter not found: {filter_id}")
 
-        # Save to registry (source of truth) without broadcasting full settings
-        # (we broadcast only the changed filter below)
-        if target_type == "zone":
-            await self._registry.set_zone_equalizer(target_id, current, broadcast=False)
-        else:
-            await self._registry.set_standalone_equalizer(target_id, current, broadcast=False)
-
-        # Build filter data dict for router
-        filter_data = {
-            "freq": updated_filter.frequency,
-            "gain": updated_filter.gain,
-            "q": updated_filter.q,
-            "filter_type": updated_filter.filter_type.value,
-            "enabled": updated_filter.enabled
-        }
-
-        # Apply to clients via EqualizerRouter (handles local/remote routing)
-        if self._equalizer_router:
-            if target_type == "zone":
-                online_clients = self._registry.get_online_zone_clients(target_id)
-                for client in online_clients:
-                    await self._equalizer_router.update_filter(
-                        mac_id=client.mac_id,
-                        filter_id=filter_id,
-                        filter_data=filter_data,
-                        persist=False,      # Don't persist (registry is source of truth)
-                        broadcast=False     # Don't broadcast per-filter
-                    )
-            else:
-                await self._equalizer_router.update_filter(
-                    mac_id=target_id,
-                    filter_id=filter_id,
-                    filter_data=filter_data,
-                    persist=False,
-                    broadcast=False
-                )
-        else:
-            self.logger.warning("EqualizerRouter not available, filter update not applied to clients")
-
-        # Broadcast only the changed filter (not all settings)
-        if self._state_machine:
-            await self._state_machine.broadcast_event(
-                "multiroom",
-                "equalizer_changed",
-                {
-                    "target_type": target_type,
-                    "target_id": target_id,
-                    "equalizer_settings": {
-                        "filters": [updated_filter.to_dict()],
-                        "active_preset": current.active_preset,
-                    },
+        return await self._apply_partial_update(
+            target_type, target_id, current,
+            router_method="update_filter",
+            router_kwargs={
+                "filter_id": filter_id,
+                "filter_data": {
+                    "freq": updated_filter.frequency,
+                    "gain": updated_filter.gain,
+                    "q": updated_filter.q,
+                    "filter_type": updated_filter.filter_type.value,
+                    "enabled": updated_filter.enabled,
                 },
-            )
-
-        return True
+            },
+            broadcast_settings={
+                "filters": [updated_filter.to_dict()],
+                "active_preset": current.active_preset,
+            },
+        )
 
     async def update_compressor(
         self,
@@ -779,56 +795,21 @@ class MultiroomEqualizerService:
         if makeup_gain is not None:
             comp.makeup_gain = makeup_gain
 
-        # Save to registry (source of truth) without broadcasting full settings
-        if target_type == "zone":
-            await self._registry.set_zone_equalizer(target_id, current, broadcast=False)
-        else:
-            await self._registry.set_standalone_equalizer(target_id, current, broadcast=False)
-
-        # Build compressor data dict for router
-        compressor_data = {
-            "enabled": comp.enabled,
-            "threshold": comp.threshold,
-            "ratio": comp.ratio,
-            "attack": comp.attack,
-            "release": comp.release,
-            "makeup_gain": comp.makeup_gain,
-        }
-
-        # Apply only compressor to clients via EqualizerRouter
-        if self._equalizer_router:
-            if target_type == "zone":
-                online_clients = self._registry.get_online_zone_clients(target_id)
-                for client in online_clients:
-                    await self._equalizer_router.set_compressor(
-                        mac_id=client.mac_id,
-                        settings=compressor_data,
-                        persist=False,
-                        broadcast=False,
-                    )
-            else:
-                await self._equalizer_router.set_compressor(
-                    mac_id=target_id,
-                    settings=compressor_data,
-                    persist=False,
-                    broadcast=False,
-                )
-
-        # Broadcast only the compressor change (not all settings)
-        if self._state_machine:
-            await self._state_machine.broadcast_event(
-                "multiroom",
-                "equalizer_changed",
-                {
-                    "target_type": target_type,
-                    "target_id": target_id,
-                    "equalizer_settings": {
-                        "compressor": comp.to_dict(),
-                    },
+        return await self._apply_partial_update(
+            target_type, target_id, current,
+            router_method="set_compressor",
+            router_kwargs={
+                "settings": {
+                    "enabled": comp.enabled,
+                    "threshold": comp.threshold,
+                    "ratio": comp.ratio,
+                    "attack": comp.attack,
+                    "release": comp.release,
+                    "makeup_gain": comp.makeup_gain,
                 },
-            )
-
-        return True
+            },
+            broadcast_settings={"compressor": comp.to_dict()},
+        )
 
     async def update_loudness(
         self,
@@ -868,53 +849,18 @@ class MultiroomEqualizerService:
         if low_boost is not None:
             loud.low_boost = low_boost
 
-        # Save to registry (source of truth) without broadcasting full settings
-        if target_type == "zone":
-            await self._registry.set_zone_equalizer(target_id, current, broadcast=False)
-        else:
-            await self._registry.set_standalone_equalizer(target_id, current, broadcast=False)
-
-        # Build loudness data dict for router
-        loudness_data = {
-            "enabled": loud.enabled,
-            "high_boost": loud.high_boost,
-            "low_boost": loud.low_boost,
-        }
-
-        # Apply only loudness to clients via EqualizerRouter
-        if self._equalizer_router:
-            if target_type == "zone":
-                online_clients = self._registry.get_online_zone_clients(target_id)
-                for client in online_clients:
-                    await self._equalizer_router.set_loudness(
-                        mac_id=client.mac_id,
-                        settings=loudness_data,
-                        persist=False,
-                        broadcast=False,
-                    )
-            else:
-                await self._equalizer_router.set_loudness(
-                    mac_id=target_id,
-                    settings=loudness_data,
-                    persist=False,
-                    broadcast=False,
-                )
-
-        # Broadcast only the loudness change (not all settings)
-        if self._state_machine:
-            await self._state_machine.broadcast_event(
-                "multiroom",
-                "equalizer_changed",
-                {
-                    "target_type": target_type,
-                    "target_id": target_id,
-                    "equalizer_settings": {
-                        "loudness": loud.to_dict(),
-                    },
+        return await self._apply_partial_update(
+            target_type, target_id, current,
+            router_method="set_loudness",
+            router_kwargs={
+                "settings": {
+                    "enabled": loud.enabled,
+                    "high_boost": loud.high_boost,
+                    "low_boost": loud.low_boost,
                 },
-            )
-
-        return True
+            },
+            broadcast_settings={"loudness": loud.to_dict()},
+        )
 
     async def update_equalizer_enabled(
         self,
@@ -975,7 +921,7 @@ class MultiroomEqualizerService:
         success_count = 0
 
         for client_id in zone.client_ids:
-            if self._is_local_client(client_id):
+            if self._registry.is_local_client(client_id):
                 # Local client: use routing_service
                 if self._routing_service:
                     try:

@@ -73,22 +73,6 @@ class EqualizerSettingsSyncService:
         """Set the client registry (for dependency injection after init)."""
         self._registry = registry
 
-    def _is_local_client(self, client_id: str) -> bool:
-        """Check if client is the local device via registry."""
-        if not self._registry:
-            return False
-        client = self._registry.get_client(client_id)
-        return client.is_local if client else False
-
-    def _get_client_ip(self, client_id: str) -> Optional[str]:
-        """Get IP address for a remote client from registry."""
-        if not self._registry:
-            return None
-        client = self._registry.get_client(client_id)
-        if not client or client.is_local:
-            return None
-        return client.ip if client.ip else None
-
     # =========================================================================
     # Settings Persistence
     # =========================================================================
@@ -197,7 +181,7 @@ class EqualizerSettingsSyncService:
         stale_keys = []
         for key in settings.keys():
             # Keep local client always (check via registry)
-            if self._is_local_client(key):
+            if self._registry.is_local_client(key):
                 continue
             # Keep if it matches a valid identifier
             if key in valid_ids:
@@ -231,7 +215,7 @@ class EqualizerSettingsSyncService:
         Returns:
             Dictionary of settings by category
         """
-        if self._is_local_client(source_client):
+        if self._registry.is_local_client(source_client):
             if not self.camilladsp_service:
                 raise ValueError("Equalizer service not available for local settings")
             return {
@@ -245,7 +229,7 @@ class EqualizerSettingsSyncService:
             if not self.proxy_service:
                 raise ValueError("Proxy service not available for remote settings")
 
-            client_ip = self._get_client_ip(source_client)
+            client_ip = self._registry.get_client_ip(source_client)
             if not client_ip:
                 raise ValueError(f"Cannot resolve IP for client {source_client}")
 
@@ -287,7 +271,7 @@ class EqualizerSettingsSyncService:
         Returns:
             True if successful, False otherwise
         """
-        if self._is_local_client(target):
+        if self._registry.is_local_client(target):
             if not self.camilladsp_service:
                 return False
             if category == 'compressor':
@@ -301,7 +285,7 @@ class EqualizerSettingsSyncService:
             elif category == 'mute':
                 await self.camilladsp_service.set_mute(data.get("muted", False))
         else:
-            client_ip = self._get_client_ip(target)
+            client_ip = self._registry.get_client_ip(target)
             if not self.proxy_service or not client_ip:
                 return False
             path = f"/equalizer/filter/{filter_id}" if filter_id else f"/equalizer/{category}"
@@ -344,7 +328,7 @@ class EqualizerSettingsSyncService:
                 continue
 
             # Skip remote clients without IP (local clients are always reachable)
-            if not self._is_local_client(target) and not self._get_client_ip(target):
+            if not self._registry.is_local_client(target) and not self._registry.get_client_ip(target):
                 continue
 
             target_synced = []

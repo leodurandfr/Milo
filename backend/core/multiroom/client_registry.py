@@ -378,6 +378,18 @@ class ClientRegistryService:
         """Get a client by mac_id."""
         return self._clients.get(mac_id)
 
+    def is_local_client(self, mac_id: str) -> bool:
+        """Check if a client is the local device (ip == 127.0.0.1)."""
+        client = self._clients.get(mac_id)
+        return client.is_local if client else False
+
+    def get_client_ip(self, mac_id: str) -> Optional[str]:
+        """Get IP address for a remote client. Returns None for local clients or if not found."""
+        client = self._clients.get(mac_id)
+        if not client or client.is_local:
+            return None
+        return client.ip if client.ip else None
+
     def get_client_by_camilladsp_id(self, camilladsp_id: str) -> Optional[Dict[str, Any]]:
         """
         Get a client by equalizer ID (mac_id).
