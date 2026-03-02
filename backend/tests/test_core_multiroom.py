@@ -1389,6 +1389,7 @@ class TestCrossoverService:
         # Configure mock registry to return local client
         local_client = MagicMock()
         local_client.ip = "127.0.0.1"
+        local_client.is_local = True
         local_client.mac_id = "aa:bb:cc:dd:ee:ff"
         mock_registry.get_client = MagicMock(side_effect=lambda x: local_client if x == "aa:bb:cc:dd:ee:ff" else None)
 
@@ -1464,7 +1465,7 @@ class TestCrossoverService:
     async def test_set_client_crossover_local(self, crossover_service, mock_camilladsp_service):
         """Test setting crossover on local client (identified by mac_id with ip=127.0.0.1)."""
         # Use the MAC address configured in the mock registry for local client
-        result = await crossover_service._set_client_crossover("aa:bb:cc:dd:ee:ff", True, 80)
+        result = await crossover_service._set_client_filter("aa:bb:cc:dd:ee:ff", "crossover", True, 80)
         assert result is True
         mock_camilladsp_service.set_crossover_filter.assert_called_once()
 
@@ -1472,7 +1473,7 @@ class TestCrossoverService:
     async def test_set_client_lowpass_local(self, crossover_service, mock_camilladsp_service):
         """Test setting lowpass on local client (identified by mac_id with ip=127.0.0.1)."""
         # Use the MAC address configured in the mock registry for local client
-        result = await crossover_service._set_client_lowpass("aa:bb:cc:dd:ee:ff", True, 80)
+        result = await crossover_service._set_client_filter("aa:bb:cc:dd:ee:ff", "lowpass", True, 80)
         assert result is True
         mock_camilladsp_service.set_lowpass_filter.assert_called_once()
 
@@ -1666,6 +1667,7 @@ class TestPendingEqualizerSettings:
         mock_registry = MagicMock()
         local_client = MagicMock()
         local_client.ip = "127.0.0.1"
+        local_client.is_local = True
         local_client.mac_id = "aa:bb:cc:dd:ee:ff"
         mock_registry.get_client = MagicMock(side_effect=lambda x: local_client if x == "aa:bb:cc:dd:ee:ff" else None)
 
@@ -2895,6 +2897,7 @@ class TestSyncZoneDspToClient:
         registry = MagicMock()
         client = MagicMock()
         client.ip = "192.168.1.100"
+        client.is_local = False
         client.mac_id = "test-client"
         registry.get_client = MagicMock(return_value=client)
         return registry
@@ -3112,6 +3115,7 @@ class TestSyncStandaloneDspToClient:
         registry = MagicMock()
         client = MagicMock()
         client.ip = "192.168.1.100"
+        client.is_local = False
         client.mac_id = "test-client"
         registry.get_client = MagicMock(return_value=client)
         return registry
@@ -3176,6 +3180,7 @@ class TestSyncStandaloneDspToClient:
         mock_registry = MagicMock()
         local_client = MagicMock()
         local_client.ip = "127.0.0.1"
+        local_client.is_local = True
         local_client.mac_id = "local"
         mock_registry.get_client = MagicMock(return_value=local_client)
 

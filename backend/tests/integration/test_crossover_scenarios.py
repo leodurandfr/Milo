@@ -89,9 +89,8 @@ async def crossover_with_registry(mock_settings_service, mock_camilladsp_service
     await crossover.initialize()
     crossover.set_registry(registry)
 
-    # Mock remote HTTP proxy methods to prevent real network calls
-    crossover._proxy_crossover_to_client = AsyncMock(return_value=True)
-    crossover._proxy_lowpass_to_client = AsyncMock(return_value=True)
+    # Mock remote HTTP proxy method to prevent real network calls
+    crossover._proxy_filter_to_client = AsyncMock(return_value=True)
 
     return crossover, registry
 

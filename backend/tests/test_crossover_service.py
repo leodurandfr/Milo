@@ -522,8 +522,8 @@ class TestRemoteClientProxy:
 
             mock_session_class.return_value = mock_session
 
-            result = await crossover_service._proxy_crossover_to_client(
-                "192.168.1.100", True, 80
+            result = await crossover_service._proxy_filter_to_client(
+                "crossover", "192.168.1.100", True, 80
             )
 
             assert result is True
@@ -534,8 +534,8 @@ class TestRemoteClientProxy:
         with patch('aiohttp.ClientSession') as mock_session_class:
             mock_session_class.side_effect = aiohttp.ClientError("Connection timeout")
 
-            result = await crossover_service._proxy_crossover_to_client(
-                "192.168.1.100", True, 80
+            result = await crossover_service._proxy_filter_to_client(
+                "crossover", "192.168.1.100", True, 80
             )
 
             assert result is False
@@ -562,8 +562,8 @@ class TestRemoteClientProxy:
 
             mock_session_class.return_value = mock_session
 
-            result = await crossover_service._proxy_lowpass_to_client(
-                "192.168.1.101", True, 80
+            result = await crossover_service._proxy_filter_to_client(
+                "lowpass", "192.168.1.101", True, 80
             )
 
             assert result is True
@@ -574,8 +574,8 @@ class TestRemoteClientProxy:
         with patch('aiohttp.ClientSession') as mock_session_class:
             mock_session_class.side_effect = aiohttp.ClientError("Connection refused")
 
-            result = await crossover_service._proxy_lowpass_to_client(
-                "192.168.1.101", True, 80
+            result = await crossover_service._proxy_filter_to_client(
+                "lowpass", "192.168.1.101", True, 80
             )
 
             assert result is False
@@ -1254,9 +1254,9 @@ class TestFilterApplicationMethods:
 
     @pytest.mark.asyncio
     async def test_set_client_crossover_local_calls_camilladsp_service(self, service_with_local_client, mock_camilladsp_service):
-        """Test _set_client_crossover for local client calls CamillaDSPService (AC#5, 1.1)."""
+        """Test _set_client_filter("crossover") for local client calls CamillaDSPService (AC#5, 1.1)."""
         service, registry = service_with_local_client
-        result = await service._set_client_crossover("local", True, 80)
+        result = await service._set_client_filter("local", "crossover", True, 80)
 
         assert result is True
         mock_camilladsp_service.set_crossover_filter.assert_called_once_with(
@@ -1267,9 +1267,9 @@ class TestFilterApplicationMethods:
 
     @pytest.mark.asyncio
     async def test_set_client_crossover_local_disable(self, service_with_local_client, mock_camilladsp_service):
-        """Test _set_client_crossover disables filter for local client."""
+        """Test _set_client_filter("crossover") disables filter for local client."""
         service, registry = service_with_local_client
-        result = await service._set_client_crossover("local", False, 80)
+        result = await service._set_client_filter("local", "crossover", False, 80)
 
         assert result is True
         mock_camilladsp_service.set_crossover_filter.assert_called_once_with(
@@ -1280,9 +1280,9 @@ class TestFilterApplicationMethods:
 
     @pytest.mark.asyncio
     async def test_set_client_crossover_uses_correct_q_factor(self, service_with_local_client, mock_camilladsp_service):
-        """Test _set_client_crossover uses DEFAULT_Q = 0.707 (Butterworth) (1.4)."""
+        """Test _set_client_filter("crossover") uses DEFAULT_Q = 0.707 (Butterworth) (1.4)."""
         service, registry = service_with_local_client
-        await service._set_client_crossover("local", True, 120)
+        await service._set_client_filter("local", "crossover", True, 120)
 
         call_args = mock_camilladsp_service.set_crossover_filter.call_args
         assert call_args is not None, "Expected set_crossover_filter to be called"
@@ -1290,7 +1290,7 @@ class TestFilterApplicationMethods:
 
     @pytest.mark.asyncio
     async def test_set_client_crossover_remote_sends_http(self, crossover_service_with_registry):
-        """Test _set_client_crossover for remote client sends HTTP request (1.2)."""
+        """Test _set_client_filter("crossover") for remote client sends HTTP request (1.2)."""
         service, registry = crossover_service_with_registry
         # Register a remote client
         remote_client = Client(mac_id="remote-1", name="Remote", ip="192.168.1.100", online=True)
@@ -1313,7 +1313,7 @@ class TestFilterApplicationMethods:
 
             mock_session_class.return_value = mock_session
 
-            result = await service._set_client_crossover("remote-1", True, 80)
+            result = await service._set_client_filter("remote-1", "crossover", True, 80)
 
             assert result is True
             # Verify PUT was called with correct URL and payload
@@ -1323,9 +1323,9 @@ class TestFilterApplicationMethods:
 
     @pytest.mark.asyncio
     async def test_set_client_lowpass_local_calls_camilladsp_service(self, service_with_local_client, mock_camilladsp_service):
-        """Test _set_client_lowpass for local client calls CamillaDSPService (2.1)."""
+        """Test _set_client_filter("lowpass") for local client calls CamillaDSPService (2.1)."""
         service, registry = service_with_local_client
-        result = await service._set_client_lowpass("local", True, 80)
+        result = await service._set_client_filter("local", "lowpass", True, 80)
 
         assert result is True
         mock_camilladsp_service.set_lowpass_filter.assert_called_once_with(
@@ -1336,9 +1336,9 @@ class TestFilterApplicationMethods:
 
     @pytest.mark.asyncio
     async def test_set_client_lowpass_local_disable(self, service_with_local_client, mock_camilladsp_service):
-        """Test _set_client_lowpass disables filter for local client."""
+        """Test _set_client_filter("lowpass") disables filter for local client."""
         service, registry = service_with_local_client
-        result = await service._set_client_lowpass("local", False, 80)
+        result = await service._set_client_filter("local", "lowpass", False, 80)
 
         assert result is True
         mock_camilladsp_service.set_lowpass_filter.assert_called_once_with(
@@ -1349,7 +1349,7 @@ class TestFilterApplicationMethods:
 
     @pytest.mark.asyncio
     async def test_set_client_lowpass_remote_sends_http(self, crossover_service_with_registry):
-        """Test _set_client_lowpass for remote client sends HTTP request (2.2)."""
+        """Test _set_client_filter("lowpass") for remote client sends HTTP request (2.2)."""
         service, registry = crossover_service_with_registry
         # Register a remote client
         remote_client = Client(mac_id="remote-1", name="Remote", ip="192.168.1.100", online=True)
@@ -1372,7 +1372,7 @@ class TestFilterApplicationMethods:
 
             mock_session_class.return_value = mock_session
 
-            result = await service._set_client_lowpass("remote-1", True, 80)
+            result = await service._set_client_filter("remote-1", "lowpass", True, 80)
 
             assert result is True
             mock_session.put.assert_called()
@@ -1381,7 +1381,7 @@ class TestFilterApplicationMethods:
 
     @pytest.mark.asyncio
     async def test_set_client_lowpass_without_camilladsp_service_returns_false(self, mock_settings_service, mock_event_bus, mock_registry):
-        """Test _set_client_lowpass returns False when no camilladsp_service for local."""
+        """Test _set_client_filter("lowpass") returns False when no camilladsp_service for local."""
         service = CrossoverService(
             settings_service=mock_settings_service,
             camilladsp_service=None,  # No Equalizer service
@@ -1392,7 +1392,7 @@ class TestFilterApplicationMethods:
         local_client = Client(mac_id="local", name="Local", ip="127.0.0.1", online=True)
         mock_registry._clients["local"] = local_client
 
-        result = await service._set_client_lowpass("local", True, 80)
+        result = await service._set_client_filter("local", "lowpass", True, 80)
 
         assert result is False
 
@@ -1664,7 +1664,7 @@ class TestCrossoverOnReconnection:
             mock_session_class.side_effect = aiohttp.ClientError("Connection refused")
 
             # Attempt to apply crossover to unreachable client
-            result = await service._set_client_crossover("remote-1", True, 80)
+            result = await service._set_client_filter("remote-1", "crossover", True, 80)
 
             assert result is False
             # Settings should be queued
@@ -1685,7 +1685,7 @@ class TestCrossoverOnReconnection:
         with patch('aiohttp.ClientSession') as mock_session_class:
             mock_session_class.side_effect = aiohttp.ClientError("Connection refused")
 
-            result = await service._set_client_lowpass("remote-1", True, 80)
+            result = await service._set_client_filter("remote-1", "lowpass", True, 80)
 
             assert result is False
             assert service.has_pending_settings("remote-1") is True
@@ -1807,7 +1807,7 @@ class TestCrossoverIndependenceFromDspBypass:
         local_client = Client(mac_id="local", name="Local", ip="127.0.0.1", online=True)
         registry._clients["local"] = local_client
         # Enable crossover
-        await service._set_client_crossover("local", True, 80)
+        await service._set_client_filter("local", "crossover", True, 80)
         mock_camilladsp_service.set_crossover_filter.assert_called_with(
             enabled=True, frequency=80, q=0.707
         )
@@ -1815,14 +1815,14 @@ class TestCrossoverIndependenceFromDspBypass:
         mock_camilladsp_service.reset_mock()
 
         # Disable crossover - should work independently of other Equalizer state
-        await service._set_client_crossover("local", False, 80)
+        await service._set_client_filter("local", "crossover", False, 80)
         mock_camilladsp_service.set_crossover_filter.assert_called_with(
             enabled=False, frequency=80, q=0.707
         )
 
         # Lowpass is also independent
         mock_camilladsp_service.reset_mock()
-        await service._set_client_lowpass("local", True, 80)
+        await service._set_client_filter("local", "lowpass", True, 80)
         mock_camilladsp_service.set_lowpass_filter.assert_called_with(
             enabled=True, frequency=80, q=0.707
         )
