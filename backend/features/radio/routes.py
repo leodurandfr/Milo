@@ -13,12 +13,13 @@ Provides REST API endpoints for:
 import asyncio
 import base64
 import logging
-from typing import Dict, Any, Callable, Optional
+from typing import Dict, Any, Optional
 
 import aiohttp
 from fastapi import APIRouter, HTTPException, Query, File, UploadFile, Form, Depends
 from fastapi.responses import FileResponse, Response
 
+from backend.api.source_dependency import make_source_dependency
 from backend.features.radio.source import RadioSource
 from backend.features.radio.models import (
     PlayStationRequest,
@@ -39,33 +40,13 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
-# Source provider function
-_source_provider: Optional[Callable[[], RadioSource]] = None
+set_source_provider, get_source = make_source_dependency("Radio")
 
 
-def setup_radio_routes(source_provider: Callable[[], RadioSource]) -> APIRouter:
-    """
-    Configure routes with source provider.
-
-    Args:
-        source_provider: Function returning RadioSource instance
-
-    Returns:
-        Configured router
-    """
-    global _source_provider
-    _source_provider = source_provider
+def setup_radio_routes(source_provider) -> APIRouter:
+    """Configure routes with source provider."""
+    set_source_provider(source_provider)
     return router
-
-
-def get_source() -> RadioSource:
-    """Dependency to get RadioSource instance."""
-    if _source_provider is None:
-        raise HTTPException(status_code=503, detail="Radio source not configured")
-    source = _source_provider()
-    if source is None:
-        raise HTTPException(status_code=503, detail="Radio source not available")
-    return source
 
 
 # === Status Routes ===

@@ -7,8 +7,9 @@ Provides REST API endpoints for:
 - Restart: Restart shairport-sync service
 """
 from fastapi import APIRouter, HTTPException, Depends
-from typing import Dict, Any, Callable, Optional
+from typing import Dict, Any
 
+from backend.api.source_dependency import make_source_dependency
 from backend.features.airplay.source import AirPlaySource
 
 router = APIRouter(
@@ -17,24 +18,13 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
-_source_provider: Optional[Callable[[], AirPlaySource]] = None
+set_source_provider, get_source = make_source_dependency("AirPlay")
 
 
-def setup_airplay_routes(source_provider: Callable[[], AirPlaySource]) -> APIRouter:
+def setup_airplay_routes(source_provider) -> APIRouter:
     """Configure routes with source provider."""
-    global _source_provider
-    _source_provider = source_provider
+    set_source_provider(source_provider)
     return router
-
-
-def get_source() -> AirPlaySource:
-    """Dependency to get AirPlaySource instance."""
-    if _source_provider is None:
-        raise HTTPException(status_code=503, detail="AirPlay source not configured")
-    source = _source_provider()
-    if source is None:
-        raise HTTPException(status_code=503, detail="AirPlay source not available")
-    return source
 
 
 @router.get("/status")
@@ -66,13 +56,16 @@ async def restart_service(source: AirPlaySource = Depends(get_source)) -> Dict[s
     """Restart shairport-sync service."""
     try:
         result = await source.command("restart_service", {})
-        return {
-            "status": "success" if result.get("success") else "error",
-            "message": result.get("message", "Restart completed"),
-            "error": result.get("error"),
-        }
+
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=result.get("error", "Restart failed")
+            )
+
+        return result
+
+    except HTTPException:
+        raise
     except Exception as e:
-        return {
-            "status": "error",
-            "message": f"Restart error: {str(e)}",
-        }
+        raise HTTPException(status_code=500, detail=f"Restart error: {str(e)}")
