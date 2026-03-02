@@ -50,6 +50,7 @@
 <script setup>
 import { computed, ref, onMounted } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore'
 import { useI18n } from '@/services/i18n'
 import IconButton from '@/components/ui/IconButton.vue'
 import episodePlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
@@ -78,6 +79,7 @@ const props = defineProps({
 const emit = defineEmits(['select', 'play', 'pause', 'complete', 'select-podcast'])
 
 const podcastStore = usePodcastStore()
+const unifiedStore = useUnifiedAudioStore()
 
 function handleCardClick() {
   if (props.clickable) {
@@ -110,14 +112,17 @@ const isCurrentEpisode = computed(() => {
   return podcastStore.currentEpisode?.uuid === props.episode.uuid
 })
 
+const isPodcastActive = computed(() => unifiedStore.systemState.active_source === 'podcast')
+
 const isCurrentlyPlaying = computed(() => {
-  return isCurrentEpisode.value && podcastStore.isPlaying
+  return isCurrentEpisode.value && isPodcastActive.value &&
+    (unifiedStore.systemState.metadata?.is_playing || false)
 })
 
 const isCurrentEpisodeBuffering = computed(() => {
-  // Show loading if: pending (optimistic, immediate) OR currently buffering
   return podcastStore.isEpisodePending(props.episode.uuid) ||
-         (isCurrentEpisode.value && podcastStore.isBuffering)
+    (isCurrentEpisode.value && isPodcastActive.value &&
+      (unifiedStore.systemState.metadata?.is_buffering || false))
 })
 
 function handlePlayClick() {

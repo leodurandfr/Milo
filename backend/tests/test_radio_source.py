@@ -453,5 +453,5 @@ class TestPlaybackMetadata:
         assert metadata["country"] == "France"
         assert metadata["genre"] == "Rock"
         assert metadata["is_playing"] is True
-        assert metadata["buffering"] is False
+        assert metadata["is_buffering"] is False
         assert metadata["is_favorite"] is True

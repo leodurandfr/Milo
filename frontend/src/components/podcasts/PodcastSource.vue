@@ -98,9 +98,9 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch, inject } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
-import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useNavigationStack } from '@/composables/useNavigationStack'
+import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility'
 import { useI18n } from '@/services/i18n'
 import IconButton from '@/components/ui/IconButton.vue'
 import AudioPlayer from '@/components/audio/AudioPlayer.vue'
@@ -121,7 +121,6 @@ import ProgressBar from './ProgressBar.vue'
 import CredentialsRequired from './CredentialsRequired.vue'
 
 const podcastStore = usePodcastStore()
-const unifiedStore = useUnifiedAudioStore()
 const settingsStore = useSettingsStore()
 const { t } = useI18n()
 
@@ -144,101 +143,21 @@ function openPodcastSettings() {
   }
 }
 
-// Playback state - Read DIRECTLY from unifiedStore (single source of truth)
-const isCurrentlyPlaying = computed(() => {
-  // Check that the active source is Podcast
-  if (unifiedStore.systemState.active_source !== 'podcast') {
-    return false
-  }
-  // Use backend state via WebSocket
-  return unifiedStore.systemState.metadata?.is_playing || false
-})
-
-// Buffering state - Read DIRECTLY from unifiedStore (single source of truth)
-const isBuffering = computed(() => {
-  // Check that the active source is Podcast
-  if (unifiedStore.systemState.active_source !== 'podcast') {
-    return false
-  }
-  // Use backend state via WebSocket
-  return unifiedStore.systemState.metadata?.is_buffering || false
-})
-
-// Player layout visibility control - manual ref for animation control
-const shouldShowPlayerLayout = ref(false)
-
-// Auto-stop timer: stops playback after 5 seconds of pause
-const stopTimer = ref(null)
-
-// Watch plugin_state to show/hide player
-watch(() => unifiedStore.systemState.plugin_state, (newState) => {
-  const isPodcastActive = unifiedStore.systemState.active_source === 'podcast'
-
-  if (isPodcastActive && newState === 'connected') {
-    // Show player when connected (with smooth entrance)
-    if (stopTimer.value) {
-      clearTimeout(stopTimer.value)
-      stopTimer.value = null
+// Playback state + player visibility (shared logic via composable)
+const { isPlaying: isCurrentlyPlaying, isBuffering, shouldShowPlayer: shouldShowPlayerLayout } =
+  useSourcePlaybackVisibility('podcast', {
+    hideDelayMs: PODCAST_PLAYER_HIDE_DELAY_MS,
+    hideOnReady: true,
+    shouldStartTimer: (playing, buffering) => !playing && !buffering && podcastStore.hasCurrentEpisode,
+    onHideTimeout: async () => {
+      if (!isCurrentlyPlaying.value && !isBuffering.value) {
+        await podcastStore.stop()
+      }
+    },
+    onFadeOutStart: () => {
+      setTimeout(() => podcastStore.clearDisplayEpisode(), 600)
     }
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        shouldShowPlayerLayout.value = true
-      })
-    })
-  } else if (isPodcastActive && newState === 'ready' && shouldShowPlayerLayout.value) {
-    // Episode ended or playback fully stopped - hide player with fade-out
-    if (stopTimer.value) {
-      clearTimeout(stopTimer.value)
-      stopTimer.value = null
-    }
-    shouldShowPlayerLayout.value = false
-  }
-}, { immediate: true })
-
-// Watch active_source to hide immediately when switching to another source
-watch(() => unifiedStore.systemState.active_source, (newSource) => {
-  if (newSource !== 'podcast') {
-    // Different source active - hide immediately
-    if (stopTimer.value) {
-      clearTimeout(stopTimer.value)
-      stopTimer.value = null
-    }
-    shouldShowPlayerLayout.value = false
-  }
-}, { immediate: true })
-
-// Watch shouldShowPlayerLayout to clear displayEpisode after fade-out animation
-watch(shouldShowPlayerLayout, (isVisible, wasVisible) => {
-  // Detect transition from visible → hidden (fade-out animation starts)
-  if (wasVisible && !isVisible) {
-    // Wait for fade-out animation to complete (600ms), then clear display metadata
-    setTimeout(() => {
-      podcastStore.clearDisplayEpisode()
-    }, 600)
-  }
-})
-
-// Watcher: triggers auto-stop after 5s when paused
-watch(() => [isCurrentlyPlaying.value, isBuffering.value, podcastStore.hasCurrentEpisode],
-  ([playing, buffering, hasEpisode]) => {
-    // Clear any existing timer
-    if (stopTimer.value) {
-      clearTimeout(stopTimer.value)
-      stopTimer.value = null
-    }
-
-    // If paused with an episode: schedule auto-stop after 5s
-    if (!playing && !buffering && hasEpisode) {
-      stopTimer.value = setTimeout(async () => {
-        // Hide the player and stop playback
-        shouldShowPlayerLayout.value = false
-        // Only call stop() if still not playing (user might have resumed)
-        if (!isCurrentlyPlaying.value && !isBuffering.value) {
-          await podcastStore.stop()
-        }
-      }, PODCAST_PLAYER_HIDE_DELAY_MS)
-    }
-  }, { immediate: true })
+  })
 
 // Navigation params (stored separately since composable handles view state)
 const selectedPodcastUuid = computed(() => currentParams.value.podcastUuid || '')
@@ -442,12 +361,6 @@ onMounted(async () => {
 
 // Cleanup on unmount
 onBeforeUnmount(() => {
-  // Clear stop timer
-  if (stopTimer.value) {
-    clearTimeout(stopTimer.value)
-    stopTimer.value = null
-  }
-  // Clear search state when leaving Podcasts module
   podcastStore.clearSearch()
 })
 </script>

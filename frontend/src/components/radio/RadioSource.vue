@@ -62,10 +62,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import { useRadioStore } from '@/stores/radioStore'
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore'
+import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility'
 import useWebSocket from '@/services/websocket'
 import { useI18n } from '@/services/i18n'
 import { logger } from '@/services/logger'
@@ -85,29 +86,13 @@ const unifiedStore = useUnifiedAudioStore()
 const { on } = useWebSocket()
 const { t } = useI18n()
 
+// === PLAYBACK VISIBILITY ===
+const { isPlaying: isCurrentlyPlaying, isBuffering, shouldShowPlayer: shouldShowNowPlayingLayout } =
+  useSourcePlaybackVisibility('radio', { hideDelayMs: RADIO_PLAYER_HIDE_DELAY_MS })
+
 // === STATE ===
 const isSearchMode = ref(false)
 const availableCountries = ref([]) // Dynamic list of available countries
-const shouldShowNowPlayingLayout = ref(false) // Controls now-playing visibility, layout and animation
-const stopTimer = ref(null) // Timer for hiding now-playing after stop
-
-// === COMPUTED ===
-
-// Playback state - Use unifiedStore.metadata.is_playing (backend source of truth)
-const isCurrentlyPlaying = computed(() => {
-  if (unifiedStore.systemState.active_source !== 'radio') {
-    return false
-  }
-  return unifiedStore.systemState.metadata.is_playing || false
-})
-
-// Buffering state - Use unifiedStore.metadata.buffering (backend source of truth)
-const isBuffering = computed(() => {
-  if (unifiedStore.systemState.active_source !== 'radio') {
-    return false
-  }
-  return unifiedStore.systemState.metadata.buffering || false
-})
 
 // ID of the buffering station (to display the spinner on the correct station)
 const bufferingStationId = computed(() => {
@@ -253,53 +238,6 @@ async function handleFavorite() {
   }
 }
 
-// === NOW PLAYING VISIBILITY ===
-// Watch plugin_state to show player when connected
-watch(() => unifiedStore.systemState.plugin_state, (newState) => {
-  const isRadioActive = unifiedStore.systemState.active_source === 'radio'
-
-  if (isRadioActive && newState === 'connected') {
-    // Show player when connected (with smooth entrance)
-    if (stopTimer.value) {
-      clearTimeout(stopTimer.value)
-      stopTimer.value = null
-    }
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        shouldShowNowPlayingLayout.value = true
-      })
-    })
-  }
-  // Note: Don't hide here when state becomes 'ready' - let the isCurrentlyPlaying watcher handle the delayed hide
-}, { immediate: true })
-
-// Watch active_source to hide immediately when switching to another source
-watch(() => unifiedStore.systemState.active_source, (newSource) => {
-  if (newSource !== 'radio') {
-    // Different source active - hide immediately
-    if (stopTimer.value) {
-      clearTimeout(stopTimer.value)
-      stopTimer.value = null
-    }
-    shouldShowNowPlayingLayout.value = false
-  }
-}, { immediate: true })
-
-// Auto-hide player after delay when playback stops
-watch(isCurrentlyPlaying, (isPlaying) => {
-  if (stopTimer.value) {
-    clearTimeout(stopTimer.value)
-    stopTimer.value = null
-  }
-
-  // Start hide timer when playback stops but player is visible
-  if (!isPlaying && shouldShowNowPlayingLayout.value) {
-    stopTimer.value = setTimeout(() => {
-      shouldShowNowPlayingLayout.value = false
-    }, RADIO_PLAYER_HIDE_DELAY_MS)
-  }
-}, { immediate: true })
-
 // === WEBSOCKET SYNC ===
 // currentStation now reads directly from unifiedStore.systemState.metadata
 // No need for manual sync here
@@ -341,14 +279,7 @@ onMounted(async () => {
   // currentStation now reads directly from unifiedStore - no manual sync needed
 })
 
-onBeforeUnmount(() => {
-  // Clear stop timer
-  if (stopTimer.value) {
-    clearTimeout(stopTimer.value)
-    stopTimer.value = null
-  }
-  // currentStation reads from unifiedStore - no need to clear local state
-})
+// currentStation reads from unifiedStore - no cleanup needed
 </script>
 
 <style scoped>

@@ -203,7 +203,7 @@ class RadioSource(BaseAudioSource):
         return {
             "mpv_connected": mpv_connected,
             "is_playing": mpv_playing,
-            "buffering": self._is_buffering,
+            "is_buffering": self._is_buffering,
             "current_station": self._current_station,
             "metadata": self._metadata,
             "favorites_count": self._station_data.get_stats()['favorites_count'] if self._station_data else 0
@@ -353,7 +353,7 @@ class RadioSource(BaseAudioSource):
             await self._mpv.stop()
 
             self._current_station = None
-            self._metadata = {"is_playing": False, "buffering": False, "ready": True}
+            self._metadata = {"is_playing": False, "is_buffering": False, "ready": True}
             self.set_state(SourceState.READY, self._metadata)
 
             return self.success_response("Playback stopped")
@@ -416,7 +416,7 @@ class RadioSource(BaseAudioSource):
                 self._current_station.get('id')
             ) if self._station_data else False,
             "is_playing": self._is_playing,
-            "buffering": self._is_buffering,
+            "is_buffering": self._is_buffering,
             # Shazam track recognition data
             "track_title": track["title"] if track else None,
             "track_artist": track["artist"] if track else None,
@@ -432,7 +432,7 @@ class RadioSource(BaseAudioSource):
         else:
             self.set_state(SourceState.READY, {
                 "is_playing": False,
-                "buffering": False,
+                "is_buffering": False,
                 "ready": True
             })
 
