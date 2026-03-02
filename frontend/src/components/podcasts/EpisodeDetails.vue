@@ -15,7 +15,6 @@
             contrast
             @select="handlePlayClick"
             @play="handlePlayClick"
-            @pause="handlePause"
             @select-podcast="handleSelectPodcast"
           />
 
@@ -71,10 +70,6 @@ const { loading, execute: loadEpisode } = useAsyncData(async () => {
 
 function handlePlayClick() {
   emit('play-episode', episode.value)
-}
-
-async function handlePause() {
-  await podcastStore.pause()
 }
 
 function handleSelectPodcast(podcast) {

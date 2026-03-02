@@ -27,7 +27,7 @@
         <div class="episodes-list">
           <EpisodeCard v-for="episode in latestEpisodes" :key="episode.uuid" :episode="episode"
             @select="$emit('select-episode', episode.uuid)" @play="$emit('play-episode', episode)"
-            @pause="handlePause" @select-podcast="(podcast) => $emit('select-podcast', podcast)" />
+            @select-podcast="(podcast) => $emit('select-podcast', podcast)" />
         </div>
       </section>
     </div>
@@ -46,10 +46,6 @@ import MessageContent from '@/components/ui/MessageContent.vue'
 const { t } = useI18n()
 const emit = defineEmits(['select-podcast', 'select-episode', 'play-episode'])
 const podcastStore = usePodcastStore()
-
-async function handlePause() {
-  await podcastStore.pause()
-}
 
 // Use store's cached data directly via computed
 const subscriptions = computed(() => podcastStore.subscriptions)

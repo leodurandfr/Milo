@@ -20,7 +20,7 @@
               :episode="episode"
               @select="$emit('select-episode', episode.uuid)"
               @play="$emit('play-episode', episode)"
-              @pause="handlePause"
+
               @select-podcast="(podcast) => $emit('select-podcast', podcast)"
             />
           </div>
@@ -93,7 +93,7 @@
               :episode="episode"
               @select="$emit('select-episode', episode.uuid)"
               @play="$emit('play-episode', episode)"
-              @pause="handlePause"
+
               @select-podcast="(podcast) => $emit('select-podcast', podcast)"
             />
           </div>
@@ -150,10 +150,6 @@ function browseGenre(genreValue) {
   if (genre) {
     emit('browse-genre', genreValue, genre.label)
   }
-}
-
-async function handlePause() {
-  await podcastStore.pause()
 }
 
 async function loadData() {

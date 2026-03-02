@@ -30,7 +30,6 @@
                 :episode="episode"
                 @select="$emit('select-episode', episode.uuid)"
                 @play="$emit('play-episode', episode)"
-                @pause="handlePause"
               />
             </div>
 
@@ -73,10 +72,6 @@ const props = defineProps({
 
 const emit = defineEmits(['play-episode', 'select-episode'])
 const podcastStore = usePodcastStore()
-
-async function handlePause() {
-  await podcastStore.pause()
-}
 
 const podcast = ref(null)
 const currentPage = ref(1)

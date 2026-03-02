@@ -10,7 +10,7 @@
     </div>
 
     <!-- Results with transitions -->
-    <div class="results" ref="resultsContainer">
+    <div class="results">
       <Transition name="fade-slide" mode="out-in">
         <!-- Loading state -->
         <MessageContent v-if="loading" key="loading" loading :loading-delay="0" :title="t('podcasts.loading')" />
@@ -41,7 +41,7 @@
             <div class="episodes-list">
               <EpisodeCard v-for="episode in searchResults.episodes" :key="episode.uuid" :episode="episode"
                 @select="$emit('select-episode', episode.uuid)" @play="$emit('play-episode', episode)"
-                @pause="handlePause" @select-podcast="(podcast) => $emit('select-podcast', podcast)" />
+                @select-podcast="(podcast) => $emit('select-podcast', podcast)" />
             </div>
             <div v-if="searchCurrentPage.episodes < searchPagination.episodes.pages" class="load-more-container">
               <Button variant="brand" :loading="searchLoadingMore.episodes" @click="loadMoreEpisodes">
@@ -94,10 +94,6 @@ const {
   searchLoading: loading,
   searchLoadingMore
 } = storeToRefs(podcastStore)
-
-async function handlePause() {
-  await podcastStore.pause()
-}
 
 // Filter options (static constants)
 const languageOptions = [
@@ -201,44 +197,44 @@ watch(
   }
 )
 
+const durationMap = {
+  short: { min: 0, max: 900 },      // 0-15 min
+  medium: { min: 900, max: 2700 },   // 15-45 min
+  long: { min: 2700, max: 999999 }   // 45+ min
+}
+
+function buildSearchParams(page) {
+  const params = new URLSearchParams({
+    term: searchTerm.value,
+    sort_by: 'EXACTNESS',
+    safe_mode: 'false',
+    limit: '25',
+    page: String(page)
+  })
+
+  if (searchFilters.value.duration) {
+    const duration = durationMap[searchFilters.value.duration]
+    params.append('duration_min', duration.min.toString())
+    params.append('duration_max', duration.max.toString())
+  }
+
+  if (searchFilters.value.genre) {
+    params.append('genres', searchFilters.value.genre)
+  }
+
+  if (searchFilters.value.language) {
+    params.append('languages', searchFilters.value.language)
+  }
+
+  return params
+}
+
 async function performSearch() {
   loading.value = true
 
   try {
-    const params = new URLSearchParams({
-      term: searchTerm.value,
-      sort_by: 'EXACTNESS',
-      safe_mode: 'false',
-      limit: '25',
-      page: '1'
-    })
-
-    // Add duration filter if selected
-    if (searchFilters.value.duration) {
-      const durationMap = {
-        short: { min: 0, max: 900 },      // 0-15 min
-        medium: { min: 900, max: 2700 },  // 15-45 min
-        long: { min: 2700, max: 999999 }  // 45+ min
-      }
-      const duration = durationMap[searchFilters.value.duration]
-      params.append('duration_min', duration.min.toString())
-      params.append('duration_max', duration.max.toString())
-    }
-
-    // Add genre filter if selected
-    if (searchFilters.value.genre) {
-      params.append('genres', searchFilters.value.genre)
-    }
-
-    // Add language filter if selected
-    if (searchFilters.value.language) {
-      params.append('languages', searchFilters.value.language)
-    }
-
-    const response = await fetch(`/api/podcast/search?${params}`)
+    const response = await fetch(`/api/podcast/search?${buildSearchParams(1)}`)
     const data = await response.json()
-
-    // Store results via store action
     podcastStore.setSearchResults(data.podcasts, data.episodes, data.pagination)
   } catch (error) {
     console.error('Error searching:', error)
@@ -254,37 +250,8 @@ async function loadMorePodcasts() {
   searchLoadingMore.value.podcasts = true
 
   try {
-    const nextPage = searchCurrentPage.value.podcasts + 1
-    const params = new URLSearchParams({
-      term: searchTerm.value,
-      sort_by: 'EXACTNESS',
-      safe_mode: 'false',
-      limit: '25',
-      page: nextPage.toString()
-    })
-
-    if (searchFilters.value.duration) {
-      const durationMap = {
-        short: { min: 0, max: 900 },
-        medium: { min: 900, max: 2700 },
-        long: { min: 2700, max: 999999 }
-      }
-      const duration = durationMap[searchFilters.value.duration]
-      params.append('duration_min', duration.min.toString())
-      params.append('duration_max', duration.max.toString())
-    }
-
-    if (searchFilters.value.genre) {
-      params.append('genres', searchFilters.value.genre)
-    }
-
-    if (searchFilters.value.language) {
-      params.append('languages', searchFilters.value.language)
-    }
-
-    const response = await fetch(`/api/podcast/search?${params}`)
+    const response = await fetch(`/api/podcast/search?${buildSearchParams(searchCurrentPage.value.podcasts + 1)}`)
     const data = await response.json()
-
     podcastStore.appendSearchResults('podcasts', data.podcasts || [])
   } catch (error) {
     console.error('Error loading more podcasts:', error)
@@ -299,37 +266,8 @@ async function loadMoreEpisodes() {
   searchLoadingMore.value.episodes = true
 
   try {
-    const nextPage = searchCurrentPage.value.episodes + 1
-    const params = new URLSearchParams({
-      term: searchTerm.value,
-      sort_by: 'EXACTNESS',
-      safe_mode: 'false',
-      limit: '25',
-      page: nextPage.toString()
-    })
-
-    if (searchFilters.value.duration) {
-      const durationMap = {
-        short: { min: 0, max: 900 },
-        medium: { min: 900, max: 2700 },
-        long: { min: 2700, max: 999999 }
-      }
-      const duration = durationMap[searchFilters.value.duration]
-      params.append('duration_min', duration.min.toString())
-      params.append('duration_max', duration.max.toString())
-    }
-
-    if (searchFilters.value.genre) {
-      params.append('genres', searchFilters.value.genre)
-    }
-
-    if (searchFilters.value.language) {
-      params.append('languages', searchFilters.value.language)
-    }
-
-    const response = await fetch(`/api/podcast/search?${params}`)
+    const response = await fetch(`/api/podcast/search?${buildSearchParams(searchCurrentPage.value.episodes + 1)}`)
     const data = await response.json()
-
     podcastStore.appendSearchResults('episodes', data.episodes || [])
   } catch (error) {
     console.error('Error loading more episodes:', error)
