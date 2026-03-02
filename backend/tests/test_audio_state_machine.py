@@ -6,7 +6,7 @@ Tests cover:
 - Source activation/deactivation (AC1, AC3)
 - EventBus emission (AC2)
 - State transitions (AC5)
-- Backward compatibility with websocket_handler
+- WebSocket broadcasting
 """
 import pytest
 import asyncio
@@ -322,42 +322,66 @@ class TestMultiroomAndEqualizer:
         assert received[0]["equalizer_effects_enabled"] is True
 
 
-class TestBackwardCompatibility:
-    """Test backward compatibility with websocket_handler."""
+class TestWebSocketBroadcasting:
+    """Test WebSocket broadcasting via ws_manager."""
 
     @pytest.mark.asyncio
-    async def test_broadcast_event_with_handler(self, state_machine):
-        """Test broadcast_event calls websocket_handler."""
-        mock_handler = Mock()
-        mock_handler.handle_event = AsyncMock()
-        state_machine.websocket_handler = mock_handler
+    async def test_broadcast_event_with_ws_manager(self, state_machine):
+        """Test broadcast_event calls ws_manager.broadcast_dict."""
+        mock_manager = Mock()
+        mock_manager.broadcast_dict = AsyncMock()
+        state_machine.ws_manager = mock_manager
 
         await state_machine.broadcast_event("test", "event", {"key": "value"})
 
-        mock_handler.handle_event.assert_called_once()
-        call_args = mock_handler.handle_event.call_args[0][0]
+        mock_manager.broadcast_dict.assert_called_once()
+        call_args = mock_manager.broadcast_dict.call_args[0][0]
         assert call_args["category"] == "test"
         assert call_args["type"] == "event"
         assert call_args["data"]["key"] == "value"
 
     @pytest.mark.asyncio
-    async def test_broadcast_event_without_handler(self, state_machine):
-        """Test broadcast_event works without websocket_handler."""
+    async def test_broadcast_event_without_ws_manager(self, state_machine):
+        """Test broadcast_event works without ws_manager."""
         # Should not raise
         await state_machine.broadcast_event("test", "event", {"key": "value"})
 
     @pytest.mark.asyncio
+    async def test_broadcast_includes_full_state_for_plugin(self, state_machine):
+        """Test plugin events include full_state."""
+        mock_manager = Mock()
+        mock_manager.broadcast_dict = AsyncMock()
+        state_machine.ws_manager = mock_manager
+
+        await state_machine.broadcast_event("plugin", "state_changed", {"source": "radio"})
+
+        call_args = mock_manager.broadcast_dict.call_args[0][0]
+        assert "full_state" in call_args["data"]
+
+    @pytest.mark.asyncio
+    async def test_broadcast_excludes_full_state_for_volume(self, state_machine):
+        """Test volume events do not include full_state."""
+        mock_manager = Mock()
+        mock_manager.broadcast_dict = AsyncMock()
+        state_machine.ws_manager = mock_manager
+
+        await state_machine.broadcast_event("volume", "volume_changed", {"source": "volume"})
+
+        call_args = mock_manager.broadcast_dict.call_args[0][0]
+        assert "full_state" not in call_args["data"]
+
+    @pytest.mark.asyncio
     async def test_transition_broadcasts_to_websocket(self, state_machine, mock_plugin):
-        """Test transitions broadcast to websocket handler."""
-        mock_handler = Mock()
-        mock_handler.handle_event = AsyncMock()
-        state_machine.websocket_handler = mock_handler
+        """Test transitions broadcast to ws_manager."""
+        mock_manager = Mock()
+        mock_manager.broadcast_dict = AsyncMock()
+        state_machine.ws_manager = mock_manager
         state_machine.register_plugin(AudioSource.RADIO, mock_plugin)
 
         await state_machine.activate_source(AudioSource.RADIO)
 
-        # Should have called handle_event for transition_start and transition_complete
-        assert mock_handler.handle_event.call_count >= 2
+        # Should have called broadcast_dict for transition_start and transition_complete
+        assert mock_manager.broadcast_dict.call_count >= 2
 
 
 class TestTransitionTimeout:

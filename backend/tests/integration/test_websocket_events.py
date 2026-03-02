@@ -24,7 +24,6 @@ from starlette.websockets import WebSocketState
 
 from backend.ws import WebSocketServer
 from backend.ws.manager import WebSocketManager
-from backend.ws import WebSocketEventHandler
 from backend.core.models.audio_state import AudioSource, PluginState, SystemAudioState
 
 from .conftest import WebSocketEventCollector
@@ -165,10 +164,6 @@ def websocket_server(websocket_manager, mock_state_machine_for_ws):
     return WebSocketServer(websocket_manager, mock_state_machine_for_ws)
 
 
-@pytest.fixture
-def websocket_event_handler(websocket_manager):
-    """Create WebSocket event handler."""
-    return WebSocketEventHandler(websocket_manager)
 
 
 # ==============================================================================
@@ -340,9 +335,8 @@ class TestEventFormat:
     @pytest.mark.asyncio
     async def test_event_has_category_type_source_data(
         self,
-        websocket_event_handler: WebSocketEventHandler,
+        websocket_manager: WebSocketManager,
         mock_websocket: MockWebSocket,
-        websocket_manager: WebSocketManager
     ):
         """
         Test all events have required fields.
@@ -360,7 +354,7 @@ class TestEventFormat:
             "data": {"key": "value"},
             "timestamp": time.time()
         }
-        await websocket_event_handler.handle_event(test_event)
+        await websocket_manager.broadcast_dict(test_event)
 
         assert len(mock_websocket.received_messages) == 1
         event = mock_websocket.received_messages[0]
@@ -373,9 +367,8 @@ class TestEventFormat:
     @pytest.mark.asyncio
     async def test_event_has_timestamp(
         self,
-        websocket_event_handler: WebSocketEventHandler,
+        websocket_manager: WebSocketManager,
         mock_websocket: MockWebSocket,
-        websocket_manager: WebSocketManager
     ):
         """
         Test events have timestamp field.
@@ -392,7 +385,7 @@ class TestEventFormat:
             "data": {},
             "timestamp": time.time()
         }
-        await websocket_event_handler.handle_event(test_event)
+        await websocket_manager.broadcast_dict(test_event)
 
         event = mock_websocket.received_messages[0]
         assert "timestamp" in event
@@ -401,9 +394,8 @@ class TestEventFormat:
     @pytest.mark.asyncio
     async def test_event_source_matches_origin(
         self,
-        websocket_event_handler: WebSocketEventHandler,
+        websocket_manager: WebSocketManager,
         mock_websocket: MockWebSocket,
-        websocket_manager: WebSocketManager
     ):
         """
         Test event source field is correctly set.
@@ -421,7 +413,7 @@ class TestEventFormat:
             "data": {},
             "timestamp": time.time()
         }
-        await websocket_event_handler.handle_event(system_event)
+        await websocket_manager.broadcast_dict(system_event)
 
         # Test plugin event
         plugin_event = {
@@ -431,7 +423,7 @@ class TestEventFormat:
             "data": {},
             "timestamp": time.time()
         }
-        await websocket_event_handler.handle_event(plugin_event)
+        await websocket_manager.broadcast_dict(plugin_event)
 
         assert mock_websocket.received_messages[0]["source"] == "system"
         assert mock_websocket.received_messages[1]["source"] == "radio"
@@ -439,8 +431,7 @@ class TestEventFormat:
     @pytest.mark.asyncio
     async def test_broadcast_to_multiple_clients(
         self,
-        websocket_event_handler: WebSocketEventHandler,
-        websocket_manager: WebSocketManager
+        websocket_manager: WebSocketManager,
     ):
         """
         Test events are broadcast to all connected clients.
@@ -463,7 +454,7 @@ class TestEventFormat:
             "data": {"message": "hello"},
             "timestamp": time.time()
         }
-        await websocket_event_handler.handle_event(test_event)
+        await websocket_manager.broadcast_dict(test_event)
 
         assert len(client1.received_messages) == 1
         assert len(client2.received_messages) == 1
@@ -484,9 +475,8 @@ class TestEventCategories:
     @pytest.mark.asyncio
     async def test_system_category_events(
         self,
-        websocket_event_handler: WebSocketEventHandler,
+        websocket_manager: WebSocketManager,
         mock_websocket: MockWebSocket,
-        websocket_manager: WebSocketManager
     ):
         """
         Test system category event types.
@@ -505,7 +495,7 @@ class TestEventCategories:
         ]
 
         for event in system_events:
-            await websocket_event_handler.handle_event(event)
+            await websocket_manager.broadcast_dict(event)
 
         assert len(mock_websocket.received_messages) == 5
         for i, event in enumerate(mock_websocket.received_messages):
@@ -515,9 +505,8 @@ class TestEventCategories:
     @pytest.mark.asyncio
     async def test_plugin_category_events(
         self,
-        websocket_event_handler: WebSocketEventHandler,
+        websocket_manager: WebSocketManager,
         mock_websocket: MockWebSocket,
-        websocket_manager: WebSocketManager
     ):
         """
         Test plugin category event types.
@@ -534,7 +523,7 @@ class TestEventCategories:
             "data": {"state": "connected", "metadata": {"track": "Test Song"}},
             "timestamp": time.time()
         }
-        await websocket_event_handler.handle_event(plugin_event)
+        await websocket_manager.broadcast_dict(plugin_event)
 
         assert len(mock_websocket.received_messages) == 1
         event = mock_websocket.received_messages[0]
@@ -545,9 +534,8 @@ class TestEventCategories:
     @pytest.mark.asyncio
     async def test_volume_category_events(
         self,
-        websocket_event_handler: WebSocketEventHandler,
+        websocket_manager: WebSocketManager,
         mock_websocket: MockWebSocket,
-        websocket_manager: WebSocketManager
     ):
         """
         Test volume category event types.
@@ -567,7 +555,7 @@ class TestEventCategories:
             },
             "timestamp": time.time()
         }
-        await websocket_event_handler.handle_event(volume_event)
+        await websocket_manager.broadcast_dict(volume_event)
 
         event = mock_websocket.received_messages[0]
         assert event["category"] == "volume"
@@ -577,9 +565,8 @@ class TestEventCategories:
     @pytest.mark.asyncio
     async def test_registry_category_events(
         self,
-        websocket_event_handler: WebSocketEventHandler,
+        websocket_manager: WebSocketManager,
         mock_websocket: MockWebSocket,
-        websocket_manager: WebSocketManager
     ):
         """
         Test registry category event types.
@@ -602,7 +589,7 @@ class TestEventCategories:
         ]
 
         for event in registry_events:
-            await websocket_event_handler.handle_event(event)
+            await websocket_manager.broadcast_dict(event)
 
         assert len(mock_websocket.received_messages) == 3
         assert mock_websocket.received_messages[0]["type"] == "zone_created"
@@ -612,9 +599,8 @@ class TestEventCategories:
     @pytest.mark.asyncio
     async def test_equalizer_category_events(
         self,
-        websocket_event_handler: WebSocketEventHandler,
+        websocket_manager: WebSocketManager,
         mock_websocket: MockWebSocket,
-        websocket_manager: WebSocketManager
     ):
         """
         Test equalizer category event types.
@@ -637,7 +623,7 @@ class TestEventCategories:
         ]
 
         for event in equalizer_events:
-            await websocket_event_handler.handle_event(event)
+            await websocket_manager.broadcast_dict(event)
 
         assert len(mock_websocket.received_messages) == 3
         assert mock_websocket.received_messages[0]["type"] == "filter_added"
@@ -656,9 +642,8 @@ class TestBroadcastTriggers:
     @pytest.mark.asyncio
     async def test_source_transition_triggers_events(
         self,
-        websocket_event_handler: WebSocketEventHandler,
+        websocket_manager: WebSocketManager,
         mock_websocket: MockWebSocket,
-        websocket_manager: WebSocketManager
     ):
         """
         Test source transition triggers start and complete events.
@@ -677,7 +662,7 @@ class TestBroadcastTriggers:
             "data": {"to_source": "radio", "from_source": "none"},
             "timestamp": time.time()
         }
-        await websocket_event_handler.handle_event(start_event)
+        await websocket_manager.broadcast_dict(start_event)
 
         # Simulate transition complete
         complete_event = {
@@ -687,7 +672,7 @@ class TestBroadcastTriggers:
             "data": {"active_source": "radio"},
             "timestamp": time.time()
         }
-        await websocket_event_handler.handle_event(complete_event)
+        await websocket_manager.broadcast_dict(complete_event)
 
         start_events = mock_websocket.get_events_by_type("transition_start")
         complete_events = mock_websocket.get_events_by_type("transition_complete")
@@ -700,9 +685,8 @@ class TestBroadcastTriggers:
     @pytest.mark.asyncio
     async def test_volume_change_triggers_broadcast(
         self,
-        websocket_event_handler: WebSocketEventHandler,
+        websocket_manager: WebSocketManager,
         mock_websocket: MockWebSocket,
-        websocket_manager: WebSocketManager
     ):
         """
         Test volume changes trigger volume_changed events.
@@ -727,7 +711,7 @@ class TestBroadcastTriggers:
             },
             "timestamp": time.time()
         }
-        await websocket_event_handler.handle_event(volume_event)
+        await websocket_manager.broadcast_dict(volume_event)
 
         events = mock_websocket.get_events_by_type("volume_changed")
         assert len(events) == 1
@@ -737,9 +721,8 @@ class TestBroadcastTriggers:
     @pytest.mark.asyncio
     async def test_zone_creation_triggers_broadcast(
         self,
-        websocket_event_handler: WebSocketEventHandler,
+        websocket_manager: WebSocketManager,
         mock_websocket: MockWebSocket,
-        websocket_manager: WebSocketManager
     ):
         """
         Test zone creation triggers zone_created event.
@@ -763,7 +746,7 @@ class TestBroadcastTriggers:
             },
             "timestamp": time.time()
         }
-        await websocket_event_handler.handle_event(zone_event)
+        await websocket_manager.broadcast_dict(zone_event)
 
         events = mock_websocket.get_events_by_type("zone_created")
         assert len(events) == 1
@@ -772,9 +755,8 @@ class TestBroadcastTriggers:
     @pytest.mark.asyncio
     async def test_multiple_events_in_sequence(
         self,
-        websocket_event_handler: WebSocketEventHandler,
+        websocket_manager: WebSocketManager,
         mock_websocket: MockWebSocket,
-        websocket_manager: WebSocketManager
     ):
         """
         Test multiple events are received in order.
@@ -791,7 +773,7 @@ class TestBroadcastTriggers:
         ]
 
         for event in events:
-            await websocket_event_handler.handle_event(event)
+            await websocket_manager.broadcast_dict(event)
 
         assert len(mock_websocket.received_messages) == 3
         for i, msg in enumerate(mock_websocket.received_messages):
@@ -915,8 +897,7 @@ class TestReconnection:
     @pytest.mark.asyncio
     async def test_multiple_clients_receive_broadcasts(
         self,
-        websocket_event_handler: WebSocketEventHandler,
-        websocket_manager: WebSocketManager
+        websocket_manager: WebSocketManager,
     ):
         """
         Test all connected clients receive broadcasts.
@@ -939,7 +920,7 @@ class TestReconnection:
             "data": {"message": "hello all"},
             "timestamp": time.time()
         }
-        await websocket_event_handler.handle_event(test_event)
+        await websocket_manager.broadcast_dict(test_event)
 
         # All clients should receive the event
         for client in clients:
@@ -1018,9 +999,8 @@ class TestPingMechanism:
     @pytest.mark.asyncio
     async def test_ping_event_format(
         self,
-        websocket_event_handler: WebSocketEventHandler,
+        websocket_manager: WebSocketManager,
         mock_websocket: MockWebSocket,
-        websocket_manager: WebSocketManager
     ):
         """
         Test ping event has correct format.
@@ -1035,7 +1015,7 @@ class TestPingMechanism:
             "type": "ping",
             "timestamp": time.time()
         }
-        await websocket_event_handler.handle_event(ping_event)
+        await websocket_manager.broadcast_dict(ping_event)
 
         event = mock_websocket.received_messages[0]
         assert event["category"] == "system"
@@ -1058,9 +1038,8 @@ class TestMultiroomEventFormat:
     @pytest.mark.asyncio
     async def test_multiroom_category_client_state_changed(
         self,
-        websocket_event_handler: WebSocketEventHandler,
+        websocket_manager: WebSocketManager,
         mock_websocket: MockWebSocket,
-        websocket_manager: WebSocketManager
     ):
         """
         Test client_state_changed event format (AC1, AC5).
@@ -1092,7 +1071,7 @@ class TestMultiroomEventFormat:
             },
             "timestamp": time.time()
         }
-        await websocket_event_handler.handle_event(client_event)
+        await websocket_manager.broadcast_dict(client_event)
 
         assert len(mock_websocket.received_messages) == 1
         event = mock_websocket.received_messages[0]
@@ -1115,9 +1094,8 @@ class TestMultiroomEventFormat:
     @pytest.mark.asyncio
     async def test_multiroom_category_zone_changed(
         self,
-        websocket_event_handler: WebSocketEventHandler,
+        websocket_manager: WebSocketManager,
         mock_websocket: MockWebSocket,
-        websocket_manager: WebSocketManager
     ):
         """
         Test zone_changed event format (AC2, AC5).
@@ -1153,7 +1131,7 @@ class TestMultiroomEventFormat:
             },
             "timestamp": time.time()
         }
-        await websocket_event_handler.handle_event(zone_event)
+        await websocket_manager.broadcast_dict(zone_event)
 
         assert len(mock_websocket.received_messages) == 1
         event = mock_websocket.received_messages[0]
@@ -1177,9 +1155,8 @@ class TestMultiroomEventFormat:
     @pytest.mark.asyncio
     async def test_multiroom_category_equalizer_changed(
         self,
-        websocket_event_handler: WebSocketEventHandler,
+        websocket_manager: WebSocketManager,
         mock_websocket: MockWebSocket,
-        websocket_manager: WebSocketManager
     ):
         """
         Test equalizer_changed event format (AC3, AC5).
@@ -1209,7 +1186,7 @@ class TestMultiroomEventFormat:
             },
             "timestamp": time.time()
         }
-        await websocket_event_handler.handle_event(equalizer_event)
+        await websocket_manager.broadcast_dict(equalizer_event)
 
         assert len(mock_websocket.received_messages) == 1
         event = mock_websocket.received_messages[0]
@@ -1227,9 +1204,8 @@ class TestMultiroomEventFormat:
     @pytest.mark.asyncio
     async def test_multiroom_category_crossover_changed(
         self,
-        websocket_event_handler: WebSocketEventHandler,
+        websocket_manager: WebSocketManager,
         mock_websocket: MockWebSocket,
-        websocket_manager: WebSocketManager
     ):
         """
         Test crossover_changed event format (AC4, AC5).
@@ -1252,7 +1228,7 @@ class TestMultiroomEventFormat:
             },
             "timestamp": time.time()
         }
-        await websocket_event_handler.handle_event(crossover_event)
+        await websocket_manager.broadcast_dict(crossover_event)
 
         assert len(mock_websocket.received_messages) == 1
         event = mock_websocket.received_messages[0]
@@ -1270,9 +1246,8 @@ class TestMultiroomEventFormat:
     @pytest.mark.asyncio
     async def test_backward_compatibility_registry_events(
         self,
-        websocket_event_handler: WebSocketEventHandler,
+        websocket_manager: WebSocketManager,
         mock_websocket: MockWebSocket,
-        websocket_manager: WebSocketManager
     ):
         """
         Test backward compatibility: old registry events still work.
@@ -1293,7 +1268,7 @@ class TestMultiroomEventFormat:
             },
             "timestamp": time.time()
         }
-        await websocket_event_handler.handle_event(legacy_event)
+        await websocket_manager.broadcast_dict(legacy_event)
 
         events = mock_websocket.get_events_by_category("registry")
         assert len(events) == 1
@@ -1302,9 +1277,8 @@ class TestMultiroomEventFormat:
     @pytest.mark.asyncio
     async def test_event_contains_timestamp(
         self,
-        websocket_event_handler: WebSocketEventHandler,
+        websocket_manager: WebSocketManager,
         mock_websocket: MockWebSocket,
-        websocket_manager: WebSocketManager
     ):
         """
         Test multiroom events contain valid timestamp.
@@ -1322,7 +1296,7 @@ class TestMultiroomEventFormat:
             "data": {"mac_id": "test"},
             "timestamp": time.time()
         }
-        await websocket_event_handler.handle_event(event)
+        await websocket_manager.broadcast_dict(event)
 
         received = mock_websocket.received_messages[0]
         assert "timestamp" in received

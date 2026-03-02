@@ -103,7 +103,7 @@ def mock_state_machine(websocket_collector: WebSocketEventCollector):
     sm = Mock()
 
     async def mock_broadcast(category, event_type, data):
-        await websocket_collector.handle_event({
+        await websocket_collector.broadcast_dict({
             "category": category,
             "type": event_type,
             "source": "volume",

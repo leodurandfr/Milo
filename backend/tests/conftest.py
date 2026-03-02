@@ -9,11 +9,11 @@ from backend.core.models.audio_state import AudioSource, PluginState
 
 
 @pytest.fixture
-def mock_websocket_handler():
-    """Mock of WebSocket handler"""
-    handler = Mock()
-    handler.handle_event = AsyncMock()
-    return handler
+def mock_ws_manager():
+    """Mock of WebSocketManager"""
+    manager = Mock()
+    manager.broadcast_dict = AsyncMock()
+    return manager
 
 
 @pytest.fixture
