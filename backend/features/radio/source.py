@@ -14,19 +14,19 @@ Features:
 - Station image management
 """
 import asyncio
-import logging
 from typing import Dict, Any, Optional
 
-from backend.core.audio_source import BaseAudioSource, SourceState
+from backend.core.audio_source import SourceState
 from backend.core.events import EventBus
 from backend.features.radio.data import StationDataService
 from backend.features.radio.shazam import ShazamRecognitionService
 from backend.shared.decorators import handle_errors
 from backend.shared.mpv import MpvController
+from backend.shared.mpv_audio_source import MpvAudioSource
 from backend.features.radio.browser_api import RadioBrowserAPI
 
 
-class RadioSource(BaseAudioSource):
+class RadioSource(MpvAudioSource):
     """
     Radio audio source using MPV.
 
@@ -73,11 +73,6 @@ class RadioSource(BaseAudioSource):
             config=config
         )
 
-        self._mpv_socket = self._config.get("mpv_socket", "/run/milo/radio-ipc.sock")
-
-        # MPV controller
-        self._mpv: Optional[MpvController] = None
-
         # Station data service (initialized immediately for API access)
         self._station_data = StationDataService(
             event_bus=event_bus,
@@ -97,11 +92,6 @@ class RadioSource(BaseAudioSource):
         # State
         self._metadata: Dict[str, Any] = {}
         self._current_station: Optional[Dict[str, Any]] = None
-        self._is_playing = False
-        self._is_buffering = False
-
-        # Monitor task
-        self._monitor_task: Optional[asyncio.Task] = None
 
         # Schedule async initialization
         self._init_task: Optional[asyncio.Task] = None
@@ -116,7 +106,6 @@ class RadioSource(BaseAudioSource):
     def _reset_playback_state(self) -> None:
         super()._reset_playback_state()
         self._current_station = None
-        self._is_buffering = False
 
     async def _do_start(self) -> bool:
         """Start MPV service and initialize components."""
@@ -157,37 +146,10 @@ class RadioSource(BaseAudioSource):
             await self._cleanup()
             return False
 
-    @handle_errors(default=False)
-    async def _do_restart(self) -> bool:
-        """Restart service with state reset."""
-        self._logger.info("Restarting Radio source")
-
-        # Stop monitor and Shazam
-        self._stop_monitor()
+    async def _before_restart_save(self) -> None:
+        """Stop Shazam before restart."""
         if self._shazam:
             await self._shazam.stop()
-
-        self._reset_playback_state()
-
-        # Disconnect MPV
-        if self._mpv:
-            await self._mpv.disconnect()
-
-        # Restart service
-        if not await self._restart_service_and_wait():
-            return False
-
-        # Reconnect MPV
-        if not await self._mpv.connect():
-            return False
-
-        # Restart monitor
-        self._start_monitor()
-
-        # Update state
-        self._update_connection_state()
-
-        return True
 
     async def _get_status(self) -> Dict[str, Any]:
         """Get Radio-specific status."""
@@ -465,44 +427,30 @@ class RadioSource(BaseAudioSource):
         # Note: station_data and radio_api persist for API access when radio is inactive
         self._reset_playback_state()
 
-    # === Monitor ===
+    # === Monitor hooks ===
 
-    async def _monitor_loop(self) -> None:
-        """Periodically check playback state."""
-        try:
-            while True:
-                await asyncio.sleep(1.0)
+    async def _on_mpv_disconnect(self) -> None:
+        """Handle unexpected mpv disconnect."""
+        self._is_playing = False
+        self._is_buffering = False
+        self._current_station = None
+        self._metadata = {}
 
-                if not self._mpv or not self._mpv.is_connected:
-                    # Detect unexpected disconnect during playback
-                    if self._is_playing or self._is_buffering:
-                        self._logger.error("mpv disconnected unexpectedly during playback")
-                        self._is_playing = False
-                        self._is_buffering = False
-                        self._current_station = None
-                        self._metadata = {}
-                        self.broadcast_error("Audio stream disconnected")
-                    continue
+    async def _on_monitor_tick(self) -> None:
+        """Check playback state transitions."""
+        was_playing = self._is_playing
+        self._is_playing = await self._mpv.is_playing()
 
-                was_playing = self._is_playing
-                self._is_playing = await self._mpv.is_playing()
+        if self._is_playing and not was_playing:
+            # Started playing - buffering complete
+            self._is_buffering = False
+            self._metadata = self._build_playback_metadata()
+            self._update_connection_state()
 
-                # Detect state changes
-                if self._is_playing and not was_playing:
-                    # Started playing - buffering complete
-                    self._is_buffering = False
-                    self._metadata = self._build_playback_metadata()
-                    self._update_connection_state()
-
-                elif not self._is_playing and was_playing:
-                    # Stopped playing
-                    self._metadata = self._build_playback_metadata()
-                    self._update_connection_state()
-
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            self._logger.error(f"Monitor error: {e}")
+        elif not self._is_playing and was_playing:
+            # Stopped playing
+            self._metadata = self._build_playback_metadata()
+            self._update_connection_state()
 
     # === Public API ===
 
