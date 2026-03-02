@@ -13,18 +13,18 @@ Features:
 - TaddyAPI for podcast discovery
 """
 import asyncio
-import logging
 from typing import Dict, Any, Optional
 
-from backend.core.audio_source import BaseAudioSource, SourceState
+from backend.core.audio_source import SourceState
 from backend.core.events import EventBus
 from backend.features.podcast.data import PodcastDataService
 from backend.shared.decorators import handle_errors
 from backend.shared.mpv import MpvController
+from backend.shared.mpv_audio_source import MpvAudioSource
 from backend.features.podcast.taddy_api import TaddyAPI
 
 
-class PodcastSource(BaseAudioSource):
+class PodcastSource(MpvAudioSource):
     """
     Podcast audio source using MPV.
 
@@ -72,12 +72,8 @@ class PodcastSource(BaseAudioSource):
             config=config
         )
 
-        self._mpv_socket = self._config.get("mpv_socket", "/run/milo/podcast-ipc.sock")
         self._taddy_user_id = self._config.get("taddy_user_id", "")
         self._taddy_api_key = self._config.get("taddy_api_key", "")
-
-        # MPV controller
-        self._mpv: Optional[MpvController] = None
 
         # Podcast data service - initialized immediately for routes access
         self._podcast_data = PodcastDataService(
@@ -95,20 +91,16 @@ class PodcastSource(BaseAudioSource):
         # State
         self._metadata: Dict[str, Any] = {}
         self._current_episode: Optional[Dict[str, Any]] = None
-        self._is_playing = False
-        self._is_buffering = False
         self._position = 0
         self._duration = 0
         self._playback_speed = 1.0
 
         # Tasks
-        self._monitor_task: Optional[asyncio.Task] = None
         self._progress_save_task: Optional[asyncio.Task] = None
 
     def _reset_playback_state(self) -> None:
         super()._reset_playback_state()
         self._current_episode = None
-        self._is_buffering = False
         self._position = 0
         self._duration = 0
 
@@ -155,40 +147,16 @@ class PodcastSource(BaseAudioSource):
         await self._cleanup()
         return await self._stop_service()
 
-    @handle_errors(default=False)
-    async def _do_restart(self) -> bool:
-        """Restart service with state reset."""
-        self._logger.info("Restarting Podcast source")
-
-        # Stop tasks
-        self._stop_monitor()
+    async def _before_restart_save(self) -> None:
+        """Stop progress save and persist progress before restart."""
         self._stop_progress_save()
-
-        # Save progress before restart
         if self._current_episode and self._position > 0:
             await self._save_progress()
 
-        self._reset_playback_state()
-
-        # Disconnect MPV
-        if self._mpv:
-            await self._mpv.disconnect()
-
-        # Restart service
-        if not await self._restart_service_and_wait():
-            return False
-
-        # Reconnect MPV
-        if not await self._mpv.connect():
-            return False
-
-        # Restart monitor
-        self._start_monitor()
-
-        # Update state
-        self._update_connection_state()
-
-        return True
+    async def _after_restart_restore(self) -> None:
+        """Re-apply playback speed to the new mpv process after restart."""
+        if self._mpv and self._mpv.is_connected and self._playback_speed != 1.0:
+            await self._mpv.set_property("speed", self._playback_speed)
 
     async def _get_status(self) -> Dict[str, Any]:
         """Get Podcast-specific status."""
@@ -532,87 +500,70 @@ class PodcastSource(BaseAudioSource):
 
         self._reset_playback_state()
 
-    # === Monitor ===
+    # === Monitor hooks ===
 
-    async def _monitor_loop(self) -> None:
-        """Periodically check playback state and position."""
-        try:
-            while True:
-                await asyncio.sleep(1.0)
+    async def _on_mpv_disconnect(self) -> None:
+        """Handle unexpected mpv disconnect: save progress and clear state."""
+        if self._current_episode and self._position > 0:
+            await self._save_progress()
+        self._is_playing = False
+        self._is_buffering = False
+        self._current_episode = None
+        self._position = 0
+        self._duration = 0
+        self._metadata = {}
+        self._stop_progress_save()
 
-                if not self._mpv or not self._mpv.is_connected:
-                    # Detect unexpected disconnect during playback
-                    if self._is_playing or self._is_buffering:
-                        self._logger.error("mpv disconnected unexpectedly during playback")
-                        # Save progress before clearing state
-                        if self._current_episode and self._position > 0:
-                            await self._save_progress()
-                        self._is_playing = False
-                        self._is_buffering = False
-                        self._current_episode = None
-                        self._position = 0
-                        self._duration = 0
-                        self._metadata = {}
-                        self._stop_progress_save()
-                        self.broadcast_error("Audio stream disconnected")
-                    continue
+    async def _on_monitor_tick(self) -> None:
+        """Track playback position, detect stuck state and episode completion."""
+        if not self._current_episode:
+            return
 
-                if not self._current_episode:
-                    continue
+        # Update playback position
+        position = await self._mpv.get_property("playback-time")
+        duration = await self._mpv.get_property("duration")
+        pause_state = await self._mpv.get_property("pause")
 
-                # Update playback position
-                position = await self._mpv.get_property("playback-time")
-                duration = await self._mpv.get_property("duration")
-                pause_state = await self._mpv.get_property("pause")
+        position_changed = False
+        if position is not None:
+            new_position = int(position)
+            if new_position != self._position:
+                self._position = new_position
+                position_changed = True
 
-                position_changed = False
-                if position is not None:
-                    new_position = int(position)
-                    if new_position != self._position:
-                        self._position = new_position
-                        position_changed = True
+        if duration is not None:
+            self._duration = int(duration)
 
-                if duration is not None:
-                    self._duration = int(duration)
+        # Broadcast position updates during playback
+        if self._is_playing and position_changed:
+            self._metadata = self._build_playback_metadata()
+            self._update_connection_state()
 
-                # Broadcast position updates during playback
-                if self._is_playing and position_changed:
-                    self._metadata = self._build_playback_metadata()
-                    self._update_connection_state()
+        # Detect stuck at position 0 with pause=True
+        if self._is_playing and position == 0.0 and pause_state is True:
+            self._logger.warning("Stuck at 0.0 with pause=True! Forcing unpause...")
+            await self._mpv.set_property("pause", False)
 
-                # Detect stuck at position 0 with pause=True
-                if self._is_playing and position == 0.0 and pause_state is True:
-                    self._logger.warning("Stuck at 0.0 with pause=True! Forcing unpause...")
-                    await self._mpv.set_property("pause", False)
+        # Check if episode ended (position is None when mpv stops)
+        if (self._is_playing and position is None and
+            self._duration > 0 and
+            self._position >= self._duration - 5):  # Within 5 seconds of end
 
-                # Check if episode ended (position is None when mpv stops)
-                if (self._is_playing and position is None and
-                    self._duration > 0 and
-                    self._position >= self._duration - 5):  # Within 5 seconds of end
+            self._logger.info("Episode finished")
 
-                    self._logger.info("Episode finished")
+            await self._podcast_data.clear_playback_progress(
+                self._current_episode['uuid']
+            )
 
-                    # Clear progress (mark as completed)
-                    await self._podcast_data.clear_playback_progress(
-                        self._current_episode['uuid']
-                    )
+            self._current_episode = None
+            self._is_playing = False
+            self._position = 0
+            self._duration = 0
 
-                    # Reset state before notifying
-                    self._current_episode = None
-                    self._is_playing = False
-                    self._position = 0
-                    self._duration = 0
-
-                    # Notify episode end
-                    self.set_state(
-                        SourceState.READY,
-                        {"episode_ended": True}
-                    )
-
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            self._logger.error(f"Monitor error: {e}")
+            self.set_state(
+                SourceState.READY,
+                {"episode_ended": True}
+            )
 
     # === Progress Save ===
 
