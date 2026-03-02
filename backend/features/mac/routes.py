@@ -15,8 +15,9 @@ Usage:
     app.include_router(router, prefix="/api")
 """
 from fastapi import APIRouter, HTTPException, Depends
-from typing import Dict, Any, Callable, Optional
+from typing import Dict, Any
 
+from backend.api.source_dependency import make_source_dependency
 from backend.features.mac.source import MacSource
 
 router = APIRouter(
@@ -25,43 +26,18 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
-# Source provider function
-_source_provider: Optional[Callable[[], MacSource]] = None
+set_source_provider, get_source = make_source_dependency("Mac")
 
 
-def setup_mac_routes(source_provider: Callable[[], MacSource]) -> APIRouter:
-    """
-    Configure routes with source provider.
-
-    Args:
-        source_provider: Function returning MacSource instance
-
-    Returns:
-        Configured router
-    """
-    global _source_provider
-    _source_provider = source_provider
+def setup_mac_routes(source_provider) -> APIRouter:
+    """Configure routes with source provider."""
+    set_source_provider(source_provider)
     return router
-
-
-def get_source() -> MacSource:
-    """Dependency to get MacSource instance."""
-    if _source_provider is None:
-        raise HTTPException(status_code=503, detail="Mac source not configured")
-    source = _source_provider()
-    if source is None:
-        raise HTTPException(status_code=503, detail="Mac source not available")
-    return source
 
 
 @router.get("/status")
 async def get_status(source: MacSource = Depends(get_source)) -> Dict[str, Any]:
-    """
-    Get current Mac source status.
-
-    Returns:
-        Status dict with state, service status, and connected clients
-    """
+    """Get current Mac source status."""
     try:
         status = await source.status()
 
@@ -89,66 +65,47 @@ async def get_status(source: MacSource = Depends(get_source)) -> Dict[str, Any]:
 
 @router.post("/restart")
 async def restart_service(source: MacSource = Depends(get_source)) -> Dict[str, Any]:
-    """
-    Restart the Mac audio service.
-
-    Returns:
-        Result of restart operation
-    """
+    """Restart the Mac audio service."""
     try:
         result = await source.command("restart", {})
 
-        return {
-            "status": "success" if result.get("success") else "error",
-            "message": result.get("message", "Service restarted"),
-            "error": result.get("error")
-        }
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=result.get("error", "Restart failed")
+            )
 
+        return result
+
+    except HTTPException:
+        raise
     except Exception as e:
-        return {
-            "status": "error",
-            "message": f"Restart error: {str(e)}"
-        }
+        raise HTTPException(status_code=500, detail=f"Restart error: {str(e)}")
 
 
 @router.get("/connections")
 async def get_connections(source: MacSource = Depends(get_source)) -> Dict[str, Any]:
-    """
-    Get list of connected Mac clients.
-
-    Returns:
-        Dict with connections (ip -> hostname) and count
-    """
+    """Get list of connected Mac clients."""
     try:
         result = await source.command("get_connections", {})
 
-        if result.get("success"):
-            return {
-                "status": "success",
-                "connections": result.get("connections", {}),
-                "connection_count": result.get("connection_count", 0)
-            }
-        else:
-            return {
-                "status": "error",
-                "message": result.get("error", "Failed to get connections")
-            }
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=result.get("error", "Failed to get connections")
+            )
 
+        return result
+
+    except HTTPException:
+        raise
     except Exception as e:
-        return {
-            "status": "error",
-            "message": f"Error: {str(e)}"
-        }
+        raise HTTPException(status_code=500, detail=f"Connections error: {str(e)}")
 
 
 @router.get("/info")
 async def get_info(source: MacSource = Depends(get_source)) -> Dict[str, Any]:
-    """
-    Get Mac source configuration information.
-
-    Returns:
-        Configuration and service details
-    """
+    """Get Mac source configuration information."""
     try:
         status = await source.status()
 
@@ -167,7 +124,4 @@ async def get_info(source: MacSource = Depends(get_source)) -> Dict[str, Any]:
         }
 
     except Exception as e:
-        return {
-            "status": "error",
-            "message": f"Error: {str(e)}"
-        }
+        raise HTTPException(status_code=500, detail=f"Info error: {str(e)}")

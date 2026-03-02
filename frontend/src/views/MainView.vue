@@ -337,11 +337,9 @@ async function handleDisconnect() {
         return;
     }
 
-    if (response && response.ok) {
+    if (response && !response.ok) {
       const result = await response.json();
-      if (result.status !== 'success' && !result.success) {
-        console.error(`Disconnect error: ${result.message || result.error}`);
-      }
+      console.error(`Disconnect error: ${result.detail}`);
     }
   } catch (error) {
     console.error(`Error disconnecting ${currentSource}:`, error);

@@ -12,9 +12,10 @@ Provides REST API for:
 - Settings (podcast-specific settings)
 """
 from fastapi import APIRouter, HTTPException, Query, Depends
-from typing import Callable, Dict, Any, Optional
+from typing import Dict, Any
 import logging
 
+from backend.api.source_dependency import make_source_dependency
 from backend.features.podcast.models import (
     PlayEpisodeRequest,
     SeekRequest,
@@ -27,33 +28,13 @@ from backend.features.podcast.source import PodcastSource
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/podcast", tags=["podcast"])
 
-# Source provider function
-_source_provider: Optional[Callable[[], PodcastSource]] = None
+set_source_provider, get_source = make_source_dependency("Podcast")
 
 
-def setup_podcast_routes(source_provider: Callable[[], PodcastSource]) -> APIRouter:
-    """
-    Configure routes with source provider.
-
-    Args:
-        source_provider: Function returning PodcastSource instance
-
-    Returns:
-        Configured router
-    """
-    global _source_provider
-    _source_provider = source_provider
+def setup_podcast_routes(source_provider) -> APIRouter:
+    """Configure routes with source provider."""
+    set_source_provider(source_provider)
     return router
-
-
-def get_source() -> PodcastSource:
-    """Dependency to get PodcastSource instance."""
-    if _source_provider is None:
-        raise HTTPException(status_code=503, detail="Podcast source not configured")
-    source = _source_provider()
-    if source is None:
-        raise HTTPException(status_code=503, detail="Podcast source not available")
-    return source
 
 
 # === Language/Country Mappings ===
