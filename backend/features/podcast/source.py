@@ -560,18 +560,6 @@ class PodcastSource(BaseAudioSource):
 
     # === Monitor ===
 
-    def _start_monitor(self) -> None:
-        """Start playback monitoring task."""
-        if self._monitor_task:
-            return
-        self._monitor_task = asyncio.create_task(self._monitor_loop())
-
-    def _stop_monitor(self) -> None:
-        """Stop playback monitoring task."""
-        if self._monitor_task:
-            self._monitor_task.cancel()
-            self._monitor_task = None
-
     async def _monitor_loop(self) -> None:
         """Periodically check playback state and position."""
         try:
@@ -698,11 +686,6 @@ class PodcastSource(BaseAudioSource):
     def current_episode(self) -> Optional[Dict[str, Any]]:
         """Get current episode."""
         return self._current_episode
-
-    @property
-    def is_playing(self) -> bool:
-        """Check if currently playing."""
-        return self._is_playing
 
     @property
     def is_buffering(self) -> bool:

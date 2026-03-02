@@ -159,15 +159,6 @@ class RadioSource(BaseAudioSource):
             await self._cleanup()
             return False
 
-    async def _do_stop(self) -> bool:
-        """Stop MPV and cleanup."""
-        try:
-            await self._cleanup()
-            return await self._stop_service()
-        except Exception as e:
-            self._logger.error(f"Stop failed: {e}")
-            return False
-
     async def _do_restart(self) -> bool:
         """Restart service with state reset."""
         try:
@@ -494,18 +485,6 @@ class RadioSource(BaseAudioSource):
 
     # === Monitor ===
 
-    def _start_monitor(self) -> None:
-        """Start playback monitoring task."""
-        if self._monitor_task:
-            return
-        self._monitor_task = asyncio.create_task(self._monitor_loop())
-
-    def _stop_monitor(self) -> None:
-        """Stop playback monitoring task."""
-        if self._monitor_task:
-            self._monitor_task.cancel()
-            self._monitor_task = None
-
     async def _monitor_loop(self) -> None:
         """Periodically check playback state."""
         try:
@@ -564,11 +543,6 @@ class RadioSource(BaseAudioSource):
     def current_station(self) -> Optional[Dict[str, Any]]:
         """Get current station."""
         return self._current_station
-
-    @property
-    def is_playing(self) -> bool:
-        """Check if currently playing."""
-        return self._is_playing
 
     @property
     def is_buffering(self) -> bool:
