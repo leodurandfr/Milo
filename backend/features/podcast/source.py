@@ -206,7 +206,7 @@ class PodcastSource(BaseAudioSource):
         return {
             "mpv_connected": mpv_connected,
             "is_playing": mpv_playing,
-            "buffering": self._is_buffering,
+            "is_buffering": self._is_buffering,
             "current_episode": self._current_episode,
             "position": self._position,
             "duration": self._duration,
@@ -426,7 +426,7 @@ class PodcastSource(BaseAudioSource):
             self._duration = 0
             self._metadata = {
                 "is_playing": False,
-                "buffering": False,
+                "is_buffering": False,
                 "ready": True
             }
 
@@ -500,7 +500,7 @@ class PodcastSource(BaseAudioSource):
             self.set_state(SourceState.CONNECTED, {
                 "current_episode": self._current_episode,
                 "is_playing": self._is_playing,
-                "buffering": self._is_buffering,
+                "is_buffering": self._is_buffering,
                 "position": self._position,
                 "duration": self._duration,
                 "playback_speed": self._playback_speed
@@ -508,7 +508,7 @@ class PodcastSource(BaseAudioSource):
         else:
             self.set_state(SourceState.READY, {
                 "is_playing": False,
-                "buffering": False,
+                "is_buffering": False,
                 "ready": True
             })
 

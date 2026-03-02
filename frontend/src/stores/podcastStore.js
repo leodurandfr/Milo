@@ -78,23 +78,6 @@ export const usePodcastStore = defineStore('podcast', () => {
   })
 
   // === COMPUTED ===
-  // Read playback state from unifiedStore (single source of truth)
-  const isPlaying = computed(() => {
-    if (unifiedStore.systemState.active_source !== 'podcast') return false
-    return unifiedStore.systemState.metadata?.is_playing || false
-  })
-
-  const isBuffering = computed(() => {
-    if (unifiedStore.systemState.active_source !== 'podcast') return false
-    return unifiedStore.systemState.metadata?.is_buffering || false
-  })
-
-  const isPaused = computed(() => {
-    if (unifiedStore.systemState.active_source !== 'podcast') return false
-    // Paused = has episode but not playing and not buffering
-    return hasCurrentEpisode.value && !isPlaying.value && !isBuffering.value
-  })
-
   const hasCurrentEpisode = computed(() => currentEpisode.value !== null)
 
   const hasDisplayEpisode = computed(() => displayEpisode.value !== null)
@@ -519,9 +502,6 @@ export const usePodcastStore = defineStore('podcast', () => {
     searchLoadingMore,
 
     // Computed
-    isPlaying,
-    isPaused,
-    isBuffering,
     hasCurrentEpisode,
     hasDisplayEpisode,
     progressPercentage,
