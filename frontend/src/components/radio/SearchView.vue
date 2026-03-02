@@ -25,53 +25,50 @@
       />
     </div>
 
-    <!-- Results with transitions -->
+    <!-- Results -->
     <div class="results">
-      <Transition name="fade-slide" mode="out-in">
-        <!-- Loading state -->
-        <MessageContent v-if="isLoading" key="loading" loading :loading-delay="0" :title="t('audioSources.radioSource.loadingStations')" />
+      <!-- Loading state -->
+      <MessageContent v-if="isLoading" loading :loading-delay="0" :title="t('audioSources.radioSource.loadingStations')" />
 
-        <!-- Error state -->
-        <MessageContent
-          v-else-if="hasError && searchResults.length === 0"
-          key="error"
-          icon="stop"
-          :title="t('audioSources.radioSource.connectionError')"
-          :subtitle="t('audioSources.radioSource.cannotLoadStations')"
-          :cta-label="t('audioSources.radioSource.retry')"
-          cta-variant="background-strong"
-          :cta-click="() => $emit('retry')"
+      <!-- Error state -->
+      <MessageContent
+        v-else-if="hasError && searchResults.length === 0"
+        icon="stop"
+        :title="t('audioSources.radioSource.connectionError')"
+        :subtitle="t('audioSources.radioSource.cannotLoadStations')"
+        :cta-label="t('audioSources.radioSource.retry')"
+        cta-variant="background-strong"
+        :cta-click="() => $emit('retry')"
+      />
+
+      <!-- Minimum characters message -->
+      <MessageContent v-else-if="showMinCharMessage" icon="search" :title="t('audioSources.radioSource.minCharactersRequired')" />
+
+      <!-- Empty state -->
+      <MessageContent v-else-if="searchResults.length === 0" icon="radio" :title="t('audioSources.radioSource.noStationsFound')" />
+
+      <!-- Search results -->
+      <div v-else class="results-content fade-in">
+        <StationCard
+          v-for="station in searchResults"
+          :key="`search-${station.id}`"
+          :station="station"
+          variant="card"
+          :is-playing="currentStation?.id === station.id && isPlaying"
+          :is-loading="bufferingStationId === station.id"
+          @click="$emit('play-station', station.id)"
+          @play="$emit('play-station', station.id)"
         />
 
-        <!-- Minimum characters message -->
-        <MessageContent v-else-if="showMinCharMessage" key="min-chars" icon="search" :title="t('audioSources.radioSource.minCharactersRequired')" />
-
-        <!-- Empty state -->
-        <MessageContent v-else-if="searchResults.length === 0" key="empty" icon="radio" :title="t('audioSources.radioSource.noStationsFound')" />
-
-        <!-- Search results -->
-        <div v-else key="results" class="results-content">
-          <StationCard
-            v-for="station in searchResults"
-            :key="`search-${station.id}`"
-            :station="station"
-            variant="card"
-            :is-playing="currentStation?.id === station.id && isPlaying"
-            :is-loading="bufferingStationId === station.id"
-            @click="$emit('play-station', station.id)"
-            @play="$emit('play-station', station.id)"
-          />
-
-          <!-- Sentinel for infinite scroll -->
-          <div
-            v-if="hasMoreStations"
-            ref="scrollSentinel"
-            class="scroll-sentinel"
-          >
-            <span class="loading-more">{{ t('audioSources.radioSource.loadingMore') }}</span>
-          </div>
+        <!-- Sentinel for infinite scroll -->
+        <div
+          v-if="hasMoreStations"
+          ref="scrollSentinel"
+          class="scroll-sentinel"
+        >
+          <span class="loading-more">{{ t('audioSources.radioSource.loadingMore') }}</span>
         </div>
-      </Transition>
+      </div>
     </div>
   </div>
 </template>

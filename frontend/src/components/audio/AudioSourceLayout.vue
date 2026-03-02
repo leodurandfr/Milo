@@ -27,9 +27,9 @@
         </template>
       </ModalHeader>
 
-      <!-- Contenu avec animation (wrapper pour isoler position: absolute) -->
-      <div class="transition-wrapper">
-        <Transition name="fade-slide" mode="out-in" appear @before-leave="onBeforeLeave">
+      <!-- Content with crossfade animation (wrapper isolates position: absolute during leave) -->
+      <div class="transition-wrapper" ref="transitionWrapperRef">
+        <Transition name="content-switch" appear @before-leave="onBeforeLeave" @after-enter="onAfterEnter">
           <div :key="contentKey" class="content-inner">
             <slot name="content" :is-mobile="isMobile" />
           </div>
@@ -52,6 +52,7 @@ import ModalHeader from '@/components/ui/ModalHeader.vue'
 import { useIsMobile } from '@/composables/useIsMobile'
 
 const layoutRef = ref(null)
+const transitionWrapperRef = ref(null)
 
 const props = defineProps({
   /**
@@ -112,7 +113,7 @@ const props = defineProps({
     default: 'default'
   },
   /**
-   * Key for content transition (triggers fade-slide on change)
+   * Key for content transition (triggers crossfade on change)
    */
   contentKey: {
     type: String,
@@ -129,8 +130,18 @@ const props = defineProps({
 
 defineEmits(['header-back'])
 
-function onBeforeLeave() {
+function onBeforeLeave(el) {
+  // Pin wrapper height to prevent collapse while leaving element is position:absolute
+  if (transitionWrapperRef.value) {
+    transitionWrapperRef.value.style.minHeight = `${el.offsetHeight}px`
+  }
   resetScroll()
+}
+
+function onAfterEnter() {
+  if (transitionWrapperRef.value) {
+    transitionWrapperRef.value.style.minHeight = ''
+  }
 }
 
 function resetScroll() {
@@ -204,7 +215,7 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   transition: width var(--transition-spring);
 }
 
-/* Transition wrapper: isolates position: absolute during fade-slide */
+/* Transition wrapper: isolates position: absolute during leave */
 .transition-wrapper {
   position: relative;
   min-height: 0;
@@ -216,6 +227,26 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   flex-direction: column;
   min-height: 0;
   width: 100%;
+}
+
+/* Content switch: crossfade with no blank gap */
+.content-switch-enter-active {
+  transition: all var(--transition-in-out);
+}
+
+.content-switch-leave-active {
+  position: absolute;
+  width: 100%;
+  transition: opacity var(--transition-fast);
+}
+
+.content-switch-enter-from {
+  opacity: 0;
+  transform: translateY(var(--space-05));
+}
+
+.content-switch-leave-to {
+  opacity: 0;
 }
 
 /* Player wrapper: animates width to create space for player */

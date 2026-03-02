@@ -1,27 +1,25 @@
 <template>
   <div class="favorites-view">
-    <Transition name="fade-slide" mode="out-in">
-      <!-- Loading state: skeleton grid while favorites load -->
-      <div v-if="isLoading || !radioStore.favoritesInitialized" key="loading" class="favorites-grid">
-        <SkeletonStationCard v-for="i in 16" :key="`skeleton-${i}`" />
-      </div>
+    <!-- Loading state: skeleton grid while favorites load -->
+    <div v-if="isLoading || !radioStore.favoritesInitialized" class="favorites-grid">
+      <SkeletonStationCard v-for="i in 16" :key="`skeleton-${i}`" />
+    </div>
 
-      <!-- Empty state: only after initialization confirms no favorites -->
-      <MessageContent v-else-if="favoriteStations.length === 0" key="empty" icon="radio" :title="t('audioSources.radioSource.noFavorites')" />
+    <!-- Empty state: only after initialization confirms no favorites -->
+    <MessageContent v-else-if="favoriteStations.length === 0" icon="radio" :title="t('audioSources.radioSource.noFavorites')" />
 
-      <!-- Favorites grid -->
-      <div v-else key="favorites" class="favorites-grid">
-        <StationCard
-          v-for="station in favoriteStations"
-          :key="`fav-${station.id}`"
-          :station="station"
-          variant="image"
-          :is-playing="currentStation?.id === station.id && isPlaying"
-          :is-loading="bufferingStationId === station.id"
-          @click="$emit('play-station', station.id)"
-        />
-      </div>
-    </Transition>
+    <!-- Favorites grid -->
+    <div v-else class="favorites-grid fade-in">
+      <StationCard
+        v-for="station in favoriteStations"
+        :key="`fav-${station.id}`"
+        :station="station"
+        variant="image"
+        :is-playing="currentStation?.id === station.id && isPlaying"
+        :is-loading="bufferingStationId === station.id"
+        @click="$emit('play-station', station.id)"
+      />
+    </div>
   </div>
 </template>
 

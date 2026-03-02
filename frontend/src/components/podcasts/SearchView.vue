@@ -9,59 +9,56 @@
       <Dropdown v-model="searchFilters.duration" :options="durationOptions" variant="background-neutral" />
     </div>
 
-    <!-- Results with transitions -->
+    <!-- Results -->
     <div class="results">
-      <Transition name="fade-slide" mode="out-in">
-        <!-- Loading state -->
-        <MessageContent v-if="loading" key="loading" loading :loading-delay="0" :title="t('podcasts.loading')" />
+      <!-- Loading state -->
+      <MessageContent v-if="loading" loading :loading-delay="0" :title="t('podcasts.loading')" />
 
-        <!-- Search results -->
-        <div v-else-if="hasSearched && (searchResults.podcasts.length > 0 || searchResults.episodes.length > 0)" key="results" class="results-content">
-          <!-- Podcasts results -->
-          <section v-if="searchResults.podcasts.length > 0" class="section">
-            <h2 class="heading-2">
-              {{ t('podcasts.podcastsTitle') }}
-            </h2>
-            <div class="podcasts-grid">
-              <PodcastCard v-for="podcast in searchResults.podcasts" :key="podcast.uuid" :podcast="podcast"
-                @select="$emit('select-podcast', podcast.uuid)" />
-            </div>
-            <div v-if="searchCurrentPage.podcasts < searchPagination.podcasts.pages" class="load-more-container">
-              <Button variant="brand" :loading="searchLoadingMore.podcasts" @click="loadMorePodcasts">
-                {{ t('podcasts.loadMorePodcasts') }}
-              </Button>
-            </div>
-          </section>
+      <!-- Search results -->
+      <div v-else-if="hasSearched && (searchResults.podcasts.length > 0 || searchResults.episodes.length > 0)" class="results-content fade-in">
+        <!-- Podcasts results -->
+        <section v-if="searchResults.podcasts.length > 0" class="section">
+          <h2 class="heading-2">
+            {{ t('podcasts.podcastsTitle') }}
+          </h2>
+          <div class="podcasts-grid">
+            <PodcastCard v-for="podcast in searchResults.podcasts" :key="podcast.uuid" :podcast="podcast"
+              @select="$emit('select-podcast', podcast.uuid)" />
+          </div>
+          <div v-if="searchCurrentPage.podcasts < searchPagination.podcasts.pages" class="load-more-container">
+            <Button variant="brand" :loading="searchLoadingMore.podcasts" @click="loadMorePodcasts">
+              {{ t('podcasts.loadMorePodcasts') }}
+            </Button>
+          </div>
+        </section>
 
-          <!-- Episodes results -->
-          <section v-if="searchResults.episodes.length > 0" class="section">
-            <h2 class="heading-2">
-              {{ t('podcasts.recentEpisodesTitle') }}
-            </h2>
-            <div class="episodes-list">
-              <EpisodeCard v-for="episode in searchResults.episodes" :key="episode.uuid" :episode="episode"
-                @select="$emit('select-episode', episode.uuid)" @play="$emit('play-episode', episode)"
-                @select-podcast="(podcast) => $emit('select-podcast', podcast)" />
-            </div>
-            <div v-if="searchCurrentPage.episodes < searchPagination.episodes.pages" class="load-more-container">
-              <Button variant="brand" :loading="searchLoadingMore.episodes" @click="loadMoreEpisodes">
-                {{ t('podcasts.loadMoreEpisodes') }}
-              </Button>
-            </div>
-          </section>
-        </div>
+        <!-- Episodes results -->
+        <section v-if="searchResults.episodes.length > 0" class="section">
+          <h2 class="heading-2">
+            {{ t('podcasts.recentEpisodesTitle') }}
+          </h2>
+          <div class="episodes-list">
+            <EpisodeCard v-for="episode in searchResults.episodes" :key="episode.uuid" :episode="episode"
+              @select="$emit('select-episode', episode.uuid)" @play="$emit('play-episode', episode)"
+              @select-podcast="(podcast) => $emit('select-podcast', podcast)" />
+          </div>
+          <div v-if="searchCurrentPage.episodes < searchPagination.episodes.pages" class="load-more-container">
+            <Button variant="brand" :loading="searchLoadingMore.episodes" @click="loadMoreEpisodes">
+              {{ t('podcasts.loadMoreEpisodes') }}
+            </Button>
+          </div>
+        </section>
+      </div>
 
-        <!-- No results -->
-        <MessageContent
-          v-else-if="hasSearched"
-          key="no-results"
-          icon="search"
-          :title="lastSearchTerm ? t('podcasts.noResultsFor', { query: lastSearchTerm }) : t('podcasts.noResults')"
-        />
+      <!-- No results -->
+      <MessageContent
+        v-else-if="hasSearched"
+        icon="search"
+        :title="lastSearchTerm ? t('podcasts.noResultsFor', { query: lastSearchTerm }) : t('podcasts.noResults')"
+      />
 
-        <!-- Initial state -->
-        <MessageContent v-else key="initial" icon="search" :title="t('podcasts.searchPrompt')" />
-      </Transition>
+      <!-- Initial state -->
+      <MessageContent v-else icon="search" :title="t('podcasts.searchPrompt')" />
     </div>
   </div>
 </template>
