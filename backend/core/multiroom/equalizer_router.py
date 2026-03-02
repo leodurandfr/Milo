@@ -216,11 +216,19 @@ class EqualizerRouter:
 
         return await self._route(mac_id, local, remote, "get_compressor")
 
-    async def set_compressor(self, mac_id: str, settings: Dict[str, Any]) -> Dict[str, Any]:
+    async def set_compressor(
+        self,
+        mac_id: str,
+        settings: Dict[str, Any],
+        persist: bool = True,
+        broadcast: bool = True
+    ) -> Dict[str, Any]:
         """Set compressor settings for a client."""
         async def local():
             if self._camilladsp_service:
-                success = await self._camilladsp_service.set_compressor(**settings)
+                success = await self._camilladsp_service.set_compressor(
+                    **settings, persist=persist, broadcast=broadcast
+                )
                 return {"status": "success" if success else "error"}
             return {"status": "error", "message": "Equalizer service not available"}
 
@@ -244,11 +252,19 @@ class EqualizerRouter:
 
         return await self._route(mac_id, local, remote, "get_loudness")
 
-    async def set_loudness(self, mac_id: str, settings: Dict[str, Any]) -> Dict[str, Any]:
+    async def set_loudness(
+        self,
+        mac_id: str,
+        settings: Dict[str, Any],
+        persist: bool = True,
+        broadcast: bool = True
+    ) -> Dict[str, Any]:
         """Set loudness settings for a client."""
         async def local():
             if self._camilladsp_service:
-                success = await self._camilladsp_service.set_loudness(**settings)
+                success = await self._camilladsp_service.set_loudness(
+                    **settings, persist=persist, broadcast=broadcast
+                )
                 return {"status": "success" if success else "error"}
             return {"status": "error", "message": "Equalizer service not available"}
 

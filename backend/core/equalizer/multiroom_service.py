@@ -741,7 +741,10 @@ class MultiroomEqualizerService:
         makeup_gain: Optional[float] = None,
     ) -> bool:
         """
-        Update compressor settings, preserving other settings.
+        Update compressor settings using targeted routing (no filter reapplication).
+
+        Only touches compressor on CamillaDSP clients, leaving EQ filters and
+        loudness untouched. Follows the same targeted pattern as update_filter().
 
         Args:
             target_type: "zone" or "client"
@@ -776,8 +779,56 @@ class MultiroomEqualizerService:
         if makeup_gain is not None:
             comp.makeup_gain = makeup_gain
 
-        # Apply updated settings
-        return await self.apply_equalizer(target_type, target_id, current)
+        # Save to registry (source of truth) without broadcasting full settings
+        if target_type == "zone":
+            await self._registry.set_zone_equalizer(target_id, current, broadcast=False)
+        else:
+            await self._registry.set_standalone_equalizer(target_id, current, broadcast=False)
+
+        # Build compressor data dict for router
+        compressor_data = {
+            "enabled": comp.enabled,
+            "threshold": comp.threshold,
+            "ratio": comp.ratio,
+            "attack": comp.attack,
+            "release": comp.release,
+            "makeup_gain": comp.makeup_gain,
+        }
+
+        # Apply only compressor to clients via EqualizerRouter
+        if self._equalizer_router:
+            if target_type == "zone":
+                online_clients = self._registry.get_online_zone_clients(target_id)
+                for client in online_clients:
+                    await self._equalizer_router.set_compressor(
+                        mac_id=client.mac_id,
+                        settings=compressor_data,
+                        persist=False,
+                        broadcast=False,
+                    )
+            else:
+                await self._equalizer_router.set_compressor(
+                    mac_id=target_id,
+                    settings=compressor_data,
+                    persist=False,
+                    broadcast=False,
+                )
+
+        # Broadcast only the compressor change (not all settings)
+        if self._state_machine:
+            await self._state_machine.broadcast_event(
+                "multiroom",
+                "equalizer_changed",
+                {
+                    "target_type": target_type,
+                    "target_id": target_id,
+                    "equalizer_settings": {
+                        "compressor": comp.to_dict(),
+                    },
+                },
+            )
+
+        return True
 
     async def update_loudness(
         self,
@@ -788,7 +839,10 @@ class MultiroomEqualizerService:
         low_boost: Optional[float] = None,
     ) -> bool:
         """
-        Update loudness settings, preserving other settings.
+        Update loudness settings using targeted routing (no filter reapplication).
+
+        Only touches loudness on CamillaDSP clients, leaving EQ filters and
+        compressor untouched. Follows the same targeted pattern as update_filter().
 
         Args:
             target_type: "zone" or "client"
@@ -814,8 +868,53 @@ class MultiroomEqualizerService:
         if low_boost is not None:
             loud.low_boost = low_boost
 
-        # Apply updated settings
-        return await self.apply_equalizer(target_type, target_id, current)
+        # Save to registry (source of truth) without broadcasting full settings
+        if target_type == "zone":
+            await self._registry.set_zone_equalizer(target_id, current, broadcast=False)
+        else:
+            await self._registry.set_standalone_equalizer(target_id, current, broadcast=False)
+
+        # Build loudness data dict for router
+        loudness_data = {
+            "enabled": loud.enabled,
+            "high_boost": loud.high_boost,
+            "low_boost": loud.low_boost,
+        }
+
+        # Apply only loudness to clients via EqualizerRouter
+        if self._equalizer_router:
+            if target_type == "zone":
+                online_clients = self._registry.get_online_zone_clients(target_id)
+                for client in online_clients:
+                    await self._equalizer_router.set_loudness(
+                        mac_id=client.mac_id,
+                        settings=loudness_data,
+                        persist=False,
+                        broadcast=False,
+                    )
+            else:
+                await self._equalizer_router.set_loudness(
+                    mac_id=target_id,
+                    settings=loudness_data,
+                    persist=False,
+                    broadcast=False,
+                )
+
+        # Broadcast only the loudness change (not all settings)
+        if self._state_machine:
+            await self._state_machine.broadcast_event(
+                "multiroom",
+                "equalizer_changed",
+                {
+                    "target_type": target_type,
+                    "target_id": target_id,
+                    "equalizer_settings": {
+                        "loudness": loud.to_dict(),
+                    },
+                },
+            )
+
+        return True
 
     async def update_equalizer_enabled(
         self,
