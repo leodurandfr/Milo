@@ -8,6 +8,8 @@ import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 
+from backend.shared.decorators import handle_errors
+
 
 # Mapping des genres Taddy vers les IDs de genre iTunes RSS
 GENRE_TO_ITUNES_ID = {
@@ -280,6 +282,7 @@ class TaddyAPI:
         self._set_cache(self._discovery_cache, cache_key, result)
         return result
 
+    @handle_errors(default={"results": [], "total": 0})
     async def get_itunes_top_podcasts_by_genre(
         self,
         genre: str,
@@ -319,48 +322,44 @@ class TaddyAPI:
         # Fetch from iTunes RSS API
         url = f"https://itunes.apple.com/{country_code}/rss/toppodcasts/genre={itunes_genre_id}/limit={limit}/json"
 
-        try:
-            async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                if resp.status != 200:
-                    self.logger.error(f"iTunes RSS error: HTTP {resp.status}")
-                    return {"results": [], "total": 0}
+        async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            if resp.status != 200:
+                self.logger.error(f"iTunes RSS error: HTTP {resp.status}")
+                return {"results": [], "total": 0}
 
-                # iTunes returns text/javascript instead of application/json
-                text = await resp.text()
-                import json as json_module
-                data = json_module.loads(text)
-                entries = data.get('feed', {}).get('entry', [])
+            # iTunes returns text/javascript instead of application/json
+            text = await resp.text()
+            import json as json_module
+            data = json_module.loads(text)
+            entries = data.get('feed', {}).get('entry', [])
 
-                results = []
-                for entry in entries:
-                    # Extract iTunes data
-                    itunes_id = entry.get('id', {}).get('attributes', {}).get('im:id')
-                    name = entry.get('im:name', {}).get('label', '')
-                    artist = entry.get('im:artist', {}).get('label', '')
+            results = []
+            for entry in entries:
+                # Extract iTunes data
+                itunes_id = entry.get('id', {}).get('attributes', {}).get('im:id')
+                name = entry.get('im:name', {}).get('label', '')
+                artist = entry.get('im:artist', {}).get('label', '')
 
-                    # Get image URL (take the largest one)
-                    images = entry.get('im:image', [])
-                    image_url = images[-1].get('label', '') if images else ''
+                # Get image URL (take the largest one)
+                images = entry.get('im:image', [])
+                image_url = images[-1].get('label', '') if images else ''
 
-                    results.append({
-                        'itunes_id': itunes_id,
-                        'name': name,
-                        'artist': artist,
-                        'publisher': artist,
-                        'image_url': image_url,
-                        'source': 'itunes_rss',
-                        # UUID will be added during enrichment
-                        'uuid': None,
-                    })
+                results.append({
+                    'itunes_id': itunes_id,
+                    'name': name,
+                    'artist': artist,
+                    'publisher': artist,
+                    'image_url': image_url,
+                    'source': 'itunes_rss',
+                    # UUID will be added during enrichment
+                    'uuid': None,
+                })
 
-                result = {"results": results, "total": len(results)}
-                self._set_cache(self._discovery_cache, cache_key, result)
-                return result
+            result = {"results": results, "total": len(results)}
+            self._set_cache(self._discovery_cache, cache_key, result)
+            return result
 
-        except Exception as e:
-            self.logger.error(f"Error fetching iTunes RSS: {e}")
-            return {"results": [], "total": 0}
-
+    @handle_errors(default=None)
     async def lookup_podcast_uuid_by_itunes_id(self, itunes_id: str, podcast_name: str = None) -> Optional[str]:
         """
         Lookup Taddy UUID for a podcast using its iTunes ID
@@ -372,46 +371,41 @@ class TaddyAPI:
         Returns:
             Taddy UUID if found, None otherwise
         """
-        try:
-            # Search by podcast name (simple and effective)
-            if podcast_name:
-                # Limit to first 8 words (Taddy API limitation)
-                words = podcast_name.split()
-                search_term = ' '.join(words[:8])
+        # Search by podcast name (simple and effective)
+        if podcast_name:
+            # Limit to first 8 words (Taddy API limitation)
+            words = podcast_name.split()
+            search_term = ' '.join(words[:8])
 
-                result = await self.search_mixed(
-                    term=search_term,
-                    sort_by="EXACTNESS",
-                    limit=5
-                )
+            result = await self.search_mixed(
+                term=search_term,
+                sort_by="EXACTNESS",
+                limit=5
+            )
 
-                podcasts = result.get('podcasts', [])
+            podcasts = result.get('podcasts', [])
 
-                # Strategy 1: Match by iTunes ID (most reliable)
-                if itunes_id:
-                    itunes_id_str = str(itunes_id)
-                    for podcast in podcasts:
-                        taddy_itunes_id = podcast.get('itunes_id')
-                        if taddy_itunes_id and str(taddy_itunes_id) == itunes_id_str:
-                            uuid = podcast.get('uuid')
-                            self.logger.debug(f"Found UUID {uuid} for iTunes ID {itunes_id}")
-                            return uuid
-
-                # Strategy 2: Match by name (fallback)
-                podcast_name_lower = podcast_name.lower().strip()
+            # Strategy 1: Match by iTunes ID (most reliable)
+            if itunes_id:
+                itunes_id_str = str(itunes_id)
                 for podcast in podcasts:
-                    taddy_name_lower = podcast.get('name', '').lower().strip()
-                    if taddy_name_lower == podcast_name_lower:
+                    taddy_itunes_id = podcast.get('itunes_id')
+                    if taddy_itunes_id and str(taddy_itunes_id) == itunes_id_str:
                         uuid = podcast.get('uuid')
-                        self.logger.debug(f"Found UUID {uuid} for name '{podcast_name}'")
+                        self.logger.debug(f"Found UUID {uuid} for iTunes ID {itunes_id}")
                         return uuid
 
-            self.logger.debug(f"No UUID found for iTunes ID {itunes_id} / name '{podcast_name}'")
-            return None
+            # Strategy 2: Match by name (fallback)
+            podcast_name_lower = podcast_name.lower().strip()
+            for podcast in podcasts:
+                taddy_name_lower = podcast.get('name', '').lower().strip()
+                if taddy_name_lower == podcast_name_lower:
+                    uuid = podcast.get('uuid')
+                    self.logger.debug(f"Found UUID {uuid} for name '{podcast_name}'")
+                    return uuid
 
-        except Exception as e:
-            self.logger.error(f"Error looking up podcast UUID: {e}")
-            return None
+        self.logger.debug(f"No UUID found for iTunes ID {itunes_id} / name '{podcast_name}'")
+        return None
 
     # ========== SEARCH QUERIES ==========
 

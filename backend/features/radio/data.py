@@ -22,6 +22,8 @@ from typing import Dict, Any, List, Optional, Tuple
 import aiofiles
 from PIL import Image
 
+from backend.shared.decorators import handle_errors
+
 
 class ImageManager:
     """
@@ -45,12 +47,10 @@ class ImageManager:
         self.logger = logging.getLogger(__name__)
         self._ensure_directory()
 
+    @handle_errors(default=None)
     def _ensure_directory(self) -> None:
         """Create images directory if it doesn't exist."""
-        try:
-            self.IMAGES_DIR.mkdir(parents=True, exist_ok=True)
-        except Exception as e:
-            self.logger.error(f"Error creating images directory: {e}")
+        self.IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
     async def validate_and_save_image(
         self,
@@ -132,47 +132,39 @@ class ImageManager:
             self.logger.error(f"Error saving image: {e}")
             return False, None, f"Error saving file: {str(e)}"
 
+    @handle_errors(default=False)
     async def delete_image(self, filename: str) -> bool:
         """Delete an image from storage."""
         if not filename:
             return False
 
-        try:
-            file_path = self.IMAGES_DIR / filename
+        file_path = self.IMAGES_DIR / filename
 
-            # Security check
-            if not file_path.resolve().is_relative_to(self.IMAGES_DIR.resolve()):
-                self.logger.warning(f"Attempted path traversal: {filename}")
-                return False
-
-            if file_path.exists():
-                file_path.unlink()
-                self.logger.info(f"Image deleted: {filename}")
-                return True
+        # Security check
+        if not file_path.resolve().is_relative_to(self.IMAGES_DIR.resolve()):
+            self.logger.warning(f"Attempted path traversal: {filename}")
             return False
 
-        except Exception as e:
-            self.logger.error(f"Error deleting image {filename}: {e}")
-            return False
+        if file_path.exists():
+            file_path.unlink()
+            self.logger.info(f"Image deleted: {filename}")
+            return True
+        return False
 
+    @handle_errors(default=None)
     def get_image_path(self, filename: str) -> Optional[Path]:
         """Get full path of an image."""
         if not filename:
             return None
 
-        try:
-            file_path = self.IMAGES_DIR / filename
+        file_path = self.IMAGES_DIR / filename
 
-            if not file_path.resolve().is_relative_to(self.IMAGES_DIR.resolve()):
-                return None
-
-            if file_path.exists():
-                return file_path
+        if not file_path.resolve().is_relative_to(self.IMAGES_DIR.resolve()):
             return None
 
-        except Exception as e:
-            self.logger.error(f"Error getting image path {filename}: {e}")
-            return None
+        if file_path.exists():
+            return file_path
+        return None
 
 
 class StationDataService:
@@ -267,25 +259,21 @@ class StationDataService:
             self.logger.error(f"Error loading radio_data.json: {e}")
             return {"favorites": [], "modified_metadata": {}, "manual_stations": {}, "favorites_cache": {}}
 
+    @handle_errors(default=False)
     async def _save_data(self, data: Dict[str, Any]) -> bool:
         """Save radio_data.json with atomic write."""
-        try:
-            async with self._file_lock:
-                temp_file = self._data_file + '.tmp'
+        async with self._file_lock:
+            temp_file = self._data_file + '.tmp'
 
-                async with aiofiles.open(temp_file, 'w', encoding='utf-8') as f:
-                    await f.write(json.dumps(data, ensure_ascii=False, indent=2))
-                    await f.write('\n')
-                    await f.flush()
-                    os.fsync(f.fileno())
+            async with aiofiles.open(temp_file, 'w', encoding='utf-8') as f:
+                await f.write(json.dumps(data, ensure_ascii=False, indent=2))
+                await f.write('\n')
+                await f.flush()
+                os.fsync(f.fileno())
 
-                os.replace(temp_file, self._data_file)
+            os.replace(temp_file, self._data_file)
 
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Error saving radio_data.json: {e}")
-            return False
+        return True
 
     async def _save(self) -> bool:
         """Save all data."""
@@ -517,39 +505,35 @@ class StationDataService:
             self.logger.error(f"Error adding custom station: {e}")
             return {"success": False, "error": str(e)}
 
+    @handle_errors(default=False)
     async def remove_custom_station(self, station_id: str) -> bool:
         """Remove custom station."""
         if not station_id or not station_id.startswith("custom_"):
             return False
 
-        try:
-            station_to_remove = self._manual_stations.get(station_id)
-            if not station_to_remove:
-                return False
-
-            image_filename = station_to_remove.get('image_filename')
-            if image_filename:
-                await self.image_manager.delete_image(image_filename)
-
-            del self._manual_stations[station_id]
-            success = await self._save()
-
-            if success and self._event_bus:
-                from backend.core.events import Events
-                await self._event_bus.emit(Events.RADIO_CUSTOM_STATION_REMOVED, {
-                    "station_id": station_id,
-                    "custom_stations_count": len(self._manual_stations),
-                    "source": "radio"
-                })
-
-            if self.is_favorite(station_id):
-                await self.remove_favorite(station_id)
-
-            return success
-
-        except Exception as e:
-            self.logger.error(f"Error removing custom station: {e}")
+        station_to_remove = self._manual_stations.get(station_id)
+        if not station_to_remove:
             return False
+
+        image_filename = station_to_remove.get('image_filename')
+        if image_filename:
+            await self.image_manager.delete_image(image_filename)
+
+        del self._manual_stations[station_id]
+        success = await self._save()
+
+        if success and self._event_bus:
+            from backend.core.events import Events
+            await self._event_bus.emit(Events.RADIO_CUSTOM_STATION_REMOVED, {
+                "station_id": station_id,
+                "custom_stations_count": len(self._manual_stations),
+                "source": "radio"
+            })
+
+        if self.is_favorite(station_id):
+            await self.remove_favorite(station_id)
+
+        return success
 
     async def update_custom_station(
         self,

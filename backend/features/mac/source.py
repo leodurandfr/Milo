@@ -19,6 +19,7 @@ from typing import Dict, Any, Optional, Tuple
 
 from backend.core.audio_source import BaseAudioSource, SourceState
 from backend.core.events import EventBus
+from backend.shared.decorators import handle_errors
 
 
 # IPv4/IPv6 parsing regex for ROC log lines
@@ -106,36 +107,32 @@ class MacSource(BaseAudioSource):
         self._monitor_task: Optional[asyncio.Task] = None
         self._stopping = False
 
+    @handle_errors(default=False)
     async def _do_start(self) -> bool:
         """Start ROC service and monitoring."""
-        try:
-            # Start systemd service
-            if not await self._start_service():
-                return False
-
-            # Wait for service to be ready
-            await asyncio.sleep(1)
-
-            if not await self._is_service_active():
-                self._logger.error("Service not active after start")
-                return False
-
-            self._stopping = False
-
-            # Check for existing connections
-            await self._check_initial_state()
-
-            # Start continuous monitoring
-            self._monitor_task = asyncio.create_task(self._monitor_events())
-
-            # Update state based on connections
-            self._update_connection_state()
-
-            return True
-
-        except Exception as e:
-            self._logger.error(f"Start error: {e}")
+        # Start systemd service
+        if not await self._start_service():
             return False
+
+        # Wait for service to be ready
+        await asyncio.sleep(1)
+
+        if not await self._is_service_active():
+            self._logger.error("Service not active after start")
+            return False
+
+        self._stopping = False
+
+        # Check for existing connections
+        await self._check_initial_state()
+
+        # Start continuous monitoring
+        self._monitor_task = asyncio.create_task(self._monitor_events())
+
+        # Update state based on connections
+        self._update_connection_state()
+
+        return True
 
     async def _do_stop(self) -> bool:
         """Stop monitoring and service."""
@@ -215,28 +212,25 @@ class MacSource(BaseAudioSource):
 
     # === Connection Monitoring ===
 
+    @handle_errors(default=None)
     async def _check_initial_state(self) -> None:
         """Check for existing connections on startup."""
-        try:
-            # Check recent logs (filter out trace logs)
-            proc = await asyncio.create_subprocess_shell(
-                f"journalctl -u {self.service_name} -n 5000 --no-pager | grep -v '\\[trc\\]' | tail -100",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, _ = await proc.communicate()
+        # Check recent logs (filter out trace logs)
+        proc = await asyncio.create_subprocess_shell(
+            f"journalctl -u {self.service_name} -n 5000 --no-pager | grep -v '\\[trc\\]' | tail -100",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, _ = await proc.communicate()
 
-            if proc.returncode == 0:
-                for line in stdout.decode().split('\n'):
-                    if line.strip():
-                        await self._process_log_line(line)
+        if proc.returncode == 0:
+            for line in stdout.decode().split('\n'):
+                if line.strip():
+                    await self._process_log_line(line)
 
-            # If no connections found, scan recent logs for active sessions
-            if not self.connected_clients:
-                await self._detect_active_connections()
-
-        except Exception as e:
-            self._logger.error(f"Initial state check error: {e}")
+        # If no connections found, scan recent logs for active sessions
+        if not self.connected_clients:
+            await self._detect_active_connections()
 
     async def _detect_active_connections(self) -> None:
         """Detect existing connections via recent journalctl logs."""
@@ -296,39 +290,36 @@ class MacSource(BaseAudioSource):
                 except ProcessLookupError:
                     pass
 
+    @handle_errors(default=None)
     async def _process_log_line(self, line: str) -> None:
         """Process a log line for connection events."""
-        try:
-            # Disconnection
-            if "removing route" in line or "removing address" in line:
-                ip, _ = _parse_ip_from_line(line)
-                if ip:
-                    ip = _normalize_ip(ip)
-                    if ip in self.connected_clients:
-                        name = self.connected_clients.pop(ip)
-                        self._logger.info(f"Disconnected: {name} ({ip})")
-                        self._update_connection_state()
-                return
+        # Disconnection
+        if "removing route" in line or "removing address" in line:
+            ip, _ = _parse_ip_from_line(line)
+            if ip:
+                ip = _normalize_ip(ip)
+                if ip in self.connected_clients:
+                    name = self.connected_clients.pop(ip)
+                    self._logger.info(f"Disconnected: {name} ({ip})")
+                    self._update_connection_state()
+            return
 
-            # Connection
-            if "session group: creating session" in line:
-                ip, _ = _parse_ip_from_line(line)
-                if ip:
-                    ip = _normalize_ip(ip)
-                    if ip not in self.connected_clients:
-                        await self._add_client(ip)
-                return
+        # Connection
+        if "session group: creating session" in line:
+            ip, _ = _parse_ip_from_line(line)
+            if ip:
+                ip = _normalize_ip(ip)
+                if ip not in self.connected_clients:
+                    await self._add_client(ip)
+            return
 
-            # Connection via route
-            if "creating" in line and "route" in line and "address=" in line:
-                ip, _ = _parse_ip_from_line(line)
-                if ip:
-                    ip = _normalize_ip(ip)
-                    if ip not in self.connected_clients:
-                        await self._add_client(ip)
-
-        except Exception as e:
-            self._logger.error(f"Log processing error: {e}")
+        # Connection via route
+        if "creating" in line and "route" in line and "address=" in line:
+            ip, _ = _parse_ip_from_line(line)
+            if ip:
+                ip = _normalize_ip(ip)
+                if ip not in self.connected_clients:
+                    await self._add_client(ip)
 
     async def _add_client(self, ip: str) -> None:
         """Add a client and resolve hostname."""

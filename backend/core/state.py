@@ -27,6 +27,7 @@ from typing import Dict, Any, Optional
 from backend.core.models.audio_state import AudioSource, PluginState, SystemAudioState
 from backend.core.audio_source import AudioSource as AudioSourceProtocol
 from backend.core.events import EventBus, Events
+from backend.shared.decorators import handle_errors
 
 logger = logging.getLogger(__name__)
 
@@ -313,6 +314,7 @@ class AudioStateMachine:
             "source": "equalizer"
         })
 
+    @handle_errors(default=False, level='warning')
     async def refresh_active_metadata(self) -> bool:
         """Refresh metadata from the active plugin."""
         if self.system_state.active_source == AudioSource.NONE:
@@ -322,42 +324,34 @@ class AudioStateMachine:
         if not plugin or not hasattr(plugin, '_refresh_metadata'):
             return False
 
-        try:
-            if await plugin._refresh_metadata() and hasattr(plugin, '_metadata'):
-                async with self._state_lock:
-                    self.system_state.metadata = plugin._metadata.copy()
-                return True
-        except Exception as e:
-            logger.warning(f"Failed to refresh metadata: {e}")
+        if await plugin._refresh_metadata() and hasattr(plugin, '_metadata'):
+            async with self._state_lock:
+                self.system_state.metadata = plugin._metadata.copy()
+            return True
 
         return False
 
+    @handle_errors(default=None)
     async def _stop_source(self, source: AudioSource) -> None:
         """Stop specified source."""
         plugin = self.plugins.get(source)
         if plugin:
-            try:
-                await plugin.stop()
-            except Exception as e:
-                logger.error(f"Error stopping {source.value}: {e}")
+            await plugin.stop()
 
+    @handle_errors(default=False)
     async def _start_source(self, source: AudioSource) -> bool:
         """Start specified source."""
         plugin = self.plugins.get(source)
         if not plugin:
             return False
 
-        try:
-            if not getattr(plugin, '_initialized', False):
-                if await plugin.initialize():
-                    plugin._initialized = True
-                else:
-                    return False
+        if not getattr(plugin, '_initialized', False):
+            if await plugin.initialize():
+                plugin._initialized = True
+            else:
+                return False
 
-            return await plugin.start()
-        except Exception as e:
-            logger.error(f"Error starting {source.value}: {e}")
-            return False
+        return await plugin.start()
 
     async def _emergency_stop(self) -> None:
         """Emergency stop all plugins."""

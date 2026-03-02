@@ -365,70 +365,67 @@ class CrossoverService:
 
         return True
 
+    @handle_errors(default=False)
     async def apply_zone_crossover(self, zone_id: str) -> bool:
         """Apply crossover settings to all clients in a zone."""
         if not self._registry:
             return False
 
-        try:
-            zone = self._registry.get_zone(zone_id)
-            if not zone:
-                self.logger.warning(f"Zone {zone_id} not found")
-                return False
-
-            client_ids = zone.client_ids
-            frequency = zone.crossover_frequency or await self.get_zone_auto_crossover(zone_id)
-
-            available_clients = {
-                cid for cid in client_ids
-                if self._registry.is_client_online(cid)
-            }
-
-            has_subwoofer = any(
-                self.is_client_subwoofer(cid) and cid in available_clients
-                for cid in client_ids
-            )
-
-            # Determine if crossover should be applied
-            # Auto mode (None): enable when there's an online subwoofer
-            # Explicit mode: respect the setting but still require subwoofer
-            if zone.crossover_enabled is not None:
-                should_apply_crossover = has_subwoofer and zone.crossover_enabled
-            else:
-                # Auto mode: enable crossover when there's an online subwoofer
-                should_apply_crossover = has_subwoofer
-
-            self.logger.info(
-                f"Applying crossover to zone {zone_id}: "
-                f"has_sub={has_subwoofer}, zone_setting={zone.crossover_enabled}, "
-                f"should_apply={should_apply_crossover}, freq={frequency}Hz, "
-                f"available_clients={list(available_clients)}"
-            )
-
-            for client_id in client_ids:
-                if client_id not in available_clients:
-                    self.logger.debug(f"Skipping unavailable client {client_id}")
-                    continue
-
-                is_sub = self.is_client_subwoofer(client_id)
-
-                if should_apply_crossover:
-                    if is_sub:
-                        await self._set_client_filter(client_id, "lowpass", True, frequency)
-                        await self._set_client_filter(client_id, "crossover", False, frequency)
-                    else:
-                        await self._set_client_filter(client_id, "crossover", True, frequency)
-                        await self._set_client_filter(client_id, "lowpass", False, frequency)
-                else:
-                    await self._set_client_filter(client_id, "crossover", False, frequency)
-                    await self._set_client_filter(client_id, "lowpass", False, frequency)
-
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Error applying zone crossover: {e}")
+        zone = self._registry.get_zone(zone_id)
+        if not zone:
+            self.logger.warning(f"Zone {zone_id} not found")
             return False
 
+        client_ids = zone.client_ids
+        frequency = zone.crossover_frequency or await self.get_zone_auto_crossover(zone_id)
+
+        available_clients = {
+            cid for cid in client_ids
+            if self._registry.is_client_online(cid)
+        }
+
+        has_subwoofer = any(
+            self.is_client_subwoofer(cid) and cid in available_clients
+            for cid in client_ids
+        )
+
+        # Determine if crossover should be applied
+        # Auto mode (None): enable when there's an online subwoofer
+        # Explicit mode: respect the setting but still require subwoofer
+        if zone.crossover_enabled is not None:
+            should_apply_crossover = has_subwoofer and zone.crossover_enabled
+        else:
+            # Auto mode: enable crossover when there's an online subwoofer
+            should_apply_crossover = has_subwoofer
+
+        self.logger.info(
+            f"Applying crossover to zone {zone_id}: "
+            f"has_sub={has_subwoofer}, zone_setting={zone.crossover_enabled}, "
+            f"should_apply={should_apply_crossover}, freq={frequency}Hz, "
+            f"available_clients={list(available_clients)}"
+        )
+
+        for client_id in client_ids:
+            if client_id not in available_clients:
+                self.logger.debug(f"Skipping unavailable client {client_id}")
+                continue
+
+            is_sub = self.is_client_subwoofer(client_id)
+
+            if should_apply_crossover:
+                if is_sub:
+                    await self._set_client_filter(client_id, "lowpass", True, frequency)
+                    await self._set_client_filter(client_id, "crossover", False, frequency)
+                else:
+                    await self._set_client_filter(client_id, "crossover", True, frequency)
+                    await self._set_client_filter(client_id, "lowpass", False, frequency)
+            else:
+                await self._set_client_filter(client_id, "crossover", False, frequency)
+                await self._set_client_filter(client_id, "lowpass", False, frequency)
+
+        return True
+
+    @handle_errors(default=False)
     async def _set_client_filter(
         self,
         client_id: str,
@@ -444,36 +441,31 @@ class CrossoverService:
             enabled: Whether the filter is enabled
             frequency: Filter frequency in Hz
         """
-        try:
-            client = self._registry.get_client(client_id) if self._registry else None
-            is_local = client.is_local if client else False
+        client = self._registry.get_client(client_id) if self._registry else None
+        is_local = client.is_local if client else False
 
-            if is_local:
-                if self.camilladsp_service:
-                    method = getattr(self.camilladsp_service, f"set_{filter_name}_filter")
-                    return await method(
-                        enabled=enabled,
-                        frequency=frequency,
-                        q=self.DEFAULT_Q
-                    )
-                return False
-            else:
-                if not client or not client.ip:
-                    self.logger.error(f"Cannot proxy {filter_name}: client {client_id} has no IP address")
-                    return False
-                if self._registry and not self._registry.is_client_online(client_id):
-                    await self.queue_pending_settings(client_id, filter_name, {
-                        "enabled": enabled,
-                        "frequency": frequency
-                    })
-                    return False
-                return await self._proxy_filter_to_client(
-                    filter_name, client.ip, enabled, frequency, client_id=client_id
+        if is_local:
+            if self.camilladsp_service:
+                method = getattr(self.camilladsp_service, f"set_{filter_name}_filter")
+                return await method(
+                    enabled=enabled,
+                    frequency=frequency,
+                    q=self.DEFAULT_Q
                 )
-
-        except Exception as e:
-            self.logger.error(f"Error setting {filter_name} for client {client_id}: {e}")
             return False
+        else:
+            if not client or not client.ip:
+                self.logger.error(f"Cannot proxy {filter_name}: client {client_id} has no IP address")
+                return False
+            if self._registry and not self._registry.is_client_online(client_id):
+                await self.queue_pending_settings(client_id, filter_name, {
+                    "enabled": enabled,
+                    "frequency": frequency
+                })
+                return False
+            return await self._proxy_filter_to_client(
+                filter_name, client.ip, enabled, frequency, client_id=client_id
+            )
 
     async def _proxy_filter_to_client(
         self,
@@ -528,27 +520,25 @@ class CrossoverService:
             self.logger.error(f"Error proxying {filter_name} to client {identifier}: {e}")
             return False
 
+    @handle_errors(default=None)
     async def _recalculate_zones_for_client(self, client_id: str) -> None:
         """Recalculate crossover for zone containing this client."""
-        try:
-            if not self._registry:
-                self.logger.warning("Registry not available, cannot recalculate zones")
-                return
+        if not self._registry:
+            self.logger.warning("Registry not available, cannot recalculate zones")
+            return
 
-            zone = self._registry.get_zone_for_client(client_id)
-            if zone:
-                await self.apply_zone_crossover(zone.id)
+        zone = self._registry.get_zone_for_client(client_id)
+        if zone:
+            await self.apply_zone_crossover(zone.id)
 
-                # Broadcast zone update directly (WebSocket + EventBus) without using
-                # registry._emit_event(ZONE_UPDATED), which would re-enter
-                # _handle_registry_event and call apply_zone_crossover a second time.
-                zone_data = {"zone_id": zone.id, "zone": self._registry.zone_to_enriched_dict(zone)}
-                if self.state_machine:
-                    await self.state_machine.broadcast_event("multiroom", "zone_changed", zone_data)
-                if self.event_bus:
-                    await self.event_bus.emit("multiroom.zone_changed", zone_data)
-        except Exception as e:
-            self.logger.error(f"Error recalculating zones for client {client_id}: {e}")
+            # Broadcast zone update directly (WebSocket + EventBus) without using
+            # registry._emit_event(ZONE_UPDATED), which would re-enter
+            # _handle_registry_event and call apply_zone_crossover a second time.
+            zone_data = {"zone_id": zone.id, "zone": self._registry.zone_to_enriched_dict(zone)}
+            if self.state_machine:
+                await self.state_machine.broadcast_event("multiroom", "zone_changed", zone_data)
+            if self.event_bus:
+                await self.event_bus.emit("multiroom.zone_changed", zone_data)
 
     async def on_zone_changed(self, zone_id: str) -> None:
         """Handle zone composition changes."""
@@ -678,6 +668,7 @@ class CrossoverService:
 
         return success
 
+    @handle_errors(default=False, level='warning')
     async def _dispatch_to_client(
         self,
         client_id: str,
@@ -695,29 +686,24 @@ class CrossoverService:
             local_action: Callable returning a coroutine for local execution
             label: Human-readable label for log messages
         """
-        try:
-            client = self._registry.get_client(client_id) if self._registry else None
-            is_local = client.is_local if client else False
+        client = self._registry.get_client(client_id) if self._registry else None
+        is_local = client.is_local if client else False
 
-            if is_local:
-                if self.camilladsp_service:
-                    await local_action()
-                    return True
-                return False
-            else:
-                if not client or not client.ip:
-                    self.logger.warning(f"Cannot apply pending {label}: client {client_id} has no IP address")
-                    return False
-                url = f"http://{client.ip}:{self.CLIENT_API_PORT}{endpoint}"
-
-                timeout = aiohttp.ClientTimeout(total=5)
-                async with aiohttp.ClientSession(timeout=timeout) as session:
-                    async with session.put(url, json=payload) as response:
-                        return response.status == 200
-
-        except Exception as e:
-            self.logger.warning(f"Failed to apply pending {label} to {client_id}: {e}")
+        if is_local:
+            if self.camilladsp_service:
+                await local_action()
+                return True
             return False
+        else:
+            if not client or not client.ip:
+                self.logger.warning(f"Cannot apply pending {label}: client {client_id} has no IP address")
+                return False
+            url = f"http://{client.ip}:{self.CLIENT_API_PORT}{endpoint}"
+
+            timeout = aiohttp.ClientTimeout(total=5)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.put(url, json=payload) as response:
+                    return response.status == 200
 
     def has_pending_settings(self, client_id: str) -> bool:
         """Check if a client has pending settings."""

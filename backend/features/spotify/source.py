@@ -24,6 +24,7 @@ import aiohttp
 from backend.core.audio_source import BaseAudioSource, SourceState
 from backend.core.events import EventBus
 from backend.features.spotify.websocket import LibrespotWebSocket
+from backend.shared.decorators import handle_errors
 
 
 class SpotifySource(BaseAudioSource):
@@ -139,40 +140,36 @@ class SpotifySource(BaseAudioSource):
             await self._cleanup()
             return False
 
+    @handle_errors(default=False)
     async def _do_restart(self) -> bool:
         """Restart service with state reset."""
-        try:
-            self._logger.info("Restarting Spotify source")
+        self._logger.info("Restarting Spotify source")
 
-            # Cancel timer
-            self._cancel_pause_timer()
+        # Cancel timer
+        self._cancel_pause_timer()
 
-            # Reset state
-            self._device_connected = False
-            self._is_playing = False
-            self._metadata = {}
+        # Reset state
+        self._device_connected = False
+        self._is_playing = False
+        self._metadata = {}
 
-            # Stop WebSocket
-            if self._ws_client:
-                await self._ws_client.stop()
+        # Stop WebSocket
+        if self._ws_client:
+            await self._ws_client.stop()
 
-            # Restart service
-            if not await self._restart_service():
-                return False
-
-            await asyncio.sleep(0.5)
-
-            # Reconnect WebSocket
-            await self._start_websocket()
-
-            # Update state
-            self._update_connection_state()
-
-            return True
-
-        except Exception as e:
-            self._logger.error(f"Restart failed: {e}")
+        # Restart service
+        if not await self._restart_service():
             return False
+
+        await asyncio.sleep(0.5)
+
+        # Reconnect WebSocket
+        await self._start_websocket()
+
+        # Update state
+        self._update_connection_state()
+
+        return True
 
     async def _get_status(self) -> Dict[str, Any]:
         """Get Spotify-specific status."""
@@ -226,32 +223,28 @@ class SpotifySource(BaseAudioSource):
 
     # === Config Loading ===
 
+    @handle_errors(default=False)
     async def _load_config(self) -> bool:
         """Load configuration from go-librespot config file."""
-        try:
-            if not self._config_path or not os.path.exists(self._config_path):
-                self._logger.error(f"Config file not found: {self._config_path}")
-                return False
-
-            with open(self._config_path, 'r') as f:
-                config = yaml.safe_load(f)
-
-            server = config.get('server', {})
-            addr = server.get('address', 'localhost')
-            port = server.get('port', 3678)
-
-            self._api_url = f"http://{addr}:{port}"
-            self._ws_url = f"ws://{addr}:{port}/events"
-
-            # Load auto-disconnect config from settings
-            await self._load_auto_disconnect_config('spotify.auto_disconnect_delay')
-
-            self._logger.info(f"Config loaded: API={self._api_url}")
-            return True
-
-        except Exception as e:
-            self._logger.error(f"Config load failed: {e}")
+        if not self._config_path or not os.path.exists(self._config_path):
+            self._logger.error(f"Config file not found: {self._config_path}")
             return False
+
+        with open(self._config_path, 'r') as f:
+            config = yaml.safe_load(f)
+
+        server = config.get('server', {})
+        addr = server.get('address', 'localhost')
+        port = server.get('port', 3678)
+
+        self._api_url = f"http://{addr}:{port}"
+        self._ws_url = f"ws://{addr}:{port}/events"
+
+        # Load auto-disconnect config from settings
+        await self._load_auto_disconnect_config('spotify.auto_disconnect_delay')
+
+        self._logger.info(f"Config loaded: API={self._api_url}")
+        return True
 
     # === WebSocket ===
 

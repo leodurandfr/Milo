@@ -19,6 +19,7 @@ import time
 from typing import Dict, Any, List, Optional
 
 from backend.core.events import EventBus
+from backend.shared.decorators import handle_errors
 
 
 class PodcastDataService:
@@ -124,28 +125,24 @@ class PodcastDataService:
 
         return data, needs_migration
 
+    @handle_errors(default=False)
     async def save_data(self, data: Dict[str, Any]) -> bool:
         """Save podcast_data.json with atomic write."""
-        try:
-            async with self._file_lock:
-                # Ensure directory exists
-                os.makedirs(os.path.dirname(self._data_file), exist_ok=True)
+        async with self._file_lock:
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(self._data_file), exist_ok=True)
 
-                temp_file = self._data_file + '.tmp'
+            temp_file = self._data_file + '.tmp'
 
-                async with aiofiles.open(temp_file, 'w', encoding='utf-8') as f:
-                    await f.write(json.dumps(data, ensure_ascii=False, indent=2))
-                    await f.write('\n')
-                    await f.flush()
-                    os.fsync(f.fileno())
+            async with aiofiles.open(temp_file, 'w', encoding='utf-8') as f:
+                await f.write(json.dumps(data, ensure_ascii=False, indent=2))
+                await f.write('\n')
+                await f.flush()
+                os.fsync(f.fileno())
 
-                os.replace(temp_file, self._data_file)
+            os.replace(temp_file, self._data_file)
 
-            return True
-
-        except Exception as e:
-            self._logger.error(f"Error saving podcast_data.json: {e}")
-            return False
+        return True
 
     # ========== SUBSCRIPTIONS ==========
 

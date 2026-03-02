@@ -10,6 +10,7 @@ import asyncio
 from typing import Dict, Any
 
 from backend.config.constants import DEFAULT_VOLUME_DB, VALID_DOCK_APPS, AUDIO_SOURCE_APPS, UTILITY_DOCK_APPS, DEFAULT_DOCK_APPS
+from backend.shared.decorators import handle_errors
 
 class SettingsService:
     """Simplified settings manager with support for 0 = disabled"""
@@ -314,31 +315,27 @@ class SettingsService:
         """Invalidates cache to force a reload"""
         self._cache = None
 
+    @handle_errors(default=False)
     async def set_setting(self, key_path: str, value: Any) -> bool:
         """Sets a setting and invalidates cache (async)"""
-        try:
-            settings = await self.load_settings()
+        settings = await self.load_settings()
 
-            keys = key_path.split('.')
-            current = settings
-            for key in keys[:-1]:
-                if key not in current:
-                    current[key] = {}
-                current = current[key]
+        keys = key_path.split('.')
+        current = settings
+        for key in keys[:-1]:
+            if key not in current:
+                current[key] = {}
+            current = current[key]
 
-            current[keys[-1]] = value
+        current[keys[-1]] = value
 
-            success = await self.save_settings(settings)
+        success = await self.save_settings(settings)
 
-            # Invalidate cache to force reload
-            if success:
-                self._cache = None
+        # Invalidate cache to force reload
+        if success:
+            self._cache = None
 
-            return success
-
-        except Exception as e:
-            self.logger.error(f"Error setting {key_path}: {e}")
-            return False
+        return success
     
     def get_volume_config(self) -> Dict[str, Any]:
         """Synchronous helper method (uses cache only)"""

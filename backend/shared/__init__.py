@@ -6,5 +6,6 @@ Contains reusable components that are not feature-specific.
 """
 
 from backend.shared.mpv import MpvController
+from backend.shared.decorators import handle_errors
 
-__all__ = ['MpvController']
+__all__ = ['MpvController', 'handle_errors']

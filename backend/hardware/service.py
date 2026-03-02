@@ -7,6 +7,8 @@ import logging
 from pathlib import Path
 from typing import Optional, Dict
 
+from backend.shared.decorators import handle_errors
+
 
 class HardwareService:
     """Service to read hardware configuration (screen, audio, etc.)"""
@@ -16,19 +18,16 @@ class HardwareService:
         self.logger = logging.getLogger(__name__)
         self._cache: Optional[Dict] = None
 
+    @handle_errors(default={})
     def _load_hardware_config(self) -> Dict:
         """Loads hardware configuration from JSON file"""
-        try:
-            if self.hardware_file.exists():
-                with open(self.hardware_file, 'r') as f:
-                    config = json.load(f)
-                    self.logger.info(f"Hardware config loaded: {config}")
-                    return config
-            else:
-                self.logger.warning(f"Hardware config file not found: {self.hardware_file}")
-                return {}
-        except Exception as e:
-            self.logger.error(f"Error loading hardware config: {e}")
+        if self.hardware_file.exists():
+            with open(self.hardware_file, 'r') as f:
+                config = json.load(f)
+                self.logger.info(f"Hardware config loaded: {config}")
+                return config
+        else:
+            self.logger.warning(f"Hardware config file not found: {self.hardware_file}")
             return {}
 
     def get_screen_type(self) -> str:

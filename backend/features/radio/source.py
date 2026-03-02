@@ -21,6 +21,7 @@ from backend.core.audio_source import BaseAudioSource, SourceState
 from backend.core.events import EventBus
 from backend.features.radio.data import StationDataService
 from backend.features.radio.shazam import ShazamRecognitionService
+from backend.shared.decorators import handle_errors
 from backend.shared.mpv import MpvController
 from backend.features.radio.browser_api import RadioBrowserAPI
 
@@ -105,15 +106,12 @@ class RadioSource(BaseAudioSource):
         # Schedule async initialization
         self._init_task: Optional[asyncio.Task] = None
 
+    @handle_errors(default=False)
     async def initialize(self) -> bool:
         """Initialize station data (call at startup for API access)."""
-        try:
-            await self._station_data.initialize()
-            self._logger.info("Radio station data initialized")
-            return True
-        except Exception as e:
-            self._logger.error(f"Failed to initialize station data: {e}")
-            return False
+        await self._station_data.initialize()
+        self._logger.info("Radio station data initialized")
+        return True
 
     async def _do_start(self) -> bool:
         """Start MPV service and initialize components."""
@@ -159,47 +157,43 @@ class RadioSource(BaseAudioSource):
             await self._cleanup()
             return False
 
+    @handle_errors(default=False)
     async def _do_restart(self) -> bool:
         """Restart service with state reset."""
-        try:
-            self._logger.info("Restarting Radio source")
+        self._logger.info("Restarting Radio source")
 
-            # Stop monitor and Shazam
-            self._stop_monitor()
-            if self._shazam:
-                await self._shazam.stop()
+        # Stop monitor and Shazam
+        self._stop_monitor()
+        if self._shazam:
+            await self._shazam.stop()
 
-            # Reset state
-            self._current_station = None
-            self._is_playing = False
-            self._is_buffering = False
-            self._metadata = {}
+        # Reset state
+        self._current_station = None
+        self._is_playing = False
+        self._is_buffering = False
+        self._metadata = {}
 
-            # Disconnect MPV
-            if self._mpv:
-                await self._mpv.disconnect()
+        # Disconnect MPV
+        if self._mpv:
+            await self._mpv.disconnect()
 
-            # Restart service
-            if not await self._restart_service():
-                return False
-
-            await asyncio.sleep(0.5)
-
-            # Reconnect MPV
-            if not await self._mpv.connect():
-                return False
-
-            # Restart monitor
-            self._start_monitor()
-
-            # Update state
-            self._update_connection_state()
-
-            return True
-
-        except Exception as e:
-            self._logger.error(f"Restart failed: {e}")
+        # Restart service
+        if not await self._restart_service():
             return False
+
+        await asyncio.sleep(0.5)
+
+        # Reconnect MPV
+        if not await self._mpv.connect():
+            return False
+
+        # Restart monitor
+        self._start_monitor()
+
+        # Update state
+        self._update_connection_state()
+
+        return True
 
     async def _get_status(self) -> Dict[str, Any]:
         """Get Radio-specific status."""
