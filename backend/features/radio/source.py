@@ -68,12 +68,12 @@ class RadioSource(BaseAudioSource):
             service_name="milo-radio.service",
             event_bus=event_bus,
             state_machine=state_machine,
-            systemd_manager=systemd_manager
+            systemd_manager=systemd_manager,
+            settings_service=settings_service,
+            config=config
         )
 
-        config = config or {}
-        self._mpv_socket = config.get("mpv_socket", "/run/milo/radio-ipc.sock")
-        self._settings_service = settings_service
+        self._mpv_socket = self._config.get("mpv_socket", "/run/milo/radio-ipc.sock")
 
         # MPV controller
         self._mpv: Optional[MpvController] = None
@@ -113,14 +113,17 @@ class RadioSource(BaseAudioSource):
         self._logger.info("Radio station data initialized")
         return True
 
+    def _reset_playback_state(self) -> None:
+        super()._reset_playback_state()
+        self._current_station = None
+        self._is_buffering = False
+
     async def _do_start(self) -> bool:
         """Start MPV service and initialize components."""
         try:
             # 1. Start service
-            if not await self._start_service():
+            if not await self._start_service_and_wait():
                 return False
-
-            await asyncio.sleep(0.5)  # Wait for service
 
             # 2. Ensure station data is initialized
             if not self._station_data._loaded:
@@ -139,10 +142,7 @@ class RadioSource(BaseAudioSource):
                 return False
 
             # 5. Reset state
-            self._current_station = None
-            self._is_playing = False
-            self._is_buffering = False
-            self._metadata = {}
+            self._reset_playback_state()
 
             # 6. Start monitor task
             self._start_monitor()
@@ -167,21 +167,15 @@ class RadioSource(BaseAudioSource):
         if self._shazam:
             await self._shazam.stop()
 
-        # Reset state
-        self._current_station = None
-        self._is_playing = False
-        self._is_buffering = False
-        self._metadata = {}
+        self._reset_playback_state()
 
         # Disconnect MPV
         if self._mpv:
             await self._mpv.disconnect()
 
         # Restart service
-        if not await self._restart_service():
+        if not await self._restart_service_and_wait():
             return False
-
-        await asyncio.sleep(0.5)
 
         # Reconnect MPV
         if not await self._mpv.connect():
@@ -425,16 +419,13 @@ class RadioSource(BaseAudioSource):
 
     def _update_connection_state(self) -> None:
         """Update state based on playback."""
-        if self._current_station:
-            if self._is_playing:
-                self.broadcast_error_cleared()
-            self.set_state(SourceState.CONNECTED, self._build_playback_metadata())
-        else:
-            self.set_state(SourceState.READY, {
-                "is_playing": False,
-                "is_buffering": False,
-                "ready": True
-            })
+        if self._current_station and self._is_playing:
+            self.broadcast_error_cleared()
+        self._set_connected_or_ready(
+            bool(self._current_station),
+            self._build_playback_metadata(),
+            {"is_playing": False, "is_buffering": False, "ready": True}
+        )
 
     async def on_shazam_setting_changed(self, enabled: bool) -> bool:
         """React to Shazam toggle change."""
@@ -472,10 +463,7 @@ class RadioSource(BaseAudioSource):
             self._mpv = None
 
         # Note: station_data and radio_api persist for API access when radio is inactive
-        self._current_station = None
-        self._is_playing = False
-        self._is_buffering = False
-        self._metadata = {}
+        self._reset_playback_state()
 
     # === Monitor ===
 

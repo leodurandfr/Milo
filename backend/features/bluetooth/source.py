@@ -65,17 +65,17 @@ class BluetoothSource(BaseAudioSource):
             service_name="milo-bluealsa.service",
             event_bus=event_bus,
             state_machine=state_machine,
-            systemd_manager=systemd_manager
+            systemd_manager=systemd_manager,
+            config=config
         )
 
-        config = config or {}
-        self.bluetooth_service = config.get("bluetooth_service", "bluetooth.service")
+        self.bluetooth_service = self._config.get("bluetooth_service", "bluetooth.service")
         self.bluealsa_service = self.service_name
-        self.bluealsa_aplay_service = config.get(
+        self.bluealsa_aplay_service = self._config.get(
             "bluealsa_aplay_service", "milo-bluealsa-aplay.service"
         )
-        self.stop_bluetooth_on_exit = config.get("stop_bluetooth_on_exit", True)
-        self.auto_agent = config.get("auto_agent", True)
+        self.stop_bluetooth_on_exit = self._config.get("stop_bluetooth_on_exit", True)
+        self.auto_agent = self._config.get("auto_agent", True)
 
         # State
         self.connected_device: Optional[Dict[str, str]] = None
@@ -85,6 +85,10 @@ class BluetoothSource(BaseAudioSource):
         # Components
         self.agent = BluetoothAgent()
         self.monitor = BlueAlsaMonitor()
+
+    def _reset_playback_state(self) -> None:
+        super()._reset_playback_state()
+        self.connected_device = None
 
     async def _do_start(self) -> bool:
         """Start Bluetooth services and monitoring."""
@@ -139,8 +143,7 @@ class BluetoothSource(BaseAudioSource):
             for service in [self.bluealsa_service, self.bluetooth_service]:
                 await self._stop_service(service)
 
-        # Reset state
-        self.connected_device = None
+        self._reset_playback_state()
 
         return True
 
@@ -324,16 +327,12 @@ class BluetoothSource(BaseAudioSource):
 
     def _update_connection_state(self) -> None:
         """Update state based on connected device."""
-        if self.connected_device:
-            self.set_state(SourceState.CONNECTED, {
-                "device_connected": True,
-                "device_name": self.connected_device.get("name"),
-                "device_address": self.connected_device.get("address")
-            })
-        else:
-            self.set_state(SourceState.READY, {
-                "device_connected": False,
-                "device_name": None,
-                "device_address": None
-            })
+        device = self.connected_device or {}
+        self._set_connected_or_ready(
+            self.connected_device is not None,
+            {"device_connected": True, "device_name": device.get("name"),
+             "device_address": device.get("address")},
+            {"device_connected": False, "device_name": None,
+             "device_address": None}
+        )
 
