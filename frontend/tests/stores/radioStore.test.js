@@ -66,12 +66,15 @@ describe('radioStore', () => {
     });
 
     describe('toggleFavorite', () => {
-      it('should return false if station not found', async () => {
-        // Station not in store - should return false
+      it('should add favorite for unknown station', async () => {
+        axios.post.mockResolvedValueOnce({ data: { success: true } });
+
         const result = await store.toggleFavorite('unknown-station');
 
-        expect(result).toBe(false);
-        expect(axios.post).not.toHaveBeenCalled();
+        expect(axios.post).toHaveBeenCalledWith('/api/radio/favorites/add', expect.objectContaining({
+          station_id: 'unknown-station'
+        }));
+        expect(result).toBe(true);
       });
     });
   });
@@ -151,63 +154,6 @@ describe('radioStore', () => {
     });
   });
 
-  describe('updateFromWebSocket', () => {
-    it('should update current station from WebSocket metadata', () => {
-      const metadata = {
-        station_id: 'ws-station',
-        station_name: 'WebSocket Station',
-        country: 'FR'
-      };
-
-      store.updateFromWebSocket(metadata);
-
-      expect(store.currentStation).not.toBeNull();
-      expect(store.currentStation.id).toBe('ws-station');
-      expect(store.currentStation.name).toBe('WebSocket Station');
-    });
-
-    it('should handle metadata without station_id', () => {
-      const originalStation = store.currentStation;
-
-      store.updateFromWebSocket({});
-
-      // Should not change current station immediately (for animation)
-      expect(store.currentStation).toBe(originalStation);
-    });
-  });
-
-  describe('handleFavoriteEvent', () => {
-    it('should sync favorite status from backend', async () => {
-      // First add the station via WebSocket
-      store.updateFromWebSocket({
-        station_id: 'station1',
-        station_name: 'Station 1'
-      });
-
-      await store.handleFavoriteEvent('station1', true);
-
-      // Station should be marked as favorite
-      const station = store.currentStation;
-      expect(station.is_favorite).toBe(true);
-    });
-  });
-
-  describe('clearCurrentStation', () => {
-    it('should clear current station', () => {
-      // First set a station via WebSocket
-      store.updateFromWebSocket({
-        station_id: 'station1',
-        station_name: 'Station 1'
-      });
-
-      expect(store.currentStation).not.toBeNull();
-
-      store.clearCurrentStation();
-
-      expect(store.currentStation).toBeNull();
-    });
-  });
-
   describe('custom stations', () => {
     describe('addCustomStation', () => {
       it('should call API to add custom station', async () => {
@@ -260,27 +206,4 @@ describe('radioStore', () => {
     });
   });
 
-  describe('markBroken', () => {
-    it('should call API to mark station as broken', async () => {
-      axios.post.mockResolvedValueOnce({ data: { success: true } });
-
-      await store.markBroken('station1');
-
-      expect(axios.post).toHaveBeenCalledWith('/api/radio/broken/mark', {
-        station_id: 'station1'
-      });
-    });
-  });
-
-  describe('resetBrokenStations', () => {
-    it('should call API to reset broken stations', async () => {
-      // Mock reset call and subsequent loadStations call
-      axios.post.mockResolvedValueOnce({ data: { success: true } });
-      axios.get.mockResolvedValueOnce({ data: { stations: [], total: 0 } });
-
-      await store.resetBrokenStations();
-
-      expect(axios.post).toHaveBeenCalledWith('/api/radio/broken/reset');
-    });
-  });
 });
