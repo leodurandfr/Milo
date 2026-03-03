@@ -57,13 +57,11 @@ describe('radioStore', () => {
 
     describe('removeFavorite', () => {
       it('should call API to remove favorite', async () => {
-        axios.post.mockResolvedValueOnce({ data: { success: true } });
+        axios.delete.mockResolvedValueOnce({ data: { success: true } });
 
         await store.removeFavorite('station1');
 
-        expect(axios.post).toHaveBeenCalledWith('/api/radio/favorites/remove', {
-          station_id: 'station1'
-        });
+        expect(axios.delete).toHaveBeenCalledWith('/api/radio/favorites/station1');
       });
     });
 
@@ -252,13 +250,11 @@ describe('radioStore', () => {
 
     describe('removeCustomStation', () => {
       it('should call API to remove custom station', async () => {
-        axios.post.mockResolvedValueOnce({ data: { success: true } });
+        axios.delete.mockResolvedValueOnce({ data: { success: true } });
 
         const result = await store.removeCustomStation('custom1');
 
-        expect(axios.post).toHaveBeenCalledWith('/api/radio/custom/remove', {
-          station_id: 'custom1'
-        });
+        expect(axios.delete).toHaveBeenCalledWith('/api/radio/custom/custom1');
         expect(result).toBe(true);
       });
     });

@@ -215,50 +215,6 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
                 "offline_clients": offline_clients
             }
 
-    @router.post("/zone/{zone_id}/delta")
-    async def apply_zone_delta(zone_id: str, request: VolumeAdjustRequest):
-        """
-        Apply volume delta to entire zone atomically.
-
-        This endpoint solves the race condition by:
-        1. Calculating updates for ALL clients in the zone
-        2. Applying them in parallel via EqualizerController
-        3. Broadcasting complete state ONCE after all updates succeed
-
-        Replaces the old pattern of frontend sending multiple parallel requests.
-
-        Args:
-            zone_id: Zone identifier (from ClientRegistryService)
-            request: Delta in dB to apply to zone
-
-        Returns:
-            New zone average and status
-        """
-        async with api_error_handler("Error applying zone delta"):
-            try:
-                new_average = await volume_service.apply_zone_volume_delta(zone_id, request.delta_db)
-            except ValueError as e:
-                raise HTTPException(status_code=404, detail=str(e))
-
-            volume_state = await volume_service.get_volume_state()
-            zone = volume_state.zones.get(zone_id)
-
-            if not zone:
-                raise HTTPException(status_code=404, detail=f"Zone {zone_id} not found after update")
-
-            clients_updated = len([
-                cid for cid in zone.client_ids
-                if cid in volume_state.clients and volume_state.clients[cid].available
-            ])
-
-            return {
-                "status": "success",
-                "zone_id": zone_id,
-                "new_average_db": new_average,
-                "delta_db": request.delta_db,
-                "clients_updated": clients_updated
-            }
-
     @router.get("/zone/{zone_id}")
     async def get_zone_info(zone_id: str):
         """

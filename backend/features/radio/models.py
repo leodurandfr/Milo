@@ -54,11 +54,6 @@ class AddCustomStationRequest(BaseModel):
     codec: str = ""
 
 
-class RemoveCustomStationRequest(BaseModel):
-    """Request to remove a custom station."""
-    station_id: str
-
-
 class StationSearchResult(BaseModel):
     """Search result with stations and total count."""
     stations: List[dict]

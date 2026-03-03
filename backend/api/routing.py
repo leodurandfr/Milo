@@ -3,7 +3,14 @@
 API routes for audio routing management
 """
 from fastapi import APIRouter
+from pydantic import BaseModel
+
 from backend.core.models.audio_state import AudioSource
+
+
+class MultiroomRequest(BaseModel):
+    """Request to enable/disable multiroom mode."""
+    enabled: bool
 
 def create_routing_router(routing_service, state_machine):
     """Creates routing router (multiroom + equalizer)"""
@@ -28,11 +35,11 @@ def create_routing_router(routing_service, state_machine):
             "services": services_status
         }
 
-    @router.post("/multiroom/{enabled}")
-    async def set_multiroom_enabled(enabled: str):
+    @router.put("/multiroom")
+    async def set_multiroom_enabled(request: MultiroomRequest):
         """Enables/disables multiroom mode"""
         try:
-            multiroom_enabled = enabled.lower() in ("true", "1", "on", "enabled")
+            multiroom_enabled = request.enabled
 
             current_state = await state_machine.get_current_state()
             active_source = None
