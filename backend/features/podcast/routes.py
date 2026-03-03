@@ -55,7 +55,7 @@ async def get_status(source: PodcastSource = Depends(get_source)) -> Dict[str, A
     try:
         status = await source.status()
         return {
-            "status": "ok",
+            "status": "success",
             **status
         }
     except Exception as e:
@@ -523,10 +523,10 @@ async def update_settings(
     """Update podcast settings."""
     try:
         updates = {}
-        if request.safeMode is not None:
-            updates['safeMode'] = request.safeMode
-        if request.playbackSpeed is not None:
-            updates['playbackSpeed'] = request.playbackSpeed
+        if request.safe_mode is not None:
+            updates['safe_mode'] = request.safe_mode
+        if request.playback_speed is not None:
+            updates['playback_speed'] = request.playback_speed
 
         success = await source.podcast_data.update_podcast_settings(updates)
         return {"success": success}

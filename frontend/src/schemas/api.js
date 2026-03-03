@@ -234,7 +234,7 @@ const PodcastSchema = z.object({
   uuid: z.string(),
   name: z.string(),
   description: z.string().optional(),
-  imageUrl: z.string().optional(),
+  image_url: z.string().optional(),
   author: z.string().optional(),
   language: z.string().optional()
 });
@@ -243,15 +243,15 @@ const PodcastEpisodeSchema = z.object({
   uuid: z.string(),
   name: z.string(),
   description: z.string().optional(),
-  audioUrl: z.string(),
+  audio_url: z.string(),
   duration: z.number().optional(),
-  datePublished: z.number().optional(),
-  imageUrl: z.string().optional(),
+  date_published: z.number().optional(),
+  image_url: z.string().optional(),
   podcast: PodcastSchema.optional(),
   playback_progress: z.object({
     position: z.number(),
     duration: z.number(),
-    lastPlayed: z.number().optional()
+    last_played: z.number().optional()
   }).optional()
 });
 

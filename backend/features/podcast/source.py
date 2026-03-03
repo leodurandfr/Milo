@@ -95,7 +95,7 @@ class PodcastSource(MpvAudioSource):
                 return False
 
             # 3. Load saved playback speed
-            saved_speed = await self._podcast_data.get_setting("playbackSpeed", 1.0)
+            saved_speed = await self._podcast_data.get_setting("playback_speed", 1.0)
             self._playback_speed = saved_speed
 
             # 4. Reset state
@@ -393,7 +393,7 @@ class PodcastSource(MpvAudioSource):
             self._playback_speed = speed
 
             # Save speed preference
-            await self._podcast_data.set_setting("playbackSpeed", speed)
+            await self._podcast_data.set_setting("playback_speed", speed)
 
             self._metadata = self._build_playback_metadata()
             self._update_connection_state()

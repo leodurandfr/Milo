@@ -91,7 +91,7 @@ describe('podcastStore', () => {
       expect(progress).not.toBeNull();
       expect(progress.position).toBe(120);
       expect(progress.duration).toBe(600);
-      expect(progress.lastPlayed).toBeDefined();
+      expect(progress.last_played).toBeDefined();
     });
 
     it('should return null for unknown episode', () => {

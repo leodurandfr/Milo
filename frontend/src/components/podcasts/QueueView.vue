@@ -10,13 +10,13 @@
     />
 
     <div v-else class="episodes-list">
-      <div v-for="episode in episodes" :key="episode.episodeUuid" class="queue-item">
+      <div v-for="episode in episodes" :key="episode.episode_uuid" class="queue-item">
         <EpisodeCard
           :episode="formatQueueEpisode(episode)"
           :show-complete-button="true"
-          @select="$emit('select-episode', episode.episodeUuid)"
+          @select="$emit('select-episode', episode.episode_uuid)"
           @play="$emit('play-episode', formatQueueEpisode(episode))"
-          @complete="markComplete(episode.episodeUuid)"
+          @complete="markComplete(episode.episode_uuid)"
           @select-podcast="(podcast) => $emit('select-podcast', podcast)"
         />
       </div>
@@ -41,13 +41,13 @@ const episodes = ref([])
 
 function formatQueueEpisode(queueItem) {
   return {
-    uuid: queueItem.episodeUuid,
-    name: queueItem.episodeName,
-    image_url: queueItem.imageUrl,
+    uuid: queueItem.episode_uuid,
+    name: queueItem.episode_name,
+    image_url: queueItem.image_url,
     duration: queueItem.duration,
     podcast: {
-      uuid: queueItem.podcastUuid,
-      name: queueItem.podcastName
+      uuid: queueItem.podcast_uuid,
+      name: queueItem.podcast_name
     },
     playback_progress: {
       position: queueItem.position,
@@ -67,7 +67,7 @@ const { loading, execute: loadQueue } = useAsyncData(async () => {
 async function markComplete(episodeUuid) {
   try {
     await fetch(`/api/podcast/queue/${episodeUuid}/complete`, { method: 'POST' })
-    episodes.value = episodes.value.filter(e => e.episodeUuid !== episodeUuid)
+    episodes.value = episodes.value.filter(e => e.episode_uuid !== episodeUuid)
   } catch (error) {
     logger.error('podcast', 'Error marking complete:', error)
   }

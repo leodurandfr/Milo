@@ -26,7 +26,7 @@ export const usePodcastStore = defineStore('podcast', () => {
 
   // === PROGRESS CACHE ===
   // Reactive cache of playback progress for all episodes
-  // Key: episode_uuid, Value: { position, duration, lastPlayed }
+  // Key: episode_uuid, Value: { position, duration, last_played }
   const progressCache = ref(new Map())
 
   // === SUBSCRIPTIONS CACHE ===
@@ -74,8 +74,8 @@ export const usePodcastStore = defineStore('podcast', () => {
   // === SETTINGS ===
   // Note: Language/country are centralized in /var/lib/milo/settings.json (via settingsStore)
   const settings = ref({
-    safeMode: false,
-    playbackSpeed: 1.0
+    safe_mode: false,
+    playback_speed: 1.0
   })
 
   // === COMPUTED ===
@@ -148,7 +148,7 @@ export const usePodcastStore = defineStore('podcast', () => {
       const response = await axios.get('/api/podcast/settings')
       if (response.data.settings) {
         settings.value = { ...settings.value, ...response.data.settings }
-        playbackSpeed.value = response.data.settings.playbackSpeed || 1.0
+        playbackSpeed.value = response.data.settings.playback_speed || 1.0
       }
     })
   }
@@ -211,7 +211,7 @@ export const usePodcastStore = defineStore('podcast', () => {
       progressCache.value.set(metadata.episode_uuid, {
         position: metadata.position,
         duration: metadata.duration,
-        lastPlayed: Date.now()
+        last_played: Date.now()
       })
       enforceProgressCacheLimit()
     }
@@ -239,7 +239,7 @@ export const usePodcastStore = defineStore('podcast', () => {
   // === PROGRESS CACHE HELPERS ===
 
   /**
-   * Enforce cache limit by evicting oldest entries (LRU based on lastPlayed)
+   * Enforce cache limit by evicting oldest entries (LRU based on last_played)
    * Preserves the currently playing episode
    */
   function enforceProgressCacheLimit() {
@@ -248,7 +248,7 @@ export const usePodcastStore = defineStore('podcast', () => {
     const currentUuid = currentEpisode.value?.uuid
     const entries = Array.from(progressCache.value.entries())
       .filter(([uuid]) => uuid !== currentUuid)
-      .sort((a, b) => (a[1].lastPlayed || 0) - (b[1].lastPlayed || 0))
+      .sort((a, b) => (a[1].last_played || 0) - (b[1].last_played || 0))
 
     // Remove oldest entries until under limit
     const toRemove = progressCache.value.size - MAX_PROGRESS_ENTRIES
@@ -265,7 +265,7 @@ export const usePodcastStore = defineStore('podcast', () => {
     progressCache.value.set(episodeUuid, {
       position,
       duration,
-      lastPlayed: Date.now()
+      last_played: Date.now()
     })
     enforceProgressCacheLimit()
   }
@@ -282,7 +282,7 @@ export const usePodcastStore = defineStore('podcast', () => {
           progressCache.value.set(episode.uuid, {
             position: progress.position,
             duration: progress.duration,
-            lastPlayed: progress.lastPlayed || Date.now()
+            last_played: progress.last_played || Date.now()
           })
         }
       }
