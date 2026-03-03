@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Any
 
 from backend.core.volume.state import VolumeState, DEFAULT_VOLUME_DB
+from backend.core.models.volume import VolumeConfig
 from backend.core.multiroom.models import ReconnectionContext
 
 
@@ -827,9 +828,7 @@ class TestInZoneReconnectionSyncIntegration:
 
         # Mock volume service with config and state store
         volume_service = AsyncMock()
-        volume_config = MagicMock()
-        volume_config.config.startup_volume_db = -45.0
-        volume_service.config = volume_config
+        volume_service.volume_config = VolumeConfig(startup_volume_db=-45.0)
         volume_service.update_client_volume_db = AsyncMock()
         volume_service._broadcast_volume_state = AsyncMock()
         # Mock _state_store._clients to return proper client state objects
@@ -1135,9 +1134,7 @@ class TestAC4SyncTimeCompliance:
 
         # Mock volume service with config and state store
         volume_service = AsyncMock()
-        volume_config = MagicMock()
-        volume_config.config.startup_volume_db = -45.0
-        volume_service.config = volume_config
+        volume_service.volume_config = VolumeConfig(startup_volume_db=-45.0)
         volume_service.update_client_volume_db = AsyncMock()
         volume_service._broadcast_volume_state = AsyncMock()
         # Mock _state_store._clients to return proper client state objects
@@ -1591,9 +1588,7 @@ class TestStandaloneReconnectionSyncIntegration:
 
         # Mock volume service with config and state store
         volume_service = AsyncMock()
-        volume_config = MagicMock()
-        volume_config.config.startup_volume_db = -45.0
-        volume_service.config = volume_config
+        volume_service.volume_config = VolumeConfig(startup_volume_db=-45.0)
         volume_service.update_client_volume_db = AsyncMock()
         volume_service._broadcast_volume_state = AsyncMock()
         # Mock _state_store._clients to return proper client state objects

@@ -15,10 +15,10 @@ import logging
 from typing import Optional, Dict, Any
 
 from backend.shared.decorators import handle_errors
-from backend.core.volume.config import VolumeConfigService
 from backend.core.volume.state import VolumeStateStore
 from backend.core.volume.equalizer_controller import EqualizerController
 from backend.core.multiroom.snapcast import get_online_client_ids
+from backend.core.models.volume import VolumeConfig
 from backend.core.models.volume_state import VolumeState
 from backend.config.constants import DEFAULT_VOLUME_DB
 
@@ -41,7 +41,7 @@ class VolumeService:
 
     def __init__(self, state_machine, snapcast_service, settings_service=None,
                  camilladsp_service=None, equalizer_client_proxy_service=None,
-                 hardware_service=None):
+                 hardware_service=None, equalizer_router=None):
         self.state_machine = state_machine
         self.snapcast_service = snapcast_service
         self.settings_service = settings_service
@@ -51,12 +51,14 @@ class VolumeService:
         self.logger = logging.getLogger(__name__)
         self._volume_lock = asyncio.Lock()
 
-        # Initialize sub-services
-        self._config_service = VolumeConfigService(self.settings_service)
+        # Volume configuration (loaded from settings in _load_volume_config)
+        self._volume_config = VolumeConfig()
 
         # VolumeStateStore (SSOT) + EqualizerController (hardware abstraction)
         self._state_store = VolumeStateStore(self.settings_service)
-        self._equalizer_controller = EqualizerController(self._camilladsp_service, self._proxy_service)
+        self._equalizer_controller = EqualizerController(
+            self._camilladsp_service, self._proxy_service, equalizer_router=equalizer_router
+        )
 
         # Injected via setters to resolve circular dependencies
         self._snapcast_websocket_service = None
@@ -113,9 +115,9 @@ class VolumeService:
     # ============================================================================
 
     @property
-    def config(self) -> VolumeConfigService:
-        """Access to volume configuration service."""
-        return self._config_service
+    def volume_config(self) -> VolumeConfig:
+        """Access to volume configuration."""
+        return self._volume_config
 
     def set_snapcast_websocket_service(self, service) -> None:
         """Set Snapcast WebSocket service reference (circular dependency resolution)."""
@@ -240,31 +242,44 @@ class VolumeService:
     # ============================================================================
 
     async def _load_volume_config(self) -> None:
-        """Load volume configuration from settings asynchronously."""
-        await self._config_service.load()
-        # Update state store with new limits (config is SSOT for limits)
-        min_db = self._config_service.config.limit_min_db
-        max_db = self._config_service.config.limit_max_db
-        self._state_store.update_user_limits(min_db, max_db)
+        """Load volume configuration from settings."""
+        try:
+            self.settings_service.invalidate_cache()
+            volume_settings = await self.settings_service.get_setting('volume') or {}
+
+            self._volume_config = VolumeConfig(
+                limit_min_db=volume_settings.get("limit_min_db", -80.0),
+                limit_max_db=volume_settings.get("limit_max_db", -21.0),
+                step_mobile_db=volume_settings.get("step_mobile_db", 3.0),
+                step_rotary_db=volume_settings.get("step_rotary_db", 2.0),
+                startup_volume_db=volume_settings.get("startup_volume_db", DEFAULT_VOLUME_DB),
+                restore_last_volume=volume_settings.get("restore_last_volume", False)
+            )
+        except Exception as e:
+            self.logger.error(f"Error loading volume config: {e}")
+        finally:
+            # Always sync state store even on partial failure
+            self._state_store.set_volume_config(self._volume_config)
 
     def _save_last_volume(self, volume_db: float) -> None:
         """Save last volume in background (via VolumeStateStore)."""
-        self._state_store.save_local_volume(self.config.config.restore_last_volume)
+        self._state_store.save_local_volume(self._volume_config.restore_last_volume)
 
     @handle_errors(default=False)
     async def reload_volume_limits(self) -> bool:
         """Reload volume limits from settings and adjust current volume if needed."""
         volume_state = await self._state_store.get_complete_state()
         current_db = volume_state.global_volume_db
-        old_min_db, old_max_db = await self._config_service.reload_limits()
+        old_min = self._volume_config.limit_min_db
+        old_max = self._volume_config.limit_max_db
 
-        # Update state store with new limits (config is SSOT for limits)
-        new_min = self._config_service.config.limit_min_db
-        new_max = self._config_service.config.limit_max_db
-        self._state_store.update_user_limits(new_min, new_max)
+        await self._load_volume_config()
+
+        new_min = self._volume_config.limit_min_db
+        new_max = self._volume_config.limit_max_db
 
         # No change, nothing to do
-        if old_min_db == new_min and old_max_db == new_max:
+        if old_min == new_min and old_max == new_max:
             return True
 
         # Check if current volume is outside new limits
@@ -293,10 +308,10 @@ class VolumeService:
         Args:
             volume_db: The new volume level in dB to potentially save as startup volume
         """
-        if not self.config.config.restore_last_volume:
+        if not self._volume_config.restore_last_volume:
             return
 
-        current_startup = self.config.config.startup_volume_db
+        current_startup = self._volume_config.startup_volume_db
         # Skip if unchanged (avoid unnecessary writes) - 0.1 dB tolerance
         if abs(current_startup - volume_db) < 0.1:
             return
@@ -305,10 +320,10 @@ class VolumeService:
         await self.settings_service.set_setting('volume.startup_volume_db', volume_db)
 
         # Reload config to get fresh value
-        await self._config_service.load()
+        await self._load_volume_config()
 
         # Broadcast the actual persisted value from config (ensures consistency)
-        persisted_value = self.config.config.startup_volume_db
+        persisted_value = self._volume_config.startup_volume_db
         await self._broadcast_startup_volume_changed(persisted_value)
 
         self.logger.info(f"FR11: Auto-updated startup_volume_db to {persisted_value:.1f} dB")
@@ -326,14 +341,14 @@ class VolumeService:
             "volume_startup_changed",
             {
                 "startup_volume_db": volume_db,
-                "restore_last_volume": self.config.config.restore_last_volume
+                "restore_last_volume": self._volume_config.restore_last_volume
             }
         )
 
     @handle_errors(default=False)
     async def _reload_config(self, name: str, broadcast: bool = False) -> bool:
         """Helper: reload config with optional broadcast."""
-        await self._config_service.load()
+        await self._load_volume_config()
         if broadcast:
             await self._broadcast_volume_state(show_bar=False)
         return True
@@ -459,8 +474,8 @@ class VolumeService:
             self.logger.info(f"Pushing mode-switch volume ({target_volume_db:.1f}dB) to {len(updates)} clients")
         else:
             # Startup: respect restore/startup settings
-            restore_enabled = self.config.config.restore_last_volume
-            startup_volume = self.config.config.startup_volume_db
+            restore_enabled = self._volume_config.restore_last_volume
+            startup_volume = self._volume_config.startup_volume_db
 
             local_volume = None  # Lazy-loaded if needed
             for cid in client_ids:
@@ -607,7 +622,7 @@ class VolumeService:
         # startup_volume_db is the single source of truth:
         # - restore_last_volume=true: auto-updated by FR11 to track current volume
         # - restore_last_volume=false: user-configured fixed value
-        target_volume = self.config.config.startup_volume_db
+        target_volume = self._volume_config.startup_volume_db
         self.logger.info(f"FR12: Applying startup_volume_db: {target_volume:.1f} dB")
 
         # Get persisted mute state from local client (False if no client registered yet)
@@ -659,7 +674,7 @@ class VolumeService:
             try:
                 if not await self._check_equalizer_or_error():
                     return False
-                clamped_db = self._config_service.config.clamp(volume_db)
+                clamped_db = self._volume_config.clamp(volume_db)
                 success = await self._apply_volume_db(clamped_db)
                 if success:
                     self._save_last_volume(clamped_db)
@@ -716,14 +731,14 @@ class VolumeService:
             for cid in client_ids or []:
                 current = volume_state.clients.get(cid)
                 if current:
-                    updates[cid] = self._config_service.config.clamp(current.volume_db + delta_db)
+                    updates[cid] = self._volume_config.clamp(current.volume_db + delta_db)
             success = await self._apply_to_multiroom_clients(updates)
             # No need to update _local_volume_db in multiroom mode:
             # - Individual client volumes are stored in _clients
             # - Mode switch (multiroom->direct) uses global_volume_db (average)
             return success
         else:
-            new_db = self._config_service.config.clamp(volume_state.global_volume_db + delta_db)
+            new_db = self._volume_config.clamp(volume_state.global_volume_db + delta_db)
             success = await self._camilladsp_service.set_volume(new_db)
             if success:
                 self._state_store.set_local_volume(new_db)
@@ -781,7 +796,7 @@ class VolumeService:
 
             event_data = {
                 "show_bar": show_bar,
-                "step_mobile_db": self.config.config.step_mobile_db,
+                "step_mobile_db": self._volume_config.step_mobile_db,
                 "state": volume_state.to_dict()
             }
 
@@ -796,10 +811,6 @@ class VolumeService:
     # UTILITY METHODS
     # ============================================================================
 
-    def get_volume_config_public(self) -> Dict[str, Any]:
-        """Get current volume configuration."""
-        return self._config_service.get_config_dict()
-
     async def get_status(self) -> dict:
         """Get complete volume service status."""
         try:
@@ -808,7 +819,7 @@ class VolumeService:
                 "volume_db": vs.global_volume_db,
                 "multiroom_enabled": self._is_multiroom_enabled(),
                 "equalizer_available": self._is_equalizer_available(),
-                "config": self.get_volume_config_public(),
+                "config": self._volume_config.to_dict(),
                 "clients": {h: {"volume_db": c.volume_db, "offset_db": c.offset_db, "mute": c.mute, "available": c.available}
                            for h, c in vs.clients.items()},
                 "zones": {zid: {"name": z.name, "average_volume_db": z.average_volume_db, "client_ids": z.client_ids, "all_muted": z.all_muted}

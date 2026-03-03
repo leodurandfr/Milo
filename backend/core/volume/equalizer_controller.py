@@ -2,14 +2,9 @@
 """
 EqualizerController - Hardware Abstraction for Volume Control
 
-This service handles all interactions with audio hardware (CamillaDSP).
-It abstracts local vs remote clients and provides parallel updates with error handling.
-
-Key features:
-- Routes volume commands to local CamillaDSP or remote clients
-- Parallel updates with asyncio.gather()
-- Timeout and error handling
-- Retry logic for transient failures
+Delegates local/remote routing to EqualizerRouter and provides:
+- Parallel volume updates with asyncio.gather()
+- Timeout and retry logic for transient failures
 - Wait for client readiness before sending commands
 """
 
@@ -20,41 +15,57 @@ from typing import Dict, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from backend.core.multiroom.client_registry import ClientRegistryService
+    from backend.core.multiroom.equalizer_router import EqualizerRouter
 
 
 class EqualizerController:
     """
     Hardware abstraction layer for CamillaDSP volume control.
 
-    Receives mac_id from callers, looks up IP from registry, and routes to proxy.
+    Delegates local/remote routing to EqualizerRouter. Adds retry logic,
+    parallel updates, and client readiness polling on top.
     """
 
     DEFAULT_TIMEOUT = 5.0  # seconds
     RETRY_ATTEMPTS = 2
     RETRY_DELAY = 0.5  # seconds
 
-    def __init__(self, camilladsp_service, client_proxy_service, client_registry=None):
+    def __init__(self, camilladsp_service, client_proxy_service, equalizer_router=None, client_registry=None):
         """
         Initialize EqualizerController.
 
         Args:
-            camilladsp_service: Service for controlling local CamillaDSP
-            client_proxy_service: Service for controlling remote clients
-            client_registry: Registry for looking up client IPs
+            camilladsp_service: Service for local CamillaDSP (used for wait_for_connection)
+            client_proxy_service: Service for checking remote client availability
+            equalizer_router: EqualizerRouter for local/remote volume routing
+            client_registry: Registry for looking up client IPs and locality
         """
         self.logger = logging.getLogger(__name__)
         self._camilladsp_service = camilladsp_service
         self._proxy_service = client_proxy_service
-        self._registry = client_registry
+        self._router: Optional["EqualizerRouter"] = equalizer_router
+        self._registry: Optional["ClientRegistryService"] = client_registry
         self._timeout = self.DEFAULT_TIMEOUT
 
     def set_registry(self, registry):
         """Set the client registry (for dependency injection after init)."""
         self._registry = registry
 
+    def set_router(self, router: "EqualizerRouter"):
+        """Set the equalizer router (for dependency injection after init)."""
+        self._router = router
+
     def _has_registry(self) -> bool:
         """Check if registry is available for client lookups."""
         return self._registry is not None
+
+    @staticmethod
+    def _is_success(result: dict) -> bool:
+        """Interpret EqualizerRouter result dict as boolean."""
+        if not result:
+            return False
+        status = result.get("status", "")
+        return status in ("success", "skipped")
 
     # ========== Client Readiness ==========
 
@@ -85,7 +96,7 @@ class EqualizerController:
 
     async def set_equalizer_volume(self, mac_id: str, volume_db: float, retry: int = 0) -> bool:
         """
-        Set volume for a single client (local or remote).
+        Set volume for a single client via EqualizerRouter.
 
         Args:
             mac_id: Client identifier (mac_id from registry)
@@ -96,16 +107,13 @@ class EqualizerController:
             True if successful, False otherwise
         """
         try:
-            if not self._has_registry():
+            if not self._router:
                 return False
-            if self._registry.is_local_client(mac_id):
-                return await self._set_local_volume(volume_db)
-
-            # Remote client: get IP from registry
-            client_ip = self._registry.get_client_ip(mac_id)
-            if not client_ip:
-                return False
-            return await self._set_remote_volume(client_ip, volume_db)
+            result = await asyncio.wait_for(
+                self._router.set_volume(mac_id, volume_db),
+                timeout=self._timeout
+            )
+            return self._is_success(result)
 
         except asyncio.TimeoutError:
             if retry < self.RETRY_ATTEMPTS:
@@ -117,86 +125,33 @@ class EqualizerController:
             self.logger.error(f"Error setting volume for {mac_id}: {e}")
             return False
 
-    async def _set_local_volume(self, volume_db: float) -> bool:
-        """
-        Set local CamillaDSP volume.
-
-        Args:
-            volume_db: Target volume in dB
-
-        Returns:
-            True if successful
-        """
-        try:
-            result = await asyncio.wait_for(
-                self._camilladsp_service.set_volume(volume_db),
-                timeout=self._timeout
-            )
-
-            if result:
-                self.logger.debug(f"Local CamillaDSP volume set to {volume_db:.1f}dB")
-                return True
-            else:
-                self.logger.warning(f"Local CamillaDSP volume update failed")
-                return False
-
-        except Exception as e:
-            self.logger.error(f"Error setting local equalizer volume: {e}")
-            raise
-
-    async def _set_remote_volume(self, hostname: str, volume_db: float) -> bool:
-        """
-        Set remote client volume via proxy.
-
-        Args:
-            hostname: Remote client hostname
-            volume_db: Target volume in dB
-
-        Returns:
-            True if successful
-        """
-        try:
-            result = await asyncio.wait_for(
-                self._proxy_service.request(
-                    hostname,
-                    "PUT",
-                    "/equalizer/volume",
-                    {"volume": volume_db}
-                ),
-                timeout=self._timeout
-            )
-
-            if result and result.get("status") == "success":
-                self.logger.debug(f"Remote CamillaDSP ({hostname}) volume set to {volume_db:.1f}dB")
-                return True
-            else:
-                self.logger.warning(f"Remote CamillaDSP ({hostname}) volume update failed: {result}")
-                return False
-
-        except Exception as e:
-            self.logger.error(f"Error setting remote equalizer volume ({hostname}): {e}")
-            raise
-
     async def set_equalizer_mute(self, mac_id: str, mute: bool) -> bool:
-        """Set mute state for a client's equalizer."""
+        """Set mute state for a client's equalizer via EqualizerRouter."""
         try:
-            if not self._has_registry():
+            if not self._router:
                 return False
-            if self._registry.is_local_client(mac_id):
-                result = await asyncio.wait_for(self._camilladsp_service.set_mute(mute), timeout=self._timeout)
-                return bool(result)
-
-            client_ip = self._registry.get_client_ip(mac_id)
-            if not client_ip:
-                return False
-
             result = await asyncio.wait_for(
-                self._proxy_service.request(client_ip, "PUT", "/equalizer/mute", {"muted": mute}),
+                self._router.set_mute(mac_id, mute),
                 timeout=self._timeout
             )
-            return result and result.get("status") == "success"
+            return self._is_success(result)
         except Exception:
             return False
+
+    async def read_current_volume(self, mac_id: str) -> Optional[float]:
+        """Read current volume from hardware via EqualizerRouter."""
+        try:
+            if not self._router:
+                return None
+            result = await asyncio.wait_for(
+                self._router.get_volume(mac_id),
+                timeout=self._timeout
+            )
+            if result:
+                return result.get("main") if result.get("main") is not None else result.get("volume_db")
+            return None
+        except Exception:
+            return None
 
     # ========== Parallel Zone Operations ==========
 
@@ -252,32 +207,9 @@ class EqualizerController:
 
     # ========== Synchronization ==========
 
-    async def read_current_volume(self, mac_id: str) -> Optional[float]:
-        """Read current volume from hardware."""
-        try:
-            if not self._has_registry():
-                return None
-            if self._registry.is_local_client(mac_id):
-                vol = await asyncio.wait_for(self._camilladsp_service.get_volume(), timeout=self._timeout)
-                return vol.get("main") if vol else None
-
-            client_ip = self._registry.get_client_ip(mac_id)
-            if not client_ip:
-                return None
-
-            result = await asyncio.wait_for(
-                self._proxy_service.request(client_ip, "GET", "/equalizer/volume", None),
-                timeout=self._timeout
-            )
-            return result.get("volume_db") if result else None
-        except Exception:
-            return None
-
     async def sync_all_from_hardware(self, hostnames: list) -> Dict[str, Optional[float]]:
         """
         Read current volumes from all specified clients.
-
-        Useful for synchronizing state after reconnection.
 
         Args:
             hostnames: List of client hostnames
@@ -290,16 +222,13 @@ class EqualizerController:
 
         self.logger.info(f"Syncing volumes from {len(hostnames)} clients")
 
-        # Create tasks for all reads
         tasks = {
             hostname: asyncio.create_task(self.read_current_volume(hostname))
             for hostname in hostnames
         }
 
-        # Wait for all tasks
         results = await asyncio.gather(*tasks.values(), return_exceptions=True)
 
-        # Map results back to hostnames
         volume_map = {}
         for hostname, result in zip(tasks.keys(), results):
             if isinstance(result, Exception):
@@ -308,7 +237,6 @@ class EqualizerController:
             else:
                 volume_map[hostname] = result
 
-        # Log summary
         successes = sum(1 for vol in volume_map.values() if vol is not None)
         self.logger.info(f"Sync complete: {successes}/{len(hostnames)} succeeded")
 
@@ -317,11 +245,6 @@ class EqualizerController:
     # ========== Configuration ==========
 
     def set_timeout(self, timeout: float) -> None:
-        """
-        Set timeout for equalizer operations.
-
-        Args:
-            timeout: Timeout in seconds
-        """
+        """Set timeout for equalizer operations."""
         self._timeout = timeout
         self.logger.debug(f"Equalizer timeout set to {timeout}s")

@@ -1,4 +1,4 @@
-# backend/domain/volume.py
+# backend/core/models/volume.py
 """
 Volume configuration domain model.
 
@@ -7,7 +7,7 @@ All volume operations should use config.clamp() for limit enforcement.
 """
 from dataclasses import dataclass
 
-from backend.config.constants import DEFAULT_VOLUME_DB
+from backend.config.constants import DEFAULT_VOLUME_DB, MIN_VOLUME_DB, MAX_VOLUME_DB
 
 
 @dataclass
@@ -27,17 +27,21 @@ class VolumeConfig:
 
     def clamp(self, volume_db: float) -> float:
         """
-        Clamp volume to configured dB limits.
+        Clamp volume to configured user limits AND technical hard limits.
 
+        Enforces both user-configurable limits (limit_min_db, limit_max_db)
+        and technical hard limits (MIN_VOLUME_DB, MAX_VOLUME_DB).
         This is the ONLY method that should be used for volume clamping.
 
         Args:
             volume_db: Volume in dB to clamp
 
         Returns:
-            Clamped volume in dB within [limit_min_db, limit_max_db]
+            Clamped volume in dB within safe bounds
         """
-        return max(self.limit_min_db, min(self.limit_max_db, volume_db))
+        # Apply user limits first, then enforce technical hard limits
+        clamped = max(self.limit_min_db, min(self.limit_max_db, volume_db))
+        return max(MIN_VOLUME_DB, min(MAX_VOLUME_DB, clamped))
 
     def to_dict(self) -> dict:
         """Convert config to dictionary for API responses."""

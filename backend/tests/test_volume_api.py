@@ -77,10 +77,9 @@ def mock_volume_service():
         "main": -30.0,
         "mute": False
     })
-    service.config = MagicMock()
-    service.config.config = MagicMock()
-    service.config.config.limit_min_db = -80.0
-    service.config.config.limit_max_db = 0.0
+    service.volume_config = MagicMock()
+    service.volume_config.limit_min_db = -80.0
+    service.volume_config.limit_max_db = 0.0
     return service
 
 
@@ -162,8 +161,8 @@ class TestSetClientVolumeEndpoint:
     def test_set_volume_out_of_range_returns_400(self, test_client, mock_volume_service, mock_client_registry):
         """Test setting volume outside configured limits returns 400."""
         # Set stricter limits
-        mock_volume_service.config.config.limit_min_db = -60.0
-        mock_volume_service.config.config.limit_max_db = -10.0
+        mock_volume_service.volume_config.limit_min_db = -60.0
+        mock_volume_service.volume_config.limit_max_db = -10.0
 
         response = test_client.patch(
             "/api/volume/client/local",
@@ -392,9 +391,9 @@ class TestMacAddressClientVolume:
             "mute": False
         })
         service.config = MagicMock()
-        service.config.config = MagicMock()
-        service.config.config.limit_min_db = -80.0
-        service.config.config.limit_max_db = 0.0
+        service.volume_config = MagicMock()
+        service.volume_config.limit_min_db = -80.0
+        service.volume_config.limit_max_db = 0.0
         return service
 
     @pytest.fixture
@@ -471,8 +470,8 @@ class TestMacAddressClientVolume:
 
     def test_set_volume_mac_out_of_range(self, test_client, mock_volume_service, mock_client_registry):
         """Test volume outside configured limits returns 400."""
-        mock_volume_service.config.config.limit_min_db = -60.0
-        mock_volume_service.config.config.limit_max_db = -10.0
+        mock_volume_service.volume_config.limit_min_db = -60.0
+        mock_volume_service.volume_config.limit_max_db = -10.0
 
         response = test_client.patch(
             "/api/volume/client/mac/dca6327ed343",
@@ -592,9 +591,9 @@ class TestVolumeSettings:
         """Create a mock VolumeService for settings tests."""
         service = MagicMock()
         service.config = MagicMock()
-        service.config.config = MagicMock()
-        service.config.config.startup_volume_db = -60.0
-        service.config.config.restore_last_volume = False
+        service.volume_config = MagicMock()
+        service.volume_config.startup_volume_db = -60.0
+        service.volume_config.restore_last_volume = False
         service.reload_startup_config = AsyncMock(return_value=True)
         return service
 

@@ -7,9 +7,8 @@ import asyncio
 import os
 import time
 from typing import Dict, Any, Callable, Optional, Literal
-from backend.core.models.audio_state import AudioSource
+from backend.core.models.audio_state import AudioSource, PluginState
 from backend.core.systemd import SystemdServiceManager
-from backend.core.multiroom.routing_transitions import RoutingTransitions
 from backend.shared.decorators import handle_errors
 
 
@@ -197,9 +196,6 @@ class AudioRoutingService:
         # Services snapcast
         self.snapserver_service = "milo-snapserver-multiroom.service"
         self.snapclient_service = "milo-snapclient-multiroom.service"
-
-        # Transitions handler (callbacks set later via set_* methods)
-        self._transitions = RoutingTransitions()
     
     def set_snapcast_websocket_service(self, service) -> None:
         """Set SnapcastWebSocketService dependency."""
@@ -212,12 +208,6 @@ class AudioRoutingService:
     def set_state_machine(self, state_machine) -> None:
         """Set state machine for event broadcasting."""
         self.state_machine = state_machine
-        # Update transitions handler with callbacks
-        self._transitions.set_callbacks(
-            state_machine=state_machine,
-            start_snapcast=self._start_snapcast,
-            stop_snapcast=self._stop_snapcast,
-        )
 
     def set_camilladsp_service(self, service) -> None:
         """Set CamillaDSPService dependency."""
@@ -227,7 +217,6 @@ class AudioRoutingService:
         """Set callback to access audio source plugins."""
         if not self.get_plugin:
             self.get_plugin = callback
-            self._transitions.set_callbacks(get_plugin=callback)
 
     # === Helper methods ===
 
@@ -566,11 +555,87 @@ class AudioRoutingService:
     
     async def _transition_to_multiroom(self, active_source: AudioSource = None) -> bool:
         """Transition to multiroom mode."""
-        return await self._transitions.transition("multiroom", active_source)
+        return await self._transition("multiroom", active_source)
 
     async def _transition_to_direct(self, active_source: AudioSource = None) -> bool:
         """Transition to direct mode."""
-        return await self._transitions.transition("direct", active_source)
+        return await self._transition("direct", active_source)
+
+    async def _transition(
+        self,
+        target_mode: Literal["direct", "multiroom"],
+        active_source: AudioSource = None,
+    ) -> bool:
+        """
+        Unified transition to target routing mode.
+
+        Acquires state_machine._transition_lock to prevent race conditions
+        with concurrent source transitions (transition_to_source).
+
+        Args:
+            target_mode: Target routing mode ("direct" or "multiroom")
+            active_source: Currently active audio source (if any)
+
+        Returns:
+            True if transition successful, False otherwise
+        """
+        if not self.state_machine:
+            self.logger.error("State machine not available for routing transition")
+            return False
+
+        try:
+            plugin = None
+
+            if active_source and self.get_plugin:
+                plugin = self.get_plugin(active_source)
+
+            # Acquire transition lock to prevent concurrent plugin lifecycle
+            # operations with transition_to_source(). Lock order is always:
+            # _routing_lock (held by caller) -> _transition_lock (acquired here)
+            async with self.state_machine._transition_lock:
+
+                # Step 1: Notify STARTING state to show loading UI
+                if plugin:
+                    await self.state_machine.update_plugin_state(
+                        source=active_source,
+                        new_state=PluginState.STARTING,
+                        metadata={"reason": "routing_change"}
+                    )
+
+                # Step 2: Stop plugin FIRST to release ALSA device before routing change
+                # This is critical: in direct mode, the plugin holds camilladsp device
+                # which snapclient needs in multiroom mode
+                if plugin:
+                    self.logger.info(f"Stopping plugin {active_source.value} to release ALSA device")
+                    await plugin.stop()
+                    await asyncio.sleep(0.5)  # Wait for ALSA to release
+
+                # Step 3: Start/stop Snapcast services based on target mode
+                if target_mode == "multiroom":
+                    self.logger.info("Starting snapcast services")
+                    snapcast_success = await self._start_snapcast()
+                    if not snapcast_success:
+                        # Try to restart plugin even if Snapcast failed
+                        if plugin:
+                            self.logger.info(f"Snapcast failed, restarting plugin {active_source.value}")
+                            await plugin.start()
+                        return False
+                else:
+                    await self._stop_snapcast()
+
+                # Step 4: Restart plugin with new routing
+                if plugin:
+                    mode_label = "multiroom" if target_mode == "multiroom" else "direct"
+                    self.logger.info(f"Starting plugin {active_source.value} for {mode_label} mode")
+                    start_success = await plugin.start()
+                    if not start_success:
+                        self.logger.error(f"Plugin {active_source.value} start failed after {mode_label} transition")
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error in {target_mode} transition: {e}")
+            return False
     
     @handle_errors(default=False)
     async def _start_snapcast(self) -> bool:

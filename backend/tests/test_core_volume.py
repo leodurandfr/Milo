@@ -2,7 +2,7 @@
 """
 Unit tests for core.volume module.
 
-Tests the migrated VolumeService, VolumeStateStore, VolumeConfigService,
+Tests the migrated VolumeService, VolumeStateStore,
 and EqualizerController in the new core/volume/ location.
 """
 import pytest
@@ -12,7 +12,6 @@ import asyncio
 from backend.core.volume import (
     VolumeService,
     VolumeStateStore,
-    VolumeConfigService,
     EqualizerController
 )
 from backend.core.models.volume import VolumeConfig
@@ -21,35 +20,15 @@ from backend.config.constants import DEFAULT_VOLUME_DB, MIN_VOLUME_DB, MAX_VOLUM
 
 
 # ============================================================================
-# VolumeConfigService Tests
+# VolumeConfig Tests
 # ============================================================================
 
-class TestVolumeConfigService:
-    """Tests for VolumeConfigService."""
+class TestVolumeConfig:
+    """Tests for VolumeConfig dataclass."""
 
-    @pytest.fixture
-    def mock_settings(self):
-        """Create mock settings service."""
-        settings = Mock()
-        settings.invalidate_cache = Mock()
-        settings.get_setting = AsyncMock(return_value={
-            "limit_min_db": -80.0,
-            "limit_max_db": -21.0,
-            "step_mobile_db": 3.0,
-            "step_rotary_db": 2.0,
-            "startup_volume_db": -30.0,
-            "restore_last_volume": False
-        })
-        return settings
-
-    @pytest.fixture
-    def config_service(self, mock_settings):
-        """Create VolumeConfigService."""
-        return VolumeConfigService(mock_settings)
-
-    def test_default_config(self, config_service):
+    def test_default_config(self):
         """Test default configuration values."""
-        config = config_service.config
+        config = VolumeConfig()
         assert config.limit_min_db == -80.0
         assert config.limit_max_db == -21.0
         assert config.step_mobile_db == 3.0
@@ -57,27 +36,32 @@ class TestVolumeConfigService:
         assert config.startup_volume_db == DEFAULT_VOLUME_DB
         assert config.restore_last_volume is False
 
-    @pytest.mark.asyncio
-    async def test_load_config(self, config_service, mock_settings):
-        """Test loading configuration from settings."""
-        await config_service.load()
+    def test_clamp_within_range(self):
+        """Test clamping within configured range."""
+        config = VolumeConfig(limit_min_db=-60.0, limit_max_db=-10.0)
+        assert config.clamp(-30.0) == -30.0
 
-        mock_settings.invalidate_cache.assert_called_once()
-        mock_settings.get_setting.assert_called_with('volume')
+    def test_clamp_below_min(self):
+        """Test clamping below minimum."""
+        config = VolumeConfig(limit_min_db=-60.0, limit_max_db=-10.0)
+        assert config.clamp(-70.0) == -60.0
 
-    @pytest.mark.asyncio
-    async def test_reload_limits(self, config_service, mock_settings):
-        """Test reloading volume limits."""
-        # First load
-        await config_service.load()
-        old_min, old_max = await config_service.reload_limits()
+    def test_clamp_above_max(self):
+        """Test clamping above maximum."""
+        config = VolumeConfig(limit_min_db=-60.0, limit_max_db=-10.0)
+        assert config.clamp(-5.0) == -10.0
 
-        assert old_min == -80.0
-        assert old_max == -21.0
+    def test_clamp_enforces_technical_hard_limits(self):
+        """Test that clamp enforces technical hard limits (MIN_VOLUME_DB, MAX_VOLUME_DB)."""
+        # Even if user limits are wider than technical, hard limits apply
+        config = VolumeConfig(limit_min_db=-100.0, limit_max_db=10.0)
+        assert config.clamp(-100.0) == MIN_VOLUME_DB  # -80.0
+        assert config.clamp(10.0) == MAX_VOLUME_DB     # 0.0
 
-    def test_get_config_dict(self, config_service):
+    def test_to_dict(self):
         """Test getting config as dictionary."""
-        result = config_service.get_config_dict()
+        config = VolumeConfig()
+        result = config.to_dict()
 
         assert isinstance(result, dict)
         assert "limit_min_db" in result
@@ -90,15 +74,12 @@ class TestVolumeConfigService:
 # ============================================================================
 
 class TestEqualizerController:
-    """Tests for EqualizerController."""
+    """Tests for EqualizerController (delegates to EqualizerRouter)."""
 
     @pytest.fixture
     def mock_camilladsp_service(self):
         """Create mock CamillaDSP service."""
         camilladsp_mock = Mock()
-        camilladsp_mock.set_volume = AsyncMock(return_value=True)
-        camilladsp_mock.get_volume = AsyncMock(return_value=-30.0)
-        camilladsp_mock.set_mute = AsyncMock(return_value=True)
         camilladsp_mock.wait_for_connection = AsyncMock(return_value=True)
         return camilladsp_mock
 
@@ -106,9 +87,17 @@ class TestEqualizerController:
     def mock_proxy_service(self):
         """Create mock proxy service."""
         proxy = Mock()
-        proxy.request = AsyncMock(return_value={"status": "success"})
         proxy.check_available = AsyncMock(return_value=True)
         return proxy
+
+    @pytest.fixture
+    def mock_router(self):
+        """Create mock EqualizerRouter."""
+        router = Mock()
+        router.set_volume = AsyncMock(return_value={"status": "success", "volume": -25.0})
+        router.set_mute = AsyncMock(return_value={"status": "success", "mute": True})
+        router.get_volume = AsyncMock(return_value={"main": -30.0, "mute": False})
+        return router
 
     @pytest.fixture
     def mock_registry(self):
@@ -136,33 +125,51 @@ class TestEqualizerController:
         return registry
 
     @pytest.fixture
-    def controller(self, mock_camilladsp_service, mock_proxy_service, mock_registry):
+    def controller(self, mock_camilladsp_service, mock_proxy_service, mock_router, mock_registry):
         """Create EqualizerController."""
-        return EqualizerController(mock_camilladsp_service, mock_proxy_service, client_registry=mock_registry)
+        return EqualizerController(
+            mock_camilladsp_service, mock_proxy_service,
+            equalizer_router=mock_router, client_registry=mock_registry
+        )
 
     @pytest.mark.asyncio
-    async def test_set_local_volume(self, controller, mock_camilladsp_service):
-        """Test setting local Equalizer volume."""
+    async def test_set_volume_delegates_to_router(self, controller, mock_router):
+        """Test setting volume delegates to EqualizerRouter."""
         result = await controller.set_equalizer_volume("local", -25.0)
 
         assert result is True
-        mock_camilladsp_service.set_volume.assert_called_once_with(-25.0)
+        mock_router.set_volume.assert_called_once_with("local", -25.0)
 
     @pytest.mark.asyncio
-    async def test_set_remote_volume(self, controller, mock_proxy_service):
-        """Test setting remote client volume."""
+    async def test_set_volume_remote_delegates_to_router(self, controller, mock_router):
+        """Test setting remote client volume delegates to EqualizerRouter."""
         result = await controller.set_equalizer_volume("milo-client-01", -27.0)
 
         assert result is True
-        mock_proxy_service.request.assert_called_once()
+        mock_router.set_volume.assert_called_once_with("milo-client-01", -27.0)
 
     @pytest.mark.asyncio
-    async def test_set_equalizer_mute_local(self, controller, mock_camilladsp_service):
-        """Test setting local Equalizer mute."""
+    async def test_set_volume_no_router(self, mock_camilladsp_service, mock_proxy_service):
+        """Test set volume returns False without router."""
+        ctrl = EqualizerController(mock_camilladsp_service, mock_proxy_service)
+        result = await ctrl.set_equalizer_volume("local", -25.0)
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_set_mute_delegates_to_router(self, controller, mock_router):
+        """Test setting mute delegates to EqualizerRouter."""
         result = await controller.set_equalizer_mute("local", True)
 
         assert result is True
-        mock_camilladsp_service.set_mute.assert_called_once_with(True)
+        mock_router.set_mute.assert_called_once_with("local", True)
+
+    @pytest.mark.asyncio
+    async def test_read_current_volume(self, controller, mock_router):
+        """Test reading volume delegates to EqualizerRouter."""
+        result = await controller.read_current_volume("local")
+
+        assert result == -30.0
+        mock_router.get_volume.assert_called_once_with("local")
 
     @pytest.mark.asyncio
     async def test_apply_volumes_parallel(self, controller):
@@ -190,6 +197,15 @@ class TestEqualizerController:
         assert result is True
         mock_camilladsp_service.wait_for_connection.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_is_success_helper(self):
+        """Test _is_success static method."""
+        assert EqualizerController._is_success({"status": "success"}) is True
+        assert EqualizerController._is_success({"status": "skipped"}) is True
+        assert EqualizerController._is_success({"status": "error"}) is False
+        assert EqualizerController._is_success({}) is False
+        assert EqualizerController._is_success(None) is False
+
 
 # ============================================================================
 # VolumeStateStore Tests
@@ -207,8 +223,10 @@ class TestVolumeStateStore:
 
     @pytest.fixture
     def state_store(self, mock_settings):
-        """Create VolumeStateStore."""
-        return VolumeStateStore(mock_settings)
+        """Create VolumeStateStore with default VolumeConfig."""
+        store = VolumeStateStore(mock_settings)
+        store.set_volume_config(VolumeConfig())
+        return store
 
     def test_default_values(self, state_store):
         """Test default store values (constants imported from backend.config.constants)."""
@@ -219,21 +237,30 @@ class TestVolumeStateStore:
         assert state_store._local_volume_db == DEFAULT_VOLUME_DB
 
     def test_clamp_db(self, state_store):
-        """Test dB clamping."""
+        """Test dB clamping delegates to VolumeConfig."""
         assert state_store._clamp_db(-90.0) == -80.0  # Below min
         assert state_store._clamp_db(-30.0) == -30.0  # In range (but above default max)
         assert state_store._clamp_db(5.0) == -21.0    # Above default user max
+
+    def test_clamp_db_fallback_without_config(self, mock_settings):
+        """Test dB clamping falls back to technical limits when config not set."""
+        store = VolumeStateStore(mock_settings)
+        # No set_volume_config called
+        assert store._clamp_db(-90.0) == -80.0  # MIN_VOLUME_DB
+        assert store._clamp_db(5.0) == 0.0      # MAX_VOLUME_DB
 
     def test_set_local_volume(self, state_store):
         """Test setting local volume."""
         state_store.set_local_volume(-25.0)
         assert state_store._local_volume_db == -25.0
 
-    def test_update_user_limits(self, state_store):
-        """Test updating user limits."""
-        state_store.update_user_limits(-60.0, -15.0)
-        assert state_store._user_limit_min_db == -60.0
-        assert state_store._user_limit_max_db == -15.0
+    def test_set_volume_config(self, mock_settings):
+        """Test setting VolumeConfig updates clamping behavior."""
+        store = VolumeStateStore(mock_settings)
+        config = VolumeConfig(limit_min_db=-60.0, limit_max_db=-15.0)
+        store.set_volume_config(config)
+        assert store._clamp_db(-70.0) == -60.0
+        assert store._clamp_db(-10.0) == -15.0
 
     @pytest.mark.asyncio
     async def test_register_client(self, state_store):
@@ -380,12 +407,12 @@ class TestVolumeService:
         mock_camilladsp_service.is_volume_control_available.return_value = False
         assert service._is_equalizer_available() is False
 
-    def test_config_access(self, service):
-        """Test config sub-service access."""
-        config = service.config
+    def test_volume_config_access(self, service):
+        """Test volume_config property access."""
+        config = service.volume_config
         assert config is not None
-        assert hasattr(config, 'config')
-        assert config.config.limit_min_db == -80.0
+        assert isinstance(config, VolumeConfig)
+        assert config.limit_min_db == -80.0
 
     @pytest.mark.asyncio
     async def test_get_volume_db(self, service, mock_settings):
@@ -443,7 +470,7 @@ class TestVolumeService:
 
     def test_volume_config_clamp(self, service):
         """Test volume clamping via config."""
-        config = service.config.config
+        config = service.volume_config
         assert config.clamp(-90.0) == -80.0  # Below min
         assert config.clamp(-30.0) == -30.0  # In range
         assert config.clamp(0.0) == -21.0    # Above max
@@ -475,27 +502,17 @@ class TestVolumeIntegration:
 
     @pytest.mark.asyncio
     async def test_state_store_and_config_integration(self):
-        """Test VolumeStateStore and VolumeConfigService integration."""
+        """Test VolumeStateStore uses VolumeConfig for clamping."""
         mock_settings = Mock()
         mock_settings.get_setting = AsyncMock(return_value=None)
-        mock_settings.invalidate_cache = Mock()
 
-        config_service = VolumeConfigService(mock_settings)
         state_store = VolumeStateStore(mock_settings)
 
-        # Update limits via config
-        config_service._config = VolumeConfig(
-            limit_min_db=-60.0,
-            limit_max_db=-15.0
-        )
+        # Set config with custom limits
+        config = VolumeConfig(limit_min_db=-60.0, limit_max_db=-15.0)
+        state_store.set_volume_config(config)
 
-        # Apply to state store
-        state_store.update_user_limits(
-            config_service.config.limit_min_db,
-            config_service.config.limit_max_db
-        )
-
-        # Verify clamping respects new limits
+        # Verify clamping respects config limits
         assert state_store._clamp_db(-70.0) == -60.0
         assert state_store._clamp_db(-10.0) == -15.0
 
@@ -874,7 +891,7 @@ class TestStartupVolumeAutoUpdate:
             equalizer_client_proxy_service=mock_proxy_service
         )
         # Set initial config with restore_last_volume=True (FR11 active)
-        svc._config_service._config = VolumeConfig(
+        svc._volume_config = VolumeConfig(
             limit_min_db=-80.0,
             limit_max_db=-21.0,
             startup_volume_db=-60.0,
@@ -908,7 +925,7 @@ class TestStartupVolumeAutoUpdate:
         FR11 AC2: set_volume_db() does NOT update startup_volume_db when restore_last_volume=false.
         """
         # Arrange: Set restore_last_volume=False
-        service._config_service._config = VolumeConfig(
+        service._volume_config = VolumeConfig(
             limit_min_db=-80.0,
             limit_max_db=-21.0,
             startup_volume_db=-60.0,
@@ -949,7 +966,7 @@ class TestStartupVolumeAutoUpdate:
         FR11: startup_volume_db is NOT updated if value is unchanged (within 0.1dB tolerance).
         """
         # Arrange: Set startup_volume_db to same value we'll set
-        service._config_service._config = VolumeConfig(
+        service._volume_config = VolumeConfig(
             limit_min_db=-80.0,
             limit_max_db=-21.0,
             startup_volume_db=-45.0,  # Same as what we'll set
@@ -1106,7 +1123,7 @@ class TestStartupVolumeOnRestart:
         """
         # Arrange: Set config with restore=false and specific startup volume
         startup_vol = -35.0
-        service._config_service._config = VolumeConfig(
+        service._volume_config = VolumeConfig(
             limit_min_db=-80.0,
             limit_max_db=-21.0,
             startup_volume_db=startup_vol,
@@ -1131,7 +1148,7 @@ class TestStartupVolumeOnRestart:
         # Arrange: Set config with restore=true
         # startup_volume_db has been auto-tracked by FR11 to the persisted volume
         persisted_vol = -42.0
-        service._config_service._config = VolumeConfig(
+        service._volume_config = VolumeConfig(
             limit_min_db=-80.0,
             limit_max_db=-21.0,
             startup_volume_db=persisted_vol,  # FR11 auto-tracked this
@@ -1154,7 +1171,7 @@ class TestStartupVolumeOnRestart:
         """
         # Arrange: startup_volume_db is always used (FR11 keeps it in sync)
         startup_vol = -38.0
-        service._config_service._config = VolumeConfig(
+        service._volume_config = VolumeConfig(
             limit_min_db=-80.0,
             limit_max_db=-21.0,
             startup_volume_db=startup_vol,
@@ -1177,7 +1194,7 @@ class TestStartupVolumeOnRestart:
         The mute state is read from the local client's ClientVolume.
         """
         # Arrange
-        service._config_service._config = VolumeConfig(
+        service._volume_config = VolumeConfig(
             limit_min_db=-80.0,
             limit_max_db=-21.0,
             startup_volume_db=-45.0,
@@ -1206,7 +1223,7 @@ class TestStartupVolumeOnRestart:
         # Arrange: Equalizer connection times out
         mock_camilladsp_service.wait_for_connection = AsyncMock(return_value=False)
 
-        service._config_service._config = VolumeConfig(
+        service._volume_config = VolumeConfig(
             limit_min_db=-80.0,
             limit_max_db=-21.0,
             startup_volume_db=-45.0,

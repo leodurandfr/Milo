@@ -11,6 +11,7 @@ from unittest.mock import Mock, AsyncMock
 
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.volume.state import VolumeStateStore
+from backend.core.models.volume import VolumeConfig
 from backend.core.multiroom.models import Client, Zone, EqualizerSettings, RegistryEventType
 from backend.core.models.volume_state import VolumeState
 
@@ -347,7 +348,7 @@ class TestZoneVolumeSynchronization:
         store = volume_state_store_with_registry
 
         # Set limits to allow higher volumes for this test
-        store.update_user_limits(-80.0, 0.0)
+        store.set_volume_config(VolumeConfig(limit_min_db=-80.0, limit_max_db=0.0))
 
         await registry_with_clients.create_zone(
             zone_id="living_room",
@@ -378,7 +379,7 @@ class TestZoneVolumeSynchronization:
         store = volume_state_store_with_registry
 
         # Set custom limits
-        store.update_user_limits(-80.0, -21.0)
+        store.set_volume_config(VolumeConfig(limit_min_db=-80.0, limit_max_db=-21.0))
 
         await registry_with_clients.create_zone(
             zone_id="living_room",

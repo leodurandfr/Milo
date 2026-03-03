@@ -31,22 +31,17 @@ class TestAudioRoutingService:
         service = AudioRoutingService(settings_service=mock_settings_service, systemd_manager=mock_systemd_manager)
         # Initialize _initial_detection_done to avoid automatic detection
         service._initial_detection_done = True
-        # Set up transition callbacks (normally done in initialize())
+        # Set up state machine (normally done via set_state_machine())
         mock_state_machine = Mock()
         mock_state_machine._transition_lock = asyncio.Lock()
-        service._transitions.set_callbacks(
-            start_snapcast=service._start_snapcast,
-            stop_snapcast=service._stop_snapcast,
-            state_machine=mock_state_machine,
-        )
+        service.state_machine = mock_state_machine
         return service
 
     def test_initialization(self, routing_service):
         """Service initialization test"""
         assert routing_service.snapcast_websocket_service is None
         assert routing_service.snapcast_service is None
-        assert routing_service.state_machine is None
-        # No more self.state - uses state_machine.system_state directly
+        # state_machine is set in fixture for _transition() support
 
     def test_to_bool_conversion(self):
         """Test of _to_bool helper for safe boolean conversion"""

@@ -31,6 +31,7 @@ from backend.core.multiroom.models import (
     FilterType,
 )
 from backend.config.constants import DEFAULT_VOLUME_DB
+from backend.core.models.volume import VolumeConfig
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.snapcast import (
     SnapcastService,
@@ -3220,9 +3221,7 @@ class TestInZoneTargetVolume:
 
         # Mock volume_service with config
         volume_service = MagicMock()
-        volume_config = MagicMock()
-        volume_config.config.startup_volume_db = -40.0  # Test startup volume
-        volume_service.config = volume_config
+        volume_service.volume_config = VolumeConfig(startup_volume_db=-40.0)
         state_machine.volume_service = volume_service
 
         return state_machine
@@ -3365,9 +3364,7 @@ class TestStandaloneTargetVolume:
 
         # Mock volume_service with config
         volume_service = MagicMock()
-        volume_config = MagicMock()
-        volume_config.config.startup_volume_db = -40.0  # Test startup volume
-        volume_service.config = volume_config
+        volume_service.volume_config = VolumeConfig(startup_volume_db=-40.0)
         state_machine.volume_service = volume_service
 
         return state_machine

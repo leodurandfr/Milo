@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from unittest.mock import Mock, AsyncMock
 from backend.api.volume import create_volume_router
+from backend.core.models.volume import VolumeConfig
 
 
 class TestVolumeRoutes:
@@ -32,10 +33,7 @@ class TestVolumeRoutes:
         service.adjust_volume_db = AsyncMock(return_value=True)
 
         # Config for step values
-        mock_config = Mock()
-        mock_config.config = Mock()
-        mock_config.config.step_mobile_db = 3.0
-        service.config = mock_config
+        service.volume_config = VolumeConfig()
 
         return service
 

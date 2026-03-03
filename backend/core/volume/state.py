@@ -30,6 +30,7 @@ import aiofiles
 from backend.shared.decorators import handle_errors
 
 # Use existing domain models
+from backend.core.models.volume import VolumeConfig
 from backend.core.models.volume_state import VolumeState, ClientVolume, ZoneVolume
 from backend.config.constants import DEFAULT_VOLUME_DB, MIN_VOLUME_DB, MAX_VOLUME_DB
 
@@ -64,10 +65,6 @@ class VolumeStateStore:
     # - MIN_VOLUME_DB = -80.0 (technical minimum)
     # - MAX_VOLUME_DB = 0.0 (technical maximum)
 
-    # Default user limits (dB) - safe user range
-    DEFAULT_USER_MIN_DB = -80.0
-    DEFAULT_USER_MAX_DB = -21.0
-
     # Persistence
     STORAGE_PATH = Path("/var/lib/milo/last_volume.json")
     MAX_AGE_DAYS = 7
@@ -97,9 +94,8 @@ class VolumeStateStore:
         # Cached local client mac_id (set when local client connects)
         self._local_mac_id: Optional[str] = None
 
-        # User-configurable volume limits (cached from settings)
-        self._user_limit_min_db: float = self.DEFAULT_USER_MIN_DB
-        self._user_limit_max_db: float = self.DEFAULT_USER_MAX_DB
+        # VolumeConfig reference (set via set_volume_config from VolumeService)
+        self._volume_config: Optional[VolumeConfig] = None
 
         # Background save task reference (prevent garbage collection)
         self._save_task: Optional[asyncio.Task] = None
@@ -111,6 +107,11 @@ class VolumeStateStore:
         self._ensure_storage_directory()
 
         self.logger.info("VolumeStateStore initialized (SSOT for volume)")
+
+    def set_volume_config(self, config: VolumeConfig) -> None:
+        """Set VolumeConfig reference for clamping (called by VolumeService after config load)."""
+        self._volume_config = config
+        self.logger.debug(f"VolumeConfig set: limits={config.limit_min_db:.1f}/{config.limit_max_db:.1f} dB")
 
     def set_registry(self, registry: "ClientRegistryService") -> None:
         """
@@ -238,15 +239,10 @@ class VolumeStateStore:
         """
         Initialize store from settings and persistent storage.
 
-        Must be called after construction.
+        Must be called after construction. Volume config (and thus clamping limits)
+        is already set via set_volume_config() before this is called.
         """
         async with self._lock:
-            # Load user volume limits from settings
-            min_db = await self.settings_service.get_setting("volume.limit_min_db")
-            max_db = await self.settings_service.get_setting("volume.limit_max_db")
-            self._user_limit_min_db = min_db if min_db is not None else self.DEFAULT_USER_MIN_DB
-            self._user_limit_max_db = max_db if max_db is not None else self.DEFAULT_USER_MAX_DB
-
             # Load routing mode from multiroom_enabled setting
             multiroom_enabled = await self.settings_service.get_setting("routing.multiroom_enabled")
             self._mode = "multiroom" if multiroom_enabled else "direct"
@@ -261,10 +257,12 @@ class VolumeStateStore:
             # Must happen BEFORE clients are marked available by VolumeService
             self._compute_initial_zone_targets()
 
+            limits_info = (f"{self._volume_config.limit_min_db:.1f}/{self._volume_config.limit_max_db:.1f}"
+                          if self._volume_config else "not set")
             self.logger.info(f"VolumeStateStore initialized: mode={self._mode}, "
                            f"zones={len(self._zones)}, clients={len(self._clients)}, "
                            f"local_volume={self._local_volume_db:.1f}dB, "
-                           f"limits={self._user_limit_min_db:.1f}/{self._user_limit_max_db:.1f}dB")
+                           f"limits={limits_info}dB")
 
     async def set_mode(self, mode: str) -> None:
         """
@@ -815,41 +813,22 @@ class VolumeStateStore:
 
     def _clamp_db(self, volume_db: float) -> float:
         """
-        Clamp volume to user-configurable limits.
+        Clamp volume using VolumeConfig (user limits + technical hard limits).
 
-        Uses cached user limits (updated via update_user_limits()).
-        This is the SINGLE point of clamping for all volume operations.
+        Delegates to VolumeConfig.clamp() which enforces both user-configurable
+        limits and technical hard limits. Falls back to simple technical clamping
+        if config is not yet set (safety during early init).
 
         Args:
             volume_db: Volume in dB
 
         Returns:
-            Clamped volume within user limits
+            Clamped volume within safe bounds
         """
-        return max(self._user_limit_min_db, min(self._user_limit_max_db, volume_db))
-
-    def update_user_limits(self, min_db: float, max_db: float) -> None:
-        """
-        Update user-configurable volume limits (called when config changes).
-
-        Args:
-            min_db: Minimum volume in dB (e.g., -80.0)
-            max_db: Maximum volume in dB (e.g., -21.0 for safety)
-        """
-        # Ensure limits are within technical range
-        self._user_limit_min_db = max(MIN_VOLUME_DB, min(MAX_VOLUME_DB, min_db))
-        self._user_limit_max_db = max(MIN_VOLUME_DB, min(MAX_VOLUME_DB, max_db))
-        self.logger.debug(f"User volume limits updated: {self._user_limit_min_db:.1f} to {self._user_limit_max_db:.1f} dB")
-
-    @property
-    def user_limit_min_db(self) -> float:
-        """Get current user minimum volume limit."""
-        return self._user_limit_min_db
-
-    @property
-    def user_limit_max_db(self) -> float:
-        """Get current user maximum volume limit."""
-        return self._user_limit_max_db
+        if self._volume_config:
+            return self._volume_config.clamp(volume_db)
+        # Fallback before config is set
+        return max(MIN_VOLUME_DB, min(MAX_VOLUME_DB, volume_db))
 
     async def get_volume_limits(self) -> Dict[str, float]:
         """

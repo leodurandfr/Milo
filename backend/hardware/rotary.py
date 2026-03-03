@@ -92,7 +92,7 @@ class RotaryVolumeController:
                     self.is_processing = True
                     
                     # Get dynamic step from config service (in dB)
-                    volume_step = self.volume_service.config.config.step_rotary_db
+                    volume_step = self.volume_service.volume_config.step_rotary_db
 
                     # Calculate volume change in dB
                     volume_delta = self.rotation_accumulator * volume_step
