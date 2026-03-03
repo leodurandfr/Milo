@@ -87,11 +87,10 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
 
   // === STATE UPDATE ===
   function updateSystemState(newState, source = 'unknown') {
-    // Validate incoming state using zod schema
+    // Validate with Zod — .catch() defaults handle invalid fields automatically
     const result = validateSchema(SystemStateSchema, newState, `SystemState from ${source}`);
 
     if (result.success) {
-      // Schema validation passed - use validated data (explicitly pick only used properties)
       systemState.value = {
         active_source: result.data.active_source,
         plugin_state: result.data.plugin_state,
@@ -99,26 +98,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
         metadata: result.data.metadata || {},
         error: result.data.error || null,
         multiroom_enabled: result.data.multiroom_enabled
-      };
-    } else {
-      // Schema validation failed - apply safe fallbacks
-      logger.warn('store', 'SystemState validation failed, applying fallbacks', {
-        source,
-        errors: result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`)
-      });
-
-      // Fallback to safe defaults for invalid fields
-      const validSources = ['none', 'spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'airplay'];
-      const validStates = ['starting', 'ready', 'connected', 'error'];
-
-      systemState.value = {
-        active_source: validSources.includes(newState.active_source) ? newState.active_source : 'none',
-        plugin_state: validStates.includes(newState.plugin_state) ? newState.plugin_state : 'ready',
-        transitioning: typeof newState.transitioning === 'boolean' ? newState.transitioning : false,
-        metadata: (newState.metadata && typeof newState.metadata === 'object') ? newState.metadata : {},
-        error: newState.error || null,
-        multiroom_enabled: typeof newState.multiroom_enabled === 'boolean'
-          ? newState.multiroom_enabled : systemState.value.multiroom_enabled
       };
     }
   }
@@ -132,7 +111,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   function handleVolumeEvent(event) {
     const { show_bar, step_mobile_db, state } = event.data || {};
 
-    // Update unified volume state with schema validation
+    // Validate with Zod — .catch() defaults handle invalid fields automatically
     if (state) {
       const result = validateSchema(VolumeStateSchema, state, 'VolumeState');
 
@@ -142,14 +121,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
         volumeState.value.global_mute = result.data.global_mute;
         volumeState.value.clients = result.data.clients;
         volumeState.value.zones = result.data.zones;
-      } else {
-        // Fallback to direct assignment with defaults
-        logger.debug('store', 'VolumeState validation partial, using fallbacks');
-        volumeState.value.mode = state.mode || 'direct';
-        volumeState.value.global_volume_db = state.global_volume_db ?? -60.0;
-        volumeState.value.global_mute = state.global_mute ?? false;
-        volumeState.value.clients = state.clients || {};
-        volumeState.value.zones = state.zones || {};
       }
     }
 
