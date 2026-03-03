@@ -50,12 +50,12 @@ const MetadataSchema = z.object({
 }).passthrough(); // Allow additional fields
 
 export const SystemStateSchema = z.object({
-  active_source: AudioSourceSchema,
-  plugin_state: PluginStateSchema,
-  transitioning: z.boolean(),
+  active_source: AudioSourceSchema.catch('none'),
+  plugin_state: PluginStateSchema.catch('ready'),
+  transitioning: z.boolean().catch(false),
   metadata: MetadataSchema.optional().default({}),
-  error: z.string().nullable().optional(),
-  multiroom_enabled: z.boolean()
+  error: z.string().nullable().optional().catch(null),
+  multiroom_enabled: z.boolean().catch(false)
 }).passthrough();
 
 // === VOLUME ===
@@ -76,11 +76,11 @@ const VolumeZoneSchema = z.object({
 });
 
 export const VolumeStateSchema = z.object({
-  mode: z.enum(['direct', 'multiroom']),
-  global_volume_db: z.number(),
-  global_mute: z.boolean(),
-  clients: z.record(z.string(), VolumeClientSchema).default({}),
-  zones: z.record(z.string(), VolumeZoneSchema).default({})
+  mode: z.enum(['direct', 'multiroom']).catch('direct'),
+  global_volume_db: z.number().catch(-60.0),
+  global_mute: z.boolean().catch(false),
+  clients: z.record(z.string(), VolumeClientSchema).catch({}),
+  zones: z.record(z.string(), VolumeZoneSchema).catch({})
 });
 
 // === WEBSOCKET EVENTS ===

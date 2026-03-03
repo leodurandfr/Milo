@@ -56,8 +56,8 @@
 <script setup>
 import { computed, ref } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import { useSourceControl } from '@/composables/useSourceControl';
 import { useSourceProgress } from '@/composables/useSourceProgress';
+import { logger } from '@/services/logger';
 
 import PlaybackControls from './PlaybackControls.vue';
 import ConnectProgressBar from './ConnectProgressBar.vue';
@@ -75,8 +75,28 @@ const props = defineProps({
 });
 
 const unifiedStore = useUnifiedAudioStore();
-const { togglePlayPause, previousTrack, nextTrack } = useSourceControl(props.source);
 const { currentPosition, duration, progressPercentage, seekTo, isPositionInitialized } = useSourceProgress(props.source);
+
+// Playback controls
+async function sendSourceCommand(command) {
+  try {
+    await unifiedStore.sendCommand(props.source, command);
+  } catch (error) {
+    logger.error('component', `Error executing command ${command} on ${props.source}`, error);
+  }
+}
+
+function togglePlayPause() {
+  sendSourceCommand(unifiedStore.systemState.metadata?.is_playing ? 'pause' : 'resume');
+}
+
+function previousTrack() {
+  sendSourceCommand('prev');
+}
+
+function nextTrack() {
+  sendSourceCommand('next');
+}
 
 // === METADATA PERSISTENCE ===
 const lastValidMetadata = ref({

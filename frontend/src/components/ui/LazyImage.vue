@@ -22,8 +22,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { useImageFallback } from '@/composables/useImageFallback'
+import { ref, onMounted } from 'vue'
 
 defineProps({
   src: {
@@ -41,7 +40,23 @@ defineProps({
 })
 
 const imgRef = ref(null)
-const { imageLoaded, imageError, handleImageLoad, handleImageError } = useImageFallback(imgRef)
+const imageLoaded = ref(false)
+const imageError = ref(false)
+
+function handleImageLoad() {
+  imageLoaded.value = true
+}
+
+function handleImageError() {
+  imageError.value = true
+}
+
+// Handle browser-cached images that complete before Vue mounts
+onMounted(() => {
+  if (imgRef.value?.complete && imgRef.value?.naturalHeight !== 0) {
+    imageLoaded.value = true
+  }
+})
 
 defineExpose({ imageLoaded, imageError })
 </script>

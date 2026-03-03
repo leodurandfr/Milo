@@ -171,7 +171,6 @@ frontend/src/
 - `useNavigationStack.js` - Navigation state management
 - `useScreenActivity.js` - Screen activity tracking
 - `useSettingsAPI.js` - Settings API interactions
-- `useSourceControl.js` - Generic playback control (play/pause, next, previous)
 - `useSourceProgress.js` - Playback progress tracking with local interpolation and seek
 - `useVirtualKeyboard.js` - Virtual keyboard state
 - `useVolumeThrottle.js` - Volume control throttling

@@ -6,14 +6,7 @@
 
     <!-- Main content -->
     <div class="content-container">
-      <AudioSourceView
-        :active-source="unifiedStore.systemState.active_source"
-        :plugin-state="unifiedStore.systemState.plugin_state"
-        :transitioning="unifiedStore.systemState.transitioning"
-        :metadata="unifiedStore.systemState.metadata"
-        :is-disconnecting="disconnectingStates[unifiedStore.systemState.active_source]"
-        @disconnect="handleDisconnect"
-      />
+      <AudioSourceView />
     </div>
 
     <!-- Logo -->
@@ -65,14 +58,6 @@ const unifiedStore = useUnifiedAudioStore();
 const settingsStore = useSettingsStore();
 const radioStore = useRadioStore();
 const podcastStore = usePodcastStore();
-
-// === Disconnecting states for each plugin ===
-const disconnectingStates = ref({
-  bluetooth: false,
-  mac: false,
-  spotify: false,
-  radio: false
-});
 
 // === Audio Screensaver ===
 const isScreensaverVisible = ref(false);
@@ -311,44 +296,6 @@ const logoPosition = computed(() => {
 
   return lastVisiblePosition.value;
 });
-
-// === ACTION HANDLERS ===
-async function handleDisconnect() {
-  const currentSource = unifiedStore.systemState.active_source;
-  if (!currentSource || currentSource === 'none') return;
-
-  disconnectingStates.value[currentSource] = true;
-
-  try {
-    let response;
-
-    switch (currentSource) {
-      case 'bluetooth':
-        response = await fetch('/api/bluetooth/disconnect', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
-        });
-        break;
-      case 'mac':
-        // MAC disconnect not supported
-        return;
-      default:
-        console.warn(`Disconnect not supported for ${currentSource}`);
-        return;
-    }
-
-    if (response && !response.ok) {
-      const result = await response.json();
-      console.error(`Disconnect error: ${result.detail}`);
-    }
-  } catch (error) {
-    console.error(`Error disconnecting ${currentSource}:`, error);
-  } finally {
-    setTimeout(() => {
-      disconnectingStates.value[currentSource] = false;
-    }, 900);
-  }
-}
 
 /* =========================
    Settings access (secret tap)

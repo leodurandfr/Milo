@@ -23,7 +23,7 @@
       <!-- PluginStatus -->
       <div v-else-if="shouldShowPluginStatus" :key="contentKey" class="plugin-status-container">
         <AudioSourceStatus :plugin-type="currentPluginType" :plugin-state="currentPluginState"
-          :device-name="currentDeviceName" :is-disconnecting="isDisconnecting" @disconnect="$emit('disconnect')" />
+          :device-name="currentDeviceName" :is-disconnecting="isDisconnecting" @disconnect="handleDisconnect" />
       </div>
 
     </Transition>
@@ -31,7 +31,8 @@
 </template>
 
 <script setup>
-import { computed, defineAsyncComponent } from 'vue';
+import { computed, ref, defineAsyncComponent } from 'vue';
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 
 const SpotifySource = defineAsyncComponent(() =>
   import('../spotify/SpotifySource.vue')
@@ -47,116 +48,136 @@ const AirPlaySource = defineAsyncComponent(() =>
 );
 import AudioSourceStatus from './AudioSourceStatus.vue';
 
-// Props
-const props = defineProps({
-  activeSource: {
-    type: String,
-    required: true
-  },
-  pluginState: {
-    type: String,
-    required: true
-  },
-  transitioning: {
-    type: Boolean,
-    default: false
-  },
-  metadata: {
-    type: Object,
-    default: () => ({})
-  },
-  isDisconnecting: {
-    type: Boolean,
-    default: false
-  }
+const unifiedStore = useUnifiedAudioStore();
+
+// Read all state directly from the store
+const activeSource = computed(() => unifiedStore.systemState.active_source);
+const pluginState = computed(() => unifiedStore.systemState.plugin_state);
+const transitioning = computed(() => unifiedStore.systemState.transitioning);
+const metadata = computed(() => unifiedStore.systemState.metadata);
+
+// === DISCONNECT LOGIC ===
+const disconnectingStates = ref({
+  bluetooth: false,
+  mac: false,
+  spotify: false,
+  radio: false
 });
 
-// Emits
-const emit = defineEmits(['disconnect']);
+const isDisconnecting = computed(() => disconnectingStates.value[activeSource.value] || false);
 
-// === SIMPLIFIED DECISION LOGIC ===
-// With the new flow, active_source is immediately set at transition start,
-// so we can simply use activeSource directly.
-const displayedSource = computed(() => props.activeSource);
+async function handleDisconnect() {
+  const currentSource = activeSource.value;
+  if (!currentSource || currentSource === 'none') return;
 
+  disconnectingStates.value[currentSource] = true;
+
+  try {
+    let response;
+
+    switch (currentSource) {
+      case 'bluetooth':
+        response = await fetch('/api/bluetooth/disconnect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        break;
+      case 'mac':
+        return;
+      default:
+        console.warn(`Disconnect not supported for ${currentSource}`);
+        return;
+    }
+
+    if (response && !response.ok) {
+      const result = await response.json();
+      console.error(`Disconnect error: ${result.detail}`);
+    }
+  } catch (error) {
+    console.error(`Error disconnecting ${currentSource}:`, error);
+  } finally {
+    setTimeout(() => {
+      disconnectingStates.value[currentSource] = false;
+    }, 900);
+  }
+}
+
+// === DECISION LOGIC ===
 const hasCompleteTrackInfo = computed(() => {
   return !!(
-    props.pluginState === 'connected' &&
-    props.metadata?.title &&
-    props.metadata?.artist
+    pluginState.value === 'connected' &&
+    metadata.value?.title &&
+    metadata.value?.artist
   );
 });
 
 const shouldShowSpotify = computed(() => {
-  return displayedSource.value === 'spotify' &&
-    props.pluginState === 'connected' &&
+  return activeSource.value === 'spotify' &&
+    pluginState.value === 'connected' &&
     hasCompleteTrackInfo.value &&
-    !props.transitioning;
+    !transitioning.value;
 });
 
 const shouldShowRadio = computed(() => {
-  return displayedSource.value === 'radio' &&
-    !props.transitioning;
+  return activeSource.value === 'radio' &&
+    !transitioning.value;
 });
 
 const shouldShowPodcast = computed(() => {
-  return displayedSource.value === 'podcast' &&
-    !props.transitioning;
+  return activeSource.value === 'podcast' &&
+    !transitioning.value;
 });
 
 const shouldShowAirPlay = computed(() => {
-  return displayedSource.value === 'airplay' &&
-    props.pluginState === 'connected' &&
+  return activeSource.value === 'airplay' &&
+    pluginState.value === 'connected' &&
     hasCompleteTrackInfo.value &&
-    !props.transitioning;
+    !transitioning.value;
 });
 
 const shouldShowPluginStatus = computed(() => {
   // Don't show status during transition to "none" (deactivation)
-  if (props.transitioning && props.activeSource === 'none') {
+  if (transitioning.value && activeSource.value === 'none') {
     return false;
   }
 
   // Transition in progress
-  if (props.transitioning) return true;
+  if (transitioning.value) return true;
 
   // bluetooth/mac sources
-  if (['bluetooth', 'mac'].includes(displayedSource.value)) return true;
+  if (['bluetooth', 'mac'].includes(activeSource.value)) return true;
 
   // Spotify without complete conditions
-  if (displayedSource.value === 'spotify') {
-    return !hasCompleteTrackInfo.value || props.pluginState !== 'connected';
+  if (activeSource.value === 'spotify') {
+    return !hasCompleteTrackInfo.value || pluginState.value !== 'connected';
   }
 
   // AirPlay without complete conditions
-  if (displayedSource.value === 'airplay') {
-    return !hasCompleteTrackInfo.value || props.pluginState !== 'connected';
+  if (activeSource.value === 'airplay') {
+    return !hasCompleteTrackInfo.value || pluginState.value !== 'connected';
   }
 
   return false;
 });
 
 // === PROPERTIES FOR PLUGINSTATUS ===
-const currentPluginType = computed(() => {
-  return displayedSource.value;
-});
+const currentPluginType = computed(() => activeSource.value);
 
 const currentPluginState = computed(() => {
-  if (props.transitioning) return 'starting';
-  return props.pluginState;
+  if (transitioning.value) return 'starting';
+  return pluginState.value;
 });
 
 const currentDeviceName = computed(() => {
-  const metadata = props.metadata || {};
+  const meta = metadata.value || {};
 
-  switch (displayedSource.value) {
+  switch (activeSource.value) {
     case 'bluetooth':
-      return metadata.device_name || '';
+      return meta.device_name || '';
     case 'mac':
-      // Support multiple clients: return the array or a single string
-      return metadata.client_names || metadata.client_name || [];
+      return meta.client_names || meta.client_name || [];
     case 'airplay':
-      return metadata.client_name || '';
+      return meta.client_name || '';
     default:
       return '';
   }
@@ -164,12 +185,10 @@ const currentDeviceName = computed(() => {
 
 // Key for transitions - includes state for PluginStatus to animate between states
 const contentKey = computed(() => {
-  // For PluginStatus: include state to trigger transitions between states
   if (shouldShowPluginStatus.value) {
-    return `${displayedSource.value}-${currentPluginState.value}-${!!currentDeviceName.value}`;
+    return `${activeSource.value}-${currentPluginState.value}-${!!currentDeviceName.value}`;
   }
-  // For complete views (Radio, Podcast, Librespot): source is enough
-  return displayedSource.value;
+  return activeSource.value;
 });
 
 </script>
