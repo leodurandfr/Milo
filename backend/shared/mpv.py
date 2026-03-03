@@ -23,6 +23,7 @@ class MpvController:
         self.writer: Optional[asyncio.StreamWriter] = None
         self._command_id = 0
         self._connected = False
+        self._command_lock = asyncio.Lock()
 
     async def connect(self, max_retries: int = 10, retry_delay: float = 0.5) -> bool:
         """
@@ -101,6 +102,7 @@ class MpvController:
         Sends a JSON IPC command to mpv
 
         mpv IPC format: {"command": ["command_name", "arg1", "arg2"], "request_id": 1}
+        Serialized via _command_lock to prevent concurrent socket access.
 
         Args:
             command: mpv command name
@@ -114,52 +116,53 @@ class MpvController:
             if not await self.connect():
                 return None
 
-        try:
-            self._command_id += 1
-            request = {
-                "command": [command, *args],
-                "request_id": self._command_id
-            }
-
-            # Send the command
-            command_json = json.dumps(request) + "\n"
-            self.writer.write(command_json.encode('utf-8'))
-            await self.writer.drain()
-
-            # Read the response by matching request_id (with timeout)
+        async with self._command_lock:
             try:
-                # Read up to 10 lines max to find the right response
-                for _ in range(10):
-                    response_line = await asyncio.wait_for(self.reader.readline(), timeout=5.0)
-                    if not response_line:
-                        break
+                self._command_id += 1
+                request = {
+                    "command": [command, *args],
+                    "request_id": self._command_id
+                }
 
-                    response = json.loads(response_line.decode('utf-8'))
+                # Send the command
+                command_json = json.dumps(request) + "\n"
+                self.writer.write(command_json.encode('utf-8'))
+                await self.writer.drain()
 
-                    # Ignore mpv events (no request_id)
-                    if 'event' in response:
-                        continue
+                # Read the response by matching request_id (with timeout)
+                try:
+                    # Read up to 10 lines max to find the right response
+                    for _ in range(10):
+                        response_line = await asyncio.wait_for(self.reader.readline(), timeout=5.0)
+                        if not response_line:
+                            break
 
-                    # If it's the response to our request, return it
-                    if response.get('request_id') == self._command_id:
-                        error = response.get('error')
-                        # Only log real errors, not transient errors
-                        if error not in ('success', None, 'null', 'property unavailable'):
-                            self.logger.warning(f"mpv command error: {error}")
-                        return response
+                        response = json.loads(response_line.decode('utf-8'))
 
-                # No matching response found
-                self.logger.warning(f"No matching response for request {self._command_id}")
+                        # Ignore mpv events (no request_id)
+                        if 'event' in response:
+                            continue
+
+                        # If it's the response to our request, return it
+                        if response.get('request_id') == self._command_id:
+                            error = response.get('error')
+                            # Only log real errors, not transient errors
+                            if error not in ('success', None, 'null', 'property unavailable'):
+                                self.logger.warning(f"mpv command error: {error}")
+                            return response
+
+                    # No matching response found
+                    self.logger.warning(f"No matching response for request {self._command_id}")
+                    return None
+
+                except asyncio.TimeoutError:
+                    self.logger.warning(f"Timeout waiting for mpv response to: {command}")
+                    return None
+
+            except Exception as e:
+                self.logger.error(f"Error sending command to mpv: {e}")
+                self._connected = False
                 return None
-
-            except asyncio.TimeoutError:
-                self.logger.warning(f"Timeout waiting for mpv response to: {command}")
-                return None
-
-        except Exception as e:
-            self.logger.error(f"Error sending command to mpv: {e}")
-            self._connected = False
-            return None
 
     async def load_stream(self, url: str) -> bool:
         """
