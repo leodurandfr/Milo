@@ -84,6 +84,8 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useIsMobile } from '@/composables/useIsMobile';
+import { useDockDrag } from '@/composables/useDockDrag';
+import { useVolumeHold } from '@/composables/useVolumeHold';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 
@@ -108,7 +110,6 @@ const ALL_ADDITIONAL_ACTIONS = computed(() => [
 
 // === DYNAMIC CONFIGURATION ===
 const enabledApps = ref(["spotify", "bluetooth", "radio", "podcast", "airplay", "mac", "equalizer", "multiroom", "settings"]);
-// Volume step comes from unifiedAudioStore.volumeState (single source of truth)
 
 // Computed to separate audio plugins and features
 const enabledAudioPlugins = computed(() => {
@@ -127,7 +128,7 @@ const allEnabledApps = computed(() => {
   return [...enabledAudioPlugins.value, ...enabledFeatures.value];
 });
 
-// Split into two groups: if ≤4 apps, all in dock; otherwise first 3 in dock and the rest in “additional” (for mobile)
+// Split into two groups: if <=4 apps, all in dock; otherwise first 3 in dock and the rest in "additional" (for mobile)
 const dockApps = computed(() => {
   const total = allEnabledApps.value.length;
   return total <= 4 ? allEnabledApps.value : allEnabledApps.value.slice(0, 3);
@@ -151,7 +152,7 @@ const volumeControlsWithSteps = computed(() => {
 // === EMISSIONS ===
 const emit = defineEmits(['open-equalizer', 'open-multiroom', 'open-settings']);
 
-// === MAIN REFS ===
+// === TEMPLATE REFS ===
 const dragZone = ref(null);
 const dockContainer = ref(null);
 const dock = ref(null);
@@ -160,150 +161,31 @@ const additionalAppsContainer = ref(null);
 const mobileDockItems = ref([]);
 const desktopDockItems = ref([]);
 
-// === GLOBAL STATE ===
+// === VISIBILITY STATE ===
 const isVisible = ref(false);
 const isFullyVisible = ref(false);
 const showAdditionalApps = ref(false);
 const showDragIndicator = ref(false);
 const additionalAppsInDOM = ref(false);
 
-// === DRAG MANAGEMENT ===
-const isDragging = ref(false);
-const gestureHasMoved = ref(false);
-const gestureStartPosition = ref({ x: 0, y: 0 });
-const MOVE_THRESHOLD = 10;
-
-// Drag variables
-let dragStartY = 0, dragCurrentY = 0, dragStartTime = 0;
-let dragActionTaken = ref(false);
-let isDraggingAdditional = false, additionalDragStartY = 0, additionalDragMoved = false;
-
-// === VOLUME HOLD MANAGEMENT ===
-const volumeStartTimer = ref(null);
-const volumeRepeatTimer = ref(null);
-const isVolumeHolding = ref(false);
-const currentVolumeDelta = ref(0);
-const volumeActionTaken = ref(false);
-const volumePointerType = ref(null);
-
 // === TIMERS ===
-let hideTimeout = null, additionalHideTimeout = null, dragGraceTimeout = null;
-
-// === COMPUTED ===
-const activeSourceIndex = computed(() => {
-  // On desktop, search only among audio plugins
-  // On mobile, search only among audio sources visible in dockApps
-  if (isDesktop()) {
-    return enabledAudioPlugins.value.findIndex(app => app.id === unifiedStore.systemState.active_source);
-  } else {
-    // On mobile: find the index of the active source among ALL dock apps
-    // But only if it's an audio source
-    const currentSource = unifiedStore.systemState.active_source;
-    if (!ALL_AUDIO_SOURCES.includes(currentSource)) {
-      return -1; // Not an audio source, no indicator
-    }
-    return dockApps.value.findIndex(app => app.id === currentSource);
-  }
-});
-
-const indicatorStyle = ref({
-  opacity: '0',
-  transform: 'translateX(0px)',
-});
-
-// === UTILITIES ===
-const getEventY = (e) => e.type.includes('touch') || e.pointerType === 'touch'
-  ? (e.touches?.[0]?.clientY || e.changedTouches?.[0]?.clientY || e.clientY) : e.clientY;
-
-const getEventX = (e) => e.type.includes('touch') || e.pointerType === 'touch'
-  ? (e.touches?.[0]?.clientX || e.changedTouches?.[0]?.clientX || e.clientX) : e.clientX;
+let hideTimeout = null;
+let additionalHideTimeout = null;
 
 const { isMobile } = useIsMobile();
 const isDesktop = () => !isMobile.value;
 
 const getDockItemDelay = (index) => `${DOCK_ANIM_INITIAL_DELAY + index * DOCK_ANIM_STAGGER}s`;
 
-const clearAllTimers = () => {
-  [hideTimeout, additionalHideTimeout, volumeStartTimer.value, volumeRepeatTimer.value, dragGraceTimeout]
-    .forEach(timer => timer && clearTimeout(timer));
-  volumeStartTimer.value = volumeRepeatTimer.value = dragGraceTimeout = null;
-  dragActionTaken.value = volumeActionTaken.value = false;
-};
-
+// === DOCK SHOW/HIDE ===
 const startHideTimer = () => {
   clearTimeout(hideTimeout);
-  // Don't auto-hide when no source is active (user needs to select one)
   if (unifiedStore.systemState.active_source === 'none') return;
   hideTimeout = setTimeout(hideDock, 10000);
 };
 
 const resetHideTimer = () => isVisible.value && startHideTimer();
 
-const resetGestureState = () => {
-  gestureHasMoved.value = false;
-  gestureStartPosition.value = { x: 0, y: 0 };
-};
-
-// === VOLUME HOLD MANAGEMENT ===
-const onVolumeHoldStart = (delta, event) => {
-  if (volumePointerType.value && volumePointerType.value !== event.pointerType) {
-    return;
-  }
-
-  volumePointerType.value = event.pointerType;
-  gestureStartPosition.value = { x: getEventX(event), y: getEventY(event) };
-  gestureHasMoved.value = false;
-  currentVolumeDelta.value = delta;
-  volumeActionTaken.value = false;
-
-  // Start hold-to-repeat after 400ms (executes first action + starts repeat)
-  volumeStartTimer.value = setTimeout(() => {
-    if (!gestureHasMoved.value && volumePointerType.value === event.pointerType) {
-      unifiedStore.adjustVolume(delta);
-      volumeActionTaken.value = true;
-      isVolumeHolding.value = true;
-
-      volumeRepeatTimer.value = setInterval(() => {
-        if (isVolumeHolding.value) {
-          unifiedStore.adjustVolume(currentVolumeDelta.value);
-        } else {
-          clearInterval(volumeRepeatTimer.value);
-        }
-      }, 50);
-    }
-  }, 400);
-
-  resetHideTimer();
-};
-
-const onVolumeHoldEnd = (event) => {
-  if (event && volumePointerType.value && event.pointerType !== volumePointerType.value) {
-    return;
-  }
-
-  // Execute action on release if it was a tap (no movement, no hold action taken)
-  if (!gestureHasMoved.value && !volumeActionTaken.value && currentVolumeDelta.value !== 0) {
-    unifiedStore.adjustVolume(currentVolumeDelta.value);
-  }
-
-  isVolumeHolding.value = false;
-  volumePointerType.value = null;
-
-  if (volumeStartTimer.value) {
-    clearTimeout(volumeStartTimer.value);
-    volumeStartTimer.value = null;
-  }
-
-  if (volumeRepeatTimer.value) {
-    clearInterval(volumeRepeatTimer.value);
-    volumeRepeatTimer.value = null;
-  }
-
-  currentVolumeDelta.value = 0;
-  volumeActionTaken.value = false;
-};
-
-// === DOCK MANAGEMENT ===
 const showDock = () => {
   if (isVisible.value) return;
   isVisible.value = true;
@@ -327,197 +209,59 @@ const hideDock = () => {
   isFullyVisible.value = false;
   showAdditionalApps.value = false;
   isVisible.value = false;
-  clearAllTimers();
+  clearTimeout(hideTimeout);
+  clearTimeout(additionalHideTimeout);
   indicatorStyle.value.opacity = '0';
   setTimeout(() => additionalAppsInDOM.value = false, 400);
 
-  onVolumeHoldEnd();
-  resetGestureState();
+  volumeHold.onVolumeHoldEnd();
+  drag.resetGestureState();
 };
 
-// === IMPROVED DRAG HANDLING ===
-const onDragStart = (e) => {
-  isDragging.value = true;
-  dragStartY = getEventY(e);
-  dragCurrentY = dragStartY;
-  dragStartTime = Date.now();
-  dragActionTaken.value = false;
+// === DRAG COMPOSABLE ===
+const drag = useDockDrag({
+  dragZone,
+  dock,
+  dockContainer,
+  additionalAppsContainer,
+  isVisible,
+  showAdditionalApps,
+  onShow: showDock,
+  onHide: hideDock,
+  onCloseAdditionalApps: () => closeAdditionalApps(),
+  onVolumeHoldEnd: (e) => volumeHold.onVolumeHoldEnd(e),
+  onResetHideTimer: resetHideTimer,
+});
 
-  if (dragGraceTimeout) {
-    clearTimeout(dragGraceTimeout);
-    dragGraceTimeout = null;
-  }
+const { isDragging } = drag;
 
-  // Only reset gesture state if not tracking a volume gesture
-  if (!volumePointerType.value) {
-    resetGestureState();
-  }
-};
+// === VOLUME HOLD COMPOSABLE ===
+const volumeHold = useVolumeHold({
+  adjustVolume: (delta) => unifiedStore.adjustVolume(delta),
+  gestureHasMoved: drag.gestureHasMoved,
+  gestureStartPosition: drag.gestureStartPosition,
+  getEventX: drag.getEventX,
+  getEventY: drag.getEventY,
+});
 
-const onDragMove = (e) => {
-  if (isDraggingAdditional) {
-    const deltaY = getEventY(e) - additionalDragStartY;
-    // Mark that a movement was detected
-    if (Math.abs(deltaY) > 5) {
-      additionalDragMoved = true;
-      e.preventDefault();
-    }
-    // Detect significant movement to close
-    if (Math.abs(deltaY) >= 20 && deltaY > 0) {
-      e.preventDefault(); // Prevent scroll
-      closeAdditionalApps();
-      isDraggingAdditional = false;
-      additionalDragMoved = false;
-    }
-    return;
-  }
-
-  if (!isDragging.value) return;
-
-  const currentY = getEventY(e);
-  const currentX = getEventX(e);
-
-  // Check movement to cancel volume hold
-  if (!gestureHasMoved.value) {
-    const deltaX = Math.abs(currentX - gestureStartPosition.value.x);
-    const deltaY = Math.abs(currentY - gestureStartPosition.value.y);
-
-    if (deltaX > MOVE_THRESHOLD || deltaY > MOVE_THRESHOLD) {
-      gestureHasMoved.value = true;
-      onVolumeHoldEnd();
-    }
-  }
-
-  // Improved drag logic
-  dragCurrentY = currentY;
-  const deltaY = dragStartY - dragCurrentY;
-  const dragDuration = Date.now() - dragStartTime;
-  const velocity = Math.abs(deltaY) / Math.max(dragDuration, 1);
-
-  // Adaptive threshold based on speed
-  let threshold = 30;
-  if (velocity >= 0.5) {
-    threshold = Math.max(20, 30 - (velocity * 10));
-  }
-
-  if (Math.abs(deltaY) >= threshold && !dragActionTaken.value) {
-    dragActionTaken.value = true;
-
-    if (deltaY > 0 && !isVisible.value) {
-      showDock();
-    } else if (deltaY < 0 && isVisible.value) {
-      hideDock();
-    }
-
-    dragGraceTimeout = setTimeout(() => {
-      isDragging.value = false;
-      dragActionTaken.value = false;
-      resetGestureState();
-    }, 200);
-  }
-};
-
-const onDragEnd = () => {
-  if (isDraggingAdditional) {
-    isDraggingAdditional = false;
-    additionalDragMoved = false;
-    return;
-  }
-
-  if (!dragActionTaken.value) {
-    isDragging.value = false;
-    resetGestureState();
-  }
-
-  resetHideTimer();
-};
-
-// === CLICK MANAGEMENT ===
-const onClickOutside = (event) => {
-  if (!isVisible.value ||
-    (dockContainer.value && dockContainer.value.contains(event.target)) ||
-    event.target.closest('.modal-overlay, .modal-container, .modal-content')) {
-    return;
-  }
-  hideDock();
-};
-
-const onDragZoneClick = () => {
-  if (!isDesktop() && !isDragging.value && !isVisible.value) {
-    showDock();
-  }
-};
-
-const onIndicatorClick = () => {
-  if (!isDragging.value && !isVisible.value) {
-    showDock();
-  }
-};
-
-// === ACTIONS ===
-const handleAppClick = (appId, index) => {
-  resetHideTimer();
-
-  // If it's an audio source, change the source
-  const isAudioSource = ALL_AUDIO_SOURCES.includes(appId);
-  if (isAudioSource) {
-    moveIndicatorTo(index);
-    unifiedStore.changeSource(appId);
-  } else {
-    // Otherwise, run the action handler
-    const action = ALL_ADDITIONAL_ACTIONS.value.find(a => a.id === appId);
-    if (action && action.handler) {
-      action.handler();
-    }
-  }
-};
-
-const handleAdditionalAppClick = (appId) => {
-  // Ignore click if a drag just occurred
-  if (additionalDragMoved) {
-    additionalDragMoved = false;
-    return;
-  }
-
-  resetHideTimer();
-
-  // If it's an audio source, change the source
-  const isAudioSource = ALL_AUDIO_SOURCES.includes(appId);
-  if (isAudioSource) {
-    unifiedStore.changeSource(appId);
-  } else {
-    // Otherwise, run the action handler
-    const action = ALL_ADDITIONAL_ACTIONS.value.find(a => a.id === appId);
-    if (action && action.handler) {
-      action.handler();
-    }
-  }
-
-  closeAdditionalApps();
-};
-
-const getAppTitle = (appId) => {
-  // Translations for audio sources
-  const audioSourceTitles = {
-    'spotify': t('audioSources.spotify'),
-    'bluetooth': t('audioSources.bluetooth'),
-    'mac': t('audioSources.macOS'),
-    'radio': t('audioSources.radio'),
-    'podcast': t('audioSources.podcasts'),
-    'airplay': t('audioSources.airplay')
-  };
-
-  // If it's an audio source, return the translation
-  if (ALL_AUDIO_SOURCES.includes(appId)) {
-    return audioSourceTitles[appId] || appId;
-  }
-
-  // Otherwise, look in actions
-  const action = ALL_ADDITIONAL_ACTIONS.value.find(a => a.id === appId);
-  return action?.title || appId;
-};
+const { onVolumeHoldStart, onVolumeHoldEnd } = volumeHold;
 
 // === ACTIVE INDICATOR ===
+const indicatorStyle = ref({
+  opacity: '0',
+  transform: 'translateX(0px)',
+});
+
+const activeSourceIndex = computed(() => {
+  if (isDesktop()) {
+    return enabledAudioPlugins.value.findIndex(app => app.id === unifiedStore.systemState.active_source);
+  } else {
+    const currentSource = unifiedStore.systemState.active_source;
+    if (!ALL_AUDIO_SOURCES.includes(currentSource)) return -1;
+    return dockApps.value.findIndex(app => app.id === currentSource);
+  }
+});
+
 const getDockItems = () => isDesktop() ? desktopDockItems.value : mobileDockItems.value;
 
 const updateActiveIndicator = () => {
@@ -562,6 +306,73 @@ const moveIndicatorTo = (index) => {
   });
 };
 
+// === CLICK HANDLERS ===
+const onDragZoneClick = () => {
+  if (!isDesktop() && !isDragging.value && !isVisible.value) {
+    showDock();
+  }
+};
+
+const onIndicatorClick = () => {
+  if (!isDragging.value && !isVisible.value) {
+    showDock();
+  }
+};
+
+const handleAppClick = (appId, index) => {
+  resetHideTimer();
+
+  const isAudioSource = ALL_AUDIO_SOURCES.includes(appId);
+  if (isAudioSource) {
+    moveIndicatorTo(index);
+    unifiedStore.changeSource(appId);
+  } else {
+    const action = ALL_ADDITIONAL_ACTIONS.value.find(a => a.id === appId);
+    if (action && action.handler) {
+      action.handler();
+    }
+  }
+};
+
+const handleAdditionalAppClick = (appId) => {
+  if (drag.additionalDragMoved) {
+    drag.resetAdditionalDragMoved();
+    return;
+  }
+
+  resetHideTimer();
+
+  const isAudioSource = ALL_AUDIO_SOURCES.includes(appId);
+  if (isAudioSource) {
+    unifiedStore.changeSource(appId);
+  } else {
+    const action = ALL_ADDITIONAL_ACTIONS.value.find(a => a.id === appId);
+    if (action && action.handler) {
+      action.handler();
+    }
+  }
+
+  closeAdditionalApps();
+};
+
+const getAppTitle = (appId) => {
+  const audioSourceTitles = {
+    'spotify': t('audioSources.spotify'),
+    'bluetooth': t('audioSources.bluetooth'),
+    'mac': t('audioSources.macOS'),
+    'radio': t('audioSources.radio'),
+    'podcast': t('audioSources.podcasts'),
+    'airplay': t('audioSources.airplay')
+  };
+
+  if (ALL_AUDIO_SOURCES.includes(appId)) {
+    return audioSourceTitles[appId] || appId;
+  }
+
+  const action = ALL_ADDITIONAL_ACTIONS.value.find(a => a.id === appId);
+  return action?.title || appId;
+};
+
 // === ADDITIONAL APPS MANAGEMENT ===
 const toggleAdditionalApps = () => {
   if (!showAdditionalApps.value) {
@@ -570,7 +381,7 @@ const toggleAdditionalApps = () => {
     nextTick(() => {
       requestAnimationFrame(() => {
         showAdditionalApps.value = true;
-        setupAdditionalDragEvents();
+        drag.setupAdditionalDragEvents();
       });
     });
   } else {
@@ -591,30 +402,6 @@ const handleToggleClick = (event) => {
   toggleAdditionalApps();
 };
 
-// === ADDITIONAL DRAG MANAGEMENT ===
-const onAdditionalDragStart = (e) => {
-  if (!showAdditionalApps.value) return;
-  isDraggingAdditional = true;
-  additionalDragMoved = false;
-  additionalDragStartY = getEventY(e);
-};
-
-const setupAdditionalDragEvents = () => {
-  const el = additionalAppsContainer.value;
-  if (el) {
-    el.addEventListener('mousedown', onAdditionalDragStart);
-    el.addEventListener('touchstart', onAdditionalDragStart, { passive: false });
-  }
-};
-
-const removeAdditionalDragEvents = () => {
-  const el = additionalAppsContainer.value;
-  if (el) {
-    el.removeEventListener('mousedown', onAdditionalDragStart);
-    el.removeEventListener('touchstart', onAdditionalDragStart);
-  }
-};
-
 // === LOAD CONFIG ===
 const loadDockConfig = async () => {
   try {
@@ -628,98 +415,38 @@ const loadDockConfig = async () => {
   }
 };
 
-// Note: Volume steps come from unifiedAudioStore.volumeState via WebSocket initial_state
-
-// === GLOBAL EVENTS ===
-const setupDragEvents = () => {
-  const zone = dragZone.value;
-  const dockEl = dock.value;
-  if (!zone) return;
-
-  zone.addEventListener('mousedown', onDragStart);
-  zone.addEventListener('touchstart', onDragStart, { passive: false });
-  zone.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
-
-  if (dockEl) {
-    dockEl.addEventListener('mousedown', onDragStart);
-    dockEl.addEventListener('touchstart', onDragStart, { passive: false });
-  }
-
-  document.addEventListener('mousemove', onDragMove);
-  document.addEventListener('mouseup', onDragEnd);
-  document.addEventListener('touchmove', onDragMove, { passive: false });
-  document.addEventListener('touchend', onDragEnd);
-  document.addEventListener('click', onClickOutside);
-  document.addEventListener('pointerup', onVolumeHoldEnd);
-  document.addEventListener('pointercancel', onVolumeHoldEnd);
-};
-
-const removeDragEvents = () => {
-  const zone = dragZone.value;
-  const dockEl = dock.value;
-
-  if (zone) {
-    zone.removeEventListener('mousedown', onDragStart);
-    zone.removeEventListener('touchstart', onDragStart);
-  }
-  if (dockEl) {
-    dockEl.removeEventListener('mousedown', onDragStart);
-    dockEl.removeEventListener('touchstart', onDragStart);
-  }
-
-  removeAdditionalDragEvents();
-
-  ['mousemove', 'mouseup', 'touchmove', 'touchend', 'click'].forEach(event => {
-    document.removeEventListener(event, event === 'mousemove' ? onDragMove :
-      event === 'mouseup' ? onDragEnd :
-        event === 'touchmove' ? onDragMove :
-          event === 'touchend' ? onDragEnd : onClickOutside);
-  });
-
-  document.removeEventListener('pointerup', onVolumeHoldEnd);
-  document.removeEventListener('pointercancel', onVolumeHoldEnd);
-};
-
 // === LIFECYCLE ===
 watch(() => unifiedStore.systemState.active_source, (newSource) => {
   updateActiveIndicator();
   if (newSource === 'none') {
-    // Keep dock visible when no source is active
     clearTimeout(hideTimeout);
   } else if (isVisible.value) {
-    // Start auto-hide when a source becomes active
     startHideTimer();
   }
 });
 
 onMounted(async () => {
-  setupDragEvents();
+  drag.setupDragEvents();
 
   await loadDockConfig();
 
-  // Register showDock for parent control (auto-show on boot)
   if (registerDockControl) {
     registerDockControl(showDock);
   }
 
-  // WebSocket listeners
   on('settings', 'dock_apps_changed', (message) => {
     if (message.data?.config?.enabled_apps) {
       enabledApps.value = message.data.config.enabled_apps;
     }
   });
 
-  // Note: step_mobile_db is handled by unifiedAudioStore.handleVolumeEvent()
-  // No need to listen here - we read directly from unifiedStore.volumeState.step_mobile_db
-
   setTimeout(() => showDragIndicator.value = true, 800);
 });
 
 onUnmounted(() => {
-  removeDragEvents();
-  clearAllTimers();
-  onVolumeHoldEnd();
-  resetGestureState();
+  // drag and volumeHold register their own onUnmounted hooks internally
+  clearTimeout(hideTimeout);
+  clearTimeout(additionalHideTimeout);
 });
 </script>
 
