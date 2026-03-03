@@ -154,6 +154,7 @@ def _create_service(name: str) -> Any:
                 "audio_output": _const("MAC_AUDIO_OUTPUT"),
             },
             state_machine=get_service("audio_state_machine"),
+            settings_service=get_service("settings_service"),
             systemd_manager=get_service("systemd_manager")
         ),
         "bluetooth_source": lambda: _import("backend.features.bluetooth", "BluetoothSource")(
@@ -164,6 +165,7 @@ def _create_service(name: str) -> Any:
                 "auto_agent": True
             },
             state_machine=get_service("audio_state_machine"),
+            settings_service=get_service("settings_service"),
             systemd_manager=get_service("systemd_manager")
         ),
         "radio_source": lambda: _import("backend.features.radio", "RadioSource")(

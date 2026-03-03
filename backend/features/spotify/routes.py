@@ -15,6 +15,8 @@ Usage:
     setup_spotify_routes(lambda: source)
     app.include_router(router, prefix="/api")
 """
+import logging
+
 import aiohttp
 from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import Dict, Any
@@ -22,6 +24,8 @@ from typing import Dict, Any
 from backend.api.route_helpers import run_source_command
 from backend.api.source_dependency import make_source_dependency
 from backend.features.spotify.source import SpotifySource
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/spotify",
@@ -49,6 +53,7 @@ async def get_status(source: SpotifySource = Depends(get_source)) -> Dict[str, A
         return {"status": "ok", **status}
 
     except Exception as e:
+        logger.error("Failed to get Spotify status: %s", e)
         return {
             "status": "error",
             "message": str(e),
@@ -113,16 +118,19 @@ async def get_fresh_status(source: SpotifySource = Depends(get_source)) -> Dict[
     except HTTPException:
         raise
     except aiohttp.ClientConnectorError:
+        logger.error("Cannot connect to go-librespot API")
         raise HTTPException(
             status_code=502,
             detail="Cannot connect to go-librespot API - server may not be running"
         )
     except TimeoutError:
+        logger.error("Timeout connecting to go-librespot API")
         raise HTTPException(
             status_code=504,
             detail="Timeout connecting to go-librespot API"
         )
     except Exception as e:
+        logger.error("Unexpected error fetching fresh status: %s", e)
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 
@@ -172,4 +180,5 @@ async def get_info(source: SpotifySource = Depends(get_source)) -> Dict[str, Any
         }
 
     except Exception as e:
+        logger.error("Failed to get Spotify info: %s", e)
         raise HTTPException(status_code=500, detail=f"Info error: {str(e)}")

@@ -14,12 +14,16 @@ Usage:
     setup_mac_routes(lambda: source)
     app.include_router(router, prefix="/api")
 """
+import logging
+
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Dict, Any
 
 from backend.api.route_helpers import run_source_command
 from backend.api.source_dependency import make_source_dependency
 from backend.features.mac.source import MacSource
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/mac",
@@ -43,6 +47,7 @@ async def get_status(source: MacSource = Depends(get_source)) -> Dict[str, Any]:
         status = await source.status()
         return {"status": "ok", **status}
     except Exception as e:
+        logger.error("Failed to get Mac status: %s", e)
         return {
             "status": "error",
             "message": str(e),
@@ -53,7 +58,7 @@ async def get_status(source: MacSource = Depends(get_source)) -> Dict[str, Any]:
 @router.post("/restart")
 async def restart_service(source: MacSource = Depends(get_source)) -> Dict[str, Any]:
     """Restart the Mac audio service."""
-    return await run_source_command(source, "restart", {}, "Restart")
+    return await run_source_command(source, "restart_service", {}, "Restart")
 
 
 @router.get("/connections")
@@ -83,4 +88,5 @@ async def get_info(source: MacSource = Depends(get_source)) -> Dict[str, Any]:
         }
 
     except Exception as e:
+        logger.error("Failed to get Mac info: %s", e)
         raise HTTPException(status_code=500, detail=f"Info error: {str(e)}")

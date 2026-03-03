@@ -13,12 +13,16 @@ Usage:
     setup_bluetooth_routes(lambda: source)
     app.include_router(router, prefix="/api")
 """
+import logging
+
 from fastapi import APIRouter, Depends
 from typing import Dict, Any
 
 from backend.api.route_helpers import run_source_command
 from backend.api.source_dependency import make_source_dependency
 from backend.features.bluetooth.source import BluetoothSource
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/bluetooth",
@@ -42,6 +46,7 @@ async def get_status(source: BluetoothSource = Depends(get_source)) -> Dict[str,
         status = await source.status()
         return {"status": "ok", **status}
     except Exception as e:
+        logger.error("Failed to get Bluetooth status: %s", e)
         return {
             "status": "error",
             "message": str(e),

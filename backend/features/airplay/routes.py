@@ -6,12 +6,16 @@ Provides REST API endpoints for:
 - Status: Get current AirPlay source status with metadata
 - Restart: Restart shairport-sync service
 """
+import logging
+
 from fastapi import APIRouter, Depends
 from typing import Dict, Any
 
 from backend.api.route_helpers import run_source_command
 from backend.api.source_dependency import make_source_dependency
 from backend.features.airplay.source import AirPlaySource
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/airplay",
@@ -35,6 +39,7 @@ async def get_status(source: AirPlaySource = Depends(get_source)) -> Dict[str, A
         status = await source.status()
         return {"status": "ok", **status}
     except Exception as e:
+        logger.error("Failed to get AirPlay status: %s", e)
         return {
             "status": "error",
             "message": str(e),
