@@ -15,7 +15,7 @@ Features:
 import asyncio
 from typing import Dict, Any, Optional
 
-from backend.core.audio_source import SourceState
+from backend.core.models.audio_state import PluginState
 from backend.features.podcast.data import PodcastDataService
 from backend.shared.decorators import handle_errors
 from backend.shared.mpv import MpvController
@@ -51,18 +51,17 @@ class PodcastSource(MpvAudioSource):
             config=config
         )
 
-        self._taddy_user_id = self._config.get("taddy_user_id", "")
-        self._taddy_api_key = self._config.get("taddy_api_key", "")
-
         # Podcast data service - initialized immediately for routes access
         self._podcast_data = PodcastDataService(
             state_machine=state_machine
         )
 
-        # Taddy API - initialized immediately for routes access
+        # Taddy API - load credentials from settings, initialized immediately for routes access
+        taddy_user_id = (settings_service.get_setting_sync("podcast.taddy_user_id") or "") if settings_service else ""
+        taddy_api_key = (settings_service.get_setting_sync("podcast.taddy_api_key") or "") if settings_service else ""
         self._taddy_api = TaddyAPI(
-            user_id=self._taddy_user_id,
-            api_key=self._taddy_api_key,
+            user_id=taddy_user_id,
+            api_key=taddy_api_key,
             cache_duration_minutes=60
         )
 
@@ -368,7 +367,7 @@ class PodcastSource(MpvAudioSource):
                 "ready": True
             }
 
-            self.set_state(SourceState.READY, self._metadata)
+            self.set_state(PluginState.READY, self._metadata)
 
             return self.success_response("Playback stopped")
 
@@ -539,7 +538,7 @@ class PodcastSource(MpvAudioSource):
             self._duration = 0
 
             self.set_state(
-                SourceState.READY,
+                PluginState.READY,
                 {"episode_ended": True}
             )
 

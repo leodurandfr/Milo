@@ -5,8 +5,6 @@ Service Registry for Milo - Feature-based architecture.
 Replaces dependency-injector with a simple dict-based registry.
 Supports lazy singleton creation, circular dependency resolution, and test reset.
 """
-import json
-import os
 import asyncio
 import logging
 from typing import Any, Dict, Optional
@@ -47,21 +45,16 @@ def get_init_task() -> Optional[asyncio.Task]:
 # Service Factory
 # =============================================================================
 
-def _load_taddy_credentials() -> Dict[str, str]:
-    """Load Taddy API credentials from settings.json."""
-    settings_file = '/var/lib/milo/settings.json'
-    try:
-        if os.path.exists(settings_file):
-            with open(settings_file, 'r') as f:
-                settings = json.load(f)
-                podcast_settings = settings.get('podcast', {})
-                return {
-                    "taddy_user_id": podcast_settings.get('taddy_user_id', ''),
-                    "taddy_api_key": podcast_settings.get('taddy_api_key', '')
-                }
-    except Exception:
-        pass
-    return {"taddy_user_id": "", "taddy_api_key": ""}
+def _import(module: str, attr: str):
+    """Import a single attribute from a module (lazy per-service import)."""
+    from importlib import import_module
+    return getattr(import_module(module), attr)
+
+
+def _const(name: str):
+    """Import a constant from backend.config.constants."""
+    from backend.config import constants
+    return getattr(constants, name)
 
 
 def _create_service(name: str) -> Any:
@@ -70,63 +63,41 @@ def _create_service(name: str) -> Any:
 
     Services are created with their direct dependencies only.
     Circular dependencies are resolved in initialize_services().
-    """
-    # Import here to avoid circular imports at module load
-    from backend.config.constants import (
-        ROTARY_CLK_PIN, ROTARY_DT_PIN, ROTARY_SW_PIN,
-        MAC_RTP_PORT, MAC_RS8M_PORT, MAC_RTCP_PORT, MAC_AUDIO_OUTPUT,
-    )
-    from backend.core.state import AudioStateMachine
-    from backend.core.settings import SettingsService
-    from backend.core.systemd import SystemdServiceManager
-    from backend.core.multiroom import AudioRoutingService
-    from backend.core.multiroom.snapcast import SnapcastService
-    from backend.core.multiroom.websocket import SnapcastWebSocketService
-    from backend.core.multiroom.client_registry import ClientRegistryService
-    from backend.core.multiroom.crossover import CrossoverService
-    from backend.core.equalizer import CamillaDSPService, EqualizerClientProxyService, EqualizerSettingsSyncService, MultiroomEqualizerService
-    from backend.core.volume import VolumeService
-    from backend.core.updates import VersionService, UpdateService, SatelliteUpdateService
-    from backend.hardware import HardwareService, RotaryVolumeController, ScreenController
-    from backend.ws import WebSocketManager
-    from backend.features.spotify import SpotifySource
-    from backend.features.mac import MacSource
-    from backend.features.bluetooth import BluetoothSource
-    from backend.features.radio import RadioSource
-    from backend.features.podcast import PodcastSource
-    from backend.features.airplay import AirPlaySource
 
+    Each creator imports only the modules it needs to avoid loading
+    all 20+ modules on every lazy service creation call.
+    """
     creators = {
         # Core services (no dependencies or simple deps)
-        "systemd_manager": lambda: SystemdServiceManager(),
-        "settings_service": lambda: SettingsService(),
-        "hardware_service": lambda: HardwareService(),
-        "snapcast_service": lambda: SnapcastService(host="127.0.0.1"),
-        "websocket_manager": lambda: WebSocketManager(),
+        "systemd_manager": lambda: _import("backend.core.systemd", "SystemdServiceManager")(),
+        "settings_service": lambda: _import("backend.core.settings", "SettingsService")(),
+        "hardware_service": lambda: _import("backend.hardware", "HardwareService")(),
+        "snapcast_service": lambda: _import("backend.core.multiroom.snapcast", "SnapcastService")(host="127.0.0.1"),
+        "websocket_manager": lambda: _import("backend.ws", "WebSocketManager")(),
 
         # Services with dependencies
-        "audio_state_machine": lambda: AudioStateMachine(),
-        "client_registry_service": lambda: ClientRegistryService(
+        "audio_state_machine": lambda: _import("backend.core.state", "AudioStateMachine")(),
+        "client_registry_service": lambda: _import("backend.core.multiroom.client_registry", "ClientRegistryService")(
             settings_service=get_service("settings_service")
         ),
-        "camilladsp_service": lambda: CamillaDSPService(
+        "camilladsp_service": lambda: _import("backend.core.equalizer", "CamillaDSPService")(
             settings_service=get_service("settings_service")
         ),
-        "audio_routing_service": lambda: AudioRoutingService(
+        "audio_routing_service": lambda: _import("backend.core.multiroom", "AudioRoutingService")(
             settings_service=get_service("settings_service"),
             systemd_manager=get_service("systemd_manager")
         ),
-        "snapcast_websocket_service": lambda: SnapcastWebSocketService(
+        "snapcast_websocket_service": lambda: _import("backend.core.multiroom.websocket", "SnapcastWebSocketService")(
             state_machine=get_service("audio_state_machine"),
             routing_service=get_service("audio_routing_service"),
             settings_service=get_service("settings_service"),
             host="127.0.0.1",
             port=1780
         ),
-        "equalizer_client_proxy_service": lambda: EqualizerClientProxyService(
+        "equalizer_client_proxy_service": lambda: _import("backend.core.equalizer", "EqualizerClientProxyService")(
             routing_service=get_service("audio_routing_service")
         ),
-        "volume_service": lambda: VolumeService(
+        "volume_service": lambda: _import("backend.core.volume", "VolumeService")(
             state_machine=get_service("audio_state_machine"),
             snapcast_service=get_service("snapcast_service"),
             settings_service=get_service("settings_service"),
@@ -134,58 +105,57 @@ def _create_service(name: str) -> Any:
             equalizer_client_proxy_service=get_service("equalizer_client_proxy_service"),
             hardware_service=get_service("hardware_service")
         ),
-        "rotary_controller": lambda: RotaryVolumeController(
+        "rotary_controller": lambda: _import("backend.hardware", "RotaryVolumeController")(
             volume_service=get_service("volume_service"),
-            clk_pin=ROTARY_CLK_PIN,
-            dt_pin=ROTARY_DT_PIN,
-            sw_pin=ROTARY_SW_PIN
+            clk_pin=_const("ROTARY_CLK_PIN"),
+            dt_pin=_const("ROTARY_DT_PIN"),
+            sw_pin=_const("ROTARY_SW_PIN")
         ),
-        "screen_controller": lambda: ScreenController(
+        "screen_controller": lambda: _import("backend.hardware", "ScreenController")(
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service"),
             hardware_service=get_service("hardware_service")
         ),
-        "crossover_service": lambda: CrossoverService(
+        "crossover_service": lambda: _import("backend.core.multiroom.crossover", "CrossoverService")(
             settings_service=get_service("settings_service"),
             camilladsp_service=get_service("camilladsp_service")
         ),
-        "equalizer_settings_sync_service": lambda: EqualizerSettingsSyncService(
+        "equalizer_settings_sync_service": lambda: _import("backend.core.equalizer", "EqualizerSettingsSyncService")(
             proxy_service=get_service("equalizer_client_proxy_service"),
             camilladsp_service=get_service("camilladsp_service"),
             client_registry=get_service("client_registry_service")
         ),
-        "multiroom_equalizer_service": lambda: MultiroomEqualizerService(
+        "multiroom_equalizer_service": lambda: _import("backend.core.equalizer", "MultiroomEqualizerService")(
             client_registry_service=get_service("client_registry_service"),
             camilladsp_service=get_service("camilladsp_service")
         ),
         "equalizer_router": lambda: _create_equalizer_router(),
 
         # Update services
-        "version_service": lambda: VersionService(),
-        "update_service": lambda: UpdateService(),
-        "satellite_update_service": lambda: SatelliteUpdateService(
+        "update_service": lambda: _import("backend.core.updates", "UpdateService")(),
+        "satellite_update_service": lambda: _import("backend.core.updates", "SatelliteUpdateService")(
             snapcast_service=get_service("snapcast_service"),
             client_registry_service=get_service("client_registry_service")
         ),
 
         # Audio sources
-        "spotify_source": lambda: SpotifySource(
+        "spotify_source": lambda: _import("backend.features.spotify", "SpotifySource")(
             config={"config_path": "/var/lib/milo/go-librespot/config.yml"},
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service"),
             systemd_manager=get_service("systemd_manager")
         ),
-        "mac_source": lambda: MacSource(
+        "mac_source": lambda: _import("backend.features.mac", "MacSource")(
             config={
-                "rtp_port": MAC_RTP_PORT,
-                "rs8m_port": MAC_RS8M_PORT,
-                "rtcp_port": MAC_RTCP_PORT,
-                "audio_output": MAC_AUDIO_OUTPUT
+                "rtp_port": _const("MAC_RTP_PORT"),
+                "rs8m_port": _const("MAC_RS8M_PORT"),
+                "rtcp_port": _const("MAC_RTCP_PORT"),
+                "audio_output": _const("MAC_AUDIO_OUTPUT"),
             },
             state_machine=get_service("audio_state_machine"),
             systemd_manager=get_service("systemd_manager")
         ),
-        "bluetooth_source": lambda: BluetoothSource(
+        "bluetooth_source": lambda: _import("backend.features.bluetooth", "BluetoothSource")(
             config={
                 "daemon_options": "--keep-alive=5",
                 "bluetooth_service": "bluetooth.service",
@@ -195,14 +165,19 @@ def _create_service(name: str) -> Any:
             state_machine=get_service("audio_state_machine"),
             systemd_manager=get_service("systemd_manager")
         ),
-        "radio_source": lambda: RadioSource(
+        "radio_source": lambda: _import("backend.features.radio", "RadioSource")(
             config={"mpv_socket": "/run/milo/radio-ipc.sock"},
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service"),
             systemd_manager=get_service("systemd_manager")
         ),
-        "podcast_source": lambda: _create_podcast_source(),
-        "airplay_source": lambda: AirPlaySource(
+        "podcast_source": lambda: _import("backend.features.podcast", "PodcastSource")(
+            config={"mpv_socket": "/run/milo/podcast-ipc.sock"},
+            state_machine=get_service("audio_state_machine"),
+            settings_service=get_service("settings_service"),
+            systemd_manager=get_service("systemd_manager")
+        ),
+        "airplay_source": lambda: _import("backend.features.airplay", "AirPlaySource")(
             config={"metadata_pipe": "/tmp/shairport-sync-metadata"},
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service"),
@@ -214,23 +189,6 @@ def _create_service(name: str) -> Any:
         raise ValueError(f"Unknown service: {name}")
 
     return creators[name]()
-
-
-def _create_podcast_source():
-    """Create podcast source with Taddy credentials."""
-    from backend.features.podcast import PodcastSource
-
-    creds = _load_taddy_credentials()
-    return PodcastSource(
-        config={
-            "mpv_socket": "/run/milo/podcast-ipc.sock",
-            "taddy_user_id": creds["taddy_user_id"],
-            "taddy_api_key": creds["taddy_api_key"]
-        },
-        state_machine=get_service("audio_state_machine"),
-        settings_service=get_service("settings_service"),
-        systemd_manager=get_service("systemd_manager")
-    )
 
 
 def _create_equalizer_router():

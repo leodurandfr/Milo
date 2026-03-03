@@ -35,9 +35,10 @@ def mock_plugin():
 class TestAudioStateMachineBasics:
     """Test basic state machine operations."""
 
-    def test_initial_state(self, state_machine):
+    @pytest.mark.asyncio
+    async def test_initial_state(self, state_machine):
         """Test initial state is NONE with READY."""
-        state = state_machine.get_state()
+        state = await state_machine.get_current_state()
         assert state["active_source"] == "none"
         assert state["plugin_state"] == "ready"
         assert state["transitioning"] is False
@@ -70,11 +71,11 @@ class TestSourceActivation:
     """Test source activation and deactivation."""
 
     @pytest.mark.asyncio
-    async def test_activate_source(self, state_machine, mock_plugin):
-        """Test activating a source."""
+    async def test_transition_to_source(self, state_machine, mock_plugin):
+        """Test transitioning to a source."""
         state_machine.register_plugin(AudioSource.RADIO, mock_plugin)
 
-        result = await state_machine.activate_source(AudioSource.RADIO)
+        result = await state_machine.transition_to_source(AudioSource.RADIO)
 
         assert result is True
         assert state_machine.system_state.active_source == AudioSource.RADIO
@@ -82,20 +83,20 @@ class TestSourceActivation:
         mock_plugin.start.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_activate_unregistered_source(self, state_machine):
-        """Test activating an unregistered source fails."""
-        result = await state_machine.activate_source(AudioSource.RADIO)
+    async def test_transition_to_unregistered_source(self, state_machine):
+        """Test transitioning to an unregistered source fails."""
+        result = await state_machine.transition_to_source(AudioSource.RADIO)
 
         assert result is False
         assert state_machine.system_state.active_source == AudioSource.NONE
 
     @pytest.mark.asyncio
-    async def test_deactivate_source(self, state_machine, mock_plugin):
-        """Test deactivating a source."""
+    async def test_transition_to_none(self, state_machine, mock_plugin):
+        """Test transitioning to NONE stops the active source."""
         state_machine.register_plugin(AudioSource.RADIO, mock_plugin)
-        await state_machine.activate_source(AudioSource.RADIO)
+        await state_machine.transition_to_source(AudioSource.RADIO)
 
-        result = await state_machine.deactivate_source()
+        result = await state_machine.transition_to_source(AudioSource.NONE)
 
         assert result is True
         assert state_machine.system_state.active_source == AudioSource.NONE
@@ -105,10 +106,10 @@ class TestSourceActivation:
     async def test_already_active_source(self, state_machine, mock_plugin):
         """Test activating already active source returns True."""
         state_machine.register_plugin(AudioSource.RADIO, mock_plugin)
-        await state_machine.activate_source(AudioSource.RADIO)
+        await state_machine.transition_to_source(AudioSource.RADIO)
         mock_plugin.reset_mock()
 
-        result = await state_machine.activate_source(AudioSource.RADIO)
+        result = await state_machine.transition_to_source(AudioSource.RADIO)
 
         assert result is True
         # Should not call start again
@@ -137,11 +138,11 @@ class TestDirectTransition:
         state_machine.register_plugin(AudioSource.SPOTIFY, mock_spotify)
 
         # Start with radio
-        await state_machine.activate_source(AudioSource.RADIO)
+        await state_machine.transition_to_source(AudioSource.RADIO)
         assert state_machine.system_state.active_source == AudioSource.RADIO
 
         # Switch to spotify
-        await state_machine.activate_source(AudioSource.SPOTIFY)
+        await state_machine.transition_to_source(AudioSource.SPOTIFY)
 
         assert state_machine.system_state.active_source == AudioSource.SPOTIFY
         mock_radio.stop.assert_called()
@@ -155,7 +156,7 @@ class TestPluginStateUpdate:
     async def test_update_plugin_state(self, state_machine, mock_plugin):
         """Test updating plugin state."""
         state_machine.register_plugin(AudioSource.RADIO, mock_plugin)
-        await state_machine.activate_source(AudioSource.RADIO)
+        await state_machine.transition_to_source(AudioSource.RADIO)
 
         await state_machine.update_plugin_state(
             AudioSource.RADIO,
@@ -170,7 +171,7 @@ class TestPluginStateUpdate:
     async def test_update_plugin_state_inactive_source(self, state_machine, mock_plugin):
         """Test updating inactive source state is ignored."""
         state_machine.register_plugin(AudioSource.RADIO, mock_plugin)
-        await state_machine.activate_source(AudioSource.RADIO)
+        await state_machine.transition_to_source(AudioSource.RADIO)
 
         # Try to update spotify while radio is active
         await state_machine.update_plugin_state(
@@ -186,7 +187,7 @@ class TestPluginStateUpdate:
     async def test_update_plugin_state_error(self, state_machine, mock_plugin):
         """Test updating plugin state to ERROR."""
         state_machine.register_plugin(AudioSource.RADIO, mock_plugin)
-        await state_machine.activate_source(AudioSource.RADIO)
+        await state_machine.transition_to_source(AudioSource.RADIO)
 
         await state_machine.update_plugin_state(
             AudioSource.RADIO,
@@ -272,7 +273,7 @@ class TestWebSocketBroadcasting:
         state_machine.ws_manager = mock_manager
         state_machine.register_plugin(AudioSource.RADIO, mock_plugin)
 
-        await state_machine.activate_source(AudioSource.RADIO)
+        await state_machine.transition_to_source(AudioSource.RADIO)
 
         # Should have called broadcast_dict for transition_start and transition_complete
         assert mock_manager.broadcast_dict.call_count >= 2
@@ -298,7 +299,7 @@ class TestTransitionTimeout:
         state_machine.register_plugin(AudioSource.RADIO, slow_plugin)
         state_machine.TRANSITION_TIMEOUT = 0.1  # Very short timeout for test
 
-        result = await state_machine.activate_source(AudioSource.RADIO)
+        result = await state_machine.transition_to_source(AudioSource.RADIO)
 
         assert result is False
 
@@ -317,7 +318,7 @@ class TestEmergencyStop:
 
         state_machine.register_plugin(AudioSource.RADIO, failing_plugin)
 
-        result = await state_machine.activate_source(AudioSource.RADIO)
+        result = await state_machine.transition_to_source(AudioSource.RADIO)
 
         assert result is False
         # Emergency stop should have been called

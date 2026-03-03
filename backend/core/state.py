@@ -11,7 +11,7 @@ Usage:
     state_machine = AudioStateMachine()
 
     # Activate a source
-    await state_machine.activate_source(AudioSource.RADIO)
+    await state_machine.transition_to_source(AudioSource.RADIO)
 """
 import asyncio
 import time
@@ -20,7 +20,7 @@ from time import monotonic
 from typing import Dict, Any, Optional
 
 from backend.core.models.audio_state import AudioSource, PluginState, SystemAudioState
-from backend.core.audio_source import AudioSource as AudioSourceProtocol
+from backend.core.audio_source import BaseAudioSource
 from backend.shared.decorators import handle_errors
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ class AudioStateMachine:
 
     def __init__(self):
         self.system_state = SystemAudioState()
-        self.plugins: Dict[AudioSource, Optional[AudioSourceProtocol]] = {
+        self.plugins: Dict[AudioSource, Optional[BaseAudioSource]] = {
             source: None for source in AudioSource
             if source != AudioSource.NONE
         }
@@ -57,13 +57,13 @@ class AudioStateMachine:
         self.ws_manager = None
         self.routing_service = None
 
-    def register_plugin(self, source: AudioSource, plugin: AudioSourceProtocol) -> None:
+    def register_plugin(self, source: AudioSource, plugin: BaseAudioSource) -> None:
         """Register a plugin for a specific source."""
         if source in self.plugins:
             self.plugins[source] = plugin
             logger.info(f"Plugin registered for source: {source.value}")
 
-    def get_plugin(self, source: AudioSource) -> Optional[AudioSourceProtocol]:
+    def get_plugin(self, source: AudioSource) -> Optional[BaseAudioSource]:
         """Get plugin for a specific source."""
         return self.plugins.get(source)
 
@@ -79,21 +79,9 @@ class AudioStateMachine:
             return self.system_state.plugin_state
         return PluginState.READY
 
-    def get_state(self) -> Dict[str, Any]:
+    async def get_current_state(self) -> Dict[str, Any]:
         """Return current system state as dict."""
         return self.system_state.to_dict()
-
-    async def get_current_state(self) -> Dict[str, Any]:
-        """Return current system state (async for compatibility)."""
-        return self.system_state.to_dict()
-
-    async def activate_source(self, source: AudioSource) -> bool:
-        """Activate a source, stopping any currently active source."""
-        return await self.transition_to_source(source)
-
-    async def deactivate_source(self) -> bool:
-        """Deactivate the current source."""
-        return await self.transition_to_source(AudioSource.NONE)
 
     async def transition_to_source(self, target_source: AudioSource) -> bool:
         """Perform transition to new source with timeout."""
@@ -354,7 +342,7 @@ class AudioStateMachine:
                         source.value,
                         elapsed
                     )
-                    await self.deactivate_source()
+                    await self.transition_to_source(AudioSource.NONE)
 
         except asyncio.CancelledError:
             pass

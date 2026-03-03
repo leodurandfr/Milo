@@ -1,4 +1,4 @@
-# backend/presentation/api/routes/programs.py
+# backend/api/programs.py
 """
 API routes for program management — Full version with satellites
 """
@@ -12,20 +12,17 @@ PROGRAM_TO_AUDIO_SOURCE = {
     'shairport-sync': AudioSource.AIRPLAY,
 }
 
-def create_programs_router(ws_manager, version_service, update_service, satellite_update_service, state_machine):
+def create_programs_router(ws_manager, update_service, satellite_update_service, state_machine):
     """Router for local and satellite programs
 
     Args:
         ws_manager: WebSocket manager for broadcasting updates
-        version_service: Singleton service for version checks
-        update_service: Singleton service for updates
+        update_service: Singleton service for version checks and updates
         satellite_update_service: Singleton service for satellite updates
         state_machine: AudioStateMachine for deactivating active sources before update
     """
     router = APIRouter(prefix="/api/programs", tags=["programs"])
 
-    # Use injected services (Singletons from container)
-    program_service = version_service
     satellite_service = satellite_update_service
 
     # Store to track ongoing updates
@@ -109,7 +106,7 @@ def create_programs_router(ws_manager, version_service, update_service, satellit
     async def get_all_programs():
         """Retrieve the status of all local programs (installed + GitHub)"""
         try:
-            results = await program_service.get_all_program_status()
+            results = await update_service.get_all_program_status()
             return {
                 "status": "success",
                 "programs": results,
@@ -127,7 +124,7 @@ def create_programs_router(ws_manager, version_service, update_service, satellit
     async def get_program_list():
         """Retrieve the list of configured programs"""
         try:
-            programs = program_service.get_program_list()
+            programs = update_service.get_program_list()
             return {
                 "status": "success",
                 "programs": programs
@@ -271,7 +268,7 @@ def create_programs_router(ws_manager, version_service, update_service, satellit
     async def get_program_details(program_key: str):
         """Retrieve the details of a specific program"""
         try:
-            result = await program_service._get_program_full_status(program_key)
+            result = await update_service._get_program_full_status(program_key)
             return {
                 "status": "success",
                 "program": result
@@ -287,7 +284,7 @@ def create_programs_router(ws_manager, version_service, update_service, satellit
     async def get_program_installed_version(program_key: str):
         """Retrieve only the installed version of a program"""
         try:
-            result = await program_service.get_installed_version(program_key)
+            result = await update_service.get_installed_version(program_key)
             return {
                 "status": "success",
                 "installed": result
@@ -303,7 +300,7 @@ def create_programs_router(ws_manager, version_service, update_service, satellit
     async def get_program_latest_version(program_key: str):
         """Retrieve only the latest version from GitHub"""
         try:
-            result = await program_service.get_latest_github_version(program_key)
+            result = await update_service.get_latest_github_version(program_key)
             return {
                 "status": "success",
                 "latest": result
@@ -352,7 +349,7 @@ def create_programs_router(ws_manager, version_service, update_service, satellit
             audio_source = PROGRAM_TO_AUDIO_SOURCE.get(program_key)
             if audio_source and state_machine.system_state.active_source == audio_source:
                 await progress_callback("updates.progress.stoppingActiveSource", 2)
-                await state_machine.deactivate_source()
+                await state_machine.transition_to_source(AudioSource.NONE)
 
         do_update = _create_background_update(
             update_key=program_key,
