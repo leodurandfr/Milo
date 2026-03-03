@@ -15,7 +15,7 @@ Features:
 import asyncio
 from typing import Dict, Any, Optional
 
-from backend.core.audio_source import BaseAudioSource, SourceState
+from backend.core.audio_source import BaseAudioSource
 from backend.features.bluetooth.agent import BluetoothAgent
 from backend.features.bluetooth.monitor import BlueAlsaMonitor
 from backend.shared.decorators import handle_errors

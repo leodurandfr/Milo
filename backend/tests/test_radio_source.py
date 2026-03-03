@@ -15,7 +15,8 @@ from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
 from backend.features.radio.source import RadioSource
 from backend.features.radio.data import StationDataService, ImageManager
-from backend.core.audio_source import AudioSource, SourceState
+from backend.core.audio_source import BaseAudioSource
+from backend.core.models.audio_state import PluginState
 
 
 @pytest.fixture
@@ -46,7 +47,7 @@ class TestProtocolCompliance:
 
     def test_implements_protocol(self, radio_source):
         """Test RadioSource implements AudioSource protocol."""
-        assert isinstance(radio_source, AudioSource)
+        assert isinstance(radio_source, BaseAudioSource)
 
     def test_has_required_attributes(self, radio_source):
         """Test required attributes exist."""
@@ -340,7 +341,7 @@ class TestConnectionState:
         radio_source._current_station = None
         radio_source._update_connection_state()
 
-        assert radio_source.state == SourceState.READY
+        assert radio_source.state == PluginState.READY
 
     def test_update_state_with_station(self, radio_source):
         """Test state is CONNECTED with station."""
@@ -350,7 +351,7 @@ class TestConnectionState:
         radio_source._station_data.is_favorite = Mock(return_value=False)
         radio_source._update_connection_state()
 
-        assert radio_source.state == SourceState.CONNECTED
+        assert radio_source.state == PluginState.CONNECTED
 
 
 class TestPlaybackMetadata:

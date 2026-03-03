@@ -65,13 +65,13 @@ def create_mock_plugin(source: AudioSource, start_success: bool = True) -> Mock:
     plugin.start = AsyncMock(return_value=start_success)
     plugin.stop = AsyncMock(return_value=True)
     plugin.restart = AsyncMock(return_value=True)
-    plugin.get_status = AsyncMock(return_value={
+    plugin.status = AsyncMock(return_value={
         "state": "ready",
         "source_id": source.value,
         "service_running": True,
         "metadata": {}
     })
-    plugin.handle_command = AsyncMock(return_value={"success": True})
+    plugin.command = AsyncMock(return_value={"success": True})
 
     return plugin
 

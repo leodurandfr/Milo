@@ -1,26 +1,6 @@
 # backend/core/audio_source.py
 """
-AudioSource Protocol and BaseAudioSource implementation.
-
-This module defines the standard interface for audio sources using Python's
-Protocol for structural subtyping. This allows duck typing while providing
-type safety through static analysis.
-
-Usage:
-    # Using Protocol for type hints
-    def process_source(source: AudioSource) -> None:
-        await source.start()
-
-    # Implementing a source
-    class RadioSource(BaseAudioSource):
-        async def _do_start(self) -> bool:
-            # Start radio playback
-            return True
-
-Protocol vs ABC:
-    Protocol uses structural subtyping (duck typing). A class is considered
-    to implement the protocol if it has all required attributes and methods,
-    without explicit inheritance. This is more Pythonic and flexible.
+BaseAudioSource - base class for all audio source plugins.
 
 Standard Status Format:
     {
@@ -30,145 +10,17 @@ Standard Status Format:
         "error": None            # error message if state=error
     }
 """
-from typing import Protocol, Dict, Any, Optional, runtime_checkable
-from abc import abstractmethod
+from typing import Dict, Any, Optional
+from abc import ABC, abstractmethod
 import asyncio
 import logging
 
-from backend.core.systemd import SystemdServiceManager
-from backend.core.models.audio_state import PluginState
+from backend.core.models.audio_state import AudioSource, PluginState
 
 logger = logging.getLogger(__name__)
 
 
-# Standard state values
-class SourceState:
-    """Standard state values for audio sources."""
-    STARTING = "starting"
-    READY = "ready"
-    CONNECTED = "connected"
-    ERROR = "error"
-
-
-@runtime_checkable
-class AudioSource(Protocol):
-    """
-    Protocol defining the interface for audio sources.
-
-    All audio source implementations must provide these attributes and methods.
-    Uses structural subtyping - no explicit inheritance required.
-
-    Attributes:
-        source_id: Unique identifier for the source (e.g., "radio", "spotify")
-        service_name: Name of the systemd service (e.g., "milo-radio")
-
-    Methods:
-        start(): Start the audio source
-        stop(): Stop the audio source
-        restart(): Restart the audio source
-        status(): Get current status
-        command(cmd, data): Execute a source-specific command
-
-    Example:
-        class MySource:
-            source_id = "my_source"
-            service_name = "milo-my-source"
-
-            async def start(self) -> bool:
-                return True
-
-            async def stop(self) -> bool:
-                return True
-
-            async def restart(self) -> bool:
-                return True
-
-            async def status(self) -> Dict[str, Any]:
-                return {"state": "ready", "service_active": True}
-
-            async def command(self, cmd: str, data: Dict[str, Any]) -> Dict[str, Any]:
-                return {"success": True}
-
-        # MySource implements AudioSource protocol without inheritance
-        source: AudioSource = MySource()
-    """
-
-    source_id: str
-    service_name: str
-
-    async def start(self) -> bool:
-        """
-        Start the audio source.
-
-        Should:
-        - Start the systemd service if needed
-        - Establish connections (WebSocket, IPC, D-Bus, etc.)
-        - Begin monitoring tasks
-
-        Returns:
-            True if start successful, False otherwise
-        """
-        ...
-
-    async def stop(self) -> bool:
-        """
-        Stop the audio source.
-
-        Should:
-        - Stop any active playback
-        - Cancel monitoring tasks
-        - Close connections
-        - Optionally stop systemd service
-
-        Returns:
-            True if stop successful, False otherwise
-        """
-        ...
-
-    async def restart(self) -> bool:
-        """
-        Restart the audio source.
-
-        Used for recovery from errors or service refresh.
-        Should preserve user state where possible.
-
-        Returns:
-            True if restart successful, False otherwise
-        """
-        ...
-
-    async def status(self) -> Dict[str, Any]:
-        """
-        Get current status of the audio source.
-
-        Returns:
-            Dict containing at minimum:
-                - state: One of starting, ready, connected, error
-                - service_active: bool indicating systemd service status
-                - metadata: Dict with source-specific data
-                - error: Error message if state is error, else None
-        """
-        ...
-
-    async def command(self, cmd: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Execute a source-specific command.
-
-        Args:
-            cmd: Command name (e.g., "play", "pause", "seek")
-            data: Command parameters
-
-        Returns:
-            Dict containing:
-                - success: bool indicating if command succeeded
-                - message: Optional success message
-                - error: Error message if success=False
-                - Additional command-specific data
-        """
-        ...
-
-
-class BaseAudioSource:
+class BaseAudioSource(ABC):
     """
     Base implementation for audio sources.
 
@@ -231,7 +83,7 @@ class BaseAudioSource:
         self.service_name = service_name
         self.state_machine = state_machine
 
-        self._state = SourceState.READY
+        self._state = PluginState.READY
         self._metadata: Dict[str, Any] = {}
         self._is_playing = False
         self._error: Optional[str] = None
@@ -249,8 +101,8 @@ class BaseAudioSource:
         self._monitor_task: Optional[asyncio.Task] = None
 
     @property
-    def state(self) -> str:
-        """Current state of the source (string)."""
+    def state(self) -> PluginState:
+        """Current state of the source."""
         return self._state
 
     @property
@@ -264,21 +116,9 @@ class BaseAudioSource:
         return self._is_playing
 
     @property
-    def source(self):
-        """
-        Backward compatibility: return AudioSource enum.
-
-        Old code uses plugin.source (AudioSource enum).
-        New code uses plugin.source_id (string).
-
-        Returns:
-            AudioSource enum value
-        """
-        from backend.core.models.audio_state import AudioSource
-        try:
-            return AudioSource(self.source_id)
-        except ValueError:
-            return AudioSource.NONE
+    def source(self) -> AudioSource:
+        """AudioSource enum for this source."""
+        return AudioSource(self.source_id)
 
     async def start(self) -> bool:
         """
@@ -290,7 +130,7 @@ class BaseAudioSource:
             True if start successful
         """
         self._logger.info(f"Starting {self.source_id}")
-        self._state = SourceState.STARTING
+        self._state = PluginState.STARTING
         self._error = None
 
         try:
@@ -298,19 +138,19 @@ class BaseAudioSource:
 
             if success:
                 # State should be set by _do_start (READY or CONNECTED)
-                if self._state == SourceState.STARTING:
-                    self._state = SourceState.READY
+                if self._state == PluginState.STARTING:
+                    self._state = PluginState.READY
 
                 self._logger.info(f"{self.source_id} started successfully")
             else:
-                self._state = SourceState.ERROR
+                self._state = PluginState.ERROR
                 self._error = "Start failed"
 
             return success
 
         except Exception as e:
             self._logger.error(f"Error starting {self.source_id}: {e}")
-            self._state = SourceState.ERROR
+            self._state = PluginState.ERROR
             self._error = str(e)
             return False
 
@@ -330,7 +170,7 @@ class BaseAudioSource:
             success = await self._do_stop()
 
             if success:
-                self._state = SourceState.READY
+                self._state = PluginState.READY
                 self._metadata = {}
                 self._error = None
 
@@ -367,7 +207,7 @@ class BaseAudioSource:
 
         except Exception as e:
             self._logger.error(f"Error restarting {self.source_id}: {e}")
-            self._state = SourceState.ERROR
+            self._state = PluginState.ERROR
             self._error = str(e)
             return False
 
@@ -384,7 +224,7 @@ class BaseAudioSource:
         custom_status = await self._get_status()
 
         return {
-            "state": self._state,
+            "state": self._state.value,
             "service_active": service_active,
             "metadata": self._metadata,
             "error": self._error,
@@ -700,79 +540,36 @@ class BaseAudioSource:
         await asyncio.sleep(settle)
         return True
 
-    # === Public API methods ===
-    # These methods are called by API routes and the state machine
-
     async def initialize(self) -> bool:
         """
         Initialize the audio source.
 
-        Called during application startup by main.py for sources that need
+        Called during application startup for sources that need
         early initialization (e.g., loading station data for API access).
-
-        Returns:
-            True on success
         """
         self._initialized = True
         return True
 
-    async def get_status(self) -> Dict[str, Any]:
-        """
-        Get current status of the audio source.
-
-        Alias for status() - used by API routes throughout the application.
-
-        Returns:
-            Status dict from status()
-        """
-        return await self.status()
-
-    async def handle_command(self, command: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Handle a command for this audio source.
-
-        Used by API routes and routing service for playback control.
-
-        Args:
-            command: Command name
-            data: Command parameters
-
-        Returns:
-            Response dict from command()
-        """
-        return await self.command(command, data)
-
-    def set_state(self, state: str, metadata: Optional[Dict[str, Any]] = None) -> None:
+    def set_state(self, state: PluginState, metadata: Optional[Dict[str, Any]] = None) -> None:
         """
         Set state and optionally update metadata.
 
-        Use this in _do_start() to set CONNECTED state with metadata.
-        Also syncs with state_machine if available.
+        Syncs with state_machine if available (active sources only).
 
         Args:
-            state: New state (use SourceState constants)
+            state: New state (PluginState enum)
             metadata: Optional metadata to merge
         """
         self._state = state
         if metadata:
             self._metadata.update(metadata)
 
-        # Sync with state machine if available (active sources only)
-        if self.state_machine and hasattr(self, 'source'):
-            plugin_state_map = {
-                SourceState.STARTING: PluginState.STARTING,
-                SourceState.READY: PluginState.READY,
-                SourceState.CONNECTED: PluginState.CONNECTED,
-                SourceState.ERROR: PluginState.ERROR,
-            }
-            plugin_state = plugin_state_map.get(state, PluginState.READY)
-
-            import asyncio
+        if self.state_machine:
             try:
                 loop = asyncio.get_running_loop()
                 loop.create_task(
                     self.state_machine.update_plugin_state(
-                        self.source, plugin_state, metadata
+                        self.source, state, metadata
                     )
                 )
             except RuntimeError:
@@ -786,7 +583,7 @@ class BaseAudioSource:
     ) -> None:
         """Set state to CONNECTED or READY based on connection status."""
         self.set_state(
-            SourceState.CONNECTED if is_connected else SourceState.READY,
+            PluginState.CONNECTED if is_connected else PluginState.READY,
             connected_meta if is_connected else ready_meta
         )
 
@@ -794,16 +591,12 @@ class BaseAudioSource:
         """
         Broadcast an error to the UI notification banner.
 
-        This bypasses the active-source filter so errors are always shown
-        to the user regardless of which source is currently active.
-
-        Args:
-            error_message: Human-readable error message
+        Bypasses the active-source filter so errors are always shown
+        regardless of which source is currently active.
         """
-        if not self.state_machine or not hasattr(self, 'source'):
+        if not self.state_machine:
             return
 
-        import asyncio
         try:
             loop = asyncio.get_running_loop()
             loop.create_task(
@@ -824,14 +617,12 @@ class BaseAudioSource:
         """
         Clear any displayed error for this source.
 
-        Called when an error condition is resolved (e.g., connection restored,
-        stream loaded successfully). The UI will automatically dismiss the
-        notification banner.
+        Called when an error condition is resolved. The UI will
+        automatically dismiss the notification banner.
         """
-        if not self.state_machine or not hasattr(self, 'source'):
+        if not self.state_machine:
             return
 
-        import asyncio
         try:
             loop = asyncio.get_running_loop()
             loop.create_task(
@@ -841,7 +632,6 @@ class BaseAudioSource:
                     {"source": self.source.value}
                 )
             )
-            self._logger.debug(f"[{self.source_id}] Error cleared broadcast sent")
         except RuntimeError:
             pass
 
