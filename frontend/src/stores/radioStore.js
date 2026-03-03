@@ -319,7 +319,7 @@ export const useRadioStore = defineStore('radio', () => {
    */
   async function removeFavorite(stationId) {
     return apiCall('radio', 'Error removing favorite:', async () => {
-      const response = await axios.post('/api/radio/favorites/remove', { station_id: stationId });
+      const response = await axios.delete(`/api/radio/favorites/${stationId}`);
       return response.data.success;
     });
   }
@@ -374,7 +374,7 @@ export const useRadioStore = defineStore('radio', () => {
    */
   async function removeCustomStation(stationId) {
     return apiCall('radio', 'Error removing custom station:', async () => {
-      const response = await axios.post('/api/radio/custom/remove', { station_id: stationId });
+      const response = await axios.delete(`/api/radio/custom/${stationId}`);
       if (response.data.success) {
         logger.info('radio', `Custom station removed: ${stationId}`);
         searchResults.value = searchResults.value.filter(s => s.id !== stationId);
@@ -390,12 +390,7 @@ export const useRadioStore = defineStore('radio', () => {
    */
   async function removeStationImage(stationId) {
     try {
-      const formData = new FormData();
-      formData.append('station_id', stationId);
-
-      const response = await axios.post('/api/radio/custom/remove-image', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      const response = await axios.delete(`/api/radio/custom/${stationId}/image`);
 
       if (response.data.success) {
         logger.info('radio', `Station image removed: ${stationId}`);

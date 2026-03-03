@@ -25,7 +25,6 @@ from backend.features.radio.source import RadioSource
 from backend.features.radio.models import (
     PlayStationRequest,
     FavoriteRequest,
-    RemoveCustomStationRequest
 )
 
 # Transparent 1x1 PNG used as a fallback for favicons
@@ -277,22 +276,22 @@ async def add_favorite(
     return await run_source_command(source, "add_favorite", command_data, "Add favorite")
 
 
-@router.post("/favorites/remove")
+@router.delete("/favorites/{station_id}")
 async def remove_favorite(
-    request: FavoriteRequest,
+    station_id: str,
     source: RadioSource = Depends(get_source)
 ) -> Dict[str, Any]:
     """
     Remove station from favorites.
 
     Args:
-        request: Request with station_id
+        station_id: Station UUID
 
     Returns:
         Operation result
     """
     return await run_source_command(
-        source, "remove_favorite", {"station_id": request.station_id}, "Remove favorite"
+        source, "remove_favorite", {"station_id": station_id}, "Remove favorite"
     )
 
 
@@ -462,22 +461,22 @@ async def add_custom_station(
         raise HTTPException(status_code=500, detail=f"Add custom station error: {str(e)}")
 
 
-@router.post("/custom/remove")
+@router.delete("/custom/{station_id}")
 async def remove_custom_station(
-    request: RemoveCustomStationRequest,
+    station_id: str,
     source: RadioSource = Depends(get_source)
 ) -> Dict[str, Any]:
     """
     Remove a custom station.
 
     Args:
-        request: Request with station_id
+        station_id: Custom station ID
 
     Returns:
         Operation result
     """
     try:
-        success = await source.station_data.remove_custom_station(request.station_id)
+        success = await source.station_data.remove_custom_station(station_id)
 
         if not success:
             raise HTTPException(status_code=400, detail="Remove custom station failed")
@@ -565,9 +564,9 @@ async def update_custom_station(
         raise HTTPException(status_code=500, detail=f"Update custom station error: {str(e)}")
 
 
-@router.post("/custom/update-image")
+@router.put("/custom/{station_id}/image")
 async def update_station_image(
-    station_id: str = Form(...),
+    station_id: str,
     image: UploadFile = File(...),
     source: RadioSource = Depends(get_source)
 ) -> Dict[str, Any]:
@@ -617,9 +616,9 @@ async def update_station_image(
         raise HTTPException(status_code=500, detail=f"Update image error: {str(e)}")
 
 
-@router.post("/custom/remove-image")
+@router.delete("/custom/{station_id}/image")
 async def remove_station_image(
-    station_id: str = Form(...),
+    station_id: str,
     source: RadioSource = Depends(get_source)
 ) -> Dict[str, Any]:
     """

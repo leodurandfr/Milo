@@ -360,11 +360,11 @@ describe('unifiedAudioStore', () => {
 
   describe('setMultiroomEnabled', () => {
     it('should call API with correct endpoint', async () => {
-      axios.post.mockResolvedValueOnce({ data: { status: 'success' } });
+      axios.put.mockResolvedValueOnce({ data: { status: 'success' } });
 
       await store.setMultiroomEnabled(true);
 
-      expect(axios.post).toHaveBeenCalledWith('/api/routing/multiroom/true');
+      expect(axios.put).toHaveBeenCalledWith('/api/routing/multiroom', { enabled: true });
     });
   });
 

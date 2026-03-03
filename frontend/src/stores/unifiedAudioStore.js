@@ -68,7 +68,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
 
   async function setMultiroomEnabled(enabled) {
     return apiCall('store', 'Set multiroom failed', async () => {
-      const response = await axios.post(`/api/routing/multiroom/${enabled}`);
+      const response = await axios.put('/api/routing/multiroom', { enabled });
       return response.data.status === 'success';
     });
   }
