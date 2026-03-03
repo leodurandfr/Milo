@@ -22,7 +22,6 @@ from datetime import datetime, timezone
 
 from backend.core.volume import VolumeService
 from backend.core.volume.state import VolumeStateStore, ZoneConfig
-from backend.core.volume.config import VolumeConfigService
 from backend.core.models.volume import VolumeConfig
 from backend.core.models.volume_state import VolumeState, ClientVolume
 from backend.config.constants import DEFAULT_VOLUME_DB
@@ -128,6 +127,7 @@ async def volume_state_store(mock_settings_service, temp_storage_path):
     """VolumeStateStore with mocked persistence path."""
     with patch.object(VolumeStateStore, 'STORAGE_PATH', temp_storage_path):
         store = VolumeStateStore(mock_settings_service)
+        store.set_volume_config(VolumeConfig())
         await store.initialize()
         yield store
 
@@ -488,9 +488,9 @@ class TestVolumeLimits:
         - Volume is clamped to custom limit
         """
         # Update limits to custom values
-        volume_service._state_store.update_user_limits(-60.0, -25.0)
-        volume_service._config_service._config.limit_min_db = -60.0
-        volume_service._config_service._config.limit_max_db = -25.0
+        custom_config = VolumeConfig(limit_min_db=-60.0, limit_max_db=-25.0)
+        volume_service._volume_config = custom_config
+        volume_service._state_store.set_volume_config(custom_config)
 
         # Try to set below custom min
         await volume_service.set_volume_db(-70.0)
@@ -939,21 +939,19 @@ class TestVolumeStateStore:
         # Try to set beyond limits
         result = await volume_state_store.set_client_volume("test-client", -100.0)
 
-        assert result == volume_state_store._user_limit_min_db
+        assert result == volume_state_store._volume_config.limit_min_db
 
     @pytest.mark.asyncio
-    async def test_update_user_limits_updates_clamping(
+    async def test_set_volume_config_updates_clamping(
         self,
         volume_state_store: VolumeStateStore
     ):
         """
-        Test updating user limits affects clamping behavior.
+        Test setting VolumeConfig affects clamping behavior.
         """
-        # Update limits
-        volume_state_store.update_user_limits(-50.0, -25.0)
-
-        assert volume_state_store._user_limit_min_db == -50.0
-        assert volume_state_store._user_limit_max_db == -25.0
+        # Update limits via VolumeConfig
+        config = VolumeConfig(limit_min_db=-50.0, limit_max_db=-25.0)
+        volume_state_store.set_volume_config(config)
 
         # Verify clamping uses new limits
         result = volume_state_store._clamp_db(-60.0)
@@ -1119,7 +1117,7 @@ class TestZoneVolumeDeltaIntegration:
             store = VolumeStateStore(mock_settings_service)
             # Do not set registry to avoid zones being reloaded
             store._mode = "multiroom"
-            store.update_user_limits(-80.0, 0.0)
+            store.set_volume_config(VolumeConfig(limit_min_db=-80.0, limit_max_db=0.0))
             yield store
 
     @pytest.mark.asyncio
@@ -1247,7 +1245,7 @@ class TestZoneVolumeDeltaIntegration:
         store = zone_state_store
 
         # Set limits
-        store.update_user_limits(-80.0, -21.0)
+        store.set_volume_config(VolumeConfig(limit_min_db=-80.0, limit_max_db=-21.0))
 
         # Setup: client near maximum
         store._zones = {
@@ -1840,7 +1838,7 @@ class TestVolumeApiEndpointsIntegration:
         """
         store = volume_state_store
         store._mode = "multiroom"
-        store.update_user_limits(-80.0, 0.0)
+        store.set_volume_config(VolumeConfig(limit_min_db=-80.0, limit_max_db=0.0))
 
         # Setup zone with 3 clients (2 online, 1 offline)
         store._zones = {
@@ -1920,7 +1918,7 @@ class TestVolumeApiEndpointsIntegration:
         - Returns restore_last_volume from VolumeService config
         """
         # Get config values directly from service
-        config = volume_service._config_service._config
+        config = volume_service._volume_config
 
         # Assert: Values are accessible
         assert hasattr(config, 'startup_volume_db')
@@ -1991,11 +1989,11 @@ class TestVolumeApiEndpointsIntegration:
             # Simulate what PATCH endpoint would do
             # Update startup_volume_db
             await settings.set_setting('volume.startup_volume_db', -45.0)
-            service._config_service._config.startup_volume_db = -45.0
+            service._volume_config.startup_volume_db = -45.0
 
             # Assert: Settings updated
             assert settings_data['startup_volume_db'] == -45.0
-            assert service._config_service._config.startup_volume_db == -45.0
+            assert service._volume_config.startup_volume_db == -45.0
 
             await service.cleanup()
 
@@ -2012,7 +2010,7 @@ class TestVolumeApiEndpointsIntegration:
         """
         store = volume_state_store
         store._mode = "multiroom"
-        store.update_user_limits(-80.0, 0.0)
+        store.set_volume_config(VolumeConfig(limit_min_db=-80.0, limit_max_db=0.0))
 
         # Setup zone
         store._zones = {

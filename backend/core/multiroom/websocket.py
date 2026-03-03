@@ -803,7 +803,7 @@ class SnapcastWebSocketService:
 
         # Level 2: startup_volume_db from VolumeService configuration
         if self._volume_service:
-            startup_volume = self._volume_service.config.config.startup_volume_db
+            startup_volume = self._volume_service.volume_config.startup_volume_db
             self.logger.info(f"FR8/FR10 - Using startup volume {startup_volume:.1f} dB for {mac_id}")
             return startup_volume
 

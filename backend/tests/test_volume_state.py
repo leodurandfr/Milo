@@ -5,6 +5,7 @@ Unit tests for VolumeStateStore - Single Source of Truth for volume state.
 import pytest
 from unittest.mock import Mock, AsyncMock
 from backend.core.volume.state import VolumeStateStore, ZoneConfig
+from backend.core.models.volume import VolumeConfig
 from backend.core.models.volume_state import ClientVolume
 from backend.config.constants import DEFAULT_VOLUME_DB
 
@@ -281,7 +282,7 @@ class TestZoneVolumeDelta:
         """Create a VolumeStateStore instance with test data."""
         store = VolumeStateStore(mock_settings_service)
         # Set limits to allow full range for testing
-        store.update_user_limits(-80.0, 0.0)
+        store.set_volume_config(VolumeConfig(limit_min_db=-80.0, limit_max_db=0.0))
         return store
 
     @pytest.mark.asyncio
@@ -371,7 +372,7 @@ class TestZoneVolumeDelta:
         """
         AC3: Volume clamped at minimum limit during delta application.
         """
-        store.update_user_limits(-80.0, -21.0)
+        store.set_volume_config(VolumeConfig(limit_min_db=-80.0, limit_max_db=-21.0))
 
         # Setup: client near minimum
         store._zones = {
@@ -396,7 +397,7 @@ class TestZoneVolumeDelta:
         """
         AC3: Volume clamped at maximum limit during delta application.
         """
-        store.update_user_limits(-80.0, -21.0)
+        store.set_volume_config(VolumeConfig(limit_min_db=-80.0, limit_max_db=-21.0))
 
         # Setup: client near maximum
         store._zones = {
@@ -558,7 +559,7 @@ class TestZoneAverageCalculation:
         AC4: Zone average updates after client volume change.
         """
         # Setup: set limits to allow full range for testing
-        store.update_user_limits(-80.0, 0.0)
+        store.set_volume_config(VolumeConfig(limit_min_db=-80.0, limit_max_db=0.0))
 
         # Setup: zone with clients
         store._zones = {

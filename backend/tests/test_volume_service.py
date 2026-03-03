@@ -50,14 +50,14 @@ class TestVolumeService:
         """Service initialization test"""
         assert service.state_machine is not None
         assert service.snapcast_service is not None
-        assert service.config.config.limit_min_db == -80.0
-        assert service.config.config.limit_max_db == -21.0
-        assert service.config.config.step_mobile_db == 3.0
-        assert service.config.config.step_rotary_db == 2.0
+        assert service.volume_config.limit_min_db == -80.0
+        assert service.volume_config.limit_max_db == -21.0
+        assert service.volume_config.step_mobile_db == 3.0
+        assert service.volume_config.step_rotary_db == 2.0
 
     def test_clamp_db_volume(self, service):
         """dB volume clamping test"""
-        config = service.config.config
+        config = service.volume_config
         assert config.clamp(-90.0) == -80.0  # Below min
         assert config.clamp(-80.0) == -80.0  # At min
         assert config.clamp(-30.0) == -30.0  # Middle
@@ -79,12 +79,12 @@ class TestVolumeService:
 
         await service._load_volume_config()
 
-        assert service.config.config.limit_min_db == -50.0
-        assert service.config.config.limit_max_db == -15.0
-        assert service.config.config.startup_volume_db == -25.0
-        assert service.config.config.restore_last_volume is True
-        assert service.config.config.step_mobile_db == 4.0
-        assert service.config.config.step_rotary_db == 3.0
+        assert service.volume_config.limit_min_db == -50.0
+        assert service.volume_config.limit_max_db == -15.0
+        assert service.volume_config.startup_volume_db == -25.0
+        assert service.volume_config.restore_last_volume is True
+        assert service.volume_config.step_mobile_db == 4.0
+        assert service.volume_config.step_rotary_db == 3.0
 
     def test_is_multiroom_enabled_true(self, service):
         """Multiroom enabled check test"""
@@ -105,11 +105,11 @@ class TestVolumeService:
 
     def test_config_rotary_steps(self, service):
         """Rotary step access test via sub-service config"""
-        assert service.config.config.step_rotary_db == 2.0
+        assert service.volume_config.step_rotary_db == 2.0
 
-        # Test with different value via config service
-        service._config_service._config.step_rotary_db = 3.0
-        assert service.config.config.step_rotary_db == 3.0
+        # Test with different value
+        service._volume_config.step_rotary_db = 3.0
+        assert service.volume_config.step_rotary_db == 3.0
 
     @pytest.mark.asyncio
     async def test_reload_volume_steps_config(self, service):
@@ -135,7 +135,7 @@ class TestVolumeService:
         result = await service.reload_volume_steps_config()
 
         assert result is True
-        assert service.config.config.step_mobile_db == 5.0
+        assert service.volume_config.step_mobile_db == 5.0
 
     @pytest.mark.asyncio
     async def test_reload_rotary_steps_config(self, service):
@@ -161,7 +161,7 @@ class TestVolumeService:
         result = await service.reload_rotary_steps_config()
 
         assert result is True
-        assert service.config.config.step_rotary_db == 4.0
+        assert service.volume_config.step_rotary_db == 4.0
 
     @pytest.mark.asyncio
     async def test_reload_startup_config(self, service):
@@ -187,8 +187,8 @@ class TestVolumeService:
         result = await service.reload_startup_config()
 
         assert result is True
-        assert service.config.config.startup_volume_db == -25.0
-        assert service.config.config.restore_last_volume is True
+        assert service.volume_config.startup_volume_db == -25.0
+        assert service.volume_config.restore_last_volume is True
 
 
 class TestVolumeConfig:

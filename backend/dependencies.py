@@ -103,7 +103,8 @@ def _create_service(name: str) -> Any:
             settings_service=get_service("settings_service"),
             camilladsp_service=get_service("camilladsp_service"),
             equalizer_client_proxy_service=get_service("equalizer_client_proxy_service"),
-            hardware_service=get_service("hardware_service")
+            hardware_service=get_service("hardware_service"),
+            equalizer_router=get_service("equalizer_router")
         ),
         "rotary_controller": lambda: _import("backend.hardware", "RotaryVolumeController")(
             volume_service=get_service("volume_service"),

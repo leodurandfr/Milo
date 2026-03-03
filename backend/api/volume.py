@@ -75,7 +75,7 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
     async def increase_volume():
         """Increases volume by configured step (default 3 dB)"""
         try:
-            step_db = volume_service.config.config.step_mobile_db
+            step_db = volume_service.volume_config.step_mobile_db
             success = await volume_service.adjust_volume_db(step_db)
             if success:
                 volume_db = await volume_service.get_volume_db()
@@ -89,7 +89,7 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
     async def decrease_volume():
         """Decreases volume by configured step (default 3 dB)"""
         try:
-            step_db = volume_service.config.config.step_mobile_db
+            step_db = volume_service.volume_config.step_mobile_db
             success = await volume_service.adjust_volume_db(-step_db)
             if success:
                 volume_db = await volume_service.get_volume_db()
@@ -317,8 +317,8 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
         Raises:
             HTTPException: 400 if volume is out of range
         """
-        min_db = volume_service.config.config.limit_min_db
-        max_db = volume_service.config.config.limit_max_db
+        min_db = volume_service.volume_config.limit_min_db
+        max_db = volume_service.volume_config.limit_max_db
 
         if volume_db < min_db or volume_db > max_db:
             raise HTTPException(
@@ -494,8 +494,8 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
         async with api_error_handler("Error getting volume settings", logger):
             return {
                 "status": "success",
-                "startup_volume_db": volume_service.config.config.startup_volume_db,
-                "restore_last_volume": volume_service.config.config.restore_last_volume
+                "startup_volume_db": volume_service.volume_config.startup_volume_db,
+                "restore_last_volume": volume_service.volume_config.restore_last_volume
             }
 
     @router.patch("/settings")
@@ -530,8 +530,8 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
 
             return {
                 "status": "success",
-                "startup_volume_db": volume_service.config.config.startup_volume_db,
-                "restore_last_volume": volume_service.config.config.restore_last_volume
+                "startup_volume_db": volume_service.volume_config.startup_volume_db,
+                "restore_last_volume": volume_service.volume_config.restore_last_volume
             }
 
     return router
