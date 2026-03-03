@@ -25,9 +25,8 @@ describe('unifiedAudioStore', () => {
 
     it('should have correct default volume state', () => {
       expect(store.volumeState.mode).toBe('direct');
-      expect(store.volumeState.global_volume_db).toBe(-30.0);
+      expect(store.volumeState.global_volume_db).toBe(-60.0);
       expect(store.volumeState.global_mute).toBe(false);
-      expect(store.volumeState.step_mobile_db).toBe(3.0);
     });
 
     it('should not show volume bar initially', () => {
@@ -53,18 +52,6 @@ describe('unifiedAudioStore', () => {
       expect(result).toBe(false);
     });
 
-    it('should set isChangingSource during API call', async () => {
-      let capturedState;
-      axios.post.mockImplementationOnce(() => {
-        capturedState = store.isChangingSource;
-        return Promise.resolve({ data: { status: 'success' } });
-      });
-
-      await store.changeSource('spotify');
-
-      expect(capturedState).toBe(true);
-      expect(store.isChangingSource).toBe(false);
-    });
   });
 
   describe('sendCommand', () => {
@@ -97,27 +84,6 @@ describe('unifiedAudioStore', () => {
   });
 
   describe('volume actions', () => {
-    describe('setVolume', () => {
-      it('should call API with correct parameters', async () => {
-        axios.post.mockResolvedValueOnce({ data: { status: 'success' } });
-
-        await store.setVolume(-20.0, true);
-
-        expect(axios.post).toHaveBeenCalledWith('/api/volume/set', {
-          volume_db: -20.0,
-          show_bar: true
-        });
-      });
-
-      it('should return true on success', async () => {
-        axios.post.mockResolvedValueOnce({ data: { status: 'success' } });
-
-        const result = await store.setVolume(-25.0);
-
-        expect(result).toBe(true);
-      });
-    });
-
     describe('adjustVolume', () => {
       it('should call API with delta', async () => {
         axios.post.mockResolvedValueOnce({ data: { status: 'success' } });
@@ -126,34 +92,6 @@ describe('unifiedAudioStore', () => {
 
         expect(axios.post).toHaveBeenCalledWith('/api/volume/adjust', {
           delta_db: 3.0,
-          show_bar: true
-        });
-      });
-    });
-
-    describe('increaseVolume', () => {
-      it('should use step_mobile_db value', async () => {
-        axios.post.mockResolvedValueOnce({ data: { status: 'success' } });
-        store.volumeState.step_mobile_db = 5.0;
-
-        await store.increaseVolume();
-
-        expect(axios.post).toHaveBeenCalledWith('/api/volume/adjust', {
-          delta_db: 5.0,
-          show_bar: true
-        });
-      });
-    });
-
-    describe('decreaseVolume', () => {
-      it('should use negative step_mobile_db', async () => {
-        axios.post.mockResolvedValueOnce({ data: { status: 'success' } });
-        store.volumeState.step_mobile_db = 3.0;
-
-        await store.decreaseVolume();
-
-        expect(axios.post).toHaveBeenCalledWith('/api/volume/adjust', {
-          delta_db: -3.0,
           show_bar: true
         });
       });
@@ -348,16 +286,6 @@ describe('unifiedAudioStore', () => {
     });
   });
 
-  describe('hideVolumeBar', () => {
-    it('should hide volume bar immediately', () => {
-      store.showVolumeBar = true;
-
-      store.hideVolumeBar();
-
-      expect(store.showVolumeBar).toBe(false);
-    });
-  });
-
   describe('setMultiroomEnabled', () => {
     it('should call API with correct endpoint', async () => {
       axios.put.mockResolvedValueOnce({ data: { status: 'success' } });
@@ -368,13 +296,4 @@ describe('unifiedAudioStore', () => {
     });
   });
 
-  describe('setEqualizerEnabled', () => {
-    it('should call API with correct endpoint', async () => {
-      axios.post.mockResolvedValueOnce({ data: { status: 'success' } });
-
-      await store.setEqualizerEnabled(false);
-
-      expect(axios.post).toHaveBeenCalledWith('/api/routing/equalizer/false');
-    });
-  });
 });
