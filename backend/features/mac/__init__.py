@@ -9,7 +9,7 @@ Usage:
     from backend.features.mac import MacSource, router
 
     # Create source
-    source = MacSource(event_bus, config)
+    source = MacSource(config=config, state_machine=state_machine)
 
     # Include router in FastAPI app
     app.include_router(router, prefix="/api")

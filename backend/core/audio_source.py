@@ -35,7 +35,6 @@ from abc import abstractmethod
 import asyncio
 import logging
 
-from backend.core.events import EventBus, Events
 from backend.core.systemd import SystemdServiceManager
 from backend.core.models.audio_state import PluginState
 
@@ -175,7 +174,7 @@ class BaseAudioSource:
 
     Provides common functionality:
     - Systemd service management
-    - EventBus integration for state notifications
+    - WebSocket broadcasting via state machine
     - Standard response formatting
     - Lifecycle management (initialize, start, stop)
 
@@ -212,7 +211,6 @@ class BaseAudioSource:
         self,
         source_id: str,
         service_name: str,
-        event_bus: EventBus,
         state_machine=None,
         systemd_manager=None,
         settings_service=None,
@@ -224,7 +222,6 @@ class BaseAudioSource:
         Args:
             source_id: Unique identifier (e.g., "radio", "spotify")
             service_name: Systemd service name (e.g., "milo-radio")
-            event_bus: EventBus for state notifications
             state_machine: Optional state machine for state synchronization
             systemd_manager: Optional SystemdServiceManager (injected via DI)
             settings_service: Optional SettingsService for persisting configuration
@@ -232,7 +229,6 @@ class BaseAudioSource:
         """
         self.source_id = source_id
         self.service_name = service_name
-        self.event_bus = event_bus
         self.state_machine = state_machine
 
         self._state = SourceState.READY
@@ -286,10 +282,9 @@ class BaseAudioSource:
 
     async def start(self) -> bool:
         """
-        Start the audio source with EventBus notification.
+        Start the audio source.
 
         Calls _do_start() for source-specific logic.
-        Emits SOURCE_STARTED event on success.
 
         Returns:
             True if start successful
@@ -306,16 +301,10 @@ class BaseAudioSource:
                 if self._state == SourceState.STARTING:
                     self._state = SourceState.READY
 
-                await self.event_bus.emit(Events.SOURCE_STARTED, {
-                    "source": self.source_id,
-                    "state": self._state
-                })
-
                 self._logger.info(f"{self.source_id} started successfully")
             else:
                 self._state = SourceState.ERROR
                 self._error = "Start failed"
-                await self._emit_error("Start failed")
 
             return success
 
@@ -323,15 +312,13 @@ class BaseAudioSource:
             self._logger.error(f"Error starting {self.source_id}: {e}")
             self._state = SourceState.ERROR
             self._error = str(e)
-            await self._emit_error(str(e))
             return False
 
     async def stop(self) -> bool:
         """
-        Stop the audio source with EventBus notification.
+        Stop the audio source.
 
         Calls _do_stop() for source-specific logic.
-        Emits SOURCE_STOPPED event on success.
 
         Returns:
             True if stop successful
@@ -346,10 +333,6 @@ class BaseAudioSource:
                 self._state = SourceState.READY
                 self._metadata = {}
                 self._error = None
-
-                await self.event_bus.emit(Events.SOURCE_STOPPED, {
-                    "source": self.source_id
-                })
 
                 self._logger.info(f"{self.source_id} stopped successfully")
             else:
@@ -716,13 +699,6 @@ class BaseAudioSource:
             return False
         await asyncio.sleep(settle)
         return True
-
-    async def _emit_error(self, error: str) -> None:
-        """Emit error event."""
-        await self.event_bus.emit(Events.SOURCE_ERROR, {
-            "source": self.source_id,
-            "error": error
-        })
 
     # === Public API methods ===
     # These methods are called by API routes and the state machine

@@ -17,7 +17,6 @@ import asyncio
 from typing import Dict, Any, Optional
 
 from backend.core.audio_source import SourceState
-from backend.core.events import EventBus
 from backend.features.radio.data import StationDataService
 from backend.features.radio.shazam import ShazamRecognitionService
 from backend.shared.decorators import handle_errors
@@ -36,37 +35,18 @@ class RadioSource(MpvAudioSource):
     - restart(): Restart service with state reset
     - status(): Get current status with metadata
     - command(): Handle playback and station commands
-
-    Events emitted:
-    - source.started: Radio source activated
-    - source.stopped: Radio source deactivated
-    - source.state_changed: State changed (READY/CONNECTED)
-    - radio.*: Station management events
     """
 
     def __init__(
         self,
-        event_bus: EventBus,
         config: Optional[Dict[str, Any]] = None,
         state_machine=None,
         settings_service=None,
         systemd_manager=None
     ):
-        """
-        Initialize Radio source.
-
-        Args:
-            event_bus: EventBus for state notifications
-            config: Optional configuration dict with:
-                - mpv_socket: Path to MPV IPC socket
-            state_machine: Optional state machine for state synchronization
-            settings_service: Optional settings service
-            systemd_manager: Optional SystemdServiceManager (injected via DI)
-        """
         super().__init__(
             source_id="radio",
             service_name="milo-radio.service",
-            event_bus=event_bus,
             state_machine=state_machine,
             systemd_manager=systemd_manager,
             settings_service=settings_service,
@@ -75,7 +55,6 @@ class RadioSource(MpvAudioSource):
 
         # Station data service (initialized immediately for API access)
         self._station_data = StationDataService(
-            event_bus=event_bus,
             state_machine=state_machine
         )
 

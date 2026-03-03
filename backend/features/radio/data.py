@@ -180,9 +180,8 @@ class StationDataService:
     }
     """
 
-    def __init__(self, event_bus=None, state_machine=None):
+    def __init__(self, state_machine=None):
         self.logger = logging.getLogger(__name__)
-        self._event_bus = event_bus
         self._state_machine = state_machine
         self.image_manager = ImageManager()
 
@@ -222,14 +221,9 @@ class StationDataService:
             self._loaded = True
 
     async def _broadcast_event(self, event_type: str, data: Dict[str, Any]) -> None:
-        """Broadcast radio event via state machine and EventBus."""
+        """Broadcast radio event via state machine (WebSocket)."""
         if self._state_machine:
             await self._state_machine.broadcast_event("radio", event_type, data)
-        if self._event_bus:
-            from backend.core.events import Events
-            event_name = getattr(Events, f"RADIO_{event_type.upper()}", None)
-            if event_name:
-                await self._event_bus.emit(event_name, data)
 
     async def _load_data(self) -> Dict[str, Any]:
         """Load radio_data.json."""
@@ -491,14 +485,6 @@ class StationDataService:
             self._manual_stations[station_id] = station
             success = await self._save()
 
-            if success and self._event_bus:
-                from backend.core.events import Events
-                await self._event_bus.emit(Events.RADIO_CUSTOM_STATION_ADDED, {
-                    "station": station,
-                    "custom_stations_count": len(self._manual_stations),
-                    "source": "radio"
-                })
-
             return {"success": success, "station": station}
 
         except Exception as e:
@@ -521,14 +507,6 @@ class StationDataService:
 
         del self._manual_stations[station_id]
         success = await self._save()
-
-        if success and self._event_bus:
-            from backend.core.events import Events
-            await self._event_bus.emit(Events.RADIO_CUSTOM_STATION_REMOVED, {
-                "station_id": station_id,
-                "custom_stations_count": len(self._manual_stations),
-                "source": "radio"
-            })
 
         if self.is_favorite(station_id):
             await self.remove_favorite(station_id)
@@ -588,13 +566,6 @@ class StationDataService:
 
             self._manual_stations[station_id] = updated_station
             success = await self._save()
-
-            if success and self._event_bus:
-                from backend.core.events import Events
-                await self._event_bus.emit(Events.RADIO_CUSTOM_STATION_UPDATED, {
-                    "station": updated_station,
-                    "source": "radio"
-                })
 
             return {"success": success, "station": updated_station}
 
@@ -734,13 +705,6 @@ class StationDataService:
                     self._favorites_cache[station_id] = cached
 
             success = await self._save()
-
-            if success and self._event_bus:
-                from backend.core.events import Events
-                await self._event_bus.emit(Events.RADIO_FAVORITE_RESTORED, {
-                    "station_id": station_id,
-                    "source": "radio"
-                })
 
             return {"success": True}
 

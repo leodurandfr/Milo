@@ -21,7 +21,6 @@ from backend.core.equalizer import (
     CamillaDSPService,
     CamillaDspState,
 )
-from backend.core.events import EventBus
 from backend.api.models import EqualizerCompressorRequest, EqualizerLoudnessRequest
 
 
@@ -39,14 +38,6 @@ def mock_settings_service():
 
 
 @pytest.fixture
-def mock_event_bus():
-    """Create mock event bus"""
-    bus = Mock(spec=EventBus)
-    bus.emit = AsyncMock()
-    return bus
-
-
-@pytest.fixture
 def mock_state_machine():
     """Create mock state machine"""
     sm = Mock()
@@ -55,11 +46,10 @@ def mock_state_machine():
 
 
 @pytest.fixture
-def connected_camilladsp_service(mock_settings_service, mock_event_bus, mock_state_machine):
+def connected_camilladsp_service(mock_settings_service, mock_state_machine):
     """Create connected Equalizer service with mocked CamillaClient"""
     service = CamillaDSPService(
-        settings_service=mock_settings_service,
-        event_bus=mock_event_bus
+        settings_service=mock_settings_service
     )
     service.set_state_machine(mock_state_machine)
 
@@ -70,11 +60,10 @@ def connected_camilladsp_service(mock_settings_service, mock_event_bus, mock_sta
 
 
 @pytest.fixture
-def disconnected_camilladsp_service(mock_settings_service, mock_event_bus):
+def disconnected_camilladsp_service(mock_settings_service):
     """Create disconnected Equalizer service"""
     return CamillaDSPService(
-        settings_service=mock_settings_service,
-        event_bus=mock_event_bus
+        settings_service=mock_settings_service
     )
 
 
@@ -439,11 +428,10 @@ class TestAC5ZonePropagation:
     """
 
     @pytest.fixture
-    def camilladsp_service_with_preset(self, mock_settings_service, mock_event_bus, mock_state_machine):
+    def camilladsp_service_with_preset(self, mock_settings_service, mock_state_machine):
         """Create Equalizer service with active preset"""
         service = CamillaDSPService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         service.set_state_machine(mock_state_machine)
         service._connected = True
@@ -520,11 +508,10 @@ class TestAC6PresetAutoSwitch:
     """
 
     @pytest.fixture
-    def camilladsp_service_with_preset(self, mock_settings_service, mock_event_bus, mock_state_machine):
+    def camilladsp_service_with_preset(self, mock_settings_service, mock_state_machine):
         """Create Equalizer service with active preset"""
         service = CamillaDSPService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         service.set_state_machine(mock_state_machine)
         service._connected = True
@@ -698,11 +685,10 @@ class TestEffectsBypassRestore:
     """
 
     @pytest.fixture
-    def connected_camilladsp_with_effects(self, mock_settings_service, mock_event_bus, mock_state_machine):
+    def connected_camilladsp_with_effects(self, mock_settings_service, mock_state_machine):
         """Create connected Equalizer service with compressor and loudness enabled"""
         service = CamillaDSPService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         service.set_state_machine(mock_state_machine)
         service._connected = True

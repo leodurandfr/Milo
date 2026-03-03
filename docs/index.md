@@ -101,7 +101,7 @@ A multiroom audio system for Raspberry Pi supporting:
 ## Key Concepts
 
 ### State Machine
-The `AudioStateMachine` (in `core/state.py`) is the single source of truth for audio state. Uses EventBus for decoupled communication.
+The `AudioStateMachine` (in `core/state.py`) is the single source of truth for audio state. Broadcasts state changes via WebSocket.
 
 ### Plugin System
 Audio sources implement `AudioSourceProtocol` interface (in `core/audio_source.py`). Each plugin is in `features/` and manages its own systemd service.

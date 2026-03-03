@@ -18,7 +18,6 @@ import ipaddress
 from typing import Dict, Any, Optional, Tuple
 
 from backend.core.audio_source import BaseAudioSource, SourceState
-from backend.core.events import EventBus
 from backend.shared.decorators import handle_errors
 
 
@@ -59,38 +58,17 @@ class MacSource(BaseAudioSource):
     - restart(): Restart service
     - status(): Get current status with connected clients
     - command(): Handle restart command
-
-    Events emitted:
-    - source.started: Mac source activated
-    - source.stopped: Mac source deactivated
-    - source.state_changed: State changed (READY/CONNECTED)
     """
 
     def __init__(
         self,
-        event_bus: EventBus,
         config: Optional[Dict[str, Any]] = None,
         state_machine=None,
         systemd_manager=None
     ):
-        """
-        Initialize Mac source.
-
-        Args:
-            event_bus: EventBus for state notifications
-            config: Optional configuration dict with:
-                - rtp_port: RTP port (default 10001)
-                - rs8m_port: RS8M port (default 10002)
-                - rtcp_port: RTCP port (default 10003)
-                - audio_output: ALSA device (default "hw:1,0")
-                - network_interface: Interface for mDNS (optional)
-            state_machine: Optional state machine for state synchronization
-            systemd_manager: Optional SystemdServiceManager (injected via DI)
-        """
         super().__init__(
             source_id="mac",
             service_name="milo-mac",
-            event_bus=event_bus,
             state_machine=state_machine,
             systemd_manager=systemd_manager,
             config=config

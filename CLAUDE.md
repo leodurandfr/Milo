@@ -100,7 +100,6 @@ backend/
 ├── core/                      # Core infrastructure
 │   ├── models/               # Domain models (AudioSource, PluginState, SystemAudioState, Volume)
 │   ├── state.py              # AudioStateMachine (single source of truth)
-│   ├── events.py             # EventBus for decoupled communication
 │   ├── audio_source.py       # AudioSourceProtocol interface
 │   ├── settings.py           # SettingsService
 │   ├── systemd.py            # SystemdServiceManager
@@ -130,7 +129,7 @@ backend/
 - **Feature-Based**: Each audio source is a self-contained feature module
 - **Service Registry**: Simple dict-based DI with lazy singleton creation
 - **Async-first**: asyncio everywhere for non-blocking I/O
-- **EventBus**: Decoupled communication between services
+- **WebSocket broadcasting**: State changes broadcast via `state_machine.broadcast_event()`
 
 ### Frontend: Vue 3 Composition API
 

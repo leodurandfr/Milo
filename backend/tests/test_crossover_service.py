@@ -56,14 +56,6 @@ def mock_camilladsp_service():
 
 
 @pytest.fixture
-def mock_event_bus():
-    """Create a mock event bus."""
-    bus = MagicMock()
-    bus.emit = AsyncMock()
-    return bus
-
-
-@pytest.fixture
 def mock_registry():
     """Create a mock client registry with helper methods."""
     registry = MagicMock()
@@ -116,12 +108,11 @@ def mock_registry():
 
 
 @pytest.fixture
-def crossover_service(mock_settings_service, mock_camilladsp_service, mock_event_bus):
+def crossover_service(mock_settings_service, mock_camilladsp_service):
     """Create a CrossoverService instance."""
     return CrossoverService(
         settings_service=mock_settings_service,
-        camilladsp_service=mock_camilladsp_service,
-        event_bus=mock_event_bus
+        camilladsp_service=mock_camilladsp_service
     )
 
 
@@ -1088,30 +1079,6 @@ class TestCrossoverEventBroadcasting:
         # Should be True because subwoofer is online
         assert zone_data["crossover_enabled"] is True
 
-    @pytest.mark.asyncio
-    async def test_broadcast_event_sends_to_both_state_machine_and_eventbus(self, crossover_service, mock_event_bus):
-        """Test: _broadcast_event sends to state_machine and EventBus (AC#4)."""
-        # Setup mock state machine
-        mock_state_machine = MagicMock()
-        mock_state_machine.broadcast_event = AsyncMock()
-        crossover_service.set_state_machine(mock_state_machine)
-
-        # Broadcast an event
-        await crossover_service._broadcast_event("zone_crossover_changed", {
-            "zone_id": "zone-1",
-            "crossover_enabled": True,
-            "crossover_frequency": 80
-        })
-
-        # Verify both were called with new multiroom format
-        mock_state_machine.broadcast_event.assert_called_once_with(
-            "multiroom", "crossover_changed",
-            {"zone_id": "zone-1", "crossover_enabled": True, "crossover_frequency": 80}
-        )
-        mock_event_bus.emit.assert_called_once_with(
-            "multiroom.crossover_changed",
-            {"zone_id": "zone-1", "crossover_enabled": True, "crossover_frequency": 80}
-        )
 
 
 # =============================================================================
@@ -1380,12 +1347,11 @@ class TestFilterApplicationMethods:
             assert "/equalizer/lowpass" in str(call_args)
 
     @pytest.mark.asyncio
-    async def test_set_client_lowpass_without_camilladsp_service_returns_false(self, mock_settings_service, mock_event_bus, mock_registry):
+    async def test_set_client_lowpass_without_camilladsp_service_returns_false(self, mock_settings_service, mock_registry):
         """Test _set_client_filter("lowpass") returns False when no camilladsp_service for local."""
         service = CrossoverService(
             settings_service=mock_settings_service,
-            camilladsp_service=None,  # No Equalizer service
-            event_bus=mock_event_bus
+            camilladsp_service=None  # No Equalizer service
         )
         service.set_registry(mock_registry)
         # Register local client

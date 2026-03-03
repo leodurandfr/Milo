@@ -8,7 +8,6 @@ import logging
 from typing import Dict, List, Any, Optional
 from enum import Enum
 
-from backend.core.events import EventBus, get_event_bus
 from backend.core.equalizer.presets import get_builtin_presets, get_preset_by_id, DEFAULT_CUSTOM_GAINS, DEFAULT_EQ_FREQS
 from backend.shared.decorators import handle_errors
 
@@ -50,15 +49,11 @@ class CamillaDSPService:
     RECONNECT_DELAY = 5.0
     COMMAND_TIMEOUT = 5.0
 
-    def __init__(self, settings_service=None, host: str = None, port: int = None,
-                 event_bus: EventBus = None):
+    def __init__(self, settings_service=None, host: str = None, port: int = None):
         self.logger = logging.getLogger(__name__)
         self.settings_service = settings_service
         self.host = host or self.DEFAULT_HOST
         self.port = port or self.DEFAULT_PORT
-
-        # EventBus integration
-        self.event_bus = event_bus or get_event_bus()
 
         self._client = None
         self._state = CamillaDspState.DISCONNECTED
@@ -993,14 +988,9 @@ class CamillaDSPService:
     # === Event Broadcasting ===
 
     async def _broadcast_event(self, event_type: str, data: Dict[str, Any]) -> None:
-        """Broadcast equalizer event via state machine and EventBus"""
-        # Broadcast via state_machine for WebSocket clients
+        """Broadcast equalizer event via state machine (WebSocket)."""
         if self.state_machine:
             await self.state_machine.broadcast_event("equalizer", event_type, data)
-
-        # Also emit via EventBus for internal subscribers
-        if self.event_bus:
-            await self.event_bus.emit(f"equalizer.{event_type}", data)
 
     # === Cleanup ===
 

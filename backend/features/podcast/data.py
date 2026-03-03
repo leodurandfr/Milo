@@ -18,7 +18,6 @@ import asyncio
 import time
 from typing import Dict, Any, List, Optional
 
-from backend.core.events import EventBus
 from backend.shared.decorators import handle_errors
 
 
@@ -35,15 +34,10 @@ class PodcastDataService:
     Note: Language/country settings are centralized in /var/lib/milo/settings.json
     """
 
-    def __init__(
-        self,
-        event_bus: Optional[EventBus] = None,
-        state_machine=None
-    ):
+    def __init__(self, state_machine=None):
         self._logger = logging.getLogger(__name__)
         self._data_file = '/var/lib/milo/podcast_data.json'
         self._file_lock = asyncio.Lock()
-        self._event_bus = event_bus
         self._state_machine = state_machine
 
     async def load_data(self) -> Dict[str, Any]:

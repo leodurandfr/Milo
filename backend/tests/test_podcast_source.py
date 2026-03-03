@@ -7,7 +7,6 @@ Tests cover:
 - Lifecycle (start, stop, restart)
 - Status format
 - Command handling (play, pause, seek, speed)
-- EventBus integration
 - Data service operations
 """
 import pytest
@@ -16,14 +15,7 @@ from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
 from backend.features.podcast.source import PodcastSource
 from backend.features.podcast.data import PodcastDataService
-from backend.core.events import EventBus, Events
 from backend.core.audio_source import AudioSource, SourceState
-
-
-@pytest.fixture
-def event_bus():
-    """Create EventBus for tests."""
-    return EventBus(debug=True)
 
 
 @pytest.fixture
@@ -37,9 +29,9 @@ def config():
 
 
 @pytest.fixture
-def podcast_source(event_bus, config):
+def podcast_source(config):
     """Create PodcastSource with mocked components."""
-    source = PodcastSource(event_bus, config)
+    source = PodcastSource(config)
 
     # Mock service manager
     source._service_manager = Mock()
@@ -75,22 +67,22 @@ class TestProtocolCompliance:
 class TestPodcastSourceConfig:
     """Test PodcastSource configuration."""
 
-    def test_default_config(self, event_bus):
+    def test_default_config(self):
         """Test default configuration values."""
-        source = PodcastSource(event_bus)
+        source = PodcastSource()
 
         assert source._mpv_socket == "/run/milo/podcast-ipc.sock"
         assert source._taddy_user_id == ""
         assert source._taddy_api_key == ""
 
-    def test_custom_config(self, event_bus):
+    def test_custom_config(self):
         """Test custom configuration."""
         config = {
             "mpv_socket": "/custom/socket.sock",
             "taddy_user_id": "custom-user",
             "taddy_api_key": "custom-key"
         }
-        source = PodcastSource(event_bus, config)
+        source = PodcastSource(config)
 
         assert source._mpv_socket == "/custom/socket.sock"
         assert source._taddy_user_id == "custom-user"
@@ -330,67 +322,6 @@ class TestPodcastSourceCommands:
 
         assert result["success"] is False
         assert "error" in result
-
-
-class TestPodcastSourceEventBus:
-    """Test PodcastSource EventBus integration."""
-
-    @pytest.mark.asyncio
-    async def test_start_emits_event(self, podcast_source, event_bus):
-        """Test start emits SOURCE_STARTED event."""
-        received = []
-
-        async def handler(data):
-            received.append(data)
-
-        event_bus.on(Events.SOURCE_STARTED, handler)
-
-        with patch.object(podcast_source, '_start_service', return_value=True):
-            with patch('backend.features.podcast.source.PodcastDataService') as mock_data_class:
-                mock_data = AsyncMock()
-                mock_data.get_setting = AsyncMock(return_value=1.0)
-                mock_data_class.return_value = mock_data
-
-                with patch('backend.features.podcast.source.TaddyAPI') as mock_api_class:
-                    mock_api = AsyncMock()
-                    mock_api_class.return_value = mock_api
-
-                    with patch('backend.features.podcast.source.MpvController') as mock_mpv_class:
-                        mock_mpv = Mock()
-                        mock_mpv.connect = AsyncMock(return_value=True)
-                        mock_mpv.is_connected = True
-                        mock_mpv_class.return_value = mock_mpv
-
-                        await podcast_source.start()
-
-        assert len(received) == 1
-        assert received[0]["source"] == "podcast"
-
-    @pytest.mark.asyncio
-    async def test_stop_emits_event(self, podcast_source, event_bus):
-        """Test stop emits SOURCE_STOPPED event."""
-        received = []
-
-        async def handler(data):
-            received.append(data)
-
-        event_bus.on(Events.SOURCE_STOPPED, handler)
-
-        # Setup mocked state
-        podcast_source._mpv = Mock()
-        podcast_source._mpv.disconnect = AsyncMock()
-        podcast_source._taddy_api = Mock()
-        podcast_source._taddy_api.close = AsyncMock()
-        podcast_source._podcast_data = Mock()
-        podcast_source._monitor_task = None
-        podcast_source._progress_save_task = None
-        podcast_source._current_episode = None
-
-        with patch.object(podcast_source, '_stop_service', return_value=True):
-            await podcast_source.stop()
-
-        assert len(received) == 1
-        assert received[0]["source"] == "podcast"
 
 
 class TestPodcastDataService:

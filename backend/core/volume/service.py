@@ -14,7 +14,6 @@ import asyncio
 import logging
 from typing import Optional, Dict, Any
 
-from backend.core.events import EventBus, Events, get_event_bus
 from backend.shared.decorators import handle_errors
 from backend.core.volume.config import VolumeConfigService
 from backend.core.volume.state import VolumeStateStore
@@ -42,20 +41,7 @@ class VolumeService:
 
     def __init__(self, state_machine, snapcast_service, settings_service=None,
                  camilladsp_service=None, equalizer_client_proxy_service=None,
-                 hardware_service=None, event_bus: EventBus = None):
-        """
-        Initialize VolumeService.
-
-        Args:
-            state_machine: AudioStateMachine for WebSocket broadcasting
-            snapcast_service: Service for Snapcast client management
-            settings_service: SettingsService for configuration
-            camilladsp_service: Service for local CamillaDSP control
-            equalizer_client_proxy_service: Service for remote client control
-            hardware_service: HardwareService for reading audio hardware config
-            event_bus: EventBus for emitting volume events (optional, uses global singleton)
-        """
-        self.event_bus = event_bus or get_event_bus()
+                 hardware_service=None):
         self.state_machine = state_machine
         self.snapcast_service = snapcast_service
         self.settings_service = settings_service
@@ -799,11 +785,7 @@ class VolumeService:
                 "state": volume_state.to_dict()
             }
 
-            # Broadcast via state machine (WebSocket)
             await self.state_machine.broadcast_event("volume", "volume_changed", event_data)
-
-            # Also emit via EventBus for internal listeners
-            await self.event_bus.emit(Events.VOLUME_CHANGED, event_data)
 
             self.logger.debug(f"Volume broadcast completed: {len(volume_state.clients)} clients, {len(volume_state.zones)} zones")
         except Exception as e:

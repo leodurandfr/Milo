@@ -6,7 +6,6 @@ import pytest
 import asyncio
 from unittest.mock import Mock, AsyncMock, patch
 from backend.core.state import AudioStateMachine
-from backend.core.events import EventBus
 from backend.core.models.audio_state import AudioSource, PluginState, SystemAudioState
 
 
@@ -16,8 +15,7 @@ class TestAudioStateMachine:
     @pytest.fixture
     def state_machine(self, mock_ws_manager, mock_routing_service):
         """Fixture to create a state machine"""
-        event_bus = EventBus()
-        sm = AudioStateMachine(event_bus=event_bus)
+        sm = AudioStateMachine()
         sm.routing_service = mock_routing_service
         sm.ws_manager = mock_ws_manager
         return sm

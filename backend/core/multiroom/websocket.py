@@ -14,7 +14,6 @@ from typing import Dict, Any, Optional
 
 import aiohttp
 
-from backend.core.events import EventBus, get_event_bus
 from backend.core.multiroom.models import ReconnectionContext
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.config.constants import CLIENT_API_PORT, DEFAULT_VOLUME_DB
@@ -36,8 +35,7 @@ class SnapcastWebSocketService:
         routing_service,
         settings_service=None,
         host: str = "localhost",
-        port: int = 1780,
-        event_bus: EventBus = None
+        port: int = 1780
     ):
         self.state_machine = state_machine
         self.routing_service = routing_service
@@ -46,7 +44,6 @@ class SnapcastWebSocketService:
         self.port = port
         self.ws_url = f"ws://{host}:{port}/jsonrpc"
         self.logger = logging.getLogger(__name__)
-        self.event_bus = event_bus or get_event_bus()
 
         # Client registry - set after construction via state_machine.client_registry
         self._registry: Optional["ClientRegistryService"] = None
@@ -1064,15 +1061,11 @@ class SnapcastWebSocketService:
             return False
 
     async def _broadcast_snapcast_event(self, event_type: str, data: Dict[str, Any]) -> None:
-        """Broadcast a Snapcast event via WebSocket and EventBus."""
+        """Broadcast a Snapcast event via state machine (WebSocket)."""
         if self.state_machine:
             await self.state_machine.broadcast_event("snapcast", event_type, {
                 **data,
                 "source": "snapcast_websocket"
             })
-
-        # Also emit via EventBus
-        if self.event_bus:
-            await self.event_bus.emit(f"multiroom.{event_type}", data)
 
         self.logger.debug(f"Broadcasted Snapcast event: {event_type}")

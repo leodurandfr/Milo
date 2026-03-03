@@ -6,7 +6,6 @@ Tests cover:
 - Protocol compliance (AC1, AC2)
 - Status format (AC3)
 - BaseAudioSource lifecycle (AC4)
-- EventBus integration
 """
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
@@ -16,13 +15,6 @@ from backend.core.audio_source import (
     BaseAudioSource,
     SourceState
 )
-from backend.core.events import EventBus, Events
-
-
-@pytest.fixture
-def event_bus():
-    """Create a fresh EventBus for each test."""
-    return EventBus(debug=True)
 
 
 class TestAudioSourceProtocol:
@@ -116,11 +108,10 @@ class TestAudioSourceProtocol:
 class ConcreteAudioSource(BaseAudioSource):
     """Concrete implementation for testing."""
 
-    def __init__(self, event_bus, start_success=True, stop_success=True):
+    def __init__(self, start_success=True, stop_success=True):
         super().__init__(
             source_id="test",
             service_name="milo-test",
-            event_bus=event_bus
         )
         self._start_success = start_success
         self._stop_success = stop_success
@@ -150,9 +141,9 @@ class TestBaseAudioSourceLifecycle:
     """Test BaseAudioSource lifecycle methods."""
 
     @pytest.mark.asyncio
-    async def test_start_success(self, event_bus):
+    async def test_start_success(self):
         """Test successful start."""
-        source = ConcreteAudioSource(event_bus)
+        source = ConcreteAudioSource()
 
         result = await source.start()
 
@@ -161,9 +152,9 @@ class TestBaseAudioSourceLifecycle:
         assert source.state == SourceState.CONNECTED
 
     @pytest.mark.asyncio
-    async def test_start_failure(self, event_bus):
+    async def test_start_failure(self):
         """Test failed start."""
-        source = ConcreteAudioSource(event_bus, start_success=False)
+        source = ConcreteAudioSource(start_success=False)
 
         result = await source.start()
 
@@ -171,9 +162,9 @@ class TestBaseAudioSourceLifecycle:
         assert source.state == SourceState.ERROR
 
     @pytest.mark.asyncio
-    async def test_stop_success(self, event_bus):
+    async def test_stop_success(self):
         """Test successful stop."""
-        source = ConcreteAudioSource(event_bus)
+        source = ConcreteAudioSource()
         await source.start()
 
         result = await source.stop()
@@ -183,9 +174,9 @@ class TestBaseAudioSourceLifecycle:
         assert source.state == SourceState.READY
 
     @pytest.mark.asyncio
-    async def test_stop_failure(self, event_bus):
+    async def test_stop_failure(self):
         """Test failed stop."""
-        source = ConcreteAudioSource(event_bus, stop_success=False)
+        source = ConcreteAudioSource(stop_success=False)
         await source.start()
 
         result = await source.stop()
@@ -193,9 +184,9 @@ class TestBaseAudioSourceLifecycle:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_restart_success(self, event_bus):
+    async def test_restart_success(self):
         """Test successful restart (default: stop + start)."""
-        source = ConcreteAudioSource(event_bus)
+        source = ConcreteAudioSource()
         await source.start()
         source.start_called = False
         source.stop_called = False
@@ -207,9 +198,9 @@ class TestBaseAudioSourceLifecycle:
         assert source.start_called
 
     @pytest.mark.asyncio
-    async def test_restart_failure_on_stop(self, event_bus):
+    async def test_restart_failure_on_stop(self):
         """Test restart fails if stop fails."""
-        source = ConcreteAudioSource(event_bus, stop_success=False)
+        source = ConcreteAudioSource(stop_success=False)
         await source.start()
 
         result = await source.restart()
@@ -221,9 +212,9 @@ class TestBaseAudioSourceStatus:
     """Test BaseAudioSource status method."""
 
     @pytest.mark.asyncio
-    async def test_status_format(self, event_bus):
+    async def test_status_format(self):
         """Test status returns standard format."""
-        source = ConcreteAudioSource(event_bus)
+        source = ConcreteAudioSource()
 
         with patch.object(source, '_is_service_active', return_value=True):
             status = await source.status()
@@ -235,9 +226,9 @@ class TestBaseAudioSourceStatus:
         assert "custom_field" in status  # From _get_status
 
     @pytest.mark.asyncio
-    async def test_status_after_start(self, event_bus):
+    async def test_status_after_start(self):
         """Test status reflects started state."""
-        source = ConcreteAudioSource(event_bus)
+        source = ConcreteAudioSource()
 
         with patch.object(source, '_is_service_active', return_value=True):
             await source.start()
@@ -247,9 +238,9 @@ class TestBaseAudioSourceStatus:
         assert status["metadata"]["connected"] is True
 
     @pytest.mark.asyncio
-    async def test_status_after_error(self, event_bus):
+    async def test_status_after_error(self):
         """Test status reflects error state."""
-        source = ConcreteAudioSource(event_bus, start_success=False)
+        source = ConcreteAudioSource(start_success=False)
 
         with patch.object(source, '_is_service_active', return_value=False):
             await source.start()
@@ -263,9 +254,9 @@ class TestBaseAudioSourceCommand:
     """Test BaseAudioSource command method."""
 
     @pytest.mark.asyncio
-    async def test_known_command(self, event_bus):
+    async def test_known_command(self):
         """Test handling known command."""
-        source = ConcreteAudioSource(event_bus)
+        source = ConcreteAudioSource()
 
         result = await source.command("test_command", {})
 
@@ -273,9 +264,9 @@ class TestBaseAudioSourceCommand:
         assert "message" in result
 
     @pytest.mark.asyncio
-    async def test_unknown_command(self, event_bus):
+    async def test_unknown_command(self):
         """Test handling unknown command."""
-        source = ConcreteAudioSource(event_bus)
+        source = ConcreteAudioSource()
 
         result = await source.command("unknown", {})
 
@@ -283,66 +274,12 @@ class TestBaseAudioSourceCommand:
         assert "error" in result
 
 
-class TestBaseAudioSourceEventBus:
-    """Test BaseAudioSource EventBus integration."""
-
-    @pytest.mark.asyncio
-    async def test_start_emits_source_started(self, event_bus):
-        """Test start emits SOURCE_STARTED event."""
-        received = []
-
-        async def handler(data):
-            received.append(data)
-
-        event_bus.on(Events.SOURCE_STARTED, handler)
-        source = ConcreteAudioSource(event_bus)
-
-        await source.start()
-
-        assert len(received) == 1
-        assert received[0]["source"] == "test"
-
-    @pytest.mark.asyncio
-    async def test_stop_emits_source_stopped(self, event_bus):
-        """Test stop emits SOURCE_STOPPED event."""
-        received = []
-
-        async def handler(data):
-            received.append(data)
-
-        event_bus.on(Events.SOURCE_STOPPED, handler)
-        source = ConcreteAudioSource(event_bus)
-        await source.start()
-
-        await source.stop()
-
-        assert len(received) == 1
-        assert received[0]["source"] == "test"
-
-    @pytest.mark.asyncio
-    async def test_error_emits_source_error(self, event_bus):
-        """Test failed start emits SOURCE_ERROR event."""
-        received = []
-
-        async def handler(data):
-            received.append(data)
-
-        event_bus.on(Events.SOURCE_ERROR, handler)
-        source = ConcreteAudioSource(event_bus, start_success=False)
-
-        await source.start()
-
-        assert len(received) == 1
-        assert received[0]["source"] == "test"
-        assert "error" in received[0]
-
-
 class TestBaseAudioSourceHelpers:
     """Test BaseAudioSource helper methods."""
 
-    def test_success_response(self, event_bus):
+    def test_success_response(self):
         """Test success_response helper."""
-        source = ConcreteAudioSource(event_bus)
+        source = ConcreteAudioSource()
 
         response = source.success_response("Test message", extra="data")
 
@@ -350,18 +287,18 @@ class TestBaseAudioSourceHelpers:
         assert response["message"] == "Test message"
         assert response["extra"] == "data"
 
-    def test_success_response_no_message(self, event_bus):
+    def test_success_response_no_message(self):
         """Test success_response without message."""
-        source = ConcreteAudioSource(event_bus)
+        source = ConcreteAudioSource()
 
         response = source.success_response()
 
         assert response["success"] is True
         assert "message" not in response
 
-    def test_error_response(self, event_bus):
+    def test_error_response(self):
         """Test error_response helper."""
-        source = ConcreteAudioSource(event_bus)
+        source = ConcreteAudioSource()
 
         response = source.error_response("Test error", code=500)
 
@@ -369,9 +306,9 @@ class TestBaseAudioSourceHelpers:
         assert response["error"] == "Test error"
         assert response["code"] == 500
 
-    def test_set_state(self, event_bus):
+    def test_set_state(self):
         """Test set_state helper."""
-        source = ConcreteAudioSource(event_bus)
+        source = ConcreteAudioSource()
 
         source.set_state(SourceState.CONNECTED, {"key": "value"})
 
@@ -394,9 +331,9 @@ class TestBaseAudioSourceServiceManager:
     """Test BaseAudioSource systemd service management."""
 
     @pytest.mark.asyncio
-    async def test_start_service(self, event_bus):
+    async def test_start_service(self):
         """Test _start_service helper."""
-        source = ConcreteAudioSource(event_bus)
+        source = ConcreteAudioSource()
         source._service_manager = Mock()
         source._service_manager.start = AsyncMock(return_value=True)
 
@@ -406,9 +343,9 @@ class TestBaseAudioSourceServiceManager:
         source._service_manager.start.assert_called_once_with("milo-test")
 
     @pytest.mark.asyncio
-    async def test_stop_service(self, event_bus):
+    async def test_stop_service(self):
         """Test _stop_service helper."""
-        source = ConcreteAudioSource(event_bus)
+        source = ConcreteAudioSource()
         source._service_manager = Mock()
         source._service_manager.stop = AsyncMock(return_value=True)
 
@@ -418,9 +355,9 @@ class TestBaseAudioSourceServiceManager:
         source._service_manager.stop.assert_called_once_with("milo-test")
 
     @pytest.mark.asyncio
-    async def test_is_service_active(self, event_bus):
+    async def test_is_service_active(self):
         """Test _is_service_active helper."""
-        source = ConcreteAudioSource(event_bus)
+        source = ConcreteAudioSource()
         source._service_manager = Mock()
         source._service_manager.is_active = AsyncMock(return_value=True)
 
@@ -432,18 +369,18 @@ class TestBaseAudioSourceServiceManager:
 class TestBaseAudioSourceProperties:
     """Test BaseAudioSource properties."""
 
-    def test_state_property(self, event_bus):
+    def test_state_property(self):
         """Test state property."""
-        source = ConcreteAudioSource(event_bus)
+        source = ConcreteAudioSource()
 
         assert source.state == SourceState.READY
 
         source._state = SourceState.CONNECTED
         assert source.state == SourceState.CONNECTED
 
-    def test_metadata_property_returns_copy(self, event_bus):
+    def test_metadata_property_returns_copy(self):
         """Test metadata property returns a copy."""
-        source = ConcreteAudioSource(event_bus)
+        source = ConcreteAudioSource()
         source._metadata = {"key": "value"}
 
         metadata = source.metadata
@@ -456,16 +393,16 @@ class TestBaseAudioSourceProperties:
 class TestProtocolWithBaseAudioSource:
     """Test that BaseAudioSource subclasses implement AudioSource protocol."""
 
-    def test_concrete_source_implements_protocol(self, event_bus):
+    def test_concrete_source_implements_protocol(self):
         """Test ConcreteAudioSource implements AudioSource protocol."""
-        source = ConcreteAudioSource(event_bus)
+        source = ConcreteAudioSource()
 
         # Should pass isinstance check for Protocol
         assert isinstance(source, AudioSource)
 
-    def test_base_source_has_required_attributes(self, event_bus):
+    def test_base_source_has_required_attributes(self):
         """Test BaseAudioSource has required attributes."""
-        source = ConcreteAudioSource(event_bus)
+        source = ConcreteAudioSource()
 
         assert hasattr(source, 'source_id')
         assert hasattr(source, 'service_name')

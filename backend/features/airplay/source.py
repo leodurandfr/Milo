@@ -12,7 +12,6 @@ import os
 from typing import Dict, Any, Optional
 
 from backend.core.audio_source import BaseAudioSource, SourceState
-from backend.core.events import EventBus
 from backend.features.airplay.metadata_reader import MetadataReader
 from backend.shared.decorators import handle_errors
 
@@ -24,7 +23,6 @@ class AirPlaySource(BaseAudioSource):
 
     def __init__(
         self,
-        event_bus: EventBus,
         config: Optional[Dict[str, Any]] = None,
         state_machine=None,
         settings_service=None,
@@ -33,7 +31,6 @@ class AirPlaySource(BaseAudioSource):
         super().__init__(
             source_id="airplay",
             service_name="milo-airplay.service",
-            event_bus=event_bus,
             state_machine=state_machine,
             systemd_manager=systemd_manager,
             settings_service=settings_service,

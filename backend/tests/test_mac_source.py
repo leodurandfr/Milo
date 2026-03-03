@@ -6,7 +6,6 @@ Tests cover:
 - AudioSource Protocol compliance
 - Lifecycle (start, stop, restart)
 - Connection tracking
-- EventBus integration
 - Command handling
 """
 import pytest
@@ -14,14 +13,7 @@ import asyncio
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
 from backend.features.mac.source import MacSource, _parse_ip_from_line, _normalize_ip
-from backend.core.events import EventBus, Events
 from backend.core.audio_source import AudioSource, SourceState
-
-
-@pytest.fixture
-def event_bus():
-    """Create EventBus for tests."""
-    return EventBus(debug=True)
 
 
 @pytest.fixture
@@ -36,9 +28,9 @@ def config():
 
 
 @pytest.fixture
-def mac_source(event_bus, config):
+def mac_source(config):
     """Create MacSource with mocked service manager."""
-    source = MacSource(event_bus, config)
+    source = MacSource(config)
     # Mock service manager methods
     source._service_manager = Mock()
     source._service_manager.start = AsyncMock(return_value=True)
@@ -72,16 +64,16 @@ class TestProtocolCompliance:
 class TestMacSourceConfig:
     """Test MacSource configuration."""
 
-    def test_default_config(self, event_bus):
+    def test_default_config(self):
         """Test default configuration values."""
-        source = MacSource(event_bus)
+        source = MacSource()
 
         assert source.rtp_port == 10001
         assert source.rs8m_port == 10002
         assert source.rtcp_port == 10003
         assert source.audio_output == "hw:1,0"
 
-    def test_custom_config(self, event_bus):
+    def test_custom_config(self):
         """Test custom configuration."""
         config = {
             "rtp_port": 20001,
@@ -90,7 +82,7 @@ class TestMacSourceConfig:
             "audio_output": "hw:2,0",
             "network_interface": "eth0"
         }
-        source = MacSource(event_bus, config)
+        source = MacSource(config)
 
         assert source.rtp_port == 20001
         assert source.audio_output == "hw:2,0"
@@ -229,62 +221,6 @@ class TestMacSourceCommands:
 
         assert result["success"] is False
         assert "error" in result
-
-
-class TestMacSourceEventBus:
-    """Test MacSource EventBus integration."""
-
-    @pytest.mark.asyncio
-    async def test_start_emits_event(self, mac_source, event_bus):
-        """Test start emits SOURCE_STARTED event."""
-        received = []
-
-        async def handler(data):
-            received.append(data)
-
-        event_bus.on(Events.SOURCE_STARTED, handler)
-
-        with patch('asyncio.create_subprocess_shell') as mock_shell, \
-             patch('asyncio.create_subprocess_exec') as mock_exec:
-            mock_proc = AsyncMock()
-            mock_proc.communicate = AsyncMock(return_value=(b"", b""))
-            mock_proc.returncode = 0
-            mock_shell.return_value = mock_proc
-
-            mock_journal = AsyncMock()
-            mock_journal.stdout = AsyncMock()
-            mock_journal.stdout.readline = AsyncMock(side_effect=asyncio.TimeoutError)
-            mock_journal.returncode = None
-            mock_journal.terminate = Mock()
-            mock_journal.wait = AsyncMock()
-            mock_exec.return_value = mock_journal
-
-            await mac_source.start()
-
-            if mac_source._monitor_task:
-                mac_source._monitor_task.cancel()
-                try:
-                    await mac_source._monitor_task
-                except asyncio.CancelledError:
-                    pass
-
-        assert len(received) == 1
-        assert received[0]["source"] == "mac"
-
-    @pytest.mark.asyncio
-    async def test_stop_emits_event(self, mac_source, event_bus):
-        """Test stop emits SOURCE_STOPPED event."""
-        received = []
-
-        async def handler(data):
-            received.append(data)
-
-        event_bus.on(Events.SOURCE_STOPPED, handler)
-
-        await mac_source.stop()
-
-        assert len(received) == 1
-        assert received[0]["source"] == "mac"
 
 
 class TestIPParsing:

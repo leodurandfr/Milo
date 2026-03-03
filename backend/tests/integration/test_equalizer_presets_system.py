@@ -24,7 +24,6 @@ from backend.core.equalizer.presets import (
     get_builtin_presets,
     get_preset_by_id
 )
-from backend.core.events import EventBus
 
 
 # =============================================================================
@@ -38,14 +37,6 @@ def mock_settings_service():
     settings.get_setting = AsyncMock(return_value=None)
     settings.set_setting = AsyncMock()
     return settings
-
-
-@pytest.fixture
-def mock_event_bus():
-    """Create mock event bus"""
-    bus = Mock(spec=EventBus)
-    bus.emit = AsyncMock()
-    return bus
 
 
 @pytest.fixture
@@ -79,11 +70,10 @@ def mock_multiroom_equalizer_service():
 
 
 @pytest.fixture
-def connected_camilladsp_service(mock_settings_service, mock_event_bus, mock_state_machine):
+def connected_camilladsp_service(mock_settings_service, mock_state_machine):
     """Create connected Equalizer service"""
     service = CamillaDSPService(
-        settings_service=mock_settings_service,
-        event_bus=mock_event_bus
+        settings_service=mock_settings_service
     )
     service.set_state_machine(mock_state_machine)
     service._connected = True
@@ -631,7 +621,7 @@ class TestAC6StartupRestoration:
     """AC6: Saved preset is applied automatically on backend restart"""
 
     @pytest.mark.asyncio
-    async def test_apply_saved_preset_on_initialization(self, mock_settings_service, mock_event_bus, mock_state_machine):
+    async def test_apply_saved_preset_on_initialization(self, mock_settings_service, mock_state_machine):
         """Should apply saved preset during initialization"""
         mock_settings_service.get_setting = AsyncMock(side_effect=lambda key: {
             "equalizer.active_preset": "rock",
@@ -642,8 +632,7 @@ class TestAC6StartupRestoration:
         }.get(key))
 
         service = CamillaDSPService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         service.set_state_machine(mock_state_machine)
         service._connected = True
@@ -668,13 +657,12 @@ class TestAC6StartupRestoration:
                         f"Filter {i} should have rock preset gain={expected_gain}"
 
     @pytest.mark.asyncio
-    async def test_apply_saved_preset_does_nothing_if_no_preset_saved(self, mock_settings_service, mock_event_bus):
+    async def test_apply_saved_preset_does_nothing_if_no_preset_saved(self, mock_settings_service):
         """Should do nothing if no preset is saved in settings"""
         mock_settings_service.get_setting = AsyncMock(return_value=None)
 
         service = CamillaDSPService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         service._connected = True
 

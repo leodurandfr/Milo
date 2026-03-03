@@ -10,7 +10,7 @@ Usage:
     from backend.features.radio import RadioSource, router
 
     # Create source
-    source = RadioSource(event_bus, config)
+    source = RadioSource(config=config, state_machine=state_machine)
 
     # Include router in FastAPI app
     app.include_router(router, prefix="/api")

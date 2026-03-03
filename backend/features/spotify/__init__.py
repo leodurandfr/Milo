@@ -9,7 +9,7 @@ Usage:
     from backend.features.spotify import SpotifySource, router
 
     # Create source
-    source = SpotifySource(event_bus, config)
+    source = SpotifySource(config=config, state_machine=state_machine)
 
     # Include router in FastAPI app
     app.include_router(router, prefix="/api")
