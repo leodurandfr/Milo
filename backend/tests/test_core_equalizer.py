@@ -27,7 +27,6 @@ from backend.core.equalizer import (
     BUILTIN_PRESETS,
     is_ip_address,
 )
-from backend.core.events import EventBus
 
 
 # =============================================================================
@@ -249,16 +248,10 @@ class TestCamillaDSPService:
         return settings
 
     @pytest.fixture
-    def mock_event_bus(self):
-        """Create mock event bus"""
-        return Mock(spec=EventBus)
-
-    @pytest.fixture
-    def camilladsp_service(self, mock_settings_service, mock_event_bus):
+    def camilladsp_service(self, mock_settings_service):
         """Create Equalizer service instance"""
         return CamillaDSPService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
 
     def test_initial_state_disconnected(self, camilladsp_service):
@@ -271,11 +264,10 @@ class TestCamillaDSPService:
         assert camilladsp_service.host == "127.0.0.1"
         assert camilladsp_service.port == 1234
 
-    def test_custom_host_port(self, mock_settings_service, mock_event_bus):
+    def test_custom_host_port(self, mock_settings_service):
         """Should accept custom host and port"""
         service = CamillaDSPService(
             settings_service=mock_settings_service,
-            event_bus=mock_event_bus,
             host="192.168.1.100",
             port=5678
         )

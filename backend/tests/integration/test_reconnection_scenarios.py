@@ -515,13 +515,6 @@ class TestReconnectionContextDetectionIntegration:
         return service
 
     @pytest.fixture
-    def mock_event_bus(self):
-        """Create a mock event bus."""
-        bus = MagicMock()
-        bus.emit = AsyncMock()
-        return bus
-
-    @pytest.fixture
     def mock_state_machine(self):
         """Create a mock state machine."""
         sm = MagicMock()
@@ -536,7 +529,7 @@ class TestReconnectionContextDetectionIntegration:
 
     @pytest.mark.asyncio
     async def test_context_detection_e2e_in_zone_others_online(
-        self, mock_settings_service, mock_event_bus, mock_state_machine
+        self, mock_settings_service, mock_state_machine
     ):
         """
         E2E: Client in zone reconnects with others online - detects IN_ZONE_OTHERS_ONLINE.
@@ -551,8 +544,7 @@ class TestReconnectionContextDetectionIntegration:
 
         # Setup registry with zone
         registry = ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         await registry.initialize()
         mock_state_machine.client_registry = registry
@@ -577,7 +569,7 @@ class TestReconnectionContextDetectionIntegration:
 
     @pytest.mark.asyncio
     async def test_context_detection_e2e_in_zone_all_offline(
-        self, mock_settings_service, mock_event_bus, mock_state_machine
+        self, mock_settings_service, mock_state_machine
     ):
         """
         E2E: Client in zone reconnects with all others offline - detects IN_ZONE_ALL_OFFLINE.
@@ -590,8 +582,7 @@ class TestReconnectionContextDetectionIntegration:
         from backend.core.multiroom.client_registry import ClientRegistryService
 
         registry = ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         await registry.initialize()
         mock_state_machine.client_registry = registry
@@ -616,7 +607,7 @@ class TestReconnectionContextDetectionIntegration:
 
     @pytest.mark.asyncio
     async def test_context_detection_e2e_standalone_others_online(
-        self, mock_settings_service, mock_event_bus, mock_state_machine
+        self, mock_settings_service, mock_state_machine
     ):
         """
         E2E: Standalone client reconnects with others online - detects STANDALONE_OTHERS_ONLINE.
@@ -630,8 +621,7 @@ class TestReconnectionContextDetectionIntegration:
         from backend.core.multiroom.client_registry import ClientRegistryService
 
         registry = ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         await registry.initialize()
         mock_state_machine.client_registry = registry
@@ -655,7 +645,7 @@ class TestReconnectionContextDetectionIntegration:
 
     @pytest.mark.asyncio
     async def test_context_detection_e2e_standalone_alone(
-        self, mock_settings_service, mock_event_bus, mock_state_machine
+        self, mock_settings_service, mock_state_machine
     ):
         """
         E2E: Standalone client reconnects alone - detects STANDALONE_ALONE.
@@ -668,8 +658,7 @@ class TestReconnectionContextDetectionIntegration:
         from backend.core.multiroom.client_registry import ClientRegistryService
 
         registry = ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         await registry.initialize()
         mock_state_machine.client_registry = registry
@@ -693,7 +682,7 @@ class TestReconnectionContextDetectionIntegration:
 
     @pytest.mark.asyncio
     async def test_context_in_sync_status_response(
-        self, mock_settings_service, mock_event_bus, mock_state_machine
+        self, mock_settings_service, mock_state_machine
     ):
         """
         E2E: Context is included in sync_status response after reconnection.
@@ -704,8 +693,7 @@ class TestReconnectionContextDetectionIntegration:
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         registry = ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         await registry.initialize()
         mock_state_machine.client_registry = registry
@@ -730,7 +718,6 @@ class TestReconnectionContextDetectionIntegration:
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
             routing_service=MagicMock(),
-            event_bus=mock_event_bus
         )
         ws_service._snapcast_service = mock_snapcast
         ws_service._volume_service = mock_volume
@@ -754,7 +741,7 @@ class TestReconnectionContextDetectionIntegration:
 
     @pytest.mark.asyncio
     async def test_zone_member_transition_context_change(
-        self, mock_settings_service, mock_event_bus, mock_state_machine
+        self, mock_settings_service, mock_state_machine
     ):
         """
         E2E: Context changes when client joins/leaves zone.
@@ -764,8 +751,7 @@ class TestReconnectionContextDetectionIntegration:
         from backend.core.multiroom.client_registry import ClientRegistryService
 
         registry = ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         await registry.initialize()
         mock_state_machine.client_registry = registry
@@ -829,13 +815,6 @@ class TestInZoneReconnectionSyncIntegration:
         return service
 
     @pytest.fixture
-    def mock_event_bus(self):
-        """Create a mock event bus."""
-        bus = MagicMock()
-        bus.emit = AsyncMock()
-        return bus
-
-    @pytest.fixture
     def mock_state_machine(self):
         """Create a mock state machine with volume_service."""
         sm = MagicMock()
@@ -868,7 +847,7 @@ class TestInZoneReconnectionSyncIntegration:
 
     @pytest.mark.asyncio
     async def test_in_zone_others_online_uses_zone_average(
-        self, mock_settings_service, mock_event_bus, mock_state_machine
+        self, mock_settings_service, mock_state_machine
     ):
         """
         E2E: IN_ZONE_OTHERS_ONLINE sync uses zone average volume (FR7, AC1).
@@ -884,8 +863,7 @@ class TestInZoneReconnectionSyncIntegration:
 
         # Setup registry
         registry = ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         await registry.initialize()
         mock_state_machine.client_registry = registry
@@ -917,7 +895,6 @@ class TestInZoneReconnectionSyncIntegration:
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
             routing_service=MagicMock(),
-            event_bus=mock_event_bus
         )
         ws_service._snapcast_service = mock_snapcast
         ws_service._volume_service = mock_state_machine.volume_service
@@ -935,7 +912,7 @@ class TestInZoneReconnectionSyncIntegration:
 
     @pytest.mark.asyncio
     async def test_in_zone_all_offline_uses_startup_volume(
-        self, mock_settings_service, mock_event_bus, mock_state_machine
+        self, mock_settings_service, mock_state_machine
     ):
         """
         E2E: IN_ZONE_ALL_OFFLINE sync uses startup_volume_db (FR8, AC2).
@@ -950,8 +927,7 @@ class TestInZoneReconnectionSyncIntegration:
 
         # Setup registry
         registry = ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         await registry.initialize()
         mock_state_machine.client_registry = registry
@@ -974,7 +950,6 @@ class TestInZoneReconnectionSyncIntegration:
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
             routing_service=MagicMock(),
-            event_bus=mock_event_bus
         )
         ws_service._volume_service = mock_state_machine.volume_service
 
@@ -989,7 +964,7 @@ class TestInZoneReconnectionSyncIntegration:
 
     @pytest.mark.asyncio
     async def test_zone_average_excludes_reconnecting_client(
-        self, mock_settings_service, mock_event_bus, mock_state_machine
+        self, mock_settings_service, mock_state_machine
     ):
         """
         E2E: Zone average calculation excludes the reconnecting client (AC1).
@@ -1000,8 +975,7 @@ class TestInZoneReconnectionSyncIntegration:
         from backend.core.multiroom.client_registry import ClientRegistryService
 
         registry = ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         await registry.initialize()
 
@@ -1035,7 +1009,7 @@ class TestInZoneReconnectionSyncIntegration:
 
     @pytest.mark.asyncio
     async def test_websocket_broadcast_after_sync(
-        self, mock_settings_service, mock_event_bus, mock_state_machine
+        self, mock_settings_service, mock_state_machine
     ):
         """
         E2E: WebSocket broadcast is sent after volume sync completes (AC4).
@@ -1045,8 +1019,7 @@ class TestInZoneReconnectionSyncIntegration:
 
         # Setup registry
         registry = ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         await registry.initialize()
         mock_state_machine.client_registry = registry
@@ -1070,7 +1043,6 @@ class TestInZoneReconnectionSyncIntegration:
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
             routing_service=MagicMock(),
-            event_bus=mock_event_bus
         )
         ws_service._snapcast_service = mock_snapcast
         ws_service._volume_service = mock_state_machine.volume_service
@@ -1097,7 +1069,7 @@ class TestInZoneReconnectionSyncIntegration:
 
     @pytest.mark.asyncio
     async def test_equalizer_sync_uses_zone_settings(
-        self, mock_settings_service, mock_event_bus, mock_state_machine
+        self, mock_settings_service, mock_state_machine
     ):
         """
         E2E: Equalizer sync uses zone.equalizer_settings for IN_ZONE contexts (AC3).
@@ -1106,8 +1078,7 @@ class TestInZoneReconnectionSyncIntegration:
         from backend.core.multiroom.models import EqualizerSettings, EqFilter, FilterType
 
         registry = ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         await registry.initialize()
 
@@ -1151,13 +1122,6 @@ class TestAC4SyncTimeCompliance:
         return service
 
     @pytest.fixture
-    def mock_event_bus(self):
-        """Create a mock event bus."""
-        bus = MagicMock()
-        bus.emit = AsyncMock()
-        return bus
-
-    @pytest.fixture
     def mock_state_machine(self):
         """Create a mock state machine with all required services."""
         sm = MagicMock()
@@ -1196,7 +1160,7 @@ class TestAC4SyncTimeCompliance:
 
     @pytest.mark.asyncio
     async def test_sync_completes_within_1_second(
-        self, mock_settings_service, mock_event_bus, mock_state_machine
+        self, mock_settings_service, mock_state_machine
     ):
         """
         AC4/NFR4: Sync process completes within 1 second.
@@ -1210,8 +1174,7 @@ class TestAC4SyncTimeCompliance:
 
         # Setup registry
         registry = ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         await registry.initialize()
         mock_state_machine.client_registry = registry
@@ -1230,7 +1193,6 @@ class TestAC4SyncTimeCompliance:
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
             routing_service=MagicMock(),
-            event_bus=mock_event_bus
         )
         ws_service._snapcast_service = mock_state_machine.snapcast_service
         ws_service._volume_service = mock_state_machine.volume_service
@@ -1257,7 +1219,7 @@ class TestAC4SyncTimeCompliance:
 
     @pytest.mark.asyncio
     async def test_sync_time_with_equalizer_operations(
-        self, mock_settings_service, mock_event_bus, mock_state_machine
+        self, mock_settings_service, mock_state_machine
     ):
         """
         AC4/NFR4: Sync time includes Equalizer operations and still completes within 1 second.
@@ -1271,8 +1233,7 @@ class TestAC4SyncTimeCompliance:
 
         # Setup registry
         registry = ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         await registry.initialize()
         mock_state_machine.client_registry = registry
@@ -1299,7 +1260,6 @@ class TestAC4SyncTimeCompliance:
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
             routing_service=MagicMock(),
-            event_bus=mock_event_bus
         )
         ws_service._snapcast_service = mock_state_machine.snapcast_service
         ws_service._volume_service = mock_state_machine.volume_service
@@ -1350,13 +1310,6 @@ class TestAC6PendingSettingsQueue:
         return service
 
     @pytest.fixture
-    def mock_event_bus(self):
-        """Create a mock event bus."""
-        bus = MagicMock()
-        bus.emit = AsyncMock()
-        return bus
-
-    @pytest.fixture
     def mock_state_machine_with_crossover(self):
         """Create a mock state machine with crossover_service for pending settings."""
         sm = MagicMock()
@@ -1381,7 +1334,7 @@ class TestAC6PendingSettingsQueue:
 
     @pytest.mark.asyncio
     async def test_failed_compressor_settings_are_queued(
-        self, mock_settings_service, mock_event_bus, mock_state_machine_with_crossover
+        self, mock_settings_service, mock_state_machine_with_crossover
     ):
         """
         AC6: Failed compressor settings are queued via queue_pending_settings().
@@ -1392,8 +1345,7 @@ class TestAC6PendingSettingsQueue:
 
         # Setup registry
         registry = ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         await registry.initialize()
         mock_state_machine_with_crossover.client_registry = registry
@@ -1414,7 +1366,6 @@ class TestAC6PendingSettingsQueue:
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine_with_crossover,
             routing_service=MagicMock(),
-            event_bus=mock_event_bus
         )
         ws_service._equalizer_client_proxy_service = mock_state_machine_with_crossover.equalizer_client_proxy_service
         ws_service._crossover_service = mock_state_machine_with_crossover.crossover_service
@@ -1438,7 +1389,7 @@ class TestAC6PendingSettingsQueue:
 
     @pytest.mark.asyncio
     async def test_failed_loudness_settings_are_queued(
-        self, mock_settings_service, mock_event_bus, mock_state_machine_with_crossover
+        self, mock_settings_service, mock_state_machine_with_crossover
     ):
         """
         AC6: Failed loudness settings are queued via queue_pending_settings().
@@ -1449,8 +1400,7 @@ class TestAC6PendingSettingsQueue:
 
         # Setup registry
         registry = ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         await registry.initialize()
         mock_state_machine_with_crossover.client_registry = registry
@@ -1471,7 +1421,6 @@ class TestAC6PendingSettingsQueue:
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine_with_crossover,
             routing_service=MagicMock(),
-            event_bus=mock_event_bus
         )
         ws_service._equalizer_client_proxy_service = mock_state_machine_with_crossover.equalizer_client_proxy_service
         ws_service._crossover_service = mock_state_machine_with_crossover.crossover_service
@@ -1492,7 +1441,7 @@ class TestAC6PendingSettingsQueue:
 
     @pytest.mark.asyncio
     async def test_failed_filter_settings_are_queued(
-        self, mock_settings_service, mock_event_bus, mock_state_machine_with_crossover
+        self, mock_settings_service, mock_state_machine_with_crossover
     ):
         """
         AC6: Failed filter settings are queued via queue_pending_settings().
@@ -1503,8 +1452,7 @@ class TestAC6PendingSettingsQueue:
 
         # Setup registry
         registry = ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         await registry.initialize()
         mock_state_machine_with_crossover.client_registry = registry
@@ -1528,7 +1476,6 @@ class TestAC6PendingSettingsQueue:
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine_with_crossover,
             routing_service=MagicMock(),
-            event_bus=mock_event_bus
         )
         ws_service._equalizer_client_proxy_service = mock_state_machine_with_crossover.equalizer_client_proxy_service
         ws_service._crossover_service = mock_state_machine_with_crossover.crossover_service
@@ -1549,7 +1496,7 @@ class TestAC6PendingSettingsQueue:
 
     @pytest.mark.asyncio
     async def test_successful_sync_does_not_queue_settings(
-        self, mock_settings_service, mock_event_bus
+        self, mock_settings_service
     ):
         """
         AC6: Successful Equalizer sync does NOT queue any pending settings.
@@ -1576,8 +1523,7 @@ class TestAC6PendingSettingsQueue:
 
         # Setup registry
         registry = ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         await registry.initialize()
         sm.client_registry = registry
@@ -1598,7 +1544,6 @@ class TestAC6PendingSettingsQueue:
         ws_service = SnapcastWebSocketService(
             state_machine=sm,
             routing_service=MagicMock(),
-            event_bus=mock_event_bus
         )
         ws_service._equalizer_client_proxy_service = sm.equalizer_client_proxy_service
         ws_service._crossover_service = sm.crossover_service
@@ -1634,13 +1579,6 @@ class TestStandaloneReconnectionSyncIntegration:
         return service
 
     @pytest.fixture
-    def mock_event_bus(self):
-        """Create a mock event bus."""
-        bus = MagicMock()
-        bus.emit = AsyncMock()
-        return bus
-
-    @pytest.fixture
     def mock_state_machine(self):
         """Create a mock state machine with volume_service."""
         sm = MagicMock()
@@ -1674,7 +1612,7 @@ class TestStandaloneReconnectionSyncIntegration:
 
     @pytest.mark.asyncio
     async def test_standalone_others_online_uses_global_average(
-        self, mock_settings_service, mock_event_bus, mock_state_machine
+        self, mock_settings_service, mock_state_machine
     ):
         """
         E2E: STANDALONE_OTHERS_ONLINE sync uses global average volume (FR9, AC1).
@@ -1690,8 +1628,7 @@ class TestStandaloneReconnectionSyncIntegration:
 
         # Setup registry
         registry = ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         await registry.initialize()
         mock_state_machine.client_registry = registry
@@ -1720,7 +1657,6 @@ class TestStandaloneReconnectionSyncIntegration:
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
             routing_service=MagicMock(),
-            event_bus=mock_event_bus
         )
         ws_service._snapcast_service = mock_snapcast
         ws_service._volume_service = mock_state_machine.volume_service
@@ -1740,7 +1676,7 @@ class TestStandaloneReconnectionSyncIntegration:
 
     @pytest.mark.asyncio
     async def test_standalone_alone_uses_startup_volume(
-        self, mock_settings_service, mock_event_bus, mock_state_machine
+        self, mock_settings_service, mock_state_machine
     ):
         """
         E2E: STANDALONE_ALONE sync uses startup_volume_db (FR10, AC2).
@@ -1755,8 +1691,7 @@ class TestStandaloneReconnectionSyncIntegration:
 
         # Setup registry
         registry = ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         await registry.initialize()
         mock_state_machine.client_registry = registry
@@ -1776,7 +1711,6 @@ class TestStandaloneReconnectionSyncIntegration:
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
             routing_service=MagicMock(),
-            event_bus=mock_event_bus
         )
         ws_service._volume_service = mock_state_machine.volume_service
 
@@ -1791,7 +1725,7 @@ class TestStandaloneReconnectionSyncIntegration:
 
     @pytest.mark.asyncio
     async def test_global_average_excludes_reconnecting_client(
-        self, mock_settings_service, mock_event_bus, mock_state_machine
+        self, mock_settings_service, mock_state_machine
     ):
         """
         E2E: Global average calculation excludes the reconnecting client (AC1).
@@ -1802,8 +1736,7 @@ class TestStandaloneReconnectionSyncIntegration:
         from backend.core.multiroom.client_registry import ClientRegistryService
 
         registry = ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         await registry.initialize()
 
@@ -1834,7 +1767,7 @@ class TestStandaloneReconnectionSyncIntegration:
 
     @pytest.mark.asyncio
     async def test_global_average_includes_both_zoned_and_standalone(
-        self, mock_settings_service, mock_event_bus, mock_state_machine
+        self, mock_settings_service, mock_state_machine
     ):
         """
         E2E: Global average includes BOTH zoned and standalone clients (AC1).
@@ -1845,8 +1778,7 @@ class TestStandaloneReconnectionSyncIntegration:
         from backend.core.multiroom.client_registry import ClientRegistryService
 
         registry = ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         await registry.initialize()
 
@@ -1879,7 +1811,7 @@ class TestStandaloneReconnectionSyncIntegration:
 
     @pytest.mark.asyncio
     async def test_standalone_equalizer_sync_uses_client_settings(
-        self, mock_settings_service, mock_event_bus, mock_state_machine
+        self, mock_settings_service, mock_state_machine
     ):
         """
         E2E: Equalizer sync for STANDALONE uses client-specific Equalizer settings (AC3).
@@ -1889,8 +1821,7 @@ class TestStandaloneReconnectionSyncIntegration:
         from backend.core.equalizer.sync import EqualizerSettingsSyncService
 
         registry = ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         await registry.initialize()
         mock_state_machine.client_registry = registry
@@ -1911,7 +1842,6 @@ class TestStandaloneReconnectionSyncIntegration:
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
             routing_service=MagicMock(),
-            event_bus=mock_event_bus
         )
 
         # Verify context is STANDALONE
@@ -1922,7 +1852,7 @@ class TestStandaloneReconnectionSyncIntegration:
 
     @pytest.mark.asyncio
     async def test_websocket_broadcast_includes_sync_context(
-        self, mock_settings_service, mock_event_bus, mock_state_machine
+        self, mock_settings_service, mock_state_machine
     ):
         """
         E2E: WebSocket broadcast includes sync_context after sync (AC5).
@@ -1932,8 +1862,7 @@ class TestStandaloneReconnectionSyncIntegration:
 
         # Setup registry
         registry = ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         await registry.initialize()
         mock_state_machine.client_registry = registry
@@ -1955,7 +1884,6 @@ class TestStandaloneReconnectionSyncIntegration:
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
             routing_service=MagicMock(),
-            event_bus=mock_event_bus
         )
         ws_service._snapcast_service = mock_snapcast
         ws_service._volume_service = mock_state_machine.volume_service
@@ -1990,7 +1918,7 @@ class TestStandaloneReconnectionSyncIntegration:
 
     @pytest.mark.asyncio
     async def test_sync_completes_within_1_second_standalone(
-        self, mock_settings_service, mock_event_bus, mock_state_machine
+        self, mock_settings_service, mock_state_machine
     ):
         """
         E2E/NFR4: STANDALONE sync completes within 1 second.
@@ -2001,8 +1929,7 @@ class TestStandaloneReconnectionSyncIntegration:
 
         # Setup registry
         registry = ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         await registry.initialize()
         mock_state_machine.client_registry = registry
@@ -2025,7 +1952,6 @@ class TestStandaloneReconnectionSyncIntegration:
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
             routing_service=MagicMock(),
-            event_bus=mock_event_bus
         )
         ws_service._snapcast_service = mock_snapcast
         ws_service._volume_service = mock_state_machine.volume_service

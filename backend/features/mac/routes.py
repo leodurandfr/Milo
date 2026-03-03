@@ -10,7 +10,7 @@ Provides REST API endpoints for:
 Usage:
     from backend.features.mac import router, MacSource
 
-    source = MacSource(event_bus, config)
+    source = MacSource(config=config)
     setup_mac_routes(lambda: source)
     app.include_router(router, prefix="/api")
 """

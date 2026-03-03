@@ -7,7 +7,6 @@ Tests cover:
 - Lifecycle (start, stop, restart)
 - Status format
 - Command handling
-- EventBus integration
 - Station data operations
 """
 import pytest
@@ -16,14 +15,7 @@ from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
 from backend.features.radio.source import RadioSource
 from backend.features.radio.data import StationDataService, ImageManager
-from backend.core.events import EventBus, Events
 from backend.core.audio_source import AudioSource, SourceState
-
-
-@pytest.fixture
-def event_bus():
-    """Create EventBus for tests."""
-    return EventBus(debug=True)
 
 
 @pytest.fixture
@@ -35,9 +27,9 @@ def config():
 
 
 @pytest.fixture
-def radio_source(event_bus, config):
+def radio_source(config):
     """Create RadioSource with mocked components."""
-    source = RadioSource(event_bus, config)
+    source = RadioSource(config)
 
     # Mock service manager
     source._service_manager = Mock()
@@ -73,16 +65,16 @@ class TestProtocolCompliance:
 class TestRadioSourceConfig:
     """Test RadioSource configuration."""
 
-    def test_default_config(self, event_bus):
+    def test_default_config(self):
         """Test default configuration values."""
-        source = RadioSource(event_bus)
+        source = RadioSource()
 
         assert source._mpv_socket == "/run/milo/radio-ipc.sock"
 
-    def test_custom_config(self, event_bus):
+    def test_custom_config(self):
         """Test custom configuration."""
         config = {"mpv_socket": "/custom/socket.sock"}
-        source = RadioSource(event_bus, config)
+        source = RadioSource(config)
 
         assert source._mpv_socket == "/custom/socket.sock"
 
@@ -266,66 +258,6 @@ class TestRadioSourceCommands:
 
         assert result["success"] is False
         assert "error" in result
-
-
-class TestRadioSourceEventBus:
-    """Test RadioSource EventBus integration."""
-
-    @pytest.mark.asyncio
-    async def test_start_emits_event(self, radio_source, event_bus):
-        """Test start emits SOURCE_STARTED event."""
-        received = []
-
-        async def handler(data):
-            received.append(data)
-
-        event_bus.on(Events.SOURCE_STARTED, handler)
-
-        with patch.object(radio_source, '_start_service', return_value=True):
-            with patch('backend.features.radio.source.StationDataService') as mock_data_class:
-                mock_data = AsyncMock()
-                mock_data.initialize = AsyncMock()
-                mock_data.get_stats = Mock(return_value={'favorites_count': 0})
-                mock_data_class.return_value = mock_data
-
-                with patch('backend.features.radio.source.RadioBrowserAPI') as mock_api_class:
-                    mock_api = AsyncMock()
-                    mock_api_class.return_value = mock_api
-
-                    with patch('backend.features.radio.source.MpvController') as mock_mpv_class:
-                        mock_mpv = Mock()
-                        mock_mpv.connect = AsyncMock(return_value=True)
-                        mock_mpv.is_connected = True
-                        mock_mpv_class.return_value = mock_mpv
-
-                        await radio_source.start()
-
-        assert len(received) == 1
-        assert received[0]["source"] == "radio"
-
-    @pytest.mark.asyncio
-    async def test_stop_emits_event(self, radio_source, event_bus):
-        """Test stop emits SOURCE_STOPPED event."""
-        received = []
-
-        async def handler(data):
-            received.append(data)
-
-        event_bus.on(Events.SOURCE_STOPPED, handler)
-
-        # Setup mocked state
-        radio_source._mpv = Mock()
-        radio_source._mpv.disconnect = AsyncMock()
-        radio_source._radio_api = Mock()
-        radio_source._radio_api.close = AsyncMock()
-        radio_source._station_data = Mock()
-        radio_source._monitor_task = None
-
-        with patch.object(radio_source, '_stop_service', return_value=True):
-            await radio_source.stop()
-
-        assert len(received) == 1
-        assert received[0]["source"] == "radio"
 
 
 class TestStationDataService:

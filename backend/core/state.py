@@ -1,22 +1,17 @@
 # backend/core/state.py
 """
-Simplified Audio State Machine using EventBus for decoupled communication.
+Audio State Machine - single source of truth for audio state.
 
-This state machine manages audio source transitions and emits events via EventBus.
-It preserves SystemAudioState structure for frontend compatibility.
+Manages audio source transitions and broadcasts state changes
+to WebSocket clients via WebSocketManager.
 
 Usage:
-    from backend.core.events import EventBus
     from backend.core.state import AudioStateMachine
 
-    event_bus = EventBus()
-    state_machine = AudioStateMachine(event_bus)
+    state_machine = AudioStateMachine()
 
     # Activate a source
     await state_machine.activate_source(AudioSource.RADIO)
-
-    # Listen to events
-    event_bus.on(Events.SOURCE_STARTED, handle_source_started)
 """
 import asyncio
 import time
@@ -26,7 +21,6 @@ from typing import Dict, Any, Optional
 
 from backend.core.models.audio_state import AudioSource, PluginState, SystemAudioState
 from backend.core.audio_source import AudioSource as AudioSourceProtocol
-from backend.core.events import EventBus, Events
 from backend.shared.decorators import handle_errors
 
 logger = logging.getLogger(__name__)
@@ -34,8 +28,7 @@ logger = logging.getLogger(__name__)
 
 class AudioStateMachine:
     """
-    Audio state machine using EventBus for internal communication
-    and WebSocketManager for frontend broadcasting.
+    Audio state machine - WebSocketManager for frontend broadcasting.
     """
 
     TRANSITION_TIMEOUT = 10.0
@@ -46,8 +39,7 @@ class AudioStateMachine:
     # their specific data — their frontend stores don't read full_state.
     _FULL_STATE_CATEGORIES = frozenset({"plugin", "system"})
 
-    def __init__(self, event_bus: EventBus):
-        self.event_bus = event_bus
+    def __init__(self):
         self.system_state = SystemAudioState()
         self.plugins: Dict[AudioSource, Optional[AudioSourceProtocol]] = {
             source: None for source in AudioSource
@@ -96,13 +88,7 @@ class AudioStateMachine:
         return self.system_state.to_dict()
 
     async def activate_source(self, source: AudioSource) -> bool:
-        """
-        Activate a source, stopping any currently active source.
-
-        Emits:
-        - Events.SOURCE_STOPPED (if stopping a source)
-        - Events.SOURCE_STARTED (if starting a source)
-        """
+        """Activate a source, stopping any currently active source."""
         return await self.transition_to_source(source)
 
     async def deactivate_source(self) -> bool:
@@ -139,12 +125,6 @@ class AudioStateMachine:
                         )
                         self.system_state.metadata = {}
 
-                    # Emit transition start via EventBus
-                    await self.event_bus.emit(Events.TRANSITION_START, {
-                        "from_source": old_source.value,
-                        "to_source": target_source.value
-                    })
-
                     await self.broadcast_event("system", "transition_start", {
                         "from_source": old_source.value,
                         "to_source": target_source.value,
@@ -166,18 +146,6 @@ class AudioStateMachine:
                         # Set state to READY after successful start
                         if target_source != AudioSource.NONE:
                             self.system_state.plugin_state = PluginState.READY
-
-                    # Emit source events via EventBus
-                    if old_source != AudioSource.NONE:
-                        await self.event_bus.emit(Events.SOURCE_STOPPED, {
-                            "source": old_source.value
-                        })
-
-                    if target_source != AudioSource.NONE:
-                        await self.event_bus.emit(Events.SOURCE_STARTED, {
-                            "source": target_source.value,
-                            "old_source": old_source.value
-                        })
 
                     await self.broadcast_event("system", "transition_complete", {
                         "active_source": target_source.value,
@@ -205,11 +173,6 @@ class AudioStateMachine:
                 })
 
                 await self._emergency_stop()
-
-                await self.event_bus.emit(Events.SOURCE_ERROR, {
-                    "source": target_source.value,
-                    "error": "Transition timeout"
-                })
                 return False
 
             except Exception as e:
@@ -226,11 +189,6 @@ class AudioStateMachine:
                 })
 
                 await self._emergency_stop()
-
-                await self.event_bus.emit(Events.SOURCE_ERROR, {
-                    "source": target_source.value,
-                    "error": str(e)
-                })
                 return False
 
     async def update_plugin_state(
@@ -239,7 +197,7 @@ class AudioStateMachine:
         new_state: PluginState,
         metadata: Optional[Dict[str, Any]] = None
     ) -> None:
-        """Update plugin state and emit events."""
+        """Update plugin state and broadcast via WebSocket."""
         async with self._state_lock:
             if source != self.system_state.active_source:
                 logger.debug(f"Ignoring state update from inactive source: {source.value}")
@@ -264,14 +222,6 @@ class AudioStateMachine:
             if new_state == PluginState.CONNECTED:
                 self._last_activity_time = monotonic()
 
-        # Emit via EventBus
-        await self.event_bus.emit(Events.SOURCE_STATE_CHANGED, {
-            "source": source.value,
-            "old_state": old_state.value,
-            "new_state": new_state.value,
-            "metadata": metadata
-        })
-
         await self.broadcast_event("plugin", "state_changed", {
             "source": source.value,
             "old_state": old_state.value,
@@ -284,10 +234,6 @@ class AudioStateMachine:
         async with self._state_lock:
             old_state = self.system_state.multiroom_enabled
             self.system_state.multiroom_enabled = enabled
-
-        await self.event_bus.emit(Events.ROUTING_MODE_CHANGED, {
-            "multiroom_enabled": enabled
-        })
 
         await self.broadcast_event("system", "state_changed", {
             "old_state": old_state,
@@ -302,10 +248,6 @@ class AudioStateMachine:
         async with self._state_lock:
             old_state = self.system_state.equalizer_effects_enabled
             self.system_state.equalizer_effects_enabled = enabled
-
-        await self.event_bus.emit(Events.EQUALIZER_CONFIG_CHANGED, {
-            "equalizer_effects_enabled": enabled
-        })
 
         await self.broadcast_event("system", "state_changed", {
             "old_state": old_state,

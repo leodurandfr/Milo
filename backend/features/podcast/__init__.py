@@ -9,7 +9,7 @@ Usage:
     from backend.features.podcast import PodcastSource, router
 
     # Create source
-    source = PodcastSource(event_bus, config)
+    source = PodcastSource(config=config, state_machine=state_machine)
 
     # Include router in FastAPI app
     app.include_router(router, prefix="/api")

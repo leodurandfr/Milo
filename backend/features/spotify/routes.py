@@ -11,7 +11,7 @@ Provides REST API endpoints for:
 Usage:
     from backend.features.spotify import router, SpotifySource
 
-    source = SpotifySource(event_bus, config)
+    source = SpotifySource(config=config)
     setup_spotify_routes(lambda: source)
     app.include_router(router, prefix="/api")
 """

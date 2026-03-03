@@ -7,7 +7,6 @@ Tests cover:
 - Lifecycle (start, stop, restart)
 - WebSocket event handling
 - Metadata refresh
-- EventBus integration
 - Command handling
 - Auto-disconnect timer
 """
@@ -18,14 +17,7 @@ import os
 
 from backend.features.spotify.source import SpotifySource
 from backend.features.spotify.websocket import LibrespotWebSocket
-from backend.core.events import EventBus, Events
 from backend.core.audio_source import AudioSource, SourceState
-
-
-@pytest.fixture
-def event_bus():
-    """Create EventBus for tests."""
-    return EventBus(debug=True)
 
 
 @pytest.fixture
@@ -45,9 +37,9 @@ audio_device: milo_spotify
 
 
 @pytest.fixture
-def spotify_source(event_bus, config):
+def spotify_source(config):
     """Create SpotifySource with mocked components."""
-    source = SpotifySource(event_bus, config)
+    source = SpotifySource(config)
 
     # Mock service manager
     source._service_manager = Mock()
@@ -83,14 +75,14 @@ class TestProtocolCompliance:
 class TestSpotifySourceConfig:
     """Test SpotifySource configuration."""
 
-    def test_default_config(self, event_bus):
+    def test_default_config(self):
         """Test default configuration values."""
-        source = SpotifySource(event_bus)
+        source = SpotifySource()
 
         assert source.auto_disconnect_enabled is True
         assert source.pause_disconnect_delay == 10.0
 
-    def test_custom_config(self, event_bus, tmp_path):
+    def test_custom_config(self, tmp_path):
         """Test custom configuration."""
         config_file = tmp_path / "config.yml"
         config_file.write_text("""
@@ -99,7 +91,7 @@ server:
   port: 5000
 """)
         config = {"config_path": str(config_file)}
-        source = SpotifySource(event_bus, config)
+        source = SpotifySource(config)
 
         # Config is loaded on start, so just verify the path is set
         assert source._config_path == str(config_file)
@@ -124,9 +116,9 @@ class TestSpotifySourceLifecycle:
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_start_no_config_file(self, event_bus):
+    async def test_start_no_config_file(self):
         """Test start fails if config file doesn't exist."""
-        source = SpotifySource(event_bus, {"config_path": "/nonexistent/path"})
+        source = SpotifySource({"config_path": "/nonexistent/path"})
         source._service_manager = Mock()
         source._service_manager.start = AsyncMock(return_value=True)
 
@@ -242,47 +234,6 @@ class TestSpotifySourceCommands:
 
         assert result["success"] is False
         assert "error" in result
-
-
-class TestSpotifySourceEventBus:
-    """Test SpotifySource EventBus integration."""
-
-    @pytest.mark.asyncio
-    async def test_start_emits_event(self, spotify_source, event_bus):
-        """Test start emits SOURCE_STARTED event."""
-        received = []
-
-        async def handler(data):
-            received.append(data)
-
-        event_bus.on(Events.SOURCE_STARTED, handler)
-
-        with patch('aiohttp.ClientSession') as mock_session_class:
-            mock_session = AsyncMock()
-            mock_session_class.return_value = mock_session
-            mock_session.close = AsyncMock()
-
-            with patch.object(spotify_source, '_start_websocket', new_callable=AsyncMock):
-                with patch.object(spotify_source, '_start_log_monitor'):
-                    await spotify_source.start()
-
-        assert len(received) == 1
-        assert received[0]["source"] == "spotify"
-
-    @pytest.mark.asyncio
-    async def test_stop_emits_event(self, spotify_source, event_bus):
-        """Test stop emits SOURCE_STOPPED event."""
-        received = []
-
-        async def handler(data):
-            received.append(data)
-
-        event_bus.on(Events.SOURCE_STOPPED, handler)
-
-        await spotify_source.stop()
-
-        assert len(received) == 1
-        assert received[0]["source"] == "spotify"
 
 
 class TestWebSocketEvents:

@@ -22,7 +22,6 @@ from typing import Dict, Any, Optional
 import aiohttp
 
 from backend.core.audio_source import BaseAudioSource, SourceState
-from backend.core.events import EventBus
 from backend.features.spotify.websocket import LibrespotWebSocket
 from backend.shared.decorators import handle_errors
 
@@ -37,38 +36,18 @@ class SpotifySource(BaseAudioSource):
     - restart(): Restart service with state reset
     - status(): Get current status with metadata
     - command(): Handle playback commands
-
-    Events emitted:
-    - source.started: Spotify source activated
-    - source.stopped: Spotify source deactivated
-    - source.state_changed: State changed (READY/CONNECTED)
     """
 
     def __init__(
         self,
-        event_bus: EventBus,
         config: Optional[Dict[str, Any]] = None,
         state_machine=None,
         settings_service=None,
         systemd_manager=None
     ):
-        """
-        Initialize Spotify source.
-
-        Args:
-            event_bus: EventBus for state notifications
-            config: Optional configuration dict with:
-                - config_path: Path to go-librespot config
-                - api_host: API host (default from config)
-                - api_port: API port (default from config)
-            state_machine: Optional state machine for state synchronization
-            settings_service: Optional settings service for auto-disconnect config
-            systemd_manager: Optional SystemdServiceManager (injected via DI)
-        """
         super().__init__(
             source_id="spotify",
             service_name="milo-spotify.service",
-            event_bus=event_bus,
             state_machine=state_machine,
             systemd_manager=systemd_manager,
             settings_service=settings_service,

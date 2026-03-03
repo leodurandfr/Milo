@@ -16,7 +16,6 @@ import asyncio
 from typing import Dict, Any, Optional
 
 from backend.core.audio_source import BaseAudioSource, SourceState
-from backend.core.events import EventBus
 from backend.features.bluetooth.agent import BluetoothAgent
 from backend.features.bluetooth.monitor import BlueAlsaMonitor
 from backend.shared.decorators import handle_errors
@@ -33,37 +32,17 @@ class BluetoothSource(BaseAudioSource):
     - status(): Get current status with connected device
     - command(): Handle disconnect
 
-    Events emitted:
-    - source.started: Bluetooth source activated
-    - source.stopped: Bluetooth source deactivated
-    - source.state_changed: State changed (READY/CONNECTED)
     """
 
     def __init__(
         self,
-        event_bus: EventBus,
         config: Optional[Dict[str, Any]] = None,
         state_machine=None,
         systemd_manager=None
     ):
-        """
-        Initialize Bluetooth source.
-
-        Args:
-            event_bus: EventBus for state notifications
-            config: Optional configuration dict with:
-                - bluetooth_service: System Bluetooth service (default "bluetooth.service")
-                - bluealsa_service: BlueALSA service name (default "milo-bluealsa.service")
-                - bluealsa_aplay_service: Playback service (default "milo-bluealsa-aplay.service")
-                - stop_bluetooth_on_exit: Stop services on stop (default True)
-                - auto_agent: Enable auto-pairing agent (default True)
-            state_machine: Optional state machine for state synchronization
-            systemd_manager: Optional SystemdServiceManager (injected via DI)
-        """
         super().__init__(
             source_id="bluetooth",
             service_name="milo-bluealsa.service",
-            event_bus=event_bus,
             state_machine=state_machine,
             systemd_manager=systemd_manager,
             config=config

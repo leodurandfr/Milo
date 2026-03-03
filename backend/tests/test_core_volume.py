@@ -15,7 +15,6 @@ from backend.core.volume import (
     VolumeConfigService,
     EqualizerController
 )
-from backend.core.events import EventBus, Events, get_event_bus, reset_event_bus
 from backend.core.models.volume import VolumeConfig
 from backend.core.models.volume_state import VolumeState, ClientVolume, ZoneVolume
 from backend.config.constants import DEFAULT_VOLUME_DB, MIN_VOLUME_DB, MAX_VOLUME_DB
@@ -301,13 +300,6 @@ class TestVolumeStateStore:
 class TestVolumeService:
     """Tests for VolumeService."""
 
-    @pytest.fixture(autouse=True)
-    def reset_bus(self):
-        """Reset EventBus before each test."""
-        reset_event_bus()
-        yield
-        reset_event_bus()
-
     @pytest.fixture
     def mock_state_machine(self):
         """Create mock state machine."""
@@ -367,25 +359,6 @@ class TestVolumeService:
         """Test service initialization."""
         assert service.state_machine == mock_state_machine
         assert service.snapcast_service == mock_snapcast_service
-        assert service.event_bus is not None
-
-    def test_event_bus_default(self, service):
-        """Test that EventBus uses global singleton when not provided."""
-        assert service.event_bus is get_event_bus()
-
-    def test_event_bus_custom(self, mock_state_machine, mock_snapcast_service,
-                              mock_settings, mock_camilladsp_service, mock_proxy_service):
-        """Test that custom EventBus is used when provided."""
-        custom_bus = EventBus()
-        service = VolumeService(
-            state_machine=mock_state_machine,
-            snapcast_service=mock_snapcast_service,
-            settings_service=mock_settings,
-            camilladsp_service=mock_camilladsp_service,
-            equalizer_client_proxy_service=mock_proxy_service,
-            event_bus=custom_bus
-        )
-        assert service.event_bus is custom_bus
 
     def test_is_multiroom_enabled_false(self, service):
         """Test multiroom disabled check."""
@@ -468,22 +441,6 @@ class TestVolumeService:
         assert hasattr(state, 'mode')
         assert hasattr(state, 'global_volume_db')
 
-    @pytest.mark.asyncio
-    async def test_broadcast_emits_eventbus_event(self, service, mock_settings):
-        """Test that broadcast also emits to EventBus."""
-        mock_settings.get_setting = AsyncMock(return_value=False)
-        events_received = []
-
-        async def handler(data):
-            events_received.append(data)
-
-        service.event_bus.on(Events.VOLUME_CHANGED, handler)
-
-        await service._broadcast_volume_state(show_bar=False)
-
-        assert len(events_received) == 1
-        assert "state" in events_received[0]
-
     def test_volume_config_clamp(self, service):
         """Test volume clamping via config."""
         config = service.config.config
@@ -516,13 +473,6 @@ class TestVolumeService:
 class TestVolumeIntegration:
     """Integration tests for volume module components."""
 
-    @pytest.fixture(autouse=True)
-    def reset_bus(self):
-        """Reset EventBus before each test."""
-        reset_event_bus()
-        yield
-        reset_event_bus()
-
     @pytest.mark.asyncio
     async def test_state_store_and_config_integration(self):
         """Test VolumeStateStore and VolumeConfigService integration."""
@@ -549,25 +499,6 @@ class TestVolumeIntegration:
         assert state_store._clamp_db(-70.0) == -60.0
         assert state_store._clamp_db(-10.0) == -15.0
 
-    @pytest.mark.asyncio
-    async def test_eventbus_volume_events(self):
-        """Test EventBus volume event flow."""
-        bus = get_event_bus()
-        events = []
-
-        async def capture_event(data):
-            events.append(data)
-
-        bus.on(Events.VOLUME_CHANGED, capture_event)
-
-        # Emit event
-        await bus.emit(Events.VOLUME_CHANGED, {
-            "show_bar": True,
-            "state": {"volume_db": -25.0}
-        })
-
-        assert len(events) == 1
-        assert events[0]["state"]["volume_db"] == -25.0
 
 
 # ============================================================================
@@ -887,13 +818,6 @@ class TestStandaloneReconnectionVolume:
 class TestStartupVolumeAutoUpdate:
     """Tests for FR11 - Auto-update startup_volume_db when restore_last_volume is enabled."""
 
-    @pytest.fixture(autouse=True)
-    def reset_bus(self):
-        """Reset EventBus before each test."""
-        reset_event_bus()
-        yield
-        reset_event_bus()
-
     @pytest.fixture
     def mock_state_machine(self):
         """Create mock state machine."""
@@ -1105,13 +1029,6 @@ class TestStartupVolumeAutoUpdate:
 
 class TestStartupVolumeOnRestart:
     """Tests for FR12 - Backend restart applies startup volume."""
-
-    @pytest.fixture(autouse=True)
-    def reset_bus(self):
-        """Reset EventBus before each test."""
-        reset_event_bus()
-        yield
-        reset_event_bus()
 
     @pytest.fixture
     def mock_state_machine(self):

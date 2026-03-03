@@ -13,7 +13,6 @@ from typing import Dict, List, Any
 
 from backend.core.models.audio_state import AudioSource, PluginState
 from backend.core.state import AudioStateMachine
-from backend.core.events import EventBus
 
 
 class WebSocketEventCollector:
@@ -132,13 +131,11 @@ def integration_state_machine(
     system resources.
 
     The state machine is configured with:
-    - EventBus for decoupled communication
     - WebSocket collector to capture broadcast events
     - Mock routing service to avoid systemd calls
     - No plugins registered (register them in tests as needed)
     """
-    event_bus = EventBus()
-    state_machine = AudioStateMachine(event_bus=event_bus)
+    state_machine = AudioStateMachine()
     state_machine.routing_service = mock_routing_service
     state_machine.ws_manager = websocket_collector
     return state_machine

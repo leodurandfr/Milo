@@ -60,31 +60,21 @@ def mock_camilladsp_service():
 
 
 @pytest.fixture
-def mock_event_bus():
-    """Create a mock event bus."""
-    bus = MagicMock()
-    bus.emit = AsyncMock()
-    return bus
-
-
-@pytest.fixture
-async def registry(mock_settings_service, mock_event_bus):
+async def registry(mock_settings_service):
     """Create an initialized ClientRegistryService."""
     service = ClientRegistryService(
-        settings_service=mock_settings_service,
-        event_bus=mock_event_bus
+        settings_service=mock_settings_service
     )
     await service.initialize()
     return service
 
 
 @pytest.fixture
-async def crossover_with_registry(mock_settings_service, mock_camilladsp_service, mock_event_bus, registry):
+async def crossover_with_registry(mock_settings_service, mock_camilladsp_service, registry):
     """Create CrossoverService integrated with ClientRegistryService."""
     crossover = CrossoverService(
         settings_service=mock_settings_service,
-        camilladsp_service=mock_camilladsp_service,
-        event_bus=mock_event_bus
+        camilladsp_service=mock_camilladsp_service
     )
     await crossover.initialize()
     crossover.set_registry(registry)
@@ -589,44 +579,6 @@ class TestAutomaticCrossoverE2E:
 
         last_call = mock_camilladsp_service.set_crossover_filter.call_args
         assert last_call.kwargs.get('enabled') is True or last_call[1].get('enabled') is True
-
-    @pytest.mark.asyncio
-    async def test_e2e_websocket_event_on_crossover_state_change(self, crossover_with_registry, mock_event_bus):
-        """E2E Test: Verify WebSocket event is broadcast when crossover state changes (AC#4)."""
-        crossover, registry = crossover_with_registry
-
-        # Setup: Zone with subwoofer
-        await registry.register_client("local", "Main", "127.0.0.1")
-        await registry.set_client_online("local", True)
-        await registry.register_client("sub-1", "Subwoofer", "192.168.1.100")
-        await registry.update_speaker_type("sub-1", "subwoofer")
-        await registry.set_client_online("sub-1", True)
-
-        zone = await registry.create_zone(generate_zone_id(), "Test", ["local", "sub-1"])
-
-        # Reset to track only crossover-related events
-        mock_event_bus.reset_mock()
-
-        # Trigger crossover recalculation via client status change
-        # This triggers _recalculate_zones_for_client which emits ZONE_UPDATED via registry
-        await crossover._recalculate_zones_for_client("sub-1")
-
-        # Verify EventBus.emit was called with multiroom.zone_changed
-        mock_event_bus.emit.assert_called()
-
-        # Find the zone_changed event call (ZONE_UPDATED maps to zone_changed)
-        zone_changed_calls = [
-            call for call in mock_event_bus.emit.call_args_list
-            if call[0][0] == "multiroom.zone_changed"
-        ]
-        assert len(zone_changed_calls) > 0, "Expected multiroom.zone_changed event via EventBus"
-
-        # Verify event data contains crossover_enabled
-        event_data = zone_changed_calls[-1][0][1]  # Second positional arg is data
-        assert "zone" in event_data, "ZONE_UPDATED event should contain zone data"
-        assert "crossover_enabled" in event_data["zone"], "Zone data should include crossover_enabled"
-        # Verify crossover is enabled (subwoofer is online)
-        assert event_data["zone"]["crossover_enabled"] is True, "Crossover should be enabled with online subwoofer"
 
     @pytest.mark.asyncio
     async def test_e2e_auto_mode_respects_subwoofer_online_status(self, crossover_with_registry, mock_camilladsp_service):

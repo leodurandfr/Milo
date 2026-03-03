@@ -9,7 +9,7 @@ Usage:
     from backend.features.bluetooth import BluetoothSource, router
 
     # Create source
-    source = BluetoothSource(event_bus, config)
+    source = BluetoothSource(config=config, state_machine=state_machine)
 
     # Include router in FastAPI app
     app.include_router(router, prefix="/api")

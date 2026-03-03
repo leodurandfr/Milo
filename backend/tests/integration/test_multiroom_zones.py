@@ -49,14 +49,6 @@ def mock_settings_service():
 
 
 @pytest.fixture
-def mock_event_bus():
-    """Mock event bus for events."""
-    bus = Mock()
-    bus.emit = AsyncMock()
-    return bus
-
-
-@pytest.fixture
 def mock_state_machine(websocket_collector: WebSocketEventCollector):
     """Mock state machine with WebSocket event collection."""
     sm = Mock()
@@ -75,11 +67,10 @@ def mock_state_machine(websocket_collector: WebSocketEventCollector):
 
 
 @pytest.fixture
-async def registry_service(mock_settings_service, mock_state_machine, mock_event_bus):
+async def registry_service(mock_settings_service, mock_state_machine):
     """ClientRegistryService with mocked dependencies."""
     service = ClientRegistryService(
-        settings_service=mock_settings_service,
-        event_bus=mock_event_bus
+        settings_service=mock_settings_service
     )
     service.set_state_machine(mock_state_machine)
     await service.initialize()

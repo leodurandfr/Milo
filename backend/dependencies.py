@@ -76,7 +76,6 @@ def _create_service(name: str) -> Any:
         ROTARY_CLK_PIN, ROTARY_DT_PIN, ROTARY_SW_PIN,
         MAC_RTP_PORT, MAC_RS8M_PORT, MAC_RTCP_PORT, MAC_AUDIO_OUTPUT,
     )
-    from backend.core.events import get_event_bus
     from backend.core.state import AudioStateMachine
     from backend.core.settings import SettingsService
     from backend.core.systemd import SystemdServiceManager
@@ -99,7 +98,6 @@ def _create_service(name: str) -> Any:
 
     creators = {
         # Core services (no dependencies or simple deps)
-        "event_bus": lambda: get_event_bus(),
         "systemd_manager": lambda: SystemdServiceManager(),
         "settings_service": lambda: SettingsService(),
         "hardware_service": lambda: HardwareService(),
@@ -107,9 +105,7 @@ def _create_service(name: str) -> Any:
         "websocket_manager": lambda: WebSocketManager(),
 
         # Services with dependencies
-        "audio_state_machine": lambda: AudioStateMachine(
-            event_bus=get_service("event_bus")
-        ),
+        "audio_state_machine": lambda: AudioStateMachine(),
         "client_registry_service": lambda: ClientRegistryService(
             settings_service=get_service("settings_service")
         ),
@@ -174,14 +170,12 @@ def _create_service(name: str) -> Any:
 
         # Audio sources
         "spotify_source": lambda: SpotifySource(
-            event_bus=get_service("event_bus"),
             config={"config_path": "/var/lib/milo/go-librespot/config.yml"},
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service"),
             systemd_manager=get_service("systemd_manager")
         ),
         "mac_source": lambda: MacSource(
-            event_bus=get_service("event_bus"),
             config={
                 "rtp_port": MAC_RTP_PORT,
                 "rs8m_port": MAC_RS8M_PORT,
@@ -192,7 +186,6 @@ def _create_service(name: str) -> Any:
             systemd_manager=get_service("systemd_manager")
         ),
         "bluetooth_source": lambda: BluetoothSource(
-            event_bus=get_service("event_bus"),
             config={
                 "daemon_options": "--keep-alive=5",
                 "bluetooth_service": "bluetooth.service",
@@ -203,7 +196,6 @@ def _create_service(name: str) -> Any:
             systemd_manager=get_service("systemd_manager")
         ),
         "radio_source": lambda: RadioSource(
-            event_bus=get_service("event_bus"),
             config={"mpv_socket": "/run/milo/radio-ipc.sock"},
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service"),
@@ -211,7 +203,6 @@ def _create_service(name: str) -> Any:
         ),
         "podcast_source": lambda: _create_podcast_source(),
         "airplay_source": lambda: AirPlaySource(
-            event_bus=get_service("event_bus"),
             config={"metadata_pipe": "/tmp/shairport-sync-metadata"},
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service"),
@@ -231,7 +222,6 @@ def _create_podcast_source():
 
     creds = _load_taddy_credentials()
     return PodcastSource(
-        event_bus=get_service("event_bus"),
         config={
             "mpv_socket": "/run/milo/podcast-ipc.sock",
             "taddy_user_id": creds["taddy_user_id"],

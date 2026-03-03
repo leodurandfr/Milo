@@ -58,7 +58,6 @@ backend/
 ├── core/                      # Core infrastructure
 │   ├── models/               # Domain models (AudioSource, PluginState, Volume)
 │   ├── state.py              # AudioStateMachine (single source of truth)
-│   ├── events.py             # EventBus for decoupled communication
 │   ├── audio_source.py       # AudioSourceProtocol interface
 │   ├── settings.py           # SettingsService
 │   ├── systemd.py            # SystemdServiceManager

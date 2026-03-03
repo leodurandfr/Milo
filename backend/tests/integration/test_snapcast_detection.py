@@ -40,24 +40,10 @@ class TestSnapcastDetectionIntegration:
         return service
 
     @pytest.fixture
-    def mock_event_bus(self):
-        """Create a mock event bus that tracks calls."""
-        bus = MagicMock()
-        bus.emit = AsyncMock()
-        bus.calls = []
-
-        async def track_emit(event, data):
-            bus.calls.append((event, data, time.time()))
-
-        bus.emit = track_emit
-        return bus
-
-    @pytest.fixture
-    async def registry(self, mock_settings_service, mock_event_bus):
+    async def registry(self, mock_settings_service):
         """Create and initialize a ClientRegistryService."""
         reg = ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         await reg.initialize()
         return reg
@@ -95,12 +81,11 @@ class TestSnapcastDetectionIntegration:
         return service
 
     @pytest.fixture
-    def ws_service(self, mock_state_machine, mock_routing_service, mock_event_bus):
+    def ws_service(self, mock_state_machine, mock_routing_service):
         """Create a SnapcastWebSocketService."""
         return SnapcastWebSocketService(
             state_machine=mock_state_machine,
-            routing_service=mock_routing_service,
-            event_bus=mock_event_bus
+            routing_service=mock_routing_service
         )
 
     # === End-to-End Flow Tests ===

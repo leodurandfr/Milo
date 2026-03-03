@@ -16,7 +16,6 @@ import asyncio
 from typing import Dict, Any, Optional
 
 from backend.core.audio_source import SourceState
-from backend.core.events import EventBus
 from backend.features.podcast.data import PodcastDataService
 from backend.shared.decorators import handle_errors
 from backend.shared.mpv import MpvController
@@ -34,38 +33,18 @@ class PodcastSource(MpvAudioSource):
     - restart(): Restart service with state reset
     - status(): Get current status with metadata
     - command(): Handle playback and data commands
-
-    Events emitted:
-    - source.started: Podcast source activated
-    - source.stopped: Podcast source deactivated
-    - source.state_changed: State changed (READY/CONNECTED)
     """
 
     def __init__(
         self,
-        event_bus: EventBus,
         config: Optional[Dict[str, Any]] = None,
         state_machine=None,
         settings_service=None,
         systemd_manager=None
     ):
-        """
-        Initialize Podcast source.
-
-        Args:
-            event_bus: EventBus for state notifications
-            config: Optional configuration dict with:
-                - mpv_socket: Path to MPV IPC socket
-                - taddy_user_id: Taddy API user ID
-                - taddy_api_key: Taddy API key
-            state_machine: Optional state machine for state synchronization
-            settings_service: Optional settings service
-            systemd_manager: Optional SystemdServiceManager (injected via DI)
-        """
         super().__init__(
             source_id="podcast",
             service_name="milo-podcast.service",
-            event_bus=event_bus,
             state_machine=state_machine,
             systemd_manager=systemd_manager,
             settings_service=settings_service,
@@ -77,7 +56,6 @@ class PodcastSource(MpvAudioSource):
 
         # Podcast data service - initialized immediately for routes access
         self._podcast_data = PodcastDataService(
-            event_bus=event_bus,
             state_machine=state_machine
         )
 

@@ -14,7 +14,6 @@ from pathlib import Path
 import aiohttp
 import aiofiles
 
-from backend.core.events import EventBus, get_event_bus
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.shared.decorators import handle_errors
 
@@ -27,12 +26,11 @@ class SnapcastService:
     WebSocket notifications are handled by SnapcastWebSocketService.
     """
 
-    def __init__(self, host: str = "localhost", port: int = 1780, event_bus: EventBus = None):
+    def __init__(self, host: str = "localhost", port: int = 1780):
         self.base_url = f"http://{host}:{port}/jsonrpc"
         self.logger = logging.getLogger(__name__)
         self._request_id = 0
         self.snapserver_conf = Path("/etc/snapserver.conf")
-        self.event_bus = event_bus or get_event_bus()
 
     async def _request(self, method: str, params: dict = None) -> dict:
         """Execute JSON-RPC request to Snapcast server."""

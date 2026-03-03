@@ -6,7 +6,6 @@ Tests cover:
 - AudioSource Protocol compliance
 - Lifecycle (start, stop, restart)
 - Device connection tracking
-- EventBus integration
 - Command handling
 - BlueALSA monitor integration
 """
@@ -17,14 +16,7 @@ from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from backend.features.bluetooth.source import BluetoothSource
 from backend.features.bluetooth.agent import BluetoothAgent
 from backend.features.bluetooth.monitor import BlueAlsaMonitor
-from backend.core.events import EventBus, Events
 from backend.core.audio_source import AudioSource, SourceState
-
-
-@pytest.fixture
-def event_bus():
-    """Create EventBus for tests."""
-    return EventBus(debug=True)
 
 
 @pytest.fixture
@@ -40,9 +32,9 @@ def config():
 
 
 @pytest.fixture
-def bluetooth_source(event_bus, config):
+def bluetooth_source(config):
     """Create BluetoothSource with mocked components."""
-    source = BluetoothSource(event_bus, config)
+    source = BluetoothSource(config)
 
     # Mock service manager
     source._service_manager = Mock()
@@ -91,9 +83,9 @@ class TestProtocolCompliance:
 class TestBluetoothSourceConfig:
     """Test BluetoothSource configuration."""
 
-    def test_default_config(self, event_bus):
+    def test_default_config(self):
         """Test default configuration values."""
-        source = BluetoothSource(event_bus)
+        source = BluetoothSource()
 
         assert source.bluetooth_service == "bluetooth.service"
         assert source.bluealsa_service == "milo-bluealsa.service"
@@ -101,7 +93,7 @@ class TestBluetoothSourceConfig:
         assert source.stop_bluetooth_on_exit is True
         assert source.auto_agent is True
 
-    def test_custom_config(self, event_bus):
+    def test_custom_config(self):
         """Test custom configuration."""
         config = {
             "bluetooth_service": "custom-bluetooth.service",
@@ -109,7 +101,7 @@ class TestBluetoothSourceConfig:
             "stop_bluetooth_on_exit": False,
             "auto_agent": False
         }
-        source = BluetoothSource(event_bus, config)
+        source = BluetoothSource(config)
 
         assert source.bluetooth_service == "custom-bluetooth.service"
         assert source.bluealsa_aplay_service == "custom-aplay.service"
@@ -245,52 +237,6 @@ class TestBluetoothSourceCommands:
 
         assert result["success"] is False
         assert "error" in result
-
-
-class TestBluetoothSourceEventBus:
-    """Test BluetoothSource EventBus integration."""
-
-    @pytest.mark.asyncio
-    async def test_start_emits_event(self, bluetooth_source, event_bus):
-        """Test start emits SOURCE_STARTED event."""
-        received = []
-
-        async def handler(data):
-            received.append(data)
-
-        event_bus.on(Events.SOURCE_STARTED, handler)
-
-        with patch('asyncio.create_subprocess_exec') as mock_exec:
-            mock_proc = AsyncMock()
-            mock_proc.communicate = AsyncMock(return_value=(b"", b""))
-            mock_proc.returncode = 0
-            mock_exec.return_value = mock_proc
-
-            await bluetooth_source.start()
-
-        assert len(received) == 1
-        assert received[0]["source"] == "bluetooth"
-
-    @pytest.mark.asyncio
-    async def test_stop_emits_event(self, bluetooth_source, event_bus):
-        """Test stop emits SOURCE_STOPPED event."""
-        received = []
-
-        async def handler(data):
-            received.append(data)
-
-        event_bus.on(Events.SOURCE_STOPPED, handler)
-
-        with patch('asyncio.create_subprocess_exec') as mock_exec:
-            mock_proc = AsyncMock()
-            mock_proc.communicate = AsyncMock(return_value=(b"", b""))
-            mock_proc.returncode = 0
-            mock_exec.return_value = mock_proc
-
-            await bluetooth_source.stop()
-
-        assert len(received) == 1
-        assert received[0]["source"] == "bluetooth"
 
 
 class TestConnectionState:

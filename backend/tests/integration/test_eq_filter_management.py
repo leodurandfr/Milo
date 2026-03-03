@@ -24,7 +24,6 @@ from backend.core.equalizer import (
     DEFAULT_CUSTOM_GAINS,
     BUILTIN_PRESETS,
 )
-from backend.core.events import EventBus
 from backend.core.multiroom.models import (
     EqualizerSettings,
     EqFilter,
@@ -48,13 +47,6 @@ class TestAC1FilterParameterUpdate:
         return settings
 
     @pytest.fixture
-    def mock_event_bus(self):
-        """Create mock event bus"""
-        bus = Mock(spec=EventBus)
-        bus.emit = AsyncMock()
-        return bus
-
-    @pytest.fixture
     def mock_state_machine(self):
         """Create mock state machine"""
         sm = Mock()
@@ -62,11 +54,10 @@ class TestAC1FilterParameterUpdate:
         return sm
 
     @pytest.fixture
-    def connected_camilladsp_service(self, mock_settings_service, mock_event_bus, mock_state_machine):
+    def connected_camilladsp_service(self, mock_settings_service, mock_state_machine):
         """Create connected Equalizer service with mocked CamillaClient"""
         service = CamillaDSPService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         service.set_state_machine(mock_state_machine)
 
@@ -80,7 +71,7 @@ class TestAC1FilterParameterUpdate:
         return service
 
     @pytest.mark.asyncio
-    async def test_set_filter_broadcasts_filter_changed_event(self, connected_camilladsp_service, mock_state_machine, mock_event_bus):
+    async def test_set_filter_broadcasts_filter_changed_event(self, connected_camilladsp_service, mock_state_machine):
         """Should broadcast filter_changed event when filter is updated"""
         # Mock CamillaClient methods
         mock_config = {
@@ -162,25 +153,17 @@ class TestAC2SetFilterMethod:
         return settings
 
     @pytest.fixture
-    def mock_event_bus(self):
-        bus = Mock(spec=EventBus)
-        bus.emit = AsyncMock()
-        return bus
-
-    @pytest.fixture
-    def disconnected_camilladsp_service(self, mock_settings_service, mock_event_bus):
+    def disconnected_camilladsp_service(self, mock_settings_service):
         """Create disconnected Equalizer service"""
         return CamillaDSPService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
 
     @pytest.fixture
-    def connected_camilladsp_service(self, mock_settings_service, mock_event_bus):
+    def connected_camilladsp_service(self, mock_settings_service):
         """Create connected Equalizer service"""
         service = CamillaDSPService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         service._connected = True
         service._state = CamillaDspState.RUNNING
@@ -356,17 +339,10 @@ class TestAC4NoAutoSwitch:
         return settings
 
     @pytest.fixture
-    def mock_event_bus(self):
-        bus = Mock(spec=EventBus)
-        bus.emit = AsyncMock()
-        return bus
-
-    @pytest.fixture
-    def connected_camilladsp_service_on_preset(self, mock_settings_service, mock_event_bus):
+    def connected_camilladsp_service_on_preset(self, mock_settings_service):
         """Create connected Equalizer service that's on a predefined preset"""
         service = CamillaDSPService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         service._connected = True
         service._state = CamillaDspState.RUNNING

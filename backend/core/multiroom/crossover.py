@@ -19,7 +19,6 @@ from typing import Dict, List, Any, Optional, TYPE_CHECKING
 import aiohttp
 
 from backend.shared.decorators import handle_errors
-from backend.core.events import EventBus, get_event_bus
 from backend.config.constants import CLIENT_API_PORT as _CLIENT_API_PORT
 from backend.core.multiroom.models import (
     SPEAKER_TYPES,
@@ -47,11 +46,10 @@ class CrossoverService:
     DEFAULT_Q = 0.707  # Butterworth (flattest passband)
     CLIENT_API_PORT = _CLIENT_API_PORT
 
-    def __init__(self, settings_service=None, camilladsp_service=None, event_bus: EventBus = None):
+    def __init__(self, settings_service=None, camilladsp_service=None):
         self.logger = logging.getLogger(__name__)
         self.settings_service = settings_service
         self.camilladsp_service = camilladsp_service
-        self.event_bus = event_bus or get_event_bus()
 
         # State machine reference (set by container)
         self.state_machine = None
@@ -531,14 +529,12 @@ class CrossoverService:
         if zone:
             await self.apply_zone_crossover(zone.id)
 
-            # Broadcast zone update directly (WebSocket + EventBus) without using
+            # Broadcast zone update directly (WebSocket) without using
             # registry._emit_event(ZONE_UPDATED), which would re-enter
             # _handle_registry_event and call apply_zone_crossover a second time.
             zone_data = {"zone_id": zone.id, "zone": self._registry.zone_to_enriched_dict(zone)}
             if self.state_machine:
                 await self.state_machine.broadcast_event("multiroom", "zone_changed", zone_data)
-            if self.event_bus:
-                await self.event_bus.emit("multiroom.zone_changed", zone_data)
 
     async def on_zone_changed(self, zone_id: str) -> None:
         """Handle zone composition changes."""
@@ -548,12 +544,9 @@ class CrossoverService:
     # === Event Broadcasting ===
 
     async def _broadcast_event(self, event_type: str, data: Dict[str, Any]) -> None:
-        """Broadcast crossover event via state machine and EventBus."""
+        """Broadcast crossover event via state machine (WebSocket)."""
         if self.state_machine:
             await self.state_machine.broadcast_event("multiroom", "crossover_changed", data)
-
-        if self.event_bus:
-            await self.event_bus.emit("multiroom.crossover_changed", data)
 
     # === Pending Settings Queue for Offline Clients ===
 

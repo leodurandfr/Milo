@@ -402,18 +402,10 @@ class TestClientRegistryService:
         return service
 
     @pytest.fixture
-    def mock_event_bus(self):
-        """Create a mock event bus."""
-        bus = MagicMock()
-        bus.emit = AsyncMock()
-        return bus
-
-    @pytest.fixture
-    def registry(self, mock_settings_service, mock_event_bus):
+    def registry(self, mock_settings_service):
         """Create a ClientRegistryService instance."""
         return ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
 
     @pytest.mark.asyncio
@@ -817,7 +809,7 @@ class TestClientRegistryService:
         )
 
     @pytest.mark.asyncio
-    async def test_initialization_loads_clients_offline(self, mock_settings_service, mock_event_bus):
+    async def test_initialization_loads_clients_offline(self, mock_settings_service):
         """Test that initialization loads clients with online=False (AC7)."""
         # Setup mock to return persisted client data
         mock_settings_service.get_setting = AsyncMock(side_effect=lambda key, default=None: {
@@ -832,8 +824,7 @@ class TestClientRegistryService:
         }.get(key, default))
 
         registry = ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
 
         await registry.initialize()
@@ -857,18 +848,10 @@ class TestZoneAverageVolume:
         return service
 
     @pytest.fixture
-    def mock_event_bus(self):
-        """Create a mock event bus."""
-        bus = MagicMock()
-        bus.emit = AsyncMock()
-        return bus
-
-    @pytest.fixture
-    def registry(self, mock_settings_service, mock_event_bus):
+    def registry(self, mock_settings_service):
         """Create a ClientRegistryService instance."""
         return ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
 
     @pytest.mark.asyncio
@@ -1055,18 +1038,10 @@ class TestGlobalAverageVolume:
         return service
 
     @pytest.fixture
-    def mock_event_bus(self):
-        """Create a mock event bus."""
-        bus = MagicMock()
-        bus.emit = AsyncMock()
-        return bus
-
-    @pytest.fixture
-    def registry(self, mock_settings_service, mock_event_bus):
+    def registry(self, mock_settings_service):
         """Create a ClientRegistryService instance."""
         return ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
 
     @pytest.mark.asyncio
@@ -1232,16 +1207,9 @@ class TestSnapcastService:
     """Tests for SnapcastService."""
 
     @pytest.fixture
-    def mock_event_bus(self):
-        """Create a mock event bus."""
-        bus = MagicMock()
-        bus.emit = AsyncMock()
-        return bus
-
-    @pytest.fixture
-    def snapcast_service(self, mock_event_bus):
+    def snapcast_service(self):
         """Create a SnapcastService instance."""
-        return SnapcastService(event_bus=mock_event_bus)
+        return SnapcastService()
 
     def test_compute_mac_id_local_via_service(self, snapcast_service):
         """Test computing mac_id for local client via ClientRegistryService."""
@@ -1377,14 +1345,7 @@ class TestCrossoverService:
         return registry
 
     @pytest.fixture
-    def mock_event_bus(self):
-        """Create a mock event bus."""
-        bus = MagicMock()
-        bus.emit = AsyncMock()
-        return bus
-
-    @pytest.fixture
-    def crossover_service(self, mock_settings_service, mock_camilladsp_service, mock_registry, mock_event_bus):
+    def crossover_service(self, mock_settings_service, mock_camilladsp_service, mock_registry):
         """Create a CrossoverService instance with mock registry for local client."""
         # Configure mock registry to return local client
         local_client = MagicMock()
@@ -1395,8 +1356,7 @@ class TestCrossoverService:
 
         service = CrossoverService(
             settings_service=mock_settings_service,
-            camilladsp_service=mock_camilladsp_service,
-            event_bus=mock_event_bus
+            camilladsp_service=mock_camilladsp_service
         )
         # Set registry via setter (not constructor parameter)
         service.set_registry(mock_registry)
@@ -1504,11 +1464,8 @@ class TestMultiroomIntegration:
         mock_camilladsp_mock.set_crossover_filter = AsyncMock(return_value=True)
         mock_camilladsp_mock.set_lowpass_filter = AsyncMock(return_value=True)
 
-        mock_bus = MagicMock()
-        mock_bus.emit = AsyncMock()
-
-        registry = ClientRegistryService(settings_service=mock_settings, event_bus=mock_bus)
-        crossover = CrossoverService(settings_service=mock_settings, camilladsp_service=mock_camilladsp_mock, event_bus=mock_bus)
+        registry = ClientRegistryService(settings_service=mock_settings)
+        crossover = CrossoverService(settings_service=mock_settings, camilladsp_service=mock_camilladsp_mock)
 
         # Initialize
         await registry.initialize()
@@ -1660,8 +1617,6 @@ class TestPendingEqualizerSettings:
     def crossover_service(self, mock_camilladsp):
         """Create CrossoverService with mock Equalizer and registry for local client."""
         mock_settings = AsyncMock()
-        mock_bus = MagicMock()
-        mock_bus.emit = AsyncMock()
 
         # Configure mock registry for local client
         mock_registry = MagicMock()
@@ -1673,8 +1628,7 @@ class TestPendingEqualizerSettings:
 
         service = CrossoverService(
             settings_service=mock_settings,
-            camilladsp_service=mock_camilladsp,
-            event_bus=mock_bus
+            camilladsp_service=mock_camilladsp
         )
         service.set_registry(mock_registry)
         return service
@@ -2178,18 +2132,10 @@ class TestSnapcastClientDetection:
         return service
 
     @pytest.fixture
-    def mock_event_bus(self):
-        """Create a mock event bus."""
-        bus = MagicMock()
-        bus.emit = AsyncMock()
-        return bus
-
-    @pytest.fixture
-    def registry(self, mock_settings_service, mock_event_bus):
+    def registry(self, mock_settings_service):
         """Create an initialized registry."""
         reg = ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
         return reg
 
@@ -2218,7 +2164,7 @@ class TestSnapcastClientDetection:
     # === AC1: Client Connection Detection ===
 
     @pytest.mark.asyncio
-    async def test_client_connect_registers_client(self, registry, mock_state_machine, mock_event_bus):
+    async def test_client_connect_registers_client(self, registry, mock_state_machine):
         """AC1: When Snapcast client connects, registry receives event and marks client online."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
@@ -2227,8 +2173,7 @@ class TestSnapcastClientDetection:
 
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
-            routing_service=MagicMock(),
-            event_bus=mock_event_bus
+            routing_service=MagicMock()
         )
 
         # Simulate Client.OnConnect params (with MAC address as required)
@@ -2249,7 +2194,7 @@ class TestSnapcastClientDetection:
         assert client.online is True
 
     @pytest.mark.asyncio
-    async def test_client_connect_broadcasts_event(self, registry, mock_state_machine, mock_event_bus):
+    async def test_client_connect_broadcasts_event(self, registry, mock_state_machine):
         """AC1: WebSocket event 'client_connected' is broadcast to frontend."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
@@ -2258,8 +2203,7 @@ class TestSnapcastClientDetection:
 
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
-            routing_service=MagicMock(),
-            event_bus=mock_event_bus
+            routing_service=MagicMock()
         )
 
         params = {
@@ -2282,7 +2226,7 @@ class TestSnapcastClientDetection:
     # === AC2: Client Disconnection Detection ===
 
     @pytest.mark.asyncio
-    async def test_client_disconnect_marks_offline(self, registry, mock_state_machine, mock_event_bus):
+    async def test_client_disconnect_marks_offline(self, registry, mock_state_machine):
         """AC2: When Snapcast client disconnects, registry marks client offline."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
@@ -2295,8 +2239,7 @@ class TestSnapcastClientDetection:
 
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
-            routing_service=MagicMock(),
-            event_bus=mock_event_bus
+            routing_service=MagicMock()
         )
 
         # Simulate Client.OnDisconnect params (with MAC address as required)
@@ -2316,7 +2259,7 @@ class TestSnapcastClientDetection:
         assert client.online is False
 
     @pytest.mark.asyncio
-    async def test_client_disconnect_broadcasts_event(self, registry, mock_state_machine, mock_event_bus):
+    async def test_client_disconnect_broadcasts_event(self, registry, mock_state_machine):
         """AC2: WebSocket event 'client_disconnected' is broadcast on disconnect."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
@@ -2328,8 +2271,7 @@ class TestSnapcastClientDetection:
 
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
-            routing_service=MagicMock(),
-            event_bus=mock_event_bus
+            routing_service=MagicMock()
         )
 
         params = {
@@ -2354,7 +2296,7 @@ class TestSnapcastClientDetection:
     # === AC3: Auto-Registration with Default Values ===
 
     @pytest.mark.asyncio
-    async def test_new_client_auto_registered_with_defaults(self, registry, mock_state_machine, mock_event_bus):
+    async def test_new_client_auto_registered_with_defaults(self, registry, mock_state_machine):
         """AC3: New unknown client is auto-registered with correct default values."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
@@ -2363,8 +2305,7 @@ class TestSnapcastClientDetection:
 
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
-            routing_service=MagicMock(),
-            event_bus=mock_event_bus
+            routing_service=MagicMock()
         )
 
         # New client never seen before (with MAC address as required by compute_mac_id)
@@ -2388,7 +2329,7 @@ class TestSnapcastClientDetection:
         assert client.zone_id is None  # standalone
 
     @pytest.mark.asyncio
-    async def test_new_client_uses_snapcast_name(self, registry, mock_state_machine, mock_event_bus):
+    async def test_new_client_uses_snapcast_name(self, registry, mock_state_machine):
         """AC3: New client uses name from Snapcast (hostname or config name)."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
@@ -2397,8 +2338,7 @@ class TestSnapcastClientDetection:
 
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
-            routing_service=MagicMock(),
-            event_bus=mock_event_bus
+            routing_service=MagicMock()
         )
 
         params = {
@@ -2417,7 +2357,7 @@ class TestSnapcastClientDetection:
     # === AC4: WebSocket Event Format ===
 
     @pytest.mark.asyncio
-    async def test_registry_event_format(self, registry, mock_state_machine, mock_event_bus):
+    async def test_registry_event_format(self, registry, mock_state_machine):
         """AC4: Registry events follow specified format with category, type, and data."""
         await registry.initialize()
         registry.set_state_machine(mock_state_machine)
@@ -2436,7 +2376,7 @@ class TestSnapcastClientDetection:
         assert "client" in data
 
     @pytest.mark.asyncio
-    async def test_set_client_online_event_format(self, registry, mock_state_machine, mock_event_bus):
+    async def test_set_client_online_event_format(self, registry, mock_state_machine):
         """AC4: set_client_online emits event with correct format."""
         await registry.initialize()
         registry.set_state_machine(mock_state_machine)
@@ -2457,7 +2397,7 @@ class TestSnapcastClientDetection:
         assert "client" in data
 
     @pytest.mark.asyncio
-    async def test_set_client_offline_event_format(self, registry, mock_state_machine, mock_event_bus):
+    async def test_set_client_offline_event_format(self, registry, mock_state_machine):
         """AC4: set_client_online(False) emits client_disconnected event."""
         await registry.initialize()
         registry.set_state_machine(mock_state_machine)
@@ -2506,7 +2446,7 @@ class TestSnapcastClientDetection:
     # === Event Timing (NFR2) is tested via integration tests ===
 
     @pytest.mark.asyncio
-    async def test_event_emission_is_async(self, registry, mock_state_machine, mock_event_bus):
+    async def test_event_emission_is_async(self, registry, mock_state_machine):
         """Verify events are emitted asynchronously (prerequisite for <100ms timing)."""
         import asyncio
 
@@ -2570,18 +2510,10 @@ class TestReconnectionContextDetection:
         return service
 
     @pytest.fixture
-    def mock_event_bus(self):
-        """Create a mock event bus."""
-        bus = MagicMock()
-        bus.emit = AsyncMock()
-        return bus
-
-    @pytest.fixture
-    def registry(self, mock_settings_service, mock_event_bus):
+    def registry(self, mock_settings_service):
         """Create a ClientRegistryService instance."""
         return ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
 
     # === AC1: Zone Membership Detection ===
@@ -2750,18 +2682,10 @@ class TestReconnectionHelperMethods:
         return service
 
     @pytest.fixture
-    def mock_event_bus(self):
-        """Create a mock event bus."""
-        bus = MagicMock()
-        bus.emit = AsyncMock()
-        return bus
-
-    @pytest.fixture
-    def registry(self, mock_settings_service, mock_event_bus):
+    def registry(self, mock_settings_service):
         """Create a ClientRegistryService instance."""
         return ClientRegistryService(
-            settings_service=mock_settings_service,
-            event_bus=mock_event_bus
+            settings_service=mock_settings_service
         )
 
     @pytest.mark.asyncio

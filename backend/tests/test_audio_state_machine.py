@@ -4,7 +4,6 @@ Unit tests for AudioStateMachine.
 
 Tests cover:
 - Source activation/deactivation (AC1, AC3)
-- EventBus emission (AC2)
 - State transitions (AC5)
 - WebSocket broadcasting
 """
@@ -13,20 +12,13 @@ import asyncio
 from unittest.mock import Mock, AsyncMock, patch
 
 from backend.core.state import AudioStateMachine
-from backend.core.events import EventBus, Events
 from backend.core.models.audio_state import AudioSource, PluginState
 
 
 @pytest.fixture
-def event_bus():
-    """Create a fresh EventBus for each test."""
-    return EventBus(debug=True)
-
-
-@pytest.fixture
-def state_machine(event_bus):
-    """Create AudioStateMachine with EventBus."""
-    return AudioStateMachine(event_bus)
+def state_machine():
+    """Create AudioStateMachine."""
+    return AudioStateMachine()
 
 
 @pytest.fixture
@@ -156,86 +148,6 @@ class TestDirectTransition:
         mock_spotify.start.assert_called()
 
 
-class TestEventBusEmission:
-    """Test EventBus event emission."""
-
-    @pytest.mark.asyncio
-    async def test_source_started_event(self, state_machine, event_bus, mock_plugin):
-        """Test SOURCE_STARTED event is emitted."""
-        received = []
-
-        async def handler(data):
-            received.append(data)
-
-        event_bus.on(Events.SOURCE_STARTED, handler)
-        state_machine.register_plugin(AudioSource.RADIO, mock_plugin)
-
-        await state_machine.activate_source(AudioSource.RADIO)
-
-        assert len(received) == 1
-        assert received[0]["source"] == "radio"
-        assert received[0]["old_source"] == "none"
-
-    @pytest.mark.asyncio
-    async def test_source_stopped_event(self, state_machine, event_bus, mock_plugin):
-        """Test SOURCE_STOPPED event is emitted on deactivation."""
-        received = []
-
-        async def handler(data):
-            received.append(data)
-
-        event_bus.on(Events.SOURCE_STOPPED, handler)
-        state_machine.register_plugin(AudioSource.RADIO, mock_plugin)
-
-        await state_machine.activate_source(AudioSource.RADIO)
-        await state_machine.deactivate_source()
-
-        assert len(received) == 1
-        assert received[0]["source"] == "radio"
-
-    @pytest.mark.asyncio
-    async def test_transition_start_event(self, state_machine, event_bus, mock_plugin):
-        """Test TRANSITION_START event is emitted."""
-        received = []
-
-        async def handler(data):
-            received.append(data)
-
-        event_bus.on(Events.TRANSITION_START, handler)
-        state_machine.register_plugin(AudioSource.RADIO, mock_plugin)
-
-        await state_machine.activate_source(AudioSource.RADIO)
-
-        assert len(received) == 1
-        assert received[0]["from_source"] == "none"
-        assert received[0]["to_source"] == "radio"
-
-    @pytest.mark.asyncio
-    async def test_source_state_changed_event(self, state_machine, event_bus, mock_plugin):
-        """Test SOURCE_STATE_CHANGED event is emitted."""
-        received = []
-
-        async def handler(data):
-            received.append(data)
-
-        event_bus.on(Events.SOURCE_STATE_CHANGED, handler)
-        state_machine.register_plugin(AudioSource.RADIO, mock_plugin)
-
-        # Activate source first
-        await state_machine.activate_source(AudioSource.RADIO)
-
-        # Update plugin state
-        await state_machine.update_plugin_state(
-            AudioSource.RADIO,
-            PluginState.CONNECTED,
-            {"title": "Test Station"}
-        )
-
-        assert len(received) == 1
-        assert received[0]["source"] == "radio"
-        assert received[0]["new_state"] == "connected"
-
-
 class TestPluginStateUpdate:
     """Test plugin state updates."""
 
@@ -290,36 +202,18 @@ class TestMultiroomAndEqualizer:
     """Test multiroom and Equalizer state updates."""
 
     @pytest.mark.asyncio
-    async def test_update_multiroom_state(self, state_machine, event_bus):
+    async def test_update_multiroom_state(self, state_machine):
         """Test updating multiroom state."""
-        received = []
-
-        async def handler(data):
-            received.append(data)
-
-        event_bus.on(Events.ROUTING_MODE_CHANGED, handler)
-
         await state_machine.update_multiroom_state(True)
 
         assert state_machine.system_state.multiroom_enabled is True
-        assert len(received) == 1
-        assert received[0]["multiroom_enabled"] is True
 
     @pytest.mark.asyncio
-    async def test_update_equalizer_effects_state(self, state_machine, event_bus):
+    async def test_update_equalizer_effects_state(self, state_machine):
         """Test updating Equalizer effects state."""
-        received = []
-
-        async def handler(data):
-            received.append(data)
-
-        event_bus.on(Events.EQUALIZER_CONFIG_CHANGED, handler)
-
         await state_machine.update_equalizer_effects_state(True)
 
         assert state_machine.system_state.equalizer_effects_enabled is True
-        assert len(received) == 1
-        assert received[0]["equalizer_effects_enabled"] is True
 
 
 class TestWebSocketBroadcasting:
@@ -388,8 +282,8 @@ class TestTransitionTimeout:
     """Test transition timeout handling."""
 
     @pytest.mark.asyncio
-    async def test_transition_timeout(self, state_machine, event_bus):
-        """Test transition timeout emits error."""
+    async def test_transition_timeout(self, state_machine):
+        """Test transition timeout results in failure."""
         slow_plugin = Mock()
         slow_plugin.initialize = AsyncMock(return_value=True)
 
@@ -404,18 +298,9 @@ class TestTransitionTimeout:
         state_machine.register_plugin(AudioSource.RADIO, slow_plugin)
         state_machine.TRANSITION_TIMEOUT = 0.1  # Very short timeout for test
 
-        received_errors = []
-
-        async def handler(data):
-            received_errors.append(data)
-
-        event_bus.on(Events.SOURCE_ERROR, handler)
-
         result = await state_machine.activate_source(AudioSource.RADIO)
 
         assert result is False
-        assert len(received_errors) == 1
-        assert "timeout" in received_errors[0]["error"].lower()
 
 
 class TestEmergencyStop:

@@ -14,7 +14,6 @@ import asyncio
 import logging
 from typing import Dict, List, Optional, Callable, Awaitable, Any
 
-from backend.core.events import EventBus, get_event_bus
 from backend.core.multiroom.models import (
     Client,
     Zone,
@@ -57,11 +56,10 @@ class ClientRegistryService:
     - Manage standalone equalizer settings
     """
 
-    def __init__(self, settings_service=None, event_bus: EventBus = None):
+    def __init__(self, settings_service=None):
         self.logger = logging.getLogger(__name__)
         self._settings_service = settings_service
         self._state_machine = None
-        self.event_bus = event_bus or get_event_bus()
 
         # Core state - protected by lock
         self._clients: Dict[str, Client] = {}
@@ -1138,16 +1136,11 @@ class ClientRegistryService:
         return _EVENT_TYPE_MAP.get(event_type, event_type.lower())
 
     async def _emit_event(self, event_type: str, data: Dict[str, Any]) -> None:
-        """Emit event to all subscribers and broadcast via WebSocket."""
+        """Broadcast event via WebSocket and notify local subscribers."""
         mapped_type = self._map_event_type(event_type)
 
-        # Broadcast via state machine (WebSocket to frontend)
         if self._state_machine:
             await self._state_machine.broadcast_event("multiroom", mapped_type, data)
-
-        # Emit via EventBus
-        if self.event_bus:
-            await self.event_bus.emit(f"multiroom.{mapped_type}", data)
 
         # Notify local subscribers
         for callback in self._subscribers:
