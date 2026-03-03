@@ -112,7 +112,7 @@ class I18nService {
   // Change language via API (automatic WebSocket broadcast)
   async setLanguage(language) {
     try {
-      const response = await axios.post('/api/settings/language', { language });
+      const response = await axios.put('/api/settings/language', { language });
       
       if (response.data.status === 'success') {
         return true;
