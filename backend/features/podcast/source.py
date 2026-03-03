@@ -609,29 +609,3 @@ class PodcastSource(MpvAudioSource):
         """Get current playback speed."""
         return self._playback_speed
 
-    # === Additional Methods for Routes ===
-
-    async def play_episode(self, episode_uuid: str) -> bool:
-        """Play an episode (convenience method for routes)."""
-        result = await self.command("play_episode", {"episode_uuid": episode_uuid})
-        return result.get("success", False)
-
-    async def pause(self) -> bool:
-        """Pause playback (convenience method for routes)."""
-        result = await self.command("pause", {})
-        return result.get("success", False)
-
-    async def resume(self) -> bool:
-        """Resume playback (convenience method for routes)."""
-        result = await self.command("resume", {})
-        return result.get("success", False)
-
-    async def seek(self, position: int) -> bool:
-        """Seek to position (convenience method for routes)."""
-        result = await self.command("seek", {"position": position})
-        return result.get("success", False)
-
-    async def set_speed(self, speed: float) -> bool:
-        """Set playback speed (convenience method for routes)."""
-        result = await self.command("set_speed", {"speed": speed})
-        return result.get("success", False)

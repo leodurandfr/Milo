@@ -25,9 +25,18 @@ from backend.features.podcast.models import (
     SettingsRequest
 )
 from backend.features.podcast.source import PodcastSource
+from backend.features.podcast.taddy_api import (
+    map_milo_language_to_taddy,
+    map_milo_language_to_itunes_country,
+    map_milo_language_to_taddy_country,
+)
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/podcast", tags=["podcast"])
+router = APIRouter(
+    prefix="/podcast",
+    tags=["podcast"],
+    responses={404: {"description": "Not found"}},
+)
 
 set_source_provider, get_source = make_source_dependency("Podcast")
 
@@ -36,41 +45,6 @@ def setup_podcast_routes(source_provider) -> APIRouter:
     """Configure routes with source provider."""
     set_source_provider(source_provider)
     return router
-
-
-# === Language/Country Mappings ===
-
-ITUNES_COUNTRY_TO_TADDY_COUNTRY = {
-    'us': 'UNITED_STATES_OF_AMERICA',
-    'fr': 'FRANCE',
-    'de': 'GERMANY',
-    'es': 'SPAIN',
-    'it': 'ITALY',
-    'pt': 'PORTUGAL',
-    'cn': 'CHINA',
-    'in': 'INDIA',
-    'gb': 'UNITED_KINGDOM',
-    'ca': 'CANADA',
-    'au': 'AUSTRALIA',
-    'mx': 'MEXICO',
-    'br': 'BRAZIL',
-    'jp': 'JAPAN',
-    'kr': 'SOUTH_KOREA',
-    'nl': 'NETHERLANDS',
-    'se': 'SWEDEN',
-    'no': 'NORWAY',
-    'dk': 'DENMARK',
-    'fi': 'FINLAND',
-    'pl': 'POLAND',
-    'ru': 'RUSSIA',
-    'tr': 'TURKEY',
-    'sa': 'SAUDI_ARABIA',
-    'ae': 'UNITED_ARAB_EMIRATES',
-    'za': 'SOUTH_AFRICA',
-    'ar': 'ARGENTINA',
-    'cl': 'CHILE',
-    'co': 'COLOMBIA',
-}
 
 
 # === Status Route ===
@@ -106,14 +80,12 @@ async def get_top_charts(
 ) -> Dict[str, Any]:
     """Get top charts using user's language from settings."""
     try:
-        from backend.features.podcast.taddy_api import map_milo_language_to_itunes_country
         from backend.dependencies import get_service
         settings_service = get_service("settings_service")
         settings = await settings_service.load_settings()
         milo_language = settings.get('language', 'english')
         itunes_country = map_milo_language_to_itunes_country(milo_language)
-
-        taddy_country = ITUNES_COUNTRY_TO_TADDY_COUNTRY.get(itunes_country, 'UNITED_STATES_OF_AMERICA')
+        taddy_country = map_milo_language_to_taddy_country(milo_language)
 
         result = await source.taddy_api.get_top_charts_by_country(
             country=taddy_country,
@@ -153,10 +125,6 @@ async def get_content_by_genre(
 ) -> Dict[str, Any]:
     """Get top podcasts for a specific genre using user's language."""
     try:
-        from backend.features.podcast.taddy_api import (
-            map_milo_language_to_taddy,
-            map_milo_language_to_itunes_country
-        )
         from backend.dependencies import get_service
         settings_service = get_service("settings_service")
         settings = await settings_service.load_settings()
@@ -353,23 +321,17 @@ async def play_episode(
     source: PodcastSource = Depends(get_source)
 ) -> Dict[str, Any]:
     """Play an episode."""
-    try:
-        success = await source.play_episode(request.episode_uuid)
+    result = await run_source_command(
+        source, "play_episode", {"episode_uuid": request.episode_uuid}, "Play"
+    )
 
-        if not success:
-            raise HTTPException(status_code=500, detail="Failed to play episode")
+    # If position specified, seek to it
+    if request.position is not None and request.position > 0:
+        await run_source_command(
+            source, "seek", {"position": request.position}, "Seek"
+        )
 
-        # If position specified, seek to it
-        if request.position is not None and request.position > 0:
-            await source.seek(request.position)
-
-        return {"success": True}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error playing episode: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return result
 
 
 @router.post("/pause")
@@ -377,12 +339,7 @@ async def pause_playback(
     source: PodcastSource = Depends(get_source)
 ) -> Dict[str, Any]:
     """Pause playback."""
-    try:
-        success = await source.pause()
-        return {"success": success}
-    except Exception as e:
-        logger.error(f"Error pausing: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return await run_source_command(source, "pause", {}, "Pause")
 
 
 @router.post("/resume")
@@ -390,12 +347,7 @@ async def resume_playback(
     source: PodcastSource = Depends(get_source)
 ) -> Dict[str, Any]:
     """Resume playback."""
-    try:
-        success = await source.resume()
-        return {"success": success}
-    except Exception as e:
-        logger.error(f"Error resuming: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return await run_source_command(source, "resume", {}, "Resume")
 
 
 @router.post("/seek")
@@ -404,12 +356,7 @@ async def seek_playback(
     source: PodcastSource = Depends(get_source)
 ) -> Dict[str, Any]:
     """Seek to position."""
-    try:
-        success = await source.seek(request.position)
-        return {"success": success}
-    except Exception as e:
-        logger.error(f"Error seeking: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return await run_source_command(source, "seek", {"position": request.position}, "Seek")
 
 
 @router.post("/stop")
@@ -426,12 +373,7 @@ async def set_speed(
     source: PodcastSource = Depends(get_source)
 ) -> Dict[str, Any]:
     """Set playback speed (0.5, 0.75, 1.0, 1.25, 1.5, 2.0)."""
-    try:
-        success = await source.set_speed(request.speed)
-        return {"success": success, "speed": source.playback_speed}
-    except Exception as e:
-        logger.error(f"Error setting speed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return await run_source_command(source, "set_speed", {"speed": request.speed}, "Speed")
 
 
 # === Subscription Routes ===
