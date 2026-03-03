@@ -65,6 +65,7 @@ class MacSource(BaseAudioSource):
         self,
         config: Optional[Dict[str, Any]] = None,
         state_machine=None,
+        settings_service=None,
         systemd_manager=None
     ):
         super().__init__(
@@ -72,6 +73,7 @@ class MacSource(BaseAudioSource):
             service_name="milo-mac",
             state_machine=state_machine,
             systemd_manager=systemd_manager,
+            settings_service=settings_service,
             config=config
         )
 
@@ -90,28 +92,32 @@ class MacSource(BaseAudioSource):
         super()._reset_playback_state()
         self.connected_clients.clear()
 
-    @handle_errors(default=False)
     async def _do_start(self) -> bool:
         """Start ROC service and monitoring."""
-        if not await self._start_service_and_wait(settle=1):
+        try:
+            if not await self._start_service_and_wait(settle=1):
+                return False
+
+            if not await self._is_service_active():
+                self._logger.error("Service not active after start")
+                return False
+
+            self._stopping = False
+
+            # Check for existing connections
+            await self._check_initial_state()
+
+            # Start continuous monitoring
+            self._monitor_task = asyncio.create_task(self._monitor_events())
+
+            # Update state based on connections
+            self._update_connection_state()
+
+            return True
+
+        except Exception as e:
+            self._logger.error("Start failed: %s", e)
             return False
-
-        if not await self._is_service_active():
-            self._logger.error("Service not active after start")
-            return False
-
-        self._stopping = False
-
-        # Check for existing connections
-        await self._check_initial_state()
-
-        # Start continuous monitoring
-        self._monitor_task = asyncio.create_task(self._monitor_events())
-
-        # Update state based on connections
-        self._update_connection_state()
-
-        return True
 
     async def _do_stop(self) -> bool:
         """Stop monitoring and service."""
@@ -174,7 +180,7 @@ class MacSource(BaseAudioSource):
 
     async def _handle_command(self, cmd: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Handle Mac-specific commands."""
-        if cmd == "restart":
+        if cmd == "restart_service":
             success = await self._do_restart()
             return self.success_response("Restarted") if success else self.error_response("Restart failed")
 

@@ -200,7 +200,7 @@ class TestMacSourceCommands:
     async def test_restart_command(self, mac_source):
         """Test restart command."""
         with patch.object(mac_source, '_do_restart', return_value=True):
-            result = await mac_source.command("restart", {})
+            result = await mac_source.command("restart_service", {})
 
         assert result["success"] is True
 

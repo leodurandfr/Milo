@@ -38,6 +38,7 @@ class BluetoothSource(BaseAudioSource):
         self,
         config: Optional[Dict[str, Any]] = None,
         state_machine=None,
+        settings_service=None,
         systemd_manager=None
     ):
         super().__init__(
@@ -45,6 +46,7 @@ class BluetoothSource(BaseAudioSource):
             service_name="milo-bluealsa.service",
             state_machine=state_machine,
             systemd_manager=systemd_manager,
+            settings_service=settings_service,
             config=config
         )
 

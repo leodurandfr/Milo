@@ -15,6 +15,6 @@ Usage:
     app.include_router(router, prefix="/api")
 """
 from backend.features.mac.source import MacSource
-from backend.features.mac.routes import router
+from backend.features.mac.routes import router, setup_mac_routes
 
-__all__ = ["MacSource", "router"]
+__all__ = ["MacSource", "router", "setup_mac_routes"]
