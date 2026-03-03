@@ -81,6 +81,56 @@ def map_milo_language_to_itunes_country(milo_language: str) -> str:
     return MILO_LANGUAGE_TO_ITUNES_COUNTRY.get(milo_language.lower(), 'us')
 
 
+# Mapping from iTunes 2-letter country codes to Taddy GraphQL country enums
+ITUNES_COUNTRY_TO_TADDY_COUNTRY = {
+    'us': 'UNITED_STATES_OF_AMERICA',
+    'fr': 'FRANCE',
+    'de': 'GERMANY',
+    'es': 'SPAIN',
+    'it': 'ITALY',
+    'pt': 'PORTUGAL',
+    'cn': 'CHINA',
+    'in': 'INDIA',
+    'gb': 'UNITED_KINGDOM',
+    'ca': 'CANADA',
+    'au': 'AUSTRALIA',
+    'mx': 'MEXICO',
+    'br': 'BRAZIL',
+    'jp': 'JAPAN',
+    'kr': 'SOUTH_KOREA',
+    'nl': 'NETHERLANDS',
+    'se': 'SWEDEN',
+    'no': 'NORWAY',
+    'dk': 'DENMARK',
+    'fi': 'FINLAND',
+    'pl': 'POLAND',
+    'ru': 'RUSSIA',
+    'tr': 'TURKEY',
+    'sa': 'SAUDI_ARABIA',
+    'ae': 'UNITED_ARAB_EMIRATES',
+    'za': 'SOUTH_AFRICA',
+    'ar': 'ARGENTINA',
+    'cl': 'CHILE',
+    'co': 'COLOMBIA',
+}
+
+
+def map_milo_language_to_taddy_country(milo_language: str) -> str:
+    """
+    Convert Milo language setting to Taddy GraphQL country enum.
+
+    Chains: language -> iTunes country code -> Taddy country enum.
+
+    Args:
+        milo_language: Language from /var/lib/milo/settings.json (e.g., 'french')
+
+    Returns:
+        Taddy country enum (e.g., 'FRANCE')
+    """
+    itunes_country = map_milo_language_to_itunes_country(milo_language)
+    return ITUNES_COUNTRY_TO_TADDY_COUNTRY.get(itunes_country, 'UNITED_STATES_OF_AMERICA')
+
+
 class TaddyAPI:
     """
     Async client for Taddy GraphQL API
