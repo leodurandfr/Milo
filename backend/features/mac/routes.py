@@ -45,7 +45,7 @@ async def get_status(source: MacSource = Depends(get_source)) -> Dict[str, Any]:
     """Get current Mac source status."""
     try:
         status = await source.status()
-        return {"status": "ok", **status}
+        return {"status": "success", **status}
     except Exception as e:
         logger.error("Failed to get Mac status: %s", e)
         return {
@@ -74,7 +74,7 @@ async def get_info(source: MacSource = Depends(get_source)) -> Dict[str, Any]:
         status = await source.status()
 
         return {
-            "status": "ok",
+            "status": "success",
             "configuration": {
                 "rtp_port": status.get("rtp_port", 10001),
                 "rs8m_port": status.get("rs8m_port", 10002),

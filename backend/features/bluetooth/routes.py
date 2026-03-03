@@ -44,7 +44,7 @@ async def get_status(source: BluetoothSource = Depends(get_source)) -> Dict[str,
     """Get current Bluetooth source status."""
     try:
         status = await source.status()
-        return {"status": "ok", **status}
+        return {"status": "success", **status}
     except Exception as e:
         logger.error("Failed to get Bluetooth status: %s", e)
         return {

@@ -62,7 +62,7 @@ async def get_status(source: RadioSource = Depends(get_source)) -> Dict[str, Any
     try:
         status = await source.status()
         return {
-            "status": "ok",
+            "status": "success",
             **status
         }
     except Exception as e:

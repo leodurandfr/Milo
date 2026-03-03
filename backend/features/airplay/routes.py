@@ -37,7 +37,7 @@ async def get_status(source: AirPlaySource = Depends(get_source)) -> Dict[str, A
     """Get current AirPlay source status with metadata."""
     try:
         status = await source.status()
-        return {"status": "ok", **status}
+        return {"status": "success", **status}
     except Exception as e:
         logger.error("Failed to get AirPlay status: %s", e)
         return {

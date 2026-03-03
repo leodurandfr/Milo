@@ -21,6 +21,6 @@ def create_errors_router() -> APIRouter:
         if payload.info:
             message += f"\n{payload.info}"
         _frontend_logger.error(message)
-        return {"status": "ok"}
+        return {"status": "success"}
 
     return router
