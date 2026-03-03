@@ -361,8 +361,8 @@ class TestPodcastDataService:
         service = PodcastDataService()
         structure, _ = service._get_default_structure()
 
-        assert structure["settings"]["safeMode"] is False
-        assert structure["settings"]["playbackSpeed"] == 1.0
+        assert structure["settings"]["safe_mode"] is False
+        assert structure["settings"]["playback_speed"] == 1.0
 
 
 class TestConnectionState:

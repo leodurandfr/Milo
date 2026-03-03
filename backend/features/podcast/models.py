@@ -32,8 +32,8 @@ class SubscribeRequest(BaseModel):
 
 class SettingsRequest(BaseModel):
     """Request to update podcast settings."""
-    safeMode: Optional[bool] = None
-    playbackSpeed: Optional[float] = None
+    safe_mode: Optional[bool] = None
+    playback_speed: Optional[float] = None
 
 
 class Podcast(BaseModel):
@@ -66,22 +66,22 @@ class Subscription(BaseModel):
     """Subscription model with metadata."""
     uuid: str
     name: str
-    imageUrl: str = ""
-    childrenHash: str = ""
-    addedAt: int = 0
-    lastChecked: int = 0
+    image_url: str = ""
+    children_hash: str = ""
+    added_at: int = 0
+    last_checked: int = 0
 
 
 class PlaybackProgress(BaseModel):
     """Playback progress model."""
     position: int = 0
     duration: int = 0
-    lastPlayed: int = 0
+    last_played: int = 0
     completed: bool = False
-    podcastUuid: str = ""
-    episodeName: str = ""
-    podcastName: str = ""
-    imageUrl: str = ""
+    podcast_uuid: str = ""
+    episode_name: str = ""
+    podcast_name: str = ""
+    image_url: str = ""
 
 
 class SearchResult(BaseModel):

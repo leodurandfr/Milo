@@ -112,7 +112,7 @@ async function handleSubscribe() {
       podcastStore.addSubscription({
         uuid: props.uuid,
         name: podcast.value.name || '',
-        imageUrl: podcast.value.image_url || ''
+        image_url: podcast.value.image_url || ''
       })
     } else {
       logger.error('podcast', 'Failed to subscribe:', await response.text())

@@ -6,7 +6,7 @@ This service manages:
 - Subscriptions with full metadata
 - Playback progress with episode context
 - Episode and podcast cache
-- User settings (safeMode, playbackSpeed)
+- User settings (safe_mode, playback_speed)
 
 Data is persisted to /var/lib/milo/podcast_data.json
 """
@@ -26,10 +26,10 @@ class PodcastDataService:
     Service for podcast data persistence.
 
     Manages:
-    - Subscriptions with full metadata (name, imageUrl, childrenHash, addedAt, lastChecked)
-    - Playback progress with episode context (position, duration, lastPlayed, episode/podcast info)
+    - Subscriptions with full metadata (name, image_url, children_hash, added_at, last_checked)
+    - Playback progress with episode context (position, duration, last_played, episode/podcast info)
     - Episode and podcast cache
-    - User settings (safeMode, playbackSpeed)
+    - User settings (safe_mode, playback_speed)
 
     Note: Language/country settings are centralized in /var/lib/milo/settings.json
     """
@@ -83,8 +83,8 @@ class PodcastDataService:
                 "podcasts": {}
             },
             "settings": {
-                "safeMode": False,
-                "playbackSpeed": 1.0
+                "safe_mode": False,
+                "playback_speed": 1.0
             }
         }, False
 
@@ -117,7 +117,58 @@ class PodcastDataService:
                     data['settings'][key] = value
                     needs_migration = True
 
+        # Migrate camelCase keys to snake_case
+        needs_migration = self._migrate_camel_to_snake(data) or needs_migration
+
         return data, needs_migration
+
+    @staticmethod
+    def _migrate_camel_to_snake(data: Dict[str, Any]) -> bool:
+        """Migrate camelCase keys to snake_case. Returns True if any migration occurred."""
+        migrated = False
+
+        # Settings keys
+        settings = data.get('settings', {})
+        for old, new in [('safeMode', 'safe_mode'), ('playbackSpeed', 'playback_speed')]:
+            if old in settings:
+                settings[new] = settings.pop(old)
+                migrated = True
+
+        # Subscription keys
+        sub_renames = {
+            'imageUrl': 'image_url',
+            'childrenHash': 'children_hash',
+            'addedAt': 'added_at',
+            'lastChecked': 'last_checked',
+        }
+        for sub in data.get('subscriptions', []):
+            for old, new in sub_renames.items():
+                if old in sub:
+                    sub[new] = sub.pop(old)
+                    migrated = True
+
+        # Playback progress keys
+        progress_renames = {
+            'lastPlayed': 'last_played',
+            'podcastUuid': 'podcast_uuid',
+            'episodeName': 'episode_name',
+            'podcastName': 'podcast_name',
+            'imageUrl': 'image_url',
+            'episodeUuid': 'episode_uuid',
+        }
+        for progress in data.get('playback_progress', {}).values():
+            for old, new in progress_renames.items():
+                if old in progress:
+                    progress[new] = progress.pop(old)
+                    migrated = True
+
+        # Cache entry keys
+        for entry in data.get('cache', {}).get('episodes', {}).values():
+            if 'cachedAt' in entry:
+                entry['cached_at'] = entry.pop('cachedAt')
+                migrated = True
+
+        return migrated
 
     @handle_errors(default=False)
     async def save_data(self, data: Dict[str, Any]) -> bool:
@@ -167,17 +218,17 @@ class PodcastDataService:
         if existing:
             # Update metadata
             existing['name'] = name
-            existing['imageUrl'] = image_url
-            existing['childrenHash'] = children_hash
-            existing['lastChecked'] = int(time.time())
+            existing['image_url'] = image_url
+            existing['children_hash'] = children_hash
+            existing['last_checked'] = int(time.time())
         else:
             data['subscriptions'].append({
                 'uuid': podcast_uuid,
                 'name': name,
-                'imageUrl': image_url,
-                'childrenHash': children_hash,
-                'addedAt': int(time.time()),
-                'lastChecked': int(time.time())
+                'image_url': image_url,
+                'children_hash': children_hash,
+                'added_at': int(time.time()),
+                'last_checked': int(time.time())
             })
 
         return await self.save_data(data)
@@ -247,12 +298,12 @@ class PodcastDataService:
         data['playback_progress'][episode_uuid] = {
             'position': position,
             'duration': duration,
-            'lastPlayed': int(time.time()),
+            'last_played': int(time.time()),
             'completed': completed,
-            'podcastUuid': podcast_uuid or existing.get('podcastUuid', ''),
-            'episodeName': episode_name or existing.get('episodeName', ''),
-            'podcastName': podcast_name or existing.get('podcastName', ''),
-            'imageUrl': image_url or existing.get('imageUrl', '')
+            'podcast_uuid': podcast_uuid or existing.get('podcast_uuid', ''),
+            'episode_name': episode_name or existing.get('episode_name', ''),
+            'podcast_name': podcast_name or existing.get('podcast_name', ''),
+            'image_url': image_url or existing.get('image_url', '')
         }
 
         return await self.save_data(data)
@@ -286,12 +337,12 @@ class PodcastDataService:
             if position > 0 and duration > 0 and not completed:
                 if position < (duration - 30):
                     in_progress.append({
-                        'episodeUuid': episode_uuid,
+                        'episode_uuid': episode_uuid,
                         **progress
                     })
 
-        # Sort by lastPlayed (most recent first)
-        in_progress.sort(key=lambda x: x.get('lastPlayed', 0), reverse=True)
+        # Sort by last_played (most recent first)
+        in_progress.sort(key=lambda x: x.get('last_played', 0), reverse=True)
 
         return in_progress
 
@@ -301,7 +352,7 @@ class PodcastDataService:
 
         if episode_uuid in data.get('playback_progress', {}):
             data['playback_progress'][episode_uuid]['completed'] = True
-            data['playback_progress'][episode_uuid]['lastPlayed'] = int(time.time())
+            data['playback_progress'][episode_uuid]['last_played'] = int(time.time())
             return await self.save_data(data)
 
         return True
@@ -327,7 +378,7 @@ class PodcastDataService:
         data = await self.load_data()
         data['cache']['episodes'][episode_uuid] = {
             'data': episode_data,
-            'cachedAt': int(time.time())
+            'cached_at': int(time.time())
         }
         return await self.save_data(data)
 

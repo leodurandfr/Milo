@@ -55,7 +55,7 @@ function formatSubscription(sub) {
   return {
     uuid: sub.uuid,
     name: sub.name,
-    image_url: sub.imageUrl,
+    image_url: sub.image_url,
     total_episodes: 0,
     is_subscribed: true,
     publisher: ''
