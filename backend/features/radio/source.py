@@ -16,7 +16,7 @@ Features:
 import asyncio
 from typing import Dict, Any, Optional
 
-from backend.core.audio_source import SourceState
+from backend.core.models.audio_state import PluginState
 from backend.features.radio.data import StationDataService
 from backend.features.radio.shazam import ShazamRecognitionService
 from backend.shared.decorators import handle_errors
@@ -289,7 +289,7 @@ class RadioSource(MpvAudioSource):
 
             self._current_station = None
             self._metadata = {"is_playing": False, "is_buffering": False, "ready": True}
-            self.set_state(SourceState.READY, self._metadata)
+            self.set_state(PluginState.READY, self._metadata)
 
             return self.success_response("Playback stopped")
 

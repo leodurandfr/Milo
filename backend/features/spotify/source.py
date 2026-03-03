@@ -21,7 +21,7 @@ from typing import Dict, Any, Optional
 
 import aiohttp
 
-from backend.core.audio_source import BaseAudioSource, SourceState
+from backend.core.audio_source import BaseAudioSource
 from backend.features.spotify.websocket import LibrespotWebSocket
 from backend.shared.decorators import handle_errors
 

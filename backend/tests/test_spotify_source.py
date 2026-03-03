@@ -17,7 +17,8 @@ import os
 
 from backend.features.spotify.source import SpotifySource
 from backend.features.spotify.websocket import LibrespotWebSocket
-from backend.core.audio_source import AudioSource, SourceState
+from backend.core.audio_source import BaseAudioSource
+from backend.core.models.audio_state import PluginState
 
 
 @pytest.fixture
@@ -56,7 +57,7 @@ class TestProtocolCompliance:
 
     def test_implements_protocol(self, spotify_source):
         """Test SpotifySource implements AudioSource protocol."""
-        assert isinstance(spotify_source, AudioSource)
+        assert isinstance(spotify_source, BaseAudioSource)
 
     def test_has_required_attributes(self, spotify_source):
         """Test required attributes exist."""
@@ -356,7 +357,7 @@ class TestConnectionState:
         spotify_source._device_connected = False
         spotify_source._update_connection_state()
 
-        assert spotify_source.state == SourceState.READY
+        assert spotify_source.state == PluginState.READY
 
     def test_update_state_with_device(self, spotify_source):
         """Test state is CONNECTED with device."""
@@ -365,7 +366,7 @@ class TestConnectionState:
         spotify_source._metadata = {"title": "Test"}
         spotify_source._update_connection_state()
 
-        assert spotify_source.state == SourceState.CONNECTED
+        assert spotify_source.state == PluginState.CONNECTED
 
 
 class TestLibrespotWebSocket:

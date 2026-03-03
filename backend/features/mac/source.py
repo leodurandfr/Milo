@@ -17,7 +17,8 @@ import re
 import ipaddress
 from typing import Dict, Any, Optional, Tuple
 
-from backend.core.audio_source import BaseAudioSource, SourceState
+from backend.core.audio_source import BaseAudioSource
+from backend.core.models.audio_state import PluginState
 from backend.shared.decorators import handle_errors
 
 
@@ -161,7 +162,7 @@ class MacSource(BaseAudioSource):
         client_names = list(self.connected_clients.values())
 
         return {
-            "listening": self._state != SourceState.ERROR,
+            "listening": self._state != PluginState.ERROR,
             "rtp_port": self.rtp_port,
             "rs8m_port": self.rs8m_port,
             "rtcp_port": self.rtcp_port,

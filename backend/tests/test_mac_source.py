@@ -13,7 +13,8 @@ import asyncio
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
 from backend.features.mac.source import MacSource, _parse_ip_from_line, _normalize_ip
-from backend.core.audio_source import AudioSource, SourceState
+from backend.core.audio_source import BaseAudioSource
+from backend.core.models.audio_state import PluginState
 
 
 @pytest.fixture
@@ -45,7 +46,7 @@ class TestProtocolCompliance:
 
     def test_implements_protocol(self, mac_source):
         """Test MacSource implements AudioSource protocol."""
-        assert isinstance(mac_source, AudioSource)
+        assert isinstance(mac_source, BaseAudioSource)
 
     def test_has_required_attributes(self, mac_source):
         """Test required attributes exist."""
@@ -265,14 +266,14 @@ class TestConnectionState:
         mac_source.connected_clients = {}
         mac_source._update_connection_state()
 
-        assert mac_source.state == SourceState.READY
+        assert mac_source.state == PluginState.READY
 
     def test_update_state_with_clients(self, mac_source):
         """Test state is CONNECTED with clients."""
         mac_source.connected_clients = {"192.168.1.1": "TestMac"}
         mac_source._update_connection_state()
 
-        assert mac_source.state == SourceState.CONNECTED
+        assert mac_source.state == PluginState.CONNECTED
 
     @pytest.mark.asyncio
     async def test_add_client(self, mac_source):

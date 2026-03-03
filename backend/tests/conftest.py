@@ -34,7 +34,7 @@ def mock_plugin():
     plugin.start = AsyncMock(return_value=True)
     plugin.stop = AsyncMock(return_value=True)
     plugin.restart = AsyncMock(return_value=True)
-    plugin.get_status = AsyncMock(return_value={})
+    plugin.status = AsyncMock(return_value={})
     plugin._initialized = True
     return plugin
 

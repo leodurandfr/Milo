@@ -11,7 +11,7 @@ import base64
 import os
 from typing import Dict, Any, Optional
 
-from backend.core.audio_source import BaseAudioSource, SourceState
+from backend.core.audio_source import BaseAudioSource
 from backend.features.airplay.metadata_reader import MetadataReader
 from backend.shared.decorators import handle_errors
 

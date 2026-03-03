@@ -1,108 +1,17 @@
 # backend/tests/test_audio_source_protocol.py
 """
-Unit tests for AudioSource Protocol and BaseAudioSource.
+Unit tests for BaseAudioSource.
 
 Tests cover:
-- Protocol compliance (AC1, AC2)
+- BaseAudioSource inheritance (AC1, AC2)
 - Status format (AC3)
 - BaseAudioSource lifecycle (AC4)
 """
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
-from backend.core.audio_source import (
-    AudioSource,
-    BaseAudioSource,
-    SourceState
-)
-
-
-class TestAudioSourceProtocol:
-    """Test AudioSource Protocol compliance."""
-
-    def test_protocol_is_runtime_checkable(self):
-        """Test that Protocol is runtime checkable."""
-        # Create a class that implements the protocol
-        class MockSource:
-            source_id = "mock"
-            service_name = "milo-mock"
-
-            async def start(self) -> bool:
-                return True
-
-            async def stop(self) -> bool:
-                return True
-
-            async def restart(self) -> bool:
-                return True
-
-            async def status(self):
-                return {"state": "ready"}
-
-            async def command(self, cmd, data):
-                return {"success": True}
-
-        source = MockSource()
-
-        # Should pass isinstance check
-        assert isinstance(source, AudioSource)
-
-    def test_protocol_rejects_incomplete_implementation(self):
-        """Test that incomplete implementations fail isinstance check."""
-        class IncompleteSource:
-            source_id = "incomplete"
-            # Missing service_name and methods
-
-        source = IncompleteSource()
-
-        # Should fail isinstance check
-        assert not isinstance(source, AudioSource)
-
-    def test_protocol_requires_source_id(self):
-        """Test that source_id attribute is required."""
-        class MissingSourceId:
-            service_name = "test"
-
-            async def start(self):
-                return True
-
-            async def stop(self):
-                return True
-
-            async def restart(self):
-                return True
-
-            async def status(self):
-                return {}
-
-            async def command(self, cmd, data):
-                return {}
-
-        source = MissingSourceId()
-        assert not isinstance(source, AudioSource)
-
-    def test_protocol_requires_service_name(self):
-        """Test that service_name attribute is required."""
-        class MissingServiceName:
-            source_id = "test"
-
-            async def start(self):
-                return True
-
-            async def stop(self):
-                return True
-
-            async def restart(self):
-                return True
-
-            async def status(self):
-                return {}
-
-            async def command(self, cmd, data):
-                return {}
-
-        source = MissingServiceName()
-        assert not isinstance(source, AudioSource)
+from backend.core.audio_source import BaseAudioSource
+from backend.core.models.audio_state import PluginState
 
 
 class ConcreteAudioSource(BaseAudioSource):
@@ -121,7 +30,7 @@ class ConcreteAudioSource(BaseAudioSource):
     async def _do_start(self) -> bool:
         self.start_called = True
         if self._start_success:
-            self.set_state(SourceState.CONNECTED, {"connected": True})
+            self.set_state(PluginState.CONNECTED, {"connected": True})
         return self._start_success
 
     async def _do_stop(self) -> bool:
@@ -149,7 +58,7 @@ class TestBaseAudioSourceLifecycle:
 
         assert result is True
         assert source.start_called
-        assert source.state == SourceState.CONNECTED
+        assert source.state == PluginState.CONNECTED
 
     @pytest.mark.asyncio
     async def test_start_failure(self):
@@ -159,7 +68,7 @@ class TestBaseAudioSourceLifecycle:
         result = await source.start()
 
         assert result is False
-        assert source.state == SourceState.ERROR
+        assert source.state == PluginState.ERROR
 
     @pytest.mark.asyncio
     async def test_stop_success(self):
@@ -171,7 +80,7 @@ class TestBaseAudioSourceLifecycle:
 
         assert result is True
         assert source.stop_called
-        assert source.state == SourceState.READY
+        assert source.state == PluginState.READY
 
     @pytest.mark.asyncio
     async def test_stop_failure(self):
@@ -234,7 +143,7 @@ class TestBaseAudioSourceStatus:
             await source.start()
             status = await source.status()
 
-        assert status["state"] == SourceState.CONNECTED
+        assert status["state"] == PluginState.CONNECTED.value
         assert status["metadata"]["connected"] is True
 
     @pytest.mark.asyncio
@@ -246,7 +155,7 @@ class TestBaseAudioSourceStatus:
             await source.start()
             status = await source.status()
 
-        assert status["state"] == SourceState.ERROR
+        assert status["state"] == PluginState.ERROR.value
         assert status["error"] is not None
 
 
@@ -310,21 +219,21 @@ class TestBaseAudioSourceHelpers:
         """Test set_state helper."""
         source = ConcreteAudioSource()
 
-        source.set_state(SourceState.CONNECTED, {"key": "value"})
+        source.set_state(PluginState.CONNECTED, {"key": "value"})
 
-        assert source.state == SourceState.CONNECTED
+        assert source.state == PluginState.CONNECTED
         assert source.metadata["key"] == "value"
 
 
-class TestSourceStateConstants:
-    """Test SourceState constants."""
+class TestPluginStateValues:
+    """Test PluginState enum values."""
 
     def test_state_values(self):
-        """Test state constant values."""
-        assert SourceState.STARTING == "starting"
-        assert SourceState.READY == "ready"
-        assert SourceState.CONNECTED == "connected"
-        assert SourceState.ERROR == "error"
+        """Test state values match expected strings."""
+        assert PluginState.STARTING.value == "starting"
+        assert PluginState.READY.value == "ready"
+        assert PluginState.CONNECTED.value == "connected"
+        assert PluginState.ERROR.value == "error"
 
 
 class TestBaseAudioSourceServiceManager:
@@ -373,10 +282,10 @@ class TestBaseAudioSourceProperties:
         """Test state property."""
         source = ConcreteAudioSource()
 
-        assert source.state == SourceState.READY
+        assert source.state == PluginState.READY
 
-        source._state = SourceState.CONNECTED
-        assert source.state == SourceState.CONNECTED
+        source._state = PluginState.CONNECTED
+        assert source.state == PluginState.CONNECTED
 
     def test_metadata_property_returns_copy(self):
         """Test metadata property returns a copy."""
@@ -390,15 +299,13 @@ class TestBaseAudioSourceProperties:
         assert "new_key" not in source._metadata
 
 
-class TestProtocolWithBaseAudioSource:
-    """Test that BaseAudioSource subclasses implement AudioSource protocol."""
+class TestBaseAudioSourceInheritance:
+    """Test that BaseAudioSource subclasses are properly typed."""
 
-    def test_concrete_source_implements_protocol(self):
-        """Test ConcreteAudioSource implements AudioSource protocol."""
+    def test_concrete_source_is_base_audio_source(self):
+        """Test ConcreteAudioSource inherits from BaseAudioSource."""
         source = ConcreteAudioSource()
-
-        # Should pass isinstance check for Protocol
-        assert isinstance(source, AudioSource)
+        assert isinstance(source, BaseAudioSource)
 
     def test_base_source_has_required_attributes(self):
         """Test BaseAudioSource has required attributes."""

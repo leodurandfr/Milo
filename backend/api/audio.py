@@ -40,7 +40,7 @@ def create_router(state_machine):
             if not plugin:
                 raise HTTPException(status_code=404, detail=f"Plugin not found: {source_name}")
 
-            result = await plugin.handle_command(control_request.command, control_request.data)
+            result = await plugin.command(control_request.command, control_request.data)
             return {"status": "success" if result.get("success") else "error", "result": result}
 
         except ValueError as e:

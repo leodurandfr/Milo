@@ -16,7 +16,8 @@ from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from backend.features.bluetooth.source import BluetoothSource
 from backend.features.bluetooth.agent import BluetoothAgent
 from backend.features.bluetooth.monitor import BlueAlsaMonitor
-from backend.core.audio_source import AudioSource, SourceState
+from backend.core.audio_source import BaseAudioSource
+from backend.core.models.audio_state import PluginState
 
 
 @pytest.fixture
@@ -64,7 +65,7 @@ class TestProtocolCompliance:
 
     def test_implements_protocol(self, bluetooth_source):
         """Test BluetoothSource implements AudioSource protocol."""
-        assert isinstance(bluetooth_source, AudioSource)
+        assert isinstance(bluetooth_source, BaseAudioSource)
 
     def test_has_required_attributes(self, bluetooth_source):
         """Test required attributes exist."""
@@ -247,7 +248,7 @@ class TestConnectionState:
         bluetooth_source.connected_device = None
         bluetooth_source._update_connection_state()
 
-        assert bluetooth_source.state == SourceState.READY
+        assert bluetooth_source.state == PluginState.READY
 
     def test_update_state_with_device(self, bluetooth_source):
         """Test state is CONNECTED with device."""
@@ -257,7 +258,7 @@ class TestConnectionState:
         }
         bluetooth_source._update_connection_state()
 
-        assert bluetooth_source.state == SourceState.CONNECTED
+        assert bluetooth_source.state == PluginState.CONNECTED
 
     @pytest.mark.asyncio
     async def test_on_device_connected(self, bluetooth_source):

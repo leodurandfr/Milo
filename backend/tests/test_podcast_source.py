@@ -15,7 +15,8 @@ from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
 from backend.features.podcast.source import PodcastSource
 from backend.features.podcast.data import PodcastDataService
-from backend.core.audio_source import AudioSource, SourceState
+from backend.core.audio_source import BaseAudioSource
+from backend.core.models.audio_state import PluginState
 
 
 @pytest.fixture
@@ -48,7 +49,7 @@ class TestProtocolCompliance:
 
     def test_implements_protocol(self, podcast_source):
         """Test PodcastSource implements AudioSource protocol."""
-        assert isinstance(podcast_source, AudioSource)
+        assert isinstance(podcast_source, BaseAudioSource)
 
     def test_has_required_attributes(self, podcast_source):
         """Test required attributes exist."""
@@ -372,7 +373,7 @@ class TestConnectionState:
         podcast_source._current_episode = None
         podcast_source._update_connection_state()
 
-        assert podcast_source.state == SourceState.READY
+        assert podcast_source.state == PluginState.READY
 
     def test_update_state_with_episode(self, podcast_source):
         """Test state is CONNECTED with episode."""
@@ -383,7 +384,7 @@ class TestConnectionState:
         podcast_source._podcast_data = Mock()
         podcast_source._update_connection_state()
 
-        assert podcast_source.state == SourceState.CONNECTED
+        assert podcast_source.state == PluginState.CONNECTED
 
 
 class TestPlaybackMetadata:
