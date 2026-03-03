@@ -51,6 +51,7 @@ import { computed } from 'vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import { useI18n } from '@/services/i18n';
+import { formatDeviceNames } from '@/utils/deviceName';
 
 const { t } = useI18n();
 
@@ -77,29 +78,6 @@ const props = defineProps({
 
 // Emits
 const emit = defineEmits(['disconnect']);
-
-// === UTILITY FUNCTIONS ===
-function cleanDeviceName(deviceName) {
-  if (!deviceName) return '';
-  return deviceName
-    .replace('.local', '')
-    .replace(/-/g, ' ');
-}
-
-// Format deviceName which can be string or array
-function formatDeviceNames(deviceName) {
-  if (!deviceName) return '';
-
-  // If it's an array (ROC multi-clients)
-  if (Array.isArray(deviceName)) {
-    if (deviceName.length === 0) return '';
-    // Join with \n for line breaks (requires white-space: pre-line in CSS)
-    return deviceName.map(name => cleanDeviceName(name)).join('\n');
-  }
-
-  // If it's a string (normal case)
-  return cleanDeviceName(deviceName);
-}
 
 // === COMPUTED FOR DISPLAYED CONTENT ===
 const displayedStatusLines = computed(() => {
