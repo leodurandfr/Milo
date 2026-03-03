@@ -1,8 +1,8 @@
-# backend/presentation/api/routes/routing.py
+# backend/api/routing.py
 """
 API routes for audio routing management
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.core.models.audio_state import AudioSource
@@ -52,7 +52,7 @@ def create_routing_router(routing_service, state_machine):
 
             success = await routing_service.set_multiroom_enabled(multiroom_enabled, active_source)
             if not success:
-                return {"status": "error", "message": "Failed to change multiroom state"}
+                raise HTTPException(status_code=500, detail="Failed to change multiroom state")
 
             await state_machine.update_multiroom_state(multiroom_enabled)
 
@@ -61,8 +61,10 @@ def create_routing_router(routing_service, state_machine):
                 "multiroom_enabled": multiroom_enabled,
                 "active_source": current_state["active_source"] if active_source else "none"
             }
+        except HTTPException:
+            raise
         except Exception as e:
-            return {"status": "error", "message": str(e)}
+            raise HTTPException(status_code=500, detail=str(e))
 
     @router.get("/multiroom/status")
     async def get_multiroom_status():

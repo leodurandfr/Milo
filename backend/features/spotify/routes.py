@@ -50,7 +50,7 @@ async def get_status(source: SpotifySource = Depends(get_source)) -> Dict[str, A
             await source._refresh_metadata()
 
         status = await source.status()
-        return {"status": "ok", **status}
+        return {"status": "success", **status}
 
     except Exception as e:
         logger.error("Failed to get Spotify status: %s", e)
@@ -171,7 +171,7 @@ async def get_info(source: SpotifySource = Depends(get_source)) -> Dict[str, Any
         status = await source.status()
 
         return {
-            "status": "ok",
+            "status": "success",
             "source_id": source.source_id,
             "service_name": source.service_name,
             "api_url": source.api_url,

@@ -1,4 +1,4 @@
-# backend/presentation/api/routes/health.py
+# backend/api/health.py
 """
 Health check endpoint for monitoring
 """
@@ -89,6 +89,6 @@ def create_health_router(state_machine, routing_service, snapcast_service):
     @router.get("/ping")
     async def ping() -> Dict[str, str]:
         """Simple endpoint to verify API is responding"""
-        return {"status": "ok", "message": "pong"}
+        return {"status": "success", "message": "pong"}
 
     return router

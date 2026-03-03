@@ -1,4 +1,4 @@
-# backend/presentation/api/routes/settings.py
+# backend/api/settings.py
 """
 Settings Routes – Version with app deactivation and process stopping
 """
@@ -30,7 +30,6 @@ import asyncio
 logger = logging.getLogger(__name__)
 
 def create_settings_router(
-    ws_manager,
     volume_service,
     state_machine,
     screen_controller,
@@ -75,11 +74,10 @@ def create_settings_router(
                 except Exception:
                     reload_success = False
 
-            await ws_manager.broadcast_dict({
-                "category": "settings",
-                "type": event_type,
+            await state_machine.broadcast_event("settings", event_type, {
                 "source": "settings",
-                "data": {**event_data, "reload_success": reload_success}
+                **event_data,
+                "reload_success": reload_success,
             })
 
             return {"status": "success", **event_data, "reload_success": reload_success}
@@ -298,11 +296,9 @@ def create_settings_router(
                 # No change, just save
                 success = await settings.set_setting("dock.enabled_apps", enabled_apps)
                 if success:
-                    await ws_manager.broadcast_dict({
-                        "category": "settings",
-                        "type": "dock_apps_changed",
+                    await state_machine.broadcast_event("settings", "dock_apps_changed", {
                         "source": "settings",
-                        "data": {"config": {"enabled_apps": enabled_apps}}
+                        "config": {"enabled_apps": enabled_apps},
                     })
                     return {"status": "success", "config": {"enabled_apps": enabled_apps}}
                 else:
@@ -454,11 +450,9 @@ def create_settings_router(
                     raise ValueError("Failed to save settings")
                 
                 # WebSocket broadcast
-                await ws_manager.broadcast_dict({
-                    "category": "settings",
-                    "type": "dock_apps_changed",
+                await state_machine.broadcast_event("settings", "dock_apps_changed", {
                     "source": "settings",
-                    "data": {"config": {"enabled_apps": enabled_apps}}
+                    "config": {"enabled_apps": enabled_apps},
                 })
                 
                 return {
@@ -1038,11 +1032,10 @@ def create_settings_router(
                 logger.warning("Failed to restart milo-mac.service, settings saved but not applied")
 
             # Broadcast settings change via WebSocket
-            await ws_manager.broadcast_dict({
-                "category": "settings",
-                "type": "mac_roc_changed",
+            await state_machine.broadcast_event("settings", "mac_roc_changed", {
                 "source": "settings",
-                "data": {"config": mac_config, "service_restarted": restart_success}
+                "config": mac_config,
+                "service_restarted": restart_success,
             })
 
             return {

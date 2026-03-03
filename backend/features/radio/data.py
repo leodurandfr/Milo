@@ -223,7 +223,7 @@ class StationDataService:
     async def _broadcast_event(self, event_type: str, data: Dict[str, Any]) -> None:
         """Broadcast radio event via state machine (WebSocket)."""
         if self._state_machine:
-            await self._state_machine.broadcast_event("radio", event_type, data)
+            await self._state_machine.broadcast_event("plugin", event_type, {**data, "source": "radio"})
 
     async def _load_data(self) -> Dict[str, Any]:
         """Load radio_data.json."""
