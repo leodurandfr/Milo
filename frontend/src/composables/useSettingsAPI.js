@@ -16,7 +16,7 @@ export function useSettingsAPI() {
    */
   async function updateSetting(endpoint, payload) {
     try {
-      await axios.post(`/api/settings/${endpoint}`, payload);
+      await axios.put(`/api/settings/${endpoint}`, payload);
     } catch (error) {
       logger.error('api', `Error updating ${endpoint}`, error);
       throw error;

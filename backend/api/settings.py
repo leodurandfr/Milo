@@ -155,7 +155,7 @@ def create_settings_router(
     async def get_language():
         return {"status": "success", "language": await settings.get_setting('language') or 'english'}
 
-    @router.post("/language")
+    @router.put("/language")
     async def set_language(payload: LanguageRequest):
         return await _handle_setting_update(
             payload,
@@ -177,7 +177,7 @@ def create_settings_router(
             }
         }
 
-    @router.post("/volume-limits")
+    @router.put("/volume-limits")
     async def set_volume_limits(payload: VolumeLimitsRequest):
         async def setter():
             return (
@@ -206,7 +206,7 @@ def create_settings_router(
             }
         }
 
-    @router.post("/volume-startup")
+    @router.put("/volume-startup")
     async def set_volume_startup(payload: VolumeStartupRequest):
         async def setter():
             return (
@@ -232,7 +232,7 @@ def create_settings_router(
             "config": {"step_mobile_db": vol.get("step_mobile_db", 3.0)}
         }
 
-    @router.post("/volume-steps")
+    @router.put("/volume-steps")
     async def set_volume_steps(payload: VolumeStepsRequest):
         return await _handle_setting_update(
             payload,
@@ -252,7 +252,7 @@ def create_settings_router(
             "config": {"step_rotary_db": vol.get("step_rotary_db", 2.0)}
         }
 
-    @router.post("/rotary-steps")
+    @router.put("/rotary-steps")
     async def set_rotary_steps(payload: RotaryStepsRequest):
         return await _handle_setting_update(
             payload,
@@ -274,7 +274,7 @@ def create_settings_router(
             "config": {"enabled_apps": enabled_apps}
         }
     
-    @router.post("/dock-apps")
+    @router.put("/dock-apps")
     async def set_dock_apps(payload: DockAppsRequest):
         """
         Update the enabled apps in the dock.
@@ -495,7 +495,7 @@ def create_settings_router(
             "config": {"auto_disconnect_delay": spotify.get("auto_disconnect_delay", 10.0)}
         }
     
-    @router.post("/spotify-disconnect")
+    @router.put("/spotify-disconnect")
     async def set_spotify_disconnect(payload: SpotifyDisconnectRequest):
         delay = payload.auto_disconnect_delay
 
@@ -530,7 +530,7 @@ def create_settings_router(
             }
         }
 
-    @router.post("/podcast-credentials")
+    @router.put("/podcast-credentials")
     async def set_podcast_credentials(payload: PodcastCredentialsRequest):
         user_id = payload.taddy_user_id
         api_key = payload.taddy_api_key
@@ -604,7 +604,7 @@ def create_settings_router(
                     }
 
             finally:
-                # Toujours fermer la session
+                # Always close the session
                 await taddy_api.close()
 
         except Exception as e:
@@ -662,7 +662,7 @@ def create_settings_router(
             }
         }
     
-    @router.post("/screen-timeout")
+    @router.put("/screen-timeout")
     async def set_screen_timeout(payload: ScreenTimeoutRequest):
         return await _handle_setting_update(
             payload,
@@ -682,7 +682,7 @@ def create_settings_router(
             "config": {"brightness_on": screen.get("brightness_on", 5)}
         }
     
-    @router.post("/screen-brightness")
+    @router.put("/screen-brightness")
     async def set_screen_brightness(payload: ScreenBrightnessRequest):
         return await _handle_setting_update(
             payload,
@@ -735,7 +735,7 @@ def create_settings_router(
             }
         }
 
-    @router.post("/screen-screensaver")
+    @router.put("/screen-screensaver")
     async def set_screen_screensaver(payload: ScreenScreensaverRequest):
         async def setter():
             success = True
@@ -1004,7 +1004,7 @@ def create_settings_router(
             }
         }
 
-    @router.post("/mac-roc")
+    @router.put("/mac-roc")
     async def set_mac_roc_config(payload: MacRocConfigRequest):
         """
         Update Mac ROC streaming configuration and restart the service.
@@ -1068,7 +1068,7 @@ def create_settings_router(
             }
         }
 
-    @router.post("/radio-settings")
+    @router.put("/radio-settings")
     async def set_radio_settings(payload: RadioSettingsRequest):
         radio_config = {
             'shazam_enabled': payload.shazam_enabled
@@ -1103,7 +1103,7 @@ def create_settings_router(
             "config": {"inactivity_timeout": timeout}
         }
 
-    @router.post("/inactivity-timeout")
+    @router.put("/inactivity-timeout")
     async def set_inactivity_timeout(payload: InactivityTimeoutRequest):
         return await _handle_setting_update(
             payload,

@@ -155,7 +155,7 @@ async function applyChanges() {
   try {
     isApplying.value = true;
 
-    const response = await axios.post('/api/settings/mac-roc', {
+    const response = await axios.put('/api/settings/mac-roc', {
       target_latency_ms: config.value.target_latency_ms,
       latency_profile: config.value.latency_profile,
       frame_length_ms: config.value.frame_length_ms

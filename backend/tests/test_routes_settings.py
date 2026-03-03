@@ -65,6 +65,7 @@ class TestSettingsRoutes:
         manager = Mock()
         manager.start = AsyncMock(return_value=True)
         manager.stop = AsyncMock(return_value=True)
+        manager.restart = AsyncMock(return_value=True)
         return manager
 
     @pytest.fixture
@@ -134,25 +135,25 @@ class TestSettingsRoutes:
         assert response.json()["status"] == "success"
 
     def test_set_language_valid_french(self, client):
-        """Test POST /language with valid language (french)"""
-        response = client.post("/api/settings/language", json={"language": "french"})
+        """Test PUT /language with valid language (french)"""
+        response = client.put("/api/settings/language", json={"language": "french"})
         assert response.status_code == 200
         assert response.json()["status"] == "success"
 
     def test_set_language_valid_english(self, client):
-        """Test POST /language with valid language (english)"""
-        response = client.post("/api/settings/language", json={"language": "english"})
+        """Test PUT /language with valid language (english)"""
+        response = client.put("/api/settings/language", json={"language": "english"})
         assert response.status_code == 200
         assert response.json()["status"] == "success"
 
     def test_set_language_invalid(self, client):
-        """Test POST /language with invalid language - should return 422"""
-        response = client.post("/api/settings/language", json={"language": "klingon"})
+        """Test PUT /language with invalid language - should return 422"""
+        response = client.put("/api/settings/language", json={"language": "klingon"})
         assert response.status_code == 422
 
     def test_set_language_missing_field(self, client):
-        """Test POST /language without language field - should return 422"""
-        response = client.post("/api/settings/language", json={})
+        """Test PUT /language without language field - should return 422"""
+        response = client.put("/api/settings/language", json={})
         assert response.status_code == 422
 
     # ===================
@@ -169,8 +170,8 @@ class TestSettingsRoutes:
         assert "limits" in response.json()
 
     def test_set_volume_limits_valid(self, client):
-        """Test POST /volume-limits with valid values"""
-        response = client.post("/api/settings/volume-limits", json={
+        """Test PUT /volume-limits with valid values"""
+        response = client.put("/api/settings/volume-limits", json={
             "min_db": -50.0,
             "max_db": -15.0
         })
@@ -178,24 +179,24 @@ class TestSettingsRoutes:
         assert response.json()["status"] == "success"
 
     def test_set_volume_limits_invalid_range(self, client):
-        """Test POST /volume-limits with range < 6 dB - should return 422"""
-        response = client.post("/api/settings/volume-limits", json={
+        """Test PUT /volume-limits with range < 6 dB - should return 422"""
+        response = client.put("/api/settings/volume-limits", json={
             "min_db": -25.0,
             "max_db": -23.0
         })
         assert response.status_code == 422
 
     def test_set_volume_limits_min_greater_than_max(self, client):
-        """Test POST /volume-limits with min > max - should return 422"""
-        response = client.post("/api/settings/volume-limits", json={
+        """Test PUT /volume-limits with min > max - should return 422"""
+        response = client.put("/api/settings/volume-limits", json={
             "min_db": -15.0,
             "max_db": -50.0
         })
         assert response.status_code == 422
 
     def test_set_volume_limits_out_of_range(self, client):
-        """Test POST /volume-limits with out of range values - should return 422"""
-        response = client.post("/api/settings/volume-limits", json={
+        """Test PUT /volume-limits with out of range values - should return 422"""
+        response = client.put("/api/settings/volume-limits", json={
             "min_db": -90.0,
             "max_db": 10.0
         })
@@ -217,8 +218,8 @@ class TestSettingsRoutes:
         assert "config" in response.json()
 
     def test_set_volume_startup_valid(self, client):
-        """Test POST /volume-startup with valid values (in dB)"""
-        response = client.post("/api/settings/volume-startup", json={
+        """Test PUT /volume-startup with valid values (in dB)"""
+        response = client.put("/api/settings/volume-startup", json={
             "startup_volume_db": -30.0,
             "restore_last_volume": True
         })
@@ -226,8 +227,8 @@ class TestSettingsRoutes:
         assert response.json()["status"] == "success"
 
     def test_set_volume_startup_out_of_range(self, client):
-        """Test POST /volume-startup with out of range volume - should return 422"""
-        response = client.post("/api/settings/volume-startup", json={
+        """Test PUT /volume-startup with out of range volume - should return 422"""
+        response = client.put("/api/settings/volume-startup", json={
             "startup_volume_db": 10.0,  # Above 0 dB max
             "restore_last_volume": False
         })
@@ -246,15 +247,15 @@ class TestSettingsRoutes:
         assert response.status_code == 200
 
     def test_set_volume_steps_valid(self, client):
-        """Test POST /volume-steps with valid value (in dB)"""
-        response = client.post("/api/settings/volume-steps", json={
+        """Test PUT /volume-steps with valid value (in dB)"""
+        response = client.put("/api/settings/volume-steps", json={
             "step_mobile_db": 3.0
         })
         assert response.status_code == 200
 
     def test_set_volume_steps_out_of_range(self, client):
-        """Test POST /volume-steps with out of range value - should return 422"""
-        response = client.post("/api/settings/volume-steps", json={
+        """Test PUT /volume-steps with out of range value - should return 422"""
+        response = client.put("/api/settings/volume-steps", json={
             "step_mobile_db": 10.0  # Max is 6 dB
         })
         assert response.status_code == 422
@@ -272,15 +273,15 @@ class TestSettingsRoutes:
         assert response.status_code == 200
 
     def test_set_rotary_steps_valid(self, client):
-        """Test POST /rotary-steps with valid value (in dB)"""
-        response = client.post("/api/settings/rotary-steps", json={
+        """Test PUT /rotary-steps with valid value (in dB)"""
+        response = client.put("/api/settings/rotary-steps", json={
             "step_rotary_db": 2.0
         })
         assert response.status_code == 200
 
     def test_set_rotary_steps_out_of_range(self, client):
-        """Test POST /rotary-steps with out of range value - should return 422"""
-        response = client.post("/api/settings/rotary-steps", json={
+        """Test PUT /rotary-steps with out of range value - should return 422"""
+        response = client.put("/api/settings/rotary-steps", json={
             "step_rotary_db": 10.0  # Max is 6 dB
         })
         assert response.status_code == 422
@@ -299,25 +300,25 @@ class TestSettingsRoutes:
         assert "config" in response.json()
 
     def test_set_dock_apps_valid(self, client):
-        """Test POST /dock-apps with valid apps"""
+        """Test PUT /dock-apps with valid apps"""
         client._mock_settings.load_settings = AsyncMock(return_value={
             "dock": {"enabled_apps": ["spotify", "bluetooth"]}
         })
-        response = client.post("/api/settings/dock-apps", json={
+        response = client.put("/api/settings/dock-apps", json={
             "enabled_apps": ["spotify", "bluetooth", "settings"]
         })
         assert response.status_code == 200
 
     def test_set_dock_apps_no_audio_source(self, client):
-        """Test POST /dock-apps without audio source - should return 422"""
-        response = client.post("/api/settings/dock-apps", json={
+        """Test PUT /dock-apps without audio source - should return 422"""
+        response = client.put("/api/settings/dock-apps", json={
             "enabled_apps": ["settings", "equalizer"]
         })
         assert response.status_code == 422
 
     def test_set_dock_apps_invalid_app(self, client):
-        """Test POST /dock-apps with invalid app - should return 422"""
-        response = client.post("/api/settings/dock-apps", json={
+        """Test PUT /dock-apps with invalid app - should return 422"""
+        response = client.put("/api/settings/dock-apps", json={
             "enabled_apps": ["spotify", "invalid_app"]
         })
         assert response.status_code == 422
@@ -335,22 +336,22 @@ class TestSettingsRoutes:
         assert response.status_code == 200
 
     def test_set_spotify_disconnect_valid(self, client):
-        """Test POST /spotify-disconnect with valid value"""
-        response = client.post("/api/settings/spotify-disconnect", json={
+        """Test PUT /spotify-disconnect with valid value"""
+        response = client.put("/api/settings/spotify-disconnect", json={
             "auto_disconnect_delay": 15.0
         })
         assert response.status_code == 200
 
     def test_set_spotify_disconnect_zero_disable(self, client):
-        """Test POST /spotify-disconnect with 0 (disabled)"""
-        response = client.post("/api/settings/spotify-disconnect", json={
+        """Test PUT /spotify-disconnect with 0 (disabled)"""
+        response = client.put("/api/settings/spotify-disconnect", json={
             "auto_disconnect_delay": 0.0
         })
         assert response.status_code == 200
 
     def test_set_spotify_disconnect_negative(self, client):
-        """Test POST /spotify-disconnect with negative value - should return 422"""
-        response = client.post("/api/settings/spotify-disconnect", json={
+        """Test PUT /spotify-disconnect with negative value - should return 422"""
+        response = client.put("/api/settings/spotify-disconnect", json={
             "auto_disconnect_delay": -5.0
         })
         assert response.status_code == 422
@@ -368,16 +369,16 @@ class TestSettingsRoutes:
         assert response.status_code == 200
 
     def test_set_screen_timeout_valid(self, client):
-        """Test POST /screen-timeout with valid value"""
-        response = client.post("/api/settings/screen-timeout", json={
+        """Test PUT /screen-timeout with valid value"""
+        response = client.put("/api/settings/screen-timeout", json={
             "screen_timeout_enabled": True,
             "screen_timeout_seconds": 30
         })
         assert response.status_code == 200
 
     def test_set_screen_timeout_zero_disable(self, client):
-        """Test POST /screen-timeout with 0 (disabled)"""
-        response = client.post("/api/settings/screen-timeout", json={
+        """Test PUT /screen-timeout with 0 (disabled)"""
+        response = client.put("/api/settings/screen-timeout", json={
             "screen_timeout_enabled": False,
             "screen_timeout_seconds": 0
         })
@@ -392,17 +393,168 @@ class TestSettingsRoutes:
         assert response.status_code == 200
 
     def test_set_screen_brightness_valid(self, client):
-        """Test POST /screen-brightness with valid value"""
-        response = client.post("/api/settings/screen-brightness", json={
+        """Test PUT /screen-brightness with valid value"""
+        response = client.put("/api/settings/screen-brightness", json={
             "brightness_on": 7
         })
         assert response.status_code == 200
 
     def test_set_screen_brightness_out_of_range(self, client):
-        """Test POST /screen-brightness with out of range value - should return 422"""
-        response = client.post("/api/settings/screen-brightness", json={
+        """Test PUT /screen-brightness with out of range value - should return 422"""
+        response = client.put("/api/settings/screen-brightness", json={
             "brightness_on": 15
         })
+        assert response.status_code == 422
+
+    # ===================
+    # SCREEN SCREENSAVER TESTS
+    # ===================
+
+    def test_get_screen_screensaver(self, client):
+        """Test GET /screen-screensaver"""
+        client._mock_settings.get_setting = AsyncMock(return_value={
+            "screensaver_enabled": True, "screensaver_delay_seconds": 15
+        })
+        response = client.get("/api/settings/screen-screensaver")
+        assert response.status_code == 200
+        assert "config" in response.json()
+
+    def test_set_screen_screensaver_valid(self, client):
+        """Test PUT /screen-screensaver with valid values"""
+        response = client.put("/api/settings/screen-screensaver", json={
+            "screensaver_enabled": True,
+            "screensaver_delay_seconds": 30
+        })
+        assert response.status_code == 200
+        assert response.json()["status"] == "success"
+
+    def test_set_screen_screensaver_partial(self, client):
+        """Test PUT /screen-screensaver with partial update (only enabled)"""
+        response = client.put("/api/settings/screen-screensaver", json={
+            "screensaver_enabled": False
+        })
+        assert response.status_code == 200
+        assert response.json()["status"] == "success"
+
+    def test_set_screen_screensaver_delay_out_of_range(self, client):
+        """Test PUT /screen-screensaver with delay < 5 - should return 422"""
+        response = client.put("/api/settings/screen-screensaver", json={
+            "screensaver_delay_seconds": 2
+        })
+        assert response.status_code == 422
+
+    # ===================
+    # PODCAST CREDENTIALS TESTS
+    # ===================
+
+    def test_set_podcast_credentials_valid(self, client):
+        """Test PUT /podcast-credentials with valid credentials"""
+        response = client.put("/api/settings/podcast-credentials", json={
+            "taddy_user_id": "user123",
+            "taddy_api_key": "key456"
+        })
+        assert response.status_code == 200
+        assert response.json()["status"] == "success"
+
+    def test_set_podcast_credentials_missing_field(self, client):
+        """Test PUT /podcast-credentials with missing field - should return 422"""
+        response = client.put("/api/settings/podcast-credentials", json={
+            "taddy_user_id": "user123"
+        })
+        assert response.status_code == 422
+
+    # ===================
+    # INACTIVITY TIMEOUT TESTS
+    # ===================
+
+    def test_get_inactivity_timeout(self, client):
+        """Test GET /inactivity-timeout"""
+        client._mock_settings.get_setting = AsyncMock(return_value={
+            "inactivity_timeout": 7200
+        })
+        response = client.get("/api/settings/inactivity-timeout")
+        assert response.status_code == 200
+        assert "config" in response.json()
+
+    def test_set_inactivity_timeout_valid(self, client):
+        """Test PUT /inactivity-timeout with valid value"""
+        client._mock_state_machine = Mock()
+        response = client.put("/api/settings/inactivity-timeout", json={
+            "inactivity_timeout": 3600
+        })
+        assert response.status_code == 200
+        assert response.json()["status"] == "success"
+
+    def test_set_inactivity_timeout_zero_disable(self, client):
+        """Test PUT /inactivity-timeout with 0 (disabled)"""
+        response = client.put("/api/settings/inactivity-timeout", json={
+            "inactivity_timeout": 0
+        })
+        assert response.status_code == 200
+        assert response.json()["status"] == "success"
+
+    def test_set_inactivity_timeout_too_low(self, client):
+        """Test PUT /inactivity-timeout with non-zero value < 300 - should return 422"""
+        response = client.put("/api/settings/inactivity-timeout", json={
+            "inactivity_timeout": 60
+        })
+        assert response.status_code == 422
+
+    # ===================
+    # MAC ROC TESTS
+    # ===================
+
+    def test_get_mac_roc(self, client):
+        """Test GET /mac-roc"""
+        client._mock_settings.get_setting = AsyncMock(return_value={
+            "target_latency_ms": 200, "latency_profile": "responsive", "frame_length_ms": 7
+        })
+        response = client.get("/api/settings/mac-roc")
+        assert response.status_code == 200
+        assert "config" in response.json()
+
+    def test_set_mac_roc_valid(self, client):
+        """Test PUT /mac-roc with valid values"""
+        response = client.put("/api/settings/mac-roc", json={
+            "target_latency_ms": 100,
+            "latency_profile": "responsive",
+            "frame_length_ms": 7
+        })
+        assert response.status_code == 200
+
+    def test_set_mac_roc_latency_out_of_range(self, client):
+        """Test PUT /mac-roc with latency > 500 - should return 422"""
+        response = client.put("/api/settings/mac-roc", json={
+            "target_latency_ms": 1000,
+            "latency_profile": "responsive",
+            "frame_length_ms": 7
+        })
+        assert response.status_code == 422
+
+    # ===================
+    # RADIO SETTINGS TESTS
+    # ===================
+
+    def test_get_radio_settings(self, client):
+        """Test GET /radio-settings"""
+        client._mock_settings.get_setting = AsyncMock(return_value={
+            "shazam_enabled": True
+        })
+        response = client.get("/api/settings/radio-settings")
+        assert response.status_code == 200
+        assert "config" in response.json()
+
+    def test_set_radio_settings_valid(self, client):
+        """Test PUT /radio-settings with valid value"""
+        response = client.put("/api/settings/radio-settings", json={
+            "shazam_enabled": False
+        })
+        assert response.status_code == 200
+        assert response.json()["status"] == "success"
+
+    def test_set_radio_settings_missing_field(self, client):
+        """Test PUT /radio-settings with missing field - should return 422"""
+        response = client.put("/api/settings/radio-settings", json={})
         assert response.status_code == 422
 
     # ===================
