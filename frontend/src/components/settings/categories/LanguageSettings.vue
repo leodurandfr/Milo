@@ -20,12 +20,9 @@
 </template>
 
 <script setup>
-import { computed, onMounted } from 'vue';
+import { computed } from 'vue';
 import { useI18n } from '@/services/i18n';
-import { i18n } from '@/services/i18n';
-import useWebSocket from '@/services/websocket';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
-import { useSettingsStore } from '@/stores/settingsStore';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 
@@ -50,9 +47,7 @@ const flagIcons = {
 };
 
 const { getAvailableLanguages, getCurrentLanguage } = useI18n();
-const { on } = useWebSocket();
 const { updateSetting } = useSettingsAPI();
-const settingsStore = useSettingsStore();
 
 const availableLanguages = computed(() => getAvailableLanguages());
 const currentLanguage = computed(() => getCurrentLanguage());
@@ -64,20 +59,6 @@ function getFlagIcon(languageCode) {
 async function selectLanguage(languageCode) {
   await updateSetting('language', { language: languageCode });
 }
-
-// WebSocket listener
-const handleLanguageChanged = (msg) => {
-  const newLanguage = msg.data?.language;
-  if (newLanguage) {
-    i18n.handleLanguageChanged(newLanguage);
-    // Update store
-    settingsStore.updateLanguage(newLanguage);
-  }
-};
-
-onMounted(() => {
-  on('settings', 'language_changed', handleLanguageChanged);
-});
 </script>
 
 <style scoped>

@@ -368,6 +368,7 @@ onMounted(async () => {
     on('settings', 'language_changed', (event) => {
       if (event.data?.language) {
         i18n.handleLanguageChanged(event.data.language);
+        settingsStore.updateLanguage(event.data.language);
       }
     }),
     on('settings', 'dock_apps_changed', (event) => {
