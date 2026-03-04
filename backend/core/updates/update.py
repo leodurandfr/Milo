@@ -191,7 +191,12 @@ class UpdateService(VersionService):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, stderr = await proc.communicate()
+            try:
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                raise Exception("git fetch timed out (120s)")
 
             if proc.returncode != 0:
                 return {"success": False, "error": f"Git fetch failed: {stderr.decode()}"}
@@ -219,7 +224,12 @@ class UpdateService(VersionService):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, stderr = await proc.communicate()
+            try:
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                raise Exception("git pull timed out (120s)")
 
             if proc.returncode != 0:
                 error_msg = f"Git pull failed: {stderr.decode()}"
@@ -237,7 +247,12 @@ class UpdateService(VersionService):
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
-                stdout, stderr = await proc.communicate()
+                try:
+                    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
+                except asyncio.TimeoutError:
+                    proc.kill()
+                    await proc.wait()
+                    raise Exception("npm install timed out (600s)")
 
                 if proc.returncode != 0:
                     error_msg = f"npm install failed: {stderr.decode()}"
@@ -254,7 +269,12 @@ class UpdateService(VersionService):
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
-                stdout, stderr = await proc.communicate()
+                try:
+                    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
+                except asyncio.TimeoutError:
+                    proc.kill()
+                    await proc.wait()
+                    raise Exception("npm run build timed out (600s)")
 
                 if proc.returncode != 0:
                     error_msg = f"npm run build failed: {stderr.decode()}"
@@ -798,7 +818,8 @@ class UpdateService(VersionService):
 
             self.update_logger.info(f"Downloading shairport-sync source from {url}...")
 
-            async with aiohttp.ClientSession() as session:
+            timeout = aiohttp.ClientTimeout(total=300)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(url) as response:
                     if response.status != 200:
                         return {"success": False, "error": f"Download failed: HTTP {response.status}"}
@@ -1029,7 +1050,8 @@ class UpdateService(VersionService):
             url = f"https://github.com/devgianlu/go-librespot/releases/download/v{version}/go-librespot_linux_arm64.tar.gz"
 
             # Download
-            async with aiohttp.ClientSession() as session:
+            timeout = aiohttp.ClientTimeout(total=300)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(url) as response:
                     if response.status != 200:
                         return {"success": False, "error": f"Download failed: HTTP {response.status}"}
@@ -1113,7 +1135,8 @@ class UpdateService(VersionService):
             self.update_logger.info(f"Downloading {package_name} from GitHub (Debian {debian_codename})...")
 
             # Download
-            async with aiohttp.ClientSession() as session:
+            timeout = aiohttp.ClientTimeout(total=300)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(url) as response:
                     if response.status != 200:
                         return {"success": False, "error": f"Download failed: HTTP {response.status}"}
