@@ -5,6 +5,7 @@ Replaces alsaequal with full parametric EQ capabilities.
 """
 import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Any, Optional
 from enum import Enum
 
@@ -70,6 +71,9 @@ class CamillaDSPService:
         # Callback for volume restoration after reconnection (set by dependencies.py)
         self._on_reconnect_callback = None
 
+        # Bounded executor for pycamilladsp sync calls (avoid starving other executor users on RPi)
+        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="camilladsp")
+
         # Current configuration cache
         self._current_config: Dict[str, Any] = {}
         self._filters: List[Dict[str, Any]] = []
@@ -106,7 +110,7 @@ class CamillaDSPService:
         if not self._loop:
             self._loop = asyncio.get_running_loop()
         try:
-            return await self._loop.run_in_executor(None, func)
+            return await self._loop.run_in_executor(self._executor, func)
         except Exception:
             if self._connected:
                 self.logger.warning("CamillaDSP command failed, marking disconnected")
@@ -231,7 +235,7 @@ class CamillaDSPService:
                 # during connection establishment
                 if not self._loop:
                     self._loop = asyncio.get_running_loop()
-                await self._loop.run_in_executor(None, self._client.connect)
+                await self._loop.run_in_executor(self._executor, self._client.connect)
 
                 self._connected = True
                 self._state = await self._get_daemon_state()
@@ -1083,5 +1087,8 @@ class CamillaDSPService:
 
         # Disconnect from daemon
         await self.disconnect()
+
+        # Shut down the dedicated executor
+        self._executor.shutdown(wait=False)
 
         self.logger.info("CamillaDSP service cleanup complete")
