@@ -147,7 +147,7 @@ frontend/src/
 │   ├── settings/      # System settings (SettingsModal.vue, SettingsCategory.vue) with nested categories/:
 │   │                   #   ApplicationsSettings, UpdateManager, PodcastSettings, MultiroomSettings,
 │   │                   #   VolumeSettings, LanguageSettings, ScreenSettings, InfoSettings, SpotifySettings,
-│   │                   #   radio/RadioSettings, radio/ManageStation
+│   │                   #   MacSettings, radio/RadioSettings, radio/ManageStation
 │   └── ui/            # Reusable components
 ├── composables/       # Vue composables (useAnimatedHeight, useNavigationStack, etc.)
 ├── stores/            # Pinia stores (see below)
@@ -159,7 +159,7 @@ frontend/src/
 **Pinia Stores** (`frontend/src/stores/`):
 - `unifiedAudioStore.js` - Central audio state management
 - `settingsStore.js` - Settings management
-- `dspStore.js` - DSP/equalizer state (CamillaDSP)
+- `equalizerStore.js` - DSP/equalizer state (CamillaDSP)
 - `multiroomStore.js` - Multiroom/Snapcast state
 - `snapcastStore.js` - Snapcast server configuration
 - `podcastStore.js` - Podcast data and playback
@@ -209,6 +209,11 @@ class AudioSourceProtocol(Protocol):
 
 **Base class available**: `UnifiedAudioSource` in `backend/core/audio_source.py` provides common functionality (state management, systemd control, logging).
 
+**Uniform plugin structure** — Every plugin in `backend/features/{source}/` must follow:
+- `__init__.py` — Docstring + `__all__` exporting `Source`, `router`, `setup_{source}_routes`
+- `source.py` — Constructor takes `config`, `state_machine`, `settings_service`, `systemd_manager`
+- `routes.py` — `logger = logging.getLogger(__name__)` at module level; `logger.error()` before every `raise HTTPException` in except blocks; use `run_source_command()` for playback routes
+
 **Reference implementations**:
 - **Radio plugin** (`backend/features/radio/`) - Demonstrates multi-component architecture, external API integration, file uploads, and complex data persistence
 - **Podcast plugin** (`backend/features/podcast/`) - Demonstrates external API integration (Taddy API), playback progress tracking with resume functionality, subscription management, and advanced playback controls (speed, seek)
@@ -221,7 +226,7 @@ The Podcast plugin demonstrates several advanced patterns:
 **External API Integration (Taddy GraphQL API)**:
 - `TaddyAPI` class (`taddy_api.py`) handles all GraphQL queries to Taddy API
 - Built-in caching layer with configurable duration (60 minutes default)
-- Language mapping from Milo settings to Taddy API enums
+- Language/country mapping logic (including `ITUNES_COUNTRY_TO_TADDY_COUNTRY`) lives in `taddy_api.py`
 - Genre mapping to iTunes RSS feed IDs for charts
 
 **Audio Playback**:
@@ -242,7 +247,8 @@ The Podcast plugin demonstrates several advanced patterns:
 - **Buffering detection**: Separate `is_buffering` state during stream loading
 
 **Data Persistence**:
-- `podcast_data.json` - Subscriptions, favorites, playback progress, user preferences
+- `podcast_data.json` - Subscriptions, favorites, playback progress, user preferences (all keys `snake_case`)
+- Automatic migration from legacy `camelCase` keys on load (in `PodcastDataService._migrate_keys()`)
 - Episode metadata caching to reduce API calls
 - Full episode objects stored for offline UI rendering
 
@@ -339,16 +345,26 @@ state_machine._state.active_source = source
 
 ### 4. WebSocket Broadcasting
 
-All state changes must be broadcast via `state_machine._broadcast_event()`:
+All state changes must be broadcast via `state_machine.broadcast_event()`:
 
 ```python
-await self.state_machine._broadcast_event(
-    category="plugin",           # plugin, system, routing, equalizer
+await self.state_machine.broadcast_event(
+    category="plugin",           # plugin, system, routing, equalizer, settings, multiroom, programs
     type="state_changed",
     source=self.source.value,
     data={"metadata": {...}}
 )
 ```
+
+**Event category conventions:**
+- `plugin` — All audio source feature events (state changes, metadata). Never use source-specific categories.
+- `settings` — Settings changes. Always via `state_machine.broadcast_event()`, never `ws_manager.broadcast_dict()`.
+- `routing` — Multiroom routing transitions (`multiroom_enabling`, `multiroom_disabling`, `multiroom_ready`)
+- `equalizer` — EQ filter/preset/compressor/loudness changes and `enabled_changed`
+- `multiroom` — Client/zone registry changes and `equalizer_changed` for zone EQ
+- `system` — System-level state changes
+- `volume` — Volume state changes
+- `programs` — Update progress and completion events
 
 ### 5. Settings Persistence
 
@@ -384,21 +400,50 @@ DSP effects (EQ, compressor, loudness) are toggled via `bypass_effects()` / `res
 
 These are auto-generated in `/var/lib/milo/routing.env` based on settings.json.
 
+### 7. API Conventions
+
+**Response format**: All API responses use `"status": "success"` for success. Use `"status": "error"` for errors returned as HTTP 200 (resilience pattern for /status endpoints). For actual errors, raise `HTTPException`.
+
+**REST verbs**:
+- `PUT` for idempotent updates (settings, routing config)
+- `DELETE` with path params for removals (e.g., `DELETE /radio/favorites/{station_id}`)
+- `POST` for actions (play, stop, connect) and resource creation
+- `PATCH` for partial updates (volume, zone, client properties)
+
+**Route helpers** (`backend/api/route_helpers.py`):
+- `run_source_command(source, cmd, data, context)` — Standard wrapper for `source.command()` with success check + HTTP 400/500 error handling. All feature playback routes should use this.
+- `api_error_handler(context, log)` — Async context manager for the common `try/except HTTPException/Exception` pattern.
+
+**Pydantic models**: All models use `snake_case` field names. Shared models live in `backend/api/models.py` (e.g., `ClientUpdateRequest`). Feature-specific models live in `backend/features/{source}/models.py`.
+
+### 8. Frontend Conventions
+
+**API calls**: Use `apiCall()` from `frontend/src/services/apiCall.js` for all store API actions (wraps try/catch with logging).
+
+**i18n**: Use `const { t } = useI18n()` in `<script setup>`, not the global `$t()`.
+
+**CSS**: Use design tokens (`var(--color-*)`, `var(--space-*)`, `var(--radius-*)`) instead of hardcoded values.
+
+**Code style**: All `.js` files use semicolons. Constants files use camelCase naming (`audioPlayer.js`, `musicGenres.js`).
+
+**WS event handling**: WebSocket events should be handled in Pinia stores, not in Vue components directly. Components react to store state changes.
+
 ## Adding New Features
 
 ### Adding a New Audio Source Plugin
 
 1. **Define enum** in `backend/core/models/audio_state.py::AudioSource`
 2. **Create feature module** in `backend/features/{source}/` with:
-   - `source.py` - Implementing `AudioSourceProtocol` (extend `UnifiedAudioSource`)
-   - `routes.py` - FastAPI routes
-   - `__init__.py` - Exports
+   - `source.py` - Extending `UnifiedAudioSource`, constructor takes `(config, state_machine, settings_service, systemd_manager)`
+   - `routes.py` - FastAPI routes with `logger = logging.getLogger(__name__)`, `router` with `responses={404: ...}`, playback routes using `run_source_command()`
+   - `models.py` - Pydantic models with `snake_case` fields (if needed)
+   - `__init__.py` - Docstring + `__all__` exporting `Source`, `router`, `setup_{source}_routes`
 3. **Register in dependencies** (`backend/dependencies.py::_create_service()`)
 4. **Add ALSA devices** in `/etc/asound.conf` with 2 variants (direct via CamillaDSP, multiroom via Snapcast)
 5. **Register plugin** in `backend/dependencies.py::initialize_services()`
 6. **Register routes** in `backend/main.py`
 7. **Create Vue component** in `frontend/src/components/{source}/`
-8. **Update stores** if needed in `frontend/src/stores/`
+8. **Update stores** if needed in `frontend/src/stores/` (use `apiCall()` for API actions, handle WS events in store)
 
 **Reference implementations**:
 - **Radio plugin** (`backend/features/radio/`) - Local station management, file uploads, custom stations with image storage
@@ -482,11 +527,15 @@ All components managed by systemd:
 ## Common Pitfalls
 
 1. **Don't modify initialization order** in dependencies.py without understanding circular dependencies
-2. **Don't bypass state_machine** - always use `update_plugin_state()` and `_broadcast_event()`
+2. **Don't bypass state_machine** - always use `update_plugin_state()` and `broadcast_event()`
 3. **Don't bypass SettingsService** - direct JSON file edits won't persist correctly
 4. **Don't use blocking I/O** - always async/await for file, network, subprocess operations
 5. **Don't skip plugin registration** - register in `initialize_services()` BEFORE `init_async()`
 6. **Don't hardcode ALSA devices** - use environment variable pattern for multiroom/equalizer switching
+7. **Don't use `ws_manager.broadcast_dict()` directly** - use `state_machine.broadcast_event()` for all events
+8. **Don't use camelCase in Pydantic models** - all fields must be `snake_case`
+9. **Don't handle WS events in Vue components** - handle them in Pinia stores, components react to store state
+10. **Don't use `POST` for idempotent updates** - use `PUT` for settings, `DELETE` for removals, `PATCH` for partial updates
 
 
 ## Development & Coding Guidelines

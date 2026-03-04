@@ -87,6 +87,7 @@ async def get_stats(source: RadioSource = Depends(get_source)) -> Dict[str, int]
     try:
         return source.station_data.get_stats() if source.station_data else {}
     except Exception as e:
+        logger.error("Stats error: %s", e)
         raise HTTPException(status_code=500, detail=f"Stats error: {str(e)}")
 
 
@@ -194,6 +195,7 @@ async def search_stations(
             }
 
     except Exception as e:
+        logger.error("Search error: %s", e)
         raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")
 
 
@@ -223,6 +225,7 @@ async def get_station(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error("Station error: %s", e)
         raise HTTPException(status_code=500, detail=f"Station error: {str(e)}")
 
 
@@ -237,6 +240,7 @@ async def get_countries(source: RadioSource = Depends(get_source)):
     try:
         return await source.radio_api.get_available_countries()
     except Exception as e:
+        logger.error("Countries error: %s", e)
         raise HTTPException(status_code=500, detail=f"Countries error: {str(e)}")
 
 
@@ -253,6 +257,7 @@ async def get_favorites(source: RadioSource = Depends(get_source)):
     try:
         return await source.station_data.get_favorites_with_metadata()
     except Exception as e:
+        logger.error("Favorites error: %s", e)
         raise HTTPException(status_code=500, detail=f"Favorites error: {str(e)}")
 
 
@@ -348,6 +353,7 @@ async def modify_favorite_metadata(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error("Modify favorite error: %s", e)
         raise HTTPException(status_code=500, detail=f"Modify favorite error: {str(e)}")
 
 
@@ -373,6 +379,7 @@ async def restore_favorite_metadata(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error("Restore favorite error: %s", e)
         raise HTTPException(status_code=500, detail=f"Restore favorite error: {str(e)}")
 
 
@@ -391,6 +398,7 @@ async def get_custom_stations(source: RadioSource = Depends(get_source)) -> Dict
         manual_stations = source.station_data.get_manual_stations()
         return {**modified_metadata, **manual_stations}
     except Exception as e:
+        logger.error("Custom stations error: %s", e)
         raise HTTPException(status_code=500, detail=f"Custom stations error: {str(e)}")
 
 
@@ -458,6 +466,7 @@ async def add_custom_station(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error("Add custom station error: %s", e)
         raise HTTPException(status_code=500, detail=f"Add custom station error: {str(e)}")
 
 
@@ -486,6 +495,7 @@ async def remove_custom_station(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error("Remove custom station error: %s", e)
         raise HTTPException(status_code=500, detail=f"Remove custom station error: {str(e)}")
 
 
@@ -561,6 +571,7 @@ async def update_custom_station(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error("Update custom station error: %s", e)
         raise HTTPException(status_code=500, detail=f"Update custom station error: {str(e)}")
 
 
@@ -613,6 +624,7 @@ async def update_station_image(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error("Update image error: %s", e)
         raise HTTPException(status_code=500, detail=f"Update image error: {str(e)}")
 
 
@@ -651,6 +663,7 @@ async def remove_station_image(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error("Remove image error: %s", e)
         raise HTTPException(status_code=500, detail=f"Remove image error: {str(e)}")
 
 
@@ -710,6 +723,7 @@ async def create_custom_from_favorite(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error("Create from favorite error: %s", e)
         raise HTTPException(status_code=500, detail=f"Create from favorite error: {str(e)}")
 
 
@@ -757,6 +771,7 @@ async def get_station_image(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error("Image error: %s", e)
         raise HTTPException(status_code=500, detail=f"Image error: {str(e)}")
 
 
