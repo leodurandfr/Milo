@@ -100,7 +100,10 @@ class BluetoothSource(BaseAudioSource):
             if not await self.monitor.start():
                 raise RuntimeError("BlueALSA monitor failed to start")
 
-            # 6. Update state
+            # 6. Detect already-connected device (e.g. backend restart during active stream)
+            await self._detect_connected_device()
+
+            # 7. Update state
             self._update_connection_state()
 
             return True
