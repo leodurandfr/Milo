@@ -1,4 +1,4 @@
-<!-- frontend/src/components/settings/categories/MacosSettings.vue -->
+<!-- frontend/src/components/settings/categories/MacSettings.vue -->
 <template>
   <SettingsContainer>
     <!-- Latency Section -->

@@ -20,35 +20,12 @@ Features:
 """
 import logging
 import uuid
-from typing import Optional, Literal
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, field_validator
 
 from backend.api.route_helpers import api_error_handler
-
-from backend.core.multiroom.models import SPEAKER_TYPES
-from backend.api.models import ZoneCreate, ZoneUpdate, ZoneAddClient
+from backend.api.models import ZoneCreate, ZoneUpdate, ZoneAddClient, ClientUpdateRequest
 
 logger = logging.getLogger(__name__)
-
-
-# === REQUEST/RESPONSE MODELS ===
-
-class ClientUpdateRequest(BaseModel):
-    """Request to update client properties (name and/or speaker_type)."""
-    name: Optional[str] = None
-    speaker_type: Optional[Literal['satellite', 'bookshelf', 'tower', 'subwoofer']] = None
-
-    @field_validator('speaker_type')
-    @classmethod
-    def validate_speaker_type(cls, v):
-        """Validate speaker_type against allowed values."""
-        if v is not None and v not in SPEAKER_TYPES:
-            raise ValueError(
-                f"Invalid speaker_type '{v}'. "
-                f"Must be one of: {', '.join(SPEAKER_TYPES)}"
-            )
-        return v
 
 
 def create_multiroom_router(registry_service, multiroom_equalizer_service=None):

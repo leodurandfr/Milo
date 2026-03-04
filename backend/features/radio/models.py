@@ -43,17 +43,6 @@ class FavoriteRequest(BaseModel):
     station: Optional[dict] = None
 
 
-class AddCustomStationRequest(BaseModel):
-    """Request to add a custom station."""
-    name: str
-    url: str
-    country: str = ""
-    genre: str = ""
-    favicon: str = ""
-    bitrate: int = 0
-    codec: str = ""
-
-
 class StationSearchResult(BaseModel):
     """Search result with stations and total count."""
     stations: List[dict]
