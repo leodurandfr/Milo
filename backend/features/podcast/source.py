@@ -360,6 +360,7 @@ class PodcastSource(MpvAudioSource):
     async def _handle_stop_playback(self) -> Dict[str, Any]:
         """Stop playback."""
         try:
+            self._loading = False
             if self._current_episode:
                 await self._save_progress()
                 await self._mpv.stop()

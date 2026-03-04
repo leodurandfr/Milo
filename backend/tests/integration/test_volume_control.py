@@ -1483,8 +1483,8 @@ class TestStartupVolumeIntegration:
             events = websocket_collector.get_events_by_type("volume_startup_changed")
             assert len(events) >= 1
             assert events[0]["category"] == "settings"
-            assert events[0]["data"]["startup_volume_db"] == -45.0
-            assert events[0]["data"]["restore_last_volume"] is True
+            assert events[0]["data"]["config"]["startup_volume_db"] == -45.0
+            assert events[0]["data"]["config"]["restore_last_volume"] is True
 
             await service.cleanup()
 

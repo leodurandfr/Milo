@@ -85,13 +85,15 @@ const hasMoreEpisodes = computed(() => {
 })
 
 const { loading, execute: loadPodcast } = useAsyncData(async () => {
-  currentPage.value = 1
-  const response = await fetch(`/api/podcast/series/${props.uuid}?page=1&limit=25`)
-  if (!response.ok) throw new Error(`HTTP ${response.status}`)
-  podcast.value = await response.json()
-  allEpisodes.value = podcast.value.episodes || []
-  podcastStore.enrichEpisodesWithProgress(allEpisodes.value)
-}, { logTag: 'podcast' })
+  await apiCall('podcast', 'Error loading podcast details', async () => {
+    currentPage.value = 1
+    const response = await fetch(`/api/podcast/series/${props.uuid}?page=1&limit=25`)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    podcast.value = await response.json()
+    allEpisodes.value = podcast.value.episodes || []
+    podcastStore.enrichEpisodesWithProgress(allEpisodes.value)
+  })
+})
 
 async function handleSubscribe() {
   if (!podcast.value) return
