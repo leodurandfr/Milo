@@ -12,13 +12,13 @@ import { logger } from '@/services/logger';
  *   - ping → handled internally (health check)
  *
  * volume:
- *   - volume_changed → App.vue (global), Dock.vue, MultiroomControl.vue (local updates)
+ *   - volume_changed → App.vue (global), Dock.vue
  *
  * plugin:
  *   - state_changed, metadata → App.vue → unifiedAudioStore, podcastStore
  *
  * settings:
- *   - language_changed → App.vue, LanguageSettings.vue
+ *   - language_changed → App.vue
  *   - dock_apps_changed → Dock.vue, DockSettings.vue
  *   - volume_steps_changed → Dock.vue
  *   - podcast_credentials_changed → PodcastSettings.vue
