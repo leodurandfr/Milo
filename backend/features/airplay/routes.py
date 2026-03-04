@@ -4,11 +4,13 @@ FastAPI routes for AirPlay 2 audio source.
 
 Provides REST API endpoints for:
 - Status: Get current AirPlay source status with metadata
+- Artwork: Serve current album artwork as binary image
 - Restart: Restart shairport-sync service
 """
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from typing import Dict, Any
 
 from backend.api.route_helpers import run_source_command
@@ -48,6 +50,21 @@ async def get_status(source: AirPlaySource = Depends(get_source)) -> Dict[str, A
             "is_playing": False,
             "device_connected": False,
         }
+
+
+@router.get("/artwork")
+async def get_artwork(source: AirPlaySource = Depends(get_source)) -> Response:
+    """Serve current AirPlay artwork as binary image."""
+    result = source.get_artwork()
+    if not result:
+        raise HTTPException(status_code=404, detail="No artwork available")
+
+    data, mime_type = result
+    return Response(
+        content=data,
+        media_type=mime_type,
+        headers={"Cache-Control": "private, max-age=31536000, immutable"},
+    )
 
 
 @router.post("/restart")
