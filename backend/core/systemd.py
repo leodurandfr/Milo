@@ -104,6 +104,7 @@ class SystemdServiceManager:
             return False
             
         except asyncio.TimeoutError:
+            proc.kill()
             self.logger.error(f"Timeout ({action} {service} took more than 10 seconds)")
             return False
         except Exception as e:

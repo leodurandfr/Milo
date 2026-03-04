@@ -190,13 +190,17 @@ class BluetoothSource(BaseAudioSource):
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE
             )
-            _, stderr = await proc.communicate()
+            _, stderr = await asyncio.wait_for(proc.communicate(), 10.0)
 
             if proc.returncode != 0:
                 return self.error_response(stderr.decode().strip())
 
             return self.success_response("Device disconnecting")
 
+        except asyncio.TimeoutError:
+            proc.kill()
+            self._logger.error(f"Timeout disconnecting device {address}")
+            return self.error_response("Disconnect timed out")
         except Exception as e:
             return self.error_response(str(e))
 
@@ -223,7 +227,12 @@ class BluetoothSource(BaseAudioSource):
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE
         )
-        _, stderr = await proc.communicate()
+        try:
+            _, stderr = await asyncio.wait_for(proc.communicate(), 10.0)
+        except asyncio.TimeoutError:
+            proc.kill()
+            self._logger.error(f"Timeout disconnecting device {address}")
+            return False
 
         if proc.returncode != 0:
             self._logger.error(f"Disconnect failed: {stderr.decode().strip()}")
@@ -271,7 +280,12 @@ class BluetoothSource(BaseAudioSource):
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL
         )
-        await proc.communicate(input=commands.encode())
+        try:
+            await asyncio.wait_for(proc.communicate(input=commands.encode()), 10.0)
+        except asyncio.TimeoutError:
+            proc.kill()
+            self._logger.error("Timeout running bluetoothctl commands")
+            return False
         return proc.returncode == 0
 
     @handle_errors(default=None)
@@ -282,7 +296,12 @@ class BluetoothSource(BaseAudioSource):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL
         )
-        stdout, _ = await proc.communicate()
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), 10.0)
+        except asyncio.TimeoutError:
+            proc.kill()
+            self._logger.error("Timeout detecting connected Bluetooth devices")
+            return
 
         if proc.returncode == 0:
             for line in stdout.decode().splitlines():
