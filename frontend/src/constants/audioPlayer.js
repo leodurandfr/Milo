@@ -1,4 +1,4 @@
-// frontend/src/constants/audio_player.js
+// frontend/src/constants/audioPlayer.js
 // Shared constants for audio player behavior across sources
 
 /**

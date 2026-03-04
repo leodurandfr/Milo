@@ -107,7 +107,7 @@ import AudioPlayer from '@/components/audio/AudioPlayer.vue'
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue'
 import Dropdown from '@/components/ui/Dropdown.vue'
 import episodePlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
-import { PODCAST_PLAYER_HIDE_DELAY_MS } from '@/constants/audio_player'
+import { PODCAST_PLAYER_HIDE_DELAY_MS } from '@/constants/audioPlayer'
 
 // Views
 import HomeView from './HomeView.vue'

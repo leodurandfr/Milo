@@ -385,3 +385,28 @@ class MacRocConfigRequest(BaseModel):
     target_latency_ms: int = Field(default=200, ge=5, le=500, description="Target latency in milliseconds")
     latency_profile: ROC_LATENCY_PROFILES = Field(default='responsive', description="Latency tuning profile")
     frame_length_ms: ROC_FRAME_LENGTHS = Field(default=7, description="Internal frame length in milliseconds")
+
+
+# =============================================================================
+# MULTIROOM - CLIENT
+# =============================================================================
+
+# Import from domain model to avoid duplication (single source of truth)
+from backend.core.multiroom.models import SPEAKER_TYPES
+
+
+class ClientUpdateRequest(BaseModel):
+    """Request to update client properties (name and/or speaker_type)."""
+    name: Optional[str] = None
+    speaker_type: Optional[Literal['satellite', 'bookshelf', 'tower', 'subwoofer']] = None
+
+    @field_validator('speaker_type')
+    @classmethod
+    def validate_speaker_type(cls, v):
+        """Validate speaker_type against allowed values."""
+        if v is not None and v not in SPEAKER_TYPES:
+            raise ValueError(
+                f"Invalid speaker_type '{v}'. "
+                f"Must be one of: {', '.join(SPEAKER_TYPES)}"
+            )
+        return v

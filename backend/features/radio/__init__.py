@@ -22,7 +22,6 @@ from backend.features.radio.models import (
     Station,
     PlayStationRequest,
     FavoriteRequest,
-    AddCustomStationRequest,
     StationSearchResult
 )
 
@@ -35,6 +34,5 @@ __all__ = [
     "Station",
     "PlayStationRequest",
     "FavoriteRequest",
-    "AddCustomStationRequest",
     "StationSearchResult"
 ]

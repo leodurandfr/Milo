@@ -137,7 +137,7 @@
       <PodcastSettings v-else-if="currentView === 'podcast'" key="podcast" class="view-content" />
 
       <!-- Mac streaming view -->
-      <MacosSettings v-else-if="currentView === 'macos'" key="macos" class="view-content" />
+      <MacSettings v-else-if="currentView === 'macos'" key="macos" class="view-content" />
 
       <!-- Updates view -->
       <UpdateManager v-else-if="currentView === 'updates'" key="updates" class="view-content" />
@@ -187,7 +187,7 @@ import ClientEdit from './categories/multiroom/ClientEdit.vue';
 import RadioSettings from '@/components/settings/categories/radio/RadioSettings.vue';
 import ManageStation from '@/components/settings/categories/radio/ManageStation.vue';
 import PodcastSettings from '@/components/settings/categories/PodcastSettings.vue';
-import MacosSettings from '@/components/settings/categories/MacosSettings.vue';
+import MacSettings from '@/components/settings/categories/MacSettings.vue';
 import UpdateManager from '@/components/settings/categories/UpdateManager.vue';
 import InfoSettings from '@/components/settings/categories/InfoSettings.vue';
 const props = defineProps({
