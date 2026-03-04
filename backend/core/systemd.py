@@ -33,7 +33,12 @@ class SystemdServiceManager:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL
         )
-        stdout, _ = await proc.communicate()
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), 5.0)
+        except asyncio.TimeoutError:
+            proc.kill()
+            self.logger.error(f"Timeout checking is_active for {service}")
+            return False
         return stdout.decode().strip() == "active"
     
     async def get_status(self, service: str) -> Dict[str, Any]:
