@@ -47,6 +47,7 @@ class CamillaDSPService:
     DEFAULT_HOST = "127.0.0.1"
     DEFAULT_PORT = 1234
     RECONNECT_DELAY = 5.0
+    MAX_RECONNECT_DELAY = 30.0
     COMMAND_TIMEOUT = 5.0
 
     def __init__(self, settings_service=None, host: str = None, port: int = None):
@@ -59,12 +60,15 @@ class CamillaDSPService:
         self._state = CamillaDspState.DISCONNECTED
         self._lock = asyncio.Lock()
         self._reconnect_task: Optional[asyncio.Task] = None
-        self._monitor_task: Optional[asyncio.Task] = None
         self._connected = False
-        self._connection_ready = asyncio.Event()  # Signaled when connected to CamillaDSP
+        self._running = True
+        self._connection_ready = asyncio.Event()  # Signaled when first connected to CamillaDSP
 
         # State machine reference (set by container)
         self.state_machine = None
+
+        # Callback for volume restoration after reconnection (set by dependencies.py)
+        self._on_reconnect_callback = None
 
         # Current configuration cache
         self._current_config: Dict[str, Any] = {}
@@ -93,11 +97,23 @@ class CamillaDSPService:
     def set_state_machine(self, state_machine) -> None:
         self.state_machine = state_machine
 
+    def set_on_reconnect_callback(self, callback) -> None:
+        """Set async callback invoked after successful reconnection (used for volume restore)."""
+        self._on_reconnect_callback = callback
+
     async def _run(self, func):
-        """Run sync pycamilladsp call in executor"""
+        """Run sync pycamilladsp call in executor. Marks disconnected on failure."""
         if not self._loop:
             self._loop = asyncio.get_running_loop()
-        return await self._loop.run_in_executor(None, func)
+        try:
+            return await self._loop.run_in_executor(None, func)
+        except Exception:
+            if self._connected:
+                self.logger.warning("CamillaDSP command failed, marking disconnected")
+                self._connected = False
+                self._state = CamillaDspState.DISCONNECTED
+                self._client = None
+            raise
 
     @property
     def state(self) -> CamillaDspState:
@@ -147,18 +163,8 @@ class CamillaDSPService:
             # Load saved configuration from settings
             await self._load_saved_config()
 
-            # Attempt initial connection
-            connected = await self.connect()
-
-            if connected:
-                self.logger.info("CamillaDSP service initialized and connected")
-
-                # Apply saved preset to daemon on startup
-                await self._apply_saved_preset()
-            else:
-                self.logger.warning("CamillaDSP service initialized but not connected (daemon may not be running)")
-                # Signal event even on failure so waiters don't block forever
-                self._connection_ready.set()
+            # Start the connection loop (handles initial connect + reconnection)
+            self._reconnect_task = asyncio.create_task(self._connection_loop())
 
             return True
 
@@ -169,32 +175,70 @@ class CamillaDSPService:
             return False
 
     async def connect(self) -> bool:
+        """Public connect method for external callers (e.g., routing.py startup)."""
+        return await self._connect_once()
+
+    async def _connection_loop(self) -> None:
+        """Connection loop with exponential backoff reconnection.
+
+        Connects to CamillaDSP, restores state, then idles until _run()
+        detects a command failure and clears _connected. Follows the same
+        pattern as SnapcastWebSocketService._connection_loop().
+        """
+        reconnect_delay = self.RECONNECT_DELAY
+
+        while self._running:
+            try:
+                connected = await self._connect_once()
+
+                if connected:
+                    reconnect_delay = self.RECONNECT_DELAY
+                    await self._restore_after_reconnect()
+
+                    # Idle until a command failure marks us disconnected
+                    while self._running and self._connected:
+                        await asyncio.sleep(self.RECONNECT_DELAY)
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error(f"Connection loop error: {e}")
+
+            if self._running:
+                if not self._connection_ready.is_set():
+                    self._connection_ready.set()
+
+                self.logger.info(f"Reconnecting to CamillaDSP in {reconnect_delay:.0f}s...")
+                await asyncio.sleep(reconnect_delay)
+                reconnect_delay = min(reconnect_delay * 1.5, self.MAX_RECONNECT_DELAY)
+
+    async def _connect_once(self) -> bool:
+        """Attempt a single connection to CamillaDSP. Returns True on success."""
         async with self._lock:
             if self._connected:
                 return True
 
             try:
-                # Import pycamilladsp here to handle cases where it's not installed
                 try:
                     from camilladsp import CamillaClient
                 except ImportError as e:
-                    self.logger.error(f"pycamilladsp not installed. Run: pip install camilladsp (error: {e})")
+                    self.logger.error(f"pycamilladsp not installed: {e}")
                     return False
 
                 self._client = CamillaClient(self.host, self.port)
 
-                # pycamilladsp is synchronous, wrap in executor
-                await self._run(self._client.connect)
+                # Use run_in_executor directly to avoid reactive detection in _run()
+                # during connection establishment
+                if not self._loop:
+                    self._loop = asyncio.get_running_loop()
+                await self._loop.run_in_executor(None, self._client.connect)
 
                 self._connected = True
                 self._state = await self._get_daemon_state()
 
                 self.logger.info(f"Connected to CamillaDSP at {self.host}:{self.port}, state: {self._state}")
 
-                # Signal that connection is ready (VolumeService waits for this at startup)
                 self._connection_ready.set()
-
-                # Broadcast state change event (frontend listens for 'state_changed')
                 await self._broadcast_event("state_changed", {"state": self._state.value})
 
                 return True
@@ -202,8 +246,32 @@ class CamillaDSPService:
             except Exception as e:
                 self._connected = False
                 self._state = CamillaDspState.DISCONNECTED
+                self._client = None
                 self.logger.warning(f"Failed to connect to CamillaDSP: {e}")
                 return False
+
+    async def _restore_after_reconnect(self) -> None:
+        """Restore full DSP state after reconnection."""
+        try:
+            # Restore volume first so audio level is correct before effects are applied
+            if self._on_reconnect_callback:
+                await self._on_reconnect_callback()
+
+            # Check if equalizer effects are enabled or bypassed
+            effects_enabled = (
+                self.state_machine.system_state.equalizer_effects_enabled
+                if self.state_machine else False
+            )
+
+            if effects_enabled:
+                self.logger.info("Reconnected: restoring equalizer effects from settings")
+                await self.restore_effects()
+            else:
+                self.logger.info("Reconnected: effects disabled, bypassing")
+                await self.bypass_effects()
+
+        except Exception as e:
+            self.logger.error(f"Error restoring state after reconnect: {e}")
 
     async def disconnect(self) -> None:
         async with self._lock:
@@ -570,7 +638,11 @@ class CamillaDSPService:
             persist: Set to False during bypass operations
             broadcast: Set to False to suppress WebSocket event (for batch zone updates)
         """
-        # Update local cache
+        if not self._connected:
+            self.logger.warning("Cannot set compressor: not connected")
+            return False
+
+        # Update local cache after connection check
         if enabled is not None:
             self._compressor["enabled"] = enabled
         if threshold is not None:
@@ -583,9 +655,6 @@ class CamillaDSPService:
             self._compressor["release"] = release
         if makeup_gain is not None:
             self._compressor["makeup_gain"] = makeup_gain
-
-        if not self._connected:
-            return True
 
         return await self._apply_compressor_config(persist=persist, broadcast=broadcast)
 
@@ -651,16 +720,17 @@ class CamillaDSPService:
             persist: Set to False during bypass operations
             broadcast: Set to False to suppress WebSocket event (for batch zone updates)
         """
-        # Update local cache
+        if not self._connected:
+            self.logger.warning("Cannot set loudness: not connected")
+            return False
+
+        # Update local cache after connection check
         if enabled is not None:
             self._loudness["enabled"] = enabled
         if high_boost is not None:
             self._loudness["high_boost"] = high_boost
         if low_boost is not None:
             self._loudness["low_boost"] = low_boost
-
-        if not self._connected:
-            return True
 
         return await self._apply_loudness_config(persist=persist, broadcast=broadcast)
 
@@ -1002,7 +1072,8 @@ class CamillaDSPService:
         """Clean up resources"""
         self.logger.info("Cleaning up CamillaDSP service...")
 
-        # Cancel reconnect task if running
+        # Stop the connection loop
+        self._running = False
         if self._reconnect_task and not self._reconnect_task.done():
             self._reconnect_task.cancel()
             try:

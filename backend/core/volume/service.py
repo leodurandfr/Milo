@@ -604,6 +604,17 @@ class VolumeService:
         return True
 
     @handle_errors(default=None)
+    async def reapply_current_volume(self) -> None:
+        """Re-apply current volume and mute state to CamillaDSP (after reconnection)."""
+        if not self._camilladsp_service:
+            return
+        volume_db = self._state_store.local_volume_db
+        local_mac_id = self._state_store.local_mac_id
+        local_mute = self._state_store.get_client_mute(local_mac_id) if local_mac_id else False
+        await self._camilladsp_service.set_volume(volume_db)
+        await self._camilladsp_service.set_mute(local_mute)
+        self.logger.info(f"Re-applied volume after CamillaDSP reconnect: {volume_db:.1f}dB, mute={local_mute}")
+
     async def _apply_startup_volume(self) -> None:
         """
         Apply startup volume and mute state to CamillaDSP (FR12).

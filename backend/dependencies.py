@@ -274,6 +274,9 @@ def initialize_services() -> None:
     # 2.6 - camilladsp_service → state_machine
     camilladsp_service.set_state_machine(state_machine)
 
+    # 2.6b - camilladsp_service → volume restore callback (re-apply volume after reconnection)
+    camilladsp_service.set_on_reconnect_callback(volume_service.reapply_current_volume)
+
     # 2.7 - routing_service → camilladsp_service
     routing_service.set_camilladsp_service(camilladsp_service)
 
