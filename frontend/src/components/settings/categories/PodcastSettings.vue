@@ -59,9 +59,9 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
-import useWebSocket from '@/services/websocket';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { logger } from '@/services/logger';
 import axios from 'axios';
 import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
@@ -69,7 +69,6 @@ import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 
 const { t } = useI18n();
-const { on } = useWebSocket();
 const { updateSetting } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 
@@ -149,18 +148,11 @@ onMounted(() => {
   localApiKey.value = config.value.taddy_api_key;
 });
 
-// WebSocket listener
-const handleCredentialsChanged = (msg) => {
-  if (msg.data?.config) {
-    settingsStore.updatePodcastCredentials({
-      taddy_user_id: msg.data.config.taddy_user_id || '',
-      taddy_api_key: msg.data.config.taddy_api_key || ''
-    });
-    // Update local values
-    localUserId.value = msg.data.config.taddy_user_id || '';
-    localApiKey.value = msg.data.config.taddy_api_key || '';
-  }
-};
+// Sync local fields when store credentials change (e.g. from WS event handled in App.vue)
+watch(config, (newConfig) => {
+  localUserId.value = newConfig.taddy_user_id;
+  localApiKey.value = newConfig.taddy_api_key;
+});
 
 async function handleTestConnection() {
   if (!localUserId.value || !localApiKey.value) {
@@ -189,16 +181,13 @@ async function handleTestConnection() {
       errorMessage.value = t('podcastSettings.invalidCredentials');
     }
   } catch (error) {
-    console.error('Error testing connection:', error);
+    logger.error('podcast', 'Error testing connection:', error);
     errorMessage.value = t('podcastSettings.invalidCredentials');
   } finally {
     isValidating.value = false;
   }
 }
 
-onMounted(() => {
-  on('settings', 'podcast_credentials_changed', handleCredentialsChanged);
-});
 </script>
 
 <style scoped>

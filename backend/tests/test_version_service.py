@@ -110,7 +110,6 @@ class TestExecuteVersionCommand:
     @pytest.mark.asyncio
     async def test_timeout_raises(self, version_service):
         mock_proc = AsyncMock()
-        mock_proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
         mock_proc.kill = AsyncMock()
         mock_proc.wait = AsyncMock()
 

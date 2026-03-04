@@ -167,7 +167,7 @@ async function loadAvailableCountries() {
     availableCountries.value = response.data;
     logger.debug('radio', `Loaded ${availableCountries.value.length} countries`);
   } catch (error) {
-    console.error('❌ Error loading countries:', error);
+    logger.error('radio', 'Error loading countries:', error);
     availableCountries.value = [];
   }
 }
@@ -375,7 +375,7 @@ async function handleSubmit() {
       }
     }
   } catch (error) {
-    console.error('❌ Erreur station:', error);
+    logger.error('radio', 'Error submitting station form:', error);
     errorMessage.value = error.message || t('radio.manageStation.errorOccurred');
   } finally {
     isSubmitting.value = false;

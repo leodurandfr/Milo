@@ -408,6 +408,15 @@ onMounted(async () => {
         radioStore.handleMetadataModified(event.data.station);
       }
     }),
+    // Podcast credentials changed (settings panel may be closed)
+    on('settings', 'podcast_credentials_changed', (event) => {
+      if (event.data?.config) {
+        settingsStore.updatePodcastCredentials({
+          taddy_user_id: event.data.config.taddy_user_id || '',
+          taddy_api_key: event.data.config.taddy_api_key || ''
+        });
+      }
+    }),
     // Equalizer events
     on('equalizer', 'filter_changed', (event) => equalizerStore.handleFilterChanged(event)),
     on('equalizer', 'filters_reset', () => equalizerStore.handleFiltersReset()),
