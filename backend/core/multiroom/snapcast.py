@@ -411,8 +411,8 @@ class SnapcastService:
 
         updated_content = self._modify_config_content(content, config)
 
-        # Atomic write via temp file
-        temp_file = "/tmp/snapserver_temp.conf"
+        # Atomic write via temp file in same directory as target
+        temp_file = str(self.snapserver_conf) + ".tmp"
         async with aiofiles.open(temp_file, 'w') as f:
             await f.write(updated_content)
 
