@@ -348,19 +348,15 @@ class TestCamillaDSPService:
 
     @pytest.mark.asyncio
     async def test_set_compressor_disconnected(self, camilladsp_service):
-        """Should update cache even when disconnected"""
+        """Should fail when disconnected without updating cache"""
         result = await camilladsp_service.set_compressor(enabled=True, threshold=-30)
-        assert result is True
-        assert camilladsp_service._compressor["enabled"] is True
-        assert camilladsp_service._compressor["threshold"] == -30
+        assert result is False
 
     @pytest.mark.asyncio
     async def test_set_loudness_disconnected(self, camilladsp_service):
-        """Should update cache even when disconnected"""
+        """Should fail when disconnected without updating cache"""
         result = await camilladsp_service.set_loudness(enabled=True, low_boost=10.0)
-        assert result is True
-        assert camilladsp_service._loudness["enabled"] is True
-        assert camilladsp_service._loudness["low_boost"] == 10.0
+        assert result is False
 
     @pytest.mark.asyncio
     async def test_get_status_disconnected(self, camilladsp_service):
