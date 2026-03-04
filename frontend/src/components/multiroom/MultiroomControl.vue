@@ -30,36 +30,23 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch, inject } from 'vue';
+import { ref, computed, onMounted, watch, inject } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useSnapcastStore } from '@/stores/snapcastStore';
 import { useEqualizerStore } from '@/stores/equalizerStore';
-import { useSettingsStore } from '@/stores/settingsStore';
-import useWebSocket from '@/services/websocket';
 import MultiroomItem from './MultiroomItem.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 
 const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
+const multiroomStore = useMultiroomStore();
 const snapcastStore = useSnapcastStore();
 const equalizerStore = useEqualizerStore();
-const settingsStore = useSettingsStore();
-const { on } = useWebSocket();
-
-// Single transition state instead of 3 separate flags
-// 'idle' | 'enabling' | 'disabling' | 'error'
-const transitionState = ref('idle');
-const errorMessage = ref('');
 
 // Inject Modal's height request function for smooth height animations
 const requestHeightDelta = inject('modalRequestHeightDelta', null);
-
-// Timeout for transition (15 seconds)
-const TRANSITION_TIMEOUT_MS = 15000;
-let transitionTimeoutId = null;
-
-let unsubscribeFunctions = [];
 
 // === COMPUTED ===
 const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
@@ -167,32 +154,32 @@ const showMessage = computed(() => {
   // - Error state
   // - Disabling (show "disabled" message immediately)
   // - Multiroom is off and not enabling
-  if (transitionState.value === 'error') {
+  if (multiroomStore.transitionState === 'error') {
     return true;
   }
-  if (transitionState.value === 'disabling') {
+  if (multiroomStore.transitionState === 'disabling') {
     return true;
   }
-  if (transitionState.value === 'enabling') {
+  if (multiroomStore.transitionState === 'enabling') {
     return false;
   }
   return !isMultiroomActive.value;
 });
 
 const messageIcon = computed(() => {
-  return transitionState.value === 'error' ? 'error' : 'multiroom';
+  return multiroomStore.transitionState === 'error' ? 'error' : 'multiroom';
 });
 
 const messageTitle = computed(() => {
-  if (transitionState.value === 'error') {
-    return errorMessage.value || t('multiroom.error');
+  if (multiroomStore.transitionState === 'error') {
+    return multiroomStore.transitionError || t('multiroom.error');
   }
   return t('multiroom.disabled');
 });
 
 // Show loading skeletons during enabling or store loading
 const shouldShowLoading = computed(() => {
-  return transitionState.value === 'enabling' || snapcastStore.isLoading;
+  return multiroomStore.transitionState === 'enabling' || snapcastStore.isLoading;
 });
 
 const displayClients = computed(() => {
@@ -204,7 +191,7 @@ const displayClients = computed(() => {
   const _clients = unifiedStore.volumeState.clients;
 
   // During enabling or loading, show placeholders based on last known display structure
-  if (transitionState.value === 'enabling' || (snapcastStore.clients.length === 0 && snapcastStore.isLoading)) {
+  if (multiroomStore.transitionState === 'enabling' || (snapcastStore.clients.length === 0 && snapcastStore.isLoading)) {
     return snapcastStore.lastKnownDisplayItems.map((item, i) => ({
       id: `placeholder-${i}`,
       name: '',
@@ -392,80 +379,21 @@ async function handleClientMuteToggle(clientEqId, muted) {
   await equalizerStore.updateClientEqualizerMute(clientEqId, muted);
 }
 
-// === TRANSITION HELPERS ===
-function startTransitionTimeout() {
-  clearTransitionTimeout();
-  transitionTimeoutId = setTimeout(() => {
-    if (transitionState.value === 'enabling' || transitionState.value === 'disabling') {
-      console.warn('[MultiroomControl] Transition timeout reached');
-      transitionState.value = 'error';
-      errorMessage.value = t('multiroom.timeout_error');
-      // Note: isLoading is now computed, no need to set it manually
-    }
-  }, TRANSITION_TIMEOUT_MS);
-}
-
-function clearTransitionTimeout() {
-  if (transitionTimeoutId) {
-    clearTimeout(transitionTimeoutId);
-    transitionTimeoutId = null;
-  }
-}
-
-// === WEBSOCKET HANDLERS ===
-// Note: Client event handlers removed - clients are now derived from multiroomStore
-// which handles registry events in App.vue. The snapcast events are no longer needed here.
-
-function handleSystemStateChanged(event) {
-  unifiedStore.updateState(event);
-}
-
-function handleMultiroomEnabling() {
-  transitionState.value = 'enabling';
-  errorMessage.value = '';
-  // Note: isLoading is now computed from registryStore.isInitialized
-  startTransitionTimeout();
-}
-
-function handleMultiroomDisabling() {
-  transitionState.value = 'disabling';
-  errorMessage.value = '';
-  // Note: isLoading is now computed from registryStore.isInitialized
-  startTransitionTimeout();
-}
-
-async function handleMultiroomReady() {
-  clearTransitionTimeout();
-
-  // Load clients now that services are ready
-  await snapcastStore.loadClients(true); // forceNoCache=true
-  // Volume data comes from unifiedAudioStore.volumeState via WebSocket
-
-  transitionState.value = 'idle';
-}
-
-function handleMultiroomError(event) {
-  console.error('[MultiroomControl] Received multiroom_error event:', event);
-  clearTransitionTimeout();
-  transitionState.value = 'error';
-  errorMessage.value = event?.message || t('multiroom.error');
-  // Note: isLoading is now computed from registryStore.isInitialized
-}
-
 // === LIFECYCLE ===
 onMounted(async () => {
+  // Reset any stale error state from a previous session
+  if (multiroomStore.transitionState === 'error') {
+    multiroomStore.resetTransition();
+  }
+
   // Preload display cache for zone-aware skeletons
   snapcastStore.preloadDisplayCache();
 
-  // Reset transition state on mount based on current state
   if (isMultiroomActive.value) {
-    transitionState.value = 'idle';
     // Preload cache synchronously to get the correct number of clients
     snapcastStore.preloadCache();
     // Load fresh clients in the background
     await snapcastStore.loadClients();
-  } else {
-    transitionState.value = 'idle';
   }
 
   // Load equalizer enabled state (for volume mode detection)
@@ -473,38 +401,19 @@ onMounted(async () => {
 
   // Load linked groups (zones are a multiroom feature, independent of equalizer effects)
   await equalizerStore.loadTargets();
-
-  // Note: snapcast client event subscriptions removed - clients are now derived from
-  // multiroomStore which handles registry events globally in App.vue
-  unsubscribeFunctions.push(
-    on('system', 'state_changed', handleSystemStateChanged),
-    on('routing', 'multiroom_enabling', handleMultiroomEnabling),
-    on('routing', 'multiroom_disabling', handleMultiroomDisabling),
-    on('routing', 'multiroom_ready', handleMultiroomReady),
-    on('routing', 'multiroom_error', handleMultiroomError),
-    on('equalizer', 'enabled_changed', (e) => equalizerStore.handleEnabledChanged(e)),
-    // Volume changes - handled by unifiedAudioStore.handleVolumeEvent
-    // The unified state update will trigger reactivity
-    on('volume', 'volume_changed', (event) => {
-      unifiedStore.handleVolumeEvent(event);
-    })
-  );
 });
 
-onUnmounted(() => {
-  unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
-  clearTransitionTimeout();
+// Reload clients when multiroom becomes ready after a transition
+watch(() => multiroomStore.transitionState, (newState, oldState) => {
+  if (newState === 'idle' && (oldState === 'enabling' || oldState === 'disabling')) {
+    snapcastStore.loadClients(true);
+  }
 });
 
-// === WATCHERS ===
-// Watch for deactivation completion (when state becomes false)
+// Watch for deactivation completion — reset store transition as safety net
 watch(isMultiroomActive, (newValue, oldValue) => {
   if (!newValue && oldValue) {
-    // Multiroom was deactivated
-    clearTransitionTimeout();
-    transitionState.value = 'idle';
-    // Note: clients are now derived from multiroomStore, no need to clear them
-    // They will simply not be displayed when multiroom is inactive
+    multiroomStore.resetTransition();
   }
 });
 

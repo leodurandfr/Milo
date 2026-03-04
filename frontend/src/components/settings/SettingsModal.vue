@@ -6,7 +6,7 @@
       @back="back">
       <template v-if="currentView === 'multiroom'" #actions="{ iconType }">
         <Toggle :model-value="isMultiroomActive" :type="iconType"
-          :disabled="unifiedStore.systemState.transitioning || isMultiroomToggling" @change="handleMultiroomToggle" />
+          :disabled="unifiedStore.systemState.transitioning || multiroomStore.isTransitioning" @change="handleMultiroomToggle" />
       </template>
     </ModalHeader>
 
@@ -155,9 +155,9 @@ import { useI18n } from '@/services/i18n';
 import { i18n } from '@/services/i18n';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useRadioStore } from '@/stores/radioStore';
 import { useNavigationStack } from '@/composables/useNavigationStack';
-import useWebSocket from '@/services/websocket';
 import { logger } from '@/services/logger';
 import axios from 'axios';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
@@ -200,9 +200,9 @@ const props = defineProps({
 const emit = defineEmits(['close']);
 
 const { t } = useI18n();
-const { on } = useWebSocket();
 const settingsStore = useSettingsStore();
 const unifiedStore = useUnifiedAudioStore();
+const multiroomStore = useMultiroomStore();
 const radioStore = useRadioStore();
 
 // Inject modal scroll reset function and content ref for scroll detection
@@ -498,25 +498,11 @@ const shouldShowPlaceholder = computed(() => {
 });
 
 // Multiroom toggle
-const isMultiroomToggling = ref(false);
 const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
 
 async function handleMultiroomToggle(enabled) {
   await unifiedStore.setMultiroomEnabled(enabled);
 }
-
-function handleMultiroomEnabling() {
-  isMultiroomToggling.value = true;
-}
-
-function handleMultiroomDisabling() {
-  isMultiroomToggling.value = true;
-}
-
-// Reset toggling when multiroom state actually changes
-watch(isMultiroomActive, () => {
-  isMultiroomToggling.value = false;
-});
 
 onMounted(async () => {
   // Preload all settings in parallel
@@ -529,9 +515,6 @@ onMounted(async () => {
   if (settingsStore.dockApps.radio) {
     radioStore.loadRadioSettingsData();
   }
-
-  on('routing', 'multiroom_enabling', handleMultiroomEnabling);
-  on('routing', 'multiroom_disabling', handleMultiroomDisabling);
 });
 
 </script>
