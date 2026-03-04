@@ -3,6 +3,7 @@
 Version management service - Version with GitHub token support
 """
 import asyncio
+import time
 import aiohttp
 import logging
 import os
@@ -188,7 +189,6 @@ class VersionService:
         repo = self.programs[program_key]["repo"]
 
         # Check cache
-        import time
         current_time = time.time()
         cache_key = f"github_{program_key}"
 

@@ -70,7 +70,7 @@ class MacSource(BaseAudioSource):
     ):
         super().__init__(
             source_id="mac",
-            service_name="milo-mac",
+            service_name="milo-mac.service",
             state_machine=state_machine,
             systemd_manager=systemd_manager,
             settings_service=settings_service,

@@ -51,7 +51,7 @@ class TestProtocolCompliance:
     def test_has_required_attributes(self, mac_source):
         """Test required attributes exist."""
         assert mac_source.source_id == "mac"
-        assert mac_source.service_name == "milo-mac"
+        assert mac_source.service_name == "milo-mac.service"
 
     def test_has_required_methods(self, mac_source):
         """Test required methods exist."""
