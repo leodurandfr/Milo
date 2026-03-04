@@ -28,11 +28,13 @@ class WebSocketLogHandler(logging.Handler):
         if not self._state_machine:
             return
 
-        # Rate-limit: skip if too recent
+        # Rate-limit: skip if too recent (lock for thread-safety — emit() can be
+        # called from multiple threads, e.g. uvicorn's thread pool)
         now = time.monotonic()
-        if now - self._last_broadcast_time < self.MIN_BROADCAST_INTERVAL:
-            return
-        self._last_broadcast_time = now
+        with self.lock:
+            if now - self._last_broadcast_time < self.MIN_BROADCAST_INTERVAL:
+                return
+            self._last_broadcast_time = now
 
         try:
             loop = asyncio.get_running_loop()
