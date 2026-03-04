@@ -72,6 +72,37 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     });
   }
 
+  // === DISCONNECT ===
+  const disconnectingStates = ref({});
+
+  async function disconnectSource(source) {
+    if (!source || source === 'none') return false;
+    disconnectingStates.value[source] = true;
+
+    const success = await apiCall('store', `Disconnect ${source} failed`, async () => {
+      switch (source) {
+        case 'bluetooth':
+          await axios.post('/api/bluetooth/disconnect');
+          return true;
+        case 'mac':
+          return true;
+        default:
+          logger.warn('store', `Disconnect not supported for ${source}`);
+          return false;
+      }
+    });
+
+    setTimeout(() => {
+      disconnectingStates.value[source] = false;
+    }, 900);
+
+    return success;
+  }
+
+  function isDisconnecting(source) {
+    return disconnectingStates.value[source] || false;
+  }
+
   // === VOLUME ACTIONS (all in dB) ===
   async function adjustVolume(delta_db, showBar = true) {
     return apiCall('store', 'Adjust volume failed', async () => {
@@ -146,6 +177,8 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
 
     // Actions
     changeSource,
+    disconnectSource,
+    isDisconnecting,
     sendCommand,
     setMultiroomEnabled,
     updateState,

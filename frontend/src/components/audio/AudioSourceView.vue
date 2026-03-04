@@ -31,7 +31,7 @@
 </template>
 
 <script setup>
-import { computed, ref, defineAsyncComponent } from 'vue';
+import { computed, defineAsyncComponent } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 
 const SpotifySource = defineAsyncComponent(() =>
@@ -57,49 +57,10 @@ const transitioning = computed(() => unifiedStore.systemState.transitioning);
 const metadata = computed(() => unifiedStore.systemState.metadata);
 
 // === DISCONNECT LOGIC ===
-const disconnectingStates = ref({
-  bluetooth: false,
-  mac: false,
-  spotify: false,
-  radio: false
-});
+const isDisconnecting = computed(() => unifiedStore.isDisconnecting(activeSource.value));
 
-const isDisconnecting = computed(() => disconnectingStates.value[activeSource.value] || false);
-
-async function handleDisconnect() {
-  const currentSource = activeSource.value;
-  if (!currentSource || currentSource === 'none') return;
-
-  disconnectingStates.value[currentSource] = true;
-
-  try {
-    let response;
-
-    switch (currentSource) {
-      case 'bluetooth':
-        response = await fetch('/api/bluetooth/disconnect', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
-        });
-        break;
-      case 'mac':
-        return;
-      default:
-        console.warn(`Disconnect not supported for ${currentSource}`);
-        return;
-    }
-
-    if (response && !response.ok) {
-      const result = await response.json();
-      console.error(`Disconnect error: ${result.detail}`);
-    }
-  } catch (error) {
-    console.error(`Error disconnecting ${currentSource}:`, error);
-  } finally {
-    setTimeout(() => {
-      disconnectingStates.value[currentSource] = false;
-    }, 900);
-  }
+function handleDisconnect() {
+  unifiedStore.disconnectSource(activeSource.value);
 }
 
 // === DECISION LOGIC ===

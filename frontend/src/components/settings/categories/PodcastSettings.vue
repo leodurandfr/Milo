@@ -62,6 +62,7 @@ import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
+import axios from 'axios';
 import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
@@ -170,18 +171,10 @@ async function handleTestConnection() {
     isValidating.value = true;
     errorMessage.value = '';
 
-    const response = await fetch('/api/settings/podcast-credentials/validate', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        taddy_user_id: localUserId.value,
-        taddy_api_key: localApiKey.value,
-      }),
+    const { data } = await axios.post('/api/settings/podcast-credentials/validate', {
+      taddy_user_id: localUserId.value,
+      taddy_api_key: localApiKey.value,
     });
-
-    const data = await response.json();
 
     if (data.valid) {
       // Valid credentials - save them automatically

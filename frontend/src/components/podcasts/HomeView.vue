@@ -108,6 +108,7 @@ import { ref, computed, onMounted } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
 import { apiCall } from '@/services/apiCall'
+import axios from 'axios'
 import PodcastCard from './PodcastCard.vue'
 import EpisodeCard from './EpisodeCard.vue'
 import GenreCard from './GenreCard.vue'
@@ -169,9 +170,9 @@ async function loadData() {
   // Load top podcasts (Bloc 2) - backend derives country from user's language setting
   loadingTopCharts.value = true
   await apiCall('podcast', 'Error loading top charts', async () => {
-    const response = await fetch('/api/podcast/discover/top-charts?content_type=PODCASTSERIES&limit=10')
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    const data = await response.json()
+    const { data } = await axios.get('/api/podcast/discover/top-charts', {
+      params: { content_type: 'PODCASTSERIES', limit: 10 }
+    })
     topCharts.value = data.results || []
   })
   loadingTopCharts.value = false
@@ -179,9 +180,9 @@ async function loadData() {
   // Load top episodes (Bloc 4) - backend derives country from user's language setting
   loadingTopEpisodes.value = true
   await apiCall('podcast', 'Error loading top episodes', async () => {
-    const response = await fetch('/api/podcast/discover/top-charts?content_type=PODCASTEPISODE&limit=10')
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    const data = await response.json()
+    const { data } = await axios.get('/api/podcast/discover/top-charts', {
+      params: { content_type: 'PODCASTEPISODE', limit: 10 }
+    })
     topEpisodes.value = podcastStore.enrichEpisodesWithProgress(data.results || [])
   })
   loadingTopEpisodes.value = false

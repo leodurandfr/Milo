@@ -345,12 +345,7 @@ async function handleSubmit() {
         formDataToSend.append('image', selectedFile.value);
       }
 
-      const response = await fetch('/api/radio/favorites/modify-metadata', {
-        method: 'POST',
-        body: formDataToSend
-      });
-
-      const data = await response.json();
+      const { data } = await axios.post('/api/radio/favorites/modify-metadata', formDataToSend);
 
       if (data.success) {
         logger.info('radio', 'Station modified successfully', data.station);

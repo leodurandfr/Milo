@@ -55,6 +55,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
 import { apiCall } from '@/services/apiCall'
+import axios from 'axios'
 import { useAsyncData } from '@/composables/useAsyncData'
 import PodcastCard from './PodcastCard.vue'
 import EpisodeCard from './EpisodeCard.vue'
@@ -87,10 +88,11 @@ const hasMoreEpisodes = computed(() => {
 const { loading, execute: loadPodcast } = useAsyncData(async () => {
   await apiCall('podcast', 'Error loading podcast details', async () => {
     currentPage.value = 1
-    const response = await fetch(`/api/podcast/series/${props.uuid}?page=1&limit=25`)
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    podcast.value = await response.json()
-    allEpisodes.value = podcast.value.episodes || []
+    const { data } = await axios.get(`/api/podcast/series/${props.uuid}`, {
+      params: { page: 1, limit: 25 }
+    })
+    podcast.value = data
+    allEpisodes.value = data.episodes || []
     podcastStore.enrichEpisodesWithProgress(allEpisodes.value)
   })
 })
@@ -99,17 +101,12 @@ async function handleSubscribe() {
   if (!podcast.value) return
 
   await apiCall('podcast', 'Error subscribing', async () => {
-    const response = await fetch('/api/podcast/subscriptions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        uuid: props.uuid,
-        name: podcast.value.name || '',
-        image_url: podcast.value.image_url || '',
-        children_hash: podcast.value.children_hash || ''
-      })
+    await axios.post('/api/podcast/subscriptions', {
+      uuid: props.uuid,
+      name: podcast.value.name || '',
+      image_url: podcast.value.image_url || '',
+      children_hash: podcast.value.children_hash || ''
     })
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
     podcast.value.is_subscribed = true
     podcastStore.addSubscription({
       uuid: props.uuid,
@@ -123,8 +120,7 @@ async function handleUnsubscribe() {
   if (!podcast.value) return
 
   await apiCall('podcast', 'Error unsubscribing', async () => {
-    const response = await fetch(`/api/podcast/subscriptions/${props.uuid}`, { method: 'DELETE' })
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    await axios.delete(`/api/podcast/subscriptions/${props.uuid}`)
     podcast.value.is_subscribed = false
     podcastStore.removeSubscription(props.uuid)
   })
@@ -137,11 +133,9 @@ async function loadMoreEpisodes() {
   currentPage.value++
 
   const result = await apiCall('podcast', 'Error loading more episodes', async () => {
-    const response = await fetch(
-      `/api/podcast/series/${props.uuid}?page=${currentPage.value}&limit=25`
-    )
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    const data = await response.json()
+    const { data } = await axios.get(`/api/podcast/series/${props.uuid}`, {
+      params: { page: currentPage.value, limit: 25 }
+    })
 
     const newEpisodes = data.episodes || []
     podcastStore.enrichEpisodesWithProgress(newEpisodes)

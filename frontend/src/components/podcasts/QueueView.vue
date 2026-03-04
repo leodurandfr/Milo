@@ -29,6 +29,7 @@ import { ref, onMounted } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
 import { apiCall } from '@/services/apiCall'
+import axios from 'axios'
 import { useAsyncData } from '@/composables/useAsyncData'
 import EpisodeCard from './EpisodeCard.vue'
 import MessageContent from '@/components/ui/MessageContent.vue'
@@ -59,16 +60,14 @@ function formatQueueEpisode(queueItem) {
 
 const { loading, execute: loadQueue } = useAsyncData(async () => {
   await apiCall('podcast', 'Error loading queue', async () => {
-    const response = await fetch('/api/podcast/queue')
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    const data = await response.json()
+    const { data } = await axios.get('/api/podcast/queue')
     episodes.value = data.episodes || []
   })
 })
 
 async function markComplete(episodeUuid) {
   await apiCall('podcast', 'Error marking episode complete', async () => {
-    await fetch(`/api/podcast/queue/${episodeUuid}/complete`, { method: 'POST' })
+    await axios.post(`/api/podcast/queue/${episodeUuid}/complete`)
     episodes.value = episodes.value.filter(e => e.episode_uuid !== episodeUuid)
   })
 }
