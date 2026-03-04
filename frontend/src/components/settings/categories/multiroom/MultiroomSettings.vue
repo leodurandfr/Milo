@@ -2,7 +2,7 @@
 <template>
   <Transition name="fade-slide" mode="out-in">
         <!-- MESSAGE: Enabling or Disabled -->
-        <MessageContent v-if="showMessage" :key="transitionState" :loading="isLoading" :loading-delay="0"
+        <MessageContent v-if="showMessage" :key="multiroomClientStore.transitionState" :loading="isLoading" :loading-delay="0"
           :icon="isLoading ? null : 'multiroom'" :title="messageTitle" />
         <!-- SETTINGS: Active and ready -->
         <SettingsContainer v-else key="settings">
@@ -103,9 +103,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
-import useWebSocket from '@/services/websocket';
 import { useSnapcastStore } from '@/stores/snapcastStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
@@ -123,22 +122,23 @@ import SettingItem from '@/components/settings/SettingItem.vue';
 const emit = defineEmits(['edit-zone', 'create-zone', 'edit-client']);
 
 const { t } = useI18n();
-const { on } = useWebSocket();
 const snapcastStore = useSnapcastStore();
 const unifiedStore = useUnifiedAudioStore();
 const multiroomClientStore = useMultiroomStore();
 
 // Multiroom state
 const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
-const transitionState = ref('idle'); // 'idle' | 'enabling' | 'disabling'
 
-// Message display logic
+// Message display logic (reads centralized transitionState from multiroomStore)
 const showMessage = computed(() => {
-  return transitionState.value !== 'idle' || !isMultiroomActive.value;
+  return multiroomClientStore.transitionState !== 'idle' || !isMultiroomActive.value;
 });
-const isLoading = computed(() => transitionState.value === 'enabling');
+const isLoading = computed(() => multiroomClientStore.transitionState === 'enabling');
 const messageTitle = computed(() => {
-  return transitionState.value === 'enabling' ? t('multiroom.starting') : t('multiroom.disabled');
+  if (multiroomClientStore.transitionState === 'error') {
+    return multiroomClientStore.transitionError || t('multiroom.error');
+  }
+  return multiroomClientStore.transitionState === 'enabling' ? t('multiroom.starting') : t('multiroom.disabled');
 });
 
 // Clients are already sorted (local first, then alphabetical) from multiroomStore
@@ -276,39 +276,18 @@ async function applyServerConfig() {
   await snapcastStore.applyServerConfig();
 }
 
+// Reload data when multiroom becomes ready after a transition
+watch(() => multiroomClientStore.transitionState, (newState, oldState) => {
+  if (newState === 'idle' && (oldState === 'enabling' || oldState === 'disabling')) {
+    loadMultiroomData();
+  }
+});
+
 onMounted(async () => {
   // Load only if multiroom is enabled
   if (isMultiroomActive.value) {
     await loadMultiroomData();
   }
-
-  // Handle multiroom state transitions
-  on('routing', 'multiroom_enabling', () => {
-    transitionState.value = 'enabling';
-  });
-
-  on('routing', 'multiroom_disabling', () => {
-    transitionState.value = 'disabling';
-  });
-
-  on('routing', 'multiroom_ready', async () => {
-    transitionState.value = 'idle';
-    await loadMultiroomData();
-  });
-
-  // Reset to idle when multiroom is fully disabled
-  on('system', 'state_changed', (event) => {
-    if (event?.multiroom_enabled === false && transitionState.value === 'disabling') {
-      transitionState.value = 'idle';
-    }
-  });
-
-  // Subscribe to volume changes - handled by unifiedAudioStore
-  on('volume', 'volume_changed', (event) => {
-    unifiedStore.handleVolumeEvent(event);
-  });
-
-  // Client names are synced automatically via multiroomStore (registry:client_updated events)
 });
 </script>
 

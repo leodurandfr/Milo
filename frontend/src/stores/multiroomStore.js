@@ -31,7 +31,21 @@ export const useMultiroomStore = defineStore('multiroom', () => {
   const isLoading = ref(false);
   const isInitialized = ref(false);
 
+  // Routing transition state (centralized for all components)
+  // 'idle' | 'enabling' | 'disabling' | 'error'
+  const transitionState = ref('idle');
+  const transitionError = ref('');
+  let transitionTimeoutId = null;
+  const TRANSITION_TIMEOUT_MS = 15000;
+
   // === COMPUTED ===
+
+  /**
+   * Whether a routing transition is in progress (enabling or disabling).
+   */
+  const isTransitioning = computed(() =>
+    transitionState.value === 'enabling' || transitionState.value === 'disabling'
+  );
 
   /**
    * All clients as an array, with canonical sort order:
@@ -323,6 +337,68 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     }
   }
 
+  // === ROUTING TRANSITION HANDLERS ===
+
+  function startTransitionTimeout() {
+    clearTransitionTimeout();
+    transitionTimeoutId = setTimeout(() => {
+      if (transitionState.value === 'enabling' || transitionState.value === 'disabling') {
+        logger.warn('store', 'Multiroom transition timeout reached');
+        transitionState.value = 'error';
+        transitionError.value = 'Transition timeout';
+      }
+    }, TRANSITION_TIMEOUT_MS);
+  }
+
+  function clearTransitionTimeout() {
+    if (transitionTimeoutId) {
+      clearTimeout(transitionTimeoutId);
+      transitionTimeoutId = null;
+    }
+  }
+
+  /**
+   * Handle routing category events from WebSocket.
+   * Centralized transition state for all multiroom UI components.
+   * @param {Object} event - WebSocket event with { type, data }
+   */
+  function handleRoutingEvent(event) {
+    switch (event.type) {
+      case 'multiroom_enabling':
+        transitionState.value = 'enabling';
+        transitionError.value = '';
+        startTransitionTimeout();
+        break;
+
+      case 'multiroom_disabling':
+        transitionState.value = 'disabling';
+        transitionError.value = '';
+        startTransitionTimeout();
+        break;
+
+      case 'multiroom_ready':
+        clearTransitionTimeout();
+        transitionState.value = 'idle';
+        break;
+
+      case 'multiroom_error':
+        clearTransitionTimeout();
+        transitionState.value = 'error';
+        transitionError.value = event.data?.message || '';
+        break;
+    }
+  }
+
+  /**
+   * Reset transition state to idle.
+   * Called when multiroom is fully deactivated (system state confirms).
+   */
+  function resetTransition() {
+    clearTransitionTimeout();
+    transitionState.value = 'idle';
+    transitionError.value = '';
+  }
+
   // === API ACTIONS ===
 
   /**
@@ -486,6 +562,8 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     zones,
     isLoading,
     isInitialized,
+    transitionState,
+    transitionError,
 
     // Computed
     clientList,
@@ -494,6 +572,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     zoneList,
     clientCount,
     zoneCount,
+    isTransitioning,
 
     // Initialization
     initialize,
@@ -515,6 +594,8 @@ export const useMultiroomStore = defineStore('multiroom', () => {
 
     // WebSocket handlers
     handleMultiroomEvent,
+    handleRoutingEvent,
+    resetTransition,
 
     // API actions
     createZone,
