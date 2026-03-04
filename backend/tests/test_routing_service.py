@@ -189,8 +189,6 @@ class TestAudioRoutingService:
         mock_state_machine.update_multiroom_state = AsyncMock(
             side_effect=lambda v, silent=False: setattr(mock_state_machine.system_state, 'multiroom_enabled', v)
         )
-        # volume_service is accessed via getattr - set to None to skip volume push
-        mock_state_machine.volume_service = None
         routing_service.set_state_machine(mock_state_machine)
 
         with patch.object(routing_service, '_update_systemd_environment', new_callable=AsyncMock):

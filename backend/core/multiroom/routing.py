@@ -189,6 +189,7 @@ class AudioRoutingService:
         self.snapcast_service = None
         self.state_machine = None
         self.camilladsp_service = None
+        self.volume_service = None
 
         # Lock to guarantee atomicity of routing operations
         self._routing_lock = asyncio.Lock()
@@ -212,6 +213,10 @@ class AudioRoutingService:
     def set_camilladsp_service(self, service) -> None:
         """Set CamillaDSPService dependency."""
         self.camilladsp_service = service
+
+    def set_volume_service(self, service) -> None:
+        """Set VolumeService dependency."""
+        self.volume_service = service
 
     def set_plugin_callback(self, callback: Callable) -> None:
         """Set callback to access audio source plugins."""
@@ -360,10 +365,9 @@ class AudioRoutingService:
             return
 
         # Sync volumes from equalizer
-        volume_service = getattr(self.state_machine, 'volume_service', None) if self.state_machine else None
-        if volume_service:
+        if self.volume_service:
             self.logger.info(f"[{time.time():.3f}] DELAYED_SYNC: Starting sync_all_clients_from_equalizer")
-            await volume_service.sync_all_clients_from_equalizer()
+            await self.volume_service.sync_all_clients_from_equalizer()
             self.logger.info(f"[{time.time():.3f}] DELAYED_SYNC: sync_all_clients_from_equalizer complete")
         else:
             self.logger.warning("VolumeService not available for equalizer sync")
@@ -476,15 +480,14 @@ class AudioRoutingService:
 
         # Update volume mode and push to clients
         if self.state_machine:
-            volume_service = getattr(self.state_machine, 'volume_service', None)
             target_volume = None
-            if volume_service:
-                target_volume = await volume_service.update_volume_mode(enabled)
+            if self.volume_service:
+                target_volume = await self.volume_service.update_volume_mode(enabled)
 
             if enabled:
-                if volume_service and target_volume is not None:
+                if self.volume_service and target_volume is not None:
                     self.logger.info(f"Pushing volume ({target_volume:.1f}dB) to all clients...")
-                    await volume_service.push_volume_to_all_clients(target_volume)
+                    await self.volume_service.push_volume_to_all_clients(target_volume)
                 self.logger.info("Broadcasting multiroom_ready event")
                 await self.state_machine.broadcast_event("routing", "multiroom_ready", {})
 

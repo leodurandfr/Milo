@@ -322,11 +322,11 @@ class TestWebSocketIntegration:
         })
         state_machine.refresh_active_metadata = AsyncMock()
         # Mock volume_service for _send_volume_state
-        state_machine.volume_service = Mock()
-        state_machine.volume_service.wait_for_availability = AsyncMock()
-        state_machine.volume_service.get_volume_state = AsyncMock(return_value=Mock(to_dict=Mock(return_value={"volume": -30})))
+        volume_service = Mock()
+        volume_service.wait_for_availability = AsyncMock()
+        volume_service.get_volume_state = AsyncMock(return_value=Mock(to_dict=Mock(return_value={"volume": -30})))
 
-        server = WebSocketServer(manager, state_machine)
+        server = WebSocketServer(manager, state_machine, volume_service)
 
         # WebSocket mock
         ws = AsyncMock()

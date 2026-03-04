@@ -74,7 +74,7 @@ equalizer_sync_service = get_service("equalizer_settings_sync_service")
 client_registry_service = get_service("client_registry_service")
 equalizer_router_service = get_service("equalizer_router")
 ws_manager = get_service("websocket_manager")
-websocket_server = WebSocketServer(ws_manager, state_machine)
+websocket_server = WebSocketServer(ws_manager, state_machine, volume_service)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

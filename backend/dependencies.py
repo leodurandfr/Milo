@@ -262,14 +262,8 @@ def initialize_services() -> None:
     # 2.5 - state_machine ← routing_service (circular reference)
     state_machine.routing_service = routing_service
 
-    # 2.5b - state_machine ← crossover_service
-    state_machine.crossover_service = crossover_service
-
-    # 2.5c - state_machine ← equalizer_settings_sync_service (for zone equalizer sync on reconnection)
-    state_machine.equalizer_settings_sync_service = equalizer_settings_sync_service
-
-    # 2.5d - state_machine ← equalizer_client_proxy_service (for remote equalizer control)
-    state_machine.equalizer_client_proxy_service = equalizer_client_proxy_service
+    # (crossover_service, equalizer_settings_sync_service, equalizer_client_proxy_service
+    # are wired directly to their consumers — no longer stored on state_machine)
 
     # 2.6 - camilladsp_service → state_machine
     camilladsp_service.set_state_machine(state_machine)
@@ -285,7 +279,6 @@ def initialize_services() -> None:
 
     # 2.9 - client_registry_service → state_machine
     client_registry_service.set_state_machine(state_machine)
-    state_machine.client_registry = client_registry_service
 
     # 2.10 - volume_service._state_store → client_registry_service
     volume_service._state_store.set_registry(client_registry_service)
@@ -302,9 +295,9 @@ def initialize_services() -> None:
     # 2.12 - crossover_service → client_registry_service
     crossover_service.set_registry(client_registry_service)
 
-    # 2.13 - state_machine → volume_service + snapcast_service (moved from main.py)
-    state_machine.volume_service = volume_service
-    state_machine.snapcast_service = get_service("snapcast_service")
+    # 2.13 - routing_service + crossover_service → volume_service (direct injection)
+    routing_service.set_volume_service(volume_service)
+    crossover_service.set_volume_service(volume_service)
 
     # 2.14 - multiroom_equalizer_service → state_machine (for event broadcasting)
     multiroom_equalizer_service.set_state_machine(state_machine)
@@ -317,6 +310,7 @@ def initialize_services() -> None:
     multiroom_equalizer_service.set_equalizer_router(get_service("equalizer_router"))
 
     # 2.17 - snapcast_websocket_service → direct service references
+    snapcast_websocket_service.set_registry(client_registry_service)
     snapcast_websocket_service.set_snapcast_service(get_service("snapcast_service"))
     snapcast_websocket_service.set_volume_service(volume_service)
     snapcast_websocket_service.set_crossover_service(crossover_service)

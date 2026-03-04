@@ -548,7 +548,6 @@ class TestReconnectionContextDetectionIntegration:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        mock_state_machine.client_registry = registry
         registry.set_state_machine(mock_state_machine)
 
         # Register clients and create zone
@@ -586,7 +585,6 @@ class TestReconnectionContextDetectionIntegration:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        mock_state_machine.client_registry = registry
         registry.set_state_machine(mock_state_machine)
 
         # Register clients and create zone
@@ -625,7 +623,6 @@ class TestReconnectionContextDetectionIntegration:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        mock_state_machine.client_registry = registry
         registry.set_state_machine(mock_state_machine)
 
         # Register standalone clients (no zones)
@@ -662,7 +659,6 @@ class TestReconnectionContextDetectionIntegration:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        mock_state_machine.client_registry = registry
         registry.set_state_machine(mock_state_machine)
 
         # Register standalone clients (no zones)
@@ -697,7 +693,6 @@ class TestReconnectionContextDetectionIntegration:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        mock_state_machine.client_registry = registry
         registry.set_state_machine(mock_state_machine)
 
         # Setup mock snapcast service
@@ -720,6 +715,7 @@ class TestReconnectionContextDetectionIntegration:
             state_machine=mock_state_machine,
             routing_service=MagicMock(),
         )
+        ws_service.set_registry(registry)
         ws_service._snapcast_service = mock_snapcast
         ws_service._volume_service = mock_volume
 
@@ -755,7 +751,6 @@ class TestReconnectionContextDetectionIntegration:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        mock_state_machine.client_registry = registry
         registry.set_state_machine(mock_state_machine)
 
         # Register 3 clients
@@ -865,7 +860,6 @@ class TestInZoneReconnectionSyncIntegration:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        mock_state_machine.client_registry = registry
         registry.set_state_machine(mock_state_machine)
 
         # Register clients with volumes
@@ -895,6 +889,7 @@ class TestInZoneReconnectionSyncIntegration:
             state_machine=mock_state_machine,
             routing_service=MagicMock(),
         )
+        ws_service.set_registry(registry)
         ws_service._snapcast_service = mock_snapcast
         ws_service._volume_service = mock_state_machine.volume_service
 
@@ -929,7 +924,6 @@ class TestInZoneReconnectionSyncIntegration:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        mock_state_machine.client_registry = registry
         registry.set_state_machine(mock_state_machine)
 
         # Register clients
@@ -950,6 +944,7 @@ class TestInZoneReconnectionSyncIntegration:
             state_machine=mock_state_machine,
             routing_service=MagicMock(),
         )
+        ws_service.set_registry(registry)
         ws_service._volume_service = mock_state_machine.volume_service
 
         # Get target volume using the unified method
@@ -1021,7 +1016,6 @@ class TestInZoneReconnectionSyncIntegration:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        mock_state_machine.client_registry = registry
         registry.set_state_machine(mock_state_machine)
 
         # Register client in zone
@@ -1043,6 +1037,7 @@ class TestInZoneReconnectionSyncIntegration:
             state_machine=mock_state_machine,
             routing_service=MagicMock(),
         )
+        ws_service.set_registry(registry)
         ws_service._snapcast_service = mock_snapcast
         ws_service._volume_service = mock_state_machine.volume_service
         ws_service._sync_zone_equalizer_to_client = AsyncMock(return_value=True)
@@ -1174,7 +1169,6 @@ class TestAC4SyncTimeCompliance:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        mock_state_machine.client_registry = registry
         registry.set_state_machine(mock_state_machine)
 
         # Register clients in zone
@@ -1191,6 +1185,7 @@ class TestAC4SyncTimeCompliance:
             state_machine=mock_state_machine,
             routing_service=MagicMock(),
         )
+        ws_service.set_registry(registry)
         ws_service._snapcast_service = mock_state_machine.snapcast_service
         ws_service._volume_service = mock_state_machine.volume_service
         ws_service._sync_zone_equalizer_to_client = AsyncMock(return_value=True)
@@ -1233,7 +1228,6 @@ class TestAC4SyncTimeCompliance:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        mock_state_machine.client_registry = registry
         registry.set_state_machine(mock_state_machine)
 
         # Register clients and create zone with Equalizer settings
@@ -1258,6 +1252,7 @@ class TestAC4SyncTimeCompliance:
             state_machine=mock_state_machine,
             routing_service=MagicMock(),
         )
+        ws_service.set_registry(registry)
         ws_service._snapcast_service = mock_state_machine.snapcast_service
         ws_service._volume_service = mock_state_machine.volume_service
 
@@ -1308,13 +1303,9 @@ class TestAC6PendingSettingsQueue:
 
     @pytest.fixture
     def mock_state_machine_with_crossover(self):
-        """Create a mock state machine with crossover_service for pending settings."""
+        """Create a mock state machine with crossover/proxy services for pending settings."""
         sm = MagicMock()
         sm.broadcast_event = AsyncMock()
-        sm.snapcast_service = None
-        sm.volume_service = None
-        sm.camilladsp_service = None
-        sm.equalizer_settings_sync_service = None
 
         # Mock crossover service with queue_pending_settings
         crossover = AsyncMock()
@@ -1345,7 +1336,6 @@ class TestAC6PendingSettingsQueue:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        mock_state_machine_with_crossover.client_registry = registry
         registry.set_state_machine(mock_state_machine_with_crossover)
 
         # Register client with IP
@@ -1364,6 +1354,7 @@ class TestAC6PendingSettingsQueue:
             state_machine=mock_state_machine_with_crossover,
             routing_service=MagicMock(),
         )
+        ws_service.set_registry(registry)
         ws_service._equalizer_client_proxy_service = mock_state_machine_with_crossover.equalizer_client_proxy_service
         ws_service._crossover_service = mock_state_machine_with_crossover.crossover_service
 
@@ -1400,7 +1391,6 @@ class TestAC6PendingSettingsQueue:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        mock_state_machine_with_crossover.client_registry = registry
         registry.set_state_machine(mock_state_machine_with_crossover)
 
         # Register clients
@@ -1419,6 +1409,7 @@ class TestAC6PendingSettingsQueue:
             state_machine=mock_state_machine_with_crossover,
             routing_service=MagicMock(),
         )
+        ws_service.set_registry(registry)
         ws_service._equalizer_client_proxy_service = mock_state_machine_with_crossover.equalizer_client_proxy_service
         ws_service._crossover_service = mock_state_machine_with_crossover.crossover_service
 
@@ -1452,7 +1443,6 @@ class TestAC6PendingSettingsQueue:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        mock_state_machine_with_crossover.client_registry = registry
         registry.set_state_machine(mock_state_machine_with_crossover)
 
         # Register clients
@@ -1474,6 +1464,7 @@ class TestAC6PendingSettingsQueue:
             state_machine=mock_state_machine_with_crossover,
             routing_service=MagicMock(),
         )
+        ws_service.set_registry(registry)
         ws_service._equalizer_client_proxy_service = mock_state_machine_with_crossover.equalizer_client_proxy_service
         ws_service._crossover_service = mock_state_machine_with_crossover.crossover_service
 
@@ -1523,7 +1514,6 @@ class TestAC6PendingSettingsQueue:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        sm.client_registry = registry
         registry.set_state_machine(sm)
 
         # Register clients
@@ -1542,6 +1532,7 @@ class TestAC6PendingSettingsQueue:
             state_machine=sm,
             routing_service=MagicMock(),
         )
+        ws_service.set_registry(registry)
         ws_service._equalizer_client_proxy_service = sm.equalizer_client_proxy_service
         ws_service._crossover_service = sm.crossover_service
 
@@ -1626,7 +1617,6 @@ class TestStandaloneReconnectionSyncIntegration:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        mock_state_machine.client_registry = registry
         registry.set_state_machine(mock_state_machine)
 
         # Register standalone clients with volumes (no zone)
@@ -1653,6 +1643,7 @@ class TestStandaloneReconnectionSyncIntegration:
             state_machine=mock_state_machine,
             routing_service=MagicMock(),
         )
+        ws_service.set_registry(registry)
         ws_service._snapcast_service = mock_snapcast
         ws_service._volume_service = mock_state_machine.volume_service
 
@@ -1689,7 +1680,6 @@ class TestStandaloneReconnectionSyncIntegration:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        mock_state_machine.client_registry = registry
         registry.set_state_machine(mock_state_machine)
 
         # Register standalone clients (no zone)
@@ -1707,6 +1697,7 @@ class TestStandaloneReconnectionSyncIntegration:
             state_machine=mock_state_machine,
             routing_service=MagicMock(),
         )
+        ws_service.set_registry(registry)
         ws_service._volume_service = mock_state_machine.volume_service
 
         # Get target volume using the unified method
@@ -1819,7 +1810,6 @@ class TestStandaloneReconnectionSyncIntegration:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        mock_state_machine.client_registry = registry
 
         # Register standalone client
         await registry.register_client("client-1", "Client 1", "192.168.1.1")
@@ -1838,6 +1828,7 @@ class TestStandaloneReconnectionSyncIntegration:
             state_machine=mock_state_machine,
             routing_service=MagicMock(),
         )
+        ws_service.set_registry(registry)
 
         # Verify context is STANDALONE
         context = registry.get_reconnection_context("client-1")
@@ -1860,7 +1851,6 @@ class TestStandaloneReconnectionSyncIntegration:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        mock_state_machine.client_registry = registry
         registry.set_state_machine(mock_state_machine)
 
         # Register standalone clients with explicit MAC-based mac_ids
@@ -1880,6 +1870,7 @@ class TestStandaloneReconnectionSyncIntegration:
             state_machine=mock_state_machine,
             routing_service=MagicMock(),
         )
+        ws_service.set_registry(registry)
         ws_service._snapcast_service = mock_snapcast
         ws_service._volume_service = mock_state_machine.volume_service
         ws_service._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)
@@ -1927,7 +1918,6 @@ class TestStandaloneReconnectionSyncIntegration:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        mock_state_machine.client_registry = registry
         registry.set_state_machine(mock_state_machine)
 
         # Register standalone clients with explicit MAC-based mac_ids
@@ -1948,6 +1938,7 @@ class TestStandaloneReconnectionSyncIntegration:
             state_machine=mock_state_machine,
             routing_service=MagicMock(),
         )
+        ws_service.set_registry(registry)
         ws_service._snapcast_service = mock_snapcast
         ws_service._volume_service = mock_state_machine.volume_service
         ws_service._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)

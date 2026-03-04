@@ -18,9 +18,10 @@ class WebSocketServer:
 
     PING_INTERVAL = 30
 
-    def __init__(self, ws_manager: WebSocketManager, state_machine):
+    def __init__(self, ws_manager: WebSocketManager, state_machine, volume_service=None):
         self.manager = ws_manager
         self.state_machine = state_machine
+        self.volume_service = volume_service
 
     async def _send_ping(self, websocket: WebSocket):
         """Sends periodic pings to maintain connection"""
@@ -40,10 +41,10 @@ class WebSocketServer:
         """Send volume state after availability is ready (non-blocking)."""
         try:
             # Wait for client availability (with timeout)
-            await self.state_machine.volume_service.wait_for_availability(timeout=5.0)
+            await self.volume_service.wait_for_availability(timeout=5.0)
 
             # Send current volume state
-            volume_state = await self.state_machine.volume_service.get_volume_state()
+            volume_state = await self.volume_service.get_volume_state()
             volume_event = {
                 "category": "volume",
                 "type": "volume_changed",
