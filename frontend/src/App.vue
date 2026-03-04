@@ -392,6 +392,22 @@ onMounted(async () => {
     on('multiroom', 'zone_changed', (event) => multiroomStore.handleMultiroomEvent(event)),
     on('multiroom', 'equalizer_changed', (event) => equalizerStore.handleEqualizerChanged(event)),
     on('multiroom', 'crossover_changed', (event) => equalizerStore.handleZoneCrossoverChanged(event)),
+    // Radio favorite events
+    on('plugin', 'favorite_added', (event) => {
+      if (event.data?.source === 'radio' && event.data?.station_id) {
+        radioStore.handleFavoriteEvent(event.data.station_id, true);
+      }
+    }),
+    on('plugin', 'favorite_removed', (event) => {
+      if (event.data?.source === 'radio' && event.data?.station_id) {
+        radioStore.handleFavoriteEvent(event.data.station_id, false);
+      }
+    }),
+    on('plugin', 'favorite_modified', (event) => {
+      if (event.data?.source === 'radio' && event.data?.station) {
+        radioStore.handleMetadataModified(event.data.station);
+      }
+    }),
     // Equalizer events
     on('equalizer', 'filter_changed', (event) => equalizerStore.handleFilterChanged(event)),
     on('equalizer', 'filters_reset', () => equalizerStore.handleFiltersReset()),

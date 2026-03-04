@@ -67,7 +67,6 @@ import axios from 'axios'
 import { useRadioStore } from '@/stores/radioStore'
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore'
 import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility'
-import useWebSocket from '@/services/websocket'
 import { useI18n } from '@/services/i18n'
 import { logger } from '@/services/logger'
 import { genreOptions as createGenreOptions } from '@/constants/musicGenres'
@@ -83,7 +82,6 @@ import placeholderImg from '@/assets/radio/station-placeholder.jpg'
 
 const radioStore = useRadioStore()
 const unifiedStore = useUnifiedAudioStore()
-const { on } = useWebSocket()
 const { t } = useI18n()
 
 // === PLAYBACK VISIBILITY ===
@@ -181,7 +179,7 @@ async function openSearch() {
   logger.debug('radio', `Opening search mode. Available countries: ${availableCountries.value.length}`)
 
   // Set loading AND switch mode immediately to prevent showing favorites
-  radioStore.loading = true
+  radioStore.setLoading(true)
   isSearchMode.value = true
 
   // Load countries if not yet loaded
@@ -195,10 +193,7 @@ async function openSearch() {
 
 function closeSearch() {
   isSearchMode.value = false
-  // Reset filters
-  radioStore.searchQuery = ''
-  radioStore.countryFilter = ''
-  radioStore.genreFilter = ''
+  radioStore.resetFilters()
 
   // Reload favorites only if preload never completed (edge case: opened very early)
   if (!radioStore.favoritesInitialized) {
@@ -237,28 +232,6 @@ async function handleFavorite() {
     await radioStore.toggleFavorite(radioStore.currentStation.id)
   }
 }
-
-// === WEBSOCKET SYNC ===
-// currentStation now reads directly from unifiedStore.systemState.metadata
-// No need for manual sync here
-
-on('plugin', 'favorite_added', (event) => {
-  if (event.data?.source === 'radio' && event.data?.station_id) {
-    radioStore.handleFavoriteEvent(event.data.station_id, true)
-  }
-})
-
-on('plugin', 'favorite_removed', (event) => {
-  if (event.data?.source === 'radio' && event.data?.station_id) {
-    radioStore.handleFavoriteEvent(event.data.station_id, false)
-  }
-})
-
-on('plugin', 'favorite_modified', (event) => {
-  if (event.data?.source === 'radio' && event.data?.station) {
-    radioStore.handleMetadataModified(event.data.station)
-  }
-})
 
 // === AVAILABLE COUNTRIES ===
 async function loadAvailableCountries() {
