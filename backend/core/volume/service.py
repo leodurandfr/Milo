@@ -340,8 +340,10 @@ class VolumeService:
             "settings",
             "volume_startup_changed",
             {
-                "startup_volume_db": volume_db,
-                "restore_last_volume": self._volume_config.restore_last_volume
+                "config": {
+                    "startup_volume_db": volume_db,
+                    "restore_last_volume": self._volume_config.restore_last_volume
+                }
             }
         )
 
