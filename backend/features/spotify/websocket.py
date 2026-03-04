@@ -92,7 +92,7 @@ class LibrespotWebSocket:
     async def _run_connection(self) -> None:
         """Run a single WebSocket connection."""
         try:
-            async with self._session.ws_connect(self._ws_url) as ws:
+            async with self._session.ws_connect(self._ws_url, timeout=aiohttp.ClientTimeout(total=5)) as ws:
                 self._connected = True
                 self._logger.info("WebSocket connected")
 
