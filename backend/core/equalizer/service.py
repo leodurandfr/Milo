@@ -436,7 +436,13 @@ class CamillaDSPService:
             "enabled": True
         })
 
-        await self._broadcast_event("filter_added", {"id": filter_id})
+        await self._broadcast_event("filter_added", {
+            "id": filter_id,
+            "freq": freq,
+            "gain": gain,
+            "q": q,
+            "type": filter_type
+        })
 
         return True
 

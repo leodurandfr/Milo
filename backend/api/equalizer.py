@@ -219,13 +219,6 @@ def create_equalizer_router(
             )
 
             if success:
-                await state_machine.broadcast_event("equalizer", "filter_added", {
-                    "id": filter_id,
-                    "freq": payload.freq,
-                    "gain": payload.gain,
-                    "q": payload.q,
-                    "type": payload.filter_type
-                })
                 return {"status": "success", "id": filter_id}
 
             return {"status": "error", "message": "Failed to add filter"}
@@ -274,7 +267,6 @@ def create_equalizer_router(
             success = await camilladsp_service.remove_filter(filter_id)
 
             if success:
-                await state_machine.broadcast_event("equalizer", "filter_removed", {"id": filter_id})
                 return {"status": "success", "id": filter_id}
 
             raise HTTPException(status_code=404, detail=f"Filter {filter_id} not found")
