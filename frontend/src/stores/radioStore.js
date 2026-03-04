@@ -148,6 +148,22 @@ export const useRadioStore = defineStore('radio', () => {
 
   // === ACTIONS ===
 
+  /**
+   * Set loading state (used by components to indicate loading before async operations)
+   */
+  function setLoading(value) {
+    loading.value = value;
+  }
+
+  /**
+   * Reset search filters to defaults
+   */
+  function resetFilters() {
+    searchQuery.value = '';
+    countryFilter.value = '';
+    genreFilter.value = '';
+  }
+
   // Guard against concurrent preload calls
   let preloadPromise = null;
 
@@ -512,6 +528,8 @@ export const useRadioStore = defineStore('radio', () => {
     addCustomStation,
     removeCustomStation,
     removeStationImage,
+    setLoading,
+    resetFilters,
     handleFavoriteEvent,
     handleMetadataModified
   };
