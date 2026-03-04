@@ -108,6 +108,7 @@ import { ref, computed, onMounted } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
 import { apiCall } from '@/services/apiCall'
+import { logger } from '@/services/logger'
 import axios from 'axios'
 import PodcastCard from './PodcastCard.vue'
 import EpisodeCard from './EpisodeCard.vue'
@@ -162,7 +163,7 @@ async function loadData() {
   try {
     await podcastStore.loadSubscriptions()
   } catch (error) {
-    console.error('Error loading subscription episodes:', error)
+    logger.error('podcast', 'Error loading subscription episodes:', error)
   } finally {
     loadingSubscriptions.value = false
   }

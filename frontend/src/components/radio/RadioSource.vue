@@ -239,7 +239,7 @@ async function loadAvailableCountries() {
     const response = await axios.get('/api/radio/countries')
     availableCountries.value = response.data
   } catch (error) {
-    console.error('❌ Error loading countries:', error)
+    logger.error('radio', 'Error loading countries:', error)
     availableCountries.value = []
   }
 }

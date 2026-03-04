@@ -9,6 +9,5 @@ export const RADIO_PLAYER_HIDE_DELAY_MS = 5000
 
 /**
  * Delay in milliseconds before hiding the AudioPlayer after podcast pause.
- * Longer delay since users often pause podcasts temporarily.
  */
 export const PODCAST_PLAYER_HIDE_DELAY_MS = 5000
