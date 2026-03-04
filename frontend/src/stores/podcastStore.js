@@ -2,7 +2,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
-import { useUnifiedAudioStore } from './unifiedAudioStore';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
 
@@ -10,9 +9,6 @@ import { apiCall } from '@/services/apiCall';
 const MAX_PROGRESS_ENTRIES = 200;
 
 export const usePodcastStore = defineStore('podcast', () => {
-  // Access unified audio store (source of truth for playback state)
-  const unifiedStore = useUnifiedAudioStore();
-
   // === PLAYBACK STATE ===
   const currentEpisode = ref(null);
   const displayEpisode = ref(null); // Preserved during fade-out animation
@@ -232,7 +228,7 @@ export const usePodcastStore = defineStore('podcast', () => {
       enforceProgressCacheLimit();
     }
 
-    // Note: is_playing and is_buffering are read from unifiedStore.systemState.metadata
+    // Note: is_playing and is_buffering are read from unifiedAudioStore.systemState.metadata
     // They are updated by the unified audio state machine via WebSocket
   }
 
@@ -476,7 +472,7 @@ export const usePodcastStore = defineStore('podcast', () => {
       delayedClearTimeout = null;
     }
 
-    // Note: playback state comes from unifiedStore, no need to clear locally
+    // Note: playback state comes from unifiedAudioStore, no need to clear locally
     // Keep progress cache for displaying "X min restantes" on paused episodes
   }
 

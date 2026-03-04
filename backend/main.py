@@ -204,7 +204,6 @@ settings_router = create_settings_router(
 app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
 
 programs_router = create_programs_router(
-    ws_manager=get_service("websocket_manager"),
     update_service=get_service("update_service"),
     satellite_update_service=get_service("satellite_update_service"),
     state_machine=state_machine

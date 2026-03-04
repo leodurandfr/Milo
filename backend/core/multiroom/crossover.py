@@ -215,7 +215,7 @@ class CrossoverService:
         else:
             await self._set_client_filter(client_id, "crossover", False, 80)
 
-        await self._broadcast_event("client_type_changed", {
+        await self._broadcast_event({
             "client_id": client_id,
             "speaker_type": speaker_type,
             "crossover_frequency": crossover_frequency
@@ -241,7 +241,7 @@ class CrossoverService:
         if speaker_type != 'subwoofer':
             await self._set_client_filter(client_id, "crossover", True, frequency)
 
-        await self._broadcast_event("client_crossover_changed", {
+        await self._broadcast_event({
             "client_id": client_id,
             "crossover_frequency": frequency
         })
@@ -350,7 +350,7 @@ class CrossoverService:
         # Get updated crossover state for complete event data (AC4)
         crossover_state = await self.get_zone_crossover(zone_id)
 
-        await self._broadcast_event("zone_crossover_changed", {
+        await self._broadcast_event({
             "zone_id": zone_id,
             "crossover_enabled": crossover_state["enabled"],
             "crossover_frequency": int(frequency),
@@ -543,7 +543,7 @@ class CrossoverService:
 
     # === Event Broadcasting ===
 
-    async def _broadcast_event(self, event_type: str, data: Dict[str, Any]) -> None:
+    async def _broadcast_event(self, data: Dict[str, Any]) -> None:
         """Broadcast crossover event via state machine (WebSocket)."""
         if self.state_machine:
             await self.state_machine.broadcast_event("multiroom", "crossover_changed", data)
@@ -654,7 +654,7 @@ class CrossoverService:
                 success = False
                 self.logger.warning(f"Failed to apply pending loudness to {client_id}")
 
-        await self._broadcast_event("pending_settings_applied", {
+        await self._broadcast_event({
             "client_id": client_id,
             "settings_applied": list(pending.keys())
         })

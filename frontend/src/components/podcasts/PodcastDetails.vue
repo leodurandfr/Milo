@@ -54,7 +54,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
-import { logger } from '@/services/logger'
+import { apiCall } from '@/services/apiCall'
 import { useAsyncData } from '@/composables/useAsyncData'
 import PodcastCard from './PodcastCard.vue'
 import EpisodeCard from './EpisodeCard.vue'
@@ -96,7 +96,7 @@ const { loading, execute: loadPodcast } = useAsyncData(async () => {
 async function handleSubscribe() {
   if (!podcast.value) return
 
-  try {
+  await apiCall('podcast', 'Error subscribing', async () => {
     const response = await fetch('/api/podcast/subscriptions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -107,35 +107,25 @@ async function handleSubscribe() {
         children_hash: podcast.value.children_hash || ''
       })
     })
-    if (response.ok) {
-      podcast.value.is_subscribed = true
-      podcastStore.addSubscription({
-        uuid: props.uuid,
-        name: podcast.value.name || '',
-        image_url: podcast.value.image_url || ''
-      })
-    } else {
-      logger.error('podcast', 'Failed to subscribe:', await response.text())
-    }
-  } catch (error) {
-    logger.error('podcast', 'Error subscribing:', error)
-  }
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    podcast.value.is_subscribed = true
+    podcastStore.addSubscription({
+      uuid: props.uuid,
+      name: podcast.value.name || '',
+      image_url: podcast.value.image_url || ''
+    })
+  })
 }
 
 async function handleUnsubscribe() {
   if (!podcast.value) return
 
-  try {
+  await apiCall('podcast', 'Error unsubscribing', async () => {
     const response = await fetch(`/api/podcast/subscriptions/${props.uuid}`, { method: 'DELETE' })
-    if (response.ok) {
-      podcast.value.is_subscribed = false
-      podcastStore.removeSubscription(props.uuid)
-    } else {
-      logger.error('podcast', 'Failed to unsubscribe:', await response.text())
-    }
-  } catch (error) {
-    logger.error('podcast', 'Error unsubscribing:', error)
-  }
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    podcast.value.is_subscribed = false
+    podcastStore.removeSubscription(props.uuid)
+  })
 }
 
 async function loadMoreEpisodes() {
@@ -144,25 +134,21 @@ async function loadMoreEpisodes() {
   loadingMore.value = true
   currentPage.value++
 
-  try {
+  const result = await apiCall('podcast', 'Error loading more episodes', async () => {
     const response = await fetch(
       `/api/podcast/series/${props.uuid}?page=${currentPage.value}&limit=25`
     )
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const data = await response.json()
 
     const newEpisodes = data.episodes || []
-
-    // Enrich with progress
     podcastStore.enrichEpisodesWithProgress(newEpisodes)
-
-    // Append to existing episodes
     allEpisodes.value = [...allEpisodes.value, ...newEpisodes]
-  } catch (error) {
-    logger.error('podcast', 'Error loading more episodes:', error)
-    currentPage.value-- // Rollback on error
-  } finally {
-    loadingMore.value = false
-  }
+    return true
+  })
+
+  if (!result) currentPage.value-- // Rollback on error
+  loadingMore.value = false
 }
 
 watch(() => props.uuid, loadPodcast, { immediate: false })

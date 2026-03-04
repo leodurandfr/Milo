@@ -2,7 +2,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
-import { useSettingsStore } from './settingsStore';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
 import { SystemStateSchema, VolumeStateSchema, validateSchema } from '@/schemas/api';

@@ -63,6 +63,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
   // Client registry store - single source of truth for clients and zones
   const registryStore = useMultiroomStore();
+  const audioStore = useUnifiedAudioStore();
 
   // Available equalizer targets - computed from multiroomStore (single source of truth)
   const availableTargets = computed(() => {
@@ -178,7 +179,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
    */
   function getSelectedZoneId() {
     // Zone routing only applies when multiroom is enabled
-    const audioStore = useUnifiedAudioStore();
+
     if (!audioStore.systemState.multiroom_enabled) return null;
 
     const zone = registryStore.getZoneForClient(selectedTarget.value);
@@ -365,7 +366,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     return apiCall('store', `Error updating equalizer volume for ${clientId}`, async () => {
       // Skip remote clients when multiroom is disabled
       if (!isLocalClient(clientId)) {
-        const audioStore = useUnifiedAudioStore();
+    
         if (!audioStore.systemState.multiroom_enabled) {
           logger.warn('store', `Skipping volume update for ${clientId} - multiroom disabled`);
           return false;
@@ -392,7 +393,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   async function applyZoneDelta(zoneId, deltaDb) {
     return apiCall('store', `Error applying zone delta for ${zoneId}`, async () => {
       // Check multiroom enabled
-      const audioStore = useUnifiedAudioStore();
+  
       if (!audioStore.systemState.multiroom_enabled) {
         logger.warn('store', 'Skipping zone delta - multiroom disabled');
         return { status: 'error', message: 'Multiroom disabled' };
@@ -412,7 +413,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
    * @returns {number} Volume in dB, defaults to -30 if not found
    */
   function getClientEqualizerVolume(clientId) {
-    const audioStore = useUnifiedAudioStore();
+
     return audioStore.volumeState.clients[clientId]?.volume_db ?? -30;
   }
 
@@ -422,7 +423,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
    * @returns {boolean} Mute state, defaults to false if not found
    */
   function getClientEqualizerMute(clientId) {
-    const audioStore = useUnifiedAudioStore();
+
     return audioStore.volumeState.clients[clientId]?.mute ?? false;
   }
 
@@ -443,7 +444,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     return apiCall('store', `Error updating mute for ${clientId}`, async () => {
       // Skip remote clients when multiroom is disabled
       if (!isLocalClient(clientId)) {
-        const audioStore = useUnifiedAudioStore();
+    
         if (!audioStore.systemState.multiroom_enabled) {
           logger.warn('store', `Skipping mute update for ${clientId} - multiroom disabled`);
           return false;

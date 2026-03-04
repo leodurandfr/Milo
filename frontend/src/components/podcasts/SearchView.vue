@@ -69,6 +69,7 @@ import { storeToRefs } from 'pinia'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useDebounce } from '@/composables/useDebounce'
 import { useI18n } from '@/services/i18n'
+import { apiCall } from '@/services/apiCall'
 import PodcastCard from './PodcastCard.vue'
 import EpisodeCard from './EpisodeCard.vue'
 import InputText from '@/components/ui/InputText.vue'
@@ -217,49 +218,39 @@ function buildSearchParams(page) {
 
 async function performSearch() {
   loading.value = true
-
-  try {
+  await apiCall('podcast', 'Error searching podcasts', async () => {
     const response = await fetch(`/api/podcast/search?${buildSearchParams(1)}`)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const data = await response.json()
     podcastStore.setSearchResults(data.podcasts, data.episodes, data.pagination)
-  } catch (error) {
-    console.error('Error searching:', error)
-    searchResults.value = { podcasts: [], episodes: [] }
-  } finally {
-    loading.value = false
-  }
+  })
+  loading.value = false
 }
 
 async function loadMorePodcasts() {
   if (searchLoadingMore.value.podcasts || searchCurrentPage.value.podcasts >= searchPagination.value.podcasts.pages) return
 
   searchLoadingMore.value.podcasts = true
-
-  try {
+  await apiCall('podcast', 'Error loading more podcasts', async () => {
     const response = await fetch(`/api/podcast/search?${buildSearchParams(searchCurrentPage.value.podcasts + 1)}`)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const data = await response.json()
     podcastStore.appendSearchResults('podcasts', data.podcasts || [])
-  } catch (error) {
-    console.error('Error loading more podcasts:', error)
-  } finally {
-    searchLoadingMore.value.podcasts = false
-  }
+  })
+  searchLoadingMore.value.podcasts = false
 }
 
 async function loadMoreEpisodes() {
   if (searchLoadingMore.value.episodes || searchCurrentPage.value.episodes >= searchPagination.value.episodes.pages) return
 
   searchLoadingMore.value.episodes = true
-
-  try {
+  await apiCall('podcast', 'Error loading more episodes', async () => {
     const response = await fetch(`/api/podcast/search?${buildSearchParams(searchCurrentPage.value.episodes + 1)}`)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const data = await response.json()
     podcastStore.appendSearchResults('episodes', data.episodes || [])
-  } catch (error) {
-    console.error('Error loading more episodes:', error)
-  } finally {
-    searchLoadingMore.value.episodes = false
-  }
+  })
+  searchLoadingMore.value.episodes = false
 }
 
 </script>
