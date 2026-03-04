@@ -12,14 +12,13 @@ PROGRAM_TO_AUDIO_SOURCE = {
     'shairport-sync': AudioSource.AIRPLAY,
 }
 
-def create_programs_router(ws_manager, update_service, satellite_update_service, state_machine):
+def create_programs_router(update_service, satellite_update_service, state_machine):
     """Router for local and satellite programs
 
     Args:
-        ws_manager: WebSocket manager for broadcasting updates
         update_service: Singleton service for version checks and updates
         satellite_update_service: Singleton service for satellite updates
-        state_machine: AudioStateMachine for deactivating active sources before update
+        state_machine: AudioStateMachine for broadcasting events and deactivating active sources
     """
     router = APIRouter(prefix="/api/programs", tags=["programs"])
 
@@ -54,12 +53,10 @@ def create_programs_router(ws_manager, update_service, satellite_update_service,
                 "progress": progress,
                 "message": message
             }
-            await ws_manager.broadcast_dict({
-                "category": "programs",
-                "type": progress_event_type,
-                "source": ws_source,
-                "data": {**identifier_data, "progress": progress, "message": message, "status": "updating"}
-            })
+            await state_machine.broadcast_event(
+                "programs", progress_event_type,
+                {"source": ws_source, **identifier_data, "progress": progress, "message": message, "status": "updating"}
+            )
 
         async def do_update():
             try:
@@ -74,29 +71,23 @@ def create_programs_router(ws_manager, update_service, satellite_update_service,
                     for key in ("new_version", "old_version"):
                         if key in result:
                             success_data[key] = result[key]
-                    await ws_manager.broadcast_dict({
-                        "category": "programs",
-                        "type": complete_event_type,
-                        "source": ws_source,
-                        "data": success_data
-                    })
+                    await state_machine.broadcast_event(
+                        "programs", complete_event_type,
+                        {"source": ws_source, **success_data}
+                    )
                 else:
-                    await ws_manager.broadcast_dict({
-                        "category": "programs",
-                        "type": complete_event_type,
-                        "source": ws_source,
-                        "data": {**identifier_data, "success": False, "error": result.get("error", "Update failed")}
-                    })
+                    await state_machine.broadcast_event(
+                        "programs", complete_event_type,
+                        {"source": ws_source, **identifier_data, "success": False, "error": result.get("error", "Update failed")}
+                    )
 
             except Exception as e:
                 if update_key in active_updates:
                     del active_updates[update_key]
-                await ws_manager.broadcast_dict({
-                    "category": "programs",
-                    "type": complete_event_type,
-                    "source": ws_source,
-                    "data": {**identifier_data, "success": False, "error": str(e)}
-                })
+                await state_machine.broadcast_event(
+                    "programs", complete_event_type,
+                    {"source": ws_source, **identifier_data, "success": False, "error": str(e)}
+                )
 
         return do_update
 

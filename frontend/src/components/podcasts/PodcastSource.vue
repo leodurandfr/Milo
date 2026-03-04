@@ -102,6 +102,7 @@ import { useSettingsStore } from '@/stores/settingsStore'
 import { useNavigationStack } from '@/composables/useNavigationStack'
 import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility'
 import { useI18n } from '@/services/i18n'
+import { apiCall } from '@/services/apiCall'
 import IconButton from '@/components/ui/IconButton.vue'
 import AudioPlayer from '@/components/audio/AudioPlayer.vue'
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue'
@@ -241,27 +242,17 @@ async function openPodcastDetails(podcastOrUuid) {
     uuid = podcastOrUuid.uuid
   } else if (podcastOrUuid && podcastOrUuid.itunes_id) {
     // Podcast object from iTunes RSS without UUID - need to lookup
-    // Set loading state (use itunes_id as identifier)
     loadingPodcastId.value = podcastOrUuid.itunes_id
-    try {
-      // Lookup UUID from iTunes ID (pass name for better matching)
-      const params = new URLSearchParams({ name: podcastOrUuid.name || '' })
+    const params = new URLSearchParams({ name: podcastOrUuid.name || '' })
+    const result = await apiCall('podcast', 'Error looking up podcast UUID', async () => {
       const response = await fetch(`/api/podcast/lookup/itunes/${podcastOrUuid.itunes_id}?${params}`)
-      if (response.ok) {
-        const data = await response.json()
-        uuid = data.uuid
-      } else {
-        console.error('Failed to lookup podcast UUID from iTunes ID')
-        loadingPodcastId.value = null
-        return
-      }
-    } catch (error) {
-      console.error('Error looking up podcast UUID:', error)
-      loadingPodcastId.value = null
-      return
-    }
-    // Clear loading state after successful lookup
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const data = await response.json()
+      return data.uuid
+    })
     loadingPodcastId.value = null
+    if (!result) return
+    uuid = result
   } else {
     console.error('Invalid podcast data:', podcastOrUuid)
     return

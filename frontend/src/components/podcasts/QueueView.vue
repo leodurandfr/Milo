@@ -28,7 +28,7 @@
 import { ref, onMounted } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
-import { logger } from '@/services/logger'
+import { apiCall } from '@/services/apiCall'
 import { useAsyncData } from '@/composables/useAsyncData'
 import EpisodeCard from './EpisodeCard.vue'
 import MessageContent from '@/components/ui/MessageContent.vue'
@@ -65,12 +65,10 @@ const { loading, execute: loadQueue } = useAsyncData(async () => {
 }, { logTag: 'podcast' })
 
 async function markComplete(episodeUuid) {
-  try {
+  await apiCall('podcast', 'Error marking episode complete', async () => {
     await fetch(`/api/podcast/queue/${episodeUuid}/complete`, { method: 'POST' })
     episodes.value = episodes.value.filter(e => e.episode_uuid !== episodeUuid)
-  } catch (error) {
-    logger.error('podcast', 'Error marking complete:', error)
-  }
+  })
 }
 
 onMounted(loadQueue)
