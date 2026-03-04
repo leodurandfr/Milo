@@ -36,7 +36,7 @@
           <div class="disconnect-button-content">
             <div class="disconnect-button-inner">
               <button @click="handleDisconnect" :disabled="isDisconnecting" class="disconnect-text">
-                <p>{{ isDisconnecting ? $t('status.disconnecting') : $t('status.disconnect') }}</p>
+                <p>{{ isDisconnecting ? t('status.disconnecting') : t('status.disconnect') }}</p>
               </button>
             </div>
           </div>

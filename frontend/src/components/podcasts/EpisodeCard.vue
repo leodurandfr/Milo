@@ -14,7 +14,7 @@
 
         <div class="episode-meta text-mono">
           <span class="duration">
-            <template v-if="isCurrentlyPlaying">{{ $t('podcasts.nowPlaying') }}</template>
+            <template v-if="isCurrentlyPlaying">{{ t('podcasts.nowPlaying') }}</template>
             <template v-else-if="hasProgress">{{ timeRemaining }}</template>
             <template v-else>{{ formattedDuration }}</template>
           </span>
