@@ -23,7 +23,7 @@
         <EqualizerModal />
       </Modal>
 
-      <Modal :is-open="isMultiroomOpen" content-overflow="visible" @close="isMultiroomOpen = false">
+      <Modal :is-open="isMultiroomOpen" @close="isMultiroomOpen = false">
         <MultiroomModal />
       </Modal>
 

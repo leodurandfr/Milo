@@ -3,7 +3,7 @@
   <div class="clients-container">
     <div class="clients-list">
       <!-- Single Transition for both states -->
-      <Transition name="fade-slide" mode="out-in">
+      <Transition name="fade-slide">
         <!-- MESSAGE: Multiroom disabled or error -->
         <MessageContent v-if="showMessage" key="message" :icon="messageIcon" :title="messageTitle" />
 
@@ -431,6 +431,19 @@ watch(displayClients, (newClients) => {
   display: flex;
   flex-direction: column;
   position: relative;
+}
+
+/* Cross-fade: entering content appears after leaving starts fading */
+:deep(.fade-slide-enter-active) {
+  transition-delay: 100ms;
+}
+
+/* Cross-fade: leaving content overlays absolutely (doesn't affect height) */
+:deep(.fade-slide-leave-active) {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
 }
 
 .clients-wrapper {

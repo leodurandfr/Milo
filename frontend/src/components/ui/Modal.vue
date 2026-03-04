@@ -7,9 +7,11 @@
           aria-label="Fermer" @click="close" />
       </div>
 
-      <div ref="modalContainer" class="modal-container" :style="{ height: containerHeight }">
+      <div ref="modalContainer" class="modal-container" :style="{ height: containerHeight }"
+        @transitionstart="onContainerTransitionStart" @transitionend="onContainerTransitionEnd"
+        @transitioncancel="onContainerTransitionEnd">
         <!-- Content with animated height -->
-        <div ref="modalContent" class="modal-content" :class="contentOverflowClass">
+        <div ref="modalContent" class="modal-content" :class="{ 'overflow-transitioning': isHeightTransitioning }">
           <div ref="contentInner" class="modal-content-inner">
             <slot></slot>
           </div>
@@ -20,7 +22,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch, nextTick, provide } from 'vue';
+import { ref, onMounted, onUnmounted, watch, nextTick, provide } from 'vue';
 import IconButton from './IconButton.vue';
 import { useAnimatedHeight } from '@/composables/useAnimatedHeight';
 
@@ -32,22 +34,10 @@ const props = defineProps({
   closeOnOverlay: {
     type: Boolean,
     default: true
-  },
-  contentOverflow: {
-    type: String,
-    default: 'auto',
-    validator: (value) => ['auto', 'visible', 'hidden'].includes(value)
   }
 });
 
 const emit = defineEmits(['close']);
-
-// Computed class for content overflow
-const contentOverflowClass = computed(() => {
-  if (props.contentOverflow === 'visible') return 'overflow-visible';
-  if (props.contentOverflow === 'hidden') return 'overflow-hidden';
-  return '';
-});
 
 // References to modal elements
 const modalContent = ref(null);
@@ -79,6 +69,22 @@ const { containerHeight, resetFirstResize, requestHeightDelta } = useAnimatedHei
 // Animation state
 const isVisible = ref(false);
 const isAnimating = ref(false);
+
+// Height transition tracking — prevent modal-content from clipping
+// leaving content during the container height spring animation
+const isHeightTransitioning = ref(false);
+
+function onContainerTransitionStart(e) {
+  if (e.propertyName === 'height') {
+    isHeightTransitioning.value = true;
+  }
+}
+
+function onContainerTransitionEnd(e) {
+  if (e.propertyName === 'height') {
+    isHeightTransitioning.value = false;
+  }
+}
 
 // Provide a function to reset scroll position (for multi-level modal navigation)
 provide('modalResetScroll', () => {
@@ -425,13 +431,9 @@ onUnmounted(() => {
   border-radius: var(--radius-08);
 }
 
-/* Overflow variants for specific modals */
-.modal-content.overflow-visible {
+/* Prevent clipping during container height spring (crossfade transitions) */
+.modal-content.overflow-transitioning {
   overflow: visible;
-}
-
-.modal-content.overflow-hidden {
-  overflow: hidden;
 }
 
 .modal-content-inner {
