@@ -242,20 +242,20 @@ async function handleFavorite() {
 // currentStation now reads directly from unifiedStore.systemState.metadata
 // No need for manual sync here
 
-on('radio', 'favorite_added', (event) => {
-  if (event.data?.station_id) {
+on('plugin', 'favorite_added', (event) => {
+  if (event.data?.source === 'radio' && event.data?.station_id) {
     radioStore.handleFavoriteEvent(event.data.station_id, true)
   }
 })
 
-on('radio', 'favorite_removed', (event) => {
-  if (event.data?.station_id) {
+on('plugin', 'favorite_removed', (event) => {
+  if (event.data?.source === 'radio' && event.data?.station_id) {
     radioStore.handleFavoriteEvent(event.data.station_id, false)
   }
 })
 
-on('radio', 'favorite_modified', (event) => {
-  if (event.data?.station) {
+on('plugin', 'favorite_modified', (event) => {
+  if (event.data?.source === 'radio' && event.data?.station) {
     radioStore.handleMetadataModified(event.data.station)
   }
 })

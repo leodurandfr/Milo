@@ -24,8 +24,9 @@ import { logger } from '@/services/logger';
  *   - podcast_credentials_changed → PodcastSettings.vue
  *   - spotify_disconnect_changed → SpotifySettings.vue
  *
- * radio:
- *   - favorite_added, favorite_removed → RadioSource.vue → radioStore
+ * plugin:
+ *   - state_changed, error_cleared, metadata → App.vue → unifiedAudioStore
+ *   - favorite_added, favorite_removed, favorite_modified (source=radio) → RadioSource.vue → radioStore
  *
  * multiroom: (Standardized format per architecture spec, Story 6.1/6.2)
  *   - client_state_changed → multiroomStore (client online/offline, volume, mute, speaker_type)

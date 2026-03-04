@@ -881,7 +881,6 @@ class CamillaDSPService:
         await self.set_loudness(enabled=False, persist=False)
 
         self.logger.info("Equalizer effects bypassed (volume unchanged)")
-        await self._broadcast_event("effects_bypassed", {"bypassed": True})
         return True
 
     @handle_errors(default=False)
@@ -928,7 +927,6 @@ class CamillaDSPService:
                 )
 
         self.logger.info("Equalizer effects restored from settings")
-        await self._broadcast_event("effects_restored", {"bypassed": False})
         return True
 
     # === Configuration Persistence ===

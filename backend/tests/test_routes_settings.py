@@ -13,13 +13,6 @@ class TestSettingsRoutes:
     """Tests for settings routes"""
 
     @pytest.fixture
-    def mock_ws_manager(self):
-        """WebSocket manager mock"""
-        manager = Mock()
-        manager.broadcast_dict = AsyncMock()
-        return manager
-
-    @pytest.fixture
     def mock_volume_service(self):
         """Volume service mock"""
         service = Mock()
@@ -41,6 +34,7 @@ class TestSettingsRoutes:
         sm.get_plugin = Mock(return_value=None)
         sm.update_multiroom_state = AsyncMock()
         sm.update_equalizer_state = AsyncMock()
+        sm.broadcast_event = AsyncMock()
         return sm
 
     @pytest.fixture
@@ -89,7 +83,6 @@ class TestSettingsRoutes:
     @pytest.fixture
     def client(
         self,
-        mock_ws_manager,
         mock_volume_service,
         mock_state_machine,
         mock_screen_controller,
@@ -107,7 +100,6 @@ class TestSettingsRoutes:
         mock_settings._cache = None
 
         router = create_settings_router(
-            ws_manager=mock_ws_manager,
             volume_service=mock_volume_service,
             state_machine=mock_state_machine,
             screen_controller=mock_screen_controller,

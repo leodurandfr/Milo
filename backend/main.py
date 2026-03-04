@@ -193,7 +193,6 @@ airplay_router = setup_airplay_routes(
 app.include_router(airplay_router, prefix="/api")
 
 settings_router = create_settings_router(
-    ws_manager,
     volume_service,
     state_machine,
     screen_controller,
