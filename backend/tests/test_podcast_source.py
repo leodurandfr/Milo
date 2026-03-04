@@ -73,21 +73,25 @@ class TestPodcastSourceConfig:
         source = PodcastSource()
 
         assert source._mpv_socket == "/run/milo/podcast-ipc.sock"
-        assert source._taddy_user_id == ""
-        assert source._taddy_api_key == ""
+        assert source._taddy_api.user_id == ""
+        assert source._taddy_api.api_key == ""
 
     def test_custom_config(self):
         """Test custom configuration."""
         config = {
             "mpv_socket": "/custom/socket.sock",
-            "taddy_user_id": "custom-user",
-            "taddy_api_key": "custom-key"
         }
-        source = PodcastSource(config)
+        mock_settings = MagicMock()
+        mock_settings.get_setting_sync = lambda key: {
+            "podcast.taddy_user_id": "custom-user",
+            "podcast.taddy_api_key": "custom-key"
+        }.get(key, "")
+
+        source = PodcastSource(config, settings_service=mock_settings)
 
         assert source._mpv_socket == "/custom/socket.sock"
-        assert source._taddy_user_id == "custom-user"
-        assert source._taddy_api_key == "custom-key"
+        assert source._taddy_api.user_id == "custom-user"
+        assert source._taddy_api.api_key == "custom-key"
 
 
 class TestPodcastSourceLifecycle:
