@@ -152,13 +152,11 @@ class TestAC1CompressorEnableDisable:
                 assert len(compressor_calls) >= 1
 
     @pytest.mark.asyncio
-    async def test_compressor_updates_local_cache_when_disconnected(self, disconnected_camilladsp_service):
-        """Should update local cache even when disconnected"""
+    async def test_compressor_fails_when_disconnected(self, disconnected_camilladsp_service):
+        """Should fail when disconnected without updating cache"""
         result = await disconnected_camilladsp_service.set_compressor(enabled=True, threshold=-30)
 
-        assert result is True
-        assert disconnected_camilladsp_service._compressor["enabled"] is True
-        assert disconnected_camilladsp_service._compressor["threshold"] == -30
+        assert result is False
 
 
 # =============================================================================
@@ -341,13 +339,11 @@ class TestAC3LoudnessEnableDisable:
                 assert len(loudness_calls) >= 1
 
     @pytest.mark.asyncio
-    async def test_loudness_updates_local_cache_when_disconnected(self, disconnected_camilladsp_service):
-        """Should update local cache even when disconnected"""
+    async def test_loudness_fails_when_disconnected(self, disconnected_camilladsp_service):
+        """Should fail when disconnected without updating cache"""
         result = await disconnected_camilladsp_service.set_loudness(enabled=True, low_boost=10)
 
-        assert result is True
-        assert disconnected_camilladsp_service._loudness["enabled"] is True
-        assert disconnected_camilladsp_service._loudness["low_boost"] == 10
+        assert result is False
 
 
 # =============================================================================
