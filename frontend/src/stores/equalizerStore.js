@@ -9,6 +9,7 @@ import axios from 'axios';
 import { useUnifiedAudioStore } from './unifiedAudioStore';
 import { useMultiroomStore } from './multiroomStore';
 import { logger } from '@/services/logger';
+import { apiCall } from '@/services/apiCall';
 
 // Default 10-band parametric EQ frequencies
 const DEFAULT_FREQUENCIES = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
@@ -194,60 +195,39 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
   // === API CALLS ===
   async function fetchStatus(signal = null) {
-    try {
+    return apiCall('store', 'Error fetching equalizer status', async () => {
       const response = await axios.get(`${getApiBase()}/status`, { signal });
       return response.data;
-    } catch (error) {
-      if (axios.isCancel(error) || error.name === 'CanceledError') {
-        return null;
-      }
-      logger.error('store', 'Error fetching equalizer status', error);
-      return null;
-    }
+    }, { fallback: null });
   }
 
   async function fetchZoneEqualizer(zoneId, signal = null) {
-    try {
+    return apiCall('store', 'Error fetching zone equalizer', async () => {
       const response = await axios.get(`/api/equalizer/zone/${zoneId}`, { signal });
       return response.data;
-    } catch (error) {
-      if (axios.isCancel(error) || error.name === 'CanceledError') {
-        return null;
-      }
-      logger.error('store', 'Error fetching zone equalizer', error);
-      return null;
-    }
+    }, { fallback: null });
   }
 
   async function fetchFilters(signal = null) {
-    try {
+    return apiCall('store', 'Error fetching equalizer filters', async () => {
       const response = await axios.get(`${getApiBase()}/filters`, { signal });
       return response.data.filters || [];
-    } catch (error) {
-      if (axios.isCancel(error) || error.name === 'CanceledError') {
-        return null;
-      }
-      logger.error('store', 'Error fetching equalizer filters', error);
-      return [];
-    }
+    }, { fallback: null });
   }
 
   async function fetchPresets() {
-    try {
+    return apiCall('store', 'Error fetching equalizer presets', async () => {
       // Presets are always fetched from local Milo
       const response = await axios.get('/api/equalizer/presets');
       builtinPresets.value = response.data.presets || [];
       customGains.value = response.data.custom_gains || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
       activePreset.value = response.data.active_preset || 'custom';
       return builtinPresets.value;
-    } catch (error) {
-      logger.error('store', 'Error fetching equalizer presets', error);
-      return [];
-    }
+    }, { fallback: [] });
   }
 
   async function sendFilterUpdate(filterId, filterData) {
-    try {
+    return apiCall('store', 'Error updating filter', async () => {
       const zoneId = getSelectedZoneId();
 
       if (zoneId) {
@@ -259,53 +239,38 @@ export const useEqualizerStore = defineStore('equalizer', () => {
         const response = await axios.put(`${getApiBase()}/filter/${filterId}`, filterData);
         return response.data.status === 'success';
       }
-    } catch (error) {
-      logger.error('store', 'Error updating filter', error);
-      return false;
-    }
+    });
   }
 
   async function sendResetFilters() {
-    try {
+    return apiCall('store', 'Error resetting filters', async () => {
       const response = await axios.post(`${getApiBase()}/reset`);
       return response.data.status === 'success';
-    } catch (error) {
-      logger.error('store', 'Error resetting filters', error);
-      return false;
-    }
+    });
   }
 
   // Note: fetchLinkedGroups, fetchClientTypes, and fetchAvailableTargets removed
   // linkedGroups and clientTypes now delegate to multiroomStore
 
   async function fetchZoneCrossover(zoneId) {
-    try {
+    return apiCall('store', 'Error fetching zone crossover', async () => {
       const response = await axios.get(`/api/equalizer/links/${zoneId}/crossover`);
       return response.data || { frequency: 80, enabled: false, has_subwoofer: false };
-    } catch (error) {
-      logger.error('store', 'Error fetching zone crossover', error);
-      return { frequency: 80, enabled: false, has_subwoofer: false };
-    }
+    }, { fallback: { frequency: 80, enabled: false, has_subwoofer: false } });
   }
 
   async function fetchEnabledState() {
-    try {
+    return apiCall('store', 'Error fetching equalizer enabled state', async () => {
       const response = await axios.get('/api/equalizer/enabled');
       return response.data.enabled ?? true;
-    } catch (error) {
-      logger.error('store', 'Error fetching equalizer enabled state', error);
-      return true;
-    }
+    }, { fallback: true });
   }
 
   async function setEnabledState(enabled) {
-    try {
+    return apiCall('store', 'Error setting equalizer enabled state', async () => {
       const response = await axios.put('/api/equalizer/enabled', { enabled });
       return response.data.status === 'success';
-    } catch (error) {
-      logger.error('store', 'Error setting equalizer enabled state', error);
-      return false;
-    }
+    });
   }
 
   // Get clients linked to a specific client (including itself)
@@ -397,7 +362,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
    * @returns {Promise<boolean>} Success status
    */
   async function updateClientEqualizerVolume(clientId, volumeDb) {
-    try {
+    return apiCall('store', `Error updating equalizer volume for ${clientId}`, async () => {
       // Skip remote clients when multiroom is disabled
       if (!isLocalClient(clientId)) {
         const audioStore = useUnifiedAudioStore();
@@ -410,10 +375,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       // All clients use MAC-based endpoint: PATCH /api/volume/client/mac/{mac_url}
       await axios.patch(`/api/volume/client/mac/${macToUrlFormat(clientId)}`, { volume_db: volumeDb });
       return true;
-    } catch (error) {
-      logger.error('store', `Error updating equalizer volume for ${clientId}`, error);
-      return false;
-    }
+    });
   }
 
   /**
@@ -428,7 +390,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
    * @returns {Promise<object>} Response with new zone average
    */
   async function applyZoneDelta(zoneId, deltaDb) {
-    try {
+    return apiCall('store', `Error applying zone delta for ${zoneId}`, async () => {
       // Check multiroom enabled
       const audioStore = useUnifiedAudioStore();
       if (!audioStore.systemState.multiroom_enabled) {
@@ -441,10 +403,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
       // Response includes: { status, zone_id, new_average_db, delta_db, applied_to, offline_clients }
       return response.data;
-    } catch (error) {
-      logger.error('store', `Error applying zone delta for ${zoneId}`, error);
-      throw error;
-    }
+    }, { rethrow: true });
   }
 
   /**
@@ -481,7 +440,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   async function updateClientEqualizerMute(clientId, muted, options = {}) {
     const { propagate = false } = options;
 
-    try {
+    return apiCall('store', `Error updating mute for ${clientId}`, async () => {
       // Skip remote clients when multiroom is disabled
       if (!isLocalClient(clientId)) {
         const audioStore = useUnifiedAudioStore();
@@ -515,10 +474,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       }
 
       return true;
-    } catch (error) {
-      logger.error('store', `Error updating mute for ${clientId}`, error);
-      return false;
-    }
+    });
   }
 
   /**
@@ -625,7 +581,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     isLoading.value = true;
     filtersLoaded.value = false;
 
-    try {
+    await apiCall('store', 'Error loading equalizer data', async () => {
       const [statusData, filtersData, presetsData] = await Promise.all([
         fetchStatus(signal),
         fetchFilters(signal),
@@ -691,15 +647,9 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       // Snapshot current preset gains for edit detection
       isPresetEdited.value = false;
       _snapshotPresetGains(activePreset.value);
-    } catch (error) {
-      if (axios.isCancel(error) || error.name === 'CanceledError') {
-        return;
-      }
-      logger.error('store', 'Error loading equalizer data', error);
-    } finally {
-      isLoading.value = false;
-      loadAbortController = null;
-    }
+    });
+    isLoading.value = false;
+    loadAbortController = null;
   }
 
   function updateFilterValue(filterId, field, value) {
@@ -808,7 +758,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     if (isResetting.value) return false;
 
     isResetting.value = true;
-    try {
+    const result = await apiCall('store', 'Error resetting filters', async () => {
       const success = await sendResetFilters();
       if (success) {
         filters.value.forEach(filter => {
@@ -834,17 +784,14 @@ export const useEqualizerStore = defineStore('equalizer', () => {
         }
       }
       return success;
-    } catch (error) {
-      logger.error('store', 'Error resetting filters', error);
-      return false;
-    } finally {
-      isResetting.value = false;
-    }
+    });
+    isResetting.value = false;
+    return result;
   }
 
   // === PRESET MANAGEMENT ===
   async function loadPreset(presetId) {
-    try {
+    return apiCall('store', 'Error loading preset', async () => {
       // If target is in a zone, use zone endpoint (backend handles propagation)
       const zoneId = getSelectedZoneId();
       if (zoneId) {
@@ -869,10 +816,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
         return true;
       }
       return false;
-    } catch (error) {
-      logger.error('store', 'Error loading preset', error);
-      return false;
-    }
+    });
   }
 
   /**
@@ -880,7 +824,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
    * Posts to the save-custom endpoint, which persists gains and sets active_preset.
    */
   async function saveCustomPreset() {
-    try {
+    return apiCall('store', 'Error saving custom preset', async () => {
       const zoneId = getSelectedZoneId();
       let response;
       if (zoneId) {
@@ -898,10 +842,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
         return true;
       }
       return false;
-    } catch (error) {
-      logger.error('store', 'Error saving custom preset', error);
-      return false;
-    }
+    });
   }
 
   /**
@@ -950,7 +891,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   // === ADVANCED FEATURES ===
 
   async function updateCompressor(settings) {
-    try {
+    return apiCall('store', 'Error updating compressor', async () => {
       // If target is in a zone, use zone endpoint (backend handles propagation)
       const zoneId = getSelectedZoneId();
       if (zoneId) {
@@ -969,14 +910,11 @@ export const useEqualizerStore = defineStore('equalizer', () => {
         return true;
       }
       return false;
-    } catch (error) {
-      logger.error('store', 'Error updating compressor', error);
-      return false;
-    }
+    });
   }
 
   async function updateLoudness(settings) {
-    try {
+    return apiCall('store', 'Error updating loudness', async () => {
       // If target is in a zone, use zone endpoint (backend handles propagation)
       const zoneId = getSelectedZoneId();
       if (zoneId) {
@@ -995,14 +933,11 @@ export const useEqualizerStore = defineStore('equalizer', () => {
         return true;
       }
       return false;
-    } catch (error) {
-      logger.error('store', 'Error updating loudness', error);
-      return false;
-    }
+    });
   }
 
   async function updateEqualizerMute(muted) {
-    try {
+    return apiCall('store', 'Error updating equalizer mute', async () => {
       const response = await axios.put(`${getApiBase()}/mute`, { muted });
       if (response.data.status === 'success') {
         // Propagate mute to all available linked clients in the zone
@@ -1016,10 +951,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
         return true;
       }
       return false;
-    } catch (error) {
-      logger.error('store', 'Error updating equalizer mute', error);
-      return false;
-    }
+    });
   }
 
   // === TARGET MANAGEMENT ===
@@ -1057,34 +989,28 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   }
 
   async function restoreClientSettings(hostname) {
-    try {
+    return apiCall('store', `Error restoring settings for ${hostname}`, async () => {
       const response = await axios.post(`/api/equalizer/client/${hostname}/restore`);
       if (response.data.restored && response.data.restored.length > 0) {
         logger.info('store', `Restored equalizer settings for ${hostname}`, response.data.restored);
       }
       return response.data;
-    } catch (error) {
-      logger.error('store', `Error restoring settings for ${hostname}`, error);
-      return null;
-    }
+    }, { fallback: null });
   }
 
   // === LINKED CLIENTS MANAGEMENT ===
 
   async function linkClients(clientIds, sourceClient = null, zoneName = null) {
-    try {
+    return apiCall('store', 'Error linking clients', async () => {
       // Delegate to multiroomStore - single source of truth for zones
       const response = await registryStore.createZone(zoneName || '', clientIds);
       // Response includes zone data if successful
       return !!response.zone;
-    } catch (error) {
-      logger.error('store', 'Error linking clients', error);
-      return false;
-    }
+    });
   }
 
   async function unlinkClient(clientId) {
-    try {
+    return apiCall('store', 'Error unlinking client', async () => {
       // Find the zone this client belongs to
       const zone = registryStore.getZoneForClient(clientId);
       if (!zone) {
@@ -1094,46 +1020,34 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       // Delegate to multiroomStore
       await registryStore.removeClientFromZone(zone.id, clientId);
       return true;
-    } catch (error) {
-      logger.error('store', 'Error unlinking client', error);
-      return false;
-    }
+    });
   }
 
   async function clearAllLinks() {
-    try {
+    return apiCall('store', 'Error clearing links', async () => {
       // Delete all zones via multiroomStore
       const allZones = [...registryStore.zoneList];
       for (const zone of allZones) {
         await registryStore.deleteZone(zone.id);
       }
       return true;
-    } catch (error) {
-      logger.error('store', 'Error clearing links', error);
-      return false;
-    }
+    });
   }
 
   async function deleteZone(groupId) {
-    try {
+    return apiCall('store', 'Error deleting zone', async () => {
       // Delegate to multiroomStore
       await registryStore.deleteZone(groupId);
       return true;
-    } catch (error) {
-      logger.error('store', 'Error deleting zone', error);
-      return false;
-    }
+    });
   }
 
   async function updateZoneName(groupId, name) {
-    try {
+    return apiCall('store', 'Error updating zone name', async () => {
       // Delegate to multiroomStore
       await registryStore.updateZone(groupId, { name });
       return true;
-    } catch (error) {
-      logger.error('store', 'Error updating zone name', error);
-      return false;
-    }
+    });
   }
 
   // === SPEAKER TYPE / CROSSOVER MANAGEMENT ===
@@ -1180,14 +1094,11 @@ export const useEqualizerStore = defineStore('equalizer', () => {
    * @returns {Promise<boolean>} Success status
    */
   async function setClientSpeakerType(clientId, speakerType) {
-    try {
+    return apiCall('store', 'Error setting client speaker type', async () => {
       // Delegate to multiroomStore
       await registryStore.updateClient(clientId, { speaker_type: speakerType });
       return true;
-    } catch (error) {
-      logger.error('store', 'Error setting client speaker type', error);
-      return false;
-    }
+    });
   }
 
   /**
@@ -1197,16 +1108,13 @@ export const useEqualizerStore = defineStore('equalizer', () => {
    * @returns {Promise<boolean>} Success status
    */
   async function setClientCrossoverFrequency(clientId, frequency) {
-    try {
+    return apiCall('store', 'Error setting client crossover frequency', async () => {
       const response = await axios.put(`/api/equalizer/client/${clientId}/crossover-frequency`, {
         frequency
       });
       // State update happens via WebSocket (registry.speaker_type_changed)
       return response.data.status === 'success';
-    } catch (error) {
-      logger.error('store', 'Error setting client crossover frequency', error);
-      return false;
-    }
+    });
   }
 
   /**
@@ -1235,13 +1143,10 @@ export const useEqualizerStore = defineStore('equalizer', () => {
    * @returns {Promise<number>} Crossover frequency in Hz
    */
   async function getZoneAutoCrossover(zoneId) {
-    try {
+    return apiCall('store', 'Error getting zone auto crossover', async () => {
       const response = await axios.get(`/api/equalizer/links/${zoneId}/auto-crossover`);
       return response.data.frequency || 80;
-    } catch (error) {
-      logger.error('store', 'Error getting zone auto crossover', error);
-      return 80;
-    }
+    }, { fallback: 80 });
   }
 
   /**
@@ -1251,7 +1156,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
    * @returns {Promise<boolean>} Success status
    */
   async function setZoneCrossoverFrequency(zoneId, frequency) {
-    try {
+    return apiCall('store', 'Error setting zone crossover', async () => {
       const response = await axios.put(`/api/equalizer/links/${zoneId}/crossover`, { frequency });
       if (response.data.status === 'success') {
         zoneCrossover.value[zoneId] = {
@@ -1263,10 +1168,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
         return true;
       }
       return false;
-    } catch (error) {
-      logger.error('store', 'Error setting zone crossover', error);
-      return false;
-    }
+    });
   }
 
   /**
@@ -1275,13 +1177,10 @@ export const useEqualizerStore = defineStore('equalizer', () => {
    * @returns {Promise<boolean>} Success status
    */
   async function applyZoneCrossover(zoneId) {
-    try {
+    return apiCall('store', 'Error applying zone crossover', async () => {
       const response = await axios.post(`/api/equalizer/links/${zoneId}/crossover/apply`);
       return response.data.status === 'success';
-    } catch (error) {
-      logger.error('store', 'Error applying zone crossover', error);
-      return false;
-    }
+    });
   }
 
   /**
@@ -1485,7 +1384,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     isTogglingEnabled.value = true;
     isEqualizerEffectsEnabled.value = enabled;
 
-    try {
+    const result = await apiCall('store', 'Error toggling equalizer effects', async () => {
       let success = false;
 
       // If target is in a zone, use zone endpoint (backend handles propagation)
@@ -1518,13 +1417,14 @@ export const useEqualizerStore = defineStore('equalizer', () => {
         isEqualizerEffectsEnabled.value = previousState;
         return false;
       }
-    } catch (error) {
-      logger.error('store', 'Error toggling equalizer effects', error);
+    });
+
+    if (result === false) {
+      // Revert on error (apiCall swallowed the error)
       isEqualizerEffectsEnabled.value = previousState;
-      return false;
-    } finally {
-      isTogglingEnabled.value = false;
     }
+    isTogglingEnabled.value = false;
+    return result;
   }
 
   function handleEnabledChanged(event) {

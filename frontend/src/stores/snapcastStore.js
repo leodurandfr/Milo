@@ -11,6 +11,7 @@ import axios from 'axios';
 import { useMultiroomStore } from './multiroomStore';
 import { useUnifiedAudioStore } from './unifiedAudioStore';
 import { logger } from '@/services/logger';
+import { apiCall } from '@/services/apiCall';
 
 const DISPLAY_CACHE_KEY = 'multiroom_display_cache';
 
@@ -134,7 +135,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
   // Note: fetchClients removed - clients are derived from multiroomStore
 
   async function fetchServerConfig(signal = null) {
-    try {
+    return apiCall('store', 'Error fetching server config', async () => {
       const response = await axios.get('/api/routing/snapcast/server-config', { signal });
       if (response.data.config) {
         const fileConfig = response.data.config.file_config?.parsed_config?.stream || {};
@@ -150,13 +151,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
         };
       }
       return null;
-    } catch (error) {
-      if (axios.isCancel(error) || error.name === 'CanceledError') {
-        return null; // Request was cancelled
-      }
-      logger.error('store', 'Error fetching server config', error);
-      return null;
-    }
+    }, { fallback: null });
   }
 
   // === ACTIONS - CLIENTS ===
@@ -200,23 +195,22 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     const signal = serverConfigAbortController.signal;
 
     isLoadingServerConfig.value = true;
-    try {
+    await apiCall('store', 'Error loading server config', async () => {
       const config = await fetchServerConfig(signal);
       if (config) {
         serverConfig.value = config;
         originalServerConfig.value = { ...config };
       }
-    } finally {
-      isLoadingServerConfig.value = false;
-      serverConfigAbortController = null;
-    }
+    });
+    isLoadingServerConfig.value = false;
+    serverConfigAbortController = null;
   }
 
   async function applyServerConfig() {
     if (!hasServerConfigChanges.value || isApplyingServerConfig.value) return false;
 
     isApplyingServerConfig.value = true;
-    try {
+    const result = await apiCall('store', 'Error applying multiroom server config', async () => {
       const response = await axios.post('/api/routing/snapcast/server/config', {
         config: serverConfig.value
       });
@@ -227,12 +221,9 @@ export const useSnapcastStore = defineStore('snapcast', () => {
         return true;
       }
       return false;
-    } catch (error) {
-      logger.error('store', 'Error applying multiroom server config', error);
-      return false;
-    } finally {
-      isApplyingServerConfig.value = false;
-    }
+    });
+    isApplyingServerConfig.value = false;
+    return result;
   }
 
   function updateServerConfig(updates) {

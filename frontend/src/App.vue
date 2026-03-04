@@ -381,6 +381,14 @@ onMounted(async () => {
     on('multiroom', 'zone_changed', (event) => multiroomStore.handleMultiroomEvent(event)),
     on('multiroom', 'equalizer_changed', (event) => equalizerStore.handleEqualizerChanged(event)),
     on('multiroom', 'crossover_changed', (event) => equalizerStore.handleZoneCrossoverChanged(event)),
+    // Equalizer events
+    on('equalizer', 'filter_changed', (event) => equalizerStore.handleFilterChanged(event)),
+    on('equalizer', 'filters_reset', () => equalizerStore.handleFiltersReset()),
+    on('equalizer', 'state_changed', (event) => equalizerStore.handleStateChanged(event)),
+    on('equalizer', 'preset_loaded', (event) => equalizerStore.handlePresetLoaded(event)),
+    on('equalizer', 'compressor_changed', (event) => equalizerStore.handleCompressorChanged(event)),
+    on('equalizer', 'loudness_changed', (event) => equalizerStore.handleLoudnessChanged(event)),
+    on('equalizer', 'enabled_changed', (event) => equalizerStore.handleEnabledChanged(event)),
     onReconnect(() => {
       logger.info('websocket', 'WebSocket reconnected');
       // Refresh registry state on reconnect (AC3: State Resync)

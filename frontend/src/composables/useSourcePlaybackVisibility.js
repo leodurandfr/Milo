@@ -1,8 +1,8 @@
 // frontend/src/composables/useSourcePlaybackVisibility.js
 // Playback state detection + player visibility lifecycle for audio source components.
 // Handles the show/hide animation with timers, source switching, and plugin state transitions.
-import { ref, computed, watch, onBeforeUnmount } from 'vue'
-import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore'
+import { ref, computed, watch, onBeforeUnmount } from 'vue';
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 
 /**
  * @param {string} source - Audio source identifier (e.g. 'radio', 'podcast')
@@ -21,87 +21,103 @@ export function useSourcePlaybackVisibility(source, options = {}) {
     onHideTimeout,
     onFadeOutStart,
     shouldStartTimer
-  } = options
+  } = options;
 
-  const unifiedStore = useUnifiedAudioStore()
-  const shouldShowPlayer = ref(false)
-  const stopTimer = ref(null)
+  const unifiedStore = useUnifiedAudioStore();
+  const shouldShowPlayer = ref(false);
+  const stopTimer = ref(null);
 
   const isPlaying = computed(() => {
-    if (unifiedStore.systemState.active_source !== source) return false
-    return unifiedStore.systemState.metadata?.is_playing || false
-  })
+    if (unifiedStore.systemState.active_source !== source) return false;
+    return unifiedStore.systemState.metadata?.is_playing || false;
+  });
 
   const isBuffering = computed(() => {
-    if (unifiedStore.systemState.active_source !== source) return false
-    return unifiedStore.systemState.metadata?.is_buffering || false
-  })
+    if (unifiedStore.systemState.active_source !== source) return false;
+    return unifiedStore.systemState.metadata?.is_buffering || false;
+  });
 
   function clearTimer() {
     if (stopTimer.value) {
-      clearTimeout(stopTimer.value)
-      stopTimer.value = null
+      clearTimeout(stopTimer.value);
+      stopTimer.value = null;
     }
   }
 
   // Show player when connected (with smooth entrance via double rAF)
-  watch(() => unifiedStore.systemState.plugin_state, (newState) => {
-    const isActive = unifiedStore.systemState.active_source === source
+  watch(
+    () => unifiedStore.systemState.plugin_state,
+    (newState) => {
+      const isActive = unifiedStore.systemState.active_source === source;
 
-    if (isActive && newState === 'connected') {
-      clearTimer()
-      requestAnimationFrame(() => {
+      if (isActive && newState === 'connected') {
+        clearTimer();
         requestAnimationFrame(() => {
-          shouldShowPlayer.value = true
-        })
-      })
-    } else if (hideOnReady && isActive && newState === 'ready' && shouldShowPlayer.value) {
-      clearTimer()
-      shouldShowPlayer.value = false
-    }
-  }, { immediate: true })
+          requestAnimationFrame(() => {
+            shouldShowPlayer.value = true;
+          });
+        });
+      } else if (
+        hideOnReady &&
+        isActive &&
+        newState === 'ready' &&
+        shouldShowPlayer.value
+      ) {
+        clearTimer();
+        shouldShowPlayer.value = false;
+      }
+    },
+    { immediate: true }
+  );
 
   // Hide immediately when switching to another source
-  watch(() => unifiedStore.systemState.active_source, (newSource) => {
-    if (newSource !== source) {
-      clearTimer()
-      shouldShowPlayer.value = false
-    }
-  }, { immediate: true })
+  watch(
+    () => unifiedStore.systemState.active_source,
+    (newSource) => {
+      if (newSource !== source) {
+        clearTimer();
+        shouldShowPlayer.value = false;
+      }
+    },
+    { immediate: true }
+  );
 
   // Auto-hide after delay when playback stops.
   // Uses a getter so Vue tracks all reactive deps inside shouldStartTimer (e.g. store refs).
   watch(
-    () => shouldStartTimer
-      ? shouldStartTimer(isPlaying.value, isBuffering.value)
-      : !isPlaying.value,
+    () =>
+      shouldStartTimer
+        ? shouldStartTimer(isPlaying.value, isBuffering.value)
+        : !isPlaying.value,
     (shouldStart) => {
-      clearTimer()
+      clearTimer();
 
       if (shouldStart && shouldShowPlayer.value) {
         stopTimer.value = setTimeout(() => {
-          shouldShowPlayer.value = false
-          onHideTimeout?.()
-        }, hideDelayMs)
+          shouldShowPlayer.value = false;
+          onHideTimeout?.();
+        }, hideDelayMs);
       }
-    }, { immediate: true })
+    },
+    { immediate: true }
+  );
 
   // Notify on fade-out start (visible → hidden)
   if (onFadeOutStart) {
     watch(shouldShowPlayer, (isVisible, wasVisible) => {
       if (wasVisible && !isVisible) {
-        onFadeOutStart()
+        onFadeOutStart();
       }
-    })
+    });
   }
 
   onBeforeUnmount(() => {
-    clearTimer()
-  })
+    clearTimer();
+  });
 
   return {
     isPlaying,
     isBuffering,
     shouldShowPlayer
-  }
+  };
 }
