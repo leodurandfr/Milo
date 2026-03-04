@@ -371,7 +371,6 @@ class StationDataService:
             await self._broadcast_event("favorite_added", {
                 "station_id": station_id,
                 "favorites_count": len(self._favorites),
-                "source": "radio"
             })
 
         return success
@@ -393,7 +392,6 @@ class StationDataService:
             await self._broadcast_event("favorite_removed", {
                 "station_id": station_id,
                 "favorites_count": len(self._favorites),
-                "source": "radio"
             })
 
         return success

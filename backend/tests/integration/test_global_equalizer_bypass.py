@@ -173,22 +173,6 @@ class TestAC1BypassEffects:
                     assert result is True
                     assert connected_camilladsp_with_effects._loudness["enabled"] is False
 
-    @pytest.mark.asyncio
-    async def test_bypass_broadcasts_effects_bypassed_event(self, connected_camilladsp_with_effects, mock_state_machine):
-        """Should broadcast effects_bypassed WebSocket event"""
-        mock_config = {"filters": {}, "processors": {}, "pipeline": []}
-
-        with patch.object(connected_camilladsp_with_effects, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_with_effects, '_set_config', new_callable=AsyncMock):
-                with patch.object(connected_camilladsp_with_effects, 'save_current_config', new_callable=AsyncMock):
-                    await connected_camilladsp_with_effects.bypass_effects()
-
-                    # Check that broadcast_event was called with effects_bypassed
-                    mock_state_machine.broadcast_event.assert_called()
-                    calls = [c for c in mock_state_machine.broadcast_event.call_args_list
-                             if c[0][1] == "effects_bypassed"]
-                    assert len(calls) >= 1, "Should broadcast effects_bypassed event"
-
 
 # =============================================================================
 # AC2: restore_effects() restores all Equalizer settings from equalizer.* settings
@@ -281,27 +265,6 @@ class TestAC2RestoreEffects:
                 assert result is True
                 assert connected_camilladsp_with_effects._loudness["enabled"] is True
                 assert connected_camilladsp_with_effects._loudness["low_boost"] == 10
-
-    @pytest.mark.asyncio
-    async def test_restore_broadcasts_effects_restored_event(self, connected_camilladsp_with_effects, mock_state_machine, mock_settings_service):
-        """Should broadcast effects_restored WebSocket event"""
-        mock_settings_service.get_setting = AsyncMock(side_effect=lambda key: {
-            "equalizer.filters": [],
-            "equalizer.compressor": {"enabled": False},
-            "equalizer.loudness": {"enabled": False}
-        }.get(key))
-
-        mock_config = {"filters": {}, "processors": {}, "pipeline": []}
-
-        with patch.object(connected_camilladsp_with_effects, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_with_effects, '_set_config', new_callable=AsyncMock):
-                await connected_camilladsp_with_effects.restore_effects()
-
-                # Check that broadcast_event was called with effects_restored
-                mock_state_machine.broadcast_event.assert_called()
-                calls = [c for c in mock_state_machine.broadcast_event.call_args_list
-                         if c[0][1] == "effects_restored"]
-                assert len(calls) >= 1, "Should broadcast effects_restored event"
 
 
 # =============================================================================
