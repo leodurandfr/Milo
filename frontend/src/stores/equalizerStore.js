@@ -486,8 +486,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
    * @returns {{ success: boolean, errors: Array<{targetId: string, error: string}>, skipped: Array<string> }}
    */
   async function propagateToLinkedClients(endpoint, data) {
-    // Use multiroomStore for availability-aware propagation
-    const registryStore = useMultiroomStore();
 
     // Get linked clients that are available
     const linkedIds = registryStore.getLinkedClientIds(selectedTarget.value);
@@ -767,7 +765,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
         });
 
         // Propagate reset to online linked clients
-        const registryStore = useMultiroomStore();
         const linkedIds = registryStore.getLinkedClientIds(selectedTarget.value);
         if (linkedIds.length > 1) {
           // Only propagate to online clients
@@ -942,7 +939,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       const response = await axios.put(`${getApiBase()}/mute`, { muted });
       if (response.data.status === 'success') {
         // Propagate mute to all available linked clients in the zone
-        const registryStore = useMultiroomStore();
         const linkedIds = registryStore.getLinkedClientIds(selectedTarget.value);
         if (linkedIds.length > 1) {
           // Propagate to available remote clients

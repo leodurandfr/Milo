@@ -58,11 +58,13 @@ function formatQueueEpisode(queueItem) {
 }
 
 const { loading, execute: loadQueue } = useAsyncData(async () => {
-  const response = await fetch('/api/podcast/queue')
-  if (!response.ok) throw new Error(`HTTP ${response.status}`)
-  const data = await response.json()
-  episodes.value = data.episodes || []
-}, { logTag: 'podcast' })
+  await apiCall('podcast', 'Error loading queue', async () => {
+    const response = await fetch('/api/podcast/queue')
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const data = await response.json()
+    episodes.value = data.episodes || []
+  })
+})
 
 async function markComplete(episodeUuid) {
   await apiCall('podcast', 'Error marking episode complete', async () => {
