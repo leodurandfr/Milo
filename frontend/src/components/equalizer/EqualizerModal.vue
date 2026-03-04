@@ -13,7 +13,7 @@
     </ModalHeader>
 
     <div class="main-content">
-      <Transition name="fade-slide" mode="out-in" @before-leave="onBeforeLeave" @enter="onEnter">
+      <Transition name="fade-slide">
         <!-- State 1: Equalizer disabled -->
         <MessageContent
           v-if="!equalizerStore.isEqualizerEffectsEnabled"
@@ -164,7 +164,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, inject } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useI18n } from '@/services/i18n';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
@@ -182,9 +182,6 @@ import LevelMeters from './LevelMeters.vue';
 const { t } = useI18n();
 const equalizerStore = useEqualizerStore();
 
-// Inject Modal's height request function for smooth height animations
-const requestHeightDelta = inject('modalRequestHeightDelta', null);
-
 // Local state
 const isMobile = ref(false);
 const zoneTabsRef = ref(null);
@@ -198,28 +195,6 @@ const selectedZoneName = computed(() => {
 const selectedClientIds = computed(() => {
   return zoneTabsRef.value?.selectedClientIds ?? [];
 });
-
-// === FADE-SLIDE HEIGHT COORDINATION ===
-// Lock ResizeObserver before content swap to prevent double animation
-// (internal fade-slide + modal spring). Only the modal spring should animate height.
-let savedContentHeight = 0;
-
-function onBeforeLeave(el) {
-  savedContentHeight = el.getBoundingClientRect().height;
-  if (requestHeightDelta) {
-    // Lock observer and keep current height during leave phase
-    requestHeightDelta(0, 1200);
-  }
-}
-
-function onEnter(el) {
-  if (requestHeightDelta) {
-    // New content in DOM — set target height for a single smooth spring
-    const newHeight = el.getBoundingClientRect().height;
-    const delta = newHeight - savedContentHeight;
-    requestHeightDelta(delta, 500);
-  }
-}
 
 // === EQUALIZER TOGGLE ===
 async function handleEqualizerToggle(enabled) {
@@ -337,8 +312,22 @@ onUnmounted(() => {
 }
 
 .main-content {
+  position: relative;
   display: flex;
   flex-direction: column;
+}
+
+/* Cross-fade: entering content appears after leaving starts fading */
+:deep(.fade-slide-enter-active) {
+  transition-delay: 100ms;
+}
+
+/* Cross-fade: leaving content overlays absolutely (doesn't affect height) */
+:deep(.fade-slide-leave-active) {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
 }
 
 .controls-content {

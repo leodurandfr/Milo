@@ -319,9 +319,6 @@ function onBeforeLeave(el) {
     wasScrolled = false;
     savedScrollTop = 0;
     if (scrollTop > 0) resetScroll();
-
-    // Prevent modal-content from clipping the leaving content during height spring
-    if (scrollEl) scrollEl.style.overflow = 'visible';
   }
 }
 
@@ -349,10 +346,6 @@ function onEnter(el) {
 }
 
 function onAfterLeave() {
-  // Restore modal-content overflow after leaving content has faded out
-  const scrollEl = modalContentRef?.value;
-  if (scrollEl) scrollEl.style.overflow = '';
-
   if (wasScrolled) {
     // Remove clone from DOM
     if (headerClone && headerClone.parentNode) {
