@@ -79,7 +79,7 @@ function onProgressClick(event) {
   flex-grow: 1;
   height: 8px;
   background-color: var(--color-background-neutral-12);
-  border-radius: 4px;
+  border-radius: var(--radius-01);
   cursor: pointer;
   position: relative;
   overflow: hidden;
@@ -88,7 +88,7 @@ function onProgressClick(event) {
 .progress {
   height: 100%;
   background-color: var(--color-background-neutral);
-  border-radius: 4px;
+  border-radius: var(--radius-01);
   position: absolute;
   transition: transform 0.2s ease;
 }

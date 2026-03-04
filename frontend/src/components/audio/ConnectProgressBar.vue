@@ -107,7 +107,7 @@ function onProgressClick(event) {
   flex-grow: 1;
   height: 8px;
   background-color: var(--color-background-strong);
-  border-radius: 4px;
+  border-radius: var(--radius-01);
   cursor: default;
   position: relative;
   overflow: hidden;
@@ -120,7 +120,7 @@ function onProgressClick(event) {
 .progress {
   height: 100%;
   background-color: var(--color-background-contrast);
-  border-radius: 4px;
+  border-radius: var(--radius-01);
   position: absolute;
 }
 

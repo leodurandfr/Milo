@@ -300,12 +300,12 @@ const clientName = computed(() => unifiedStore.systemState.metadata?.client_name
 }
 
 .error-message {
-  color: #ff4444;
-  margin-top: 10px;
+  color: var(--color-error);
+  margin-top: var(--space-03);
   text-align: center;
-  padding: 10px;
-  background-color: #fff0f0;
-  border-radius: 4px;
+  padding: var(--space-03);
+  background-color: var(--color-background-strong);
+  border-radius: var(--radius-01);
 }
 
 @media (max-aspect-ratio: 4/3) {

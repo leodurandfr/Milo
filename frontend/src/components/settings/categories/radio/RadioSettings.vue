@@ -2,8 +2,8 @@
   <SettingsContainer>
     <!-- Track Recognition Toggle -->
     <ToggleSection
-      :title="$t('radioSettings.trackRecognition')"
-      :description="$t('radioSettings.trackRecognitionDescription')"
+      :title="t('radioSettings.trackRecognition')"
+      :description="t('radioSettings.trackRecognitionDescription')"
       :enabled="shazamEnabled"
       @change="handleShazamToggle"
     />
@@ -12,7 +12,7 @@
     <SettingsSection>
     <!-- Section 1: Unmodified Favorites -->
     <template v-if="unmodifiedFavorites.length > 0">
-      <h2 class="heading-2">{{ $t('radioSettings.unmodifiedFavoritesTitle') }}</h2>
+      <h2 class="heading-2">{{ t('radioSettings.unmodifiedFavoritesTitle') }}</h2>
       <div class="stations-list">
         <StationCard v-for="station in unmodifiedFavorites" :key="station.id" :station="station" variant="card"
           :show-country="true" @click="$emit('edit-station', station)" />
@@ -20,18 +20,18 @@
     </template>
 
     <!-- Section 2: Modified Stations (from RadioBrowserAPI favorites) -->
-    <h2 class="heading-2">{{ $t('radioSettings.modifiedStationsTitle') }}</h2>
+    <h2 class="heading-2">{{ t('radioSettings.modifiedStationsTitle') }}</h2>
     <div v-if="modifiedStations.length > 0" class="stations-list">
       <StationCard v-for="station in modifiedStations" :key="station.id" :station="station"
         variant="card" :show-country="true" @click="$emit('edit-station', { ...station, _canRestore: true })" />
     </div>
     <div v-else class="empty-state text-mono">
-      {{ $t('radioSettings.noModifiedStations') }}
+      {{ t('radioSettings.noModifiedStations') }}
     </div>
 
     <!-- Section 3: Added Stations (manually created) -->
     <template v-if="addedStations.length > 0">
-      <h2 class="heading-2">{{ $t('radioSettings.addedStationsTitle') }}</h2>
+      <h2 class="heading-2">{{ t('radioSettings.addedStationsTitle') }}</h2>
       <div class="stations-list">
         <StationCard v-for="station in addedStations" :key="station.id" :station="station" variant="card"
           :show-country="true" @click="$emit('edit-station', { ...station, _canDelete: true })" />
@@ -39,7 +39,7 @@
     </template>
 
     <Button variant="brand" @click="$emit('go-to-add-station')">
-      {{ $t('radioSettings.addStation') }}
+      {{ t('radioSettings.addStation') }}
     </Button>
     </SettingsSection>
   </SettingsContainer>
@@ -47,6 +47,7 @@
 
 <script setup>
 import { computed, onMounted } from 'vue';
+import { useI18n } from '@/services/i18n';
 import { useRadioStore } from '@/stores/radioStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
@@ -60,6 +61,7 @@ import SettingsSection from '@/components/settings/SettingsSection.vue';
 
 defineEmits(['go-to-add-station', 'edit-station']);
 
+const { t } = useI18n();
 const radioStore = useRadioStore();
 const settingsStore = useSettingsStore();
 const { updateSetting } = useSettingsAPI();

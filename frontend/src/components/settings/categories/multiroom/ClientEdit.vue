@@ -6,9 +6,9 @@
     <MessageContent
       v-if="isOffline"
       icon="multiroom"
-      :title="$t('multiroom.speakerOffline', { name: clientDisplayName })"
-      :subtitle="$t('multiroom.speakerOfflineDescription', { ip: client?.ip || 'Unknown' })"
-      :cta-label="deleting ? $t('common.deleting') : $t('multiroom.deleteSpeaker')"
+      :title="t('multiroom.speakerOffline', { name: clientDisplayName })"
+      :subtitle="t('multiroom.speakerOfflineDescription', { ip: client?.ip || 'Unknown' })"
+      :cta-label="deleting ? t('common.deleting') : t('multiroom.deleteSpeaker')"
       cta-variant="important"
       :cta-click="handleDelete"
     />
@@ -16,13 +16,13 @@
     <!-- Online State - Settings -->
     <template v-else>
       <!-- Speaker Name Input -->
-      <SettingsSection :title="$t('multiroom.speakerName', 'Speaker Name')">
+      <SettingsSection :title="t('multiroom.speakerName', 'Speaker Name')">
         <InputText v-model="clientName" :placeholder="client?.host" size="medium" :maxlength="50"
           @blur="saveClientName" />
       </SettingsSection>
 
       <!-- Speaker Type Selection -->
-      <SettingsSection :title="$t('multiroom.speakerType', 'Speaker Type')">
+      <SettingsSection :title="t('multiroom.speakerType', 'Speaker Type')">
         <div class="speaker-types">
           <ListItemButton v-for="type in speakerTypes" :key="type.value" :title="type.label" variant="background"
             action="radio" icon-variant="standard" :model-value="selectedSpeakerType === type.value"
@@ -38,28 +38,28 @@
           <!-- Case 1: Subwoofer not in zone -->
           <template v-if="isSubwoofer && !isInZone">
             <p class="text-mono">
-              {{ $t('multiroom.crossover.subwooferNotInZone', 'Add this subwoofer to a zone to enable automatic crossover management. Lowpass (subwoofer) and highpass (other speakers) filters will be applied automatically.') }}
+              {{ t('multiroom.crossover.subwooferNotInZone', 'Add this subwoofer to a zone to enable automatic crossover management. Lowpass (subwoofer) and highpass (other speakers) filters will be applied automatically.') }}
             </p>
           </template>
 
           <!-- Case 2: Subwoofer in zone -->
           <template v-else-if="isSubwoofer && isInZone">
-            <h3 class="info-title text-mono">{{ $t('multiroom.crossover.lowpassActive', 'Lowpass filter active') }}</h3>
-            <p class="text-mono">{{ $t('multiroom.crossover.lowpassDescription', 'This subwoofer only receives bass frequencies below the crossover frequency.') }}</p>
+            <h3 class="info-title text-mono">{{ t('multiroom.crossover.lowpassActive', 'Lowpass filter active') }}</h3>
+            <p class="text-mono">{{ t('multiroom.crossover.lowpassDescription', 'This subwoofer only receives bass frequencies below the crossover frequency.') }}</p>
             <div class="crossover-frequency">
-              <span class="info-label text-mono">{{ $t('multiroom.crossover.crossoverFrequency', 'Crossover frequency:') }}</span>
+              <span class="info-label text-mono">{{ t('multiroom.crossover.crossoverFrequency', 'Crossover frequency:') }}</span>
               <span class="crossover-value text-mono">{{ zoneCrossoverFrequency }} Hz</span>
             </div>
-            <p class="text-mono">{{ $t('multiroom.crossover.highpassOnOthers', 'A highpass filter is applied to other speakers in the zone to remove bass (handled by this subwoofer).') }}</p>
-            <p class="text-mono text-warning">{{ $t('multiroom.crossover.disablePhysicalCrossover', "Set your subwoofer's physical crossover to bypass/LFE to avoid filter stacking.") }}</p>
+            <p class="text-mono">{{ t('multiroom.crossover.highpassOnOthers', 'A highpass filter is applied to other speakers in the zone to remove bass (handled by this subwoofer).') }}</p>
+            <p class="text-mono text-warning">{{ t('multiroom.crossover.disablePhysicalCrossover', "Set your subwoofer's physical crossover to bypass/LFE to avoid filter stacking.") }}</p>
           </template>
 
           <!-- Case 3: Non-subwoofer in zone with subwoofer -->
           <template v-else-if="!isSubwoofer && isInZone && zoneHasSubwoofer">
-            <h3 class="info-title text-mono">{{ $t('multiroom.crossover.highpassActive', 'Highpass filter active') }}</h3>
-            <p class="text-mono">{{ $t('multiroom.crossover.highpassDescription', { freq: zoneCrossoverFrequency }, `Bass frequencies below ${zoneCrossoverFrequency} Hz are removed from this speaker and handled by the subwoofer in the zone.`) }}</p>
+            <h3 class="info-title text-mono">{{ t('multiroom.crossover.highpassActive', 'Highpass filter active') }}</h3>
+            <p class="text-mono">{{ t('multiroom.crossover.highpassDescription', { freq: zoneCrossoverFrequency }, `Bass frequencies below ${zoneCrossoverFrequency} Hz are removed from this speaker and handled by the subwoofer in the zone.`) }}</p>
             <div class="crossover-frequency">
-              <span class="info-label text-mono">{{ $t('multiroom.crossover.crossoverFrequency', 'Crossover frequency:') }}</span>
+              <span class="info-label text-mono">{{ t('multiroom.crossover.crossoverFrequency', 'Crossover frequency:') }}</span>
               <span class="crossover-value text-mono">{{ zoneCrossoverFrequency }} Hz</span>
             </div>
           </template>
@@ -67,14 +67,14 @@
       </SettingsSection>
 
       <!-- Client Info -->
-      <SettingsSection :title="$t('multiroom.speakerInfo', 'Speaker Info')">
+      <SettingsSection :title="t('multiroom.speakerInfo', 'Speaker Info')">
         <div class="info-grid">
           <div class="info-item">
-            <span class="info-label text-mono">{{ $t('clientDetails.hostname', 'Hostname') }}</span>
+            <span class="info-label text-mono">{{ t('clientDetails.hostname', 'Hostname') }}</span>
             <span class="info-value text-mono">{{ client?.host }}</span>
           </div>
           <div class="info-item">
-            <span class="info-label text-mono">{{ $t('clientDetails.ipAddress', 'IP Address') }}</span>
+            <span class="info-label text-mono">{{ t('clientDetails.ipAddress', 'IP Address') }}</span>
             <span class="info-value text-mono">{{ client?.ip || 'Unknown' }}</span>
           </div>
         </div>
