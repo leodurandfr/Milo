@@ -1,7 +1,7 @@
 <!-- frontend/src/components/equalizer/EqualizerModal.vue -->
 <template>
   <div class="equalizer-modal">
-    <ModalHeader :title="$t('equalizer.title')">
+    <ModalHeader :title="t('equalizer.title')">
       <template #actions="{ iconType }">
         <Toggle
           :modelValue="equalizerStore.isEqualizerEffectsEnabled"
@@ -19,7 +19,7 @@
           v-if="!equalizerStore.isEqualizerEffectsEnabled"
           key="disabled"
           icon="equalizer"
-          :title="$t('equalizer.effects_disabled')"
+          :title="t('equalizer.effects_disabled')"
         />
 
         <!-- State 2: Equalizer enabled but loading/connecting -->
@@ -28,7 +28,7 @@
           key="loading"
           :loading="true"
           :loading-delay="0"
-          :title="$t('equalizer.connecting')"
+          :title="t('equalizer.connecting')"
         />
 
         <!-- State 3: Equalizer connected - controls -->
@@ -37,7 +37,7 @@
           <div v-if="equalizerStore.propagationErrors.length > 0" class="error-banner" @click="equalizerStore.clearPropagationErrors">
             <span class="error-icon">⚠</span>
             <span class="error-text">
-              {{ $t('equalizer.syncError') }}:
+              {{ t('equalizer.syncError') }}:
               {{ equalizerStore.propagationErrors.map(e => equalizerStore.getClientDisplayName(e.clientId)).join(', ') }}
             </span>
             <span class="error-dismiss">×</span>
@@ -54,7 +54,7 @@
             <template #header>
               <div class="eq-header">
                 <div class="eq-header__title">
-                  <h2 class="heading-2">{{ $t('equalizer.equalizer.title') }}</h2>
+                  <h2 class="heading-2">{{ t('equalizer.equalizer.title') }}</h2>
                   <span v-if="selectedZoneName" class="eq-header__subtitle text-mono">{{ selectedZoneName }}</span>
                 </div>
                 <Button
@@ -64,13 +64,13 @@
                   :disabled="equalizerStore.isUpdating"
                   @click="handleSaveCustomPreset"
                 >
-                  {{ $t('equalizer.presets.save') }}
+                  {{ t('equalizer.presets.save') }}
                 </Button>
                 <Dropdown
                   :model-value="currentPresetValue"
                   :options="presetOptions"
                   :display-override="presetDisplayOverride"
-                  :placeholder="$t('equalizer.selectPreset')"
+                  :placeholder="t('equalizer.selectPreset')"
                   :disabled="equalizerStore.isUpdating"
                   size="small"
                   class="eq-header__dropdown"
@@ -90,20 +90,20 @@
 
           <!-- Section 3: Loudness -->
           <ToggleSection
-            :title="$t('equalizer.loudness.title')"
+            :title="t('equalizer.loudness.title')"
             :enabled="equalizerStore.loudness.enabled"
             @change="handleLoudnessToggle"
           >
             <div class="effect-controls">
               <div class="control-item">
-                <label class="text-mono-small">{{ $t('equalizer.loudness.lowBoost') }}</label>
+                <label class="text-mono-small">{{ t('equalizer.loudness.lowBoost') }}</label>
                 <RangeSlider :model-value="equalizerStore.loudness.low_boost" :min="0" :max="15" :step="0.5" value-unit=" dB"
                   @update:model-value="(v) => equalizerStore.loudness.low_boost = v"
                   @change="handleLoudnessChange('low_boost', $event)" />
               </div>
 
               <div class="control-item">
-                <label class="text-mono-small">{{ $t('equalizer.loudness.highBoost') }}</label>
+                <label class="text-mono-small">{{ t('equalizer.loudness.highBoost') }}</label>
                 <RangeSlider :model-value="equalizerStore.loudness.high_boost" :min="0" :max="15" :step="0.5" value-unit=" dB"
                   @update:model-value="(v) => equalizerStore.loudness.high_boost = v"
                   @change="handleLoudnessChange('high_boost', $event)" />
@@ -113,41 +113,41 @@
 
           <!-- Section 4: Compressor -->
           <ToggleSection
-            :title="$t('equalizer.compressor.title')"
+            :title="t('equalizer.compressor.title')"
             :enabled="equalizerStore.compressor.enabled"
             @change="handleCompressorToggle"
           >
             <div class="effect-controls">
               <div class="control-item">
-                <label class="text-mono-small">{{ $t('equalizer.compressor.ratio') }}</label>
+                <label class="text-mono-small">{{ t('equalizer.compressor.ratio') }}</label>
                 <RangeSlider :model-value="equalizerStore.compressor.ratio" :min="1" :max="20" :step="0.5" value-unit=":1"
                   @update:model-value="(v) => equalizerStore.compressor.ratio = v"
                   @change="handleCompressorChange('ratio', $event)" />
               </div>
 
               <div class="control-item">
-                <label class="text-mono-small">{{ $t('equalizer.compressor.threshold') }}</label>
+                <label class="text-mono-small">{{ t('equalizer.compressor.threshold') }}</label>
                 <RangeSlider :model-value="equalizerStore.compressor.threshold" :min="-60" :max="0" :step="1" value-unit=" dB"
                   @update:model-value="(v) => equalizerStore.compressor.threshold = v"
                   @change="handleCompressorChange('threshold', $event)" />
               </div>
 
               <div class="control-item">
-                <label class="text-mono-small">{{ $t('equalizer.compressor.attack') }}</label>
+                <label class="text-mono-small">{{ t('equalizer.compressor.attack') }}</label>
                 <RangeSlider :model-value="equalizerStore.compressor.attack" :min="0.1" :max="100" :step="0.1" value-unit=" ms"
                   @update:model-value="(v) => equalizerStore.compressor.attack = v"
                   @change="handleCompressorChange('attack', $event)" />
               </div>
 
               <div class="control-item">
-                <label class="text-mono-small">{{ $t('equalizer.compressor.release') }}</label>
+                <label class="text-mono-small">{{ t('equalizer.compressor.release') }}</label>
                 <RangeSlider :model-value="equalizerStore.compressor.release" :min="10" :max="1000" :step="10" value-unit=" ms"
                   @update:model-value="(v) => equalizerStore.compressor.release = v"
                   @change="handleCompressorChange('release', $event)" />
               </div>
 
               <div class="control-item">
-                <label class="text-mono-small">{{ $t('equalizer.compressor.makeup') }}</label>
+                <label class="text-mono-small">{{ t('equalizer.compressor.makeup') }}</label>
                 <RangeSlider :model-value="equalizerStore.compressor.makeup_gain" :min="0" :max="30" :step="0.5" value-unit=" dB"
                   @update:model-value="(v) => equalizerStore.compressor.makeup_gain = v"
                   @change="handleCompressorChange('makeup_gain', $event)" />
@@ -167,7 +167,6 @@
 import { ref, computed, onMounted, onUnmounted, inject } from 'vue';
 import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useI18n } from '@/services/i18n';
-import useWebSocket from '@/services/websocket';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import Button from '@/components/ui/Button.vue';
@@ -182,7 +181,6 @@ import LevelMeters from './LevelMeters.vue';
 
 const { t } = useI18n();
 const equalizerStore = useEqualizerStore();
-const { on } = useWebSocket();
 
 // Inject Modal's height request function for smooth height animations
 const requestHeightDelta = inject('modalRequestHeightDelta', null);
@@ -200,8 +198,6 @@ const selectedZoneName = computed(() => {
 const selectedClientIds = computed(() => {
   return zoneTabsRef.value?.selectedClientIds ?? [];
 });
-
-let unsubscribeFunctions = [];
 
 // === FADE-SLIDE HEIGHT COORDINATION ===
 // Lock ResizeObserver before content swap to prevent double animation
@@ -312,18 +308,6 @@ onMounted(async () => {
   updateMobileStatus();
   window.addEventListener('resize', updateMobileStatus);
 
-  // Register WebSocket event listeners FIRST (before any async operations)
-  // to prevent race condition where events arrive during initialization
-  unsubscribeFunctions.push(
-    on('equalizer', 'filter_changed', (e) => equalizerStore.handleFilterChanged(e)),
-    on('equalizer', 'filters_reset', () => equalizerStore.handleFiltersReset()),
-    on('equalizer', 'state_changed', (e) => equalizerStore.handleStateChanged(e)),
-    on('equalizer', 'preset_loaded', (e) => equalizerStore.handlePresetLoaded(e)),
-    on('equalizer', 'compressor_changed', (e) => equalizerStore.handleCompressorChanged(e)),
-    on('equalizer', 'loudness_changed', (e) => equalizerStore.handleLoudnessChanged(e)),
-    on('equalizer', 'enabled_changed', (e) => equalizerStore.handleEnabledChanged(e))
-  );
-
   // Initialize filters
   equalizerStore.initializeFilters();
 
@@ -341,7 +325,6 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('resize', updateMobileStatus);
-  unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
   equalizerStore.cleanup();
 });
 </script>

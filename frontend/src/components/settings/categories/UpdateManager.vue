@@ -5,17 +5,17 @@
     <template v-if="localProgramsError">
       <div class="error-state">
         <div class="error-message text-mono">
-          {{ $t('updates.error') }}
+          {{ t('updates.error') }}
         </div>
         <Button size="small" variant="background-strong" @click="loadLocalPrograms">
-          {{ $t('updates.retry') }}
+          {{ t('updates.retry') }}
         </Button>
       </div>
     </template>
 
     <template v-else>
       <!-- Section 1: Operating System (Milo OS only) -->
-      <SettingsSection v-if="localProgramsLoading || localPrograms.milo" :title="$t('updates.osTitle')">
+      <SettingsSection v-if="localProgramsLoading || localPrograms.milo" :title="t('updates.osTitle')">
         <div class="crossfade-wrapper">
           <Transition name="crossfade">
             <div v-if="localProgramsLoading" key="skeleton" class="programs-list">
@@ -33,7 +33,7 @@
                   <AppIcon :name="getProgramIcon('milo')" :size="48" class="program-icon" />
                   <span class="program-name heading-4">{{ localPrograms.milo.name }}</span>
                   <span class="program-version text-mono">
-                    milo {{ getLocalInstalledVersion(localPrograms.milo) || $t('updates.notAvailable') }}
+                    milo {{ getLocalInstalledVersion(localPrograms.milo) || t('updates.notAvailable') }}
                     <template
                       v-if="localPrograms.milo.update_available && !isLocalUpdating('milo') && !isLocalUpdateCompleted('milo')">
                       <span class="version-new">> {{ getLocalLatestVersion(localPrograms.milo) }}</span>
@@ -54,10 +54,10 @@
                   v-else-if="localPrograms.milo.update_available && canUpdateLocal('milo') && !isLocalUpdateCompleted('milo')"
                   size="small" variant="brand" class="program-button" @click="startLocalUpdate('milo')"
                   :disabled="isAnyUpdateInProgress()">
-                  {{ $t('updates.update') }}
+                  {{ t('updates.update') }}
                 </Button>
                 <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
-                  {{ $t('updates.upToDate') }}
+                  {{ t('updates.upToDate') }}
                 </Button>
               </div>
             </div>
@@ -66,7 +66,7 @@
       </SettingsSection>
 
       <!-- Section 2: Milo Programs -->
-      <SettingsSection :title="$t('updates.programsTitle')">
+      <SettingsSection :title="t('updates.programsTitle')">
         <div class="crossfade-wrapper">
           <Transition name="crossfade">
             <div v-if="localProgramsLoading" key="skeleton" class="programs-list">
@@ -85,7 +85,7 @@
                     <AppIcon :name="getProgramIcon(key)" :size="48" class="program-icon" />
                     <span class="program-name heading-4">{{ getProgramDisplayName(program, key) }}</span>
                     <span class="program-version text-mono">
-                      {{ getVersionLabel(key) }} {{ getLocalInstalledVersion(program) || $t('updates.notAvailable') }}
+                      {{ getVersionLabel(key) }} {{ getLocalInstalledVersion(program) || t('updates.notAvailable') }}
                       <template
                         v-if="program.update_available && !isLocalUpdating(key) && !isLocalUpdateCompleted(key)">
                         <span class="version-new">> {{ getLocalLatestVersion(program) }}</span>
@@ -105,11 +105,11 @@
                   <Button v-else-if="program.update_available && canUpdateLocal(key) && !isLocalUpdateCompleted(key)"
                     size="small" variant="brand" class="program-button" @click="startLocalUpdate(key)"
                     :disabled="isAnyUpdateInProgress()">
-                    {{ $t('updates.update') }}
+                    {{ t('updates.update') }}
                   </Button>
                   <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date"
                     disabled>
-                    {{ $t('updates.upToDate') }}
+                    {{ t('updates.upToDate') }}
                   </Button>
                 </div>
               </template>
@@ -119,13 +119,13 @@
       </SettingsSection>
 
       <!-- Section 3: Satellite Programs (loading/error) -->
-      <SettingsSection v-if="isMultiroomEnabled && (satellitesLoading || satellitesError)" :title="$t('updates.satelliteProgramsTitle')">
+      <SettingsSection v-if="isMultiroomEnabled && (satellitesLoading || satellitesError)" :title="t('updates.satelliteProgramsTitle')">
         <div v-if="satellitesError" class="error-state">
           <div class="error-message text-mono">
-            {{ $t('updates.errorDetectingSatellites') }}
+            {{ t('updates.errorDetectingSatellites') }}
           </div>
           <Button size="small" variant="background-strong" @click="loadSatellites">
-            {{ $t('updates.retry') }}
+            {{ t('updates.retry') }}
           </Button>
         </div>
 
@@ -151,7 +151,7 @@
                 <AppIcon name="milo" :size="48" class="program-icon" />
                 <span class="program-name heading-4">Milō Client</span>
                 <span class="program-version text-mono">
-                  milo-client {{ extractBaseTag(satellite.app_version) || $t('updates.notAvailable') }}
+                  milo-client {{ extractBaseTag(satellite.app_version) || t('updates.notAvailable') }}
                   <template
                     v-if="satellite.app_update_available && !isSatelliteAppUpdating(satellite.hostname) && !isSatelliteAppUpdateCompleted(satellite.hostname)">
                     <span class="version-new">> {{ extractBaseTag(satellite.server_version) }}</span>
@@ -172,11 +172,11 @@
                 v-else-if="satellite.app_update_available && satellite.online && !isSatelliteAppUpdateCompleted(satellite.hostname)"
                 size="small" variant="brand" class="program-button"
                 @click="startSatelliteAppUpdate(satellite.hostname)" :disabled="isAnyUpdateInProgress()">
-                {{ $t('updates.update') }}
+                {{ t('updates.update') }}
               </Button>
               <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date"
                 disabled>
-                {{ $t('updates.upToDate') }}
+                {{ t('updates.upToDate') }}
               </Button>
             </div>
 
@@ -186,7 +186,7 @@
                 <AppIcon name="multiroom" :size="48" class="program-icon" />
                 <span class="program-name heading-4">Multiroom Client</span>
                 <span class="program-version text-mono">
-                  snapclient {{ satellite.snapclient_version || $t('updates.notAvailable') }}
+                  snapclient {{ satellite.snapclient_version || t('updates.notAvailable') }}
                   <template
                     v-if="satellite.update_available && !isSatelliteUpdating(satellite.hostname) && !isSatelliteUpdateCompleted(satellite.hostname)">
                     <span class="version-new">> {{ satellite.latest_version }}</span>
@@ -207,11 +207,11 @@
                 v-else-if="satellite.update_available && satellite.online && !isSatelliteUpdateCompleted(satellite.hostname)"
                 size="small" variant="brand" class="program-button"
                 @click="startSatelliteUpdate(satellite.hostname)" :disabled="isAnyUpdateInProgress()">
-                {{ $t('updates.update') }}
+                {{ t('updates.update') }}
               </Button>
               <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date"
                 disabled>
-                {{ $t('updates.upToDate') }}
+                {{ t('updates.upToDate') }}
               </Button>
             </div>
           </div>

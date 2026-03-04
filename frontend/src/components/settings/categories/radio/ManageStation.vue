@@ -4,15 +4,15 @@
       <!-- Station Name and Image Section -->
       <div class="station-header-row">
         <div class="form-group">
-          <label class="text-mono">{{ $t('radio.manageStation.name') }} *</label>
-          <InputText v-model="formData.name" type="text" :placeholder="$t('radio.manageStation.namePlaceholder')" />
+          <label class="text-mono">{{ t('radio.manageStation.name') }} *</label>
+          <InputText v-model="formData.name" type="text" :placeholder="t('radio.manageStation.namePlaceholder')" />
         </div>
 
         <div class="image-upload-group">
           <div class="form-group">
-            <label class="text-mono">{{ $t('radio.manageStation.image') }}</label>
+            <label class="text-mono">{{ t('radio.manageStation.image') }}</label>
             <Button variant="outline" size="medium" class="full-width-btn" @click="$refs.fileInput.click()">
-              {{ $t('radio.manageStation.chooseImage') }}
+              {{ t('radio.manageStation.chooseImage') }}
             </Button>
           </div>
           <input ref="fileInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif"
@@ -28,35 +28,35 @@
       </div>
 
       <div class="form-group">
-        <label class="text-mono">{{ $t('radio.manageStation.url') }} *</label>
+        <label class="text-mono">{{ t('radio.manageStation.url') }} *</label>
         <InputText v-model="formData.url" type="url"
-          :placeholder="$t('radio.manageStation.urlPlaceholder')" />
+          :placeholder="t('radio.manageStation.urlPlaceholder')" />
       </div>
 
       <div class="form-row">
         <div class="form-group">
-          <label class="text-mono">{{ $t('radio.manageStation.country') }}</label>
-          <Dropdown v-model="formData.country" :options="countryOptions" :placeholder="$t('radio.manageStation.selectCountry')" />
+          <label class="text-mono">{{ t('radio.manageStation.country') }}</label>
+          <Dropdown v-model="formData.country" :options="countryOptions" :placeholder="t('radio.manageStation.selectCountry')" />
         </div>
 
         <div class="form-group">
-          <label class="text-mono">{{ $t('radio.manageStation.genre') }}</label>
+          <label class="text-mono">{{ t('radio.manageStation.genre') }}</label>
           <InputText v-model="formData.genre" type="text"
-            :placeholder="$t('radio.manageStation.genrePlaceholder')" />
+            :placeholder="t('radio.manageStation.genrePlaceholder')" />
         </div>
       </div>
 
       <div class="form-row">
         <div class="form-group">
-          <label class="text-mono">{{ $t('radio.manageStation.codec') }}</label>
+          <label class="text-mono">{{ t('radio.manageStation.codec') }}</label>
           <InputText v-model="formData.codec" type="text"
-            :placeholder="$t('radio.manageStation.codecPlaceholder')" />
+            :placeholder="t('radio.manageStation.codecPlaceholder')" />
         </div>
 
         <div class="form-group">
-          <label class="text-mono">{{ $t('radio.manageStation.bitrate') }}</label>
+          <label class="text-mono">{{ t('radio.manageStation.bitrate') }}</label>
           <InputText v-model="formData.bitrate" type="number"
-            :placeholder="$t('radio.manageStation.bitratePlaceholder')" />
+            :placeholder="t('radio.manageStation.bitratePlaceholder')" />
         </div>
       </div>
 
@@ -70,18 +70,18 @@
         <div v-if="canRestore || canDelete" class="left-actions">
           <Button v-if="canRestore" variant="important" size="medium"
             @click="handleRestoreClick" :disabled="isSubmitting">
-            {{ isConfirmingRestore ? $t('common.confirm') : $t('common.restore') }}
+            {{ isConfirmingRestore ? t('common.confirm') : t('common.restore') }}
           </Button>
           <Button v-if="canDelete" variant="important" size="medium"
             @click="handleDeleteClick" :disabled="isSubmitting">
-            {{ isConfirmingDelete ? $t('radio.manageStation.confirmDelete') : $t('common.delete') }}
+            {{ isConfirmingDelete ? t('radio.manageStation.confirmDelete') : t('common.delete') }}
           </Button>
           <Button variant="background-strong" size="medium" class="cancel-btn" @click="$emit('back')" :disabled="isSubmitting">
-            {{ $t('common.cancel') }}
+            {{ t('common.cancel') }}
           </Button>
         </div>
         <Button v-else variant="background-strong" size="medium" class="cancel-btn" @click="$emit('back')" :disabled="isSubmitting">
-          {{ $t('common.cancel') }}
+          {{ t('common.cancel') }}
         </Button>
         <Button variant="brand" size="medium" class="save-btn" type="submit" :disabled="isSubmitting || !formData.name || !formData.url">
           {{ submitButtonText }}

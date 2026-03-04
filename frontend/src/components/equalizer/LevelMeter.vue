@@ -195,7 +195,7 @@ onUnmounted(() => {
   left: 0;
   height: 100%;
   background: var(--color-brand);
-  border-radius: 4px;
+  border-radius: var(--radius-01);
   transition: width 50ms linear, height 50ms linear;
 }
 
