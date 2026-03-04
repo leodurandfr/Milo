@@ -4,7 +4,7 @@
   <div class="level-meters">
     <!-- Header -->
     <div class="meters-header">
-      <h2 class="heading-2">{{ $t('equalizer.meters.title') }}</h2>
+      <h2 class="heading-2">{{ t('equalizer.meters.title') }}</h2>
     </div>
 
     <!-- Meters content (always visible) -->
@@ -32,6 +32,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { useI18n } from '@/services/i18n';
 import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
@@ -45,6 +46,7 @@ const props = defineProps({
   }
 });
 
+const { t } = useI18n();
 const equalizerStore = useEqualizerStore();
 const settingsStore = useSettingsStore();
 const audioStore = useUnifiedAudioStore();

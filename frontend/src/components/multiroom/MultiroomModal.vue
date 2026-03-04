@@ -1,7 +1,7 @@
 <!-- frontend/src/components/multiroom/MultiroomModal.vue -->
 <template>
   <div class="multiroom-modal">
-    <ModalHeader :title="$t('audioSources.multiroom')">
+    <ModalHeader :title="t('audioSources.multiroom')">
       <template #actions="{ iconType }">
         <Toggle
           :modelValue="isMultiroomActive"
@@ -20,12 +20,14 @@
 
 <script setup>
 import { computed } from 'vue';
+import { useI18n } from '@/services/i18n';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import MultiroomControl from './MultiroomControl.vue';
 
+const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
 const multiroomStore = useMultiroomStore();
 

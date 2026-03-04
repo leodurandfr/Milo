@@ -1,15 +1,15 @@
 :root {
-    /* === COULEURS PRINCIPALES === */
+    /* === PRIMARY COLORS === */
     --color-brand: #ff6428;
 
-    /* === COULEURS DE TEXTE === */
+    /* === TEXT COLORS === */
     --color-text: #171817;
     --color-text-secondary: #767b76;
     --color-text-light: #a6aca6;
     --color-text-contrast: #ffffff;
     --color-text-contrast-50: #ffffff80;
 
-    /* === COULEURS DE FONDS === */
+    /* === BACKGROUND COLORS === */
     --color-background: #f7f7f7;
     --color-background-strong: #f2f2f2;
     --color-background-neutral: #ffffff;
@@ -23,21 +23,21 @@
     --color-background-medium-16: #77777728;
     --color-background-medium-32: #78787851;
 
-    /* === BORDURES === */
+    /* === BORDERS === */
     --color-border: #1718170a;
 
-    /* === COULEURS SYSTÈME === */
+    /* === SYSTEM COLORS === */
     --color-success: #11aa3a;
     --color-warning: #ff9800;
     --color-error: #f44336;
     --color-info: #2196f3;
 
-    /* === TRACÉS === */
+    /* === STROKES === */
     --stroke-glass: linear-gradient(190deg, rgba(255, 255, 255, .48) 0.43%, rgba(255, 255, 255, .06) 21.15%, rgba(255, 255, 255, .48) 47.85%, rgba(255, 255, 255, .06) 78.57%);
 
 
 
-    /* === ESPACEMENT === */
+    /* === SPACING === */
     --space-01: 4px;
     --space-02: 8px;
     --space-03: 12px;
@@ -51,7 +51,7 @@
 
 
 
-    /* === STYLES DE TEXTE === */
+    /* === TEXT STYLES === */
 
     --font-size-d1: 32px;
     --line-height-d1: 38px;
@@ -144,7 +144,7 @@
 /* === RESPONSIVE - MOBILE === */
 @media (max-aspect-ratio: 4/3) {
     :root {
-        /* === ESPACEMENT (Mobile) === */
+        /* === SPACING (Mobile) === */
         --space-05: 16px;
         --space-06: 24px;
         --space-07: 32px;
@@ -153,7 +153,7 @@
 
 
 
-        /* === STYLES DE TEXTE (Mobile) === */
+        /* === TEXT STYLES (Mobile) === */
         --font-size-d1: 28px;
         --line-height-d1: 32px;
 
@@ -202,7 +202,7 @@
     font-weight: 400;
 }
 
-/* === CLASSES UTILITAIRES === */
+/* === UTILITY CLASSES === */
 
 .display-1 {
     font-family: 'Neue Montreal Medium';
@@ -437,7 +437,7 @@
 
 /* === VUE TRANSITIONS === */
 
-/* Fade + slide (pour MessageContent, grilles, etc.) */
+/* Fade + slide (for MessageContent, grids, etc.) */
 .fade-slide-enter-active {
     transition: all var(--transition-in-out);
 }
