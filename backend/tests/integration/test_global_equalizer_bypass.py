@@ -312,10 +312,12 @@ class TestAC3ZonePropagation:
 
         # Set up state_machine mock
         mock_sm = Mock()
-        mock_sm._state_lock = asyncio.Lock()
         mock_sm.system_state = Mock()
         mock_sm.system_state.equalizer_effects_enabled = False
         mock_sm.broadcast_event = AsyncMock()
+        mock_sm.update_equalizer_effects_state = AsyncMock(
+            side_effect=lambda v, silent=False: setattr(mock_sm.system_state, 'equalizer_effects_enabled', v)
+        )
         routing.set_state_machine(mock_sm)
 
         # Mock camilladsp_service
@@ -566,11 +568,16 @@ class TestAC6StateSync:
 
         # Set up state_machine mock
         mock_sm = Mock()
-        mock_sm._state_lock = asyncio.Lock()
         mock_sm.system_state = Mock()
         mock_sm.system_state.multiroom_enabled = False
         mock_sm.system_state.equalizer_effects_enabled = True  # Match settings
         mock_sm.broadcast_event = AsyncMock()
+        mock_sm.update_multiroom_state = AsyncMock(
+            side_effect=lambda v, silent=False: setattr(mock_sm.system_state, 'multiroom_enabled', v)
+        )
+        mock_sm.update_equalizer_effects_state = AsyncMock(
+            side_effect=lambda v, silent=False: setattr(mock_sm.system_state, 'equalizer_effects_enabled', v)
+        )
         routing.set_state_machine(mock_sm)
 
         # Mock camilladsp_service (must not be connected yet for connect to succeed)
@@ -637,10 +644,12 @@ class TestDspEnabledAPI:
 
         # Set up state_machine mock
         mock_sm = Mock()
-        mock_sm._state_lock = asyncio.Lock()
         mock_sm.system_state = Mock()
         mock_sm.system_state.equalizer_effects_enabled = True  # Currently enabled
         mock_sm.broadcast_event = AsyncMock()
+        mock_sm.update_equalizer_effects_state = AsyncMock(
+            side_effect=lambda v, silent=False: setattr(mock_sm.system_state, 'equalizer_effects_enabled', v)
+        )
         routing.set_state_machine(mock_sm)
 
         # Mock camilladsp_service

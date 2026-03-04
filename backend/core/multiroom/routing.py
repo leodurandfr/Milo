@@ -234,30 +234,26 @@ class AudioRoutingService:
     # === Properties to access unified state (state_machine.system_state) ===
 
     async def _get_multiroom_enabled(self) -> bool:
-        """Accesses multiroom state in a thread-safe manner"""
+        """Read multiroom state (safe in asyncio single-threaded)."""
         if not self.state_machine:
             return False
-        async with self.state_machine._state_lock:
-            return self.state_machine.system_state.multiroom_enabled
+        return self.state_machine.system_state.multiroom_enabled
 
-    async def _set_multiroom_state(self, value: bool) -> None:
-        """Modifies multiroom state in a thread-safe manner (internal method)"""
+    async def _set_multiroom_state(self, value: bool, silent: bool = True) -> None:
+        """Set multiroom state via state_machine public method."""
         if self.state_machine:
-            async with self.state_machine._state_lock:
-                self.state_machine.system_state.multiroom_enabled = value
+            await self.state_machine.update_multiroom_state(value, silent=silent)
 
     async def _get_equalizer_effects_enabled(self) -> bool:
-        """Accesses equalizer effects state in a thread-safe manner"""
+        """Read equalizer effects state (safe in asyncio single-threaded)."""
         if not self.state_machine:
             return False
-        async with self.state_machine._state_lock:
-            return self.state_machine.system_state.equalizer_effects_enabled
+        return self.state_machine.system_state.equalizer_effects_enabled
 
-    async def _set_equalizer_effects_state(self, value: bool) -> None:
-        """Modifies equalizer effects state in a thread-safe manner (internal method)"""
+    async def _set_equalizer_effects_state(self, value: bool, silent: bool = True) -> None:
+        """Set equalizer effects state via state_machine public method."""
         if self.state_machine:
-            async with self.state_machine._state_lock:
-                self.state_machine.system_state.equalizer_effects_enabled = value
+            await self.state_machine.update_equalizer_effects_state(value, silent=silent)
 
     # Synchronous properties for compatibility (read-only, may be slightly out of sync)
     @property
@@ -438,10 +434,14 @@ class AudioRoutingService:
             self.logger.info(f"Multiroom state changed and saved: {enabled}")
             return True
 
-        return await self._guarded_state_transition(
+        success = await self._guarded_state_transition(
             self._get_multiroom_enabled, set_multiroom_with_env,
             enabled, "multiroom", body,
         )
+        # Broadcast final state after successful transition
+        if success and self.state_machine:
+            await self.state_machine.update_multiroom_state(enabled)
+        return success
 
     async def _broadcast_transition_event(self, enabled: bool) -> None:
         """Broadcast pre-transition event to let frontend react."""
@@ -544,10 +544,14 @@ class AudioRoutingService:
             self.logger.info(f"Equalizer effects {'enabled' if enabled else 'bypassed'}")
             return True
 
-        return await self._guarded_state_transition(
+        success = await self._guarded_state_transition(
             self._get_equalizer_effects_enabled, self._set_equalizer_effects_state,
             enabled, "equalizer_effects", body,
         )
+        # Broadcast final state after successful transition
+        if success and self.state_machine:
+            await self.state_machine.update_equalizer_effects_state(enabled)
+        return success
     
     async def _update_systemd_environment(self) -> None:
         """Updates ALSA environment variables via static routing.env file."""

@@ -83,14 +83,35 @@ class AudioStateMachine:
         """Return current system state as dict."""
         return self.system_state.to_dict()
 
-    async def transition_to_source(self, target_source: AudioSource) -> bool:
-        """Perform transition to new source with timeout."""
+    async def transition_to_source(
+        self,
+        target_source: AudioSource,
+        expected_source: Optional[AudioSource] = None
+    ) -> bool:
+        """Perform transition to new source with timeout.
+
+        Args:
+            target_source: The source to transition to.
+            expected_source: If set, the transition is skipped when the current
+                active source no longer matches (CAS guard for the inactivity
+                monitor — prevents deactivating a source that a user just
+                activated between the decision and the lock acquisition).
+        """
         async with self._transition_lock:
             logger.debug(
                 "START TRANSITION: %s -> %s",
                 self.system_state.active_source.value,
                 target_source.value
             )
+
+            # CAS guard: abort if active source changed since caller's decision
+            if expected_source is not None and self.system_state.active_source != expected_source:
+                logger.info(
+                    "Transition skipped: expected %s but active is %s",
+                    expected_source.value,
+                    self.system_state.active_source.value
+                )
+                return False
 
             if self.system_state.active_source == target_source and \
                self.system_state.plugin_state != PluginState.ERROR:
@@ -217,32 +238,46 @@ class AudioStateMachine:
             "metadata": metadata
         })
 
-    async def update_multiroom_state(self, enabled: bool) -> None:
-        """Update multiroom state."""
+    async def update_multiroom_state(self, enabled: bool, silent: bool = False) -> None:
+        """Update multiroom state.
+
+        Args:
+            enabled: New multiroom state
+            silent: If True, skip broadcasting (used during transitions or startup
+                    where an intermediate state should not be exposed to the frontend)
+        """
         async with self._state_lock:
             old_state = self.system_state.multiroom_enabled
             self.system_state.multiroom_enabled = enabled
 
-        await self.broadcast_event("system", "state_changed", {
-            "old_state": old_state,
-            "new_state": enabled,
-            "multiroom_changed": True,
-            "multiroom_enabled": enabled,
-            "source": "routing"
-        })
+        if not silent:
+            await self.broadcast_event("system", "state_changed", {
+                "old_state": old_state,
+                "new_state": enabled,
+                "multiroom_changed": True,
+                "multiroom_enabled": enabled,
+                "source": "routing"
+            })
 
-    async def update_equalizer_effects_state(self, enabled: bool) -> None:
-        """Update equalizer effects state."""
+    async def update_equalizer_effects_state(self, enabled: bool, silent: bool = False) -> None:
+        """Update equalizer effects state.
+
+        Args:
+            enabled: New equalizer effects state
+            silent: If True, skip broadcasting (used during transitions or startup
+                    where an intermediate state should not be exposed to the frontend)
+        """
         async with self._state_lock:
             old_state = self.system_state.equalizer_effects_enabled
             self.system_state.equalizer_effects_enabled = enabled
 
-        await self.broadcast_event("system", "state_changed", {
-            "old_state": old_state,
-            "new_state": enabled,
-            "equalizer_effects_changed": True,
-            "source": "equalizer"
-        })
+        if not silent:
+            await self.broadcast_event("system", "state_changed", {
+                "old_state": old_state,
+                "new_state": enabled,
+                "equalizer_effects_changed": True,
+                "source": "equalizer"
+            })
 
     @handle_errors(default=False, level='warning')
     async def refresh_active_metadata(self) -> bool:
@@ -284,7 +319,7 @@ class AudioStateMachine:
         return await plugin.start()
 
     async def _emergency_stop(self) -> None:
-        """Emergency stop all plugins."""
+        """Emergency stop all plugins and broadcast the reset state."""
         for plugin in self.plugins.values():
             if plugin:
                 try:
@@ -297,6 +332,12 @@ class AudioStateMachine:
             self.system_state.plugin_state = PluginState.READY
             self.system_state.metadata = {}
             self.system_state.error = None
+
+        # Broadcast the reset state so frontend knows system is stable again
+        await self.broadcast_event("system", "state_changed", {
+            "source": "system",
+            "reason": "emergency_stop",
+        })
 
     # === Inactivity Monitor ===
 
@@ -328,21 +369,30 @@ class AudioStateMachine:
             while True:
                 await asyncio.sleep(60)
 
+                # Atomic snapshot under lock
+                async with self._state_lock:
+                    source = self.system_state.active_source
+                    plugin_state = self.system_state.plugin_state
+                    transitioning = self.system_state.transitioning
+
                 if (
                     self._inactivity_timeout > 0
-                    and self.system_state.active_source != AudioSource.NONE
-                    and self.system_state.plugin_state == PluginState.READY
-                    and not self.system_state.transitioning
+                    and source != AudioSource.NONE
+                    and plugin_state == PluginState.READY
+                    and not transitioning
                     and (monotonic() - self._last_activity_time) >= self._inactivity_timeout
                 ):
-                    source = self.system_state.active_source
                     elapsed = monotonic() - self._last_activity_time
                     logger.info(
                         "Deactivating idle source %s after %.0fs of inactivity",
                         source.value,
                         elapsed
                     )
-                    await self.transition_to_source(AudioSource.NONE)
+                    # CAS guard: if active source changed between snapshot
+                    # and lock acquisition, transition_to_source will skip
+                    await self.transition_to_source(
+                        AudioSource.NONE, expected_source=source
+                    )
 
         except asyncio.CancelledError:
             pass

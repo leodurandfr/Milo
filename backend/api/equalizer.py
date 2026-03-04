@@ -92,10 +92,7 @@ def create_equalizer_router(
             body = await request.json()
             enabled = body.get("enabled", True)
 
-            active_source = None
-            if state_machine:
-                async with state_machine._state_lock:
-                    active_source = state_machine.system_state.active_source
+            active_source = state_machine.system_state.active_source if state_machine else None
 
             if not routing_service:
                 return {"status": "error", "message": "Routing service not available"}
