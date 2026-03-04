@@ -255,25 +255,6 @@ const PodcastEpisodeSchema = z.object({
   }).optional()
 });
 
-// === SETTINGS ===
-
-const SettingsSchema = z.object({
-  language: z.string().optional(),
-  volume: z.object({
-    max_db: z.number().optional(),
-    default_db: z.number().optional(),
-    step_mobile_db: z.number().optional()
-  }).optional(),
-  screen: z.object({
-    brightness: z.number().optional(),
-    timeout: z.number().optional(),
-    screensaver: z.string().optional()
-  }).optional(),
-  dock: z.object({
-    apps: z.array(z.string()).optional()
-  }).optional()
-}).passthrough();
-
 // === HELPER FUNCTIONS ===
 
 /**

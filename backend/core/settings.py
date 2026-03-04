@@ -9,7 +9,7 @@ import aiofiles
 import asyncio
 from typing import Dict, Any
 
-from backend.config.constants import DEFAULT_VOLUME_DB, VALID_DOCK_APPS, AUDIO_SOURCE_APPS, UTILITY_DOCK_APPS, DEFAULT_DOCK_APPS
+from backend.config.constants import DEFAULT_VOLUME_DB, VALID_DOCK_APPS, AUDIO_SOURCE_APPS, UTILITY_DOCK_APPS, DEFAULT_DOCK_APPS, SETTINGS_FILE
 from backend.shared.decorators import handle_errors
 
 class SettingsService:
@@ -17,7 +17,7 @@ class SettingsService:
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.settings_file = '/var/lib/milo/settings.json'
+        self.settings_file = str(SETTINGS_FILE)
         self._cache = None
         self._file_lock = asyncio.Lock()  # Native async lock instead of fcntl.flock
         
