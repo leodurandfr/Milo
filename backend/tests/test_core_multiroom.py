@@ -2141,17 +2141,10 @@ class TestSnapcastClientDetection:
         return reg
 
     @pytest.fixture
-    def mock_state_machine(self, registry):
+    def mock_state_machine(self):
         """Create a mock state machine with broadcast_event."""
         sm = MagicMock()
-        sm.client_registry = registry
         sm.broadcast_event = AsyncMock()
-        sm.snapcast_service = None
-        sm.volume_service = None
-        sm.crossover_service = None
-        sm.equalizer_client_proxy_service = None
-        sm.equalizer_settings_sync_service = None
-        sm.camilladsp_service = None
         return sm
 
     @pytest.fixture
@@ -2176,6 +2169,7 @@ class TestSnapcastClientDetection:
             state_machine=mock_state_machine,
             routing_service=MagicMock()
         )
+        ws_service.set_registry(registry)
 
         # Simulate Client.OnConnect params (with MAC address as required)
         params = {
@@ -2206,6 +2200,7 @@ class TestSnapcastClientDetection:
             state_machine=mock_state_machine,
             routing_service=MagicMock()
         )
+        ws_service.set_registry(registry)
 
         params = {
             "client": {
@@ -2242,6 +2237,7 @@ class TestSnapcastClientDetection:
             state_machine=mock_state_machine,
             routing_service=MagicMock()
         )
+        ws_service.set_registry(registry)
 
         # Simulate Client.OnDisconnect params (with MAC address as required)
         params = {
@@ -2274,6 +2270,7 @@ class TestSnapcastClientDetection:
             state_machine=mock_state_machine,
             routing_service=MagicMock()
         )
+        ws_service.set_registry(registry)
 
         params = {
             "client": {
@@ -2308,6 +2305,7 @@ class TestSnapcastClientDetection:
             state_machine=mock_state_machine,
             routing_service=MagicMock()
         )
+        ws_service.set_registry(registry)
 
         # New client never seen before (with MAC address as required by compute_mac_id)
         params = {
@@ -2341,6 +2339,7 @@ class TestSnapcastClientDetection:
             state_machine=mock_state_machine,
             routing_service=MagicMock()
         )
+        ws_service.set_registry(registry)
 
         params = {
             "client": {
@@ -3463,14 +3462,11 @@ class TestStandaloneTargetVolume:
         from backend.core.multiroom.websocket import SnapcastWebSocketService
         from backend.core.multiroom.models import ReconnectionContext
 
-        # Setup: no registry (both _registry and state_machine.client_registry)
-        mock_state_machine.client_registry = None
-
+        # Setup: no registry
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
             routing_service=MagicMock()
         )
-        ws_service._registry = None
         ws_service._volume_service = mock_state_machine.volume_service
 
         # Test - calling with STANDALONE_OTHERS_ONLINE but no registry
@@ -3549,14 +3545,11 @@ class TestApplyTargetVolumeToClient:
         """Test that apply works even without registry (updates only volume_service)."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
-        # Remove client_registry from state_machine to test without registry
-        mock_state_machine.client_registry = None
-
+        # Test without registry
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
             routing_service=MagicMock()
         )
-        ws_service._registry = None
         ws_service._volume_service = mock_state_machine.volume_service
 
         result = await ws_service._apply_target_volume_to_client("client-1", -30.0)

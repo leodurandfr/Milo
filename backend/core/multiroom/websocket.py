@@ -45,7 +45,7 @@ class SnapcastWebSocketService:
         self.ws_url = f"ws://{host}:{port}/jsonrpc"
         self.logger = logging.getLogger(__name__)
 
-        # Client registry - set after construction via state_machine.client_registry
+        # Client registry (set via set_registry after construction)
         self._registry: Optional["ClientRegistryService"] = None
 
         # Connection state
@@ -77,10 +77,8 @@ class SnapcastWebSocketService:
 
     @property
     def registry(self) -> Optional["ClientRegistryService"]:
-        """Get the client registry from state_machine if not set directly."""
-        if self._registry:
-            return self._registry
-        return getattr(self.state_machine, 'client_registry', None)
+        """Get the client registry."""
+        return self._registry
 
     async def initialize(self) -> bool:
         """Initialize the WebSocket service."""
@@ -187,6 +185,10 @@ class SnapcastWebSocketService:
             await self.session.close()
 
     # === Service setters (circular dependency resolution) ===
+
+    def set_registry(self, registry) -> None:
+        """Set ClientRegistryService dependency."""
+        self._registry = registry
 
     def set_snapcast_service(self, service) -> None:
         """Set SnapcastService dependency."""

@@ -52,7 +52,6 @@ class TestSnapcastDetectionIntegration:
     def mock_state_machine(self, registry):
         """Create a mock state machine that tracks broadcasts."""
         sm = MagicMock()
-        sm.client_registry = registry
         sm.broadcasts = []
 
         async def track_broadcast(category, event_type, data):
@@ -64,12 +63,6 @@ class TestSnapcastDetectionIntegration:
             })
 
         sm.broadcast_event = track_broadcast
-        sm.snapcast_service = None
-        sm.volume_service = None
-        sm.crossover_service = None
-        sm.equalizer_client_proxy_service = None
-        sm.equalizer_settings_sync_service = None
-        sm.camilladsp_service = None
         return sm
 
     @pytest.fixture
@@ -81,12 +74,14 @@ class TestSnapcastDetectionIntegration:
         return service
 
     @pytest.fixture
-    def ws_service(self, mock_state_machine, mock_routing_service):
+    def ws_service(self, mock_state_machine, mock_routing_service, registry):
         """Create a SnapcastWebSocketService."""
-        return SnapcastWebSocketService(
+        service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
             routing_service=mock_routing_service
         )
+        service.set_registry(registry)
+        return service
 
     # === End-to-End Flow Tests ===
 

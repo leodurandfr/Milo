@@ -146,9 +146,6 @@ def mock_state_machine_for_ws(mock_volume_service):
     })
     sm.broadcast_event = AsyncMock()
 
-    # Volume service
-    sm.volume_service = mock_volume_service
-
     return sm
 
 
@@ -159,9 +156,9 @@ def websocket_manager():
 
 
 @pytest.fixture
-def websocket_server(websocket_manager, mock_state_machine_for_ws):
+def websocket_server(websocket_manager, mock_state_machine_for_ws, mock_volume_service):
     """Create WebSocket server with mocked dependencies."""
-    return WebSocketServer(websocket_manager, mock_state_machine_for_ws)
+    return WebSocketServer(websocket_manager, mock_state_machine_for_ws, mock_volume_service)
 
 
 
