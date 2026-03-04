@@ -3,13 +3,14 @@
 AirPlay 2 audio source using shairport-sync.
 
 Handles AirPlay streaming from Apple devices via shairport-sync.
-Metadata (title, artist, album, artwork) flows through the metadata pipe
-and is broadcast to the frontend via WebSocket, just like other sources.
+Metadata (title, artist, album) flows through the metadata pipe
+and is broadcast to the frontend via WebSocket. Artwork is stored
+in memory and served via a dedicated HTTP endpoint.
 """
 import asyncio
-import base64
+import hashlib
 import os
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 
 from backend.core.audio_source import BaseAudioSource
 from backend.features.airplay.metadata_reader import MetadataReader
@@ -48,6 +49,11 @@ class AirPlaySource(BaseAudioSource):
         self._device_connected = False
         self._client_name: Optional[str] = None
 
+        # Artwork served via dedicated endpoint
+        self._artwork_data: Optional[bytes] = None
+        self._artwork_mime: Optional[str] = None
+        self._artwork_hash: Optional[str] = None
+
         # Progress tracking (RTP frames)
         self._progress_start = 0
         self._progress_current = 0
@@ -61,6 +67,7 @@ class AirPlaySource(BaseAudioSource):
         super()._reset_playback_state()
         self._device_connected = False
         self._client_name = None
+        self._clear_artwork()
 
     async def _do_start(self) -> bool:
         """Start shairport-sync service and metadata reader."""
@@ -188,14 +195,20 @@ class AirPlaySource(BaseAudioSource):
 
     @handle_errors(default=None)
     async def _on_artwork(self, data: bytes) -> None:
-        """Handle artwork from pipe: encode as base64 data URI in metadata."""
+        """Handle artwork from pipe: store in memory and serve via endpoint."""
+        new_hash = hashlib.md5(data).hexdigest()[:12]
+        if new_hash == self._artwork_hash:
+            return
+
         # Detect image format from magic bytes (shairport-sync sends JPEG or PNG)
         if data[:8] == b'\x89PNG\r\n\x1a\n':
-            mime_type = "image/png"
+            self._artwork_mime = "image/png"
         else:
-            mime_type = "image/jpeg"
-        b64 = base64.b64encode(data).decode("ascii")
-        self._metadata["album_art_url"] = f"data:{mime_type};base64,{b64}"
+            self._artwork_mime = "image/jpeg"
+
+        self._artwork_data = data
+        self._artwork_hash = new_hash
+        self._metadata["album_art_url"] = f"/api/airplay/artwork?v={new_hash}"
         self._update_connection_state()
 
     async def _on_client_name(self, name: str) -> None:
@@ -222,6 +235,7 @@ class AirPlaySource(BaseAudioSource):
             self._is_playing = False
             self._metadata = {}
             self._client_name = None
+            self._clear_artwork()
             self._update_connection_state()
 
     async def _on_progress(self, start: int, current: int, end: int) -> None:
@@ -296,11 +310,24 @@ class AirPlaySource(BaseAudioSource):
         """
         self._is_playing = False
         self._metadata = {}
+        self._clear_artwork()
         # Keep _device_connected = True and _client_name intact
         self._update_connection_state()
+
+    def _clear_artwork(self) -> None:
+        """Clear stored artwork data."""
+        self._artwork_data = None
+        self._artwork_mime = None
+        self._artwork_hash = None
 
     # === Public API ===
 
     @property
     def device_connected(self) -> bool:
         return self._device_connected
+
+    def get_artwork(self) -> Optional[Tuple[bytes, str]]:
+        """Return current artwork as (data, mime_type), or None."""
+        if self._artwork_data and self._artwork_mime:
+            return self._artwork_data, self._artwork_mime
+        return None
