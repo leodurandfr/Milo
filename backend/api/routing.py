@@ -54,8 +54,6 @@ def create_routing_router(routing_service, state_machine):
             if not success:
                 raise HTTPException(status_code=500, detail="Failed to change multiroom state")
 
-            await state_machine.update_multiroom_state(multiroom_enabled)
-
             return {
                 "status": "success",
                 "multiroom_enabled": multiroom_enabled,
