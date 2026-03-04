@@ -71,6 +71,7 @@ class PodcastSource(MpvAudioSource):
         self._position = 0
         self._duration = 0
         self._playback_speed = 1.0
+        self._loading = False  # Guards monitor tick during stream loading
 
         # Tasks
         self._progress_save_task: Optional[asyncio.Task] = None
@@ -80,6 +81,7 @@ class PodcastSource(MpvAudioSource):
         self._current_episode = None
         self._position = 0
         self._duration = 0
+        self._loading = False
 
     async def _do_start(self) -> bool:
         """Start MPV service and initialize components."""
@@ -207,6 +209,10 @@ class PodcastSource(MpvAudioSource):
                 start_position = progress['position']
                 self._logger.info(f"Resuming from {start_position}s")
 
+            # Guard: prevent monitor tick from reading inconsistent state
+            # during the async loading phase below
+            self._loading = True
+
             # Update state BEFORE loading stream
             self._current_episode = episode
             self._is_buffering = True
@@ -223,6 +229,7 @@ class PodcastSource(MpvAudioSource):
             success = await self._mpv.load_stream(audio_url)
 
             if not success:
+                self._loading = False
                 self._is_buffering = False
                 self._current_episode = None
                 error_msg = "Failed to load stream"
@@ -245,6 +252,7 @@ class PodcastSource(MpvAudioSource):
             # Mark as playing
             self._is_playing = True
             self._is_buffering = False
+            self._loading = False
 
             # Cache episode data
             await self._podcast_data.cache_episode(episode_uuid, episode)
@@ -264,6 +272,7 @@ class PodcastSource(MpvAudioSource):
 
         except Exception as e:
             self._logger.error(f"Episode playback error: {e}")
+            self._loading = False
             self._is_buffering = False
             self.broadcast_error(str(e))
             return self.error_response(str(e))
@@ -493,7 +502,7 @@ class PodcastSource(MpvAudioSource):
 
     async def _on_monitor_tick(self) -> None:
         """Track playback position, detect stuck state and episode completion."""
-        if not self._current_episode:
+        if not self._current_episode or self._loading:
             return
 
         # Update playback position
