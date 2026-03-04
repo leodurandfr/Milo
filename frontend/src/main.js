@@ -1,5 +1,6 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
+import axios from 'axios'
 import App from './App.vue'
 import router from './router'
 import { i18n } from './services/i18n'
@@ -15,15 +16,10 @@ function reportError(source, error, info = '') {
   if (now - lastErrorTime < 1000) return
   lastErrorTime = now
 
-  const payload = {
+  axios.post('/api/errors', {
     source,
     error: typeof error === 'string' ? error : (error?.message || String(error)),
     info: info || (error?.stack || '')
-  }
-  fetch('/api/errors', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
   }).catch(() => {}) // Never let reporting itself throw
 }
 

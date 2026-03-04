@@ -16,6 +16,7 @@
 import { ref, onMounted, watch } from 'vue'
 import { useI18n } from '@/services/i18n'
 import { logger } from '@/services/logger'
+import axios from 'axios'
 import { useAsyncData } from '@/composables/useAsyncData'
 import PodcastCard from './PodcastCard.vue'
 import MessageContent from '@/components/ui/MessageContent.vue'
@@ -47,11 +48,9 @@ function isPodcastLoading(podcast) {
 const topPodcasts = ref([])
 
 const { loading, execute: loadData } = useAsyncData(async () => {
-  const response = await fetch(
-    `/api/podcast/discover/by-genre?genre=${props.genre}&limit=30`
-  )
-  if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
-  const data = await response.json()
+  const { data } = await axios.get('/api/podcast/discover/by-genre', {
+    params: { genre: props.genre, limit: 30 }
+  })
   topPodcasts.value = data.podcasts || []
   logger.debug('podcast', `Loaded ${topPodcasts.value.length} podcasts for genre ${props.genre} in ${data.language}/${data.country}`)
 }, { logTag: 'podcast' })

@@ -103,6 +103,7 @@ import { useNavigationStack } from '@/composables/useNavigationStack'
 import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility'
 import { useI18n } from '@/services/i18n'
 import { apiCall } from '@/services/apiCall'
+import axios from 'axios'
 import IconButton from '@/components/ui/IconButton.vue'
 import AudioPlayer from '@/components/audio/AudioPlayer.vue'
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue'
@@ -243,11 +244,10 @@ async function openPodcastDetails(podcastOrUuid) {
   } else if (podcastOrUuid && podcastOrUuid.itunes_id) {
     // Podcast object from iTunes RSS without UUID - need to lookup
     loadingPodcastId.value = podcastOrUuid.itunes_id
-    const params = new URLSearchParams({ name: podcastOrUuid.name || '' })
     const result = await apiCall('podcast', 'Error looking up podcast UUID', async () => {
-      const response = await fetch(`/api/podcast/lookup/itunes/${podcastOrUuid.itunes_id}?${params}`)
-      if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      const data = await response.json()
+      const { data } = await axios.get(`/api/podcast/lookup/itunes/${podcastOrUuid.itunes_id}`, {
+        params: { name: podcastOrUuid.name || '' }
+      })
       return data.uuid
     })
     loadingPodcastId.value = null
