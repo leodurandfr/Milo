@@ -1,5 +1,6 @@
 // frontend/src/services/websocket.js
 import { ref, computed, onMounted, onUnmounted } from 'vue';
+import axios from 'axios';
 import { logger } from '@/services/logger';
 
 /**
@@ -189,30 +190,24 @@ class WebSocketSingleton {
           logger.debug('websocket', 'Tab visible - fetching fresh state');
           try {
             const [audioRes, volumeRes] = await Promise.all([
-              fetch('/api/audio/state'),
-              fetch('/api/volume/state')
+              axios.get('/api/audio/state'),
+              axios.get('/api/volume/state')
             ]);
 
-            if (audioRes.ok) {
-              const audioState = await audioRes.json();
-              this.handleMessage({
-                category: 'system',
-                type: 'state_changed',
-                source: 'system',
-                data: { full_state: audioState }
-              });
-            }
+            this.handleMessage({
+              category: 'system',
+              type: 'state_changed',
+              source: 'system',
+              data: { full_state: audioRes.data }
+            });
 
-            if (volumeRes.ok) {
-              const volumeData = await volumeRes.json();
-              if (volumeData.status === 'success') {
-                this.handleMessage({
-                  category: 'volume',
-                  type: 'volume_changed',
-                  source: 'volume',
-                  data: { show_bar: false, state: volumeData.data }
-                });
-              }
+            if (volumeRes.data.status === 'success') {
+              this.handleMessage({
+                category: 'volume',
+                type: 'volume_changed',
+                source: 'volume',
+                data: { show_bar: false, state: volumeRes.data.data }
+              });
             }
           } catch (error) {
             logger.warn('websocket', 'Failed to fetch state on visibility change', { error: error.message });
