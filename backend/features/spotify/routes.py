@@ -91,16 +91,7 @@ async def get_fresh_status(source: SpotifySource = Depends(get_source)) -> Dict[
                 transformed_metadata = {}
 
                 if fresh_data.get("track"):
-                    track = fresh_data["track"]
-                    transformed_metadata = {
-                        "title": track.get("name"),
-                        "artist": ", ".join(track.get("artist_names", [])) if track.get("artist_names") else None,
-                        "album": track.get("album_name"),
-                        "album_art_url": track.get("album_cover_url"),
-                        "duration": track.get("duration", 0),
-                        "position": track.get("position", 0),
-                        "uri": track.get("uri"),
-                    }
+                    transformed_metadata = SpotifySource.transform_track_metadata(fresh_data["track"])
 
                 transformed_metadata["is_playing"] = (
                     not fresh_data.get("paused", True) and
