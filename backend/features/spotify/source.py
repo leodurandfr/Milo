@@ -318,6 +318,25 @@ class SpotifySource(BaseAudioSource):
         self._start_pause_timer()
         self._update_connection_state()
 
+    # === Metadata ===
+
+    @staticmethod
+    def transform_track_metadata(track: dict) -> dict:
+        """Transform a go-librespot track dict into Milo's metadata format.
+
+        Single source of truth for the go-librespot → Milo field mapping.
+        Does NOT include 'is_playing' — callers add that based on their own context.
+        """
+        return {
+            "title": track.get("name"),
+            "artist": ", ".join(track.get("artist_names", [])) or None,
+            "album": track.get("album_name"),
+            "album_art_url": track.get("album_cover_url"),
+            "duration": track.get("duration", 0),
+            "position": track.get("position", 0),
+            "uri": track.get("uri"),
+        }
+
     # === REST API ===
 
     async def _refresh_metadata(self) -> bool:
@@ -336,17 +355,8 @@ class SpotifySource(BaseAudioSource):
                 self._is_playing = not data.get("paused", True)
 
                 if data.get("track"):
-                    track = data["track"]
-                    self._metadata = {
-                        "title": track.get("name"),
-                        "artist": ", ".join(track.get("artist_names", [])),
-                        "album": track.get("album_name"),
-                        "album_art_url": track.get("album_cover_url"),
-                        "duration": track.get("duration", 0),
-                        "position": track.get("position", 0),
-                        "uri": track.get("uri"),
-                        "is_playing": self._is_playing
-                    }
+                    self._metadata = self.transform_track_metadata(data["track"])
+                    self._metadata["is_playing"] = self._is_playing
                 else:
                     self._metadata = {}
 
