@@ -1,4 +1,4 @@
-import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount } from 'vue';
 
 /**
  * Infinite scroll via IntersectionObserver.
@@ -10,50 +10,55 @@ import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
  * @param {import('vue').Ref<boolean>} [options.isLoading] - Whether a load is already in progress
  * @returns {{ sentinelRef: import('vue').Ref<HTMLElement|null> }}
  */
-export function useInfiniteScroll({ onLoadMore, canLoadMore, isLoading, rootMargin = '100px' }) {
-  const sentinelRef = ref(null)
-  let observer = null
+export function useInfiniteScroll({
+  onLoadMore,
+  canLoadMore,
+  isLoading,
+  rootMargin = '100px'
+}) {
+  const sentinelRef = ref(null);
+  let observer = null;
 
   function setup() {
     if (observer) {
-      observer.disconnect()
+      observer.disconnect();
     }
 
     observer = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting && canLoadMore.value && !(isLoading?.value)) {
-          onLoadMore()
+        if (entry.isIntersecting && canLoadMore.value && !isLoading?.value) {
+          onLoadMore();
         }
       },
       { rootMargin, threshold: 0 }
-    )
+    );
 
     if (sentinelRef.value) {
-      observer.observe(sentinelRef.value)
+      observer.observe(sentinelRef.value);
     }
   }
 
   // Re-observe when the sentinel element appears/disappears (v-if toggling)
   watch(sentinelRef, (el, oldEl) => {
-    if (oldEl && observer) observer.unobserve(oldEl)
-    if (el && observer) observer.observe(el)
-  })
+    if (oldEl && observer) observer.unobserve(oldEl);
+    if (el && observer) observer.observe(el);
+  });
 
   // Re-observe when more content becomes available
   watch(canLoadMore, (hasMore) => {
     if (hasMore && sentinelRef.value && observer) {
-      observer.observe(sentinelRef.value)
+      observer.observe(sentinelRef.value);
     }
-  })
+  });
 
-  onMounted(setup)
+  onMounted(setup);
 
   onBeforeUnmount(() => {
     if (observer) {
-      observer.disconnect()
-      observer = null
+      observer.disconnect();
+      observer = null;
     }
-  })
+  });
 
-  return { sentinelRef }
+  return { sentinelRef };
 }

@@ -1,7 +1,7 @@
 // frontend/src/composables/useAsyncData.js
 // Generic async loading helper: wraps any async callback with loading/error state.
-import { ref } from 'vue'
-import { logger } from '@/services/logger'
+import { ref } from 'vue';
+import { logger } from '@/services/logger';
 
 /**
  * Wraps an async callback with loading/error state management.
@@ -14,22 +14,22 @@ import { logger } from '@/services/logger'
  * @returns {{ loading: Ref<boolean>, error: Ref<Error|null>, execute: () => Promise<void> }}
  */
 export function useAsyncData(callback, { logTag = 'component' } = {}) {
-  const loading = ref(false)
-  const error = ref(null)
+  const loading = ref(false);
+  const error = ref(null);
 
   async function execute() {
-    loading.value = true
-    error.value = null
+    loading.value = true;
+    error.value = null;
 
     try {
-      await callback()
+      await callback();
     } catch (err) {
-      error.value = err
-      logger.error(logTag, 'Async data load failed', err)
+      error.value = err;
+      logger.error(logTag, 'Async data load failed', err);
     } finally {
-      loading.value = false
+      loading.value = false;
     }
   }
 
-  return { loading, error, execute }
+  return { loading, error, execute };
 }

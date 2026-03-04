@@ -3,6 +3,7 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import axios from 'axios';
 import { logger } from '@/services/logger';
+import { apiCall } from '@/services/apiCall';
 
 export const useSettingsStore = defineStore('settings', () => {
   // === LOADING STATE ===
@@ -107,7 +108,7 @@ export const useSettingsStore = defineStore('settings', () => {
     if (isLoading.value) return;
 
     isLoading.value = true;
-    try {
+    await apiCall('settings', 'Error loading settings:', async () => {
       // Single bulk request + podcast status (requires external API call)
       const [bulkResponse, podcastStatusResponse] = await Promise.all([
         axios.get('/api/settings/bulk').catch(() => ({ data: null })),
@@ -187,12 +188,8 @@ export const useSettingsStore = defineStore('settings', () => {
 
       hasLoaded.value = true;
       logger.info('settings', 'All settings loaded successfully');
-
-    } catch (error) {
-      logger.error('settings', 'Error loading settings:', error);
-    } finally {
-      isLoading.value = false;
-    }
+    });
+    isLoading.value = false;
   }
 
   /**
@@ -259,17 +256,12 @@ export const useSettingsStore = defineStore('settings', () => {
    * Refresh podcast credentials status (after validation/save)
    */
   async function refreshPodcastCredentialsStatus() {
-    try {
+    await apiCall('settings', 'Error refreshing podcast credentials status:', async () => {
       const response = await axios.get('/api/settings/podcast-credentials/status');
       podcastCredentialsStatus.value = response.data.status ?? 'error';
       podcastApiUsage.value = response.data.requests_used ?? null;
       podcastCredentialsValidatedAt.value = response.data.credentials_validated_at ?? null;
-    } catch (error) {
-      logger.error('settings', 'Error refreshing podcast credentials status:', error);
-      podcastCredentialsStatus.value = 'error';
-      podcastApiUsage.value = null;
-      podcastCredentialsValidatedAt.value = null;
-    }
+    });
   }
 
   /**

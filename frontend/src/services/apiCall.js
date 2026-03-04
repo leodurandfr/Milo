@@ -1,5 +1,6 @@
 // frontend/src/services/apiCall.js
-import { logger } from '@/services/logger'
+import axios from 'axios';
+import { logger } from '@/services/logger';
 
 /**
  * Wraps an async store action with standardized error handling.
@@ -14,10 +15,12 @@ import { logger } from '@/services/logger'
  */
 export async function apiCall(category, message, fn, { rethrow = false, fallback = false } = {}) {
   try {
-    return await fn()
+    return await fn();
   } catch (error) {
-    logger.error(category, message, error)
-    if (rethrow) throw error
-    return fallback
+    // Silently swallow cancelled requests (AbortController abort)
+    if (axios.isCancel(error) || error.name === 'AbortError') return fallback;
+    logger.error(category, message, error);
+    if (rethrow) throw error;
+    return fallback;
   }
 }

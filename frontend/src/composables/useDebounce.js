@@ -1,4 +1,4 @@
-import { onBeforeUnmount } from 'vue'
+import { onBeforeUnmount } from 'vue';
 
 /**
  * Returns a debounced version of the given function.
@@ -9,24 +9,24 @@ import { onBeforeUnmount } from 'vue'
  * @returns {{ debounced: Function, cancel: Function }}
  */
 export function useDebounce(fn, delay = 400) {
-  let timer = null
+  let timer = null;
 
   function debounced(...args) {
-    if (timer) clearTimeout(timer)
+    if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
-      timer = null
-      fn(...args)
-    }, delay)
+      timer = null;
+      fn(...args);
+    }, delay);
   }
 
   function cancel() {
     if (timer) {
-      clearTimeout(timer)
-      timer = null
+      clearTimeout(timer);
+      timer = null;
     }
   }
 
-  onBeforeUnmount(cancel)
+  onBeforeUnmount(cancel);
 
-  return { debounced, cancel }
+  return { debounced, cancel };
 }

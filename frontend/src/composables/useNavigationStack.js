@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue'
+import { ref, computed } from 'vue';
 
 /**
  * Composable for managing navigation stack within modals/views
@@ -8,17 +8,21 @@ import { ref, computed } from 'vue'
  * @returns {Object} Navigation state and methods
  */
 export function useNavigationStack(initialView = 'home') {
-  const stack = ref([{ view: initialView, params: {} }])
+  const stack = ref([{ view: initialView, params: {} }]);
 
-  const currentView = computed(() => stack.value[stack.value.length - 1]?.view || initialView)
-  const currentParams = computed(() => stack.value[stack.value.length - 1]?.params || {})
-  const canGoBack = computed(() => stack.value.length > 1)
+  const currentView = computed(
+    () => stack.value[stack.value.length - 1]?.view || initialView
+  );
+  const currentParams = computed(
+    () => stack.value[stack.value.length - 1]?.params || {}
+  );
+  const canGoBack = computed(() => stack.value.length > 1);
 
   /**
    * Push a new view onto the stack
    */
   function push(view, params = {}) {
-    stack.value.push({ view, params })
+    stack.value.push({ view, params });
   }
 
   /**
@@ -26,7 +30,7 @@ export function useNavigationStack(initialView = 'home') {
    */
   function back() {
     if (stack.value.length > 1) {
-      stack.value.pop()
+      stack.value.pop();
     }
   }
 
@@ -34,7 +38,7 @@ export function useNavigationStack(initialView = 'home') {
    * Reset to initial view (clear stack)
    */
   function reset() {
-    stack.value = [{ view: initialView, params: {} }]
+    stack.value = [{ view: initialView, params: {} }];
   }
 
   /**
@@ -42,7 +46,10 @@ export function useNavigationStack(initialView = 'home') {
    * Creates a stack: [home, targetView]
    */
   function goTo(view, params = {}) {
-    stack.value = [{ view: initialView, params: {} }, { view, params }]
+    stack.value = [
+      { view: initialView, params: {} },
+      { view, params }
+    ];
   }
 
   /**
@@ -50,9 +57,9 @@ export function useNavigationStack(initialView = 'home') {
    */
   function replace(view, params = {}) {
     if (stack.value.length > 0) {
-      stack.value[stack.value.length - 1] = { view, params }
+      stack.value[stack.value.length - 1] = { view, params };
     } else {
-      stack.value = [{ view, params }]
+      stack.value = [{ view, params }];
     }
   }
 
@@ -65,5 +72,5 @@ export function useNavigationStack(initialView = 'home') {
     reset,
     goTo,
     replace
-  }
+  };
 }
