@@ -81,8 +81,8 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, nextTick, inject } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { useI18n } from '@/services/i18n';
-import useWebSocket from '@/services/websocket';
 import { useIsMobile } from '@/composables/useIsMobile';
 import { useDockDrag } from '@/composables/useDockDrag';
 import { useVolumeHold } from '@/composables/useVolumeHold';
@@ -90,7 +90,7 @@ import AppIcon from '@/components/ui/AppIcon.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const { t } = useI18n();
-const { on } = useWebSocket();
+const settingsStore = useSettingsStore();
 const registerDockControl = inject('registerDockControl', null);
 
 // === STATIC CONFIGURATION ===
@@ -109,7 +109,7 @@ const ALL_ADDITIONAL_ACTIONS = computed(() => [
 ]);
 
 // === DYNAMIC CONFIGURATION ===
-const enabledApps = ref(["spotify", "bluetooth", "radio", "podcast", "airplay", "mac", "equalizer", "multiroom", "settings"]);
+const enabledApps = computed(() => settingsStore.buildEnabledAppsArray());
 
 // Computed to separate audio plugins and features
 const enabledAudioPlugins = computed(() => {
@@ -402,19 +402,6 @@ const handleToggleClick = (event) => {
   toggleAdditionalApps();
 };
 
-// === LOAD CONFIG ===
-const loadDockConfig = async () => {
-  try {
-    const response = await fetch('/api/settings/dock-apps');
-    const data = await response.json();
-    if (data.status === 'success') {
-      enabledApps.value = data.config.enabled_apps || ["spotify", "bluetooth", "radio", "podcast", "airplay", "mac", "equalizer", "multiroom", "settings"];
-    }
-  } catch (error) {
-    console.error('Error loading dock config:', error);
-  }
-};
-
 // === LIFECYCLE ===
 watch(() => unifiedStore.systemState.active_source, (newSource) => {
   updateActiveIndicator();
@@ -425,20 +412,12 @@ watch(() => unifiedStore.systemState.active_source, (newSource) => {
   }
 });
 
-onMounted(async () => {
+onMounted(() => {
   drag.setupDragEvents();
-
-  await loadDockConfig();
 
   if (registerDockControl) {
     registerDockControl(showDock);
   }
-
-  on('settings', 'dock_apps_changed', (message) => {
-    if (message.data?.config?.enabled_apps) {
-      enabledApps.value = message.data.config.enabled_apps;
-    }
-  });
 
   setTimeout(() => showDragIndicator.value = true, 800);
 });
