@@ -110,7 +110,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
@@ -312,16 +312,14 @@ function setInactivityTimeout(value) {
   updateSetting('inactivity-timeout', { inactivity_timeout: value });
 }
 
-// === WebSocket listeners ===
-
-const handleDockAppsChanged = (msg) => {
-  if (msg.data?.config?.enabled_apps) {
-    settingsStore.updateDockApps(msg.data.config.enabled_apps);
-    if (isReordering.value) {
-      reorderList.value = [...settingsStore.sourceOrder];
-    }
+// Sync reorder list when sourceOrder changes externally (e.g. WS dock_apps_changed)
+watch(sourceOrder, (newOrder) => {
+  if (isReordering.value) {
+    reorderList.value = [...newOrder];
   }
-};
+});
+
+// === WebSocket listeners ===
 
 const handleInactivityTimeoutChanged = (msg) => {
   if (msg.data?.config?.inactivity_timeout !== undefined) {
@@ -336,7 +334,6 @@ const handleInactivityTimeoutChanged = (msg) => {
 
 onMounted(() => {
   syncInactivityFromStore();
-  on('settings', 'dock_apps_changed', handleDockAppsChanged);
   on('settings', 'inactivity_timeout_changed', handleInactivityTimeoutChanged);
 });
 

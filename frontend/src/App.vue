@@ -370,6 +370,11 @@ onMounted(async () => {
         i18n.handleLanguageChanged(event.data.language);
       }
     }),
+    on('settings', 'dock_apps_changed', (event) => {
+      if (event.data?.config?.enabled_apps) {
+        settingsStore.updateDockApps(event.data.config.enabled_apps);
+      }
+    }),
     on('settings', 'screen_sleep_changed', (event) => {
       if (event.data?.sleeping !== undefined) {
         settingsStore.updateScreenSleeping(event.data.sleeping);
