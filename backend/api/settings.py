@@ -801,8 +801,18 @@ def create_settings_router(
             )
             
             temp_proc, throttle_proc = await asyncio.gather(temp_process, throttle_process)
-            temp_stdout, temp_stderr = await temp_proc.communicate()
-            throttle_stdout, throttle_stderr = await throttle_proc.communicate()
+            try:
+                temp_stdout, temp_stderr = await asyncio.wait_for(temp_proc.communicate(), 5.0)
+            except asyncio.TimeoutError:
+                temp_proc.kill()
+                logger.error("Timeout reading temperature (vcgencmd measure_temp)")
+                temp_stdout, temp_stderr = b"", b""
+            try:
+                throttle_stdout, throttle_stderr = await asyncio.wait_for(throttle_proc.communicate(), 5.0)
+            except asyncio.TimeoutError:
+                throttle_proc.kill()
+                logger.error("Timeout reading throttle status (vcgencmd get_throttled)")
+                throttle_stdout, throttle_stderr = b"", b""
             
             result = {"status": "success"}
             

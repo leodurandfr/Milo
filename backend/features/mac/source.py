@@ -203,7 +203,12 @@ class MacSource(BaseAudioSource):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-        stdout, _ = await proc.communicate()
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), 10.0)
+        except asyncio.TimeoutError:
+            proc.kill()
+            self._logger.error("Timeout reading journalctl logs for initial state")
+            return
 
         if proc.returncode == 0:
             for line in stdout.decode().split('\n'):
@@ -342,7 +347,12 @@ class MacSource(BaseAudioSource):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL
             )
-            stdout, _ = await proc.communicate()
+            try:
+                stdout, _ = await asyncio.wait_for(proc.communicate(), 5.0)
+            except asyncio.TimeoutError:
+                proc.kill()
+                self._logger.debug(f"Timeout resolving mDNS for {ip}")
+                return None
 
             if proc.returncode == 0:
                 parts = stdout.decode().strip().split()

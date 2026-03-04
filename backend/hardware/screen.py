@@ -157,7 +157,12 @@ class ScreenController:
         process = await asyncio.create_subprocess_shell(
             cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
-        await process.communicate()
+        try:
+            await asyncio.wait_for(process.communicate(), 5.0)
+        except asyncio.TimeoutError:
+            process.kill()
+            self.logger.error(f"Timeout executing screen command: {cmd}")
+            return
 
         # Determine if screen is on by comparing with screen_off_cmd
         # (if command is screen_off_cmd, screen is off, otherwise it's on)
