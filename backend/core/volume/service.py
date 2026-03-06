@@ -252,6 +252,7 @@ class VolumeService:
                 limit_max_db=volume_settings.get("limit_max_db", -21.0),
                 step_mobile_db=volume_settings.get("step_mobile_db", 3.0),
                 step_rotary_db=volume_settings.get("step_rotary_db", 2.0),
+                step_bt_remote_db=volume_settings.get("step_bt_remote_db", 2.0),
                 startup_volume_db=volume_settings.get("startup_volume_db", DEFAULT_VOLUME_DB),
                 restore_last_volume=volume_settings.get("restore_last_volume", False)
             )
@@ -348,7 +349,7 @@ class VolumeService:
         )
 
     @handle_errors(default=False)
-    async def _reload_config(self, name: str, broadcast: bool = False) -> bool:
+    async def _reload_config(self, broadcast: bool = False) -> bool:
         """Helper: reload config with optional broadcast."""
         await self._load_volume_config()
         if broadcast:
@@ -357,15 +358,15 @@ class VolumeService:
 
     async def reload_startup_config(self) -> bool:
         """Reload startup configuration."""
-        return await self._reload_config("startup config")
+        return await self._reload_config()
 
     async def reload_volume_steps_config(self) -> bool:
         """Reload volume step configuration."""
-        return await self._reload_config("volume steps", broadcast=True)
+        return await self._reload_config(broadcast=True)
 
-    async def reload_rotary_steps_config(self) -> bool:
-        """Reload rotary encoder step configuration."""
-        return await self._reload_config("rotary steps")
+    async def reload_steps_config(self) -> bool:
+        """Reload hardware step configuration (rotary encoder, BT remote)."""
+        return await self._reload_config()
 
     # ============================================================================
     # CLIENT VOLUME MANAGEMENT (VolumeStateStore architecture)

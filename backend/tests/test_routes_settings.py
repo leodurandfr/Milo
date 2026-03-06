@@ -19,7 +19,7 @@ class TestSettingsRoutes:
         service.reload_volume_limits = AsyncMock(return_value=True)
         service.reload_startup_config = AsyncMock(return_value=True)
         service.reload_volume_steps_config = AsyncMock(return_value=True)
-        service.reload_rotary_steps_config = AsyncMock(return_value=True)
+        service.reload_steps_config = AsyncMock(return_value=True)
         return service
 
     @pytest.fixture

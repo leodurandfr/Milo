@@ -138,8 +138,8 @@ class TestVolumeService:
         assert service.volume_config.step_mobile_db == 5.0
 
     @pytest.mark.asyncio
-    async def test_reload_rotary_steps_config(self, service):
-        """Rotary steps reload test"""
+    async def test_reload_steps_config(self, service):
+        """Hardware steps reload test (rotary/BT remote)"""
         service.settings_service.invalidate_cache = Mock()
 
         async def mock_get_setting(key):
@@ -158,7 +158,7 @@ class TestVolumeService:
 
         service.settings_service.get_setting = AsyncMock(side_effect=mock_get_setting)
 
-        result = await service.reload_rotary_steps_config()
+        result = await service.reload_steps_config()
 
         assert result is True
         assert service.volume_config.step_rotary_db == 4.0
