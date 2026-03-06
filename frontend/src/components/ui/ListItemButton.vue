@@ -1,30 +1,23 @@
 <!-- frontend/src/components/ui/ListItemButton.vue -->
 <template>
-  <button
-    type="button"
-    v-press="action !== 'toggle' && action !== 'radio'"
+  <button type="button" v-press="action !== 'toggle' && action !== 'radio'"
     :class="['list-item-button', `list-item-button--${variant}`, { 'action-pressed': actionPressed }]"
-    :disabled="disabled"
-    @click="handleClick"
-    @pointerdown="handlePointerDown"
-  >
+    :disabled="disabled" @click="handleClick" @pointerdown="handlePointerDown">
     <!-- Icon on the left -->
     <div v-if="$slots.icon" class="list-item-button__icon" :class="`list-item-button__icon--${iconVariant}`">
       <slot name="icon"></slot>
     </div>
 
     <!-- Title -->
-    <span
-      class="list-item-button__title heading-3"
-      :class="{ 'list-item-button__title--inactive': isActionInactive }"
-    >
+    <span class="list-item-button__title heading-3" :class="{ 'list-item-button__title--inactive': isActionInactive }">
       <slot name="title">{{ title }}</slot>
     </span>
 
     <!-- Right-side action -->
     <div v-if="action !== 'none'" class="list-item-button__action">
       <SvgIcon v-if="action === 'caret'" name="caretRight" :size="24" class="caret-icon" />
-      <Toggle v-else-if="action === 'toggle'" :model-value="modelValue" size="compact" :variant="toggleVariant" :disabled="disabled" />
+      <Toggle v-else-if="action === 'toggle'" :model-value="modelValue" size="compact" :variant="toggleVariant"
+        :disabled="disabled" />
       <Radio v-else-if="action === 'radio'" :model-value="modelValue" :disabled="disabled" />
     </div>
   </button>
@@ -223,6 +216,10 @@ function handleClick(event) {
 
 /* Responsive - Mobile */
 @media (max-aspect-ratio: 4/3) {
+  .list-item-button {
+    border-radius: var(--radius-04);
+  }
+
   .list-item-button__title {
     min-height: 32px;
   }
@@ -230,6 +227,7 @@ function handleClick(event) {
   .list-item-button__icon {
     width: 32px;
     height: 32px;
+    border-radius: var(--radius-02);
   }
 
   .list-item-button__icon--full :deep(img),
