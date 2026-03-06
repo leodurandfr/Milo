@@ -36,6 +36,27 @@
           @input="debouncedUpdate('volume-startup', 'volume-startup', { startup_volume_db: $event, restore_last_volume: false })" />
       </SettingItem>
     </SettingsSection>
+
+    <!-- Bluetooth Remote (ANTICATER VK1 Mini) -->
+    <ToggleSection
+      :title="t('volumeSettings.btRemote.title')"
+      :enabled="btRemote.enabled"
+      @change="handleBtRemoteToggle"
+    >
+      <div class="bt-remote-status text-mono">
+        <span class="bt-remote-status__dot" :class="{ 'is-connected': btRemote.connected }" />
+        {{ btRemote.connected ? btRemote.deviceName : t('volumeSettings.btRemote.notConnected') }}
+      </div>
+
+      <SettingItem :label="t('volumeSettings.btRemote.stepLabel')">
+        <RangeSlider
+          v-model="config.step_bt_remote_db"
+          :min="1" :max="6" :step="1"
+          value-unit=" dB"
+          @input="debouncedUpdate('bt-remote-steps', 'bt-remote-steps', { step_bt_remote_db: $event })"
+        />
+      </SettingItem>
+    </ToggleSection>
   </SettingsContainer>
 </template>
 
@@ -46,12 +67,14 @@ import useWebSocket from '@/services/websocket';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import axios from 'axios';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import DoubleRangeSlider from '@/components/ui/DoubleRangeSlider.vue';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
+import ToggleSection from '@/components/settings/ToggleSection.vue';
 
 const { t } = useI18n();
 const { on } = useWebSocket();
@@ -63,9 +86,17 @@ const unifiedStore = useUnifiedAudioStore();
 const config = ref({
   step_mobile_db: 3.0,
   step_rotary_db: 2.0,
+  step_bt_remote_db: 2.0,
   limits: { min: -80.0, max: -21.0 },
   restore_last_volume: false,
   startup_volume_db: -60.0
+});
+
+// BT Remote state
+const btRemote = ref({
+  enabled: true,
+  connected: false,
+  deviceName: ''
 });
 
 // Startup mode options for ButtonGroup
@@ -86,6 +117,7 @@ function syncFromStore() {
   // step_mobile_db comes from unifiedAudioStore (single source of truth)
   config.value.step_mobile_db = unifiedStore.volumeState.step_mobile_db;
   config.value.step_rotary_db = settingsStore.volumeSteps.step_rotary_db;
+  config.value.step_bt_remote_db = settingsStore.volumeSteps.step_bt_remote_db;
   config.value.limits.min = settingsStore.volumeLimits.min_db;
   config.value.limits.max = settingsStore.volumeLimits.max_db;
   config.value.restore_last_volume = settingsStore.volumeStartup.restore_last_volume;
@@ -97,6 +129,29 @@ function updateVolumeLimits(limits) {
     min_db: limits.min,
     max_db: limits.max
   });
+}
+
+// === BT Remote functions ===
+
+async function loadBtRemoteStatus() {
+  try {
+    const res = await axios.get('/api/bt-remote/status');
+    btRemote.value.enabled = res.data.enabled ?? true;
+    const devices = res.data.connected_devices || [];
+    btRemote.value.connected = devices.length > 0;
+    btRemote.value.deviceName = devices[0]?.name || '';
+  } catch (e) {
+    // Silently fail — controller may not be available
+  }
+}
+
+async function handleBtRemoteToggle(enabled) {
+  btRemote.value.enabled = enabled;
+  try {
+    await axios.patch('/api/bt-remote/config', { enabled });
+  } catch (e) {
+    btRemote.value.enabled = !enabled;
+  }
 }
 
 // WebSocket listeners - update both the store AND local refs
@@ -134,12 +189,27 @@ const wsListeners = {
       settingsStore.updateVolumeSteps({ step_rotary_db: stepDb });
       config.value.step_rotary_db = stepDb;
     }
+  },
+  bt_remote_steps_changed: (msg) => {
+    if (msg.data?.config?.step_bt_remote_db !== undefined) {
+      const stepDb = msg.data.config.step_bt_remote_db;
+      settingsStore.updateVolumeSteps({ step_bt_remote_db: stepDb });
+      config.value.step_bt_remote_db = stepDb;
+    }
+  },
+  bt_remote_config_changed: (msg) => {
+    if (msg.data?.config) {
+      btRemote.value.enabled = msg.data.config.enabled ?? btRemote.value.enabled;
+    }
   }
 };
 
 onMounted(() => {
   // Sync with the store on mount
   syncFromStore();
+
+  // Load BT remote status from API
+  loadBtRemoteStatus();
 
   // Register WebSocket listeners
   Object.entries(wsListeners).forEach(([eventType, handler]) => {
@@ -151,3 +221,25 @@ onUnmounted(() => {
   clearAllTimers();
 });
 </script>
+
+<style scoped>
+.bt-remote-status {
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-05);
+  display: flex;
+  align-items: center;
+  gap: var(--space-02);
+}
+
+.bt-remote-status__dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+
+.bt-remote-status__dot.is-connected {
+  background: var(--color-success);
+}
+</style>
