@@ -2,8 +2,8 @@
 <template>
   <div class="equalizer-modal">
     <NavigationHeader :title="t('equalizer.title')">
-      <template #actions="{ iconType }">
-        <Toggle :modelValue="equalizerStore.isEqualizerEffectsEnabled" :type="iconType"
+      <template #actions>
+        <Toggle :modelValue="equalizerStore.isEqualizerEffectsEnabled"
           :disabled="equalizerStore.isTogglingEnabled" @change="handleEqualizerToggle" />
       </template>
     </NavigationHeader>
@@ -347,10 +347,6 @@ onUnmounted(() => {
   flex-direction: column;
   gap: var(--space-01);
   min-width: 0;
-}
-
-.eq-header__subtitle {
-  color: var(--color-text-secondary);
 }
 
 .eq-header__dropdown {

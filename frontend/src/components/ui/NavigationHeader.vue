@@ -3,7 +3,6 @@
   <div class="navigation-header" :class="{
     'has-back': showBack,
     'variant-background-neutral': variant === 'background-neutral',
-    'has-icon': icon
   }">
     <!-- Content container with fixed height -->
     <div class="header-content">

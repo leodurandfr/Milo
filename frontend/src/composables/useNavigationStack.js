@@ -73,18 +73,6 @@ export function useNavigationStack(initialView = 'home', { scrollElRef = null } 
     pendingScrollRestore.value = null;
   }
 
-  /**
-   * Replace current view without adding to history.
-   */
-  function replace(view, params = {}) {
-    if (stack.value.length > 0) {
-      stack.value[stack.value.length - 1] = { view, params, scrollTop: 0 };
-    } else {
-      stack.value = [{ view, params, scrollTop: 0 }];
-    }
-    pendingScrollRestore.value = null;
-  }
-
   return {
     currentView,
     currentParams,
@@ -94,6 +82,5 @@ export function useNavigationStack(initialView = 'home', { scrollElRef = null } 
     back,
     reset,
     goTo,
-    replace
   };
 }
