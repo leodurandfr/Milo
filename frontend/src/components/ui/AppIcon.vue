@@ -137,6 +137,8 @@ const svgContent = computed(() => {
   overflow: hidden;
   width: var(--icon-size);
   height: var(--icon-size);
+  max-width: 100%;
+  max-height: 100%;
   isolation: isolate; /* Prevent mix-blend-mode from SVGs leaking to other elements */
 }
 
