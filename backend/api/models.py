@@ -124,6 +124,18 @@ class RotaryStepsRequest(BaseModel):
     step_rotary_db: float = Field(..., ge=1, le=6, description="Rotary volume step in dB")
 
 
+class BtRemoteStepsRequest(BaseModel):
+    """BT remote volume steps request (in dB)"""
+    step_bt_remote_db: float = Field(..., ge=1, le=6, description="BT remote volume step in dB")
+
+
+class BtRemoteConfigRequest(BaseModel):
+    """BT remote partial config update request."""
+    enabled: Optional[bool] = None
+    device_name_filter: Optional[str] = Field(None, max_length=64)
+    key_map: Optional[dict] = None
+
+
 # =============================================================================
 # SETTINGS - DOCK APPS
 # =============================================================================

@@ -22,6 +22,7 @@ class VolumeConfig:
     limit_max_db: float = -21.0
     step_mobile_db: float = 3.0
     step_rotary_db: float = 2.0
+    step_bt_remote_db: float = 2.0
     startup_volume_db: float = DEFAULT_VOLUME_DB
     restore_last_volume: bool = False
 
@@ -50,6 +51,7 @@ class VolumeConfig:
             "limit_max_db": self.limit_max_db,
             "step_mobile_db": self.step_mobile_db,
             "step_rotary_db": self.step_rotary_db,
+            "step_bt_remote_db": self.step_bt_remote_db,
             "startup_volume_db": self.startup_volume_db,
             "restore_last_volume": self.restore_last_volume
         }

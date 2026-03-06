@@ -117,6 +117,11 @@ def _create_service(name: str) -> Any:
             settings_service=get_service("settings_service"),
             hardware_service=get_service("hardware_service")
         ),
+        "bt_remote_controller": lambda: _import("backend.hardware", "BtRemoteController")(
+            volume_service=get_service("volume_service"),
+            state_machine=get_service("audio_state_machine"),
+            settings_service=get_service("settings_service")
+        ),
         "crossover_service": lambda: _import("backend.core.multiroom.crossover", "CrossoverService")(
             settings_service=get_service("settings_service"),
             camilladsp_service=get_service("camilladsp_service")
@@ -232,6 +237,7 @@ def initialize_services() -> None:
     volume_service = get_service("volume_service")
     rotary_controller = get_service("rotary_controller")
     screen_controller = get_service("screen_controller")
+    bt_remote_controller = get_service("bt_remote_controller")
     snapcast_websocket_service = get_service("snapcast_websocket_service")
     camilladsp_service = get_service("camilladsp_service")
     crossover_service = get_service("crossover_service")
@@ -344,6 +350,7 @@ def initialize_services() -> None:
             ("volume_service", volume_service.initialize()),
             ("rotary_controller", rotary_controller.initialize()),
             ("screen_controller", screen_controller.initialize()),
+            ("bt_remote_controller", bt_remote_controller.initialize()),
             ("snapcast_websocket_service", snapcast_websocket_service.initialize()),
             ("camilladsp_service", camilladsp_service.initialize()),
             ("crossover_service", crossover_service.initialize()),
