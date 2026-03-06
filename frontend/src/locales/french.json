@@ -76,13 +76,13 @@
       "disablePhysicalCrossover": "Réglez le crossover physique de votre caisson sur bypass/LFE pour éviter le cumul des filtres.",
       "highpassActive": "Filtre passe-haut actif",
       "highpassDescription": "Les basses en dessous de {freq} Hz sont retirées de cette enceinte et gérées par le caisson de la zone.",
-      "crossoverFrequency": "Fréquence de coupure\u00a0:",
+      "crossoverFrequency": "Fréquence de coupure :",
       "badgeActive": "Crossover actif",
       "badgeInactive": "Crossover inactif",
       "subwooferOffline": "Caisson hors ligne"
     },
-    "speakerOffline": "«\u00a0{name}\u00a0» est hors ligne",
-    "speakerOfflineDescription": "Ce système audio n'est actuellement pas connecté à Milō.<br>IP\u00a0: {ip}",
+    "speakerOffline": "« {name} » est hors ligne",
+    "speakerOfflineDescription": "Ce système audio n'est actuellement pas connecté à Milō.<br>IP : {ip}",
     "deleteSpeaker": "Supprimer ce système audio",
     "offline": "Hors ligne",
     "syncing": "Synchronisation...",
@@ -186,21 +186,28 @@
     "startup": "Volume au démarrage",
     "fixedVolume": "Volume fixe",
     "restoreLast": "Restaurer le dernier",
-    "fixedStartup": "Volume fixe au démarrage"
+    "fixedStartup": "Volume fixe au démarrage",
+    "btRemote": {
+      "title": "Contrôleur Bluetooth",
+      "stepLabel": "Incrément volume (BT Remote)",
+      "notConnected": "Non connecté",
+      "discover": "Rechercher",
+      "discovering": "Recherche..."
+    }
   },
   "screenSettings": {
     "title": "Écran",
     "brightness": "Luminosité",
     "brightnessIntensity": "Intensité de la luminosité",
     "autoSleep": "Mise en veille de l'écran",
-    "sleepDelay": "En cas d'inactivité de l'application, éteindre l'écran après\u00a0:",
+    "sleepDelay": "En cas d'inactivité de l'application, éteindre l'écran après :",
     "screensaver": "Économiseur d'écran",
     "screensaverSourceNote": "Sur Radio, Podcasts et Bluetooth uniquement",
-    "screensaverDelay": "Démarrer l'économiseur d'écran, après\u00a0:"
+    "screensaverDelay": "Démarrer l'économiseur d'écran, après :"
   },
   "spotifySettings": {
     "autoDisconnect": "Déconnexion automatique",
-    "disconnectDelay": "Délai de déconnexion après que la musique soit en pause pendant\u00a0:"
+    "disconnectDelay": "Délai de déconnexion après que la musique soit en pause pendant :"
   },
   "macSettings": {
     "latency": "Latence",
@@ -228,7 +235,7 @@
     "validating": "Test en cours...",
     "saveSuccess": "Identifiants sauvegardés avec succès",
     "saveError": "Erreur lors de la sauvegarde",
-    "validationSuccess": "Identifiants valides\u00a0!",
+    "validationSuccess": "Identifiants valides !",
     "validationError": "Identifiants invalides",
     "validationEmpty": "Veuillez remplir les deux champs",
     "validationNetworkError": "Erreur réseau lors de la validation",
@@ -286,7 +293,7 @@
       "installingSnapclient": "Installation de snapclient...",
       "startingMultiroom": "Démarrage des services multiroom...",
       "cleaningUp": "Nettoyage...",
-      "completed": "Mise à jour terminée\u00a0!",
+      "completed": "Mise à jour terminée !",
       "startingUpdate": "Démarrage de la mise à jour...",
       "updateInitiated": "Mise à jour lancée...",
       "updateInProgress": "Mise à jour en cours...",
@@ -327,7 +334,7 @@
   },
   "applicationsSettings": {
     "inactivityTimeout": "Fermeture automatique",
-    "inactivityDelay": "Désactiver la source audio après une période d'inactivité\u00a0:",
+    "inactivityDelay": "Désactiver la source audio après une période d'inactivité :",
     "reorder": "Réorganiser",
     "done": "Terminé"
   },

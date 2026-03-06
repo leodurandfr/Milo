@@ -224,7 +224,14 @@
     "startup": "Startlautstärke",
     "fixedVolume": "Feste Lautstärke",
     "restoreLast": "Letzte wiederherstellen",
-    "fixedStartup": "Feste Startlautstärke"
+    "fixedStartup": "Feste Startlautstärke",
+    "btRemote": {
+      "title": "Bluetooth-Controller",
+      "stepLabel": "Lautstärke-Inkrement (BT Remote)",
+      "notConnected": "Nicht verbunden",
+      "discover": "Suchen",
+      "discovering": "Suche..."
+    }
   },
   "screenSettings": {
     "title": "Bildschirm",
