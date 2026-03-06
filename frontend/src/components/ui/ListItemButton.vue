@@ -185,6 +185,12 @@ function handleClick(event) {
   transition: color var(--transition-fast);
 }
 
+/* Two-line title (slot contains a child element) → smaller heading */
+.list-item-button__title:has(> *) {
+  font-size: var(--font-size-h4);
+  line-height: var(--line-height-h4);
+}
+
 /* Inactive text (toggle/radio OFF) */
 .list-item-button__title--inactive {
   color: var(--color-text-secondary);
