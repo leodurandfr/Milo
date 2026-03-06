@@ -4,12 +4,7 @@
   <SettingsSection :class="{ 'toggle-section--has-content': hasContent }">
     <template #header>
       <div class="toggle-section-header">
-        <div class="toggle-section-header__text">
-          <h2 class="heading-2" :class="{ 'toggle-section-active': enabled && hasContent }">{{ title }}</h2>
-          <p v-if="$slots.description || description" class="text-mono toggle-section-header__description">
-            <slot name="description">{{ description }}</slot>
-          </p>
-        </div>
+        <h2 class="heading-2">{{ title }}</h2>
         <Toggle :model-value="enabled" @change="handleToggle" />
       </div>
     </template>
@@ -27,9 +22,8 @@ import { ref, computed, useSlots, inject } from 'vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 
-defineProps({
+const props = defineProps({
   title: { type: String, required: true },
-  description: { type: String, default: '' },
   enabled: { type: Boolean, required: true }
 });
 
@@ -69,16 +63,6 @@ function handleToggle(newEnabled) {
   gap: var(--space-04);
 }
 
-.toggle-section-header .heading-2 {
-  transition: transform 300ms ease;
-}
-
-
-.toggle-section-header__description {
-  color: var(--color-text-secondary);
-  margin-top: var(--space-02);
-}
-
 /* Expand/collapse via CSS grid with pre-announced height change to Modal.
    Modal is notified of the target height BEFORE animation starts via requestHeightDelta(),
    so Modal animates smoothly while this content animates visually. */
@@ -110,10 +94,4 @@ function handleToggle(newEnabled) {
   padding-bottom: var(--space-05-fixed);
 }
 
-/* Mobile: description takes full width */
-@media (max-aspect-ratio: 4/3) {
-  .toggle-section-header__description {
-    flex-basis: 100%;
-  }
-}
 </style>

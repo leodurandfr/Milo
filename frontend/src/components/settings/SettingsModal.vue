@@ -4,8 +4,8 @@
     <!-- Single NavigationHeader outside transition -->
     <NavigationHeader ref="headerRef" :title="headerTitle" :show-back="canGoBack" :actions-key="currentView"
       @back="back">
-      <template v-if="currentView === 'multiroom'" #actions="{ iconType }">
-        <Toggle :model-value="isMultiroomActive" :type="iconType"
+      <template v-if="currentView === 'multiroom'" #actions>
+        <Toggle :model-value="isMultiroomActive"
           :disabled="unifiedStore.systemState.transitioning || multiroomStore.isTransitioning" @change="handleMultiroomToggle" />
       </template>
     </NavigationHeader>

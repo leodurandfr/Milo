@@ -2,10 +2,9 @@
 <template>
   <div class="multiroom-modal">
     <NavigationHeader :title="t('audioSources.multiroom')">
-      <template #actions="{ iconType }">
+      <template #actions>
         <Toggle
           :modelValue="isMultiroomActive"
-          :type="iconType"
           :disabled="unifiedStore.systemState.transitioning || multiroomStore.isTransitioning"
           @change="handleMultiroomToggle"
         />

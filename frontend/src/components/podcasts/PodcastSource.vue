@@ -24,7 +24,7 @@
 
     <!-- Content slot: scrollable views -->
     <template #content>
-      <div class="source-content" :class="{ 'search-spacing': currentView === 'search' && !hasCredentialsError }">
+      <div class="source-content">
         <!-- Credentials Required -->
         <CredentialsRequired v-if="hasCredentialsError" key="credentials" @configure="openPodcastSettings" />
 
@@ -134,7 +134,7 @@ const audioLayoutRef = ref(null)
 const layoutScrollRef = computed(() => audioLayoutRef.value?.$el ?? null)
 
 // Navigation with stack — scrollElRef enables scroll position save on push() and restore on back()
-const { currentView, currentParams, canGoBack, push, back, reset, pendingScrollRestore } =
+const { currentView, currentParams, canGoBack, push, back, pendingScrollRestore } =
   useNavigationStack('home', { scrollElRef: layoutScrollRef })
 
 // Inject openSettings from App.vue
@@ -215,10 +215,6 @@ watch(currentView, (newView) => {
 })
 
 // Navigation methods using composable
-function goToHome() {
-  reset()
-}
-
 function goToSubscriptions() {
   push('subscriptions')
 }

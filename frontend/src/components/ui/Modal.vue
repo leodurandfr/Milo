@@ -86,13 +86,6 @@ function onContainerTransitionEnd(e) {
   }
 }
 
-// Provide a function to reset scroll position (for multi-level modal navigation)
-provide('modalResetScroll', () => {
-  if (modalContent.value) {
-    modalContent.value.scrollTop = 0;
-  }
-});
-
 // Provide the modalContent ref for height calculations
 provide('modalContentRef', modalContent);
 

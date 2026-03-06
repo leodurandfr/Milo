@@ -9,9 +9,11 @@ import { ref, unref } from 'vue';
  * - NavigationHeader clone mechanism when scrolled (clone fades out, real header
  *   fades in for forward nav or appears after scroll reset for back nav)
  *
- * IMPORTANT: Consumers must call prepareNavigation() AFTER push()/back() so that
- * pendingScrollRestore is set. The clone still captures OLD header content because
- * Vue batches DOM updates to the next microtask.
+ * IMPORTANT: prepareNavigation() must run AFTER the navigation state mutation
+ * (so pendingScrollRestore is set) but BEFORE Vue patches the DOM (so the clone
+ * captures old header content). Two valid patterns:
+ * - Call prepareNavigation() synchronously after push()/back() (SettingsModal)
+ * - Call prepareNavigation() in onBeforeUpdate() on contentKey change (AudioSourceLayout)
  *
  * @param {Object} options
  * @param {import('vue').Ref<HTMLElement|null>} options.scrollElRef
@@ -147,9 +149,8 @@ export function useViewTransition({
       }
 
       // Reset minor scroll immediately
-      if (scrollTop > 0) {
-        const scrollEl2 = unref(scrollElRef);
-        if (scrollEl2) scrollEl2.scrollTop = 0;
+      if (scrollTop > 0 && scrollEl) {
+        scrollEl.scrollTop = 0;
       }
     }
   }
