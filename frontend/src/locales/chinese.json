@@ -224,7 +224,14 @@
     "startup": "启动音量",
     "fixedVolume": "固定音量",
     "restoreLast": "恢复最后",
-    "fixedStartup": "固定启动音量"
+    "fixedStartup": "固定启动音量",
+    "btRemote": {
+      "title": "蓝牙控制器",
+      "stepLabel": "音量增量（蓝牙遥控）",
+      "notConnected": "未连接",
+      "discover": "搜索",
+      "discovering": "搜索中..."
+    }
   },
   "screenSettings": {
     "title": "屏幕",

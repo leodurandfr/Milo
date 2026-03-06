@@ -186,7 +186,14 @@
     "startup": "Startup volume",
     "fixedVolume": "Fixed volume",
     "restoreLast": "Restore last",
-    "fixedStartup": "Fixed startup volume"
+    "fixedStartup": "Fixed startup volume",
+    "btRemote": {
+      "title": "Bluetooth Controller",
+      "stepLabel": "Volume increment (BT Remote)",
+      "notConnected": "Not connected",
+      "discover": "Search",
+      "discovering": "Searching..."
+    }
   },
   "screenSettings": {
     "title": "Screen",

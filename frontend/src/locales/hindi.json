@@ -224,7 +224,14 @@
     "startup": "स्टार्टअप वॉल्यूम",
     "fixedVolume": "निश्चित वॉल्यूम",
     "restoreLast": "अंतिम बहाल करें",
-    "fixedStartup": "निश्चित स्टार्टअप वॉल्यूम"
+    "fixedStartup": "निश्चित स्टार्टअप वॉल्यूम",
+    "btRemote": {
+      "title": "ब्लूटूथ नियंत्रक",
+      "stepLabel": "वॉल्यूम वृद्धि (BT Remote)",
+      "notConnected": "कनेक्ट नहीं है",
+      "discover": "खोजें",
+      "discovering": "खोज रहा है..."
+    }
   },
   "screenSettings": {
     "title": "स्क्रीन",

@@ -224,7 +224,14 @@
     "startup": "Volume all'avvio",
     "fixedVolume": "Volume fisso",
     "restoreLast": "Ripristina ultimo",
-    "fixedStartup": "Volume di avvio fisso"
+    "fixedStartup": "Volume di avvio fisso",
+    "btRemote": {
+      "title": "Controller Bluetooth",
+      "stepLabel": "Incremento volume (BT Remote)",
+      "notConnected": "Non connesso",
+      "discover": "Cerca",
+      "discovering": "Ricerca..."
+    }
   },
   "screenSettings": {
     "title": "Schermo",
