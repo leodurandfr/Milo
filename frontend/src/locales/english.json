@@ -115,7 +115,7 @@
       "addToZone": "Add to zone"
     },
     "equalizer": {
-      "title": "10 bands equalizer"
+      "title": "10 Bands"
     },
     "compressor": {
       "title": "Compressor",
@@ -179,8 +179,8 @@
   "volumeSettings": {
     "title": "Volume",
     "controls": "Volume controls",
-    "rotaryIncrement": "Rotary encoder increment",
-    "mobileIncrement": "Mobile volume button increment",
+    "rotaryStep": "Volume variation per rotation",
+    "mobileStep": "Volume variation on mobile",
     "limits": "Volume limits",
     "minMax": "Minimum and maximum volume",
     "startup": "Startup volume",
@@ -189,7 +189,7 @@
     "fixedStartup": "Fixed startup volume",
     "btRemote": {
       "title": "Bluetooth Controller",
-      "stepLabel": "Volume increment (BT Remote)",
+      "connected": "Connected",
       "notConnected": "Not connected",
       "discover": "Search",
       "discovering": "Searching..."

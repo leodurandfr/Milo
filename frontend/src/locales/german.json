@@ -117,7 +117,7 @@
       "addToZone": "Zu einer Zone hinzufügen"
     },
     "equalizer": {
-      "title": "10-Band-Equalizer"
+      "title": "10 Bänder"
     },
     "advanced": {
       "title": "Erweiterte Effekte"
@@ -217,8 +217,8 @@
   "volumeSettings": {
     "title": "Lautstärke",
     "controls": "Lautstärkeregler",
-    "rotaryIncrement": "Drehgeber-Inkrement",
-    "mobileIncrement": "Mobile Lautstärke-Inkrement",
+    "rotaryStep": "Lautstärkeänderung pro Drehung",
+    "mobileStep": "Lautstärkeänderung auf dem Handy",
     "limits": "Lautstärkegrenzen",
     "minMax": "Minimale und maximale Lautstärke",
     "startup": "Startlautstärke",
@@ -227,7 +227,7 @@
     "fixedStartup": "Feste Startlautstärke",
     "btRemote": {
       "title": "Bluetooth-Controller",
-      "stepLabel": "Lautstärke-Inkrement (BT Remote)",
+      "connected": "Verbunden",
       "notConnected": "Nicht verbunden",
       "discover": "Suchen",
       "discovering": "Suche..."
