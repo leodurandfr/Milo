@@ -1,7 +1,7 @@
 <!-- frontend/src/components/multiroom/MultiroomModal.vue -->
 <template>
   <div class="multiroom-modal">
-    <ModalHeader :title="t('audioSources.multiroom')">
+    <NavigationHeader :title="t('audioSources.multiroom')">
       <template #actions="{ iconType }">
         <Toggle
           :modelValue="isMultiroomActive"
@@ -10,7 +10,7 @@
           @change="handleMultiroomToggle"
         />
       </template>
-    </ModalHeader>
+    </NavigationHeader>
 
     <div class="main-content">
       <MultiroomControl />
@@ -23,7 +23,7 @@ import { computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
-import ModalHeader from '@/components/ui/ModalHeader.vue';
+import NavigationHeader from '@/components/ui/NavigationHeader.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import MultiroomControl from './MultiroomControl.vue';
 

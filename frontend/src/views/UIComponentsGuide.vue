@@ -638,9 +638,9 @@
         </div>
       </div>
 
-      <!-- ModalHeader -->
+      <!-- NavigationHeader -->
       <div class="component-block">
-        <h3 class="heading-2">ModalHeader</h3>
+        <h3 class="heading-2">NavigationHeader</h3>
         <p class="text-mono text-secondary">Variants: contrast, background-neutral | Props: title, subtitle, showBack, icon, actionsKey</p>
 
         <div class="controls-panel">
@@ -671,7 +671,7 @@
 
         <div class="preview-container">
           <div class="preview-wrapper row-width">
-            <ModalHeader
+            <NavigationHeader
               :title="modalHeaderState.title"
               :subtitle="modalHeaderState.subtitle || null"
               :show-back="modalHeaderState.showBack"
@@ -682,7 +682,7 @@
               <template v-if="modalHeaderState.hasActions" #actions="{ iconVariant }">
                 <IconButton icon="settings" :variant="iconVariant" />
               </template>
-            </ModalHeader>
+            </NavigationHeader>
           </div>
         </div>
 
@@ -692,38 +692,38 @@
           <div class="component-row">
             <h5 class="heading-4">contrast (default)</h5>
             <div class="component-states component-states--vertical">
-              <ModalHeader title="Simple Title" variant="contrast" />
-              <ModalHeader title="With Subtitle" subtitle="Subtitle" variant="contrast" />
-              <ModalHeader title="With Back" variant="contrast" :show-back="true" @back="() => {}" />
-              <ModalHeader title="Back + Subtitle" subtitle="Subtitle" variant="contrast" :show-back="true" @back="() => {}" />
-              <ModalHeader title="With Icon" variant="contrast" icon="radio" />
-              <ModalHeader title="Icon + Subtitle" subtitle="Subtitle" variant="contrast" icon="radio" />
+              <NavigationHeader title="Simple Title" variant="contrast" />
+              <NavigationHeader title="With Subtitle" subtitle="Subtitle" variant="contrast" />
+              <NavigationHeader title="With Back" variant="contrast" :show-back="true" @back="() => {}" />
+              <NavigationHeader title="Back + Subtitle" subtitle="Subtitle" variant="contrast" :show-back="true" @back="() => {}" />
+              <NavigationHeader title="With Icon" variant="contrast" icon="radio" />
+              <NavigationHeader title="Icon + Subtitle" subtitle="Subtitle" variant="contrast" icon="radio" />
             </div>
           </div>
           <div class="component-row">
             <h5 class="heading-4">background-neutral</h5>
             <div class="component-states component-states--vertical">
-              <ModalHeader title="Simple Title" variant="background-neutral" />
-              <ModalHeader title="With Subtitle" subtitle="Subtitle" variant="background-neutral" />
-              <ModalHeader title="With Back" variant="background-neutral" :show-back="true" @back="() => {}" />
-              <ModalHeader title="Back + Subtitle" subtitle="Subtitle" variant="background-neutral" :show-back="true" @back="() => {}" />
-              <ModalHeader title="With Icon" variant="background-neutral" icon="radio" />
-              <ModalHeader title="Icon + Subtitle" subtitle="Subtitle" variant="background-neutral" icon="radio" />
+              <NavigationHeader title="Simple Title" variant="background-neutral" />
+              <NavigationHeader title="With Subtitle" subtitle="Subtitle" variant="background-neutral" />
+              <NavigationHeader title="With Back" variant="background-neutral" :show-back="true" @back="() => {}" />
+              <NavigationHeader title="Back + Subtitle" subtitle="Subtitle" variant="background-neutral" :show-back="true" @back="() => {}" />
+              <NavigationHeader title="With Icon" variant="background-neutral" icon="radio" />
+              <NavigationHeader title="Icon + Subtitle" subtitle="Subtitle" variant="background-neutral" icon="radio" />
             </div>
           </div>
           <div class="component-row">
             <h5 class="heading-4">with actions slot</h5>
             <div class="component-states component-states--vertical">
-              <ModalHeader title="With Actions" variant="contrast">
+              <NavigationHeader title="With Actions" variant="contrast">
                 <template #actions="{ iconVariant }">
                   <IconButton icon="settings" :variant="iconVariant" />
                 </template>
-              </ModalHeader>
-              <ModalHeader title="Back + Actions" variant="contrast" :show-back="true" @back="() => {}">
+              </NavigationHeader>
+              <NavigationHeader title="Back + Actions" variant="contrast" :show-back="true" @back="() => {}">
                 <template #actions="{ iconVariant }">
                   <IconButton icon="close" :variant="iconVariant" />
                 </template>
-              </ModalHeader>
+              </NavigationHeader>
             </div>
           </div>
         </div>
@@ -747,7 +747,7 @@ import DoubleRangeSlider from '@/components/ui/DoubleRangeSlider.vue'
 import ListItemButton from '@/components/ui/ListItemButton.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import MessageContent from '@/components/ui/MessageContent.vue'
-import ModalHeader from '@/components/ui/ModalHeader.vue'
+import NavigationHeader from '@/components/ui/NavigationHeader.vue'
 import SvgIcon from '@/components/ui/SvgIcon.vue'
 
 // Variants
@@ -855,7 +855,7 @@ const messageState = ref({
   ctaVariant: 'brand'
 })
 
-// ModalHeader state
+// NavigationHeader state
 const modalHeaderState = ref({
   title: 'Modal Title',
   subtitle: '',

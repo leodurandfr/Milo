@@ -6,7 +6,9 @@
       <div class="toggle-section-header">
         <div class="toggle-section-header__text">
           <h2 class="heading-2" :class="{ 'toggle-section-active': enabled && hasContent }">{{ title }}</h2>
-          <p v-if="description" class="text-mono toggle-section-header__description">{{ description }}</p>
+          <p v-if="$slots.description || description" class="text-mono toggle-section-header__description">
+            <slot name="description">{{ description }}</slot>
+          </p>
         </div>
         <Toggle :model-value="enabled" @change="handleToggle" />
       </div>

@@ -1,5 +1,6 @@
 <template>
   <AudioSourceLayout
+    ref="audioLayoutRef"
     :show-player="shouldShowPlayerLayout && !hasCredentialsError"
     :header-title="hasCredentialsError ? t('podcasts.podcasts') : currentTitle"
     :header-subtitle="hasCredentialsError ? null : currentSubtitle"
@@ -9,8 +10,10 @@
     :header-actions-key="currentView"
     :content-key="hasCredentialsError ? 'credentials' : currentView"
     :player-mobile-height="184"
+    :pending-scroll-restore="pendingScrollRestore"
     gradient="podcast"
     @header-back="goBack"
+    @scroll-restored="onScrollRestored"
   >
     <!-- Header actions (only when not in credentials error and on home view) -->
     <template v-if="!hasCredentialsError && currentView === 'home'" #header-actions="{ iconVariant }">
@@ -126,8 +129,13 @@ const podcastStore = usePodcastStore()
 const settingsStore = useSettingsStore()
 const { t } = useI18n()
 
-// Navigation with stack
-const { currentView, currentParams, canGoBack, push, back, reset } = useNavigationStack('home')
+// Ref to AudioSourceLayout — used to access its scroll container ($el) for position save/restore
+const audioLayoutRef = ref(null)
+const layoutScrollRef = computed(() => audioLayoutRef.value?.$el ?? null)
+
+// Navigation with stack — scrollElRef enables scroll position save on push() and restore on back()
+const { currentView, currentParams, canGoBack, push, back, reset, pendingScrollRestore } =
+  useNavigationStack('home', { scrollElRef: layoutScrollRef })
 
 // Inject openSettings from App.vue
 const openSettings = inject('openSettings')
@@ -229,6 +237,10 @@ function goToGenre(genre, label) {
 
 function goBack() {
   back()
+}
+
+function onScrollRestored() {
+  pendingScrollRestore.value = null
 }
 
 async function openPodcastDetails(podcastOrUuid) {

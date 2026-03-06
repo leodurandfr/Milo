@@ -12,8 +12,8 @@
       class="content-container"
       :class="{ 'has-player': showPlayer }"
     >
-      <!-- Header centralisé -->
-      <ModalHeader
+      <NavigationHeader
+        ref="headerRef"
         :title="headerTitle"
         :subtitle="headerSubtitle"
         :show-back="headerShowBack"
@@ -25,11 +25,11 @@
         <template #actions="slotProps">
           <slot name="header-actions" v-bind="slotProps" />
         </template>
-      </ModalHeader>
+      </NavigationHeader>
 
       <!-- Content with crossfade animation (wrapper isolates position: absolute during leave) -->
       <div class="transition-wrapper" ref="transitionWrapperRef">
-        <Transition name="content-switch" appear @before-leave="onBeforeLeave" @after-enter="onAfterEnter">
+        <Transition name="fade-slide" appear @before-leave="onBeforeLeave" @enter="onEnter" @after-leave="onAfterLeave">
           <div :key="contentKey" class="content-inner">
             <slot name="content" :is-mobile="isMobile" />
           </div>
@@ -47,12 +47,13 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
-import ModalHeader from '@/components/ui/ModalHeader.vue'
+import { ref, computed, onBeforeUpdate } from 'vue'
+import NavigationHeader from '@/components/ui/NavigationHeader.vue'
 import { useIsMobile } from '@/composables/useIsMobile'
+import { useViewTransition } from '@/composables/useViewTransition'
 
 const layoutRef = ref(null)
-const transitionWrapperRef = ref(null)
+const headerRef = ref(null)
 
 const props = defineProps({
   /**
@@ -125,30 +126,93 @@ const props = defineProps({
   playerMobileHeight: {
     type: Number,
     default: 144
+  },
+  /**
+   * Scroll position to restore after the entering transition completes.
+   * Provided by the parent when navigating back to a previously scrolled view.
+   * Null means forward navigation — scroll resets to 0 after the enter animation.
+   */
+  pendingScrollRestore: {
+    type: Number,
+    default: null
   }
 })
 
-defineEmits(['header-back'])
+const emit = defineEmits(['header-back', 'scroll-restored'])
+
+// Scroll-aware view transition (shared with SettingsModal via composable)
+const pendingScrollRef = computed(() => props.pendingScrollRestore)
+const { transitionWrapperRef, prepareNavigation, onBeforeLeave: baseOnBeforeLeave, onEnter, onAfterLeave: baseOnAfterLeave } = useViewTransition({
+  scrollElRef: layoutRef,
+  headerRef,
+  pendingScrollRestore: pendingScrollRef,
+  onScrollRestored: () => emit('scroll-restored'),
+})
+
+// Gradient fade on navigation when scroll position crosses the visibility boundary
+let gradientNeedsFadeIn = false
+let gradientNeedsFadeOut = false
 
 function onBeforeLeave(el) {
-  // Pin wrapper height to prevent collapse while leaving element is position:absolute
-  if (transitionWrapperRef.value) {
-    transitionWrapperRef.value.style.minHeight = `${el.offsetHeight}px`
+  const isForwardNav = pendingScrollRef.value === null
+  const targetScroll = pendingScrollRef.value ?? 0
+  const scrollEl = layoutRef.value
+  const currentScroll = scrollEl?.scrollTop || 0
+
+  // Forward nav from scrolled position → fade gradient in after scroll reset
+  gradientNeedsFadeIn = isForwardNav && !!props.gradient && currentScroll > 16
+
+  // Back nav to scrolled position while gradient is visible → fade out during transition
+  gradientNeedsFadeOut = !isForwardNav && !!props.gradient && currentScroll <= 16 && targetScroll > 16
+
+  if (gradientNeedsFadeOut) {
+    const gradientEl = layoutRef.value?.querySelector('.background-gradient')
+    if (gradientEl) {
+      gradientEl.style.opacity = '0'
+    }
   }
-  resetScroll()
+
+  baseOnBeforeLeave(el)
 }
 
-function onAfterEnter() {
-  if (transitionWrapperRef.value) {
-    transitionWrapperRef.value.style.minHeight = ''
+function onAfterLeave() {
+  baseOnAfterLeave()
+
+  if (gradientNeedsFadeIn) {
+    const gradientEl = layoutRef.value?.querySelector('.background-gradient')
+    if (gradientEl) {
+      gradientEl.style.opacity = '0'
+      gradientEl.style.transition = 'none'
+      gradientEl.offsetHeight
+      gradientEl.style.transition = ''
+      gradientEl.style.opacity = ''
+    }
+    gradientNeedsFadeIn = false
+  }
+
+  if (gradientNeedsFadeOut) {
+    // Gradient already faded out, scroll restored — reset inline styles
+    // (gradient is scrolled out of view, so instant reset is invisible)
+    const gradientEl = layoutRef.value?.querySelector('.background-gradient')
+    if (gradientEl) {
+      gradientEl.style.transition = 'none'
+      gradientEl.style.opacity = ''
+      gradientEl.offsetHeight
+      gradientEl.style.transition = ''
+    }
+    gradientNeedsFadeOut = false
   }
 }
 
-function resetScroll() {
-  if (layoutRef.value) {
-    layoutRef.value.scrollTop = 0
+// Auto-detect navigation: onBeforeUpdate fires after props have new values
+// but BEFORE NavigationHeader DOM re-renders, so the clone captures old content.
+let prevContentKey = props.contentKey
+onBeforeUpdate(() => {
+  if (props.contentKey !== prevContentKey) {
+    prepareNavigation()
+    prevContentKey = props.contentKey
   }
-}
+})
 
 // Player width for desktop (310px wrapper - 32px padding)
 const playerWidth = 278
@@ -171,7 +235,6 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   width: 100%;
   height: 100%;
   padding: 0 var(--space-07);
-  /* transition: all var(--transition-spring-slow); */
   overflow-y: auto;
 }
 
@@ -184,6 +247,7 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   height: 66%;
   pointer-events: none;
   z-index: 0;
+  transition: opacity 400ms ease-out;
 }
 
 .gradient-radio {
@@ -229,24 +293,17 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   width: 100%;
 }
 
-/* Content switch: crossfade with no blank gap */
-.content-switch-enter-active {
-  transition: all var(--transition-in-out);
+/* Enter starts after leave begins (sequential fade-out → fade-in) */
+:deep(.fade-slide-enter-active) {
+  transition-delay: 100ms;
 }
 
-.content-switch-leave-active {
+/* Cross-fade: leaving content overlays absolutely (doesn't affect height) */
+:deep(.fade-slide-leave-active) {
   position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
-  transition: opacity var(--transition-fast);
-}
-
-.content-switch-enter-from {
-  opacity: 0;
-  transform: translateY(var(--space-05));
-}
-
-.content-switch-leave-to {
-  opacity: 0;
 }
 
 /* Player wrapper: animates width to create space for player */
@@ -313,7 +370,9 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   }
 }
 
-:deep(.modal-header) {
-  transition: padding var(--transition-fast);
+:deep(.navigation-header) {
+  position: relative;
+  z-index: 2;
+  transition: padding var(--transition-fast), opacity var(--transition-in-out);
 }
 </style>
