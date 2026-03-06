@@ -29,7 +29,8 @@ class SettingsService:
                 "restore_last_volume": False,
                 "startup_volume_db": DEFAULT_VOLUME_DB,
                 "step_mobile_db": 3.0,
-                "step_rotary_db": 2.0
+                "step_rotary_db": 2.0,
+                "step_bt_remote_db": 2.0
             },
             "screen": {
                 "timeout_seconds": 10,
@@ -161,6 +162,7 @@ class SettingsService:
         vol['startup_volume_db'] = max(vol['limit_min_db'], min(vol['limit_max_db'], float(vol_input.get('startup_volume_db', DEFAULT_VOLUME_DB))))
         vol['step_mobile_db'] = max(1.0, min(6.0, float(vol_input.get('step_mobile_db', 3.0))))
         vol['step_rotary_db'] = max(1.0, min(6.0, float(vol_input.get('step_rotary_db', 2.0))))
+        vol['step_bt_remote_db'] = max(1.0, min(6.0, float(vol_input.get('step_bt_remote_db', 2.0))))
         validated['volume'] = vol
         
         # Screen - MODIFIED: Accept 0 for timeout_seconds (disabled)
@@ -261,6 +263,20 @@ class SettingsService:
             # Preserve multiroom section as-is (no strict validation)
             validated['multiroom'] = multiroom_input
 
+        # Plugins (optional hardware feature plugins)
+        plugins_input = settings.get('plugins', {})
+        if plugins_input:
+            validated_plugins = {}
+            bt_remote_input = plugins_input.get('bt_remote', {})
+            if bt_remote_input:
+                validated_plugins['bt_remote'] = {
+                    'enabled': bool(bt_remote_input.get('enabled', True)),
+                    'device_name_filter': str(bt_remote_input.get('device_name_filter', 'ANTICATER'))[:64],
+                    'key_map': bt_remote_input.get('key_map', {}) if isinstance(bt_remote_input.get('key_map'), dict) else {}
+                }
+            if validated_plugins:
+                validated['plugins'] = validated_plugins
+
         return validated
     
     def get_setting_sync(self, key_path: str) -> Any:
@@ -340,7 +356,8 @@ class SettingsService:
             "startup_volume_db": volume_settings.get("startup_volume_db", DEFAULT_VOLUME_DB),
             "restore_last_volume": volume_settings.get("restore_last_volume", False),
             "step_mobile_db": volume_settings.get("step_mobile_db", 3.0),
-            "step_rotary_db": volume_settings.get("step_rotary_db", 2.0)
+            "step_rotary_db": volume_settings.get("step_rotary_db", 2.0),
+            "step_bt_remote_db": volume_settings.get("step_bt_remote_db", 2.0)
         }
 
     async def get_volume_config_async(self) -> Dict[str, Any]:
@@ -352,5 +369,6 @@ class SettingsService:
             "startup_volume_db": volume_settings.get("startup_volume_db", DEFAULT_VOLUME_DB),
             "restore_last_volume": volume_settings.get("restore_last_volume", False),
             "step_mobile_db": volume_settings.get("step_mobile_db", 3.0),
-            "step_rotary_db": volume_settings.get("step_rotary_db", 2.0)
+            "step_rotary_db": volume_settings.get("step_rotary_db", 2.0),
+            "step_bt_remote_db": volume_settings.get("step_bt_remote_db", 2.0)
         }

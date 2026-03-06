@@ -29,6 +29,7 @@ from backend.features.podcast.routes import setup_podcast_routes
 from backend.features.airplay.routes import setup_airplay_routes
 from backend.api.settings import create_settings_router
 from backend.api.programs import create_programs_router
+from backend.hardware.bt_remote_routes import create_bt_remote_router
 from backend.api.health import create_health_router
 from backend.api.errors import create_errors_router
 from backend.api.multiroom import create_multiroom_router
@@ -66,6 +67,7 @@ settings_service = get_service("settings_service")
 volume_service = get_service("volume_service")
 rotary_controller = get_service("rotary_controller")
 screen_controller = get_service("screen_controller")
+bt_remote_controller = get_service("bt_remote_controller")
 systemd_manager = get_service("systemd_manager")
 hardware_service = get_service("hardware_service")
 crossover_service = get_service("crossover_service")
@@ -114,6 +116,7 @@ async def lifespan(app: FastAPI):
         await volume_service.cleanup()
         rotary_controller.cleanup()
         screen_controller.cleanup()
+        bt_remote_controller.cleanup()
         logger.info("Cleanup completed")
     except Exception as e:
         logger.error(f"Cleanup error: {e}")
@@ -218,6 +221,9 @@ app.include_router(errors_router)
 
 multiroom_router = create_multiroom_router(client_registry_service, multiroom_equalizer_service)
 app.include_router(multiroom_router)
+
+bt_remote_router = create_bt_remote_router(bt_remote_controller)
+app.include_router(bt_remote_router)
 
 app.add_websocket_route("/ws", websocket_server.websocket_endpoint)
 
