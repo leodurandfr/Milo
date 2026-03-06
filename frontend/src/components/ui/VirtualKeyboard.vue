@@ -81,6 +81,7 @@
               <SvgIcon name="keyboardShift" :size="24" />
             </button>
             <button class="keyboard-key key-mode text-body"
+              :class="{ 'mode-active': keyboardMode !== 'abc' }"
               @pointerdown.prevent
               @click="toggleMode">
               {{ modeToggleLabel }}
@@ -733,7 +734,7 @@ onUnmounted(() => {
 .key-shift:active,
 .key-mode:active,
 .key-dismiss:active {
-  background: var(--color-background-medium-32);
+  background: var(--color-background-contrast-80);
 }
 
 /* Backspace */
@@ -760,14 +761,28 @@ onUnmounted(() => {
 
 /* Caps Lock active state */
 .caps-active {
-  background: var(--color-background-neutral);
-  box-shadow: 0px 1px 0px rgba(0, 0, 0, 0.12);
+  background: var(--color-background-contrast-80);
+  box-shadow: none;
+}
+
+.caps-active :deep(svg) {
+  opacity: 0.5;
 }
 
 /* Shift active state */
 .shift-active {
-  background: var(--color-background-neutral);
-  box-shadow: 0px 1px 0px rgba(0, 0, 0, 0.12);
+  background: var(--color-background-contrast-80);
+  box-shadow: none;
+}
+
+.shift-active :deep(svg) {
+  opacity: 0.5;
+}
+
+/* Mode active state (numbers/symbols) */
+.mode-active {
+  background: var(--color-background-contrast-80);
+  box-shadow: none;
 }
 
 /* ===== KEY PRESS POPUP ===== */
