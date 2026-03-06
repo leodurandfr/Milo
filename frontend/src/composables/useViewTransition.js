@@ -266,7 +266,7 @@ export function useViewTransition({
       }
     };
 
-    if (deferScrollRestore && targetScroll > 0) {
+    if (deferScrollRestore) {
       deferScrollRestore(doScrollRestore);
     } else {
       doScrollRestore();
