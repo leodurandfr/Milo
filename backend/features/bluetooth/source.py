@@ -121,11 +121,15 @@ class BluetoothSource(BaseAudioSource):
         # Disable discoverability
         await self._run_bluetoothctl("discoverable off\npairable off\nquit")
 
-        # Stop services if configured
+        # Stop BlueALSA services
         if self.stop_bluetooth_on_exit:
             await self._stop_service(self.bluealsa_aplay_service)
-            for service in [self.bluealsa_service, self.bluetooth_service]:
-                await self._stop_service(service)
+            await self._stop_service(self.bluealsa_service)
+
+            # Keep bluetooth.service running if BT remote controller needs it
+            bt_remote = await self.settings_service.get_setting('plugins.bt_remote')
+            if not (bt_remote and bt_remote.get('enabled')):
+                await self._stop_service(self.bluetooth_service)
 
         self._reset_playback_state()
 
@@ -293,9 +297,13 @@ class BluetoothSource(BaseAudioSource):
 
     @handle_errors(default=None)
     async def _detect_connected_device(self) -> None:
-        """Detect currently connected device via bluetoothctl."""
+        """Detect currently connected A2DP device via BlueALSA PCM list.
+
+        Uses bluealsa-cli list-pcms instead of bluetoothctl to only detect
+        actual audio devices, filtering out HID devices (e.g. BT remotes).
+        """
         proc = await asyncio.create_subprocess_exec(
-            "bluetoothctl", "devices", "Connected",
+            "bluealsa-cli", "list-pcms",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL
         )
@@ -303,20 +311,19 @@ class BluetoothSource(BaseAudioSource):
             stdout, _ = await asyncio.wait_for(proc.communicate(), 10.0)
         except asyncio.TimeoutError:
             proc.kill()
-            self._logger.error("Timeout detecting connected Bluetooth devices")
+            self._logger.error("Timeout listing BlueALSA PCMs")
             return
 
         if proc.returncode == 0:
             for line in stdout.decode().splitlines():
-                if line.startswith("Device "):
-                    parts = line.split(" ", 2)
-                    if len(parts) >= 3:
-                        address = parts[1]
-                        name = parts[2] if len(parts) > 2 else address
-                        self.connected_device = {"address": address, "name": name}
-                        return
+                device_info = self.monitor._parse_pcm_path(line.strip())
+                if device_info:
+                    address = device_info["address"]
+                    name = await self.monitor._resolve_device_name(address)
+                    self.connected_device = {"address": address, "name": name}
+                    return
 
-        # No device found
+        # No A2DP device found
         self.connected_device = None
 
     async def _cleanup(self) -> None:
