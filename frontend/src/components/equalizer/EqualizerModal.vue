@@ -40,7 +40,8 @@
             <template #header>
               <div class="eq-header">
                 <div class="eq-header__title">
-                  <h2 class="heading-2">{{ selectedZoneName }}</h2>
+                  <h2 class="heading-2">{{ $t('equalizer.equalizer.title') }}</h2>
+                  <span v-if="selectedZoneName" class="eq-header__subtitle text-mono">{{ selectedZoneName }}</span>
                 </div>
                 <Button v-if="equalizerStore.isPresetEdited" variant="brand" size="small"
                   :disabled="equalizerStore.isUpdating" @click="handleSaveCustomPreset">
@@ -347,6 +348,9 @@ onUnmounted(() => {
   flex-direction: column;
   gap: var(--space-01);
   min-width: 0;
+}
+.eq-header__subtitle {
+  color: var(--color-text-secondary);
 }
 
 .eq-header__dropdown {

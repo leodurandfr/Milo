@@ -117,7 +117,7 @@
       "addToZone": "添加到区域"
     },
     "equalizer": {
-      "title": "10段均衡器"
+      "title": "10 频段"
     },
     "advanced": {
       "title": "高级效果"
@@ -217,8 +217,8 @@
   "volumeSettings": {
     "title": "音量",
     "controls": "音量控制",
-    "rotaryIncrement": "旋转编码器增量",
-    "mobileIncrement": "移动设备音量按钮增量",
+    "rotaryStep": "每次旋转的音量变化",
+    "mobileStep": "移动设备上的音量变化",
     "limits": "音量限制",
     "minMax": "最小和最大音量",
     "startup": "启动音量",
@@ -227,7 +227,7 @@
     "fixedStartup": "固定启动音量",
     "btRemote": {
       "title": "蓝牙控制器",
-      "stepLabel": "音量增量（蓝牙遥控）",
+      "connected": "已连接",
       "notConnected": "未连接",
       "discover": "搜索",
       "discovering": "搜索中..."

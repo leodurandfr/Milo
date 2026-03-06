@@ -3,12 +3,12 @@
   <SettingsContainer>
     <!-- Volume controls -->
     <SettingsSection :title="t('volumeSettings.controls')">
-      <SettingItem :label="t('volumeSettings.rotaryIncrement')">
+      <SettingItem :label="t('volumeSettings.rotaryStep')">
         <RangeSlider v-model="config.step_rotary_db" :min="1" :max="6" :step="1" value-unit=" dB"
           @input="debouncedUpdate('rotary-steps', 'rotary-steps', { step_rotary_db: $event })" />
       </SettingItem>
 
-      <SettingItem :label="t('volumeSettings.mobileIncrement')">
+      <SettingItem :label="t('volumeSettings.mobileStep')">
         <RangeSlider v-model="config.step_mobile_db" :min="1" :max="6" :step="1" value-unit=" dB"
           @input="debouncedUpdate('volume-steps', 'volume-steps', { step_mobile_db: $event })" />
       </SettingItem>
@@ -45,7 +45,7 @@
     >
       <div class="bt-remote-status text-mono">
         <span class="bt-remote-status__dot" :class="{ 'is-connected': settingsStore.btRemote.connected }" />
-        {{ settingsStore.btRemote.connected ? settingsStore.btRemote.device_name : t('volumeSettings.btRemote.notConnected') }}
+        {{ settingsStore.btRemote.connected ? t('volumeSettings.btRemote.connected') : t('volumeSettings.btRemote.notConnected') }}
         <Button
           v-if="!settingsStore.btRemote.connected"
           variant="brand"
@@ -57,7 +57,7 @@
         </Button>
       </div>
 
-      <SettingItem :label="t('volumeSettings.btRemote.stepLabel')">
+      <SettingItem :label="t('volumeSettings.rotaryStep')">
         <RangeSlider
           v-model="config.step_bt_remote_db"
           :min="1" :max="6" :step="1"
@@ -211,7 +211,7 @@ onUnmounted(() => {
 <style scoped>
 .bt-remote-status {
   color: var(--color-text-secondary);
-  margin-bottom: var(--space-05);
+  margin-bottom: var(--space-04);
   display: flex;
   align-items: center;
   gap: var(--space-02);
@@ -223,6 +223,10 @@ onUnmounted(() => {
   height: 8px;
   border-radius: 50%;
   vertical-align: middle;
+}
+
+.bt-remote-status__dot {
+  background: var(--color-error);
 }
 
 .bt-remote-status__dot.is-connected {

@@ -117,7 +117,7 @@
       "addToZone": "ज़ोन में जोड़ें"
     },
     "equalizer": {
-      "title": "10-बैंड इक्वलाइज़र"
+      "title": "10 बैंड"
     },
     "advanced": {
       "title": "उन्नत इफ़ेक्ट्स"
@@ -217,8 +217,8 @@
   "volumeSettings": {
     "title": "वॉल्यूम",
     "controls": "वॉल्यूम नियंत्रण",
-    "rotaryIncrement": "रोटरी एनकोडर वृद्धि",
-    "mobileIncrement": "मोबाइल वॉल्यूम बटन वृद्धि",
+    "rotaryStep": "प्रति रोटेशन वॉल्यूम परिवर्तन",
+    "mobileStep": "मोबाइल पर वॉल्यूम परिवर्तन",
     "limits": "वॉल्यूम सीमाएं",
     "minMax": "न्यूनतम और अधिकतम वॉल्यूम",
     "startup": "स्टार्टअप वॉल्यूम",
@@ -227,7 +227,7 @@
     "fixedStartup": "निश्चित स्टार्टअप वॉल्यूम",
     "btRemote": {
       "title": "ब्लूटूथ नियंत्रक",
-      "stepLabel": "वॉल्यूम वृद्धि (BT Remote)",
+      "connected": "कनेक्ट है",
       "notConnected": "कनेक्ट नहीं है",
       "discover": "खोजें",
       "discovering": "खोज रहा है..."

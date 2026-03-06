@@ -117,7 +117,7 @@
       "addToZone": "Adicionar a uma zona"
     },
     "equalizer": {
-      "title": "Equalizador de 10 bandas"
+      "title": "10 Bandas"
     },
     "advanced": {
       "title": "Efeitos avançados"
@@ -217,8 +217,8 @@
   "volumeSettings": {
     "title": "Volume",
     "controls": "Controles de volume",
-    "rotaryIncrement": "Incremento do codificador rotativo",
-    "mobileIncrement": "Incremento dos botões de volume móvel",
+    "rotaryStep": "Variação de volume por rotação",
+    "mobileStep": "Variação de volume no celular",
     "limits": "Limites de volume",
     "minMax": "Volume mínimo e máximo",
     "startup": "Volume de inicialização",
@@ -227,7 +227,7 @@
     "fixedStartup": "Volume fixo de inicialização",
     "btRemote": {
       "title": "Controlador Bluetooth",
-      "stepLabel": "Incremento de volume (BT Remote)",
+      "connected": "Conectado",
       "notConnected": "Não conectado",
       "discover": "Procurar",
       "discovering": "Procurando..."
