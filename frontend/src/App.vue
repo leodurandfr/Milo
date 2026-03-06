@@ -409,6 +409,16 @@ onMounted(async () => {
       }
     }),
     // Podcast credentials changed (settings panel may be closed)
+    on('settings', 'bt_remote_config_changed', (event) => {
+      if (event.data?.config) {
+        settingsStore.updateBtRemoteConfig(event.data.config);
+      }
+    }),
+    on('settings', 'bt_remote_status_changed', (event) => {
+      if (event.data) {
+        settingsStore.updateBtRemoteStatus(event.data);
+      }
+    }),
     on('settings', 'podcast_credentials_changed', (event) => {
       if (event.data?.config) {
         settingsStore.updatePodcastCredentials({
@@ -442,6 +452,9 @@ onMounted(async () => {
   // Now perform async initialization
   await loadHardwareInfo();
   await settingsStore.loadAllSettings();
+
+  // Load BT remote status in background (separate endpoint, may not be available)
+  settingsStore.loadBtRemoteStatus();
 
   // Initialize client registry (loads from cache + fetches fresh state)
   multiroomStore.initialize();

@@ -40,20 +40,20 @@
     <!-- Bluetooth Remote (ANTICATER VK1 Mini) -->
     <ToggleSection
       :title="t('volumeSettings.btRemote.title')"
-      :enabled="btRemote.enabled"
+      :enabled="settingsStore.btRemote.enabled"
       @change="handleBtRemoteToggle"
     >
       <div class="bt-remote-status text-mono">
-        <span class="bt-remote-status__dot" :class="{ 'is-connected': btRemote.connected }" />
-        {{ btRemote.connected ? btRemote.deviceName : t('volumeSettings.btRemote.notConnected') }}
+        <span class="bt-remote-status__dot" :class="{ 'is-connected': settingsStore.btRemote.connected }" />
+        {{ settingsStore.btRemote.connected ? settingsStore.btRemote.device_name : t('volumeSettings.btRemote.notConnected') }}
         <Button
-          v-if="!btRemote.connected"
+          v-if="!settingsStore.btRemote.connected"
           variant="brand"
           size="small"
-          :loading="btRemote.discovering"
+          :loading="discovering"
           @click="handleBtRemoteDiscover"
         >
-          {{ btRemote.discovering ? t('volumeSettings.btRemote.discovering') : t('volumeSettings.btRemote.discover') }}
+          {{ discovering ? t('volumeSettings.btRemote.discovering') : t('volumeSettings.btRemote.discover') }}
         </Button>
       </div>
 
@@ -76,7 +76,6 @@ import useWebSocket from '@/services/websocket';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import axios from 'axios';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import DoubleRangeSlider from '@/components/ui/DoubleRangeSlider.vue';
@@ -102,13 +101,8 @@ const config = ref({
   startup_volume_db: -60.0
 });
 
-// BT Remote state
-const btRemote = ref({
-  enabled: true,
-  connected: false,
-  deviceName: '',
-  discovering: false
-});
+// BT Remote local UI state (discovering is transient, not in store)
+const discovering = ref(false);
 
 // Startup mode options for ButtonGroup
 const startupModeOptions = computed(() => [
@@ -144,39 +138,14 @@ function updateVolumeLimits(limits) {
 
 // === BT Remote functions ===
 
-async function loadBtRemoteStatus() {
-  try {
-    const res = await axios.get('/api/bt-remote/status');
-    btRemote.value.enabled = res.data.enabled ?? true;
-    const devices = res.data.connected_devices || [];
-    btRemote.value.connected = devices.length > 0;
-    btRemote.value.deviceName = devices[0]?.name || '';
-  } catch (e) {
-    // Silently fail — controller may not be available
-  }
-}
-
 async function handleBtRemoteDiscover() {
-  btRemote.value.discovering = true;
-  try {
-    const res = await axios.post('/api/bt-remote/discover');
-    if (res.data.status === 'success') {
-      await loadBtRemoteStatus();
-    }
-  } catch (e) {
-    // Silently fail
-  } finally {
-    btRemote.value.discovering = false;
-  }
+  discovering.value = true;
+  await settingsStore.discoverBtRemote();
+  discovering.value = false;
 }
 
-async function handleBtRemoteToggle(enabled) {
-  btRemote.value.enabled = enabled;
-  try {
-    await axios.patch('/api/bt-remote/config', { enabled });
-  } catch (e) {
-    btRemote.value.enabled = !enabled;
-  }
+function handleBtRemoteToggle(enabled) {
+  settingsStore.toggleBtRemote(enabled);
 }
 
 // WebSocket listeners - update both the store AND local refs
@@ -221,20 +190,12 @@ const wsListeners = {
       settingsStore.updateVolumeSteps({ step_bt_remote_db: stepDb });
       config.value.step_bt_remote_db = stepDb;
     }
-  },
-  bt_remote_config_changed: (msg) => {
-    if (msg.data?.config) {
-      btRemote.value.enabled = msg.data.config.enabled ?? btRemote.value.enabled;
-    }
   }
 };
 
 onMounted(() => {
   // Sync with the store on mount
   syncFromStore();
-
-  // Load BT remote status from API
-  loadBtRemoteStatus();
 
   // Register WebSocket listeners
   Object.entries(wsListeners).forEach(([eventType, handler]) => {
