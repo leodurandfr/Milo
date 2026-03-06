@@ -75,6 +75,13 @@ export const useSettingsStore = defineStore('settings', () => {
     shazam_enabled: true
   });
 
+  // === BT REMOTE ===
+  const btRemote = ref({
+    enabled: true,
+    connected: false,
+    device_name: ''
+  });
+
   // === SCREEN ===
   const isScreenSleeping = ref(false);
 
@@ -266,6 +273,42 @@ export const useSettingsStore = defineStore('settings', () => {
     });
   }
 
+  // === BT REMOTE ACTIONS ===
+
+  function updateBtRemoteConfig(config) {
+    if (config.enabled !== undefined) btRemote.value.enabled = config.enabled;
+  }
+
+  function updateBtRemoteStatus(data) {
+    const devices = data.connected_devices || [];
+    btRemote.value.connected = devices.length > 0;
+    btRemote.value.device_name = devices[0]?.name || '';
+  }
+
+  async function loadBtRemoteStatus() {
+    await apiCall('settings', 'Error loading BT remote status:', async () => {
+      const res = await axios.get('/api/bt-remote/status');
+      btRemote.value.enabled = res.data.enabled ?? true;
+      updateBtRemoteStatus(res.data);
+    });
+  }
+
+  async function toggleBtRemote(enabled) {
+    btRemote.value.enabled = enabled;
+    const result = await apiCall('settings', 'Error toggling BT remote:', async () => {
+      await axios.patch('/api/bt-remote/config', { enabled });
+      return true;
+    });
+    if (!result) btRemote.value.enabled = !enabled;
+  }
+
+  async function discoverBtRemote() {
+    return await apiCall('settings', 'Error discovering BT remote:', async () => {
+      const res = await axios.post('/api/bt-remote/discover');
+      return res.data.status;
+    });
+  }
+
   /**
    * Update screen sleep state (from WebSocket broadcast)
    */
@@ -296,6 +339,7 @@ export const useSettingsStore = defineStore('settings', () => {
     podcastCredentialsValidatedAt,
     inactivityTimeout,
     radioSettings,
+    btRemote,
     isScreenSleeping,
     screenTimeout,
     screenBrightness,
@@ -315,6 +359,11 @@ export const useSettingsStore = defineStore('settings', () => {
     refreshPodcastCredentialsStatus,
     updateInactivityTimeout,
     updateRadioSettings,
+    updateBtRemoteConfig,
+    updateBtRemoteStatus,
+    loadBtRemoteStatus,
+    toggleBtRemote,
+    discoverBtRemote,
     updateScreenSleeping,
     updateScreenTimeout,
     updateScreenBrightness,

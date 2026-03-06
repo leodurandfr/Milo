@@ -187,6 +187,14 @@ class BtRemoteController:
             "key_map": self.key_map
         }
 
+    async def _broadcast_status(self):
+        """Broadcast current connection status via WebSocket."""
+        status = self.get_status()
+        await self.state_machine.broadcast_event(
+            "settings", "bt_remote_status_changed",
+            {"source": "settings", "connected_devices": status["connected_devices"]}
+        )
+
     async def _get_matching_devices(self, *device_args) -> list[tuple[str, str]]:
         """Return (address, name) pairs for BT devices matching the name filter.
 
@@ -259,6 +267,7 @@ class BtRemoteController:
 
         # Clean up disconnected devices
         active_paths = set(all_paths)
+        disconnected = False
         for path in list(self._monitored_paths):
             if path not in active_paths:
                 self._monitored_paths.discard(path)
@@ -267,6 +276,9 @@ class BtRemoteController:
                 if task and not task.done():
                     task.cancel()
                 logger.info("BT HID device disconnected: %s", path)
+                disconnected = True
+        if disconnected and self.running:
+            await self._broadcast_status()
 
         # Check for new matching devices (open one at a time to avoid fd leaks)
         for path in all_paths:
@@ -286,6 +298,7 @@ class BtRemoteController:
                     task = asyncio.create_task(self._monitor_device(device))
                     self._monitor_tasks[device.path] = task
                     logger.info("BT HID device found: %s (%s) at %s", device.name, device.uniq, device.path)
+                    await self._broadcast_status()
                 else:
                     device.close()
             except Exception as e:
@@ -470,6 +483,8 @@ class BtRemoteController:
                 device.close()
             except Exception:
                 pass
+            if self.running:
+                await self._broadcast_status()
 
     # ========================================================================
     # MULTI-CLICK DETECTION
