@@ -1,6 +1,6 @@
-<!-- frontend/src/components/ui/ModalHeader.vue -->
+<!-- frontend/src/components/ui/NavigationHeader.vue -->
 <template>
-  <div class="modal-header" :class="{
+  <div class="navigation-header" :class="{
     'has-back': showBack,
     'variant-background-neutral': variant === 'background-neutral',
     'has-icon': icon
@@ -8,7 +8,7 @@
     <!-- Content container with fixed height -->
     <div class="header-content">
       <Transition name="header-fade">
-        <div v-if="showBack" :key="'back-' + title + '-' + subtitle" class="back-modal-header">
+        <div v-if="showBack" :key="'back-' + title + '-' + subtitle" class="back-navigation-header">
           <IconButton icon="caretLeft" :variant="variant === 'contrast' ? 'on-dark' : 'background-strong'" @click="handleBack" />
           <h2 v-if="!subtitle" class="heading-1">{{ title }}</h2>
           <h2 v-else class="heading-1">
@@ -86,7 +86,7 @@ function handleBack() {
 </script>
 
 <style scoped>
-.modal-header {
+.navigation-header {
   display: flex;
   background: var(--color-background-contrast);
   border-radius: var(--radius-06);
@@ -97,15 +97,15 @@ function handleBack() {
   gap: var(--space-03);
 }
 
-.modal-header.variant-background-neutral {
+.navigation-header.variant-background-neutral {
   background: var(--color-background-neutral);
 }
 
-.modal-header.variant-background-neutral h2 {
+.navigation-header.variant-background-neutral h2 {
   color: var(--color-text);
 }
 
-.modal-header h2 {
+.navigation-header h2 {
   color: var(--color-text-contrast);
   margin: 0;
   white-space: nowrap;
@@ -126,7 +126,7 @@ function handleBack() {
   grid-column: 1;
 }
 
-.back-modal-header {
+.back-navigation-header {
   display: flex;
   align-items: center;
   gap: var(--space-03);
@@ -176,11 +176,11 @@ function handleBack() {
   color: var(--color-text-contrast);
 }
 
-.modal-header.variant-background-neutral .title-subtitle {
+.navigation-header.variant-background-neutral .title-subtitle {
   color: var(--color-text-secondary);
 }
 
-.modal-header.variant-background-neutral .title-main {
+.navigation-header.variant-background-neutral .title-main {
   color: var(--color-text);
 }
 
@@ -223,7 +223,7 @@ function handleBack() {
 }
 
 @media (max-aspect-ratio: 4/3) {
-  .modal-header {
+  .navigation-header {
     min-height: 64px;
     padding: var(--space-03) var(--space-04) var(--space-03) var(--space-03);
     border-radius: var(--radius-05);

@@ -109,7 +109,7 @@ function handleClick(event) {
   display: flex;
   align-items: center;
   gap: var(--space-03);
-  padding: var(--space-03);
+  padding: var(--space-02);
   border-radius: var(--radius-05);
   transition: background-color var(--transition-fast), box-shadow var(--transition-fast), var(--transition-press);
   width: 100%;
@@ -150,6 +150,8 @@ function handleClick(event) {
   align-items: center;
   justify-content: center;
   color: var(--color-text);
+  border-radius: var(--radius-03);
+  overflow: hidden;
 }
 
 /* Icon variant: full (40x40, no container styling) */

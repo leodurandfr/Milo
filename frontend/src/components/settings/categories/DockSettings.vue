@@ -24,7 +24,8 @@
           :class="{
             'drag-item--reordering': isReordering,
             'drag-item--dragging': dragState.index === index,
-            'drag-item--transition': dragState.index !== -1 && dragState.index !== index
+            'drag-item--transition': dragState.index !== -1 && dragState.index !== index,
+            'drag-item--inactive': isReordering && !config[source]
           }"
           :style="getDragItemStyle(index)"
           @pointerdown="isReordering ? onDragStart($event, index) : null"
@@ -392,6 +393,10 @@ onUnmounted(() => {
 
 .drag-item--reordering :deep(.list-item-button) {
   pointer-events: none;
+}
+
+.drag-item--inactive :deep(.list-item-button__title) {
+  color: var(--color-text-secondary);
 }
 
 .drag-handle {

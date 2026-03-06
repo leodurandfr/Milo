@@ -1,17 +1,17 @@
 <!-- frontend/src/components/settings/SettingsModal.vue -->
 <template>
   <div class="settings-modal">
-    <!-- Single ModalHeader outside transition -->
-    <ModalHeader ref="headerRef" :title="headerTitle" :show-back="canGoBack" :actions-key="currentView"
+    <!-- Single NavigationHeader outside transition -->
+    <NavigationHeader ref="headerRef" :title="headerTitle" :show-back="canGoBack" :actions-key="currentView"
       @back="back">
       <template v-if="currentView === 'multiroom'" #actions="{ iconType }">
         <Toggle :model-value="isMultiroomActive" :type="iconType"
           :disabled="unifiedStore.systemState.transitioning || multiroomStore.isTransitioning" @change="handleMultiroomToggle" />
       </template>
-    </ModalHeader>
+    </NavigationHeader>
 
     <!-- Content area (wrapper provides positioning context for cross-fade overlay) -->
-    <div class="transition-wrapper">
+    <div class="transition-wrapper" ref="transitionWrapperRef">
     <Transition name="fade-slide" @before-leave="onBeforeLeave" @enter="onEnter" @after-leave="onAfterLeave">
       <!-- Home view: list of categories -->
       <div v-if="currentView === 'home'" key="home" class="view-content">
@@ -121,7 +121,7 @@
 
       <!-- Radio view -->
       <RadioSettings v-else-if="currentView === 'radio'" key="radio" class="view-content"
-        @go-to-add-station="goToView('radio-add')" @edit-station="handleEditStation" />
+        @go-to-add-station="push('radio-add')" @edit-station="handleEditStation" />
 
       <!-- Radio view - Add a station -->
       <ManageStation v-else-if="currentView === 'radio-add'" key="radio-add" class="view-content" mode="add"
@@ -158,9 +158,10 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useRadioStore } from '@/stores/radioStore';
 import { useNavigationStack } from '@/composables/useNavigationStack';
+import { useViewTransition } from '@/composables/useViewTransition';
 import { logger } from '@/services/logger';
 import axios from 'axios';
-import ModalHeader from '@/components/ui/ModalHeader.vue';
+import NavigationHeader from '@/components/ui/NavigationHeader.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import LanguageSettings from '@/components/settings/categories/LanguageSettings.vue';
@@ -205,12 +206,14 @@ const unifiedStore = useUnifiedAudioStore();
 const multiroomStore = useMultiroomStore();
 const radioStore = useRadioStore();
 
-// Inject modal scroll reset function and content ref for scroll detection
-const resetScroll = inject('modalResetScroll', () => { });
+// Inject modal content ref for scroll detection
 const modalContentRef = inject('modalContentRef', null);
+// Defer scroll restore — forces overflow-y: auto during Modal height transition
+const modalDeferScrollRestore = inject('modalDeferScrollRestore', null);
 
-// Navigation
-const { currentView, canGoBack, push, back, reset, goTo } = useNavigationStack('home');
+// Navigation with scroll save/restore
+const { currentView, canGoBack, push: navPush, back: navBack, reset, goTo, pendingScrollRestore } =
+  useNavigationStack('home', { scrollElRef: modalContentRef });
 
 // Refs
 const headerRef = ref(null);
@@ -218,12 +221,20 @@ const stationToEdit = ref(null);
 const zoneGroupId = ref(null);
 const macIdToEdit = ref(null);
 
-// Scroll-aware cross-fade state
-let wasScrolled = false;
-let savedScrollTop = 0;
-let enteringEl = null;
-let headerClone = null;
-const SCROLL_FADE_THRESHOLD = 16;
+// Scroll-aware view transition (shared with AudioSourceLayout via composable)
+const { transitionWrapperRef, prepareNavigation, onBeforeLeave, onEnter, onAfterLeave } = useViewTransition({
+  scrollElRef: modalContentRef,
+  headerRef,
+  pendingScrollRestore,
+  onScrollRestored: () => { pendingScrollRestore.value = null; },
+  deferScrollRestore: modalDeferScrollRestore,
+});
+
+// Wrap push/back to pre-capture header clone.
+// Called AFTER nav mutation so pendingScrollRestore is set, but BEFORE
+// Vue re-renders the DOM (batched to next tick), so the clone captures old content.
+function push(view, params) { navPush(view, params); prepareNavigation(); }
+function back() { navBack(); prepareNavigation(); }
 
 // Dynamic header title based on current view
 const headerTitle = computed(() => {
@@ -268,114 +279,6 @@ const canRestoreStation = computed(() => {
 const canDeleteStation = computed(() => {
   return stationToEdit.value?._canDelete === true;
 });
-
-// === Scroll-aware cross-fade transition hooks ===
-// When scrolled: clone the header DOM node so the old header fades out with the leaving content,
-// while the real header updates to new props and fades in independently at the viewport top.
-// When not scrolled: the single ModalHeader's internal cross-fade handles the title transition.
-
-function onBeforeLeave(el) {
-  // Clean up stale clone from rapid navigation
-  if (headerClone && headerClone.parentNode) {
-    headerClone.parentNode.removeChild(headerClone);
-    headerClone = null;
-  }
-
-  const scrollEl = modalContentRef?.value;
-  const scrollTop = scrollEl?.scrollTop || 0;
-
-  if (scrollTop > SCROLL_FADE_THRESHOLD) {
-    wasScrolled = true;
-    savedScrollTop = scrollTop;
-
-    const headerEl = headerRef.value?.$el;
-    if (headerEl) {
-      const settingsModal = headerEl.parentNode;
-
-      // Clone the header DOM (copies scoped data-v-* attrs so styles apply)
-      headerClone = headerEl.cloneNode(true);
-      // Insert clone before real header — clone takes the flow position
-      settingsModal.insertBefore(headerClone, headerEl);
-
-      // Real header: absolute, positioned at viewport top via translateY, hidden
-      headerEl.style.position = 'absolute';
-      headerEl.style.top = '0';
-      headerEl.style.left = '0';
-      headerEl.style.width = '100%';
-      headerEl.style.transform = `translateY(${scrollTop}px)`;
-      headerEl.style.transition = 'none';
-      headerEl.style.opacity = '0';
-
-      // Fade out clone
-      requestAnimationFrame(() => {
-        headerClone.style.transition = 'opacity var(--transition-fast)';
-        headerClone.style.opacity = '0';
-      });
-    }
-
-    // Leaving element stays at scroll position (in flow)
-    el.style.position = 'static';
-  } else {
-    wasScrolled = false;
-    savedScrollTop = 0;
-    if (scrollTop > 0) resetScroll();
-  }
-}
-
-function onEnter(el) {
-  if (wasScrolled) {
-    enteringEl = el;
-    // Position entering content at viewport position (overlays at scroll offset)
-    el.style.position = 'absolute';
-    el.style.top = `${savedScrollTop}px`;
-    el.style.left = '0';
-    el.style.width = '100%';
-
-    // Double rAF syncs with Vue's internal enter transition timing
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        const headerEl = headerRef.value?.$el;
-        if (headerEl) {
-          // Fade in real header (uses existing :deep(.modal-header) transition)
-          headerEl.style.transition = '';
-          headerEl.style.opacity = '';
-        }
-      });
-    });
-  }
-}
-
-function onAfterLeave() {
-  if (wasScrolled) {
-    // Remove clone from DOM
-    if (headerClone && headerClone.parentNode) {
-      headerClone.parentNode.removeChild(headerClone);
-      headerClone = null;
-    }
-
-    // Reset real header inline styles
-    const headerEl = headerRef.value?.$el;
-    if (headerEl) {
-      headerEl.style.position = '';
-      headerEl.style.top = '';
-      headerEl.style.left = '';
-      headerEl.style.width = '';
-      headerEl.style.transform = '';
-    }
-
-    // Reset entering element inline styles
-    if (enteringEl) {
-      enteringEl.style.position = '';
-      enteringEl.style.top = '';
-      enteringEl.style.left = '';
-      enteringEl.style.width = '';
-    }
-
-    resetScroll();
-    enteringEl = null;
-    wasScrolled = false;
-  }
-}
 
 // Radio navigation handling
 function handleBackFromRadioModal() {
@@ -520,7 +423,7 @@ onMounted(async () => {
   gap: var(--space-03);
 }
 
-:deep(.modal-header) {
+:deep(.navigation-header) {
   transition: padding var(--transition-fast), opacity var(--transition-in-out);
 }
 

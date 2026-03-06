@@ -102,6 +102,29 @@ provide('modalResetFirstResize', resetFirstResize);
 // Provide requestHeightDelta for children to pre-announce height changes before animations
 provide('modalRequestHeightDelta', requestHeightDelta);
 
+// Provide a way to safely restore scroll during height transitions.
+// Forces overflow-y: auto inline (overriding overflow-transitioning class) so
+// scrollTop can be set immediately. Safe because the leaving element is already
+// gone by this point — no clipping concern. Cleans up after height transition.
+provide('modalDeferScrollRestore', (callback) => {
+  const el = modalContent.value;
+  if (!el) { callback(); return; }
+
+  // Force scrollable so scrollTop can be set during overflow:visible
+  el.style.overflowY = 'auto';
+  callback();
+
+  // Remove inline override after height transition ends (or next frame if none)
+  const cleanup = () => { if (el) el.style.overflowY = ''; };
+  if (isHeightTransitioning.value) {
+    const unwatch = watch(isHeightTransitioning, (val) => {
+      if (!val) { unwatch(); cleanup(); }
+    });
+  } else {
+    requestAnimationFrame(cleanup);
+  }
+});
+
 // Variables to cancel ongoing timeouts
 let animationTimeouts = [];
 let inactivityTimer = null;
