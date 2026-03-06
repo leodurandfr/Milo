@@ -46,6 +46,15 @@
       <div class="bt-remote-status text-mono">
         <span class="bt-remote-status__dot" :class="{ 'is-connected': btRemote.connected }" />
         {{ btRemote.connected ? btRemote.deviceName : t('volumeSettings.btRemote.notConnected') }}
+        <Button
+          v-if="!btRemote.connected"
+          variant="brand"
+          size="small"
+          :loading="btRemote.discovering"
+          @click="handleBtRemoteDiscover"
+        >
+          {{ btRemote.discovering ? t('volumeSettings.btRemote.discovering') : t('volumeSettings.btRemote.discover') }}
+        </Button>
       </div>
 
       <SettingItem :label="t('volumeSettings.btRemote.stepLabel')">
@@ -75,6 +84,7 @@ import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import ToggleSection from '@/components/settings/ToggleSection.vue';
+import Button from '@/components/ui/Button.vue';
 
 const { t } = useI18n();
 const { on } = useWebSocket();
@@ -96,7 +106,8 @@ const config = ref({
 const btRemote = ref({
   enabled: true,
   connected: false,
-  deviceName: ''
+  deviceName: '',
+  discovering: false
 });
 
 // Startup mode options for ButtonGroup
@@ -142,6 +153,20 @@ async function loadBtRemoteStatus() {
     btRemote.value.deviceName = devices[0]?.name || '';
   } catch (e) {
     // Silently fail — controller may not be available
+  }
+}
+
+async function handleBtRemoteDiscover() {
+  btRemote.value.discovering = true;
+  try {
+    const res = await axios.post('/api/bt-remote/discover');
+    if (res.data.status === 'success') {
+      await loadBtRemoteStatus();
+    }
+  } catch (e) {
+    // Silently fail
+  } finally {
+    btRemote.value.discovering = false;
   }
 }
 
@@ -242,4 +267,9 @@ onUnmounted(() => {
 .bt-remote-status__dot.is-connected {
   background: var(--color-success);
 }
+
+.bt-remote-status :deep(.btn) {
+  margin-left: auto;
+}
+
 </style>
