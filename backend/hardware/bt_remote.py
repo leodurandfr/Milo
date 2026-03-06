@@ -168,7 +168,7 @@ class BtRemoteController:
 
         await self.state_machine.broadcast_event(
             "settings", "bt_remote_config_changed",
-            {"config": config}
+            {"source": "settings", "config": config}
         )
 
     def get_status(self) -> dict:

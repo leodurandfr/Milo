@@ -13,6 +13,7 @@ from backend.api.models import (
     VolumeStartupRequest,
     VolumeStepsRequest,
     RotaryStepsRequest,
+    BtRemoteStepsRequest,
     DockAppsRequest,
     SpotifyDisconnectRequest,
     PodcastCredentialsRequest,
@@ -128,6 +129,7 @@ def create_settings_router(
                 "restore_last_volume": vol.get('restore_last_volume', False)
             },
             "rotary_steps": {"step_rotary_db": vol.get('step_rotary_db', 2.0)},
+            "bt_remote_steps": {"step_bt_remote_db": vol.get('step_bt_remote_db', 2.0)},
             "dock_apps": {"enabled_apps": dock.get('enabled_apps', DEFAULT_DOCK_APPS)},
             "spotify_disconnect": {"auto_disconnect_delay": spotify.get('auto_disconnect_delay', 10.0)},
             "airplay_disconnect": {"auto_disconnect_delay": airplay.get('auto_disconnect_delay', 10.0)},
@@ -258,9 +260,29 @@ def create_settings_router(
             setter=lambda: settings.set_setting('volume.step_rotary_db', payload.step_rotary_db),
             event_type="rotary_steps_changed",
             event_data={"config": {"step_rotary_db": payload.step_rotary_db}},
-            reload_callback=volume_service.reload_rotary_steps_config
+            reload_callback=volume_service.reload_steps_config
         )
-    
+
+    # BT remote steps (in dB)
+    @router.get("/bt-remote-steps")
+    async def get_bt_remote_steps():
+        vol = await settings.get_setting('volume') or {}
+        return {
+            "status": "success",
+            "config": {"step_bt_remote_db": vol.get("step_bt_remote_db", 2.0)}
+        }
+
+    @router.put("/bt-remote-steps")
+    async def set_bt_remote_steps(payload: BtRemoteStepsRequest):
+        return await _handle_setting_update(
+            payload,
+            validator=lambda p: True,  # Validated by Pydantic
+            setter=lambda: settings.set_setting('volume.step_bt_remote_db', payload.step_bt_remote_db),
+            event_type="bt_remote_steps_changed",
+            event_data={"config": {"step_bt_remote_db": payload.step_bt_remote_db}},
+            reload_callback=volume_service.reload_steps_config
+        )
+
     # Dock apps – VERSION WITH PROCESS DEACTIVATION
     @router.get("/dock-apps")
     async def get_dock_apps():
