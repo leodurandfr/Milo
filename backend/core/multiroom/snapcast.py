@@ -248,17 +248,14 @@ class SnapcastService:
         return self._parse_clients(status, include_offline=False, detailed=False)
 
     def _deduplicate_by_mac(self, clients: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Remove duplicate clients based on MAC address."""
+        """Remove duplicate clients based on computed mac_id."""
         if not clients:
             return clients
 
         mac_groups: Dict[str, List[Dict[str, Any]]] = {}
         for client in clients:
-            mac = client.get("mac", "")
-            if not mac or mac == "00:00:00:00:00:00":
-                mac_groups.setdefault(client["id"], []).append(client)
-            else:
-                mac_groups.setdefault(mac, []).append(client)
+            key = client.get("mac_id") or client.get("id")
+            mac_groups.setdefault(key, []).append(client)
 
         deduplicated = []
         for mac, group in mac_groups.items():

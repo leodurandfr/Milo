@@ -1236,19 +1236,19 @@ class TestSnapcastService:
         assert result == []
 
     def test_deduplicate_by_mac_no_duplicates(self, snapcast_service):
-        """Test deduplication with no duplicates."""
+        """Test deduplication with no duplicates (uses mac_id as key)."""
         clients = [
-            {"id": "c1", "mac": "aa:bb:cc:dd:ee:01", "ip": "192.168.1.1"},
-            {"id": "c2", "mac": "aa:bb:cc:dd:ee:02", "ip": "192.168.1.2"},
+            {"id": "c1", "mac_id": "aa:bb:cc:dd:ee:01", "ip": "192.168.1.1"},
+            {"id": "c2", "mac_id": "aa:bb:cc:dd:ee:02", "ip": "192.168.1.2"},
         ]
         result = snapcast_service._deduplicate_by_mac(clients)
         assert len(result) == 2
 
     def test_deduplicate_by_mac_with_duplicates(self, snapcast_service):
-        """Test deduplication with duplicates."""
+        """Test deduplication with duplicate mac_id."""
         clients = [
-            {"id": "c1", "mac": "aa:bb:cc:dd:ee:01", "ip": "192.168.1.1"},
-            {"id": "c2", "mac": "aa:bb:cc:dd:ee:01", "ip": "192.168.1.2"},  # Same MAC
+            {"id": "c1", "mac_id": "aa:bb:cc:dd:ee:01", "ip": "192.168.1.1"},
+            {"id": "c2", "mac_id": "aa:bb:cc:dd:ee:01", "ip": "192.168.1.2"},  # Same mac_id
         ]
         result = snapcast_service._deduplicate_by_mac(clients)
         assert len(result) == 1

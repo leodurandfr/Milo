@@ -1264,11 +1264,10 @@ class ClientRegistryService:
             RuntimeError: If local MAC cannot be determined
             ValueError: If remote client has no MAC address
         """
-        # MAC provided by Snapcast (remote clients)
-        if mac and mac != "00:00:00:00:00:00":
-            return mac
-
-        # Local client: read MAC from system interface
+        # Local client: always read MAC from system interface
+        # Snapcast's host.mac for loopback may differ from the actual primary interface
+        # (e.g. wlan0 instead of eth0), so we ignore it and read directly from /sys
+        # to stay consistent with the --hostID flag in the snapclient service.
         if ip == "127.0.0.1":
             for iface in ['eth0', 'wlan0']:
                 try:
@@ -1276,9 +1275,11 @@ class ClientRegistryService:
                         return f.read().strip()
                 except FileNotFoundError:
                     continue
-            # Last resort (should never happen on a real system)
             raise RuntimeError("Cannot determine local MAC address")
 
-        # Remote without MAC (Snapcast error)
+        # Remote clients: use MAC provided by Snapcast
+        if mac and mac != "00:00:00:00:00:00":
+            return mac
+
         raise ValueError(f"No MAC address for client {hostname} at {ip}")
 
