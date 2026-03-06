@@ -225,15 +225,15 @@ function handleClick(event) {
   }
 
   .list-item-button__icon {
-    width: 32px;
-    height: 32px;
+    width: 36px;
+    height: 36px;
     border-radius: var(--radius-02);
   }
 
   .list-item-button__icon--full :deep(img),
   .list-item-button__icon--full :deep(svg) {
-    width: 32px;
-    height: 32px;
+    width: 36px;
+    height: 36px;
   }
 
   .list-item-button__icon--standard {
