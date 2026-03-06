@@ -27,7 +27,8 @@ export const useSettingsStore = defineStore('settings', () => {
   // Note: step_mobile_db is in unifiedAudioStore.volumeState (single source of truth)
   // Only step_rotary_db is kept here as it's hardware-specific
   const volumeSteps = ref({
-    step_rotary_db: 2.0
+    step_rotary_db: 2.0,
+    step_bt_remote_db: 2.0
   });
 
   // === DOCK APPS ===
@@ -130,6 +131,7 @@ export const useSettingsStore = defineStore('settings', () => {
         };
 
         volumeSteps.value.step_rotary_db = d.rotary_steps?.step_rotary_db ?? 2.0;
+        volumeSteps.value.step_bt_remote_db = d.bt_remote_steps?.step_bt_remote_db ?? 2.0;
 
         if (d.dock_apps?.enabled_apps) {
           const enabledApps = d.dock_apps.enabled_apps;
