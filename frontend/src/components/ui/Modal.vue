@@ -8,8 +8,8 @@
       </div>
 
       <div ref="modalContainer" class="modal-container" :style="{ height: containerHeight }"
-        @transitionstart="onContainerTransitionStart" @transitionend="onContainerTransitionEnd"
-        @transitioncancel="onContainerTransitionEnd">
+        @transitionstart.self="onContainerTransitionStart" @transitionend.self="onContainerTransitionEnd"
+        @transitioncancel.self="onContainerTransitionEnd">
         <!-- Content with animated height -->
         <div ref="modalContent" class="modal-content" :class="{ 'overflow-transitioning': isHeightTransitioning }">
           <div ref="contentInner" class="modal-content-inner">
