@@ -1,33 +1,25 @@
 <!-- frontend/src/components/equalizer/LevelMeters.vue -->
 <!-- Stereo input/output level meters with real-time monitoring -->
 <template>
-  <div class="level-meters">
-    <!-- Header -->
-    <div class="meters-header">
-      <h2 class="heading-2">{{ t('equalizer.meters.title') }}</h2>
+  <SettingsSection :title="t('equalizer.meters.title')">
+    <!-- Output meters -->
+    <div class="stereo-meters">
+      <LevelMeter
+        :level="outputLeft"
+        :min="meterMin"
+        :max="meterMax"
+        label="L"
+        :show-peak="true"
+      />
+      <LevelMeter
+        :level="outputRight"
+        :min="meterMin"
+        :max="meterMax"
+        label="R"
+        :show-peak="true"
+      />
     </div>
-
-    <!-- Meters content (always visible) -->
-    <div class="meters-content">
-      <!-- Output meters -->
-      <div class="stereo-meters">
-        <LevelMeter
-          :level="outputLeft"
-          :min="meterMin"
-          :max="meterMax"
-          label="L"
-          :show-peak="true"
-        />
-        <LevelMeter
-          :level="outputRight"
-          :min="meterMin"
-          :max="meterMax"
-          label="R"
-          :show-peak="true"
-        />
-      </div>
-    </div>
-  </div>
+  </SettingsSection>
 </template>
 
 <script setup>
@@ -36,6 +28,7 @@ import { useI18n } from '@/services/i18n';
 import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import SettingsSection from '@/components/settings/SettingsSection.vue';
 import LevelMeter from './LevelMeter.vue';
 import axios from 'axios';
 
@@ -137,35 +130,9 @@ watch([() => props.clientIds, activeClientIds], () => {
 </script>
 
 <style scoped>
-.level-meters {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-05);
-  padding: var(--space-05-fixed) var(--space-05);
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-05);
-}
-
-.meters-header {
-  display: flex;
-  align-items: center;
-}
-
-
-.meters-content {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-03);
-}
-
 .stereo-meters {
-  flex: 1;
   display: flex;
   flex-direction: column;
   gap: var(--space-04);
-}
-
-/* Mobile adjustments */
-@media (max-aspect-ratio: 4/3) {
 }
 </style>

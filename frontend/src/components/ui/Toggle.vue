@@ -65,36 +65,36 @@ function handleToggle(event) {
 
 /* Default - Desktop */
 .toggle--default {
-  width: 70px;
-  height: 40px;
+  width: 60px;
+  height: 36px;
 }
 
 .toggle--default .slider:before {
-  height: 36px;
-  width: 36px;
+  height: 32px;
+  width: 32px;
   left: 2px;
   bottom: 2px;
 }
 
 .toggle--default input:checked+.slider:before {
-  transform: translateX(30px);
+  transform: translateX(24px);
 }
 
 /* Compact - Desktop */
 .toggle--compact {
-  width: 56px;
-  height: 32px;
+  width: 50px;
+  height: 30px;
 }
 
 .toggle--compact .slider:before {
-  height: 28px;
-  width: 28px;
+  height: 26px;
+  width: 26px;
   left: 2px;
   bottom: 2px;
 }
 
 .toggle--compact input:checked+.slider:before {
-  transform: translateX(24px);
+  transform: translateX(20px);
 }
 
 .toggle input {
@@ -154,19 +154,19 @@ input:disabled+.slider {
 
   .toggle--default,
   .toggle--compact {
-    width: 56px;
-    height: 32px;
+    width: 50px;
+    height: 30px;
   }
 
   .toggle--default .slider:before,
   .toggle--compact .slider:before {
-    height: 28px;
-    width: 28px;
+    height: 26px;
+    width: 26px;
   }
 
   .toggle--default input:checked+.slider:before,
   .toggle--compact input:checked+.slider:before {
-    transform: translateX(24px);
+    transform: translateX(20px);
   }
 }
 </style>
