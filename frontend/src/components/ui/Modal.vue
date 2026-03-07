@@ -107,15 +107,19 @@ provide('modalDeferScrollRestore', (callback) => {
   el.style.overflowY = 'auto';
   callback();
 
-  // Remove inline override after height transition ends (or next frame if none)
+  // Remove inline override after height transition ends.
+  // transitionstart fires asynchronously, so isHeightTransitioning may still be
+  // false at this point. Wait 2 frames to let it fire before checking.
   const cleanup = () => { if (el) el.style.overflowY = ''; };
-  if (isHeightTransitioning.value) {
-    const unwatch = watch(isHeightTransitioning, (val) => {
-      if (!val) { unwatch(); cleanup(); }
-    });
-  } else {
-    requestAnimationFrame(cleanup);
-  }
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (isHeightTransitioning.value) {
+      const unwatch = watch(isHeightTransitioning, (val) => {
+        if (!val) { unwatch(); cleanup(); }
+      });
+    } else {
+      cleanup();
+    }
+  }));
 });
 
 // Variables to cancel ongoing timeouts
