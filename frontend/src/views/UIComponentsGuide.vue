@@ -886,6 +886,8 @@ const iconButtonPreviewBg = computed(() => {
   margin: 0 auto;
   background: var(--color-background);
   min-height: 100vh;
+  height: 100%;
+  overflow: auto;
 }
 
 .style-guide__header {
