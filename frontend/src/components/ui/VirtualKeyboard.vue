@@ -796,7 +796,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: 'Neue Montreal Regular';
+  font-family: 'Neue Montreal Regular', 'Noto Sans SC', sans-serif;
   font-size: var(--font-size-h2);
   color: var(--color-text);
   z-index: 10;
