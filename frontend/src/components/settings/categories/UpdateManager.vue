@@ -148,7 +148,7 @@
             <!-- Milo Client row -->
             <div class="program-item">
               <div class="program-info">
-                <AppIcon name="milo" :size="48" class="program-icon" />
+                <AppIcon name="milo-client" :size="48" class="program-icon" />
                 <span class="program-name heading-4">Milō Client</span>
                 <span class="program-version text-mono">
                   milo-client {{ extractBaseTag(satellite.app_version) || t('updates.notAvailable') }}
