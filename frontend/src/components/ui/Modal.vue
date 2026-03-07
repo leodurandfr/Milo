@@ -222,7 +222,7 @@ async function openModal() {
   // Container enter animation (scale via --transition-spring, opacity via ease-out)
   const containerTimeout = setTimeout(() => {
     if (!modalContainer.value) return;
-    modalContainer.value.style.transition = 'transform var(--transition-spring), opacity 400ms ease-out, height var(--transition-spring)';
+    modalContainer.value.style.transition = 'transform var(--transition-spring-fast), opacity 400ms ease-out, height var(--transition-spring-fast)';
     modalContainer.value.style.opacity = '1';
     modalContainer.value.style.transform = 'scale(1)';
   }, ANIMATION_TIMINGS.containerDelay);
@@ -231,7 +231,7 @@ async function openModal() {
   // Delayed close button animation (wrapper slides, button fades independently)
   const closeButtonTimeout = setTimeout(() => {
     if (!closeButtonWrapper.value || !closeButton.value) return;
-    closeButtonWrapper.value.style.transition = 'transform var(--transition-spring)';
+    closeButtonWrapper.value.style.transition = 'transform var(--transition-spring-fast)';
     closeButtonWrapper.value.classList.add('visible');
     closeButton.value.$el.style.transition = `opacity ${ANIMATION_TIMINGS.closeButtonDuration}ms ease-out`;
     closeButton.value.$el.style.opacity = '1';

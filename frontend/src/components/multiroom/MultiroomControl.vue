@@ -2,29 +2,26 @@
 <template>
   <div class="clients-container">
     <div class="clients-list">
-      <!-- Single Transition for both states -->
-      <Transition name="fade-slide">
-        <!-- MESSAGE: Multiroom disabled or error -->
-        <MessageContent v-if="showMessage" key="message" :icon="messageIcon" :title="messageTitle" />
+      <!-- MESSAGE: Multiroom disabled or error -->
+      <MessageContent v-if="showMessage" :icon="messageIcon" :title="messageTitle" />
 
-        <!-- CLIENTS: Skeletons OR real items -->
-        <div v-else key="clients" ref="clientsWrapperRef" class="clients-wrapper">
-          <MultiroomItem
-            v-for="client in displayClients"
-            :key="client.mac_id || client.id"
-            :client="client"
-            :is-loading="shouldShowLoading"
-            :is-zone="client.isZone || false"
-            :zone-client-details="client.zoneClientDetails || null"
-            @volume-change="handleVolumeChange"
-            @mute-toggle="handleMuteToggle"
-            @client-volume-change="handleClientVolumeChange"
-            @client-mute-toggle="handleClientMuteToggle"
-            @before-expand="handleBeforeExpand"
-            @before-collapse="handleBeforeCollapse"
-          />
-        </div>
-      </Transition>
+      <!-- CLIENTS: Skeletons OR real items -->
+      <div v-else ref="clientsWrapperRef" class="clients-wrapper">
+        <MultiroomItem
+          v-for="client in displayClients"
+          :key="client.mac_id || client.id"
+          :client="client"
+          :is-loading="delayedLoading"
+          :is-zone="client.isZone || false"
+          :zone-client-details="client.zoneClientDetails || null"
+          @volume-change="handleVolumeChange"
+          @mute-toggle="handleMuteToggle"
+          @client-volume-change="handleClientVolumeChange"
+          @client-mute-toggle="handleClientMuteToggle"
+          @before-expand="handleBeforeExpand"
+          @before-collapse="handleBeforeCollapse"
+        />
+      </div>
     </div>
   </div>
 </template>
@@ -184,6 +181,23 @@ const shouldShowLoading = computed(() => {
   return multiroomStore.transitionState === 'enabling' || snapcastStore.isLoading;
 });
 
+// Delayed loading for per-element cross-fade: stays true one extra tick after data arrives,
+// so items render with skeletons first, then isLoading toggles on existing elements,
+// triggering the CSS opacity transitions on each skeleton/content pair in MultiroomItem
+const delayedLoading = ref(shouldShowLoading.value);
+
+watch(shouldShowLoading, (loading) => {
+  if (loading) {
+    delayedLoading.value = true;
+  } else {
+    // Double rAF ensures the browser paints the skeleton state before toggling,
+    // so CSS opacity transitions have an initial state to animate from
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => { delayedLoading.value = false; });
+    });
+  }
+});
+
 const displayClients = computed(() => {
   // Force Vue to track volumeState.zones and volumeState.clients as dependencies
   // This ensures recomputation when zone averages or client volumes change
@@ -196,6 +210,7 @@ const displayClients = computed(() => {
   if (multiroomStore.transitionState === 'enabling' || (snapcastStore.clients.length === 0 && snapcastStore.isLoading)) {
     return snapcastStore.lastKnownDisplayItems.map((item, i) => ({
       id: `placeholder-${i}`,
+      mac_id: item.mac_id || null,
       name: '',
       volume: 0,
       equalizerMuted: false,
@@ -475,19 +490,6 @@ watch(displayClients, (newClients) => {
   display: flex;
   flex-direction: column;
   position: relative;
-}
-
-/* Cross-fade: entering content appears after leaving starts fading */
-:deep(.fade-slide-enter-active) {
-  transition-delay: 100ms;
-}
-
-/* Cross-fade: leaving content overlays absolutely (doesn't affect height) */
-:deep(.fade-slide-leave-active) {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
 }
 
 .clients-wrapper {
