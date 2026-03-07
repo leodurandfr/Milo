@@ -561,7 +561,10 @@ class BtRemoteController:
             if source_name == "spotify":
                 await plugin.command("playpause", {})
             elif source_name == "radio":
-                await plugin.command("stop_playback", {})
+                if plugin.is_playing:
+                    await plugin.command("stop_playback", {})
+                else:
+                    await plugin.command("resume_playback", {})
             elif source_name == "podcast":
                 if plugin.is_playing:
                     await plugin.command("pause", {})
