@@ -119,7 +119,8 @@
       </SettingsSection>
 
       <!-- Section 3: Satellite Programs (loading/error) -->
-      <SettingsSection v-if="isMultiroomEnabled && (satellitesLoading || satellitesError)" :title="t('updates.satelliteProgramsTitle')">
+      <SettingsSection v-if="isMultiroomEnabled && (satellitesLoading || satellitesError)"
+        :title="t('updates.satelliteProgramsTitle')">
         <div v-if="satellitesError" class="error-state">
           <div class="error-message text-mono">
             {{ t('updates.errorDetectingSatellites') }}
@@ -142,7 +143,8 @@
       <template v-if="isMultiroomEnabled && !satellitesLoading && !satellitesError">
         <SettingsSection v-for="satellite in satellites" :key="satellite.hostname">
           <template #header>
-            <h2 class="heading-2">Programmes de Milō Client <span class="satellite-name">·&nbsp;{{ satellite.display_name }}</span></h2>
+            <h2 class="heading-2">Programmes de Milō Client <span class="satellite-name">·&nbsp;{{
+              satellite.display_name }}</span></h2>
           </template>
           <div class="programs-list">
             <!-- Milo Client row -->
@@ -170,12 +172,11 @@
 
               <Button
                 v-else-if="satellite.app_update_available && satellite.online && !isSatelliteAppUpdateCompleted(satellite.hostname)"
-                size="small" variant="brand" class="program-button"
-                @click="startSatelliteAppUpdate(satellite.hostname)" :disabled="isAnyUpdateInProgress()">
+                size="small" variant="brand" class="program-button" @click="startSatelliteAppUpdate(satellite.hostname)"
+                :disabled="isAnyUpdateInProgress()">
                 {{ t('updates.update') }}
               </Button>
-              <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date"
-                disabled>
+              <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
                 {{ t('updates.upToDate') }}
               </Button>
             </div>
@@ -197,20 +198,18 @@
               <div v-if="isSatelliteUpdating(satellite.hostname)" class="update-progress">
                 <p class="progress-message text-mono-small">{{ getSatelliteUpdateMessage(satellite.hostname) }}</p>
                 <div class="progress-bar">
-                  <div class="progress-fill"
-                    :style="{ width: getSatelliteUpdateProgress(satellite.hostname) + '%' }">
+                  <div class="progress-fill" :style="{ width: getSatelliteUpdateProgress(satellite.hostname) + '%' }">
                   </div>
                 </div>
               </div>
 
               <Button
                 v-else-if="satellite.update_available && satellite.online && !isSatelliteUpdateCompleted(satellite.hostname)"
-                size="small" variant="brand" class="program-button"
-                @click="startSatelliteUpdate(satellite.hostname)" :disabled="isAnyUpdateInProgress()">
+                size="small" variant="brand" class="program-button" @click="startSatelliteUpdate(satellite.hostname)"
+                :disabled="isAnyUpdateInProgress()">
                 {{ t('updates.update') }}
               </Button>
-              <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date"
-                disabled>
+              <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
                 {{ t('updates.upToDate') }}
               </Button>
             </div>
@@ -605,8 +604,7 @@ onMounted(async () => {
 }
 
 .program-item:first-child {
-  border-top: 1px solid var(--color-border);
-  padding-top: var(--space-04);
+  padding-top: var(--space-02);
 }
 
 .program-item:not(:last-child) {
@@ -686,7 +684,7 @@ onMounted(async () => {
   display: grid;
 }
 
-.crossfade-wrapper > * {
+.crossfade-wrapper>* {
   grid-area: 1 / 1;
 }
 
@@ -711,8 +709,7 @@ onMounted(async () => {
 }
 
 .program-item-skeleton:first-child {
-  border-top: 1px solid var(--color-border);
-  padding-top: var(--space-04);
+  padding-top: var(--space-02);
 }
 
 .program-item-skeleton:not(:last-child) {
@@ -764,6 +761,10 @@ onMounted(async () => {
     gap: var(--space-02);
   }
 
+  .program-item:first-child {
+    padding-top: 0;
+  }
+
   .program-info {
     gap: var(--space-01) var(--space-02);
   }
@@ -791,6 +792,11 @@ onMounted(async () => {
       "icon name"
       "icon version";
     gap: var(--space-01) var(--space-02);
+  }
+
+  .program-item-skeleton:first-child {
+    padding-top: 0;
+
   }
 
   .skeleton-icon {
