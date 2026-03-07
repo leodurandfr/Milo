@@ -17,7 +17,7 @@
     <template v-else>
       <!-- Speaker Name Input -->
       <SettingsSection :title="t('multiroom.speakerName', 'Speaker Name')">
-        <InputText v-model="clientName" :placeholder="client?.host" size="medium" :maxlength="50"
+        <InputText v-model="clientName" :placeholder="client?.host" size="medium" :maxlength="16"
           @blur="saveClientName" />
       </SettingsSection>
 
