@@ -72,9 +72,9 @@ function handleToggle(newEnabled) {
   opacity: 0;
   margin-top: calc(-1 * var(--space-04));
   transition:
-    grid-template-rows var(--transition-in-out),
-    opacity var(--transition-in-out),
-    margin-top var(--transition-in-out);
+    grid-template-rows var(--transition-normal),
+    opacity var(--transition-normal),
+    margin-top var(--transition-normal);
 }
 
 .toggle-section-expand.is-open {
