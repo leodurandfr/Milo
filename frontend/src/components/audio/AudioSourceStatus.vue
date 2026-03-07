@@ -320,7 +320,7 @@ function handleDisconnect() {
   background: none;
   border: none;
   cursor: pointer;
-  font-family: 'Neue Montreal Medium';
+  font-family: 'Neue Montreal Medium', 'Noto Sans SC', sans-serif;
   font-weight: 500;
   font-style: normal;
   position: relative;
