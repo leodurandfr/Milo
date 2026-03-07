@@ -43,6 +43,10 @@ defineProps({
   color: var(--color-text-secondary);
 }
 
+.section-header__actions:empty {
+  display: none;
+}
+
 @media (max-aspect-ratio: 4/3) {
   .section-header {
     flex-direction: column;
