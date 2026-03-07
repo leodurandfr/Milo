@@ -138,7 +138,7 @@ import Dropdown from '@/components/ui/Dropdown.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
-import ToggleSection from '@/components/settings/ToggleSection.vue';
+import ToggleSection from '@/components/ui/ToggleSection.vue';
 import ItemSelector from './ItemSelector.vue';
 import ParametricEQ from './ParametricEQ.vue';
 import LevelMeters from './LevelMeters.vue';

@@ -82,7 +82,7 @@ import DoubleRangeSlider from '@/components/ui/DoubleRangeSlider.vue';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
-import ToggleSection from '@/components/settings/ToggleSection.vue';
+import ToggleSection from '@/components/ui/ToggleSection.vue';
 import Button from '@/components/ui/Button.vue';
 
 const { t } = useI18n();

@@ -1,4 +1,4 @@
-<!-- frontend/src/components/settings/ToggleSection.vue -->
+<!-- frontend/src/components/ui/ToggleSection.vue -->
 <!-- Reusable settings section with toggle in header and optional expand/collapse content -->
 <template>
   <SettingsSection :class="{ 'toggle-section--has-content': hasContent }">
@@ -83,15 +83,15 @@ function handleToggle(newEnabled) {
   margin-top: 0;
 }
 
-/* Remove parent's bottom padding — moved inside __inner for smooth collapse */
+/* Card clips expanding content at its border-radius edge.
+   overflow: hidden is on the card (not __inner) so the clip line
+   is at the card's bottom, not in the middle above the padding. */
 .settings-section.toggle-section--has-content {
-  padding-bottom: 0;
+  overflow: hidden;
 }
 
 .toggle-section-expand__inner {
-  overflow: hidden;
   min-height: 0;  /* Fixes iOS collapse */
-  padding-bottom: var(--space-05-fixed);
 }
 
 </style>
