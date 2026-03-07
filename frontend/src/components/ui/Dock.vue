@@ -51,10 +51,10 @@
           <AppIcon :name="icon" size="large" class="dock-item-icon" />
         </button>
 
-        <!-- Separator - Desktop only, always shown if we have features -->
-        <div v-if="enabledFeatures.length > 0"
+        <!-- Separator - Desktop: shown if features exist, Mobile: shown if toggle button exists -->
+        <div v-if="enabledFeatures.length > 0 || additionalDockApps.length > 0"
           :style="{ transitionDelay: getDockItemDelay(enabledAudioPlugins.length) }"
-          class="dock-separator desktop-only">
+          class="dock-separator">
         </div>
 
         <!-- Mobile: Toggle Additional Apps (if more than 3 apps) -->
@@ -614,13 +614,14 @@ onUnmounted(() => {
 }
 
 .toggle-btn {
+  width: 54px;
   height: 64px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--color-background-neutral-50);
-  border-radius: var(--radius-03);
-  padding: 0 var(--space-01);
+  border-radius: var(--radius-04);
+  padding: 0;
   color: var(--color-text-secondary);
 }
 
@@ -693,6 +694,10 @@ onUnmounted(() => {
 
   .desktop-only {
     display: none;
+  }
+
+  .app-container {
+    gap: var(--space-02);
   }
 
   .dock-indicator {
