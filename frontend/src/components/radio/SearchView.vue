@@ -234,10 +234,18 @@ const { sentinelRef: scrollSentinel } = useInfiniteScroll({
   flex: 1;
 }
 
-/* Filters (base layout from global .filters-bar) */
 .filters-bar {
+  display: flex;
+  gap: var(--space-02);
+  align-items: center;
+  flex-wrap: wrap;
   color: var(--color-text-secondary);
   min-height: 48px;
+}
+
+.filters-bar > :deep(*) {
+  flex: 1;
+  min-width: 180px;
 }
 
 /* Results container */
@@ -269,6 +277,25 @@ const { sentinelRef: scrollSentinel } = useInfiniteScroll({
 
 /* Mobile */
 @media (max-aspect-ratio: 4/3) {
+  .filters-bar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    margin-left: calc(-1 * var(--space-05));
+    margin-right: calc(-1 * var(--space-05));
+    padding-left: var(--space-05);
+    padding-right: var(--space-05);
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .filters-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .filters-bar > :deep(*) {
+    flex-shrink: 0;
+  }
+
   .results-content {
     grid-template-columns: 1fr;
   }
