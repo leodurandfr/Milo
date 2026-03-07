@@ -69,14 +69,12 @@
       "subwoofer": "Caisson de basse"
     },
     "crossover": {
-      "subwooferNotInZone": "Ajoutez ce caisson à une zone pour activer la gestion automatique du crossover. Les filtres passe-bas (caisson) et passe-haut (autres enceintes) seront appliqués automatiquement.",
-      "lowpassActive": "Filtre passe-bas actif",
-      "lowpassDescription": "Ce caisson reçoit uniquement les basses en dessous de la fréquence de coupure.",
-      "highpassOnOthers": "Un filtre passe-haut est appliqué aux autres enceintes de la zone pour retirer les basses (gérées par ce caisson).",
-      "disablePhysicalCrossover": "Réglez le crossover physique de votre caisson sur bypass/LFE pour éviter le cumul des filtres.",
-      "highpassActive": "Filtre passe-haut actif",
-      "highpassDescription": "Les basses en dessous de {freq} Hz sont retirées de cette enceinte et gérées par le caisson de la zone.",
-      "crossoverFrequency": "Fréquence de coupure :",
+      "subwooferNotInZone": "Ajoutez à une zone pour répartir automatiquement les fréquences.",
+      "lowpassActive": "Passe-bas actif",
+      "disablePhysicalCrossover": "Désactiver le crossover physique du caisson ou le régler à sa fréquence maximale.",
+      "highpassActive": "Passe-haut actif",
+      "highpassDescription": "Basses sous {freq} Hz redirigées vers le caisson.",
+      "crossoverFrequency": "Fréquence de coupure",
       "badgeActive": "Crossover actif",
       "badgeInactive": "Crossover inactif",
       "subwooferOffline": "Caisson hors ligne"

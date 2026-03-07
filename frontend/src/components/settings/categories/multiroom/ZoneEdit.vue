@@ -29,14 +29,6 @@
         />
       </div>
 
-      <!-- Crossover frequency (edit mode with subwoofer only) -->
-      <template v-if="groupId && currentGroup?.has_subwoofer">
-        <div class="section-divider"></div>
-        <SettingItem :label="t('multiroom.crossover.crossoverFrequency')">
-          <RangeSlider v-model="crossoverFrequency" :min="40" :max="200" :step="5" value-unit="Hz"
-            @change="handleCrossoverChange" />
-        </SettingItem>
-      </template>
     </SettingsSection>
 
     <!-- Create Zone Button (only when creating new zone) -->
@@ -68,14 +60,11 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
-import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import Button from '@/components/ui/Button.vue';
 import InputText from '@/components/ui/InputText.vue';
-import RangeSlider from '@/components/ui/RangeSlider.vue';
 import SpeakerListItem from '@/components/settings/categories/multiroom/SpeakerListItem.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
-import SettingItem from '@/components/settings/SettingItem.vue';
 
 const props = defineProps({
   // Group ID if editing an existing zone, null for creating new
@@ -88,15 +77,12 @@ const props = defineProps({
 const emit = defineEmits(['back', 'saved']);
 
 const { t } = useI18n();
-const equalizerStore = useEqualizerStore();
 const multiroomStore = useMultiroomStore();
 const saving = ref(false);
 const deleting = ref(false);
 const zoneName = ref('');
 const originalZoneName = ref('');
 const selectedClients = ref([]);
-const crossoverFrequency = ref(80);
-
 // Get available clients from multiroomStore (single source of truth)
 const availableTargets = computed(() => {
   return multiroomStore.clientList.map(client => ({
@@ -170,16 +156,6 @@ async function saveZoneName() {
   }
 }
 
-// Update crossover frequency on the zone via API
-async function handleCrossoverChange(frequency) {
-  if (!props.groupId) return;
-  try {
-    await equalizerStore.setZoneCrossoverFrequency(props.groupId, frequency);
-  } catch (error) {
-    console.error('Error updating crossover frequency:', error);
-  }
-}
-
 // Initialize state when mounted
 onMounted(async () => {
   if (currentGroup.value) {
@@ -187,7 +163,6 @@ onMounted(async () => {
     zoneName.value = currentGroup.value.name || '';
     originalZoneName.value = zoneName.value;
     selectedClients.value = [...(currentGroup.value.client_ids || [])];
-    crossoverFrequency.value = currentGroup.value.crossover_frequency || 80;
   } else {
     // Creating new zone
     selectedClients.value = [];
@@ -204,16 +179,6 @@ watch(
     }
   },
   { deep: true }
-);
-
-// Sync crossover frequency when changed externally (WebSocket)
-watch(
-  () => currentGroup.value?.crossover_frequency,
-  (newFreq) => {
-    if (newFreq != null) {
-      crossoverFrequency.value = newFreq;
-    }
-  }
 );
 
 // Create new zone (only used when groupId is null)
@@ -258,11 +223,6 @@ async function handleDelete() {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-01);
-}
-
-.section-divider {
-  height: 1px;
-  background: var(--color-border);
 }
 
 /* Mobile adjustments */

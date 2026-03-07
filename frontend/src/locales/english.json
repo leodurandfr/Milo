@@ -69,14 +69,12 @@
       "subwoofer": "Subwoofer"
     },
     "crossover": {
-      "subwooferNotInZone": "Add this subwoofer to a zone to enable automatic crossover management. Lowpass (subwoofer) and highpass (other speakers) filters will be applied automatically.",
-      "lowpassActive": "Lowpass filter active",
-      "lowpassDescription": "This subwoofer only receives bass frequencies below the crossover frequency.",
-      "highpassOnOthers": "A highpass filter is applied to other speakers in the zone to remove bass (handled by this subwoofer).",
-      "disablePhysicalCrossover": "Set your subwoofer's physical crossover to bypass/LFE to avoid filter stacking.",
-      "highpassActive": "Highpass filter active",
-      "highpassDescription": "Bass frequencies below {freq} Hz are removed from this speaker and handled by the subwoofer in the zone.",
-      "crossoverFrequency": "Crossover frequency:",
+      "subwooferNotInZone": "Add to a zone to automatically distribute frequencies.",
+      "lowpassActive": "Lowpass active",
+      "disablePhysicalCrossover": "Disable the physical crossover on the subwoofer or set it to its highest frequency.",
+      "highpassActive": "Highpass active",
+      "highpassDescription": "Bass below {freq} Hz redirected to subwoofer.",
+      "crossoverFrequency": "Crossover frequency",
       "badgeActive": "Crossover active",
       "badgeInactive": "Crossover inactive",
       "subwooferOffline": "Subwoofer offline"
