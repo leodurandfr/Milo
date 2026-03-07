@@ -157,7 +157,6 @@ function handleClick(event) {
 /* Icon variant: standard (28x28 with container) */
 .list-item-button__icon--standard {
   background: var(--color-background-neutral);
-  border-radius: 10px;
   color: var(--color-text-secondary);
 }
 
