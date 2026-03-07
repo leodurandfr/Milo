@@ -201,6 +201,8 @@
     "sleepDelay": "En cas d'inactivité de l'application, éteindre l'écran après :",
     "screensaver": "Économiseur d'écran",
     "screensaverSourceNote": "Sur Radio, Podcasts et Bluetooth uniquement",
+    "uiScale": "Affichage",
+    "uiScaleLevel": "Proportion de l'interface",
     "screensaverDelay": "Démarrer l'économiseur d'écran, après :"
   },
   "spotifySettings": {

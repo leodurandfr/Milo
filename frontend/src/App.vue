@@ -419,6 +419,11 @@ onMounted(async () => {
         settingsStore.updateBtRemoteStatus(event.data);
       }
     }),
+    on('settings', 'screen_ui_scale_changed', (event) => {
+      if (event.data?.config?.ui_scale !== undefined) {
+        settingsStore.updateScreenUiScale(event.data.config);
+      }
+    }),
     on('settings', 'podcast_credentials_changed', (event) => {
       if (event.data?.config) {
         settingsStore.updatePodcastCredentials({

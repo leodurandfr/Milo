@@ -20,6 +20,7 @@ from backend.api.models import (
     ScreenTimeoutRequest,
     ScreenBrightnessRequest,
     ScreenScreensaverRequest,
+    ScreenUiScaleRequest,
     MacRocConfigRequest,
     RadioSettingsRequest,
     InactivityTimeoutRequest
@@ -143,6 +144,7 @@ def create_settings_router(
                 "screen_timeout_seconds": timeout_seconds
             },
             "screen_brightness": {"brightness_on": screen.get('brightness_on', 5)},
+            "screen_ui_scale": {"ui_scale": screen.get('ui_scale', 1.0)},
             "screen_screensaver": {
                 "screensaver_enabled": screen.get('screensaver_enabled', True),
                 "screensaver_delay_seconds": screen.get('screensaver_delay_seconds', 30)
@@ -773,6 +775,25 @@ def create_settings_router(
             setter=setter,
             event_type="screen_screensaver_changed",
             event_data={"config": config}
+        )
+
+    # Screen UI scale
+    @router.get("/screen-ui-scale")
+    async def get_screen_ui_scale():
+        screen = await settings.get_setting('screen') or {}
+        return {
+            "status": "success",
+            "config": {"ui_scale": screen.get("ui_scale", 1.0)}
+        }
+
+    @router.put("/screen-ui-scale")
+    async def set_screen_ui_scale(payload: ScreenUiScaleRequest):
+        return await _handle_setting_update(
+            payload,
+            validator=lambda p: True,
+            setter=lambda: settings.set_setting('screen.ui_scale', payload.ui_scale),
+            event_type="screen_ui_scale_changed",
+            event_data={"config": {"ui_scale": payload.ui_scale}}
         )
 
     @router.post("/screen-activity")

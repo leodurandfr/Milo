@@ -201,7 +201,9 @@
     "sleepDelay": "When the app is inactive, turn off the screen after:",
     "screensaver": "Screensaver",
     "screensaverSourceNote": "On Radio, Podcasts and Bluetooth only",
-    "screensaverDelay": "Start the screensaver after:"
+    "screensaverDelay": "Start the screensaver after:",
+    "uiScale": "Display",
+    "uiScaleLevel": "Interface scale"
   },
   "spotifySettings": {
     "autoDisconnect": "Auto disconnect",

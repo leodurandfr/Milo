@@ -239,6 +239,8 @@
     "sleepDelay": "In caso di inattività dell'app, spegnere lo schermo dopo:",
     "screensaver": "Salvaschermo",
     "screensaverSourceNote": "Solo su Radio, Podcasts e Bluetooth",
+    "uiScale": "Display",
+    "uiScaleLevel": "Scala dell'interfaccia",
     "screensaverDelay": "Avviare il salvaschermo dopo:"
   },
   "spotifySettings": {

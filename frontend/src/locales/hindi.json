@@ -239,6 +239,8 @@
     "sleepDelay": "ऐप निष्क्रिय होने पर, स्क्रीन बंद करें:",
     "screensaver": "स्क्रीनसेवर",
     "screensaverSourceNote": "केवल रेडियो, पॉडकास्ट और ब्लूटूथ पर",
+    "uiScale": "प्रदर्शन",
+    "uiScaleLevel": "इंटरफ़ेस स्केल",
     "screensaverDelay": "स्क्रीनसेवर शुरू करें, इसके बाद:"
   },
   "spotifySettings": {

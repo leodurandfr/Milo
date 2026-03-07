@@ -223,6 +223,11 @@ class ScreenScreensaverRequest(BaseModel):
     screensaver_delay_seconds: Optional[int] = Field(None, ge=5, le=1800)
 
 
+class ScreenUiScaleRequest(BaseModel):
+    """Screen UI scale request"""
+    ui_scale: float = Field(..., ge=0.9, le=1.1)
+
+
 # =============================================================================
 # DSP (CamillaDSP)
 # =============================================================================

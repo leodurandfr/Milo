@@ -9,6 +9,17 @@
       </SettingItem>
     </SettingsSection>
 
+    <!-- UI Scale (kiosk only) -->
+    <SettingsSection :title="t('screenSettings.uiScale')">
+      <SettingItem :label="t('screenSettings.uiScaleLevel')">
+        <ButtonGroup
+          :model-value="config.ui_scale"
+          :options="uiScalePresets"
+          @change="setUiScale"
+        />
+      </SettingItem>
+    </SettingsSection>
+
     <!-- Screensaver -->
     <ToggleSection
       :title="t('screenSettings.screensaver')"
@@ -64,7 +75,6 @@ const { t } = useI18n();
 const { on } = useWebSocket();
 const { updateSetting, clearAllTimers } = useSettingsAPI();
 const settingsStore = useSettingsStore();
-
 const DEFAULT_DELAY = 30;
 
 // Local refs for instant responsiveness
@@ -73,7 +83,8 @@ const config = ref({
   timeout_enabled: true,
   timeout_seconds: DEFAULT_DELAY,
   screensaver_enabled: true,
-  screensaver_delay_seconds: DEFAULT_DELAY
+  screensaver_delay_seconds: DEFAULT_DELAY,
+  ui_scale: 1.0
 });
 
 // Remembers last non-zero timeout for restore on toggle ON
@@ -86,6 +97,8 @@ function syncFromStore() {
   config.value.timeout_seconds = settingsStore.screenTimeout.screen_timeout_seconds;
   config.value.screensaver_enabled = settingsStore.screenScreensaver.screensaver_enabled;
   config.value.screensaver_delay_seconds = settingsStore.screenScreensaver.screensaver_delay_seconds;
+
+  config.value.ui_scale = settingsStore.screenUiScale.ui_scale;
 
   if (config.value.timeout_seconds > 0) {
     lastNonZeroTimeout.value = config.value.timeout_seconds;
@@ -100,6 +113,20 @@ const sharedDelayPresets = computed(() => [
   { value: 600, label: t('time.10min') },
   { value: 1800, label: t('time.30min') }
 ]);
+
+const uiScalePresets = [
+  { value: 0.9, label: '90%' },
+  { value: 0.95, label: '95%' },
+  { value: 1.0, label: '100%' },
+  { value: 1.05, label: '105%' },
+  { value: 1.1, label: '110%' }
+];
+
+function setUiScale(value) {
+  config.value.ui_scale = value;
+  settingsStore.updateScreenUiScale({ ui_scale: value });
+  updateSetting('screen-ui-scale', { ui_scale: value });
+}
 
 let brightnessInstantTimeout = null;
 let brightnessDebounceTimeout = null;
@@ -188,6 +215,12 @@ const wsListeners = {
         brightness_on: msg.data.config.brightness_on
       });
       config.value.brightness_on = msg.data.config.brightness_on;
+    }
+  },
+  screen_ui_scale_changed: (msg) => {
+    if (msg.data?.config?.ui_scale !== undefined) {
+      settingsStore.updateScreenUiScale({ ui_scale: msg.data.config.ui_scale });
+      config.value.ui_scale = msg.data.config.ui_scale;
     }
   },
   screen_screensaver_changed: (msg) => {
