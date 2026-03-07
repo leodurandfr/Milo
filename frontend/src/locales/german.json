@@ -239,6 +239,8 @@
     "sleepDelay": "Bei Inaktivität der App den Bildschirm ausschalten nach:",
     "screensaver": "Bildschirmschoner",
     "screensaverSourceNote": "Nur bei Radio, Podcasts und Bluetooth",
+    "uiScale": "Anzeige",
+    "uiScaleLevel": "Skalierung der Oberfläche",
     "screensaverDelay": "Bildschirmschoner starten nach:"
   },
   "spotifySettings": {

@@ -239,6 +239,8 @@
     "sleepDelay": "应用程序不活动时，关闭屏幕：",
     "screensaver": "屏幕保护程序",
     "screensaverSourceNote": "仅适用于收音机、播客和蓝牙",
+    "uiScale": "显示",
+    "uiScaleLevel": "界面缩放",
     "screensaverDelay": "启动屏幕保护程序："
   },
   "spotifySettings": {
