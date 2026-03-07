@@ -442,7 +442,7 @@ function handleClientMuteToggle(clientMacId, muted) {
 /* === ITEM HEADER (zone/client row) === */
 .item-header {
   display: grid;
-  grid-template-columns: 40px auto 1fr auto;
+  grid-template-columns: 40px var(--name-width, auto) 1fr auto;
   align-items: center;
   gap: var(--space-04);
   min-height: 40px;
@@ -687,7 +687,7 @@ function handleClientMuteToggle(clientMacId, muted) {
 /* Individual client row in expanded zone */
 .client-row {
   display: grid;
-  grid-template-columns: 40px auto 1fr auto;
+  grid-template-columns: 40px var(--name-width, auto) 1fr auto;
   align-items: center;
   gap: var(--space-04);
   padding: var(--space-03) 0;

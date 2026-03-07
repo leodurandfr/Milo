@@ -8,7 +8,7 @@
         <MessageContent v-if="showMessage" key="message" :icon="messageIcon" :title="messageTitle" />
 
         <!-- CLIENTS: Skeletons OR real items -->
-        <div v-else key="clients" class="clients-wrapper">
+        <div v-else key="clients" ref="clientsWrapperRef" class="clients-wrapper">
           <MultiroomItem
             v-for="client in displayClients"
             :key="client.mac_id || client.id"
@@ -30,7 +30,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, inject } from 'vue';
+import { ref, computed, onMounted, watch, inject, nextTick } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
@@ -47,6 +47,8 @@ const equalizerStore = useEqualizerStore();
 
 // Inject Modal's height request function for smooth height animations
 const requestHeightDelta = inject('modalRequestHeightDelta', null);
+
+const clientsWrapperRef = ref(null);
 
 // === COMPUTED ===
 const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
@@ -290,6 +292,42 @@ const displayClients = computed(() => {
   });
 });
 
+// === NAME WIDTH SYNCHRONIZATION ===
+// Align all name columns to the widest name (max 200px)
+function updateNameWidth() {
+  const wrapper = clientsWrapperRef.value;
+  if (!wrapper || shouldShowLoading.value) return;
+
+  // Collect all visible names from data
+  const allNames = [];
+  for (const client of displayClients.value) {
+    if (client.name) allNames.push(client.name);
+    if (client.zoneClientDetails) {
+      for (const zc of client.zoneClientDetails) {
+        if (zc.name) allNames.push(zc.name);
+      }
+    }
+  }
+  if (allNames.length === 0) return;
+
+  // Measure using off-screen element with same typography
+  const measure = document.createElement('span');
+  measure.className = 'heading-3';
+  measure.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;pointer-events:none';
+  wrapper.appendChild(measure);
+
+  let maxWidth = 0;
+  for (const name of allNames) {
+    measure.textContent = name;
+    maxWidth = Math.max(maxWidth, measure.offsetWidth);
+  }
+  measure.remove();
+
+  if (maxWidth > 0) {
+    wrapper.style.setProperty('--name-width', `${Math.min(maxWidth, 200)}px`);
+  }
+}
+
 // === HEIGHT PRE-ALLOCATION HANDLERS ===
 // Called by MultiroomItem BEFORE zone expansion starts
 // Notifies Modal of the height delta so it can animate smoothly
@@ -401,6 +439,9 @@ onMounted(async () => {
 
   // Load linked groups (zones are a multiroom feature, independent of equalizer effects)
   await equalizerStore.loadTargets();
+
+  // Synchronize name column widths after all data is loaded
+  nextTick(updateNameWidth);
 });
 
 // Reload clients when multiroom becomes ready after a transition
@@ -416,6 +457,9 @@ watch(isMultiroomActive, (newValue, oldValue) => {
     multiroomStore.resetTransition();
   }
 });
+
+// Synchronize name column widths when clients load or loading finishes
+watch([displayClients, shouldShowLoading], () => { nextTick(updateNameWidth); });
 
 // Save display cache when real clients are loaded (for zone-aware skeleton on next load)
 watch(displayClients, (newClients) => {
