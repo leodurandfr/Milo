@@ -275,7 +275,7 @@ class TaddyAPI:
                 isExplicitContent
                 itunesInfo {
                     uuid
-                  baseArtworkUrlOf(size: 300)
+                  baseArtworkUrlOf(size: 600)
                   publisherName
                 }
               }
@@ -390,9 +390,11 @@ class TaddyAPI:
                 name = entry.get('im:name', {}).get('label', '')
                 artist = entry.get('im:artist', {}).get('label', '')
 
-                # Get image URL (take the largest one)
+                # Get image URL (take the largest one, upscale via Apple URL)
                 images = entry.get('im:image', [])
                 image_url = images[-1].get('label', '') if images else ''
+                if '170x170bb' in image_url:
+                    image_url = image_url.replace('170x170bb', '600x600bb')
 
                 results.append({
                     'itunes_id': itunes_id,
@@ -544,7 +546,7 @@ class TaddyAPI:
               isCompleted
               itunesInfo {{
                 uuid
-                baseArtworkUrlOf(size: 300)
+                baseArtworkUrlOf(size: 600)
                 publisherName
               }}
             }}
@@ -780,7 +782,7 @@ class TaddyAPI:
                 isCompleted
                 itunesInfo {{
                 uuid
-                    baseArtworkUrlOf(size: 300)
+                    baseArtworkUrlOf(size: 600)
                     publisherName
                 }}
             }}

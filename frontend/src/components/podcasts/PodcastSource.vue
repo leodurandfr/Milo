@@ -1,20 +1,11 @@
 <template>
-  <AudioSourceLayout
-    ref="audioLayoutRef"
-    :show-player="shouldShowPlayerLayout && !hasCredentialsError"
+  <AudioSourceLayout ref="audioLayoutRef" :show-player="shouldShowPlayerLayout && !hasCredentialsError"
     :header-title="hasCredentialsError ? t('podcasts.podcasts') : currentTitle"
     :header-subtitle="hasCredentialsError ? null : currentSubtitle"
-    :header-show-back="!hasCredentialsError && canGoBack"
-    header-icon="podcast"
-    header-variant="background-neutral"
-    :header-actions-key="currentView"
-    :content-key="hasCredentialsError ? 'credentials' : currentView"
-    :player-mobile-height="184"
-    :pending-scroll-restore="pendingScrollRestore"
-    gradient="podcast"
-    @header-back="goBack"
-    @scroll-restored="onScrollRestored"
-  >
+    :header-show-back="!hasCredentialsError && canGoBack" header-icon="podcast" header-variant="background-neutral"
+    :header-actions-key="currentView" :content-key="hasCredentialsError ? 'credentials' : currentView"
+    :player-mobile-height="184" :pending-scroll-restore="pendingScrollRestore" gradient="podcast" @header-back="goBack"
+    @scroll-restored="onScrollRestored">
     <!-- Header actions (only when not in credentials error and on home view) -->
     <template v-if="!hasCredentialsError && currentView === 'home'" #header-actions="{ iconVariant }">
       <IconButton icon="heartOff" :variant="iconVariant" :active="false" @click="goToSubscriptions" />
@@ -24,7 +15,6 @@
 
     <!-- Content slot: scrollable views -->
     <template #content>
-      <div class="source-content">
         <!-- Credentials Required -->
         <CredentialsRequired v-if="hasCredentialsError" key="credentials" @configure="openPodcastSettings" />
 
@@ -46,20 +36,16 @@
 
         <!-- Genre View -->
         <GenreView v-else-if="currentView === 'genre'" key="genre" :genre="selectedGenre"
-          :genreLabel="selectedGenreLabel" :loadingPodcastId="loadingPodcastId"
-          @select-podcast="openPodcastDetails" @select-episode="openEpisodeDetails"
-          @play-episode="playEpisode" />
+          :genreLabel="selectedGenreLabel" :loadingPodcastId="loadingPodcastId" @select-podcast="openPodcastDetails"
+          @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
 
         <!-- Podcast Details (full screen overlay) -->
-        <PodcastDetails v-else-if="currentView === 'podcast-details'" key="podcast-details"
-          :uuid="selectedPodcastUuid" @play-episode="playEpisode"
-          @select-episode="openEpisodeDetails" />
+        <PodcastDetails v-else-if="currentView === 'podcast-details'" key="podcast-details" :uuid="selectedPodcastUuid"
+          @play-episode="playEpisode" @select-episode="openEpisodeDetails" />
 
         <!-- Episode Details (full screen overlay) -->
-        <EpisodeDetails v-else-if="currentView === 'episode-details'" key="episode-details"
-          :uuid="selectedEpisodeUuid" @play-episode="playEpisode"
-          @select-podcast="openPodcastDetails" />
-      </div>
+        <EpisodeDetails v-else-if="currentView === 'episode-details'" key="episode-details" :uuid="selectedEpisodeUuid"
+          @play-episode="playEpisode" @select-podcast="openPodcastDetails" />
     </template>
 
     <!-- Player slot: AudioPlayer component -->
@@ -76,11 +62,7 @@
 
         <!-- Podcast controls with speed and seek -->
         <template #controls>
-          <!-- Speed selector -->
-          <div class="speed-selector" @click.stop>
-            <Dropdown v-model="selectedSpeed" :options="speedOptions" variant="minimal"
-              @change="handleSpeedChange" />
-          </div>
+
 
           <!-- Playback controls -->
           <div class="playback-controls" @click.stop>
@@ -91,6 +73,11 @@
               :loading="isBuffering" @click="togglePlayPause" />
 
             <IconButton icon="forward30" variant="on-dark" size="small" @click="seekForward" />
+          </div>
+
+          <!-- Speed selector -->
+          <div class="speed-selector" @click.stop>
+            <Dropdown v-model="selectedSpeed" :options="speedOptions" variant="minimal" @change="handleSpeedChange" />
           </div>
         </template>
       </AudioPlayer>
@@ -375,6 +362,12 @@ onBeforeUnmount(() => {
   align-items: center;
   position: absolute;
   left: 0;
+}
+
+@media (max-aspect-ratio: 4/3) {
+  .speed-selector {
+    position: static;
+  }
 }
 
 .speed-selector :deep(.dropdown) {

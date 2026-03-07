@@ -5,13 +5,13 @@
       :class="[`dropdown-trigger--${variant}`, `dropdown-trigger--${size}`, { 'is-open': isOpen, 'has-selection': modelValue }]"
       :disabled="disabled"
       @click="toggleDropdown">
-      <span class="dropdown-label" :class="variant === 'minimal' ? 'text-mono' : (size === 'small' ? 'heading-4' : 'heading-3')">{{ selectedLabel }}</span>
+      <span class="dropdown-label" :class="variant === 'minimal' ? 'text-mono-small' : (size === 'small' ? 'heading-4' : 'heading-3')">{{ selectedLabel }}</span>
       <SvgIcon v-if="variant !== 'minimal'" name="caretDown" :size="size === 'small' ? 20 : 24" class="dropdown-icon" />
     </button>
 
     <Teleport to="body">
       <Transition name="dropdown-menu">
-        <div v-if="isOpen" ref="menuRef" class="dropdown-menu" :class="{ 'open-upward': openUpward }"
+        <div v-if="isOpen" ref="menuRef" class="dropdown-menu" :class="{ 'open-upward': openUpward, 'open-leftward': openLeftward }"
           :style="{ top: menuPosition.top, left: menuPosition.left, minWidth: menuPosition.width }"
           @scroll.stop>
           <div v-for="(option, index) in options" :key="option.value" class="dropdown-item heading-3"
@@ -68,6 +68,7 @@ const dropdownRef = ref(null);
 const menuRef = ref(null);
 const isOpen = ref(false);
 const openUpward = ref(false);
+const openLeftward = ref(false);
 const menuPosition = ref({ top: '0px', left: '0px', width: '0px' });
 const lastScrollPosition = ref({ x: 0, y: 0 });
 
@@ -92,10 +93,20 @@ function calculateDropdownDirection() {
   // Get actual menu height if available (after render), otherwise use max
   const actualMenuHeight = menuRef.value?.offsetHeight || MENU_MAX_HEIGHT;
 
+  // Detect horizontal overflow: align right edge of menu to right edge of trigger
+  const MENU_MIN_WIDTH = 200; // CSS min-width of dropdown-menu
+  const menuWidth = menuRef.value?.offsetWidth || Math.max(MENU_MIN_WIDTH, triggerRect.width);
+  const spaceRight = window.innerWidth - triggerRect.left;
+  openLeftward.value = spaceRight < menuWidth && triggerRect.right > menuWidth;
+
   // Set menu position to match trigger
+  const left = openLeftward.value
+    ? triggerRect.right - menuWidth
+    : triggerRect.left;
+
   menuPosition.value = {
     top: `${triggerRect.bottom + 4}px`, // 4px gap below trigger
-    left: `${triggerRect.left}px`,
+    left: `${left}px`,
     width: `${triggerRect.width}px`
   };
 
@@ -233,7 +244,6 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: var(--space-03) var(--space-04);
   border-radius: var(--radius-04);
   background: var(--color-background-neutral);
   cursor: pointer;
@@ -288,7 +298,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  min-width: 0;
+  min-width: 42px;
   color: var(--color-text-secondary);
   transition: color var(--transition-fast);
 }
@@ -371,6 +381,16 @@ onBeforeUnmount(() => {
 .dropdown-menu.open-upward.dropdown-menu-enter-active,
 .dropdown-menu.open-upward.dropdown-menu-leave-active {
   transform-origin: bottom;
+}
+
+.dropdown-menu.open-leftward.dropdown-menu-enter-active,
+.dropdown-menu.open-leftward.dropdown-menu-leave-active {
+  transform-origin: top right;
+}
+
+.dropdown-menu.open-upward.open-leftward.dropdown-menu-enter-active,
+.dropdown-menu.open-upward.open-leftward.dropdown-menu-leave-active {
+  transform-origin: bottom right;
 }
 
 .dropdown-menu-enter-from {
