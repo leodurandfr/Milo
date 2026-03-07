@@ -12,7 +12,6 @@
 
     <!-- Content slot: scrollable views -->
     <template #content>
-      <div class="source-content">
         <!-- Favorites View -->
         <FavoritesView v-if="!isSearchMode" key="favorites" :is-loading="radioStore.loading"
           :current-station="radioStore.currentStation" :is-playing="isCurrentlyPlaying"
@@ -23,7 +22,6 @@
           :current-station="radioStore.currentStation" :is-playing="isCurrentlyPlaying"
           :buffering-station-id="bufferingStationId" :is-loading="radioStore.loading" :has-error="radioStore.hasError"
           @search="handleSearch" @retry="retrySearch" @play-station="playStation" />
-      </div>
     </template>
 
     <!-- Player slot: AudioPlayer component -->
