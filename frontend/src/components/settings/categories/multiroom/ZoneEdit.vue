@@ -8,7 +8,7 @@
         v-model="zoneName"
         :placeholder="t('equalizer.zones.zoneNamePlaceholder', 'e.g., Living Room')"
         size="medium"
-        :maxlength="15"
+        :maxlength="16"
         @blur="saveZoneName"
       />
     </SettingsSection>
