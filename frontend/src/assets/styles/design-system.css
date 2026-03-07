@@ -361,51 +361,6 @@
     border-radius: var(--radius-02);
 }
 
-/* Content wrapper for source views inside AudioSourceLayout */
-.source-content {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-04);
-    width: 100%;
-}
-
-/* Horizontal filter bar with mobile full-bleed scroll */
-.filters-bar {
-    display: flex;
-    gap: var(--space-02);
-    align-items: center;
-    flex-wrap: wrap;
-}
-
-.filters-bar > * {
-    flex: 1;
-    min-width: 180px;
-}
-
-@media (max-aspect-ratio: 4/3) {
-    .filters-bar {
-        flex-wrap: nowrap;
-        overflow-x: auto;
-
-        /* Full-bleed: compensate parent AudioSourceLayout padding */
-        margin-left: calc(-1 * var(--space-05));
-        margin-right: calc(-1 * var(--space-05));
-        padding-left: var(--space-05);
-        padding-right: var(--space-05);
-
-        /* Hide scrollbar */
-        scrollbar-width: none;
-        -ms-overflow-style: none;
-    }
-
-    .filters-bar::-webkit-scrollbar {
-        display: none;
-    }
-
-    .filters-bar > * {
-        flex-shrink: 0;
-    }
-}
 
 /* === INTERACTIVE PRESS EFFECTS === */
 /* Pixel-based: all elements shrink by 4px regardless of size */
@@ -434,6 +389,8 @@
     justify-content: center;
     z-index: 10;
     color: var(--color-text-contrast);
+    overflow: hidden;
+    border-radius: var(--radius-03);
 }
 
 /* === VUE TRANSITIONS === */

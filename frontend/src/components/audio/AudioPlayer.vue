@@ -284,6 +284,7 @@ const playerStyle = computed(() => {
   justify-content: center;
   align-items: center;
   gap: var(--space-02);
+  width: 100%;
 }
 
 /* Mobile: Horizontal bottom panel layout */
@@ -356,9 +357,6 @@ const playerStyle = computed(() => {
   /* Show progress bar for podcasts on mobile */
   .audio-player.source-podcast .player-content :deep(.progress-bar) {
     display: flex;
-    width: 100%;
-    order: 2;
-    /* Progress bar between info and controls */
   }
 
   /* Podcasts mobile: Compact vertical layout with 3 lines */
@@ -369,30 +367,34 @@ const playerStyle = computed(() => {
   }
 
   .audio-player.source-podcast .player-content {
-    flex-direction: row !important;
-    flex-wrap: wrap !important;
-    align-items: center;
+    display: grid !important;
+    grid-template-columns: 88px 1fr;
+    grid-template-rows: 1fr auto;
+    column-gap: var(--space-03);
     row-gap: var(--space-01);
   }
 
-  /* Line 1: Artwork (48px) + Info side by side */
   .audio-player.source-podcast .player-artwork {
-    order: 0;
+    grid-row: 1 / -1;
+    width: 88px;
+    height: auto;
+    min-width: 88px;
+    align-self: center;
   }
 
   .audio-player.source-podcast .player-info {
-    order: 1;
-    flex: 1;
+    grid-column: 2;
+    grid-row: 1;
     display: flex;
     flex-direction: column;
+    justify-content: center;
     gap: var(--space-01);
-    padding-right: var(--space-01)
+    min-width: 0;
   }
 
-  /* Line 3: All controls visible for podcasts */
   .audio-player.source-podcast .controls {
-    order: 3;
-    width: 100%;
+    grid-column: 2;
+    grid-row: 2;
   }
 
   .audio-player.source-podcast :deep(.speed-selector),
