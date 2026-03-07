@@ -38,30 +38,24 @@
           <!-- Case 1: Subwoofer not in zone -->
           <template v-if="isSubwoofer && !isInZone">
             <p class="text-mono">
-              {{ t('multiroom.crossover.subwooferNotInZone', 'Add this subwoofer to a zone to enable automatic crossover management. Lowpass (subwoofer) and highpass (other speakers) filters will be applied automatically.') }}
+              {{ t('multiroom.crossover.subwooferNotInZone') }}
             </p>
           </template>
 
           <!-- Case 2: Subwoofer in zone -->
           <template v-else-if="isSubwoofer && isInZone">
-            <h3 class="info-title text-mono">{{ t('multiroom.crossover.lowpassActive', 'Lowpass filter active') }}</h3>
-            <p class="text-mono">{{ t('multiroom.crossover.lowpassDescription', 'This subwoofer only receives bass frequencies below the crossover frequency.') }}</p>
-            <div class="crossover-frequency">
-              <span class="info-label text-mono">{{ t('multiroom.crossover.crossoverFrequency', 'Crossover frequency:') }}</span>
-              <span class="crossover-value text-mono">{{ zoneCrossoverFrequency }} Hz</span>
-            </div>
-            <p class="text-mono">{{ t('multiroom.crossover.highpassOnOthers', 'A highpass filter is applied to other speakers in the zone to remove bass (handled by this subwoofer).') }}</p>
-            <p class="text-mono text-warning">{{ t('multiroom.crossover.disablePhysicalCrossover', "Set your subwoofer's physical crossover to bypass/LFE to avoid filter stacking.") }}</p>
+            <h3 class="info-title heading-4">{{ t('multiroom.crossover.lowpassActive') }}</h3>
+            <SettingItem :label="t('multiroom.crossover.crossoverFrequency')">
+              <RangeSlider v-model="crossoverFrequency" :min="40" :max="200" :step="5" value-unit="Hz"
+                @change="handleCrossoverChange" />
+            </SettingItem>
+            <p class="crossover-warning text-mono">{{ t('multiroom.crossover.disablePhysicalCrossover') }}</p>
           </template>
 
           <!-- Case 3: Non-subwoofer in zone with subwoofer -->
           <template v-else-if="!isSubwoofer && isInZone && zoneHasSubwoofer">
-            <h3 class="info-title text-mono">{{ t('multiroom.crossover.highpassActive', 'Highpass filter active') }}</h3>
-            <p class="text-mono">{{ t('multiroom.crossover.highpassDescription', { freq: zoneCrossoverFrequency }, `Bass frequencies below ${zoneCrossoverFrequency} Hz are removed from this speaker and handled by the subwoofer in the zone.`) }}</p>
-            <div class="crossover-frequency">
-              <span class="info-label text-mono">{{ t('multiroom.crossover.crossoverFrequency', 'Crossover frequency:') }}</span>
-              <span class="crossover-value text-mono">{{ zoneCrossoverFrequency }} Hz</span>
-            </div>
+            <h3 class="info-title heading-4">{{ t('multiroom.crossover.highpassActive') }}</h3>
+            <p class="text-mono">{{ t('multiroom.crossover.highpassDescription', { freq: zoneCrossoverFrequency }) }}</p>
           </template>
         </div>
       </SettingsSection>
@@ -85,16 +79,18 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useSnapcastStore } from '@/stores/snapcastStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useEqualizerStore } from '@/stores/equalizerStore';
 import InputText from '@/components/ui/InputText.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
+import RangeSlider from '@/components/ui/RangeSlider.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SettingItem from '@/components/settings/SettingItem.vue';
 
 const props = defineProps({
   macId: {
@@ -114,6 +110,7 @@ const clientName = ref('');
 const originalClientName = ref('');
 const selectedSpeakerType = ref('bookshelf');
 const deleting = ref(false);
+const crossoverFrequency = ref(80);
 
 // Find client by mac_id
 const client = computed(() =>
@@ -146,10 +143,21 @@ const zoneHasSubwoofer = computed(() => {
   return multiroomClientStore.hasOnlineSubwoofer(clientZone.value.id);
 });
 
-// Get zone crossover frequency (computed from speaker types in registry)
+// Get zone crossover frequency for display (non-subwoofer clients)
 const zoneCrossoverFrequency = computed(() => {
   return clientZone.value?.crossover_frequency || 80;
 });
+
+// Sync crossover frequency ref from zone data
+watch(
+  () => clientZone.value?.crossover_frequency,
+  (newFreq) => {
+    if (newFreq != null) {
+      crossoverFrequency.value = newFreq;
+    }
+  },
+  { immediate: true }
+);
 
 // Show crossover info when relevant
 const showCrossoverInfo = computed(() => {
@@ -168,10 +176,23 @@ const speakerTypes = computed(() => [
   { value: 'subwoofer', label: t('multiroom.speakerTypes.subwoofer', 'Subwoofer'), icon: 'speakerSub' }
 ]);
 
+async function handleCrossoverChange(frequency) {
+  if (!clientZone.value?.id) return;
+  try {
+    await equalizerStore.setZoneCrossoverFrequency(clientZone.value.id, frequency);
+  } catch (error) {
+    console.error('Error updating crossover frequency:', error);
+  }
+}
+
 async function selectSpeakerType(type) {
   if (type === selectedSpeakerType.value) return;
 
   selectedSpeakerType.value = type;
+
+  if (type === 'subwoofer' && clientZone.value?.crossover_frequency != null) {
+    crossoverFrequency.value = clientZone.value.crossover_frequency;
+  }
 
   // Save immediately via PATCH /api/multiroom/clients/{mac_id}
   try {
@@ -239,7 +260,7 @@ onMounted(() => {
   margin-top: var(--space-03);
   display: flex;
   flex-direction: column;
-  gap: var(--space-03);
+  gap: var(--space-04);
 }
 
 .crossover-info .info-title {
@@ -247,26 +268,20 @@ onMounted(() => {
   margin: 0;
 }
 
+.crossover-info :deep(.slider-container.horizontal .range-track) {
+  background: linear-gradient(to right,
+    var(--slider-accent) 0%,
+    var(--slider-accent) var(--progress),
+    var(--color-background-neutral) var(--progress),
+    var(--color-background-neutral) 100%);
+}
+
 .crossover-info p {
   color: var(--color-text-secondary);
   margin: 0;
 }
-
-.crossover-info .text-warning {
-  color: var(--color-brand);
-}
-
-.crossover-frequency {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--space-03) var(--space-04);
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-03);
-}
-
-.crossover-value {
-  color: var(--color-text);
+.crossover-warning {
+  padding-top: var(--space-01);
 }
 
 .info-grid {

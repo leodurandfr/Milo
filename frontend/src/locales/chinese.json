@@ -69,14 +69,12 @@
       "subwoofer": "低音炮"
     },
     "crossover": {
-      "subwooferNotInZone": "将此低音炮添加到区域以启用自动分频管理。低通（低音炮）和高通（其他扬声器）滤波器将自动应用。",
-      "lowpassActive": "低通滤波器已激活",
-      "lowpassDescription": "此低音炮仅接收分频点以下的低音。",
-      "highpassOnOthers": "已对区域内其他扬声器应用高通滤波器以移除低音（由此低音炮处理）。",
-      "disablePhysicalCrossover": "将低音炮的物理分频设置为旁路/LFE以避免滤波器叠加。",
-      "highpassActive": "高通滤波器已激活",
-      "highpassDescription": "{freq} Hz以下的低音已从此扬声器移除并由区域低音炮处理。",
-      "crossoverFrequency": "分频频率：",
+      "subwooferNotInZone": "添加到分区以自动分配频率。",
+      "lowpassActive": "低通已启用",
+      "disablePhysicalCrossover": "禁用低音炮的物理分频器或将其设置为最高频率。",
+      "highpassActive": "高通已启用",
+      "highpassDescription": "{freq} Hz以下的低音已重定向至低音炮。",
+      "crossoverFrequency": "分频频率",
       "badgeActive": "分频器已启用",
       "badgeInactive": "分频器未启用",
       "subwooferOffline": "低音炮离线"

@@ -69,14 +69,12 @@
       "subwoofer": "Subwoofer"
     },
     "crossover": {
-      "subwooferNotInZone": "Adicione este subwoofer a uma zona para ativar a gestão automática do crossover. Os filtros passa-baixo (subwoofer) e passa-alto (outras colunas) serão aplicados automaticamente.",
-      "lowpassActive": "Filtro passa-baixo ativo",
-      "lowpassDescription": "Este subwoofer recebe apenas os graves abaixo da frequência de corte.",
-      "highpassOnOthers": "Um filtro passa-alto é aplicado às outras colunas da zona para remover os graves (geridos por este subwoofer).",
-      "disablePhysicalCrossover": "Configure o crossover físico do seu subwoofer em bypass/LFE para evitar acumulação de filtros.",
-      "highpassActive": "Filtro passa-alto ativo",
-      "highpassDescription": "Os graves abaixo de {freq} Hz são removidos desta coluna e geridos pelo subwoofer da zona.",
-      "crossoverFrequency": "Frequência de corte:",
+      "subwooferNotInZone": "Adicionar a uma zona para distribuir automaticamente as frequências.",
+      "lowpassActive": "Passa-baixo ativo",
+      "disablePhysicalCrossover": "Desativar o crossover físico do subwoofer ou ajustá-lo à sua frequência máxima.",
+      "highpassActive": "Passa-alto ativo",
+      "highpassDescription": "Graves abaixo de {freq} Hz redirecionados para o subwoofer.",
+      "crossoverFrequency": "Frequência de corte",
       "badgeActive": "Crossover ativo",
       "badgeInactive": "Crossover inativo",
       "subwooferOffline": "Subwoofer offline"
