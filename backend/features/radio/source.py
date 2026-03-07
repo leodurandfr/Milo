@@ -71,6 +71,7 @@ class RadioSource(MpvAudioSource):
         # State
         self._metadata: Dict[str, Any] = {}
         self._current_station: Optional[Dict[str, Any]] = None
+        self._last_station: Optional[Dict[str, Any]] = None
 
         # Schedule async initialization
         self._init_task: Optional[asyncio.Task] = None
@@ -84,6 +85,7 @@ class RadioSource(MpvAudioSource):
 
     def _reset_playback_state(self) -> None:
         super()._reset_playback_state()
+        self._last_station = self._current_station or self._last_station
         self._current_station = None
 
     async def _do_start(self) -> bool:
@@ -151,6 +153,9 @@ class RadioSource(MpvAudioSource):
 
         if cmd == "stop_playback":
             return await self._handle_stop_playback()
+
+        if cmd == "resume_playback":
+            return await self._handle_resume_playback()
 
         if cmd == "add_favorite":
             return await self._handle_add_favorite(data)
@@ -287,6 +292,7 @@ class RadioSource(MpvAudioSource):
 
             await self._mpv.stop()
 
+            self._last_station = self._current_station
             self._current_station = None
             self._metadata = {"is_playing": False, "is_buffering": False, "ready": True}
             self.set_state(PluginState.READY, self._metadata)
@@ -295,6 +301,17 @@ class RadioSource(MpvAudioSource):
 
         except Exception as e:
             return self.error_response(str(e))
+
+    async def _handle_resume_playback(self) -> Dict[str, Any]:
+        """Resume playback of the last station."""
+        if not self._last_station:
+            return self.error_response("No station to resume")
+
+        station_id = self._last_station.get('id', '')
+        return await self._handle_play_station({
+            'station_id': station_id,
+            'station': self._last_station
+        })
 
     async def _handle_add_favorite(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Add station to favorites."""
