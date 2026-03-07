@@ -99,6 +99,10 @@ export const useSettingsStore = defineStore('settings', () => {
     screensaver_delay_seconds: 30
   });
 
+  const screenUiScale = ref({
+    ui_scale: 1.0
+  });
+
   // === ACTIONS ===
 
   /**
@@ -182,6 +186,11 @@ export const useSettingsStore = defineStore('settings', () => {
           screensaver_enabled: d.screen_screensaver?.screensaver_enabled ?? true,
           screensaver_delay_seconds: d.screen_screensaver?.screensaver_delay_seconds ?? 30
         };
+
+        screenUiScale.value = {
+          ui_scale: d.screen_ui_scale?.ui_scale ?? 1.0
+        };
+        applyUiScale(screenUiScale.value.ui_scale);
 
         radioSettings.value = {
           shazam_enabled: d.radio_settings?.shazam_enabled ?? true
@@ -319,6 +328,30 @@ export const useSettingsStore = defineStore('settings', () => {
   const updateScreenTimeout = makeUpdater(screenTimeout);
   const updateScreenBrightness = makeUpdater(screenBrightness);
   const updateScreenScreensaver = makeUpdater(screenScreensaver);
+
+  function updateScreenUiScale(config) {
+    screenUiScale.value = { ...screenUiScale.value, ...config };
+    applyUiScale(screenUiScale.value.ui_scale);
+  }
+
+  function applyUiScale(scale) {
+    const isKiosk = window.location.hostname === 'localhost';
+    const appEl = document.getElementById('app');
+    if (!appEl) return;
+    if (scale === 1.0 || !isKiosk) {
+      appEl.style.transform = '';
+      appEl.style.transformOrigin = '';
+      appEl.style.width = '';
+      appEl.style.height = '';
+      appEl.style.overflow = '';
+    } else {
+      appEl.style.transform = `scale(${scale})`;
+      appEl.style.transformOrigin = 'top left';
+      appEl.style.width = `calc(100vw / ${scale})`;
+      appEl.style.height = `calc(100vh / ${scale})`;
+      appEl.style.overflow = 'hidden';
+    }
+  }
   const updateInactivityTimeout = makeUpdater(inactivityTimeout);
   const updateRadioSettings = makeUpdater(radioSettings);
 
@@ -344,6 +377,7 @@ export const useSettingsStore = defineStore('settings', () => {
     screenTimeout,
     screenBrightness,
     screenScreensaver,
+    screenUiScale,
 
     // Actions
     loadAllSettings,
@@ -367,6 +401,7 @@ export const useSettingsStore = defineStore('settings', () => {
     updateScreenSleeping,
     updateScreenTimeout,
     updateScreenBrightness,
-    updateScreenScreensaver
+    updateScreenScreensaver,
+    updateScreenUiScale
   };
 });

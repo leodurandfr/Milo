@@ -239,6 +239,8 @@
     "sleepDelay": "Quando o aplicativo estiver inativo, desligar a tela após:",
     "screensaver": "Proteção de tela",
     "screensaverSourceNote": "Apenas em Rádio, Podcasts e Bluetooth",
+    "uiScale": "Exibição",
+    "uiScaleLevel": "Escala da interface",
     "screensaverDelay": "Iniciar a proteção de tela após:"
   },
   "spotifySettings": {
