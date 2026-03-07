@@ -2,7 +2,7 @@
 <template>
   <SettingsContainer>
     <!-- Audio sources -->
-    <SettingsSection>
+    <SettingsSection class="audio-sources-section">
       <template #header>
         <div class="section-header">
           <h2 class="heading-2">{{ t('audioSources.title') }}</h2>
@@ -125,7 +125,7 @@ import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
-import ToggleSection from '@/components/settings/ToggleSection.vue';
+import ToggleSection from '@/components/ui/ToggleSection.vue';
 
 const { t } = useI18n();
 const { on } = useWebSocket();
@@ -408,6 +408,10 @@ onUnmounted(() => {
   align-items: center;
   color: var(--color-text-light);
   pointer-events: none;
+}
+
+:deep(.audio-sources-section.settings-section) {
+  gap: var(--space-03);
 }
 
 @media (max-aspect-ratio: 4/3) {

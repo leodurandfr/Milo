@@ -1,19 +1,21 @@
 <!-- frontend/src/components/settings/categories/SpotifySettings.vue -->
 <template>
-  <ToggleSection
-    :title="t('spotifySettings.autoDisconnect')"
-    :enabled="config.auto_disconnect_enabled"
-    @change="handleAutoDisconnectToggle"
-  >
-    <SettingItem :label="t('spotifySettings.disconnectDelay')">
-      <ButtonGroup
-        :model-value="config.auto_disconnect_delay"
-        :options="delayPresets"
-        mobile-layout="grid-3"
-        @change="setSpotifyDisconnect"
-      />
-    </SettingItem>
-  </ToggleSection>
+  <SettingsContainer>
+    <ToggleSection
+      :title="t('spotifySettings.autoDisconnect')"
+      :enabled="config.auto_disconnect_enabled"
+      @change="handleAutoDisconnectToggle"
+    >
+      <SettingItem :label="t('spotifySettings.disconnectDelay')">
+        <ButtonGroup
+          :model-value="config.auto_disconnect_delay"
+          :options="delayPresets"
+          mobile-layout="grid-3"
+          @change="setSpotifyDisconnect"
+        />
+      </SettingItem>
+    </ToggleSection>
+  </SettingsContainer>
 </template>
 
 <script setup>
@@ -23,8 +25,9 @@ import useWebSocket from '@/services/websocket';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
+import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
-import ToggleSection from '@/components/settings/ToggleSection.vue';
+import ToggleSection from '@/components/ui/ToggleSection.vue';
 
 const { t } = useI18n();
 const { on } = useWebSocket();

@@ -54,7 +54,7 @@ import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import useWebSocket from '@/services/websocket';
 import { logger } from '@/services/logger';
 import Button from '@/components/ui/Button.vue';
-import ToggleSection from '@/components/settings/ToggleSection.vue';
+import ToggleSection from '@/components/ui/ToggleSection.vue';
 import StationCard from '@/components/radio/StationCard.vue';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
