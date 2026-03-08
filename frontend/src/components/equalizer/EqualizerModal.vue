@@ -1,15 +1,15 @@
 <!-- frontend/src/components/equalizer/EqualizerModal.vue -->
 <template>
   <div class="equalizer-modal">
-    <NavigationHeader :title="t('equalizer.title')">
+    <NavigationHeader ref="headerRef" :title="t('equalizer.title')">
       <template #actions>
         <Toggle :modelValue="equalizerStore.isEqualizerEffectsEnabled"
           :disabled="equalizerStore.isTogglingEnabled" @change="handleEqualizerToggle" />
       </template>
     </NavigationHeader>
 
-    <div class="main-content">
-      <Transition name="fade-slide">
+    <div class="transition-wrapper">
+      <Transition name="fade-slide" @before-leave="onBeforeLeave" @enter="onEnter" @after-leave="onAfterLeave">
         <!-- State 1: Equalizer disabled -->
         <MessageContent v-if="!equalizerStore.isEqualizerEffectsEnabled" key="disabled" icon="equalizer"
           :title="t('equalizer.effects_disabled')" />
@@ -128,9 +128,10 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, inject, watch, onMounted, onUnmounted } from 'vue';
 import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useI18n } from '@/services/i18n';
+import { useViewTransition } from '@/composables/useViewTransition';
 import NavigationHeader from '@/components/ui/NavigationHeader.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import Button from '@/components/ui/Button.vue';
@@ -146,9 +147,37 @@ import LevelMeters from './LevelMeters.vue';
 const { t } = useI18n();
 const equalizerStore = useEqualizerStore();
 
+// Inject modal refs (same pattern as SettingsModal)
+const modalContentRef = inject('modalContentRef', null);
+const modalDeferScrollRestore = inject('modalDeferScrollRestore', null);
+const modalContentInnerRef = inject('modalContentInnerRef', null);
+const modalRequestHeightDelta = inject('modalRequestHeightDelta', null);
+
 // Local state
 const isMobile = ref(false);
 const zoneTabsRef = ref(null);
+const headerRef = ref(null);
+
+// Scroll-aware crossfade transitions (same composable as SettingsModal)
+const { prepareNavigation, onBeforeLeave, onEnter, onAfterLeave } = useViewTransition({
+  scrollElRef: modalContentRef,
+  headerRef,
+  pendingScrollRestore: ref(null),
+  deferScrollRestore: modalDeferScrollRestore,
+  contentInnerRef: modalContentInnerRef,
+  requestHeightDelta: modalRequestHeightDelta,
+});
+
+// Detect content key changes and prepare transition before Vue patches the DOM
+const contentKey = computed(() => {
+  if (!equalizerStore.isEqualizerEffectsEnabled) return 'disabled';
+  if (!equalizerStore.isConnected) return 'loading';
+  return 'controls';
+});
+
+watch(contentKey, () => {
+  prepareNavigation();
+}, { flush: 'pre' });
 
 // Selected zone/client name from ZoneTabs component
 const selectedZoneName = computed(() => {
@@ -275,10 +304,9 @@ onUnmounted(() => {
   gap: var(--space-03);
 }
 
-.main-content {
+/* Cross-fade wrapper: positioning context for leaving element overlay */
+.transition-wrapper {
   position: relative;
-  display: flex;
-  flex-direction: column;
 }
 
 /* Cross-fade: entering content appears after leaving starts fading */
