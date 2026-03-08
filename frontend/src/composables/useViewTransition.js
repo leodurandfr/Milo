@@ -224,8 +224,12 @@ export function useViewTransition({
         const scrollEl = unref(scrollElRef);
         let delta = el.offsetHeight - savedLeavingHeight;
 
-        // When content overflows, cap to the visible slot area
-        if (scrollEl && scrollEl.scrollHeight > scrollEl.clientHeight + 2) {
+        // When both old and new views overflow the modal, cap heights to the visible
+        // slot area so the modal stays at max height (avoids double-spring).
+        // Use savedInnerHeight (captured before DOM change) instead of scrollEl.scrollHeight
+        // — scrollHeight is polluted by absolutely positioned elements during the
+        // CSS offset trick (scrolled transitions).
+        if (scrollEl && savedInnerHeight > scrollEl.clientHeight + 2) {
           const scrollStyle = getComputedStyle(scrollEl);
           const scrollPadding = parseFloat(scrollStyle.paddingTop) + parseFloat(scrollStyle.paddingBottom);
           const visibleContent = scrollEl.clientHeight - scrollPadding;

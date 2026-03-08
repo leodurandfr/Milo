@@ -463,9 +463,10 @@ onUnmounted(() => {
   border-radius: var(--radius-08);
 }
 
-/* Prevent modal-content from clipping during container height spring */
+/* Prevent scrollbar flicker during container height spring.
+   overflow:hidden (not visible) preserves scrollTop during view transitions. */
 .modal-content.overflow-transitioning {
-  overflow: visible;
+  overflow: hidden;
 }
 
 .modal-content-inner {
