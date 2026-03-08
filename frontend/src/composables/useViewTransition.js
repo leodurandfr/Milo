@@ -4,7 +4,7 @@ import { ref, unref } from 'vue';
  * Composable for scroll-aware view transitions with NavigationHeader clone support.
  *
  * Provides Vue <Transition> hooks that handle:
- * - Wrapper height pinning (only when entering element is positioned absolutely)
+ * - Pre-calculated height delta via requestHeightDelta (avoids double-spring)
  * - Scroll position save / CSS offset restore
  * - NavigationHeader clone mechanism when scrolled (clone fades out, real header
  *   fades in for forward nav or appears after scroll reset for back nav)
@@ -27,6 +27,10 @@ import { ref, unref } from 'vue';
  * @param {((fn: () => void) => void)|null} [options.deferScrollRestore]
  *   When provided, scroll restore is deferred via this callback (e.g., force
  *   overflow-y on Modal content before setting scrollTop).
+ * @param {import('vue').Ref<HTMLElement|null>} [options.contentInnerRef]
+ *   Ref to Modal's contentInner element for height delta measurement.
+ * @param {((delta: number, duration?: number) => void)|null} [options.requestHeightDelta]
+ *   Pre-announce height changes to Modal's animated height system.
  */
 export function useViewTransition({
   scrollElRef,
@@ -34,40 +38,44 @@ export function useViewTransition({
   pendingScrollRestore = ref(null),
   onScrollRestored,
   deferScrollRestore = null,
+  contentInnerRef = null,
+  requestHeightDelta = null,
 }) {
-  const transitionWrapperRef = ref(null);
-
   // Scroll-aware cross-fade state
   let wasScrolled = false;
   let savedScrollTop = 0;
   let enteringEl = null;
   let headerClone = null;
-  let heightPinned = false;
+  let savedInnerHeight = 0;
+  let savedLeavingHeight = 0;
+  let pinnedWrapper = null;
   const SCROLL_FADE_THRESHOLD = 16;
 
   /**
-   * Pin wrapper minHeight to prevent collapse when both elements are absolute.
-   */
-  function pinHeight(el) {
-    if (transitionWrapperRef.value) {
-      transitionWrapperRef.value.style.minHeight = `${el.offsetHeight}px`;
-      heightPinned = true;
-    }
-  }
-
-  /**
    * Pre-create header clone BEFORE the view changes (before push/back).
-   * This captures the header's current (old) content before Vue re-renders
-   * NavigationHeader with new props. Must be called synchronously after
-   * the navigation stack mutation (DOM hasn't updated yet, but
-   * pendingScrollRestore is already set).
+   * Also saves contentInner height for delta calculation in onEnter.
    */
   function prepareNavigation() {
-    // Clean up any stale clone
+    // Clean up stale state from an interrupted transition
+    if (pinnedWrapper) {
+      pinnedWrapper.style.minHeight = '';
+      pinnedWrapper = null;
+    }
+    if (enteringEl) {
+      enteringEl.style.position = '';
+      enteringEl.style.top = '';
+      enteringEl.style.left = '';
+      enteringEl.style.width = '';
+      enteringEl = null;
+    }
     if (headerClone && headerClone.parentNode) {
       headerClone.parentNode.removeChild(headerClone);
     }
     headerClone = null;
+
+    // Save current contentInner height BEFORE Vue patches the DOM.
+    // Used in onEnter to calculate the height delta for the Modal spring.
+    savedInnerHeight = contentInnerRef?.value?.getBoundingClientRect().height ?? 0;
 
     const scrollEl = unref(scrollElRef);
     const scrollTop = scrollEl?.scrollTop || 0;
@@ -85,7 +93,7 @@ export function useViewTransition({
 
   /**
    * Called before the leaving element starts its leave transition.
-   * Saves scroll, inserts pre-created clone, and pins height when needed.
+   * Saves scroll, inserts pre-created clone, and captures leaving height.
    */
   function onBeforeLeave(el) {
     const scrollEl = unref(scrollElRef);
@@ -94,12 +102,24 @@ export function useViewTransition({
     const isScrolled = scrollTop > SCROLL_FADE_THRESHOLD;
     const willBeScrolled = targetScroll > SCROLL_FADE_THRESHOLD;
 
+    // Save leaving element height for delta calculation
+    savedLeavingHeight = el.offsetHeight;
+
+    // Pin the transition-wrapper height so it doesn't shrink when the leaving
+    // element goes position:absolute. This keeps the container stable during
+    // the crossfade (no flash/crop on the leaving content).
+    // Only needed in Modal context where animated height depends on contentInner.
+    if (requestHeightDelta) {
+      const wrapper = el.parentNode;
+      if (wrapper) {
+        wrapper.style.minHeight = `${wrapper.offsetHeight}px`;
+        pinnedWrapper = wrapper;
+      }
+    }
+
     if (isScrolled || willBeScrolled) {
       wasScrolled = true;
       savedScrollTop = scrollTop;
-
-      // Pin height — entering element will be positioned absolutely
-      pinHeight(el);
 
       const headerEl = headerRef.value?.$el;
       if (headerEl) {
@@ -143,11 +163,6 @@ export function useViewTransition({
       wasScrolled = false;
       savedScrollTop = scrollTop;
 
-      // Only pin height if scroll restore will position entering element absolutely
-      if (savedScrollTop !== targetScroll) {
-        pinHeight(el);
-      }
-
       // Reset minor scroll immediately
       if (scrollTop > 0 && scrollEl) {
         scrollEl.scrollTop = 0;
@@ -160,6 +175,7 @@ export function useViewTransition({
    * Positions the entering element at the scroll offset when scrolled.
    * Forward nav: fades in header with new content.
    * Back nav: header stays hidden, appears after scroll reset in onAfterLeave.
+   * Pre-calculates height delta for Modal spring animation.
    */
   function onEnter(el) {
     const targetScroll = unref(pendingScrollRestore) ?? 0;
@@ -198,6 +214,33 @@ export function useViewTransition({
       el.style.position = 'absolute';
       el.style.top = `${savedScrollTop - targetScroll}px`;
       el.style.width = '100%';
+    }
+
+    // Pre-calculate height delta for Modal spring animation.
+    // When content overflows, cap element heights to the visible area
+    // to avoid overshooting the delta.
+    if (requestHeightDelta && savedLeavingHeight > 0) {
+      requestAnimationFrame(() => {
+        const scrollEl = unref(scrollElRef);
+        let delta = el.offsetHeight - savedLeavingHeight;
+
+        // When content overflows, cap to the visible slot area
+        if (scrollEl && scrollEl.scrollHeight > scrollEl.clientHeight + 2) {
+          const scrollStyle = getComputedStyle(scrollEl);
+          const scrollPadding = parseFloat(scrollStyle.paddingTop) + parseFloat(scrollStyle.paddingBottom);
+          const visibleContent = scrollEl.clientHeight - scrollPadding;
+          const otherContentHeight = savedInnerHeight - savedLeavingHeight;
+          const maxSlotVisible = Math.max(0, visibleContent - otherContentHeight);
+
+          const effectiveLeaving = Math.min(savedLeavingHeight, maxSlotVisible);
+          const effectiveEntering = Math.min(el.offsetHeight, maxSlotVisible);
+          delta = effectiveEntering - effectiveLeaving;
+        }
+
+        if (Math.abs(delta) > 2) {
+          requestHeightDelta(delta, 800);
+        }
+      });
     }
   }
 
@@ -241,6 +284,7 @@ export function useViewTransition({
 
       enteringEl = null;
       wasScrolled = false;
+      savedScrollTop = 0;
     } else if (enteringEl && savedScrollTop !== targetScroll) {
       // Non-scrolled case with scroll restore: reset entering element
       enteringEl.style.position = '';
@@ -249,11 +293,12 @@ export function useViewTransition({
       enteringEl = null;
     }
 
-    // --- Phase 2: Clear height pin (may trigger Modal height transition) ---
-
-    if (heightPinned && transitionWrapperRef.value) {
-      transitionWrapperRef.value.style.minHeight = '';
-      heightPinned = false;
+    // --- Phase 2: Unpin wrapper height ---
+    // The wrapper can now shrink to the entering element's natural height.
+    // The ResizeObserver will correct any remaining height discrepancy.
+    if (pinnedWrapper) {
+      pinnedWrapper.style.minHeight = '';
+      pinnedWrapper = null;
     }
 
     // --- Phase 3: Restore scroll (deferred in Modal context) ---
@@ -274,7 +319,6 @@ export function useViewTransition({
   }
 
   return {
-    transitionWrapperRef,
     prepareNavigation,
     onBeforeLeave,
     onEnter,

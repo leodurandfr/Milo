@@ -7,7 +7,8 @@
           aria-label="Fermer" @click="close" />
       </div>
 
-      <div ref="modalContainer" class="modal-container" :style="{ height: containerHeight }"
+      <div ref="modalContainer" class="modal-container"
+        :style="{ height: containerHeight }"
         @transitionstart.self="onContainerTransitionStart" @transitionend.self="onContainerTransitionEnd"
         @transitioncancel.self="onContainerTransitionEnd">
         <!-- Content with animated height -->
@@ -70,8 +71,8 @@ const { containerHeight, resetFirstResize, requestHeightDelta } = useAnimatedHei
 const isVisible = ref(false);
 const isAnimating = ref(false);
 
-// Height transition tracking — prevent modal-content from clipping
-// leaving content during the container height spring animation
+// Height transition tracking — used by modalDeferScrollRestore to wait
+// for the height spring to settle before cleaning up scroll overrides
 const isHeightTransitioning = ref(false);
 
 function onContainerTransitionStart(e) {
@@ -95,10 +96,14 @@ provide('modalResetFirstResize', resetFirstResize);
 // Provide requestHeightDelta for children to pre-announce height changes before animations
 provide('modalRequestHeightDelta', requestHeightDelta);
 
+// Provide contentInner ref so children can measure exact height deltas
+provide('modalContentInnerRef', contentInner);
+
 // Provide a way to safely restore scroll during height transitions.
-// Forces overflow-y: auto inline (overriding overflow-transitioning class) so
-// scrollTop can be set immediately. Safe because the leaving element is already
-// gone by this point — no clipping concern. Cleans up after height transition.
+// Forces overflow-y: auto inline so scrollTop can be set immediately
+// even if the height spring is still running. Cleans up after transition.
+let deferScrollWatcher = null;
+
 provide('modalDeferScrollRestore', (callback) => {
   const el = modalContent.value;
   if (!el) { callback(); return; }
@@ -107,14 +112,20 @@ provide('modalDeferScrollRestore', (callback) => {
   el.style.overflowY = 'auto';
   callback();
 
+  // Stop any previous watcher before creating a new one
+  if (deferScrollWatcher) { deferScrollWatcher(); deferScrollWatcher = null; }
+
   // Remove inline override after height transition ends.
   // transitionstart fires asynchronously, so isHeightTransitioning may still be
   // false at this point. Wait 2 frames to let it fire before checking.
   const cleanup = () => { if (el) el.style.overflowY = ''; };
   requestAnimationFrame(() => requestAnimationFrame(() => {
     if (isHeightTransitioning.value) {
-      const unwatch = watch(isHeightTransitioning, (val) => {
-        if (!val) { unwatch(); cleanup(); }
+      deferScrollWatcher = watch(isHeightTransitioning, (val) => {
+        if (!val) {
+          if (deferScrollWatcher) { deferScrollWatcher(); deferScrollWatcher = null; }
+          cleanup();
+        }
       });
     } else {
       cleanup();
@@ -361,6 +372,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  if (deferScrollWatcher) { deferScrollWatcher(); deferScrollWatcher = null; }
   document.removeEventListener('keydown', handleKeydown);
   document.body.style.overflow = '';
   clearAllTimeouts();
@@ -451,7 +463,7 @@ onUnmounted(() => {
   border-radius: var(--radius-08);
 }
 
-/* Prevent clipping during container height spring (crossfade transitions) */
+/* Prevent modal-content from clipping during container height spring */
 .modal-content.overflow-transitioning {
   overflow: visible;
 }
