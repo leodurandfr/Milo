@@ -19,6 +19,8 @@ import logging
 import re
 from typing import Dict, Optional, Set
 
+from backend.core.models.audio_state import AudioSource
+
 try:
     import evdev
     EVDEV_AVAILABLE = True
@@ -37,7 +39,7 @@ DEFAULT_DEVICE_FILTER = "ANTICATER"
 MULTI_CLICK_WINDOW = 0.4   # 400ms window for multi-click grouping
 SCAN_INTERVAL = 5.0         # Seconds between evdev device scans
 DISCOVERY_INTERVAL = 30.0   # Seconds between BT discovery attempts
-DISCOVERY_DURATION = 20     # Seconds to run BT scan
+DISCOVERY_DURATION = 5      # Seconds to run BT scan
 
 _MAC_PATTERN = re.compile(r'^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$')
 
@@ -72,8 +74,10 @@ class BtRemoteController:
         self._click_count = 0
         self._click_timer: Optional[asyncio.TimerHandle] = None
 
-        # Lock for config update transitions
+        # Locks
         self._config_lock = asyncio.Lock()
+        self._scan_lock = asyncio.Lock()
+        self._discovering = False
 
     async def initialize(self) -> bool:
         """Initialize the BT remote controller."""
@@ -88,7 +92,7 @@ class BtRemoteController:
             await self._disconnect_matching_devices()
             return True
 
-        await self._unblock_matching_devices()
+        await self._remove_matching_bonds()
         self._start_scanning()
         logger.info("BT remote controller initialized (filter=%s)", self.device_name_filter)
         return True
@@ -107,10 +111,11 @@ class BtRemoteController:
             self._click_timer.cancel()
             self._click_timer = None
 
-        if self._scan_task and not self._scan_task.done():
-            self._scan_task.cancel()
-        if self._discovery_task and not self._discovery_task.done():
-            self._discovery_task.cancel()
+        for task_ref in (self._scan_task, self._discovery_task):
+            if task_ref and not task_ref.done():
+                task_ref.cancel()
+        self._scan_task = None
+        self._discovery_task = None
 
         for task in self._monitor_tasks.values():
             if not task.done():
@@ -160,7 +165,6 @@ class BtRemoteController:
 
             # Handle enable/disable transitions
             if self.enabled and not self.running:
-                await self._unblock_matching_devices()
                 self._start_scanning()
             elif not self.enabled and self.running:
                 await self._disconnect_matching_devices()
@@ -172,16 +176,22 @@ class BtRemoteController:
         )
 
     def get_status(self) -> dict:
-        """Return current controller status."""
-        connected = [
-            {"path": path, **self._device_info.get(path, {"name": "unknown", "address": ""})}
-            for path in self._monitored_paths
-        ]
+        """Return current controller status (one entry per physical device)."""
+        seen_macs = set()
+        connected = []
+        for path in self._monitored_paths:
+            info = self._device_info.get(path, {"name": "unknown", "address": ""})
+            mac = info.get("address", "").upper()
+            if mac and mac in seen_macs:
+                continue
+            seen_macs.add(mac)
+            connected.append({"path": path, **info})
 
         return {
             "available": EVDEV_AVAILABLE,
             "enabled": self.enabled,
             "running": self.running,
+            "discovering": self._discovering,
             "connected_devices": connected,
             "device_name_filter": self.device_name_filter,
             "key_map": self.key_map
@@ -192,8 +202,14 @@ class BtRemoteController:
         status = self.get_status()
         await self.state_machine.broadcast_event(
             "settings", "bt_remote_status_changed",
-            {"source": "settings", "connected_devices": status["connected_devices"]}
+            {"source": "settings",
+             "connected_devices": status["connected_devices"],
+             "discovering": status["discovering"]}
         )
+
+    # ========================================================================
+    # BLUETOOTHCTL HELPERS
+    # ========================================================================
 
     async def _get_matching_devices(self, *device_args) -> list[tuple[str, str]]:
         """Return (address, name) pairs for BT devices matching the name filter.
@@ -219,27 +235,55 @@ class BtRemoteController:
         return matches
 
     async def _disconnect_matching_devices(self):
-        """Disconnect and block BT devices matching the device name filter.
+        """Disconnect and remove BT devices matching the device name filter.
 
         Only affects devices whose name matches self.device_name_filter,
         leaving other BT connections (e.g. A2DP audio sources) untouched.
-        Blocks all paired matching devices to prevent automatic reconnection.
         """
-        # Disconnect connected ones first
         for address, name in await self._get_matching_devices("Connected"):
             logger.info("Disconnecting BT remote device: %s (%s)", name, address)
             await self._run_bluetoothctl("disconnect", address)
+        await self._remove_matching_bonds()
 
-        # Block all paired matching devices (prevents reconnection even if not currently connected)
+    async def _remove_matching_bonds(self):
+        """Remove all paired matching devices from BlueZ (clear stale bonds)."""
         for address, name in await self._get_matching_devices("Paired"):
-            logger.info("Blocking BT remote device: %s (%s)", name, address)
-            await self._run_bluetoothctl("block", address)
+            logger.info("Removing bond: %s (%s)", name, address)
+            await self._run_bluetoothctl("remove", address)
 
-    async def _unblock_matching_devices(self):
-        """Unblock previously blocked BT devices matching the name filter."""
-        for address, name in await self._get_matching_devices("Paired"):
-            logger.info("Unblocking BT remote device: %s (%s)", name, address)
-            await self._run_bluetoothctl("unblock", address)
+    async def _is_bt_connected(self, address: str) -> bool:
+        """Check if a BT address is currently connected in BlueZ."""
+        output = await self._run_bluetoothctl("devices", "Connected", capture_stdout=True)
+        return address.upper() in output.upper()
+
+    @staticmethod
+    async def _run_bluetoothctl(
+        *args,
+        stdin_cmds: Optional[str] = None,
+        capture_stdout: bool = False,
+        timeout: int = 10,
+    ) -> "str | bool":
+        """Execute a bluetoothctl command. Returns stdout (str) or success (bool)."""
+        proc = await asyncio.create_subprocess_exec(
+            "bluetoothctl", *args,
+            stdin=asyncio.subprocess.PIPE if stdin_cmds else None,
+            stdout=asyncio.subprocess.PIPE if capture_stdout else asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        try:
+            stdout, _ = await asyncio.wait_for(
+                proc.communicate(input=stdin_cmds.encode() if stdin_cmds else None),
+                timeout=timeout,
+            )
+        except asyncio.CancelledError:
+            raise
+        except asyncio.TimeoutError:
+            return "" if capture_stdout else False
+        finally:
+            if proc.returncode is None:
+                proc.kill()
+                await proc.wait()
+        return stdout.decode() if capture_stdout else proc.returncode == 0
 
     # ========================================================================
     # DEVICE SCANNING (evdev)
@@ -247,6 +291,8 @@ class BtRemoteController:
 
     async def _periodic_scan(self):
         """Periodically scan for new BT HID devices in /dev/input/."""
+        # Initial delay to let stale kernel evdev nodes disappear after re-enable
+        await asyncio.sleep(2)
         while self.running:
             try:
                 await self._scan_devices()
@@ -255,55 +301,83 @@ class BtRemoteController:
             await asyncio.sleep(SCAN_INTERVAL)
 
     async def _scan_devices(self):
-        """Scan /dev/input/ for matching BT HID devices."""
-        if not EVDEV_AVAILABLE or not self.running:
-            return
+        """Scan /dev/input/ for matching BT HID devices.
 
-        try:
-            all_paths = evdev.list_devices()
-        except Exception as e:
-            logger.debug("Error listing input devices: %s", e)
-            return
-
-        # Clean up disconnected devices
-        active_paths = set(all_paths)
-        disconnected = False
-        for path in list(self._monitored_paths):
-            if path not in active_paths:
-                self._monitored_paths.discard(path)
-                self._device_info.pop(path, None)
-                task = self._monitor_tasks.pop(path, None)
-                if task and not task.done():
-                    task.cancel()
-                logger.info("BT HID device disconnected: %s", path)
-                disconnected = True
-        if disconnected and self.running:
-            await self._broadcast_status()
-
-        # Check for new matching devices (open one at a time to avoid fd leaks)
-        for path in all_paths:
-            if path in self._monitored_paths:
-                continue
+        Uses a lock to prevent concurrent scans (e.g. from _auto_pair and _periodic_scan).
+        BLE HID devices create multiple evdev nodes per connection — we monitor all of them
+        (since only one carries the volume key events) but report a single device in status.
+        """
+        async with self._scan_lock:
+            if not EVDEV_AVAILABLE or not self.running:
+                return
 
             try:
-                device = evdev.InputDevice(path)
+                all_paths = evdev.list_devices()
             except Exception as e:
-                logger.debug("Error opening device %s: %s", path, e)
-                continue
+                logger.debug("Error listing input devices: %s", e)
+                return
 
-            try:
-                if self._is_bt_hid_device(device):
+            # Clean up disconnected devices and remove stale bonds
+            active_paths = set(all_paths)
+            disconnected = False
+            for path in list(self._monitored_paths):
+                if path not in active_paths:
+                    info = self._device_info.pop(path, {})
+                    address = info.get("address", "")
+                    self._monitored_paths.discard(path)
+                    task = self._monitor_tasks.pop(path, None)
+                    if task and not task.done():
+                        task.cancel()
+                    logger.info("BT HID device disconnected: %s", path)
+                    if address:
+                        await self._run_bluetoothctl("remove", address)
+                    disconnected = True
+            if disconnected and self.running:
+                await self._broadcast_status()
+
+            # Track which MACs we already monitor (for status broadcast dedup)
+            macs_before = self._monitored_macs()
+
+            # Check for new matching devices
+            for path in all_paths:
+                if path in self._monitored_paths:
+                    continue
+
+                try:
+                    device = evdev.InputDevice(path)
+                except Exception as e:
+                    logger.debug("Error opening device %s: %s", path, e)
+                    continue
+
+                try:
+                    if not self._is_bt_hid_device(device):
+                        device.close()
+                        continue
+                    # Verify the device is actually connected in BlueZ
+                    if device.uniq and not await self._is_bt_connected(device.uniq):
+                        logger.debug("Ignoring stale evdev node: %s (%s)", device.name, device.uniq)
+                        device.close()
+                        continue
                     self._monitored_paths.add(device.path)
                     self._device_info[device.path] = {"name": device.name, "address": device.uniq or ""}
                     task = asyncio.create_task(self._monitor_device(device))
                     self._monitor_tasks[device.path] = task
                     logger.info("BT HID device found: %s (%s) at %s", device.name, device.uniq, device.path)
-                    await self._broadcast_status()
-                else:
+                except Exception as e:
                     device.close()
-            except Exception as e:
-                device.close()
-                logger.debug("Error checking device %s: %s", path, e)
+                    logger.debug("Error checking device %s: %s", path, e)
+
+            # Broadcast only if a new MAC appeared (not for each additional evdev node)
+            if self._monitored_macs() != macs_before:
+                await self._broadcast_status()
+
+    def _monitored_macs(self) -> set:
+        """Return set of unique MAC addresses currently monitored."""
+        return {
+            info["address"].upper()
+            for info in self._device_info.values()
+            if info.get("address")
+        }
 
     def _is_bt_hid_device(self, device) -> bool:
         """Check if a device is a matching BT HID device."""
@@ -339,6 +413,8 @@ class BtRemoteController:
             return {"status": "already_connected", "message": "Device already connected"}
 
         logger.info("Manual BT discovery triggered")
+
+        await self._remove_matching_bonds()
         await self._auto_discover_and_pair()
 
         if self._monitored_paths:
@@ -347,12 +423,11 @@ class BtRemoteController:
 
     async def _periodic_discovery(self):
         """Periodically discover and auto-pair matching BT devices."""
-        # Initial delay to let evdev scan find already-connected devices
-        await asyncio.sleep(10)
+        # Brief delay to let evdev scan find already-connected devices
+        await asyncio.sleep(1)
 
         while self.running:
             try:
-                # Only run discovery if no matching device is currently monitored
                 if not self._monitored_paths:
                     await self._auto_discover_and_pair()
             except Exception as e:
@@ -361,36 +436,48 @@ class BtRemoteController:
 
     async def _auto_discover_and_pair(self):
         """Scan for matching BT devices and auto-pair them."""
+        if self._discovering:
+            return
+        self._discovering = True
+        await self._broadcast_status()
+        try:
+            await self._run_discovery()
+        finally:
+            self._discovering = False
+            await self._broadcast_status()
+
+    async def _run_discovery(self):
+        """Run a BT scan and pair the first matching device found."""
         logger.debug("Starting BT auto-discovery for '%s' devices...", self.device_name_filter)
 
-        # Start scan with duplicate-data on (needed for BLE devices)
-        scan_commands = "menu scan\nduplicate-data on\nback\nscan on\n"
-        await self._run_bluetoothctl(stdin_cmds=scan_commands, timeout=5)
-
+        # Keep bluetoothctl alive for the entire scan duration.
+        # BlueZ stops discovery when the requesting D-Bus client disconnects,
+        # so we must hold the process open during the full scan window.
+        proc = await asyncio.create_subprocess_exec(
+            "bluetoothctl",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
         try:
-            # Wait for discovery
+            proc.stdin.write(b"menu scan\nduplicate-data on\nback\nscan on\n")
+            await proc.stdin.drain()
             await asyncio.sleep(DISCOVERY_DURATION)
+            proc.stdin.write(b"scan off\nquit\n")
+            await proc.stdin.drain()
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=5)
+            except asyncio.TimeoutError:
+                pass
+        except asyncio.CancelledError:
+            raise
         finally:
-            # Always stop scan, even if cancelled
-            await self._run_bluetoothctl(stdin_cmds="scan off\n", timeout=5)
+            if proc.returncode is None:
+                proc.kill()
+                await proc.wait()
 
-        # List discovered devices and find matching ones
-        output = await self._run_bluetoothctl("devices", capture_stdout=True)
-        for line in output.splitlines():
-            if not line.startswith("Device "):
-                continue
-            parts = line.split(" ", 2)
-            if len(parts) < 3:
-                continue
-
-            address = parts[1]
-            name = parts[2]
-
-            if self.device_name_filter.upper() not in name.upper():
-                continue
-            if not _MAC_PATTERN.match(address):
-                continue
-
+        # Find and pair the first matching discovered device
+        for address, name in await self._get_matching_devices():
             logger.info("Auto-discovered matching BT device: %s (%s)", name, address)
             await self._auto_pair(address, name)
             return  # One device at a time
@@ -398,45 +485,23 @@ class BtRemoteController:
     async def _auto_pair(self, address: str, name: str):
         """Auto-pair, trust and connect a discovered BT device."""
         try:
-            commands = f"agent NoInputNoOutput\ndefault-agent\ntrust {address}\npair {address}\nconnect {address}\nquit\n"
-            success = await self._run_bluetoothctl(stdin_cmds=commands, timeout=15)
-            if success:
-                logger.info("Auto-paired BT device: %s (%s)", name, address)
-                await asyncio.sleep(2)
-                await self._scan_devices()
-            else:
-                logger.warning("Auto-pair failed for %s (%s)", name, address)
+            await self._run_bluetoothctl("trust", address)
+
+            if not await self._run_bluetoothctl("pair", address, timeout=10):
+                await asyncio.sleep(1)
+                if not await self._run_bluetoothctl("pair", address, timeout=10):
+                    logger.warning("Pairing failed for %s (%s)", name, address)
+                    return
+
+            if not await self._run_bluetoothctl("connect", address, timeout=10):
+                logger.warning("Connect failed for %s (%s)", name, address)
+                return
+
+            logger.info("Auto-paired BT device: %s (%s)", name, address)
+            await asyncio.sleep(1)
+            await self._scan_devices()
         except Exception as e:
             logger.error("Error auto-pairing %s: %s", address, e)
-
-    @staticmethod
-    async def _run_bluetoothctl(
-        *args,
-        stdin_cmds: Optional[str] = None,
-        capture_stdout: bool = False,
-        timeout: int = 10,
-    ) -> "str | bool":
-        """Execute a bluetoothctl command. Returns stdout (str) or success (bool)."""
-        proc = await asyncio.create_subprocess_exec(
-            "bluetoothctl", *args,
-            stdin=asyncio.subprocess.PIPE if stdin_cmds else None,
-            stdout=asyncio.subprocess.PIPE if capture_stdout else asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        try:
-            stdout, _ = await asyncio.wait_for(
-                proc.communicate(input=stdin_cmds.encode() if stdin_cmds else None),
-                timeout=timeout,
-            )
-        except asyncio.CancelledError:
-            raise
-        except asyncio.TimeoutError:
-            return "" if capture_stdout else False
-        finally:
-            if proc.returncode is None:
-                proc.kill()
-                await proc.wait()
-        return stdout.decode() if capture_stdout else proc.returncode == 0
 
     # ========================================================================
     # EVENT MONITORING
@@ -446,6 +511,7 @@ class BtRemoteController:
         """Monitor a single evdev device for key events."""
         device_name = device.name
         device_path = device.path
+        device_disconnected = False
         logger.info("Monitoring BT HID device: %s", device_name)
 
         try:
@@ -471,18 +537,25 @@ class BtRemoteController:
 
         except OSError as e:
             logger.info("BT HID device disconnected: %s (%s)", device_name, e)
+            device_disconnected = True
         except asyncio.CancelledError:
             logger.debug("Monitor cancelled for %s", device_name)
         except Exception as e:
             logger.error("Error monitoring BT HID device %s: %s", device_name, e)
+            device_disconnected = True
         finally:
+            info = self._device_info.pop(device_path, {})
+            address = info.get("address", "")
             self._monitored_paths.discard(device_path)
             self._monitor_tasks.pop(device_path, None)
-            self._device_info.pop(device_path, None)
             try:
                 device.close()
             except Exception:
                 pass
+            # Remove bond on actual disconnect so next discovery re-pairs fresh.
+            # Don't remove on cancellation (backend shutdown) to preserve bonds.
+            if device_disconnected and address:
+                await self._run_bluetoothctl("remove", address)
             if self.running:
                 await self._broadcast_status()
 
@@ -556,27 +629,26 @@ class BtRemoteController:
         if not plugin:
             return
 
-        source_name = active_source.value
         try:
-            if source_name == "spotify":
+            if active_source == AudioSource.SPOTIFY:
                 await plugin.command("playpause", {})
-            elif source_name == "radio":
+            elif active_source == AudioSource.RADIO:
                 if plugin.is_playing:
                     await plugin.command("stop_playback", {})
                 else:
                     await plugin.command("resume_playback", {})
-            elif source_name == "podcast":
+            elif active_source == AudioSource.PODCAST:
                 if plugin.is_playing:
                     await plugin.command("pause", {})
                 else:
                     await plugin.command("resume", {})
         except Exception as e:
-            logger.error("Error dispatching play/pause to %s: %s", source_name, e)
+            logger.error("Error dispatching play/pause to %s: %s", active_source.value, e)
 
     async def _dispatch_track_command(self, cmd: str):
         """Dispatch next/prev track command (Spotify only)."""
         active_source = self.state_machine.system_state.active_source
-        if active_source.value != "spotify":
+        if active_source != AudioSource.SPOTIFY:
             return
 
         plugin = self.state_machine.get_plugin(active_source)

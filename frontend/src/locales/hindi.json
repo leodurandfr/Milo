@@ -1,6 +1,5 @@
 {
   "app": {
-    "connecting": "कनेक्ट करने का प्रयास...",
     "connectionUnavailable": "कनेक्शन उपलब्ध नहीं"
   },
   "notification": {
@@ -91,7 +90,6 @@
     "title": "Equalizer",
     "disabled": "Equalizer अक्षम है",
     "effects_disabled": "Equalizer इफ़ेक्ट्स अक्षम हैं",
-    "connecting": "Equalizer से कनेक्ट हो रहा है...",
     "selectPreset": "प्रीसेट",
     "selectTarget": "डिवाइस",
     "zones": {
