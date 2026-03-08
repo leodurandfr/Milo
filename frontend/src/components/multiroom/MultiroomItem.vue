@@ -662,7 +662,7 @@ function handleClientMuteToggle(clientMacId, muted) {
 .expanded-wrapper {
   height: 0;
   overflow: hidden;
-  transition: height var(--transition-fast);
+  transition: height var(--transition-normal);
 }
 
 .expanded-clients {
