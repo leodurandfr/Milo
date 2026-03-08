@@ -79,6 +79,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const btRemote = ref({
     enabled: true,
     connected: false,
+    discovering: false,
     device_name: ''
   });
 
@@ -292,6 +293,7 @@ export const useSettingsStore = defineStore('settings', () => {
     const devices = data.connected_devices || [];
     btRemote.value.connected = devices.length > 0;
     btRemote.value.device_name = devices[0]?.name || '';
+    if (data.discovering !== undefined) btRemote.value.discovering = data.discovering;
   }
 
   async function loadBtRemoteStatus() {
@@ -303,19 +305,30 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   async function toggleBtRemote(enabled) {
+    const prev = { ...btRemote.value };
     btRemote.value.enabled = enabled;
+    if (enabled) {
+      btRemote.value.connected = false;
+      btRemote.value.device_name = '';
+      btRemote.value.discovering = true;
+    }
     const result = await apiCall('settings', 'Error toggling BT remote:', async () => {
       await axios.patch('/api/bt-remote/config', { enabled });
       return true;
     });
-    if (!result) btRemote.value.enabled = !enabled;
+    if (!result) {
+      Object.assign(btRemote.value, prev);
+    }
   }
 
   async function discoverBtRemote() {
-    return await apiCall('settings', 'Error discovering BT remote:', async () => {
+    btRemote.value.discovering = true;
+    const result = await apiCall('settings', 'Error discovering BT remote:', async () => {
       const res = await axios.post('/api/bt-remote/discover');
       return res.data.status;
     });
+    if (!result) btRemote.value.discovering = false;
+    return result;
   }
 
   /**

@@ -1,6 +1,5 @@
 {
   "app": {
-    "connecting": "Attempting to connect...",
     "connectionUnavailable": "Connection unavailable"
   },
   "notification": {
@@ -90,7 +89,6 @@
   "equalizer": {
     "title": "Equalizer",
     "effects_disabled": "Equalizer effects are disabled",
-    "connecting": "Connecting to equalizer...",
     "selectPreset": "Preset",
     "zones": {
       "title": "Zones",

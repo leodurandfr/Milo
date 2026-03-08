@@ -44,16 +44,17 @@
       @change="handleBtRemoteToggle"
     >
       <div class="bt-remote-status text-mono">
-        <span class="bt-remote-status__dot" :class="{ 'is-connected': settingsStore.btRemote.connected }" />
-        {{ settingsStore.btRemote.connected ? t('volumeSettings.btRemote.connected') : t('volumeSettings.btRemote.notConnected') }}
+        <span class="bt-remote-status__dot" :class="{ 'is-connected': btRemoteConnected }" />
+        {{ btRemoteConnected ? t('volumeSettings.btRemote.connected') : t('volumeSettings.btRemote.notConnected') }}
         <Button
-          v-if="!settingsStore.btRemote.connected"
+          v-if="!btRemoteConnected"
           variant="brand"
           size="small"
-          :loading="discovering"
+          :loading="settingsStore.btRemote.discovering"
+          :disabled="settingsStore.btRemote.discovering"
           @click="handleBtRemoteDiscover"
         >
-          {{ discovering ? t('volumeSettings.btRemote.discovering') : t('volumeSettings.btRemote.discover') }}
+          {{ settingsStore.btRemote.discovering ? t('volumeSettings.btRemote.discovering') : t('volumeSettings.btRemote.discover') }}
         </Button>
       </div>
 
@@ -101,8 +102,10 @@ const config = ref({
   startup_volume_db: -60.0
 });
 
-// BT Remote local UI state (discovering is transient, not in store)
-const discovering = ref(false);
+// Only consider "connected" when not actively discovering (avoids stale state flash)
+const btRemoteConnected = computed(() =>
+  settingsStore.btRemote.connected && !settingsStore.btRemote.discovering
+);
 
 // Startup mode options for ButtonGroup
 const startupModeOptions = computed(() => [
@@ -138,10 +141,8 @@ function updateVolumeLimits(limits) {
 
 // === BT Remote functions ===
 
-async function handleBtRemoteDiscover() {
-  discovering.value = true;
-  await settingsStore.discoverBtRemote();
-  discovering.value = false;
+function handleBtRemoteDiscover() {
+  settingsStore.discoverBtRemote();
 }
 
 function handleBtRemoteToggle(enabled) {
