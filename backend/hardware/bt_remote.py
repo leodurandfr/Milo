@@ -379,6 +379,18 @@ class BtRemoteController:
             if info.get("address")
         }
 
+    def _cancel_all_for_mac(self, address: str):
+        """Cancel all monitor tasks for a given MAC (BLE HID has multiple evdev nodes)."""
+        mac = address.upper()
+        for path in list(self._monitored_paths):
+            info = self._device_info.get(path, {})
+            if info.get("address", "").upper() == mac:
+                self._device_info.pop(path, None)
+                self._monitored_paths.discard(path)
+                task = self._monitor_tasks.pop(path, None)
+                if task and not task.done():
+                    task.cancel()
+
     def _is_bt_hid_device(self, device) -> bool:
         """Check if a device is a matching BT HID device."""
         capabilities = device.capabilities(verbose=False)
@@ -552,10 +564,13 @@ class BtRemoteController:
                 device.close()
             except Exception:
                 pass
-            # Remove bond on actual disconnect so next discovery re-pairs fresh.
-            # Don't remove on cancellation (backend shutdown) to preserve bonds.
+
             if device_disconnected and address:
+                # BLE HID creates multiple evdev nodes per connection.
+                # When one dies, the others are stale — cancel them all.
+                self._cancel_all_for_mac(address)
                 await self._run_bluetoothctl("remove", address)
+
             if self.running:
                 await self._broadcast_status()
 
