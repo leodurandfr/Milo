@@ -92,13 +92,14 @@
 
 1. Download [Raspberry Pi Imager](https://www.raspberrypi.com/software/)
 2. Flash **Raspberry Pi OS (64-bit) Lite** (Debian Trixie)
-3. In "Edit Settings", configure:
-   - Hostname: `milo` (or `milo-client-01` for multiroom clients)
-   - Username: `milo` (or `milo-client-01`)
-   - Password: your choice
-   - WiFi if needed
 
 ### Main Installation (Milō)
+
+In Raspberry Pi Imager "Edit Settings", configure:
+- Hostname: `milo`
+- Username: `milo`
+- Password: your choice
+- WiFi if needed
 
 ```bash
 wget https://raw.githubusercontent.com/leodurandfr/Milo/main/install.sh
@@ -116,15 +117,19 @@ The script guides you through audio card and screen selection. Once complete:
 
 ### Client Installation (Milō Client)
 
-For multiroom, install on additional Raspberry Pis to add synchronized speakers:
+For multiroom, install on additional Raspberry Pis. Each client is identified by its MAC address.
+
+In Raspberry Pi Imager "Edit Settings", configure:
+- Hostname: `milo-client`
+- Username: `milo-client`
+- Password: your choice
+- WiFi if needed
 
 ```bash
 wget https://raw.githubusercontent.com/leodurandfr/Milo/main/milo-client/install-client.sh
 chmod +x install-client.sh
 ./install-client.sh
 ```
-
-> **Naming convention:** Use `milo-client-01`, `milo-client-02`, etc. for hostname and username.
 
 ### Uninstall
 
