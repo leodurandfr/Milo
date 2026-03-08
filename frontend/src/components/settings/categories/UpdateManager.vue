@@ -593,14 +593,14 @@ onMounted(async () => {
 .programs-list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-04);
+  gap: var(--space-03);
 }
 
 .program-item {
   display: grid;
   grid-template-columns: 1fr 1fr;
   align-items: center;
-  gap: var(--space-04);
+  gap: var(--space-03);
 }
 
 .program-item:first-child {
