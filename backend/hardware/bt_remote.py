@@ -92,7 +92,6 @@ class BtRemoteController:
             await self._disconnect_matching_devices()
             return True
 
-        await self._remove_matching_bonds()
         self._start_scanning()
         logger.info("BT remote controller initialized (filter=%s)", self.device_name_filter)
         return True
@@ -425,8 +424,6 @@ class BtRemoteController:
             return {"status": "already_connected", "message": "Device already connected"}
 
         logger.info("Manual BT discovery triggered")
-
-        await self._remove_matching_bonds()
         await self._auto_discover_and_pair()
 
         if self._monitored_paths:
@@ -459,8 +456,18 @@ class BtRemoteController:
             await self._broadcast_status()
 
     async def _run_discovery(self):
-        """Run a BT scan and pair the first matching device found."""
-        logger.debug("Starting BT auto-discovery for '%s' devices...", self.device_name_filter)
+        """Reconnect paired devices or discover and pair new ones."""
+        # Try reconnecting already-paired devices first (fast path after reboot)
+        for address, name in await self._get_matching_devices("Paired"):
+            logger.info("Reconnecting paired device: %s (%s)", name, address)
+            if await self._run_bluetoothctl("connect", address, timeout=10):
+                logger.info("Reconnected paired device: %s (%s)", name, address)
+                await asyncio.sleep(1)
+                await self._scan_devices()
+                return
+
+        # No paired devices available — discover and pair new ones
+        logger.debug("Starting BT discovery for '%s' devices...", self.device_name_filter)
 
         # Keep bluetoothctl alive for the entire scan duration.
         # BlueZ stops discovery when the requesting D-Bus client disconnects,
@@ -490,7 +497,7 @@ class BtRemoteController:
 
         # Find and pair the first matching discovered device
         for address, name in await self._get_matching_devices():
-            logger.info("Auto-discovered matching BT device: %s (%s)", name, address)
+            logger.info("Discovered matching BT device: %s (%s)", name, address)
             await self._auto_pair(address, name)
             return  # One device at a time
 
@@ -500,7 +507,10 @@ class BtRemoteController:
             await self._run_bluetoothctl("trust", address)
 
             if not await self._run_bluetoothctl("pair", address, timeout=10):
+                # Remove stale bond (key mismatch) and retry
+                await self._run_bluetoothctl("remove", address)
                 await asyncio.sleep(1)
+                await self._run_bluetoothctl("trust", address)
                 if not await self._run_bluetoothctl("pair", address, timeout=10):
                     logger.warning("Pairing failed for %s (%s)", name, address)
                     return
