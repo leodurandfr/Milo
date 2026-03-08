@@ -12,7 +12,7 @@ import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue';
  * @param {boolean} options.skipFirstResize - Skip animation on first resize (default: true)
  * @param {Function} options.getExtraHeight - Function that returns extra height to add (e.g., padding)
  * @param {Function} options.getMaxHeight - Function that returns the max available height
- * @returns {Object} - { containerHeight, resetFirstResize, requestHeightDelta, setupObserver, disconnectObserver }
+ * @returns {Object} - { containerHeight, resetFirstResize, requestHeightDelta }
  */
 export function useAnimatedHeight(contentRef, options = {}) {
   const {
@@ -30,6 +30,10 @@ export function useAnimatedHeight(contentRef, options = {}) {
   // Height lock: prevents ResizeObserver updates during child animations
   let isHeightLocked = false;
   let unlockTimer = null;
+
+  function applyHeight(newPx) {
+    containerHeight.value = `${newPx}px`;
+  }
 
   function setupObserver() {
     if (resizeObserver) {
@@ -60,7 +64,7 @@ export function useAnimatedHeight(contentRef, options = {}) {
 
       // First resize: initialize without transition
       if (isFirstResize) {
-        containerHeight.value = `${newHeight}px`;
+        applyHeight(newHeight);
         isFirstResize = false;
         return;
       }
@@ -68,7 +72,7 @@ export function useAnimatedHeight(contentRef, options = {}) {
       // Threshold to avoid micro-adjustments (jitter)
       const currentHeight = parseFloat(containerHeight.value) || 0;
       if (Math.abs(newHeight - currentHeight) > threshold) {
-        containerHeight.value = `${newHeight}px`;
+        applyHeight(newHeight);
       }
     });
 
@@ -117,32 +121,40 @@ export function useAnimatedHeight(contentRef, options = {}) {
     // Ensure non-negative height
     targetHeight = Math.max(0, targetHeight);
 
-    // Smart detection: if modal is already at max height, don't lock ResizeObserver
-    // Let it handle the height change naturally (avoids wrong predictions when content overflows)
-    const isAtMaxHeight = Math.abs(currentHeight - maxAvailable) < 2; // 2px threshold
-    const shouldLock = !isAtMaxHeight;
+    // Smart detection: only bypass locking when BOTH current and target are at max height
+    // (both views overflow). When shrinking away from max, we must apply the height change.
+    const isAtMaxHeight = Math.abs(currentHeight - maxAvailable) < 2;
+    const targetStillAtMax = isAtMaxHeight && Math.abs(targetHeight - maxAvailable) < 2;
+    const shouldLock = !targetStillAtMax;
 
     if (shouldLock) {
       // Lock ResizeObserver and use delta prediction
       isHeightLocked = true;
-      containerHeight.value = `${targetHeight}px`;
+      applyHeight(targetHeight);
 
-      // Unlock after animation completes and force height recalculation
+      // Unlock after animation completes and correct if prediction was off
       unlockTimer = setTimeout(() => {
         isHeightLocked = false;
-        // Force recalculation to correct any delta discrepancies
         if (contentRef.value) {
           let actualHeight = contentRef.value.getBoundingClientRect().height;
           if (getExtraHeight) actualHeight += getExtraHeight();
           if (maxAvailable < Infinity) {
             actualHeight = Math.min(actualHeight, maxAvailable);
           }
-          containerHeight.value = `${actualHeight}px`;
+          // Only update if difference exceeds threshold — avoids
+          // restarting the spring transition for sub-pixel discrepancies
+          const currentHeight = parseFloat(containerHeight.value) || 0;
+          if (Math.abs(actualHeight - currentHeight) > threshold) {
+            applyHeight(actualHeight);
+          }
         }
       }, duration);
     }
-    // else: Modal at max height - don't lock, let ResizeObserver handle it naturally
-    // This avoids wrong predictions when content overflows/shifts
+    else {
+      // Modal at max height - don't lock, let ResizeObserver handle it naturally.
+      // Reset lock in case a previous call locked it and the timer was just cleared.
+      isHeightLocked = false;
+    }
   }
 
   // Watch for ref changes (e.g., when v-if toggles the element)
@@ -154,7 +166,6 @@ export function useAnimatedHeight(contentRef, options = {}) {
     }
   });
 
-
   onMounted(async () => {
     await nextTick();
     if (contentRef.value) {
@@ -163,14 +174,13 @@ export function useAnimatedHeight(contentRef, options = {}) {
   });
 
   onUnmounted(() => {
+    if (unlockTimer) clearTimeout(unlockTimer);
     disconnectObserver();
   });
 
   return {
     containerHeight,
     resetFirstResize,
-    requestHeightDelta,
-    setupObserver,
-    disconnectObserver
+    requestHeightDelta
   };
 }
