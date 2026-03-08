@@ -28,7 +28,7 @@
       </NavigationHeader>
 
       <!-- Content with crossfade animation (wrapper isolates position: absolute during leave) -->
-      <div class="transition-wrapper" ref="transitionWrapperRef">
+      <div class="transition-wrapper">
         <Transition name="fade-slide" appear @before-leave="onBeforeLeave" @enter="onEnter" @after-leave="onAfterLeave">
           <div :key="contentKey" class="content-inner">
             <slot name="content" :is-mobile="isMobile" />
@@ -142,7 +142,7 @@ const emit = defineEmits(['header-back', 'scroll-restored'])
 
 // Scroll-aware view transition (shared with SettingsModal via composable)
 const pendingScrollRef = computed(() => props.pendingScrollRestore)
-const { transitionWrapperRef, prepareNavigation, onBeforeLeave: baseOnBeforeLeave, onEnter, onAfterLeave: baseOnAfterLeave } = useViewTransition({
+const { prepareNavigation, onBeforeLeave: baseOnBeforeLeave, onEnter, onAfterLeave: baseOnAfterLeave } = useViewTransition({
   scrollElRef: layoutRef,
   headerRef,
   pendingScrollRestore: pendingScrollRef,
