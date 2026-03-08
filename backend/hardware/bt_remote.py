@@ -302,7 +302,7 @@ class BtRemoteController:
     async def _scan_devices(self):
         """Scan /dev/input/ for matching BT HID devices.
 
-        Uses a lock to prevent concurrent scans (e.g. from _auto_pair and _periodic_scan).
+        Uses a lock to prevent concurrent scans (e.g. from _run_discovery and _periodic_scan).
         BLE HID devices create multiple evdev nodes per connection — we monitor all of them
         (since only one carries the volume key events) but report a single device in status.
         """
@@ -328,8 +328,6 @@ class BtRemoteController:
                     if task and not task.done():
                         task.cancel()
                     logger.info("BT HID device disconnected: %s", path)
-                    if address:
-                        await self._run_bluetoothctl("remove", address)
                     disconnected = True
             if disconnected and self.running:
                 await self._broadcast_status()
@@ -432,8 +430,8 @@ class BtRemoteController:
 
     async def _periodic_discovery(self):
         """Periodically discover and auto-pair matching BT devices."""
-        # Brief delay to let evdev scan find already-connected devices
-        await asyncio.sleep(1)
+        # Wait for periodic_scan to run first (2s delay + scan time)
+        await asyncio.sleep(4)
 
         while self.running:
             try:
@@ -457,6 +455,10 @@ class BtRemoteController:
 
     async def _run_discovery(self):
         """Reconnect paired devices or discover and pair new ones."""
+        # Device already found by periodic_scan — nothing to do
+        if self._monitored_paths:
+            return
+
         # Try reconnecting already-paired devices first (fast path after reboot)
         for address, name in await self._get_matching_devices("Paired"):
             logger.info("Reconnecting paired device: %s (%s)", name, address)
@@ -466,64 +468,85 @@ class BtRemoteController:
                 await self._scan_devices()
                 return
 
-        # No paired devices available — discover and pair new ones
+        # No paired devices — scan, then trust+pair+connect in a single
+        # bluetoothctl session to keep the BLE device in BlueZ cache.
         logger.debug("Starting BT discovery for '%s' devices...", self.device_name_filter)
 
-        # Keep bluetoothctl alive for the entire scan duration.
-        # BlueZ stops discovery when the requesting D-Bus client disconnects,
-        # so we must hold the process open during the full scan window.
-        proc = await asyncio.create_subprocess_exec(
+        # Phase 1: BT scan (separate session is fine, populates daemon cache)
+        scan_proc = await asyncio.create_subprocess_exec(
             "bluetoothctl",
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )
         try:
-            proc.stdin.write(b"menu scan\nduplicate-data on\nback\nscan on\n")
-            await proc.stdin.drain()
+            scan_proc.stdin.write(b"scan on\n")
+            await scan_proc.stdin.drain()
             await asyncio.sleep(DISCOVERY_DURATION)
-            proc.stdin.write(b"scan off\nquit\n")
-            await proc.stdin.drain()
+            scan_proc.stdin.write(b"scan off\nquit\n")
+            await scan_proc.stdin.drain()
             try:
-                await asyncio.wait_for(proc.wait(), timeout=5)
+                await asyncio.wait_for(scan_proc.wait(), timeout=5)
             except asyncio.TimeoutError:
                 pass
         except asyncio.CancelledError:
             raise
         finally:
-            if proc.returncode is None:
-                proc.kill()
-                await proc.wait()
+            if scan_proc.returncode is None:
+                scan_proc.kill()
+                await scan_proc.wait()
 
-        # Find and pair the first matching discovered device
-        for address, name in await self._get_matching_devices():
-            logger.info("Discovered matching BT device: %s (%s)", name, address)
-            await self._auto_pair(address, name)
-            return  # One device at a time
+        if self._monitored_paths:
+            return  # Device found by periodic_scan during discovery
 
-    async def _auto_pair(self, address: str, name: str):
-        """Auto-pair, trust and connect a discovered BT device."""
+        # Phase 2: find matching device from daemon cache
+        matches = await self._get_matching_devices()
+        if not matches:
+            logger.debug("No matching BT device found during discovery")
+            return
+        address, name = matches[0]
+        logger.info("Discovered matching BT device: %s (%s)", name, address)
+
+        # Phase 3: trust + pair + connect in single session.
+        # BLE devices may become unavailable between separate bluetoothctl calls,
+        # so all pairing commands must run in the same process.
+        pair_proc = await asyncio.create_subprocess_exec(
+            "bluetoothctl",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
         try:
-            await self._run_bluetoothctl("trust", address)
+            pair_proc.stdin.write(f"trust {address}\n".encode())
+            await pair_proc.stdin.drain()
+            await asyncio.sleep(1)
 
-            if not await self._run_bluetoothctl("pair", address, timeout=10):
-                # Remove stale bond (key mismatch) and retry
-                await self._run_bluetoothctl("remove", address)
-                await asyncio.sleep(1)
-                await self._run_bluetoothctl("trust", address)
-                if not await self._run_bluetoothctl("pair", address, timeout=10):
-                    logger.warning("Pairing failed for %s (%s)", name, address)
-                    return
+            pair_proc.stdin.write(f"pair {address}\n".encode())
+            await pair_proc.stdin.drain()
+            await asyncio.sleep(10)  # Wait for BLE pairing to complete
 
-            if not await self._run_bluetoothctl("connect", address, timeout=10):
-                logger.warning("Connect failed for %s (%s)", name, address)
-                return
+            pair_proc.stdin.write(f"connect {address}\nquit\n".encode())
+            await pair_proc.stdin.drain()
+            try:
+                await asyncio.wait_for(pair_proc.wait(), timeout=10)
+            except asyncio.TimeoutError:
+                pass
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error("Error in BT pairing: %s", e)
+        finally:
+            if pair_proc.returncode is None:
+                pair_proc.kill()
+                await pair_proc.wait()
 
+        # Verify result using BlueZ daemon state
+        if await self._is_bt_connected(address):
             logger.info("Auto-paired BT device: %s (%s)", name, address)
             await asyncio.sleep(1)
             await self._scan_devices()
-        except Exception as e:
-            logger.error("Error auto-pairing %s: %s", address, e)
+        else:
+            logger.warning("Pairing/connect failed for %s (%s)", name, address)
 
     # ========================================================================
     # EVENT MONITORING
@@ -579,7 +602,6 @@ class BtRemoteController:
                 # BLE HID creates multiple evdev nodes per connection.
                 # When one dies, the others are stale — cancel them all.
                 self._cancel_all_for_mac(address)
-                await self._run_bluetoothctl("remove", address)
 
             if self.running:
                 await self._broadcast_status()
