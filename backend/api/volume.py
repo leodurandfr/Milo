@@ -71,34 +71,6 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
             else:
                 raise HTTPException(status_code=500, detail="Failed to adjust volume")
 
-    @router.post("/increase")
-    async def increase_volume():
-        """Increases volume by configured step (default 3 dB)"""
-        try:
-            step_db = volume_service.volume_config.step_mobile_db
-            success = await volume_service.adjust_volume_db(step_db)
-            if success:
-                volume_db = await volume_service.get_volume_db()
-                return {"status": "success", "volume_db": volume_db, "delta_db": step_db}
-            else:
-                raise HTTPException(status_code=500, detail="Failed to increase volume")
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-
-    @router.post("/decrease")
-    async def decrease_volume():
-        """Decreases volume by configured step (default 3 dB)"""
-        try:
-            step_db = volume_service.volume_config.step_mobile_db
-            success = await volume_service.adjust_volume_db(-step_db)
-            if success:
-                volume_db = await volume_service.get_volume_db()
-                return {"status": "success", "volume_db": volume_db, "delta_db": -step_db}
-            else:
-                raise HTTPException(status_code=500, detail="Failed to decrease volume")
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-
     # ============================================================================
     # MAC ADDRESS UTILITIES
     # ============================================================================
