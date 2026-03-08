@@ -75,7 +75,7 @@ export function useViewTransition({
 
     // Save current contentInner height BEFORE Vue patches the DOM.
     // Used in onEnter to calculate the height delta for the Modal spring.
-    savedInnerHeight = contentInnerRef?.value?.getBoundingClientRect().height ?? 0;
+    savedInnerHeight = contentInnerRef?.value?.offsetHeight ?? 0;
 
     const scrollEl = unref(scrollElRef);
     const scrollTop = scrollEl?.scrollTop || 0;

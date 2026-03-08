@@ -136,7 +136,7 @@ export function useAnimatedHeight(contentRef, options = {}) {
       unlockTimer = setTimeout(() => {
         isHeightLocked = false;
         if (contentRef.value) {
-          let actualHeight = contentRef.value.getBoundingClientRect().height;
+          let actualHeight = contentRef.value.offsetHeight;
           if (getExtraHeight) actualHeight += getExtraHeight();
           if (maxAvailable < Infinity) {
             actualHeight = Math.min(actualHeight, maxAvailable);
