@@ -351,7 +351,7 @@ export const useSettingsStore = defineStore('settings', () => {
     const isKiosk = window.location.hostname === 'localhost';
     const appEl = document.getElementById('app');
     if (!appEl) return;
-    if (scale === 1.0 || !isKiosk) {
+    if (scale === 1.0) {
       appEl.style.transform = '';
       appEl.style.transformOrigin = '';
       appEl.style.width = '';

@@ -63,13 +63,13 @@ onUnmounted(() => {
 function handleToggle(newEnabled) {
   if (requestHeightDelta && expandRef.value && contentInnerRef?.value) {
     const el = expandRef.value;
-    const before = contentInnerRef.value.getBoundingClientRect().height;
+    const before = contentInnerRef.value.offsetHeight;
 
     // Snap to target state (no transition) to measure final height
     el.style.transition = 'none';
     el.classList.toggle('is-open', newEnabled);
     el.offsetHeight;
-    const after = contentInnerRef.value.getBoundingClientRect().height;
+    const after = contentInnerRef.value.offsetHeight;
 
     // Revert to current state
     el.classList.toggle('is-open', !newEnabled);

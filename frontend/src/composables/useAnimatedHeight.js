@@ -48,22 +48,38 @@ export function useAnimatedHeight(contentRef, options = {}) {
 
       // Get content height
       let newHeight = entries[0].contentRect.height;
+      const extra = getExtraHeight ? getExtraHeight() : 0;
+      newHeight += extra;
 
-      // Add extra height (e.g., parent padding)
-      if (getExtraHeight) {
-        newHeight += getExtraHeight();
+      // DEBUG: log all height sources
+      const el = contentRef.value;
+      if (el) {
+        console.log('[AnimHeight] ResizeObserver:', {
+          contentRect: entries[0].contentRect.height,
+          offsetHeight: el.offsetHeight,
+          scrollHeight: el.scrollHeight,
+          getBCR: el.getBoundingClientRect().height,
+          extraHeight: extra,
+          finalHeight: newHeight,
+          isFirstResize,
+        });
       }
 
       // Clamp to max available height if provided
       if (getMaxHeight) {
         const maxAvailable = getMaxHeight();
         if (maxAvailable && maxAvailable < Infinity) {
+          const before = newHeight;
           newHeight = Math.min(newHeight, maxAvailable);
+          if (before !== newHeight) {
+            console.log('[AnimHeight] Clamped:', before, '→', newHeight, '(max:', maxAvailable, ')');
+          }
         }
       }
 
       // First resize: initialize without transition
       if (isFirstResize) {
+        console.log('[AnimHeight] First resize → applyHeight:', newHeight);
         applyHeight(newHeight);
         isFirstResize = false;
         return;
@@ -72,6 +88,7 @@ export function useAnimatedHeight(contentRef, options = {}) {
       // Threshold to avoid micro-adjustments (jitter)
       const currentHeight = parseFloat(containerHeight.value) || 0;
       if (Math.abs(newHeight - currentHeight) > threshold) {
+        console.log('[AnimHeight] Height change:', currentHeight, '→', newHeight, '(delta:', newHeight - currentHeight, ')');
         applyHeight(newHeight);
       }
     });
@@ -121,11 +138,31 @@ export function useAnimatedHeight(contentRef, options = {}) {
     // Ensure non-negative height
     targetHeight = Math.max(0, targetHeight);
 
-    // Smart detection: only bypass locking when BOTH current and target are at max height
-    // (both views overflow). When shrinking away from max, we must apply the height change.
+    // Smart detection: bypass locking when content will still overflow after the delta.
+    // In that case the container stays at max — let ResizeObserver handle it naturally.
     const isAtMaxHeight = Math.abs(currentHeight - maxAvailable) < 2;
-    const targetStillAtMax = isAtMaxHeight && Math.abs(targetHeight - maxAvailable) < 2;
+    let targetStillAtMax = isAtMaxHeight && Math.abs(targetHeight - maxAvailable) < 2;
+
+    // When at max and the raw target suggests leaving max, verify using actual
+    // content height — content may still overflow after the delta is applied.
+    if (isAtMaxHeight && !targetStillAtMax && contentRef.value && maxAvailable < Infinity) {
+      const extra = getExtraHeight ? getExtraHeight() : 0;
+      const naturalAfterDelta = contentRef.value.offsetHeight + extra + delta;
+      if (naturalAfterDelta >= maxAvailable - 2) {
+        targetStillAtMax = true;
+      }
+    }
+
     const shouldLock = !targetStillAtMax;
+
+    console.log('[AnimHeight] requestHeightDelta:', {
+      delta,
+      currentHeight,
+      targetHeight,
+      maxAvailable,
+      isAtMaxHeight,
+      shouldLock,
+    });
 
     if (shouldLock) {
       // Lock ResizeObserver and use delta prediction
@@ -136,14 +173,25 @@ export function useAnimatedHeight(contentRef, options = {}) {
       unlockTimer = setTimeout(() => {
         isHeightLocked = false;
         if (contentRef.value) {
-          let actualHeight = contentRef.value.offsetHeight;
-          if (getExtraHeight) actualHeight += getExtraHeight();
+          const el = contentRef.value;
+          const offsetH = el.offsetHeight;
+          const bcrH = el.getBoundingClientRect().height;
+          const extra = getExtraHeight ? getExtraHeight() : 0;
+          let actualHeight = offsetH + extra;
           if (maxAvailable < Infinity) {
             actualHeight = Math.min(actualHeight, maxAvailable);
           }
+          const currentHeight = parseFloat(containerHeight.value) || 0;
+          console.log('[AnimHeight] Unlock correction:', {
+            offsetHeight: offsetH,
+            getBCR: bcrH,
+            extra,
+            actualHeight,
+            currentHeight,
+            diff: Math.abs(actualHeight - currentHeight),
+          });
           // Only update if difference exceeds threshold — avoids
           // restarting the spring transition for sub-pixel discrepancies
-          const currentHeight = parseFloat(containerHeight.value) || 0;
           if (Math.abs(actualHeight - currentHeight) > threshold) {
             applyHeight(actualHeight);
           }
