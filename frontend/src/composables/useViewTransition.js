@@ -284,7 +284,7 @@ export function useViewTransition({
         });
 
         if (Math.abs(delta) > 2) {
-          requestHeightDelta(delta, 800);
+          requestHeightDelta(delta, 800, { skipOverflowCheck: true });
         }
       });
     }

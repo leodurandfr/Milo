@@ -117,7 +117,7 @@ export function useAnimatedHeight(contentRef, options = {}) {
    * @param {number} delta - Height change in pixels (positive for expand, negative for collapse)
    * @param {number} duration - Animation duration in ms (default: 400)
    */
-  function requestHeightDelta(delta, duration = 400) {
+  function requestHeightDelta(delta, duration = 400, { skipOverflowCheck = false } = {}) {
     // Clear any pending unlock
     if (unlockTimer) clearTimeout(unlockTimer);
 
@@ -145,7 +145,7 @@ export function useAnimatedHeight(contentRef, options = {}) {
 
     // When at max and the raw target suggests leaving max, verify using actual
     // content height — content may still overflow after the delta is applied.
-    if (isAtMaxHeight && !targetStillAtMax && contentRef.value && maxAvailable < Infinity) {
+    if (!skipOverflowCheck && isAtMaxHeight && !targetStillAtMax && contentRef.value && maxAvailable < Infinity) {
       const extra = getExtraHeight ? getExtraHeight() : 0;
       const naturalAfterDelta = contentRef.value.offsetHeight + extra + delta;
       if (naturalAfterDelta >= maxAvailable - 2) {
