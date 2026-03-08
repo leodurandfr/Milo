@@ -9,8 +9,8 @@
       </div>
     </template>
 
-    <div v-if="hasContent" class="toggle-section-expand" :class="{ 'is-open': enabled }">
-      <div ref="innerRef" class="toggle-section-expand__inner">
+    <div v-if="hasContent" ref="expandRef" class="toggle-section-expand" :class="{ 'is-open': enabled, 'no-transition': skipInitialTransition }">
+      <div class="toggle-section-expand__inner">
         <slot />
       </div>
     </div>
@@ -18,7 +18,7 @@
 </template>
 
 <script setup>
-import { ref, computed, useSlots, inject } from 'vue';
+import { ref, computed, useSlots, inject, onMounted, onUnmounted } from 'vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 
@@ -32,24 +32,51 @@ const emit = defineEmits(['change']);
 const slots = useSlots();
 const hasContent = computed(() => !!slots.default);
 
-// Ref to measure inner content height
-const innerRef = ref(null);
-
-// Inject Modal's height request function (null if not in Modal)
+const expandRef = ref(null);
+const skipInitialTransition = ref(true);
 const requestHeightDelta = inject('modalRequestHeightDelta', null);
+const contentInnerRef = inject('modalContentInnerRef', null);
+
+// Suppress CSS grid transition on initial mount so the content appears at full
+// height immediately. Without this, the 0fr→1fr grid animation fires when the
+// page enters the DOM, and the ResizeObserver follows it frame-by-frame instead
+// of letting the Modal apply a single spring.
+let rafId = null;
+onMounted(() => {
+  rafId = requestAnimationFrame(() => {
+    rafId = requestAnimationFrame(() => {
+      skipInitialTransition.value = false;
+      rafId = null;
+    });
+  });
+});
+
+onUnmounted(() => {
+  if (rafId) cancelAnimationFrame(rafId);
+});
 
 /**
- * Handle toggle with pre-announced height change.
- * Notifies Modal of the height delta BEFORE the CSS animation starts,
- * so Modal can animate smoothly to the target height.
+ * Measure exact height delta by temporarily snapping to target state,
+ * then revert and let requestHeightDelta set the container target.
+ * Modal springs from old→new while the CSS grid animates independently.
  */
 function handleToggle(newEnabled) {
-  if (requestHeightDelta && innerRef.value) {
-    // Smart requestHeightDelta: auto-detects when modal is at max height
-    // and skips lock to avoid wrong predictions when content overflows
-    const contentHeight = innerRef.value.scrollHeight;
-    const delta = newEnabled ? contentHeight : -contentHeight;
-    requestHeightDelta(delta);
+  if (requestHeightDelta && expandRef.value && contentInnerRef?.value) {
+    const el = expandRef.value;
+    const before = contentInnerRef.value.getBoundingClientRect().height;
+
+    // Snap to target state (no transition) to measure final height
+    el.style.transition = 'none';
+    el.classList.toggle('is-open', newEnabled);
+    el.offsetHeight;
+    const after = contentInnerRef.value.getBoundingClientRect().height;
+
+    // Revert to current state
+    el.classList.toggle('is-open', !newEnabled);
+    el.offsetHeight;
+    el.style.transition = '';
+
+    requestHeightDelta(after - before);
   }
   emit('change', newEnabled);
 }
@@ -63,9 +90,12 @@ function handleToggle(newEnabled) {
   gap: var(--space-04);
 }
 
-/* Expand/collapse via CSS grid with pre-announced height change to Modal.
-   Modal is notified of the target height BEFORE animation starts via requestHeightDelta(),
-   so Modal animates smoothly while this content animates visually. */
+/* Suppress transition on initial mount (prevents 0fr→1fr grid animation on page entry) */
+.toggle-section-expand.no-transition {
+  transition: none;
+}
+
+/* Expand/collapse via CSS grid — Modal's ResizeObserver tracks the height change naturally. */
 .toggle-section-expand {
   display: grid;
   grid-template-rows: 0fr;
@@ -83,9 +113,7 @@ function handleToggle(newEnabled) {
   margin-top: 0;
 }
 
-/* Card clips expanding content at its border-radius edge.
-   overflow: hidden is on the card (not __inner) so the clip line
-   is at the card's bottom, not in the middle above the padding. */
+/* Card clips expanding content at its border-radius edge. */
 .settings-section.toggle-section--has-content {
   overflow: hidden;
 }

@@ -11,7 +11,7 @@
     </NavigationHeader>
 
     <!-- Content area (wrapper provides positioning context for cross-fade overlay) -->
-    <div class="transition-wrapper" ref="transitionWrapperRef">
+    <div class="transition-wrapper">
     <Transition name="fade-slide" @before-leave="onBeforeLeave" @enter="onEnter" @after-leave="onAfterLeave">
       <!-- Home view: list of categories -->
       <div v-if="currentView === 'home'" key="home" class="view-content">
@@ -206,10 +206,11 @@ const unifiedStore = useUnifiedAudioStore();
 const multiroomStore = useMultiroomStore();
 const radioStore = useRadioStore();
 
-// Inject modal content ref for scroll detection
+// Inject modal refs for scroll detection and height pre-calculation
 const modalContentRef = inject('modalContentRef', null);
-// Defer scroll restore — forces overflow-y: auto during Modal height transition
 const modalDeferScrollRestore = inject('modalDeferScrollRestore', null);
+const modalContentInnerRef = inject('modalContentInnerRef', null);
+const modalRequestHeightDelta = inject('modalRequestHeightDelta', null);
 
 // Navigation with scroll save/restore
 const { currentView, canGoBack, push: navPush, back: navBack, reset, goTo, pendingScrollRestore } =
@@ -222,12 +223,14 @@ const zoneGroupId = ref(null);
 const macIdToEdit = ref(null);
 
 // Scroll-aware view transition (shared with AudioSourceLayout via composable)
-const { transitionWrapperRef, prepareNavigation, onBeforeLeave, onEnter, onAfterLeave } = useViewTransition({
+const { prepareNavigation, onBeforeLeave, onEnter, onAfterLeave } = useViewTransition({
   scrollElRef: modalContentRef,
   headerRef,
   pendingScrollRestore,
   onScrollRestored: () => { pendingScrollRestore.value = null; },
   deferScrollRestore: modalDeferScrollRestore,
+  contentInnerRef: modalContentInnerRef,
+  requestHeightDelta: modalRequestHeightDelta,
 });
 
 // Wrap push/back to pre-capture header clone.
