@@ -609,7 +609,7 @@ onMounted(async () => {
 
 .program-item:not(:last-child) {
   border-bottom: 1px solid var(--color-border);
-  padding-bottom: var(--space-04);
+  padding-bottom: var(--space-03);
 }
 
 .program-info {
