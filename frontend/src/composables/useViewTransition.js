@@ -76,6 +76,10 @@ export function useViewTransition({
     // Save current contentInner height BEFORE Vue patches the DOM.
     // Used in onEnter to calculate the height delta for the Modal spring.
     savedInnerHeight = contentInnerRef?.value?.offsetHeight ?? 0;
+    console.log('[ViewTransition] prepareNavigation:', {
+      savedInnerHeight,
+      savedInnerBCR: contentInnerRef?.value?.getBoundingClientRect().height ?? 0,
+    });
 
     const scrollEl = unref(scrollElRef);
     const scrollTop = scrollEl?.scrollTop || 0;
@@ -104,6 +108,11 @@ export function useViewTransition({
 
     // Save leaving element height for delta calculation
     savedLeavingHeight = el.offsetHeight;
+    console.log('[ViewTransition] onBeforeLeave:', {
+      savedLeavingHeight,
+      leavingBCR: el.getBoundingClientRect().height,
+      scrollTop: unref(scrollElRef)?.scrollTop || 0,
+    });
 
     // Pin the transition-wrapper height so it doesn't shrink when the leaving
     // element goes position:absolute. This keeps the container stable during
@@ -222,24 +231,57 @@ export function useViewTransition({
     if (requestHeightDelta && savedLeavingHeight > 0) {
       requestAnimationFrame(() => {
         const scrollEl = unref(scrollElRef);
-        let delta = el.offsetHeight - savedLeavingHeight;
+        const enteringHeight = el.offsetHeight;
+        const enteringBCR = el.getBoundingClientRect().height;
+        let delta = enteringHeight - savedLeavingHeight;
+        let usedOverflowPath = false;
 
         // When both old and new views overflow the modal, cap heights to the visible
         // slot area so the modal stays at max height (avoids double-spring).
         // Use savedInnerHeight (captured before DOM change) instead of scrollEl.scrollHeight
         // — scrollHeight is polluted by absolutely positioned elements during the
         // CSS offset trick (scrolled transitions).
-        if (scrollEl && savedInnerHeight > scrollEl.clientHeight + 2) {
-          const scrollStyle = getComputedStyle(scrollEl);
-          const scrollPadding = parseFloat(scrollStyle.paddingTop) + parseFloat(scrollStyle.paddingBottom);
+        // Include scroll padding in the overflow check: contentInner + padding
+        // is the total content that must fit within clientHeight.
+        const scrollStyle = scrollEl ? getComputedStyle(scrollEl) : null;
+        const scrollPadding = scrollStyle
+          ? parseFloat(scrollStyle.paddingTop) + parseFloat(scrollStyle.paddingBottom)
+          : 0;
+
+        if (scrollEl && savedInnerHeight + scrollPadding > scrollEl.clientHeight + 2) {
+          usedOverflowPath = true;
           const visibleContent = scrollEl.clientHeight - scrollPadding;
           const otherContentHeight = savedInnerHeight - savedLeavingHeight;
           const maxSlotVisible = Math.max(0, visibleContent - otherContentHeight);
 
           const effectiveLeaving = Math.min(savedLeavingHeight, maxSlotVisible);
-          const effectiveEntering = Math.min(el.offsetHeight, maxSlotVisible);
+          const effectiveEntering = Math.min(enteringHeight, maxSlotVisible);
+
+          console.log('[ViewTransition] onEnter overflow path:', {
+            scrollClientHeight: scrollEl.clientHeight,
+            scrollBCR: scrollEl.getBoundingClientRect().height,
+            scrollPadding,
+            visibleContent,
+            savedInnerHeight,
+            otherContentHeight,
+            maxSlotVisible,
+            effectiveLeaving,
+            effectiveEntering,
+            rawDelta: enteringHeight - savedLeavingHeight,
+            cappedDelta: effectiveEntering - effectiveLeaving,
+          });
+
           delta = effectiveEntering - effectiveLeaving;
         }
+
+        console.log('[ViewTransition] onEnter delta:', {
+          enteringOffsetHeight: enteringHeight,
+          enteringBCR,
+          savedLeavingHeight,
+          savedInnerHeight,
+          delta,
+          usedOverflowPath,
+        });
 
         if (Math.abs(delta) > 2) {
           requestHeightDelta(delta, 800);
