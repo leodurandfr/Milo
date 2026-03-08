@@ -688,11 +688,11 @@ class VolumeService:
             try:
                 if not await self._check_equalizer_or_error():
                     return False
-                clamped_db = self._volume_config.clamp(volume_db)
-                success = await self._apply_volume_db(clamped_db)
+                target_db = self._volume_config.clamp(volume_db)
+                success = await self._apply_global_volume(target_db)
                 if success:
-                    self._save_last_volume(clamped_db)
-                    await self._update_startup_volume_if_needed(clamped_db)  # FR11
+                    self._save_last_volume(target_db)
+                    await self._update_startup_volume_if_needed(target_db)  # FR11
                     await self._broadcast_volume_state(show_bar)
                 return success
             except Exception as e:
@@ -700,34 +700,18 @@ class VolumeService:
                 return False
         return await self._with_lock(_do_set)
 
-    @handle_errors(default=False)
-    async def _apply_volume_db(self, volume_db: float) -> bool:
-        """Apply volume to CamillaDSP (local or multiroom)."""
-        if self._is_multiroom_enabled():
-            client_ids = await get_online_client_ids(self.snapcast_service)
-            updates = {cid: volume_db for cid in client_ids} if client_ids else {}
-            success = await self._apply_to_multiroom_clients(updates)
-            if success:
-                # Keep _local_volume_db in sync for mode switch fallback
-                self._state_store.set_local_volume(volume_db)
-            return success
-        else:
-            success = await self._camilladsp_service.set_volume(volume_db)
-            if success:
-                self._state_store.set_local_volume(volume_db)
-            return success
-
     async def adjust_volume_db(self, delta_db: float, show_bar: bool = True) -> bool:
         """Adjust volume by delta in dB (positive = louder, negative = quieter)."""
         async def _do_adjust():
             try:
                 if not await self._check_equalizer_or_error():
                     return False
-                success = await self._apply_delta_db(delta_db)
+                volume_state = await self._state_store.get_complete_state()
+                target_db = self._volume_config.clamp(volume_state.global_volume_db + delta_db)
+                success = await self._apply_global_volume(target_db)
                 if success:
-                    volume_state = await self._state_store.get_complete_state()
-                    self._save_last_volume(volume_state.global_volume_db)
-                    await self._update_startup_volume_if_needed(volume_state.global_volume_db)  # FR11
+                    self._save_last_volume(target_db)
+                    await self._update_startup_volume_if_needed(target_db)  # FR11
                     await self._broadcast_volume_state(show_bar)
                 return success
             except Exception as e:
@@ -736,26 +720,29 @@ class VolumeService:
         return await self._with_lock(_do_adjust)
 
     @handle_errors(default=False)
-    async def _apply_delta_db(self, delta_db: float) -> bool:
-        """Apply volume delta in dB."""
-        volume_state = await self._state_store.get_complete_state()
+    async def _apply_global_volume(self, target_db: float) -> bool:
+        """Apply target global volume to CamillaDSP.
+
+        In multiroom mode, computes delta from current global volume and applies
+        it per-client to preserve individual volume offsets.
+        In direct mode, sets the volume directly.
+        """
         if self._is_multiroom_enabled():
+            volume_state = await self._state_store.get_complete_state()
             client_ids = await get_online_client_ids(self.snapcast_service)
+            if not client_ids:
+                return True
+            delta = target_db - volume_state.global_volume_db
             updates = {}
-            for cid in client_ids or []:
+            for cid in client_ids:
                 current = volume_state.clients.get(cid)
                 if current:
-                    updates[cid] = self._volume_config.clamp(current.volume_db + delta_db)
-            success = await self._apply_to_multiroom_clients(updates)
-            # No need to update _local_volume_db in multiroom mode:
-            # - Individual client volumes are stored in _clients
-            # - Mode switch (multiroom->direct) uses global_volume_db (average)
-            return success
+                    updates[cid] = self._volume_config.clamp(current.volume_db + delta)
+            return await self._apply_to_multiroom_clients(updates)
         else:
-            new_db = self._volume_config.clamp(volume_state.global_volume_db + delta_db)
-            success = await self._camilladsp_service.set_volume(new_db)
+            success = await self._camilladsp_service.set_volume(target_db)
             if success:
-                self._state_store.set_local_volume(new_db)
+                self._state_store.set_local_volume(target_db)
             return success
 
     # ============================================================================

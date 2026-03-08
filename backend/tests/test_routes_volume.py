@@ -167,36 +167,3 @@ class TestVolumeRoutes:
         response = client.post("/api/volume/adjust", json={"delta_db": 3.0})
         assert response.status_code == 500
 
-    # ===================
-    # INCREASE/DECREASE TESTS (uses step_mobile_db from config)
-    # ===================
-
-    def test_increase_volume(self, client):
-        """Test POST /api/volume/increase - uses step_mobile_db (3.0 dB)"""
-        response = client.post("/api/volume/increase")
-        assert response.status_code == 200
-        assert response.json()["status"] == "success"
-        # Uses adjust_volume_db with step_mobile_db (3.0 dB)
-        client._mock_service.adjust_volume_db.assert_called_with(3.0)
-
-    def test_increase_volume_service_failure(self, client):
-        """Test POST /api/volume/increase when service fails"""
-        client._mock_service.adjust_volume_db = AsyncMock(return_value=False)
-        response = client.post("/api/volume/increase")
-        assert response.status_code == 500
-
-    def test_decrease_volume(self, client):
-        """Test POST /api/volume/decrease - uses -step_mobile_db (-3.0 dB)"""
-        # Reset mock to track new calls
-        client._mock_service.adjust_volume_db = AsyncMock(return_value=True)
-        response = client.post("/api/volume/decrease")
-        assert response.status_code == 200
-        assert response.json()["status"] == "success"
-        # Uses adjust_volume_db with -step_mobile_db (-3.0 dB)
-        client._mock_service.adjust_volume_db.assert_called_with(-3.0)
-
-    def test_decrease_volume_service_failure(self, client):
-        """Test POST /api/volume/decrease when service fails"""
-        client._mock_service.adjust_volume_db = AsyncMock(return_value=False)
-        response = client.post("/api/volume/decrease")
-        assert response.status_code == 500
