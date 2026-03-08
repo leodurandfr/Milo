@@ -618,8 +618,8 @@ function handleClientMuteToggle(clientMacId, muted) {
 
 /* === TOGGLE WRAPPER === */
 .toggle-wrapper {
-  width: 70px;
-  height: 40px;
+  width: 60px;
+  height: 36px;
   position: relative;
   display: flex;
   align-items: center;
