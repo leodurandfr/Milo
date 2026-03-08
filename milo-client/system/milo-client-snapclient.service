@@ -10,7 +10,7 @@ User=milo-client
 Group=audio
 EnvironmentFile=/var/lib/milo-client/env
 
-ExecStart=/usr/bin/snapclient -h ${MILO_PRINCIPAL_IP} -p 1704 --hostID %H --logsink=system --soundcard camilladsp_input --mixer software --player alsa:buffer_time=${MILO_SNAPCLIENT_BUFFER_TIME},fragments=${MILO_SNAPCLIENT_FRAGMENTS}
+ExecStart=/bin/sh -c '/usr/bin/snapclient -h ${MILO_PRINCIPAL_IP} -p 1704 --hostID $(cat /sys/class/net/eth0/address 2>/dev/null || cat /sys/class/net/wlan0/address 2>/dev/null || echo "milo-client") --logsink=system --soundcard camilladsp_input --mixer software --player alsa:buffer_time=${MILO_SNAPCLIENT_BUFFER_TIME},fragments=${MILO_SNAPCLIENT_FRAGMENTS}'
 
 Restart=always
 RestartSec=5
