@@ -210,7 +210,7 @@
     "screen": "Écran",
     "screenModel": "Modèle",
     "rotaryEncoder": "Encodeur rotatif",
-    "swDisabledNote": "Bouton poussoir — pas encore utilisé",
+    "rotaryEncoderDescription": "Sélectionnez les pins GPIO connectés à votre encodeur rotatif.",
     "applyAndReboot": "Appliquer et redémarrer",
     "confirmMessage": "Le système va redémarrer pour appliquer les changements matériels.",
     "rebooting": "Redémarrage en cours...",

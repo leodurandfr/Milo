@@ -248,7 +248,7 @@
     "screen": "Tela",
     "screenModel": "Modelo",
     "rotaryEncoder": "Codificador rotativo",
-    "swDisabledNote": "Pino de botão — ainda não utilizado",
+    "rotaryEncoderDescription": "Selecione os pinos GPIO conectados ao seu codificador rotativo.",
     "applyAndReboot": "Aplicar e reiniciar",
     "confirmMessage": "O sistema será reiniciado para aplicar as alterações de hardware.",
     "rebooting": "Reiniciando...",

@@ -248,7 +248,7 @@
     "screen": "Pantalla",
     "screenModel": "Modelo",
     "rotaryEncoder": "Codificador rotativo",
-    "swDisabledNote": "Pin de botón — aún no utilizado",
+    "rotaryEncoderDescription": "Seleccione los pines GPIO conectados a su codificador rotativo.",
     "applyAndReboot": "Aplicar y reiniciar",
     "confirmMessage": "El sistema se reiniciará para aplicar los cambios de hardware.",
     "rebooting": "Reiniciando...",

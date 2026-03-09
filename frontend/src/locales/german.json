@@ -248,7 +248,7 @@
     "screen": "Bildschirm",
     "screenModel": "Modell",
     "rotaryEncoder": "Drehregler",
-    "swDisabledNote": "Tastpin — noch nicht verwendet",
+    "rotaryEncoderDescription": "Wählen Sie die GPIO-Pins Ihres Drehreglers aus.",
     "applyAndReboot": "Anwenden und neu starten",
     "confirmMessage": "Das System wird neu gestartet, um die Hardwareänderungen anzuwenden.",
     "rebooting": "Neustart...",

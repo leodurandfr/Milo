@@ -248,7 +248,7 @@
     "screen": "स्क्रीन",
     "screenModel": "मॉडल",
     "rotaryEncoder": "रोटरी एन्कोडर",
-    "swDisabledNote": "बटन पिन — अभी उपयोग नहीं किया गया",
+    "rotaryEncoderDescription": "अपने रोटरी एन्कोडर से जुड़े GPIO पिन चुनें।",
     "applyAndReboot": "लागू करें और पुनः आरंभ करें",
     "confirmMessage": "हार्डवेयर परिवर्तन लागू करने के लिए सिस्टम पुनः आरंभ होगा।",
     "rebooting": "पुनः आरंभ हो रहा है...",
