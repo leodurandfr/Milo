@@ -248,7 +248,7 @@
     "screen": "屏幕",
     "screenModel": "型号",
     "rotaryEncoder": "旋转编码器",
-    "swDisabledNote": "按钮引脚 — 尚未使用",
+    "rotaryEncoderDescription": "选择连接到旋转编码器的 GPIO 引脚。",
     "applyAndReboot": "应用并重启",
     "confirmMessage": "系统将重启以应用硬件更改。",
     "rebooting": "正在重启...",

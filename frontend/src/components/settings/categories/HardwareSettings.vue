@@ -3,81 +3,70 @@
   <SettingsContainer>
     <!-- Audio Card -->
     <SettingsSection :title="t('hardwareSettings.audioCard')">
-      <SettingItem :label="t('hardwareSettings.audioCardModel')">
+      <div class="hardware-row">
+        <span class="hardware-row__label text-mono">{{ t('hardwareSettings.audioCardModel') }}</span>
         <Dropdown
           :model-value="config.audio_id"
           :options="audioCardOptions"
           :disabled="isRebooting"
           @change="onAudioChange"
         />
-      </SettingItem>
+      </div>
     </SettingsSection>
 
     <!-- Screen -->
     <SettingsSection :title="t('hardwareSettings.screen')">
-      <SettingItem :label="t('hardwareSettings.screenModel')">
+      <div class="hardware-row">
+        <span class="hardware-row__label text-mono">{{ t('hardwareSettings.screenModel') }}</span>
         <Dropdown
           :model-value="config.screen_type"
           :options="screenOptions"
           :disabled="isRebooting"
           @change="onScreenChange"
         />
-      </SettingItem>
+      </div>
     </SettingsSection>
 
     <!-- Rotary Encoder -->
     <SettingsSection :title="t('hardwareSettings.rotaryEncoder')">
-      <SettingItem label="CLK">
-        <InputText
-          :model-value="String(config.clk_pin)"
-          type="number"
-          variant="background-neutral"
-          :disabled="isRebooting"
-          @update:model-value="v => onPinChange('clk_pin', v)"
-        />
-      </SettingItem>
-      <SettingItem label="DT">
-        <InputText
-          :model-value="String(config.dt_pin)"
-          type="number"
-          variant="background-neutral"
-          :disabled="isRebooting"
-          @update:model-value="v => onPinChange('dt_pin', v)"
-        />
-      </SettingItem>
-      <SettingItem label="SW">
-        <InputText
-          :model-value="String(config.sw_pin)"
-          type="number"
-          variant="background-neutral"
-          disabled
-        />
-        <span class="text-mono-small sw-note">{{ t('hardwareSettings.swDisabledNote') }}</span>
-      </SettingItem>
+      <p class="text-mono encoder-description">{{ t('hardwareSettings.rotaryEncoderDescription') }}</p>
+      <div class="encoder-pins">
+        <SettingItem label="CLK">
+          <Dropdown
+            :model-value="config.clk_pin"
+            :options="gpioPinOptions"
+            :disabled="isRebooting"
+            @change="v => onPinChange('clk_pin', v)"
+          />
+        </SettingItem>
+        <SettingItem label="DT">
+          <Dropdown
+            :model-value="config.dt_pin"
+            :options="gpioPinOptions"
+            :disabled="isRebooting"
+            @change="v => onPinChange('dt_pin', v)"
+          />
+        </SettingItem>
+      </div>
     </SettingsSection>
 
-    <!-- Apply & Reboot -->
-    <div v-if="!isRebooting" class="apply-section">
-      <template v-if="!showConfirm">
-        <Button
-          variant="important"
-          :disabled="!isDirty"
-          @click="showConfirm = true"
-        >
-          {{ t('hardwareSettings.applyAndReboot') }}
+    <!-- Apply & Reboot (sticky, visible only when dirty) -->
+    <Button v-if="isDirty && !isRebooting" variant="brand" class="apply-button-sticky"
+      :loading="isApplying" @click="showConfirm = true">
+      {{ t('hardwareSettings.applyAndReboot') }}
+    </Button>
+
+    <!-- Confirm dialog -->
+    <div v-if="showConfirm && !isRebooting" class="confirm-section">
+      <p class="confirm-message text-mono">{{ t('hardwareSettings.confirmMessage') }}</p>
+      <div class="confirm-actions">
+        <Button variant="background-strong" @click="showConfirm = false">
+          {{ t('common.cancel') }}
         </Button>
-      </template>
-      <template v-else>
-        <p class="confirm-message text-mono">{{ t('hardwareSettings.confirmMessage') }}</p>
-        <div class="confirm-actions">
-          <Button variant="background-strong" @click="showConfirm = false">
-            {{ t('common.cancel') }}
-          </Button>
-          <Button variant="important" :loading="isApplying" @click="applyAndReboot">
-            {{ t('common.confirm') }}
-          </Button>
-        </div>
-      </template>
+        <Button variant="important" :loading="isApplying" @click="applyAndReboot">
+          {{ t('common.confirm') }}
+        </Button>
+      </div>
     </div>
 
     <!-- Rebooting overlay -->
@@ -99,14 +88,20 @@ import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
-import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 
 const { t } = useI18n();
 const { loadHardwareConfig } = useHardwareConfig();
 
+// GPIO pin options (1–40 for RPi 40-pin header)
+const gpioPinOptions = Array.from({ length: 40 }, (_, i) => ({
+  label: `GPIO ${i + 1}`,
+  value: i + 1
+}));
+
 // Local config for instant UI responsiveness
+// sw_pin is kept internally for the backend payload but not shown in the UI
 const config = ref({
   audio_id: '',
   screen_type: 'none',
@@ -133,8 +128,7 @@ const isDirty = computed(() => {
     config.value.audio_id !== savedConfig.value.audio_id ||
     config.value.screen_type !== savedConfig.value.screen_type ||
     config.value.clk_pin !== savedConfig.value.clk_pin ||
-    config.value.dt_pin !== savedConfig.value.dt_pin ||
-    config.value.sw_pin !== savedConfig.value.sw_pin
+    config.value.dt_pin !== savedConfig.value.dt_pin
   );
 });
 
@@ -165,10 +159,7 @@ function onScreenChange(value) {
 }
 
 function onPinChange(pin, value) {
-  const num = parseInt(value, 10);
-  if (isNaN(num)) return;
-  // Clamp to valid GPIO range (2–27 on RPi 40-pin header)
-  config.value[pin] = Math.max(2, Math.min(27, num));
+  config.value[pin] = value;
   showConfirm.value = false;
 }
 
@@ -225,12 +216,48 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.apply-section {
+/* Desktop: label left (33%), control right */
+.hardware-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-03);
+}
+
+.hardware-row__label {
+  color: var(--color-text-secondary);
+  width: 33%;
+  flex-shrink: 0;
+}
+
+.hardware-row :deep(.dropdown) {
+  flex: 1;
+}
+
+/* Rotary encoder */
+.encoder-description {
+  color: var(--color-text-secondary);
+}
+
+.encoder-pins {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-03);
+}
+
+/* Sticky apply button (matches MultiroomSettings pattern) */
+.apply-button-sticky {
+  position: sticky;
+  bottom: 0;
+  width: 100%;
+  z-index: 10;
+}
+
+/* Confirm section */
+.confirm-section {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: var(--space-03);
-  padding: var(--space-04) 0;
 }
 
 .confirm-message {
@@ -252,7 +279,19 @@ onMounted(async () => {
   text-align: center;
 }
 
-.sw-note {
-  color: var(--color-text-secondary);
+/* Mobile: stack label/control vertically */
+@media (max-aspect-ratio: 4/3) {
+  .hardware-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .hardware-row__label {
+    width: auto;
+  }
+
+  .encoder-pins {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

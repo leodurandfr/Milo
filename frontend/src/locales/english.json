@@ -210,7 +210,7 @@
     "screen": "Screen",
     "screenModel": "Model",
     "rotaryEncoder": "Rotary encoder",
-    "swDisabledNote": "Button pin — not yet used",
+    "rotaryEncoderDescription": "Select the GPIO pins connected to your rotary encoder.",
     "applyAndReboot": "Apply and reboot",
     "confirmMessage": "The system will reboot to apply hardware changes.",
     "rebooting": "Rebooting...",

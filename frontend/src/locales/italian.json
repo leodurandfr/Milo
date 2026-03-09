@@ -248,7 +248,7 @@
     "screen": "Schermo",
     "screenModel": "Modello",
     "rotaryEncoder": "Encoder rotativo",
-    "swDisabledNote": "Pin pulsante — non ancora utilizzato",
+    "rotaryEncoderDescription": "Seleziona i pin GPIO collegati al tuo encoder rotativo.",
     "applyAndReboot": "Applica e riavvia",
     "confirmMessage": "Il sistema verrà riavviato per applicare le modifiche hardware.",
     "rebooting": "Riavvio in corso...",
