@@ -39,7 +39,13 @@
               <img :src="displayIcon" alt="Display" />
             </template>
           </ListItemButton>
-          
+
+          <ListItemButton :title="t('settings.hardware')" action="caret" @click="push('hardware')">
+            <template #icon>
+              <img :src="hardwareIcon" alt="Hardware" />
+            </template>
+          </ListItemButton>
+
           <ListItemButton v-if="settingsStore.dockApps.multiroom" :title="t('audioSources.multiroom')" action="caret"
             @click="push('multiroom')">
             <template #icon>
@@ -103,6 +109,9 @@
 
       <!-- Screen view -->
       <ScreenSettings v-else-if="currentView === 'screen'" key="screen" class="view-content" />
+
+      <!-- Hardware view -->
+      <HardwareSettings v-else-if="currentView === 'hardware'" key="hardware" class="view-content" />
 
       <!-- Spotify view -->
       <SpotifySettings v-else-if="currentView === 'spotify'" key="spotify" class="view-content" />
@@ -178,6 +187,7 @@ import informationIcon from '@/assets/settings-icons/information.svg';
 import radioIcon from '@/assets/settings-icons/radio.svg';
 import podcastIcon from '@/assets/settings-icons/podcast.svg';
 import macosIcon from '@/assets/settings-icons/macos.svg';
+import hardwareIcon from '@/assets/settings-icons/hardware.svg';
 import DockSettings from '@/components/settings/categories/DockSettings.vue';
 import VolumeSettings from '@/components/settings/categories/VolumeSettings.vue';
 import ScreenSettings from '@/components/settings/categories/ScreenSettings.vue';
@@ -189,6 +199,7 @@ import RadioSettings from '@/components/settings/categories/radio/RadioSettings.
 import ManageStation from '@/components/settings/categories/radio/ManageStation.vue';
 import PodcastSettings from '@/components/settings/categories/PodcastSettings.vue';
 import MacSettings from '@/components/settings/categories/MacSettings.vue';
+import HardwareSettings from '@/components/settings/categories/HardwareSettings.vue';
 import UpdateManager from '@/components/settings/categories/UpdateManager.vue';
 import InfoSettings from '@/components/settings/categories/InfoSettings.vue';
 const props = defineProps({
@@ -247,6 +258,7 @@ const headerTitle = computed(() => {
     'apps': t('settings.dock'),
     'volume': t('settings.volume'),
     'screen': t('settings.screen'),
+    'hardware': t('settings.hardware'),
     'spotify': t('audioSources.spotify'),
     'multiroom': t('audioSources.multiroom'),
     'multiroom-zone-edit': zoneGroupId.value
@@ -385,7 +397,7 @@ async function handleRadioStationEdited(station) {
 // Placeholder for odd grid
 const shouldShowPlaceholder = computed(() => {
   // Count the number of visible IconButtons
-  let count = 6; // Base: Languages, Applications, Volume, Screen, Updates, Information
+  let count = 7; // Base: Languages, Applications, Volume, Screen, Hardware, Updates, Information
   if (settingsStore.dockApps.spotify) count++;
   if (settingsStore.dockApps.mac) count++;
   if (settingsStore.dockApps.multiroom) count++;

@@ -14,7 +14,8 @@
     "volume": "वॉल्यूम",
     "screen": "स्क्रीन",
     "updates": "अपडेट",
-    "information": "जानकारी"
+    "information": "जानकारी",
+    "hardware": "हार्डवेयर"
   },
   "audioSources": {
     "title": "ऑडियो स्रोत",
@@ -240,6 +241,18 @@
     "uiScale": "प्रदर्शन",
     "uiScaleLevel": "इंटरफ़ेस स्केल",
     "screensaverDelay": "स्क्रीनसेवर शुरू करें, इसके बाद:"
+  },
+  "hardwareSettings": {
+    "audioCard": "ऑडियो कार्ड",
+    "audioCardModel": "मॉडल",
+    "screen": "स्क्रीन",
+    "screenModel": "मॉडल",
+    "rotaryEncoder": "रोटरी एन्कोडर",
+    "swDisabledNote": "बटन पिन — अभी उपयोग नहीं किया गया",
+    "applyAndReboot": "लागू करें और पुनः आरंभ करें",
+    "confirmMessage": "हार्डवेयर परिवर्तन लागू करने के लिए सिस्टम पुनः आरंभ होगा।",
+    "rebooting": "पुनः आरंभ हो रहा है...",
+    "rebootingDescription": "Milō पुनः आरंभ हो रहा है। यह पृष्ठ स्वचालित रूप से पुनः लोड होगा।"
   },
   "spotifySettings": {
     "autoDisconnect": "ऑटो डिस्कनेक्ट",

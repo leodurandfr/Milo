@@ -397,6 +397,57 @@ class RadioSettingsRequest(BaseModel):
     shazam_enabled: bool
 
 
+# =============================================================================
+# HARDWARE CONFIGURATION
+# =============================================================================
+
+class HardwareAudioRequest(BaseModel):
+    """Audio card selection"""
+    id: str = Field(..., min_length=1, max_length=50)
+
+    @field_validator('id')
+    @classmethod
+    def validate_audio_id(cls, v: str) -> str:
+        from backend.hardware.registry import AUDIO_CARDS
+        if v not in AUDIO_CARDS:
+            raise ValueError(f"Unknown audio card '{v}'. Valid: {list(AUDIO_CARDS.keys())}")
+        return v
+
+
+class HardwareScreenRequest(BaseModel):
+    """Screen type selection"""
+    type: str = Field(..., min_length=1, max_length=50)
+
+    @field_validator('type')
+    @classmethod
+    def validate_screen_type(cls, v: str) -> str:
+        from backend.hardware.registry import SCREENS
+        if v not in SCREENS:
+            raise ValueError(f"Unknown screen type '{v}'. Valid: {list(SCREENS.keys())}")
+        return v
+
+
+class HardwareRotaryEncoderRequest(BaseModel):
+    """Rotary encoder GPIO pin configuration"""
+    clk_pin: int = Field(..., ge=2, le=27)
+    dt_pin: int = Field(..., ge=2, le=27)
+    sw_pin: int = Field(..., ge=2, le=27)
+
+    @model_validator(mode='after')
+    def validate_unique_pins(self):
+        pins = [self.clk_pin, self.dt_pin, self.sw_pin]
+        if len(set(pins)) != len(pins):
+            raise ValueError('All GPIO pins must be different')
+        return self
+
+
+class HardwareConfigRequest(BaseModel):
+    """Full hardware configuration request"""
+    audio: HardwareAudioRequest
+    screen: HardwareScreenRequest
+    rotary_encoder: HardwareRotaryEncoderRequest
+
+
 class MacRocConfigRequest(BaseModel):
     """Mac ROC streaming configuration request"""
     target_latency_ms: int = Field(default=200, ge=5, le=500, description="Target latency in milliseconds")

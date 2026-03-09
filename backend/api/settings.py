@@ -23,7 +23,8 @@ from backend.api.models import (
     ScreenUiScaleRequest,
     MacRocConfigRequest,
     RadioSettingsRequest,
-    InactivityTimeoutRequest
+    InactivityTimeoutRequest,
+    HardwareConfigRequest,
 )
 from backend.core.multiroom.routing import RoutingEnvironment
 import logging
@@ -1036,6 +1037,94 @@ def create_settings_router(
                     "screen_resolution": {"width": None, "height": None}
                 }
             }
+
+    # Hardware configuration (full config + registry options for dropdowns)
+    @router.get("/hardware-config")
+    async def get_hardware_config():
+        """Retrieve full hardware config and available options for the Hardware settings page."""
+        from backend.hardware.registry import AUDIO_CARDS, SCREENS
+        try:
+            current = hardware_service.get_full_config()
+
+            # Build dropdown options from registry
+            audio_options = [
+                {"value": card_id, "label": card["label"]}
+                for card_id, card in AUDIO_CARDS.items()
+            ]
+            screen_options = [
+                {"value": screen_id, "label": screen["label"]}
+                for screen_id, screen in SCREENS.items()
+            ]
+
+            return {
+                "status": "success",
+                "current": current,
+                "options": {
+                    "audio_cards": audio_options,
+                    "screens": screen_options,
+                }
+            }
+        except Exception as e:
+            logger.error(f"Error getting hardware config: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.put("/hardware-config")
+    async def set_hardware_config(payload: HardwareConfigRequest):
+        """
+        Save hardware config, apply to config.txt, and reboot.
+
+        Resolves full audio card properties from registry before saving,
+        then runs the privileged milo-apply-hardware script.
+        """
+        from backend.hardware.registry import AUDIO_CARDS, SCREENS
+
+        try:
+            card = AUDIO_CARDS[payload.audio.id]
+            screen = SCREENS[payload.screen.type]
+
+            # Build the full config to write to hardware.json
+            audio_config = {"id": payload.audio.id}
+            if card["overlay"]:
+                audio_config.update({
+                    "card_name": card["card_name"],
+                    "alsa_control": card["alsa_control"],
+                    "overlay": card["overlay"],
+                })
+
+            config = {
+                "audio": audio_config,
+                "screen": {
+                    "type": payload.screen.type,
+                    "resolution": screen["resolution"],
+                },
+                "rotary_encoder": {
+                    "clk_pin": payload.rotary_encoder.clk_pin,
+                    "dt_pin": payload.rotary_encoder.dt_pin,
+                    "sw_pin": payload.rotary_encoder.sw_pin,
+                },
+            }
+
+            await hardware_service.save_config(config)
+            logger.info(f"Hardware config saved: audio={payload.audio.id}, screen={payload.screen.type}")
+
+            # Apply config.txt changes and reboot (fire-and-forget with short delay)
+            async def _delayed_apply():
+                await asyncio.sleep(1)  # Allow HTTP response to be sent
+                try:
+                    await hardware_service.apply_and_reboot()
+                except Exception as e:
+                    logger.error(f"Hardware apply/reboot failed: {e}")
+
+            asyncio.create_task(_delayed_apply())
+
+            return {"status": "rebooting"}
+
+        except RuntimeError as e:
+            logger.error(f"Hardware apply failed: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+        except Exception as e:
+            logger.error(f"Error setting hardware config: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
 
     # Mac ROC Streaming configuration
     @router.get("/mac-roc")

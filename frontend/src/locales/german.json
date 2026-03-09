@@ -14,7 +14,8 @@
     "volume": "Lautstärke",
     "screen": "Bildschirm",
     "updates": "Aktualisierungen",
-    "information": "Informationen"
+    "information": "Informationen",
+    "hardware": "Hardware"
   },
   "audioSources": {
     "title": "Audioquellen",
@@ -240,6 +241,18 @@
     "uiScale": "Anzeige",
     "uiScaleLevel": "Skalierung der Oberfläche",
     "screensaverDelay": "Bildschirmschoner starten nach:"
+  },
+  "hardwareSettings": {
+    "audioCard": "Audiokarte",
+    "audioCardModel": "Modell",
+    "screen": "Bildschirm",
+    "screenModel": "Modell",
+    "rotaryEncoder": "Drehregler",
+    "swDisabledNote": "Tastpin — noch nicht verwendet",
+    "applyAndReboot": "Anwenden und neu starten",
+    "confirmMessage": "Das System wird neu gestartet, um die Hardwareänderungen anzuwenden.",
+    "rebooting": "Neustart...",
+    "rebootingDescription": "Milō startet neu. Diese Seite wird automatisch neu geladen."
   },
   "spotifySettings": {
     "autoDisconnect": "Automatische Trennung",
