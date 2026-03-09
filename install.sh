@@ -157,14 +157,14 @@ collect_user_choices() {
         USER_HIFIBERRY_CHOICE=${USER_HIFIBERRY_CHOICE:-1}
 
         case $USER_HIFIBERRY_CHOICE in
-            1) HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Selected card: Amp2"; break;;
-            2) HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Selected card: Amp4"; break;;
-            3) HIFIBERRY_OVERLAY="hifiberry-amp4pro"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Selected card: Amp4 Pro"; break;;
-            4) HIFIBERRY_OVERLAY="hifiberry-amp100"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Selected card: Amp100"; break;;
-            5) HIFIBERRY_OVERLAY="hifiberry-dac"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="DAC"; log_success "Selected card: Beocreate 4CA"; break;;
-            6) HIFIBERRY_OVERLAY="hifiberry-dacplushd"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="DAC"; log_success "Selected card: DAC2 HD"; break;;
-            7) HIFIBERRY_OVERLAY="hifiberry-dacplus"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Selected card: DAC+ Pro"; break;;
-            8) HIFIBERRY_OVERLAY=""; CARD_NAME=""; ALSA_CONTROL=""; log_warning "HiFiBerry configuration skipped"; break;;
+            1) AUDIO_CARD_ID="hifiberry_amp2"; HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Selected card: Amp2"; break;;
+            2) AUDIO_CARD_ID="hifiberry_amp4"; HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Selected card: Amp4"; break;;
+            3) AUDIO_CARD_ID="hifiberry_amp4pro"; HIFIBERRY_OVERLAY="hifiberry-amp4pro"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Selected card: Amp4 Pro"; break;;
+            4) AUDIO_CARD_ID="hifiberry_amp100"; HIFIBERRY_OVERLAY="hifiberry-amp100"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Selected card: Amp100"; break;;
+            5) AUDIO_CARD_ID="hifiberry_beocreate"; HIFIBERRY_OVERLAY="hifiberry-dac"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="DAC"; log_success "Selected card: Beocreate 4CA"; break;;
+            6) AUDIO_CARD_ID="hifiberry_dac2hd"; HIFIBERRY_OVERLAY="hifiberry-dacplushd"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="DAC"; log_success "Selected card: DAC2 HD"; break;;
+            7) AUDIO_CARD_ID="hifiberry_dacplus_pro"; HIFIBERRY_OVERLAY="hifiberry-dacplus"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Selected card: DAC+ Pro"; break;;
+            8) AUDIO_CARD_ID=""; HIFIBERRY_OVERLAY=""; CARD_NAME=""; ALSA_CONTROL=""; log_warning "HiFiBerry configuration skipped"; break;;
             *) echo "Invalid choice. Please enter a number between 1 and 8.";;
         esac
     done
@@ -710,6 +710,22 @@ install_readiness_script() {
     sudo chmod +x /usr/local/bin/milo-wait-ready.sh
 
     log_success "Readiness script installed in /usr/local/bin/"
+}
+
+install_apply_hardware_script() {
+    log_info "Installing hardware apply script..."
+
+    # Copy apply-hardware script to /usr/local/bin/
+    sudo cp "$MILO_APP_DIR/rootfs/usr/local/bin/milo-apply-hardware" /usr/local/bin/milo-apply-hardware
+    sudo chmod +x /usr/local/bin/milo-apply-hardware
+
+    # Create sudoers rule so milo user can run it without password
+    sudo tee /etc/sudoers.d/milo-hardware > /dev/null << 'EOF'
+milo ALL=(root) NOPASSWD: /usr/local/bin/milo-apply-hardware
+EOF
+    sudo chmod 0440 /etc/sudoers.d/milo-hardware
+
+    log_success "Hardware apply script installed with sudoers rule"
 }
 
 install_seatd() {
@@ -1322,41 +1338,45 @@ EOF
 save_hardware_config() {
     log_info "Saving hardware configuration to $MILO_DATA_DIR/hardware.json..."
 
-    # Build screen section based on screen type
-    local screen_json
+    # Resolve screen resolution
+    local screen_resolution="null"
     case "$SCREEN_TYPE" in
-        "waveshare_7_usb")
-            screen_json='"waveshare_7_usb": {"resolution": "1024x600"}'
-            ;;
-        "waveshare_8_dsi")
-            screen_json='"waveshare_8_dsi": {"resolution": "1280x800"}'
-            ;;
-        *)
-            screen_json='"none": {}'
-            ;;
+        "waveshare_7_usb") screen_resolution='"1024x600"' ;;
+        "waveshare_8_dsi") screen_resolution='"1280x800"' ;;
+        *) SCREEN_TYPE="none" ;;
     esac
 
-    # Build audio section based on HiFiBerry card selection
-    local audio_json
-    if [[ -n "$CARD_NAME" ]]; then
-        audio_json="\"card_name\": \"$CARD_NAME\", \"alsa_control\": \"$ALSA_CONTROL\""
-    else
-        audio_json=""
+    # Build audio section
+    local audio_json='{}'
+    if [[ -n "$AUDIO_CARD_ID" ]]; then
+        audio_json=$(cat << AUDIO
+{
+      "id": "$AUDIO_CARD_ID",
+      "card_name": "$CARD_NAME",
+      "alsa_control": "$ALSA_CONTROL",
+      "overlay": "$HIFIBERRY_OVERLAY"
+    }
+AUDIO
+)
     fi
 
     sudo tee "$MILO_DATA_DIR/hardware.json" > /dev/null << EOF
 {
   "screen": {
-    $screen_json
+    "type": "$SCREEN_TYPE",
+    "resolution": $screen_resolution
   },
-  "audio": {
-    $audio_json
+  "audio": $audio_json,
+  "rotary_encoder": {
+    "clk_pin": 22,
+    "dt_pin": 27,
+    "sw_pin": 23
   }
 }
 EOF
 
     sudo chown "$MILO_USER:$MILO_USER" "$MILO_DATA_DIR/hardware.json"
-    log_success "Hardware configuration saved (screen: $SCREEN_TYPE, audio: ${CARD_NAME:-none})"
+    log_success "Hardware configuration saved (screen: $SCREEN_TYPE, audio: ${AUDIO_CARD_ID:-none})"
 }
 
 enable_services() {
@@ -1578,6 +1598,7 @@ main() {
    install_snapcast
 
    install_readiness_script
+   install_apply_hardware_script
    create_systemd_services
    configure_journald
    install_udev_rules

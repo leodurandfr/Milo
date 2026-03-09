@@ -57,6 +57,15 @@ def _const(name: str):
     return getattr(constants, name)
 
 
+def _create_rotary_controller():
+    """Create RotaryVolumeController with GPIO pins from hardware.json."""
+    clk, dt, sw = get_service("hardware_service").get_rotary_pins()
+    return _import("backend.hardware", "RotaryVolumeController")(
+        volume_service=get_service("volume_service"),
+        clk_pin=clk, dt_pin=dt, sw_pin=sw
+    )
+
+
 def _create_service(name: str) -> Any:
     """
     Factory for creating service instances.
@@ -106,12 +115,7 @@ def _create_service(name: str) -> Any:
             hardware_service=get_service("hardware_service"),
             equalizer_router=get_service("equalizer_router")
         ),
-        "rotary_controller": lambda: _import("backend.hardware", "RotaryVolumeController")(
-            volume_service=get_service("volume_service"),
-            clk_pin=_const("ROTARY_CLK_PIN"),
-            dt_pin=_const("ROTARY_DT_PIN"),
-            sw_pin=_const("ROTARY_SW_PIN")
-        ),
+        "rotary_controller": lambda: _create_rotary_controller(),
         "screen_controller": lambda: _import("backend.hardware", "ScreenController")(
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service"),

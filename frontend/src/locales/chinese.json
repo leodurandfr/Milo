@@ -14,7 +14,8 @@
     "volume": "音量",
     "screen": "屏幕",
     "updates": "更新",
-    "information": "信息"
+    "information": "信息",
+    "hardware": "硬件"
   },
   "audioSources": {
     "title": "音频源",
@@ -240,6 +241,18 @@
     "uiScale": "显示",
     "uiScaleLevel": "界面缩放",
     "screensaverDelay": "启动屏幕保护程序："
+  },
+  "hardwareSettings": {
+    "audioCard": "声卡",
+    "audioCardModel": "型号",
+    "screen": "屏幕",
+    "screenModel": "型号",
+    "rotaryEncoder": "旋转编码器",
+    "swDisabledNote": "按钮引脚 — 尚未使用",
+    "applyAndReboot": "应用并重启",
+    "confirmMessage": "系统将重启以应用硬件更改。",
+    "rebooting": "正在重启...",
+    "rebootingDescription": "Milō 正在重启。此页面将自动重新加载。"
   },
   "spotifySettings": {
     "autoDisconnect": "自动断开",

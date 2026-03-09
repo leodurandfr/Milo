@@ -14,7 +14,8 @@
     "volume": "Volume",
     "screen": "Ecrã",
     "updates": "Atualizações",
-    "information": "Informações"
+    "information": "Informações",
+    "hardware": "Hardware"
   },
   "audioSources": {
     "title": "Fontes de áudio",
@@ -240,6 +241,18 @@
     "uiScale": "Exibição",
     "uiScaleLevel": "Escala da interface",
     "screensaverDelay": "Iniciar a proteção de tela após:"
+  },
+  "hardwareSettings": {
+    "audioCard": "Placa de áudio",
+    "audioCardModel": "Modelo",
+    "screen": "Tela",
+    "screenModel": "Modelo",
+    "rotaryEncoder": "Codificador rotativo",
+    "swDisabledNote": "Pino de botão — ainda não utilizado",
+    "applyAndReboot": "Aplicar e reiniciar",
+    "confirmMessage": "O sistema será reiniciado para aplicar as alterações de hardware.",
+    "rebooting": "Reiniciando...",
+    "rebootingDescription": "Milō está reiniciando. Esta página será recarregada automaticamente."
   },
   "spotifySettings": {
     "autoDisconnect": "Desconexão automática",

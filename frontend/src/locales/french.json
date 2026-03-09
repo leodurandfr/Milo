@@ -14,7 +14,8 @@
     "volume": "Volume",
     "screen": "Écran",
     "updates": "Mises à jour",
-    "information": "Informations"
+    "information": "Informations",
+    "hardware": "Matériel"
   },
   "audioSources": {
     "title": "Sources audio",
@@ -202,6 +203,18 @@
     "uiScale": "Affichage",
     "uiScaleLevel": "Proportion de l'interface",
     "screensaverDelay": "Démarrer l'économiseur d'écran, après :"
+  },
+  "hardwareSettings": {
+    "audioCard": "Carte audio",
+    "audioCardModel": "Modèle",
+    "screen": "Écran",
+    "screenModel": "Modèle",
+    "rotaryEncoder": "Encodeur rotatif",
+    "swDisabledNote": "Bouton poussoir — pas encore utilisé",
+    "applyAndReboot": "Appliquer et redémarrer",
+    "confirmMessage": "Le système va redémarrer pour appliquer les changements matériels.",
+    "rebooting": "Redémarrage en cours...",
+    "rebootingDescription": "Milō redémarre. Cette page se rechargera automatiquement."
   },
   "spotifySettings": {
     "autoDisconnect": "Déconnexion automatique",

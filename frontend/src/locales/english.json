@@ -14,7 +14,8 @@
     "volume": "Volume",
     "screen": "Screen",
     "updates": "Updates",
-    "information": "Information"
+    "information": "Information",
+    "hardware": "Hardware"
   },
   "audioSources": {
     "title": "Audio sources",
@@ -202,6 +203,18 @@
     "screensaverDelay": "Start the screensaver after:",
     "uiScale": "Display",
     "uiScaleLevel": "Interface scale"
+  },
+  "hardwareSettings": {
+    "audioCard": "Audio card",
+    "audioCardModel": "Model",
+    "screen": "Screen",
+    "screenModel": "Model",
+    "rotaryEncoder": "Rotary encoder",
+    "swDisabledNote": "Button pin — not yet used",
+    "applyAndReboot": "Apply and reboot",
+    "confirmMessage": "The system will reboot to apply hardware changes.",
+    "rebooting": "Rebooting...",
+    "rebootingDescription": "Milō is restarting. This page will reload automatically."
   },
   "spotifySettings": {
     "autoDisconnect": "Auto disconnect",

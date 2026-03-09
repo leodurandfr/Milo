@@ -40,13 +40,6 @@ CLIENT_REQUEST_TIMEOUT = 2.0    # Timeout for requests to milo-client
 HEALTH_CHECK_TIMEOUT = 2.0      # Timeout for health checks
 
 # =============================================================================
-# GPIO PINS (rotary encoder)
-# =============================================================================
-ROTARY_CLK_PIN = 22
-ROTARY_DT_PIN = 27
-ROTARY_SW_PIN = 23
-
-# =============================================================================
 # MAC ROC STREAMING
 # =============================================================================
 MAC_RTP_PORT = 10001
