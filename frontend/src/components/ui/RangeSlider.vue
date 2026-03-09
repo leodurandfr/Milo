@@ -1,6 +1,6 @@
 <!-- frontend/src/components/ui/RangeSlider.vue -->
 <template>
-  <div :class="['slider-container', orientation, { disabled, muted }]" :style="cssVars">
+  <div :class="['slider-container', orientation, { disabled, muted, dragging: isDragging }]" :style="cssVars">
     <div ref="track" class="range-track"></div>
 
     <div
@@ -191,6 +191,12 @@ onUnmounted(() => {
   inherits: true;
   initial-value: transparent;
 }
+
+@property --progress {
+  syntax: '<percentage>';
+  inherits: true;
+  initial-value: 0%;
+}
 </style>
 
 <style scoped>
@@ -201,6 +207,15 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   position: relative;
+}
+
+/* Animate value changes smoothly (e.g. EQ loading), but not during drag */
+.slider-container:not(.dragging) {
+  transition: --slider-accent var(--transition-fast), --progress var(--transition-normal);
+}
+
+.slider-container:not(.dragging) .range-thumb {
+  transition: left var(--transition-normal), bottom var(--transition-normal);
 }
 
 .slider-container.horizontal {
