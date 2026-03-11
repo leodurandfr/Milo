@@ -31,7 +31,7 @@ import plusIcon from '@/assets/icons/plus.svg?raw'
 import minusIcon from '@/assets/icons/minus.svg?raw'
 import threeDotsIcon from '@/assets/icons/three-dots.svg?raw'
 import closeDotsIcon from '@/assets/icons/close-dots.svg?raw'
-import resetIcon from '@/assets/icons/reset.svg?raw'
+import arrowsClockwiseIcon from '@/assets/icons/arrows-clockwise.svg?raw'
 import settingsIcon from '@/assets/icons/settings.svg?raw'
 import closeIcon from '@/assets/icons/close.svg?raw'
 import caretLeftIcon from '@/assets/icons/caret-left.svg?raw'
@@ -44,6 +44,8 @@ import stopIcon from '@/assets/icons/stop.svg?raw'
 import heartIcon from '@/assets/icons/heart.svg?raw'
 import heartOffIcon from '@/assets/icons/heart-off.svg?raw'
 import caretDownIcon from '@/assets/icons/caret-down.svg?raw'
+import caretUpIcon from '@/assets/icons/caret-up.svg?raw'
+import powerIcon from '@/assets/icons/power.svg?raw'
 import podcastIcon from '@/assets/icons/podcast.svg?raw'
 import queueIcon from '@/assets/icons/queue.svg?raw'
 import checkIcon from '@/assets/icons/check.svg?raw'
@@ -72,12 +74,14 @@ const icons = {
   minus: minusIcon,
   threeDots: threeDotsIcon,
   closeDots: closeDotsIcon,
-  reset: resetIcon,
+  arrowsClockwise: arrowsClockwiseIcon,
   settings: settingsIcon,
   close: closeIcon,
   caretLeft: caretLeftIcon,
   caretRight: caretRightIcon,
   caretDown: caretDownIcon,
+  caretUp: caretUpIcon,
+  power: powerIcon,
   multiroom: multiroomIcon,
   equalizer: equalizerIcon,
   radio: radioIcon,

@@ -15,7 +15,11 @@
     "screen": "स्क्रीन",
     "updates": "अपडेट",
     "information": "जानकारी",
-    "hardware": "हार्डवेयर"
+    "hardware": "हार्डवेयर",
+    "restart": "पुनः आरंभ करें",
+    "confirmRestart": "पुनः आरंभ की पुष्टि करें",
+    "shutdown": "बंद करें",
+    "confirmShutdown": "बंद करने की पुष्टि करें"
   },
   "audioSources": {
     "title": "ऑडियो स्रोत",
