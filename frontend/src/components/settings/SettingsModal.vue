@@ -61,12 +61,6 @@
             </template>
           </ListItemButton>
 
-          <ListItemButton :title="t('settings.hardware')" action="caret" @click="push('hardware')">
-            <template #icon>
-              <img :src="hardwareIcon" alt="Hardware" />
-            </template>
-          </ListItemButton>
-
           <ListItemButton v-if="settingsStore.dockApps.multiroom" :title="t('audioSources.multiroom')" action="caret"
             @click="push('multiroom')">
             <template #icon>
@@ -102,6 +96,12 @@
             </template>
           </ListItemButton>
 
+          <ListItemButton :title="t('settings.hardware')" action="caret" @click="push('hardware')">
+            <template #icon>
+              <img :src="hardwareIcon" alt="Hardware" />
+            </template>
+          </ListItemButton>
+          
           <ListItemButton :title="t('settings.updates')" action="caret" @click="push('updates')">
             <template #icon>
               <img :src="updatesIcon" alt="Updates" />
