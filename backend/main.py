@@ -28,6 +28,7 @@ from backend.features.radio.routes import setup_radio_routes
 from backend.features.podcast.routes import setup_podcast_routes
 from backend.features.airplay.routes import setup_airplay_routes
 from backend.api.settings import create_settings_router
+from backend.api.system import create_system_router
 from backend.api.programs import create_programs_router
 from backend.hardware.bt_remote_routes import create_bt_remote_router
 from backend.api.health import create_health_router
@@ -205,6 +206,9 @@ settings_router = create_settings_router(
     settings_service
 )
 app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
+
+system_router = create_system_router()
+app.include_router(system_router, prefix="/api/system", tags=["system"])
 
 programs_router = create_programs_router(
     update_service=get_service("update_service"),
