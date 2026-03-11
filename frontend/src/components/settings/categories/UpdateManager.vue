@@ -41,20 +41,14 @@
                   </span>
                 </div>
 
-                <!-- Progress bar (shown during update) -->
-                <div v-if="isLocalUpdating('milo')" class="update-progress">
-                  <p class="progress-message text-mono-small">{{ getLocalUpdateMessage('milo') }}</p>
-                  <div class="progress-bar">
-                    <div class="progress-fill" :style="{ width: getLocalUpdateProgress('milo') + '%' }"></div>
-                  </div>
-                </div>
-
-                <!-- Update button or Up-to-date button -->
+                <!-- Update button (loading state during update) -->
                 <Button
-                  v-else-if="localPrograms.milo.update_available && canUpdateLocal('milo') && !isLocalUpdateCompleted('milo')"
-                  size="small" variant="brand" class="program-button" @click="startLocalUpdate('milo')"
-                  :disabled="isAnyUpdateInProgress()">
-                  {{ t('updates.update') }}
+                  v-if="isLocalUpdating('milo') || debugForceUpdating || (localPrograms.milo.update_available && canUpdateLocal('milo') && !isLocalUpdateCompleted('milo'))"
+                  size="small" variant="brand" class="program-button"
+                  :loading="isLocalUpdating('milo') || debugForceUpdating"
+                  @click="startLocalUpdate('milo')"
+                  :disabled="debugForceUpdating || isAnyUpdateInProgress()">
+                  {{ (isLocalUpdating('milo') || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
                 </Button>
                 <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
                   {{ t('updates.upToDate') }}
@@ -93,19 +87,14 @@
                     </span>
                   </div>
 
-                  <!-- Progress bar (shown during update) -->
-                  <div v-if="isLocalUpdating(key)" class="update-progress">
-                    <p class="progress-message text-mono-small">{{ getLocalUpdateMessage(key) }}</p>
-                    <div class="progress-bar">
-                      <div class="progress-fill" :style="{ width: getLocalUpdateProgress(key) + '%' }"></div>
-                    </div>
-                  </div>
-
-                  <!-- Update button or Up-to-date button -->
-                  <Button v-else-if="program.update_available && canUpdateLocal(key) && !isLocalUpdateCompleted(key)"
-                    size="small" variant="brand" class="program-button" @click="startLocalUpdate(key)"
-                    :disabled="isAnyUpdateInProgress()">
-                    {{ t('updates.update') }}
+                  <!-- Update button (loading state during update) -->
+                  <Button
+                    v-if="isLocalUpdating(key) || debugForceUpdating || (program.update_available && canUpdateLocal(key) && !isLocalUpdateCompleted(key))"
+                    size="small" variant="brand" class="program-button"
+                    :loading="isLocalUpdating(key) || debugForceUpdating"
+                    @click="startLocalUpdate(key)"
+                    :disabled="debugForceUpdating || isAnyUpdateInProgress()">
+                    {{ (isLocalUpdating(key) || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
                   </Button>
                   <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date"
                     disabled>
@@ -170,20 +159,13 @@
                     </span>
                   </div>
 
-                  <div v-if="isSatelliteAppUpdating(satelliteByIp[client.ip].hostname)" class="update-progress">
-                    <p class="progress-message text-mono-small">{{ getSatelliteAppUpdateMessage(satelliteByIp[client.ip].hostname) }}</p>
-                    <div class="progress-bar">
-                      <div class="progress-fill"
-                        :style="{ width: getSatelliteAppUpdateProgress(satelliteByIp[client.ip].hostname) + '%' }">
-                      </div>
-                    </div>
-                  </div>
-
                   <Button
-                    v-else-if="satelliteByIp[client.ip].app_update_available && satelliteByIp[client.ip].online && !isSatelliteAppUpdateCompleted(satelliteByIp[client.ip].hostname)"
-                    size="small" variant="brand" class="program-button" @click="startSatelliteAppUpdate(satelliteByIp[client.ip].hostname)"
-                    :disabled="isAnyUpdateInProgress()">
-                    {{ t('updates.update') }}
+                    v-if="isSatelliteAppUpdating(satelliteByIp[client.ip].hostname) || debugForceUpdating || (satelliteByIp[client.ip].app_update_available && satelliteByIp[client.ip].online && !isSatelliteAppUpdateCompleted(satelliteByIp[client.ip].hostname))"
+                    size="small" variant="brand" class="program-button"
+                    :loading="isSatelliteAppUpdating(satelliteByIp[client.ip].hostname) || debugForceUpdating"
+                    @click="startSatelliteAppUpdate(satelliteByIp[client.ip].hostname)"
+                    :disabled="debugForceUpdating || isAnyUpdateInProgress()">
+                    {{ (isSatelliteAppUpdating(satelliteByIp[client.ip].hostname) || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
                   </Button>
                   <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
                     {{ t('updates.upToDate') }}
@@ -204,19 +186,13 @@
                     </span>
                   </div>
 
-                  <div v-if="isSatelliteUpdating(satelliteByIp[client.ip].hostname)" class="update-progress">
-                    <p class="progress-message text-mono-small">{{ getSatelliteUpdateMessage(satelliteByIp[client.ip].hostname) }}</p>
-                    <div class="progress-bar">
-                      <div class="progress-fill" :style="{ width: getSatelliteUpdateProgress(satelliteByIp[client.ip].hostname) + '%' }">
-                      </div>
-                    </div>
-                  </div>
-
                   <Button
-                    v-else-if="satelliteByIp[client.ip].update_available && satelliteByIp[client.ip].online && !isSatelliteUpdateCompleted(satelliteByIp[client.ip].hostname)"
-                    size="small" variant="brand" class="program-button" @click="startSatelliteUpdate(satelliteByIp[client.ip].hostname)"
-                    :disabled="isAnyUpdateInProgress()">
-                    {{ t('updates.update') }}
+                    v-if="isSatelliteUpdating(satelliteByIp[client.ip].hostname) || debugForceUpdating || (satelliteByIp[client.ip].update_available && satelliteByIp[client.ip].online && !isSatelliteUpdateCompleted(satelliteByIp[client.ip].hostname))"
+                    size="small" variant="brand" class="program-button"
+                    :loading="isSatelliteUpdating(satelliteByIp[client.ip].hostname) || debugForceUpdating"
+                    @click="startSatelliteUpdate(satelliteByIp[client.ip].hostname)"
+                    :disabled="debugForceUpdating || isAnyUpdateInProgress()">
+                    {{ (isSatelliteUpdating(satelliteByIp[client.ip].hostname) || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
                   </Button>
                   <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
                     {{ t('updates.upToDate') }}
@@ -330,6 +306,12 @@ const satelliteAppCompletedUpdates = ref(new Set());
 
 const supportedLocalUpdates = ['milo', 'go-librespot', 'shairport-sync', 'multiroom'];
 
+// Debug: toggle via console with window.__miloDebugUpdating(true/false)
+const debugForceUpdating = ref(false);
+if (typeof window !== 'undefined') {
+  window.__miloDebugUpdating = (val) => { debugForceUpdating.value = val; };
+}
+
 const programToDockApp = {
   'go-librespot': 'spotify',
   'multiroom': 'multiroom',
@@ -393,23 +375,11 @@ function isLocalUpdateCompleted(programKey) {
   return localCompletedUpdates.value.has(programKey);
 }
 
-function getLocalUpdateProgress(programKey) {
-  return localUpdateStates.value[programKey]?.progress || 0;
-}
-
-function getLocalUpdateMessage(programKey) {
-  return localUpdateStates.value[programKey]?.message || '';
-}
-
 async function startLocalUpdate(programKey) {
   if (!canUpdateLocal(programKey) || isLocalUpdating(programKey)) return;
 
   try {
-    localUpdateStates.value[programKey] = {
-      updating: true,
-      progress: 0,
-      message: t('updates.updatingInit')
-    };
+    localUpdateStates.value[programKey] = { updating: true };
 
     const response = await axios.post(`/api/programs/${programKey}/update`);
 
@@ -451,23 +421,11 @@ function isSatelliteUpdateCompleted(hostname) {
   return satelliteCompletedUpdates.value.has(hostname);
 }
 
-function getSatelliteUpdateProgress(hostname) {
-  return satelliteUpdateStates.value[hostname]?.progress || 0;
-}
-
-function getSatelliteUpdateMessage(hostname) {
-  return satelliteUpdateStates.value[hostname]?.message || '';
-}
-
 async function startSatelliteUpdate(hostname) {
   if (isSatelliteUpdating(hostname)) return;
 
   try {
-    satelliteUpdateStates.value[hostname] = {
-      updating: true,
-      progress: 0,
-      message: t('updates.updatingInit')
-    };
+    satelliteUpdateStates.value[hostname] = { updating: true };
 
     const response = await axios.post(`/api/programs/satellites/${hostname}/update`);
 
@@ -491,23 +449,11 @@ function isSatelliteAppUpdateCompleted(hostname) {
   return satelliteAppCompletedUpdates.value.has(hostname);
 }
 
-function getSatelliteAppUpdateProgress(hostname) {
-  return satelliteAppUpdateStates.value[hostname]?.progress || 0;
-}
-
-function getSatelliteAppUpdateMessage(hostname) {
-  return satelliteAppUpdateStates.value[hostname]?.message || '';
-}
-
 async function startSatelliteAppUpdate(hostname) {
   if (isSatelliteAppUpdating(hostname)) return;
 
   try {
-    satelliteAppUpdateStates.value[hostname] = {
-      updating: true,
-      progress: 0,
-      message: t('updates.updatingInit')
-    };
+    satelliteAppUpdateStates.value[hostname] = { updating: true };
 
     const response = await axios.post(`/api/programs/satellites/${hostname}/update-app`);
 
@@ -531,13 +477,9 @@ function isAnyUpdateInProgress() {
 
 const wsListeners = {
   'program_update_progress': (msg) => {
-    const { program, progress, message, status } = msg.data;
+    const { program, status } = msg.data;
     if (program && localUpdateStates.value[program]) {
-      localUpdateStates.value[program] = {
-        updating: status === 'updating',
-        progress: progress || 0,
-        message: t(message) || message
-      };
+      localUpdateStates.value[program].updating = status === 'updating';
     }
   },
   'program_update_complete': (msg) => {
@@ -553,13 +495,9 @@ const wsListeners = {
     }
   },
   'satellite_update_progress': (msg) => {
-    const { hostname, progress, message, status } = msg.data;
+    const { hostname, status } = msg.data;
     if (hostname && satelliteUpdateStates.value[hostname]) {
-      satelliteUpdateStates.value[hostname] = {
-        updating: status === 'updating',
-        progress: progress || 0,
-        message: t(message) || message
-      };
+      satelliteUpdateStates.value[hostname].updating = status === 'updating';
     }
   },
   'satellite_update_complete': (msg) => {
@@ -575,13 +513,9 @@ const wsListeners = {
     }
   },
   'satellite_app_update_progress': (msg) => {
-    const { hostname, progress, message, status } = msg.data;
+    const { hostname, status } = msg.data;
     if (hostname && satelliteAppUpdateStates.value[hostname]) {
-      satelliteAppUpdateStates.value[hostname] = {
-        updating: status === 'updating',
-        progress: progress || 0,
-        message: t(message) || message
-      };
+      satelliteAppUpdateStates.value[hostname].updating = status === 'updating';
     }
   },
   'satellite_app_update_complete': (msg) => {
@@ -693,34 +627,12 @@ onMounted(async () => {
   justify-self: end;
 }
 
-.update-progress {
-  display: flex;
-  flex-direction: column;
-  background: var(--color-background-strong);
-  border-radius: var(--radius-02);
-  padding: 8px 12px 12px 12px;
-  gap: 8px;
-  width: 100%;
-}
-
-.progress-message {
-  color: var(--color-text-secondary);
-  text-align: center;
-}
-
-.progress-bar {
-  width: 100%;
-  height: 4px;
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-full);
-  overflow: hidden;
-}
-
-.progress-fill {
-  height: 100%;
-  background: var(--color-brand);
-  border-radius: var(--radius-full);
-  transition: width var(--transition-normal);
+/* Override loading appearance to show disabled style when updating */
+.program-button:disabled {
+  background-color: var(--color-background) !important;
+  color: var(--color-text-light) !important;
+  cursor: not-allowed !important;
+  pointer-events: auto !important;
 }
 
 /* Crossfade transition */
@@ -818,8 +730,7 @@ onMounted(async () => {
     height: 44px !important;
   }
 
-  .program-button,
-  .update-progress {
+  .program-button {
     width: 100%;
   }
 

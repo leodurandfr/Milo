@@ -289,6 +289,7 @@
     "installed": "Installed",
     "notAvailable": "Not available",
     "update": "Update",
+    "updating": "Updating...",
     "errorDetails": "Error details",
     "searchingSatellites": "Searching for satellites...",
     "errorDetectingSatellites": "Error detecting satellites",
