@@ -604,23 +604,23 @@ install_snapcast() {
     cd "$temp_dir"
 
     # Download with detected Debian version
-    log_info "Downloading Snapcast v0.34.0 for $DEBIAN_VERSION..."
-    if wget "https://github.com/snapcast/snapcast/releases/download/v0.34.0/snapserver_0.34.0-1_arm64_${DEBIAN_VERSION}.deb" 2>/dev/null && \
-       wget "https://github.com/snapcast/snapcast/releases/download/v0.34.0/snapclient_0.34.0-1_arm64_${DEBIAN_VERSION}.deb" 2>/dev/null; then
+    log_info "Downloading Snapcast v0.35.0 for $DEBIAN_VERSION..."
+    if wget "https://github.com/snapcast/snapcast/releases/download/v0.35.0/snapserver_0.35.0-1_arm64_${DEBIAN_VERSION}.deb" 2>/dev/null && \
+       wget "https://github.com/snapcast/snapcast/releases/download/v0.35.0/snapclient_0.35.0-1_arm64_${DEBIAN_VERSION}.deb" 2>/dev/null; then
 
         # Install common dependencies before .deb files
         log_info "Installing dependencies..."
         sudo apt install -y libavahi-client3 libavahi-common3 libflac12t64 || sudo apt install -y libflac12 || true
 
         # Install .deb files
-        if sudo apt install -y ./snapserver_0.34.0-1_arm64_${DEBIAN_VERSION}.deb ./snapclient_0.34.0-1_arm64_${DEBIAN_VERSION}.deb; then
+        if sudo apt install -y ./snapserver_0.35.0-1_arm64_${DEBIAN_VERSION}.deb ./snapclient_0.35.0-1_arm64_${DEBIAN_VERSION}.deb; then
             log_success "Snapcast installed from GitHub packages"
             github_install_success=true
         else
             log_warning "Failed to install .deb packages, trying with dependency fix..."
             sudo apt --fix-broken install -y || true
 
-            if sudo dpkg -i snapserver_0.34.0-1_arm64_${DEBIAN_VERSION}.deb snapclient_0.34.0-1_arm64_${DEBIAN_VERSION}.deb 2>/dev/null; then
+            if sudo dpkg -i snapserver_0.35.0-1_arm64_${DEBIAN_VERSION}.deb snapclient_0.35.0-1_arm64_${DEBIAN_VERSION}.deb 2>/dev/null; then
                 sudo apt --fix-broken install -y
                 log_success "Snapcast installed from GitHub after fixing dependencies"
                 github_install_success=true
@@ -631,18 +631,18 @@ install_snapcast() {
         log_warning "Package for $DEBIAN_VERSION not available, trying with bookworm..."
         DEBIAN_VERSION="bookworm"
 
-        if wget "https://github.com/snapcast/snapcast/releases/download/v0.34.0/snapserver_0.34.0-1_arm64_bookworm.deb" 2>/dev/null && \
-           wget "https://github.com/snapcast/snapcast/releases/download/v0.34.0/snapclient_0.34.0-1_arm64_bookworm.deb" 2>/dev/null; then
+        if wget "https://github.com/snapcast/snapcast/releases/download/v0.35.0/snapserver_0.35.0-1_arm64_bookworm.deb" 2>/dev/null && \
+           wget "https://github.com/snapcast/snapcast/releases/download/v0.35.0/snapclient_0.35.0-1_arm64_bookworm.deb" 2>/dev/null; then
 
             log_info "Installing dependencies..."
             sudo apt install -y libavahi-client3 libavahi-common3 libflac12t64 || sudo apt install -y libflac12 || true
 
-            if sudo apt install -y ./snapserver_0.34.0-1_arm64_bookworm.deb ./snapclient_0.34.0-1_arm64_bookworm.deb; then
+            if sudo apt install -y ./snapserver_0.35.0-1_arm64_bookworm.deb ./snapclient_0.35.0-1_arm64_bookworm.deb; then
                 log_success "Snapcast installed from GitHub packages (bookworm fallback)"
                 github_install_success=true
             else
                 sudo apt --fix-broken install -y || true
-                if sudo dpkg -i snapserver_0.34.0-1_arm64_bookworm.deb snapclient_0.34.0-1_arm64_bookworm.deb 2>/dev/null; then
+                if sudo dpkg -i snapserver_0.35.0-1_arm64_bookworm.deb snapclient_0.35.0-1_arm64_bookworm.deb 2>/dev/null; then
                     sudo apt --fix-broken install -y
                     log_success "Snapcast installed from GitHub after fixing dependencies"
                     github_install_success=true
@@ -822,7 +822,7 @@ configure_snapserver() {
     sudo tee /etc/snapserver.conf > /dev/null << 'EOF'
 
 [stream]
-default = Multiroom
+default_source = Multiroom
 
 buffer = 250
 codec = flac

@@ -343,19 +343,19 @@ install_snapclient() {
     local temp_dir=$(mktemp -d)
     cd "$temp_dir"
 
-    log_info "Downloading Snapclient v0.34.0 for $DEBIAN_VERSION..."
-    if wget "https://github.com/snapcast/snapcast/releases/download/v0.34.0/snapclient_0.34.0-1_arm64_${DEBIAN_VERSION}.deb" 2>/dev/null; then
+    log_info "Downloading Snapclient v0.35.0 for $DEBIAN_VERSION..."
+    if wget "https://github.com/snapcast/snapcast/releases/download/v0.35.0/snapclient_0.35.0-1_arm64_${DEBIAN_VERSION}.deb" 2>/dev/null; then
 
         log_info "Installing dependencies..."
         sudo apt install -y libavahi-client3 libavahi-common3 libflac12t64 || sudo apt install -y libflac12 || true
 
-        if sudo apt install -y "./snapclient_0.34.0-1_arm64_${DEBIAN_VERSION}.deb"; then
+        if sudo apt install -y "./snapclient_0.35.0-1_arm64_${DEBIAN_VERSION}.deb"; then
             log_success "Snapclient installed from GitHub packages"
             github_install_success=true
         else
             log_warning "Failed to install .deb package, trying with dependency fix..."
             sudo apt --fix-broken install -y || true
-            if sudo dpkg -i "snapclient_0.34.0-1_arm64_${DEBIAN_VERSION}.deb" 2>/dev/null; then
+            if sudo dpkg -i "snapclient_0.35.0-1_arm64_${DEBIAN_VERSION}.deb" 2>/dev/null; then
                 sudo apt --fix-broken install -y
                 log_success "Snapclient installed from GitHub after fixing dependencies"
                 github_install_success=true
@@ -366,17 +366,17 @@ install_snapclient() {
         log_warning "Package for $DEBIAN_VERSION not available, trying with bookworm..."
         DEBIAN_VERSION="bookworm"
 
-        if wget "https://github.com/snapcast/snapcast/releases/download/v0.34.0/snapclient_0.34.0-1_arm64_bookworm.deb" 2>/dev/null; then
+        if wget "https://github.com/snapcast/snapcast/releases/download/v0.35.0/snapclient_0.35.0-1_arm64_bookworm.deb" 2>/dev/null; then
 
             log_info "Installing dependencies..."
             sudo apt install -y libavahi-client3 libavahi-common3 libflac12t64 || sudo apt install -y libflac12 || true
 
-            if sudo apt install -y "./snapclient_0.34.0-1_arm64_bookworm.deb"; then
+            if sudo apt install -y "./snapclient_0.35.0-1_arm64_bookworm.deb"; then
                 log_success "Snapclient installed from GitHub packages (bookworm fallback)"
                 github_install_success=true
             else
                 sudo apt --fix-broken install -y || true
-                if sudo dpkg -i "snapclient_0.34.0-1_arm64_bookworm.deb" 2>/dev/null; then
+                if sudo dpkg -i "snapclient_0.35.0-1_arm64_bookworm.deb" 2>/dev/null; then
                     sudo apt --fix-broken install -y
                     log_success "Snapclient installed from GitHub after fixing dependencies"
                     github_install_success=true

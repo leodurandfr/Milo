@@ -51,58 +51,6 @@ class SnapcastService:
             self.logger.error(f"Snapcast request failed: {type(e).__name__}: {e}")
             return {}
 
-    # === GROUP MANAGEMENT ===
-
-    @handle_errors(default=False)
-    async def set_all_groups_to_multiroom(self) -> bool:
-        """Switch all groups to Multiroom stream."""
-        status = await self._request("Server.GetStatus")
-        if not status:
-            return False
-
-        groups = status.get("server", {}).get("groups", [])
-
-        for group in groups:
-            group_id = group.get("id")
-            if group_id:
-                await self._request("Group.SetStream", {
-                    "id": group_id,
-                    "stream_id": "Multiroom"
-                })
-
-        return True
-
-    @handle_errors(default=False)
-    async def set_client_group_to_multiroom(self, client_id: str) -> bool:
-        """Switch a client's group to Multiroom stream."""
-        status = await self._request("Server.GetStatus")
-        if not status:
-            return False
-
-        groups = status.get("server", {}).get("groups", [])
-
-        # Find client's group
-        client_group_id = None
-        for group in groups:
-            for client in group.get("clients", []):
-                if client.get("id") == client_id:
-                    client_group_id = group.get("id")
-                    break
-            if client_group_id:
-                break
-
-        if not client_group_id:
-            self.logger.warning(f"Client {client_id} not found in any group")
-            return False
-
-        result = await self._request("Group.SetStream", {
-            "id": client_group_id,
-            "stream_id": "Multiroom"
-        })
-
-        self.logger.info(f"Client {client_id} group switched to Multiroom: {bool(result)}")
-        return bool(result)
-
     # === CLIENT COMMANDS ===
 
     @handle_errors(default=False)

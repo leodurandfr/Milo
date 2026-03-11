@@ -193,8 +193,7 @@ class TestAudioRoutingService:
 
         with patch.object(routing_service, '_update_systemd_environment', new_callable=AsyncMock):
             with patch.object(routing_service, '_transition_to_multiroom', new_callable=AsyncMock, return_value=True):
-                with patch.object(routing_service, '_auto_configure_multiroom', new_callable=AsyncMock):
-                    result = await routing_service.set_multiroom_enabled(True)
+                result = await routing_service.set_multiroom_enabled(True)
 
         assert result is True
         assert mock_state_machine.system_state.multiroom_enabled is True
@@ -359,29 +358,3 @@ class TestAudioRoutingService:
         assert result is True
         assert mock_systemd_manager.stop.call_count == 2  # server + client
 
-    @pytest.mark.asyncio
-    async def test_auto_configure_multiroom(self, routing_service):
-        """Automatic multiroom configuration test"""
-        mock_snapcast = Mock()
-        mock_snapcast.is_available = AsyncMock(return_value=True)
-        mock_snapcast.set_all_groups_to_multiroom = AsyncMock()
-        routing_service.set_snapcast_service(mock_snapcast)
-
-        await routing_service._auto_configure_multiroom()
-
-        mock_snapcast.set_all_groups_to_multiroom.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_auto_configure_multiroom_timeout(self, routing_service):
-        """Automatic multiroom configuration timeout test"""
-        mock_snapcast = Mock()
-        mock_snapcast.is_available = AsyncMock(return_value=False)  # Never available
-        routing_service.set_snapcast_service(mock_snapcast)
-
-        # Mock asyncio.sleep to avoid real 10s delay
-        with patch('asyncio.sleep', new_callable=AsyncMock):
-            # Should timeout after 10 attempts
-            await routing_service._auto_configure_multiroom()
-
-        # Check that we tried multiple times
-        assert mock_snapcast.is_available.call_count == 10

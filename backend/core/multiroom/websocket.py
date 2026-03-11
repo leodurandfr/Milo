@@ -700,11 +700,7 @@ class SnapcastWebSocketService:
                 f"[{time.time():.3f}] SYNC_VOLUME: Detected reconnection context for {mac_id}: {context.value}"
             )
 
-            # 2. Join to multiroom group
-            await self._snapcast_service.set_client_group_to_multiroom(client_id)
-            self.logger.info(f"[{time.time():.3f}] SYNC_VOLUME: Client {client_id} joined multiroom group")
-
-            # 3. Set Snapcast volume to 100% passthrough
+            # 2. Set Snapcast volume to 100% passthrough
             await self._snapcast_service.set_volume(client_id, 100)
             self.logger.info(f"[{time.time():.3f}] SYNC_VOLUME: Snapcast volume set to 100% for {client_id}")
 
