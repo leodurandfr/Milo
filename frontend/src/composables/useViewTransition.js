@@ -91,6 +91,10 @@ export function useViewTransition({
       if (headerEl) {
         // Clone with OLD content — not yet inserted into DOM
         headerClone = headerEl.cloneNode(true);
+        // Remove actions from clone — they have their own cross-fade transition
+        // and their absolute positioning would escape the clone's bounding box
+        const cloneActions = headerClone.querySelector('.actions-container');
+        if (cloneActions) cloneActions.remove();
       }
     }
   }
@@ -140,6 +144,8 @@ export function useViewTransition({
         // Use pre-created clone (old content) or create one now (may have new content)
         if (!headerClone) {
           headerClone = headerEl.cloneNode(true);
+          const cloneActions = headerClone.querySelector('.actions-container');
+          if (cloneActions) cloneActions.remove();
         }
 
         // Insert clone before real header — clone takes the flow position

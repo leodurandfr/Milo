@@ -86,13 +86,13 @@ function handleBack() {
 
 <style scoped>
 .navigation-header {
+  position: relative;
   display: flex;
   background: var(--color-background-contrast);
   border-radius: var(--radius-06);
-  padding: var(--space-03) var(--space-04) var(--space-03) var(--space-03);
+  padding: var(--space-03);
   min-height: 72px;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-03);
 }
 
@@ -118,6 +118,7 @@ function handleBack() {
   min-width: 0;
   display: grid;
   align-items: center;
+  padding-right: 56px;
 }
 
 .header-content > * {
@@ -148,11 +149,15 @@ function handleBack() {
   flex-shrink: 0;
 }
 
-/* Actions container - grid stacking for cross-fade overlay */
+/* Actions container - absolute right so it never shifts during cross-fade */
 .actions-container {
-  flex-shrink: 0;
+  position: absolute;
+  right: var(--space-03);
+  top: 0;
+  bottom: 0;
   display: grid;
   align-items: center;
+  justify-items: end;
 }
 
 .actions-container > * {
@@ -164,6 +169,11 @@ function handleBack() {
   display: flex;
   align-items: center;
   gap: var(--space-02);
+}
+
+/* Toggle needs extra right margin to sit at --space-04 from the header edge */
+.actions-wrapper :slotted(.toggle-container) {
+  margin-right: calc(var(--space-04) - var(--space-03));
 }
 
 .title-subtitle {
@@ -224,7 +234,7 @@ function handleBack() {
 @media (max-aspect-ratio: 4/3) {
   .navigation-header {
     min-height: 64px;
-    padding: var(--space-03) var(--space-04) var(--space-03) var(--space-03);
+    padding: var(--space-03);
     border-radius: var(--radius-05);
   }
 

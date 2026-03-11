@@ -274,7 +274,13 @@ const { prepareNavigation, onBeforeLeave, onEnter, onAfterLeave } = useViewTrans
 // Wrap push/back to pre-capture header clone.
 // Called AFTER nav mutation so pendingScrollRestore is set, but BEFORE
 // Vue re-renders the DOM (batched to next tick), so the clone captures old content.
-function push(view, params) { navPush(view, params); prepareNavigation(); }
+function push(view, params) {
+  showPowerMenu.value = false;
+  confirmRestart.value = false;
+  confirmShutdown.value = false;
+  navPush(view, params);
+  prepareNavigation();
+}
 function back() { navBack(); prepareNavigation(); }
 
 // Dynamic header title based on current view
@@ -431,20 +437,28 @@ function togglePowerMenu() {
 }
 
 // Power menu handlers
-function handleRestart() {
+async function handleRestart() {
   if (!confirmRestart.value) {
     confirmRestart.value = true;
     return;
   }
-  // TODO: Call restart API
+  try {
+    await axios.post('/api/system/restart');
+  } catch (error) {
+    logger.error('settings', 'Restart request failed', error);
+  }
 }
 
-function handleShutdown() {
+async function handleShutdown() {
   if (!confirmShutdown.value) {
     confirmShutdown.value = true;
     return;
   }
-  // TODO: Call shutdown API
+  try {
+    await axios.post('/api/system/shutdown');
+  } catch (error) {
+    logger.error('settings', 'Shutdown request failed', error);
+  }
 }
 
 // Placeholder for odd grid
@@ -567,14 +581,11 @@ onMounted(async () => {
 .power-menu-region--open .power-menu-items {
   opacity: 1;
   transform: translateY(0);
+  padding-bottom: var(--space-02);
 }
 
 .power-menu-items :deep(.list-item-button) {
-  background: var(--color-background-contrast);
-}
-
-.power-menu-items :deep(.list-item-button__title) {
-  color: var(--color-text-contrast);
+  background: var(--color-background-neutral-50);
 }
 
 /* Navigation Grid */
