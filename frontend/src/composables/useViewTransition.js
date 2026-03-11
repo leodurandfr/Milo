@@ -49,7 +49,7 @@ export function useViewTransition({
   let savedInnerHeight = 0;
   let savedLeavingHeight = 0;
   let pinnedWrapper = null;
-  const SCROLL_FADE_THRESHOLD = 16;
+  const SCROLL_FADE_THRESHOLD = 0;
 
   /**
    * Pre-create header clone BEFORE the view changes (before push/back).
@@ -195,28 +195,48 @@ export function useViewTransition({
       // Position entering content so target scroll position aligns with viewport.
       // Forward (target=0): top = savedScrollTop (content top visible at scroll offset)
       // Back (target=T): top = savedScrollTop - T (content at T aligns with viewport)
+      const cssOffset = savedScrollTop - targetScroll;
       el.style.position = 'absolute';
-      el.style.top = `${savedScrollTop - targetScroll}px`;
+      el.style.top = `${cssOffset}px`;
       el.style.left = '0';
       el.style.width = '100%';
 
-      if (!isBackNavigation) {
-        // Forward navigation: fade in real header with new content.
-        // Split transition/opacity across frames so browser detects the transition trigger.
-        requestAnimationFrame(() => {
-          const headerEl = headerRef.value?.$el;
-          if (headerEl) {
-            headerEl.style.transition = '';
-          }
-          requestAnimationFrame(() => {
-            const headerEl2 = headerRef.value?.$el;
-            if (headerEl2) {
-              headerEl2.style.opacity = '';
-            }
-          });
-        });
+      // When CSS offset is negative (back nav to scrolled view), the entering
+      // element is shifted up and its visible portion is shorter than its full
+      // height. Expand the wrapper's minHeight to match the visible content so
+      // contentInner fills the container (avoids empty space at the bottom).
+      if (cssOffset < 0 && pinnedWrapper) {
+        const visibleHeight = el.offsetHeight + cssOffset;
+        const currentMinHeight = parseFloat(pinnedWrapper.style.minHeight) || 0;
+        if (visibleHeight > currentMinHeight) {
+          pinnedWrapper.style.minHeight = `${visibleHeight}px`;
+        }
       }
-      // Back navigation: header stays hidden, appears in onAfterLeave
+
+      // For back navigation, reposition the header at the target scroll offset
+      // so it matches the CSS-offset entering content. This runs while
+      // transition:'none' is still active (set in onBeforeLeave), so it's instant.
+      if (isBackNavigation && targetScroll > 0) {
+        const headerEl = headerRef.value?.$el;
+        if (headerEl) {
+          headerEl.style.transform = `translateY(-${targetScroll}px)`;
+        }
+      }
+
+      // Fade in real header with new content during the crossfade.
+      // Split transition/opacity across frames so browser detects the transition trigger.
+      requestAnimationFrame(() => {
+        const headerEl = headerRef.value?.$el;
+        if (headerEl) {
+          headerEl.style.transition = '';
+        }
+        requestAnimationFrame(() => {
+          const headerEl2 = headerRef.value?.$el;
+          if (headerEl2) {
+            headerEl2.style.opacity = '';
+          }
+        });
+      });
     } else if (savedScrollTop !== targetScroll) {
       enteringEl = el;
       // CSS offset trick: position at visual scroll offset for scroll restore
