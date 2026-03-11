@@ -211,11 +211,11 @@ onUnmounted(() => {
 
 /* Animate value changes smoothly (e.g. EQ loading), but not during drag */
 .slider-container:not(.dragging) {
-  transition: --slider-accent var(--transition-fast), --progress var(--transition-normal);
+  transition: --slider-accent var(--transition-fast), --progress var(--transition-fast);
 }
 
 .slider-container:not(.dragging) .range-thumb {
-  transition: left var(--transition-normal), bottom var(--transition-normal);
+  transition: left var(--transition-fast), bottom var(--transition-fast);
 }
 
 .slider-container.horizontal {

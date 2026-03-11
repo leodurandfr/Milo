@@ -711,13 +711,21 @@ class VolumeService:
                 success = await self._apply_global_volume(target_db)
                 if success:
                     self._save_last_volume(target_db)
-                    await self._update_startup_volume_if_needed(target_db)  # FR11
-                    await self._broadcast_volume_state(show_bar)
+                    # FR11 + broadcast run outside the lock as background tasks
+                    self._schedule_post_volume_tasks(target_db, show_bar)
                 return success
             except Exception as e:
                 self.logger.error(f"Error adjusting volume: {e}")
                 return False
         return await self._with_lock(_do_adjust)
+
+    def _schedule_post_volume_tasks(self, target_db: float, show_bar: bool) -> None:
+        """Schedule FR11 check and WebSocket broadcast as background tasks."""
+        async def _post_update():
+            await self._update_startup_volume_if_needed(target_db)
+            await self._broadcast_volume_state(show_bar)
+        task = asyncio.create_task(_post_update())
+        task.add_done_callback(self._handle_broadcast_task_error)
 
     @handle_errors(default=False)
     async def _apply_global_volume(self, target_db: float) -> bool:
