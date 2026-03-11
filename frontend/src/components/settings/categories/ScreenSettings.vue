@@ -5,7 +5,7 @@
     <SettingsSection :title="t('screenSettings.brightness')">
       <SettingItem :label="t('screenSettings.brightnessIntensity')">
         <RangeSlider v-model="config.brightness_on" :min="1" :max="10" :step="1" value-unit=""
-          @input="handleBrightnessChange" />
+          @input="handleBrightnessChange" @change="saveBrightness" />
       </SettingItem>
     </SettingsSection>
 
@@ -128,21 +128,38 @@ function setUiScale(value) {
   updateSetting('screen-ui-scale', { ui_scale: value });
 }
 
-let brightnessInstantTimeout = null;
-let brightnessDebounceTimeout = null;
+let lastAppliedBrightness = null;
+let brightnessThrottleActive = false;
+let pendingBrightness = null;
 
 function handleBrightnessChange(value) {
-  // Apply immediately for instant feedback
-  clearTimeout(brightnessInstantTimeout);
-  brightnessInstantTimeout = setTimeout(() => {
-    axios.post('/api/settings/screen-brightness/apply', { brightness_on: value }).catch(console.error);
-  }, 50);
+  // Skip if value hasn't changed
+  if (value === lastAppliedBrightness) return;
 
-  // Save to settings with debounce
-  clearTimeout(brightnessDebounceTimeout);
-  brightnessDebounceTimeout = setTimeout(() => {
-    updateSetting('screen-brightness', { brightness_on: value });
-  }, 50);
+  if (!brightnessThrottleActive) {
+    // Fire immediately
+    applyBrightness(value);
+    brightnessThrottleActive = true;
+    setTimeout(() => {
+      brightnessThrottleActive = false;
+      // Apply any pending value that arrived during throttle window
+      if (pendingBrightness !== null && pendingBrightness !== lastAppliedBrightness) {
+        applyBrightness(pendingBrightness);
+        pendingBrightness = null;
+      }
+    }, 100);
+  } else {
+    pendingBrightness = value;
+  }
+}
+
+function applyBrightness(value) {
+  lastAppliedBrightness = value;
+  axios.post('/api/settings/screen-brightness/apply', { brightness_on: value }).catch(console.error);
+}
+
+function saveBrightness(value) {
+  updateSetting('screen-brightness', { brightness_on: value });
 }
 
 function handleAutoSleepToggle(enabled) {
@@ -248,8 +265,6 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  clearTimeout(brightnessInstantTimeout);
-  clearTimeout(brightnessDebounceTimeout);
   clearAllTimers();
 });
 </script>
