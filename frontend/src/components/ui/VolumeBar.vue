@@ -95,7 +95,7 @@ const volumeFillStyle = computed(() => ({
   height: 100%;
   background: var(--color-background-contrast);
   border-radius: var(--radius-full);
-  transition: transform 0.2s ease;
+  transition: transform var(--transition-fast);
   z-index: 1;
 }
 

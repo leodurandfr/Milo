@@ -82,6 +82,11 @@ class BtRemoteController:
         self._battery_bus = None  # dbus_next MessageBus
         self._battery_subscribed_macs: Set[str] = set()
 
+        # Volume accumulator (batch rapid events like rotary encoder)
+        self._volume_accumulator = 0.0
+        self._volume_processor_running = False
+        self._volume_processor_task: Optional[asyncio.Task] = None
+
         # Multi-click state
         self._click_count = 0
         self._click_timer: Optional[asyncio.TimerHandle] = None
@@ -121,6 +126,12 @@ class BtRemoteController:
         if self._click_timer:
             self._click_timer.cancel()
             self._click_timer = None
+
+        if self._volume_processor_task and not self._volume_processor_task.done():
+            self._volume_processor_task.cancel()
+        self._volume_processor_task = None
+        self._volume_accumulator = 0.0
+        self._volume_processor_running = False
 
         for task_ref in (self._scan_task, self._discovery_task):
             if task_ref and not task_ref.done():
@@ -745,13 +756,11 @@ class BtRemoteController:
     async def _dispatch_action(self, action: str):
         """Dispatch an action to the appropriate service."""
         try:
-            if action == "volume_up":
+            if action in ("volume_up", "volume_down"):
                 step = self.volume_service.volume_config.step_bt_remote_db
-                await self.volume_service.adjust_volume_db(step)
-
-            elif action == "volume_down":
-                step = self.volume_service.volume_config.step_bt_remote_db
-                await self.volume_service.adjust_volume_db(-step)
+                self._volume_accumulator += step if action == "volume_up" else -step
+                if not self._volume_processor_running:
+                    self._volume_processor_task = asyncio.create_task(self._process_volume())
 
             elif action == "play_pause":
                 await self._dispatch_play_pause()
@@ -767,6 +776,27 @@ class BtRemoteController:
 
         except Exception as e:
             logger.error("Error dispatching BT remote action '%s': %s", action, e)
+
+    async def _process_volume(self):
+        """Batch-process accumulated volume changes (mirrors rotary encoder pattern)."""
+        self._volume_processor_running = True
+        try:
+            while self._volume_accumulator != 0.0:
+                delta = self._volume_accumulator
+                self._volume_accumulator = 0.0
+                try:
+                    await self.volume_service.adjust_volume_db(delta)
+                except Exception as e:
+                    logger.error("Error adjusting volume: %s", e)
+                await asyncio.sleep(0.02)  # 20ms batch window
+        finally:
+            # Re-check: if an event arrived between the while-check and here,
+            # spawn a new processor to avoid silently dropping it.
+            if self._volume_accumulator != 0.0:
+                self._volume_processor_running = False
+                self._volume_processor_task = asyncio.create_task(self._process_volume())
+                return
+            self._volume_processor_running = False
 
     async def _dispatch_play_pause(self):
         """Dispatch play/pause to the active audio source."""

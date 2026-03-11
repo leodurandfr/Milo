@@ -173,20 +173,25 @@ class EqualizerController:
         if not self._has_registry():
             return {k: False for k in updates}
 
-        # Build IP map for remote clients and check availability
+        # Check availability for all remote clients in parallel
         available_map = {}
+        check_tasks = {}
         for mac_id in updates.keys():
             if self._registry.is_local_client(mac_id):
                 available_map[mac_id] = True
             else:
                 client_ip = self._registry.get_client_ip(mac_id)
                 if client_ip:
-                    try:
-                        available_map[mac_id] = await self._proxy_service.check_available(client_ip)
-                    except Exception:
-                        available_map[mac_id] = False
+                    check_tasks[mac_id] = asyncio.create_task(
+                        self._proxy_service.check_available(client_ip)
+                    )
                 else:
                     available_map[mac_id] = False
+
+        if check_tasks:
+            results = await asyncio.gather(*check_tasks.values(), return_exceptions=True)
+            for mac_id, result in zip(check_tasks.keys(), results):
+                available_map[mac_id] = result is True
 
         # Filter to available clients
         available_updates = {k: v for k, v in updates.items() if available_map.get(k)}
