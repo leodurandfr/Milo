@@ -227,7 +227,8 @@
       "connected": "कनेक्ट है",
       "notConnected": "कनेक्ट नहीं है",
       "discover": "खोजें",
-      "discovering": "खोज रहा है..."
+      "discovering": "खोज रहा है...",
+      "batteryLow": "बैटरी कम है"
     }
   },
   "screenSettings": {

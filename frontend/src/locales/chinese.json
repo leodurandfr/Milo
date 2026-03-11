@@ -227,7 +227,8 @@
       "connected": "已连接",
       "notConnected": "未连接",
       "discover": "搜索",
-      "discovering": "搜索中..."
+      "discovering": "搜索中...",
+      "batteryLow": "电量不足"
     }
   },
   "screenSettings": {

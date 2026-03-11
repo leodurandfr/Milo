@@ -227,7 +227,8 @@
       "connected": "Connesso",
       "notConnected": "Non connesso",
       "discover": "Cerca",
-      "discovering": "Ricerca..."
+      "discovering": "Ricerca...",
+      "batteryLow": "Batteria scarica"
     }
   },
   "screenSettings": {

@@ -227,7 +227,8 @@
       "connected": "Conectado",
       "notConnected": "Não conectado",
       "discover": "Procurar",
-      "discovering": "Procurando..."
+      "discovering": "Procurando...",
+      "batteryLow": "Bateria fraca"
     }
   },
   "screenSettings": {
