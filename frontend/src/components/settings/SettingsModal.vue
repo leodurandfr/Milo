@@ -6,9 +6,9 @@
       @back="back">
       <template v-if="currentView === 'home' || currentView === 'multiroom'" #actions>
         <button v-if="currentView === 'home'" v-press class="power-toggle" @click="togglePowerMenu">
-          <SvgIcon name="power" size="medium" color="var(--color-text-contrast)"
+          <SvgIcon name="power" size="large" color="var(--color-text-contrast)"
             class="power-toggle__icon" :class="{ 'power-toggle__icon--hidden': showPowerMenu }" />
-          <SvgIcon name="caretUp" size="medium" color="var(--color-text-contrast)"
+          <SvgIcon name="caretUp" size="large" color="var(--color-text-contrast)"
             class="power-toggle__icon" :class="{ 'power-toggle__icon--hidden': !showPowerMenu }" />
         </button>
         <Toggle v-if="currentView === 'multiroom'" :model-value="isMultiroomActive"
@@ -532,7 +532,7 @@ onMounted(async () => {
 .view-content {
   display: flex;
   flex-direction: column;
-  gap: var(--space-03);
+  gap: var(--space-02);
 }
 
 /* Power toggle button */
