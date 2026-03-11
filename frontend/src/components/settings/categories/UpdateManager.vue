@@ -271,11 +271,6 @@ const settingsStore = useSettingsStore();
 
 const isMultiroomEnabled = computed(() => unifiedStore.systemState.multiroom_enabled);
 
-// Anticipated satellites from multiroom registry (available before API call)
-const anticipatedSatellites = computed(() =>
-  multiroomStore.onlineClients.filter(c => !c.is_local)
-);
-
 // Local state
 const localPrograms = ref({});
 const localProgramsLoading = ref(true);
@@ -293,6 +288,16 @@ const satelliteByIp = computed(() => {
   }
   return map;
 });
+
+// Non-local satellites: online clients + clients with an active update (anticipates snapclient restart during update)
+const anticipatedSatellites = computed(() =>
+  multiroomStore.clientList.filter(c => {
+    if (c.is_local) return false;
+    if (c.online) return true;
+    const sat = satelliteByIp.value[c.ip];
+    return sat && (isSatelliteUpdating(sat.hostname) || isSatelliteAppUpdating(sat.hostname));
+  })
+);
 
 // Update states
 const localUpdateStates = ref({});
