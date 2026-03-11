@@ -27,6 +27,13 @@ try:
 except ImportError:
     EVDEV_AVAILABLE = False
 
+try:
+    from dbus_next.aio import MessageBus
+    from dbus_next.constants import BusType
+    DBUS_AVAILABLE = True
+except ImportError:
+    DBUS_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 # Default configuration for ANTICATER VK1 Mini
@@ -69,6 +76,11 @@ class BtRemoteController:
         self._device_info: Dict[str, dict] = {}  # path -> {name, address}
         self._scan_task: Optional[asyncio.Task] = None
         self._discovery_task: Optional[asyncio.Task] = None
+
+        # Battery monitoring via D-Bus
+        self._battery_levels: Dict[str, Optional[int]] = {}  # MAC (upper) -> percentage
+        self._battery_bus = None  # dbus_next MessageBus
+        self._battery_subscribed_macs: Set[str] = set()
 
         # Multi-click state
         self._click_count = 0
@@ -122,6 +134,7 @@ class BtRemoteController:
         self._monitor_tasks.clear()
         self._monitored_paths.clear()
         self._device_info.clear()
+        self._cleanup_battery()
 
     def cleanup(self):
         """Clean up resources."""
@@ -184,7 +197,10 @@ class BtRemoteController:
             if mac and mac in seen_macs:
                 continue
             seen_macs.add(mac)
-            connected.append({"path": path, **info})
+            connected.append({
+                "path": path, **info,
+                "battery_percentage": self._battery_levels.get(mac)
+            })
 
         return {
             "available": EVDEV_AVAILABLE,
@@ -205,6 +221,78 @@ class BtRemoteController:
              "connected_devices": status["connected_devices"],
              "discovering": status["discovering"]}
         )
+
+    # ========================================================================
+    # BATTERY MONITORING (D-Bus)
+    # ========================================================================
+
+    @staticmethod
+    def _mac_to_dbus_path(address: str) -> str:
+        """Convert MAC address to BlueZ D-Bus object path."""
+        return "/org/bluez/hci0/dev_" + address.upper().replace(":", "_")
+
+    async def _start_battery_monitor(self, address: str):
+        """Start monitoring battery level for a connected device via D-Bus."""
+        if not DBUS_AVAILABLE:
+            return
+
+        mac = address.upper()
+        if mac in self._battery_subscribed_macs:
+            return
+
+        dev_path = self._mac_to_dbus_path(mac)
+        try:
+            if self._battery_bus is None:
+                self._battery_bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+
+            # Read initial battery level and subscribe to changes
+            introspection = await self._battery_bus.introspect("org.bluez", dev_path)
+            obj = self._battery_bus.get_proxy_object("org.bluez", dev_path, introspection)
+            props = obj.get_interface("org.freedesktop.DBus.Properties")
+            variant = await props.call_get("org.bluez.Battery1", "Percentage")
+            self._battery_levels[mac] = variant.value
+
+            # Subscribe via proxy signal (handles AddMatch automatically)
+            def on_properties_changed(interface_name, changed, invalidated):
+                if interface_name != "org.bluez.Battery1":
+                    return
+                if "Percentage" not in changed:
+                    return
+                percentage = changed["Percentage"].value
+                self._battery_levels[mac] = percentage
+                logger.debug("Battery updated for %s: %d%%", mac, percentage)
+                asyncio.ensure_future(self._broadcast_status())
+
+            props.on_properties_changed(on_properties_changed)
+            self._battery_subscribed_macs.add(mac)
+            logger.info("Battery monitor started for %s: %d%%", mac, variant.value)
+        except Exception as e:
+            logger.debug("Battery monitoring unavailable for %s: %s", mac, e)
+            self._battery_levels[mac] = None
+
+    async def _stop_battery_monitor(self, address: str):
+        """Stop monitoring battery level for a device."""
+        mac = address.upper()
+        self._battery_subscribed_macs.discard(mac)
+        self._battery_levels.pop(mac, None)
+
+        if not self._battery_subscribed_macs and self._battery_bus:
+            try:
+                self._battery_bus.disconnect()
+            except Exception:
+                pass
+            self._battery_bus = None
+
+    def _cleanup_battery(self):
+        """Clean up all battery monitoring resources (sync-safe)."""
+        self._battery_subscribed_macs.clear()
+        self._battery_levels.clear()
+        if self._battery_bus:
+            try:
+                self._battery_bus.disconnect()
+            except Exception:
+                pass
+            self._battery_bus = None
 
     # ========================================================================
     # BLUETOOTHCTL HELPERS
@@ -319,10 +407,13 @@ class BtRemoteController:
             # Clean up disconnected devices and remove stale bonds
             active_paths = set(all_paths)
             disconnected = False
+            disconnected_macs = set()
             for path in list(self._monitored_paths):
                 if path not in active_paths:
                     info = self._device_info.pop(path, {})
                     address = info.get("address", "")
+                    if address:
+                        disconnected_macs.add(address.upper())
                     self._monitored_paths.discard(path)
                     task = self._monitor_tasks.pop(path, None)
                     if task and not task.done():
@@ -330,6 +421,10 @@ class BtRemoteController:
                     logger.info("BT HID device disconnected: %s", path)
                     disconnected = True
             if disconnected and self.running:
+                # Stop battery monitoring for MACs with no remaining evdev nodes
+                for mac in disconnected_macs:
+                    if mac not in self._monitored_macs():
+                        await self._stop_battery_monitor(mac)
                 await self._broadcast_status()
 
             # Track which MACs we already monitor (for status broadcast dedup)
@@ -365,7 +460,10 @@ class BtRemoteController:
                     logger.debug("Error checking device %s: %s", path, e)
 
             # Broadcast only if a new MAC appeared (not for each additional evdev node)
-            if self._monitored_macs() != macs_before:
+            new_macs = self._monitored_macs() - macs_before
+            if new_macs:
+                for mac in new_macs:
+                    await self._start_battery_monitor(mac)
                 await self._broadcast_status()
 
     def _monitored_macs(self) -> set:
@@ -602,6 +700,7 @@ class BtRemoteController:
                 # BLE HID creates multiple evdev nodes per connection.
                 # When one dies, the others are stale — cancel them all.
                 self._cancel_all_for_mac(address)
+                await self._stop_battery_monitor(address)
 
             if self.running:
                 await self._broadcast_status()

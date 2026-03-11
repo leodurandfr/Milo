@@ -227,7 +227,8 @@
       "connected": "Verbunden",
       "notConnected": "Nicht verbunden",
       "discover": "Suchen",
-      "discovering": "Suche..."
+      "discovering": "Suche...",
+      "batteryLow": "Akku schwach"
     }
   },
   "screenSettings": {

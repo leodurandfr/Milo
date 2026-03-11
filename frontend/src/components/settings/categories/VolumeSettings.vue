@@ -46,6 +46,12 @@
       <div class="bt-remote-status text-mono">
         <span class="bt-remote-status__dot" :class="{ 'is-connected': btRemoteConnected }" />
         {{ btRemoteConnected ? t('volumeSettings.btRemote.connected') : t('volumeSettings.btRemote.notConnected') }}
+        <span v-if="btRemoteConnected && settingsStore.btRemote.battery_percentage !== null"
+          class="bt-remote-status__battery"
+          :class="{ 'is-low': settingsStore.btRemote.battery_percentage < 20 }"
+          :title="settingsStore.btRemote.battery_percentage < 20 ? t('volumeSettings.btRemote.batteryLow') : undefined">
+          — {{ settingsStore.btRemote.battery_percentage }}%
+        </span>
         <Button
           v-if="!btRemoteConnected"
           variant="brand"
@@ -224,14 +230,16 @@ onUnmounted(() => {
   height: 8px;
   border-radius: 50%;
   vertical-align: middle;
-}
-
-.bt-remote-status__dot {
   background: var(--color-error);
 }
 
 .bt-remote-status__dot.is-connected {
   background: var(--color-success);
+}
+
+.bt-remote-status__battery.is-low {
+  color: var(--color-warning);
+  font-weight: 600;
 }
 
 .bt-remote-status :deep(.btn) {
