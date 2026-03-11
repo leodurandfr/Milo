@@ -70,7 +70,7 @@
         <div class="crossfade-wrapper">
           <Transition name="crossfade">
             <div v-if="localProgramsLoading" key="skeleton" class="programs-list">
-              <div v-for="n in 5" :key="n" class="program-item-skeleton">
+              <div v-for="n in enabledProgramCount" :key="n" class="program-item-skeleton">
                 <div class="skeleton-icon shimmer"></div>
                 <div class="skeleton-text shimmer skeleton-name"></div>
                 <div class="skeleton-text shimmer skeleton-version"></div>
@@ -80,7 +80,7 @@
 
             <div v-else key="content" class="programs-list">
               <template v-for="(program, key) in localPrograms" :key="key">
-                <div v-if="key !== 'milo'" class="program-item">
+                <div v-if="key !== 'milo' && isProgramEnabled(key)" class="program-item">
                   <div class="program-info">
                     <AppIcon :name="getProgramIcon(key)" :size="48" class="program-icon" />
                     <span class="program-name heading-4">{{ getProgramDisplayName(program, key) }}</span>
@@ -240,6 +240,7 @@ import AppIcon from '@/components/ui/AppIcon.vue';
 import { useI18n } from '@/services/i18n';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 
@@ -278,16 +279,19 @@ function extractBaseTag(version) {
   if (!version) return null;
   // git describe format: <tag>-<N>-g<hash> or just <tag>
   const parts = version.split('-');
+  let tag = version;
   if (parts.length >= 3 && parts[parts.length - 1].startsWith('g')) {
-    return parts.slice(0, -2).join('-');
+    tag = parts.slice(0, -2).join('-');
   }
-  return version;
+  // Strip leading "v" prefix (e.g. "v0.1.0" → "0.1.0")
+  return tag.replace(/^v/, '');
 }
 
 const { t } = useI18n();
 const { on } = useWebSocket();
 const unifiedStore = useUnifiedAudioStore();
 const multiroomStore = useMultiroomStore();
+const settingsStore = useSettingsStore();
 
 const isMultiroomEnabled = computed(() => unifiedStore.systemState.multiroom_enabled);
 
@@ -325,6 +329,24 @@ const satelliteAppUpdateStates = ref({});
 const satelliteAppCompletedUpdates = ref(new Set());
 
 const supportedLocalUpdates = ['milo', 'go-librespot', 'shairport-sync', 'multiroom'];
+
+const programToDockApp = {
+  'go-librespot': 'spotify',
+  'multiroom': 'multiroom',
+  'bluez-alsa': 'bluetooth',
+  'roc-toolkit': 'mac',
+  'shairport-sync': 'airplay'
+};
+
+function isProgramEnabled(programKey) {
+  const dockKey = programToDockApp[programKey];
+  if (!dockKey) return true;
+  return settingsStore.dockApps[dockKey] !== false;
+}
+
+const enabledProgramCount = computed(() =>
+  Object.keys(programToDockApp).filter(isProgramEnabled).length
+);
 
 // === LOCAL PROGRAMS ===
 
