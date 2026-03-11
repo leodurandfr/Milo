@@ -15,7 +15,11 @@
     "screen": "屏幕",
     "updates": "更新",
     "information": "信息",
-    "hardware": "硬件"
+    "hardware": "硬件",
+    "restart": "重启",
+    "confirmRestart": "确认重启",
+    "shutdown": "关机",
+    "confirmShutdown": "确认关机"
   },
   "audioSources": {
     "title": "音频源",

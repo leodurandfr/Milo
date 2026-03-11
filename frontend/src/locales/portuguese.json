@@ -15,7 +15,11 @@
     "screen": "Ecrã",
     "updates": "Atualizações",
     "information": "Informações",
-    "hardware": "Hardware"
+    "hardware": "Hardware",
+    "restart": "Reiniciar",
+    "confirmRestart": "Confirmar reinício",
+    "shutdown": "Desligar",
+    "confirmShutdown": "Confirmar desligamento"
   },
   "audioSources": {
     "title": "Fontes de áudio",

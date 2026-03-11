@@ -4,8 +4,14 @@
     <!-- Single NavigationHeader outside transition -->
     <NavigationHeader ref="headerRef" :title="headerTitle" :show-back="canGoBack" :actions-key="currentView"
       @back="back">
-      <template v-if="currentView === 'multiroom'" #actions>
-        <Toggle :model-value="isMultiroomActive"
+      <template v-if="currentView === 'home' || currentView === 'multiroom'" #actions>
+        <button v-if="currentView === 'home'" v-press class="power-toggle" @click="togglePowerMenu">
+          <SvgIcon name="power" size="medium" color="var(--color-text-contrast)"
+            class="power-toggle__icon" :class="{ 'power-toggle__icon--hidden': showPowerMenu }" />
+          <SvgIcon name="caretUp" size="medium" color="var(--color-text-contrast)"
+            class="power-toggle__icon" :class="{ 'power-toggle__icon--hidden': !showPowerMenu }" />
+        </button>
+        <Toggle v-if="currentView === 'multiroom'" :model-value="isMultiroomActive"
           :disabled="unifiedStore.systemState.transitioning || multiroomStore.isTransitioning" @change="handleMultiroomToggle" />
       </template>
     </NavigationHeader>
@@ -16,6 +22,21 @@
       <!-- Home view: list of categories -->
       <div v-if="currentView === 'home'" key="home" class="view-content">
         <div class="settings-nav-grid">
+          <div class="power-menu-region" :class="{ 'power-menu-region--open': showPowerMenu }">
+            <div class="power-menu-items">
+              <ListItemButton :title="confirmRestart ? t('settings.confirmRestart') : t('settings.restart')" @click="handleRestart">
+                <template #icon>
+                  <img :src="rebootIcon" alt="Restart" />
+                </template>
+              </ListItemButton>
+              <ListItemButton :title="confirmShutdown ? t('settings.confirmShutdown') : t('settings.shutdown')" @click="handleShutdown">
+                <template #icon>
+                  <img :src="shutdownIcon" alt="Shutdown" />
+                </template>
+              </ListItemButton>
+            </div>
+          </div>
+
           <ListItemButton :title="t('settings.languages')" action="caret" @click="push('languages')">
             <template #icon>
               <img :src="languagesIcon" alt="Languages" />
@@ -173,6 +194,7 @@ import axios from 'axios';
 import NavigationHeader from '@/components/ui/NavigationHeader.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
+import SvgIcon from '@/components/ui/SvgIcon.vue';
 import LanguageSettings from '@/components/settings/categories/LanguageSettings.vue';
 
 // Import settings icons
@@ -188,6 +210,8 @@ import radioIcon from '@/assets/settings-icons/radio.svg';
 import podcastIcon from '@/assets/settings-icons/podcast.svg';
 import macosIcon from '@/assets/settings-icons/macos.svg';
 import hardwareIcon from '@/assets/settings-icons/hardware.svg';
+import rebootIcon from '@/assets/settings-icons/reboot.svg';
+import shutdownIcon from '@/assets/settings-icons/shutdown.svg';
 import DockSettings from '@/components/settings/categories/DockSettings.vue';
 import VolumeSettings from '@/components/settings/categories/VolumeSettings.vue';
 import ScreenSettings from '@/components/settings/categories/ScreenSettings.vue';
@@ -232,6 +256,9 @@ const headerRef = ref(null);
 const stationToEdit = ref(null);
 const zoneGroupId = ref(null);
 const macIdToEdit = ref(null);
+const showPowerMenu = ref(false);
+const confirmRestart = ref(false);
+const confirmShutdown = ref(false);
 
 // Scroll-aware view transition (shared with AudioSourceLayout via composable)
 const { prepareNavigation, onBeforeLeave, onEnter, onAfterLeave } = useViewTransition({
@@ -394,9 +421,35 @@ async function handleRadioStationEdited(station) {
   back();
 }
 
+// Power menu toggle
+function togglePowerMenu() {
+  showPowerMenu.value = !showPowerMenu.value;
+  if (!showPowerMenu.value) {
+    confirmRestart.value = false;
+    confirmShutdown.value = false;
+  }
+}
+
+// Power menu handlers
+function handleRestart() {
+  if (!confirmRestart.value) {
+    confirmRestart.value = true;
+    return;
+  }
+  // TODO: Call restart API
+}
+
+function handleShutdown() {
+  if (!confirmShutdown.value) {
+    confirmShutdown.value = true;
+    return;
+  }
+  // TODO: Call shutdown API
+}
+
 // Placeholder for odd grid
 const shouldShowPlaceholder = computed(() => {
-  // Count the number of visible IconButtons
+  // Count the number of visible items
   let count = 7; // Base: Languages, Applications, Volume, Screen, Hardware, Updates, Information
   if (settingsStore.dockApps.spotify) count++;
   if (settingsStore.dockApps.mac) count++;
@@ -439,6 +492,8 @@ onMounted(async () => {
 }
 
 :deep(.navigation-header) {
+  position: relative;
+  z-index: 1;
   transition: padding var(--transition-fast), opacity var(--transition-in-out);
 }
 
@@ -466,6 +521,62 @@ onMounted(async () => {
   gap: var(--space-03);
 }
 
+/* Power toggle button */
+.power-toggle {
+  display: grid;
+  place-items: center;
+  background: var(--color-background-neutral-12);
+  border: none;
+  border-radius: var(--radius-04);
+  padding: 8px;
+  cursor: pointer;
+  transition: var(--transition-press);
+}
+
+.power-toggle__icon {
+  grid-row: 1;
+  grid-column: 1;
+  transition: opacity var(--transition-fast);
+}
+
+.power-toggle__icon--hidden {
+  opacity: 0;
+}
+
+/* Power menu region (height animation without overflow clipping) */
+.power-menu-region {
+  grid-column: 1 / -1;
+  max-height: 0;
+  overflow: visible;
+  transition: max-height var(--transition-fast);
+}
+
+.power-menu-region--open {
+  max-height: 70px;
+}
+
+.power-menu-items {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-01);
+  opacity: 0;
+  transform: translateY(-100%);
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+}
+
+.power-menu-region--open .power-menu-items {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.power-menu-items :deep(.list-item-button) {
+  background: var(--color-background-contrast);
+}
+
+.power-menu-items :deep(.list-item-button__title) {
+  color: var(--color-text-contrast);
+}
+
 /* Navigation Grid */
 .settings-nav-grid {
   display: grid;
@@ -482,6 +593,14 @@ onMounted(async () => {
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
   .settings-nav-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .power-menu-region--open {
+    max-height: 130px;
+  }
+
+  .power-menu-items {
     grid-template-columns: 1fr;
   }
 

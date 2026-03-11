@@ -15,7 +15,11 @@
     "screen": "Screen",
     "updates": "Updates",
     "information": "Information",
-    "hardware": "Hardware"
+    "hardware": "Hardware",
+    "restart": "Restart",
+    "confirmRestart": "Confirm restart",
+    "shutdown": "Shut down",
+    "confirmShutdown": "Confirm shutdown"
   },
   "audioSources": {
     "title": "Audio sources",
