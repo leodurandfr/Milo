@@ -431,9 +431,6 @@ class AudioRoutingService:
             if not success:
                 return False
 
-            if enabled:
-                await self._auto_configure_multiroom()
-
             await self._post_transition_setup(enabled)
             self.logger.info(f"Multiroom state changed and saved: {enabled}")
             return True
@@ -495,18 +492,6 @@ class AudioRoutingService:
         if self.settings_service:
             await self.settings_service.set_setting('routing.multiroom_enabled', enabled)
     
-    @handle_errors(default=None)
-    async def _auto_configure_multiroom(self):
-        """Automatically configures all groups to Multiroom"""
-        for _ in range(10):
-            if await self.snapcast_service.is_available():
-                await self.snapcast_service.set_all_groups_to_multiroom()
-                self.logger.info("Groups automatically configured to Multiroom")
-                return
-            await asyncio.sleep(1)
-
-        self.logger.warning("Snapserver not available after 10 seconds")
-
     async def set_equalizer_effects_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
         """
         Enables/disables equalizer effects (not the service itself).

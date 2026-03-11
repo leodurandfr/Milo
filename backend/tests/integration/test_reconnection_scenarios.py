@@ -697,7 +697,6 @@ class TestReconnectionContextDetectionIntegration:
 
         # Setup mock snapcast service
         mock_snapcast = AsyncMock()
-        mock_snapcast.set_client_group_to_multiroom = AsyncMock()
         mock_snapcast.set_volume = AsyncMock()
         mock_state_machine.snapcast_service = mock_snapcast
 
@@ -881,7 +880,6 @@ class TestInZoneReconnectionSyncIntegration:
 
         # Create websocket service
         mock_snapcast = AsyncMock()
-        mock_snapcast.set_client_group_to_multiroom = AsyncMock()
         mock_snapcast.set_volume = AsyncMock()
         mock_state_machine.snapcast_service = mock_snapcast
 
@@ -1029,7 +1027,6 @@ class TestInZoneReconnectionSyncIntegration:
 
         # Create websocket service with mocks
         mock_snapcast = AsyncMock()
-        mock_snapcast.set_client_group_to_multiroom = AsyncMock()
         mock_snapcast.set_volume = AsyncMock()
         mock_state_machine.snapcast_service = mock_snapcast
 
@@ -1635,7 +1632,6 @@ class TestStandaloneReconnectionSyncIntegration:
 
         # Create websocket service
         mock_snapcast = AsyncMock()
-        mock_snapcast.set_client_group_to_multiroom = AsyncMock()
         mock_snapcast.set_volume = AsyncMock()
         mock_state_machine.snapcast_service = mock_snapcast
 
@@ -1862,7 +1858,6 @@ class TestStandaloneReconnectionSyncIntegration:
 
         # Setup mocks
         mock_snapcast = AsyncMock()
-        mock_snapcast.set_client_group_to_multiroom = AsyncMock()
         mock_snapcast.set_volume = AsyncMock()
         mock_state_machine.snapcast_service = mock_snapcast
 
@@ -1930,7 +1925,6 @@ class TestStandaloneReconnectionSyncIntegration:
 
         # Setup mocks
         mock_snapcast = AsyncMock()
-        mock_snapcast.set_client_group_to_multiroom = AsyncMock()
         mock_snapcast.set_volume = AsyncMock()
         mock_state_machine.snapcast_service = mock_snapcast
 
