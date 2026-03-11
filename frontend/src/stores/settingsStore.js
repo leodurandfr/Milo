@@ -80,7 +80,8 @@ export const useSettingsStore = defineStore('settings', () => {
     enabled: true,
     connected: false,
     discovering: false,
-    device_name: ''
+    device_name: '',
+    battery_percentage: null
   });
 
   // === SCREEN ===
@@ -293,6 +294,7 @@ export const useSettingsStore = defineStore('settings', () => {
     const devices = data.connected_devices || [];
     btRemote.value.connected = devices.length > 0;
     btRemote.value.device_name = devices[0]?.name || '';
+    btRemote.value.battery_percentage = devices[0]?.battery_percentage ?? null;
     if (data.discovering !== undefined) btRemote.value.discovering = data.discovering;
   }
 
