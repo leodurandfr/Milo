@@ -327,6 +327,7 @@
     "installed": "已安装",
     "notAvailable": "不可用",
     "update": "更新",
+    "updating": "更新中...",
     "errorDetails": "错误详情",
     "searchingSatellites": "正在搜索卫星...",
     "errorDetectingSatellites": "检测卫星时出错",

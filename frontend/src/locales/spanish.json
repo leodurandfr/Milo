@@ -327,6 +327,7 @@
     "installed": "Instalado",
     "notAvailable": "No disponible",
     "update": "Actualizar",
+    "updating": "Actualizando...",
     "errorDetails": "Detalles del error",
     "searchingSatellites": "Buscando satélites...",
     "errorDetectingSatellites": "Error al detectar satélites",

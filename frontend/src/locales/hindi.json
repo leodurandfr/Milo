@@ -327,6 +327,7 @@
     "installed": "इंस्टॉल किया गया",
     "notAvailable": "उपलब्ध नहीं",
     "update": "अपडेट करें",
+    "updating": "अपडेट हो रहा है...",
     "errorDetails": "त्रुटि विवरण",
     "searchingSatellites": "सैटेलाइट खोजे जा रहे हैं...",
     "errorDetectingSatellites": "सैटेलाइट का पता लगाने में त्रुटि",
