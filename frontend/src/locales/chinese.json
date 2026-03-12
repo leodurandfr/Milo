@@ -19,7 +19,9 @@
     "restart": "重启",
     "confirmRestart": "确认重启",
     "shutdown": "关机",
-    "confirmShutdown": "确认关机"
+    "confirmShutdown": "确认关机",
+    "restartInProgress": "正在重启...",
+    "shutdownInProgress": "正在关机..."
   },
   "audioSources": {
     "title": "音频源",
@@ -255,6 +257,7 @@
     "rotaryEncoder": "旋转编码器",
     "rotaryEncoderDescription": "选择连接到旋转编码器的 GPIO 引脚。",
     "applyAndReboot": "应用并重启",
+    "confirmReboot": "确认重启",
     "confirmMessage": "系统将重启以应用硬件更改。",
     "rebooting": "正在重启...",
     "rebootingDescription": "Milō 正在重启。此页面将自动重新加载。"

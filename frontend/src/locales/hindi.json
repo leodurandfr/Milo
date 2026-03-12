@@ -19,7 +19,9 @@
     "restart": "पुनः आरंभ करें",
     "confirmRestart": "पुनः आरंभ की पुष्टि करें",
     "shutdown": "बंद करें",
-    "confirmShutdown": "बंद करने की पुष्टि करें"
+    "confirmShutdown": "बंद करने की पुष्टि करें",
+    "restartInProgress": "पुनः आरंभ हो रहा है...",
+    "shutdownInProgress": "बंद हो रहा है..."
   },
   "audioSources": {
     "title": "ऑडियो स्रोत",
@@ -255,6 +257,7 @@
     "rotaryEncoder": "रोटरी एन्कोडर",
     "rotaryEncoderDescription": "अपने रोटरी एन्कोडर से जुड़े GPIO पिन चुनें।",
     "applyAndReboot": "लागू करें और पुनः आरंभ करें",
+    "confirmReboot": "पुनः आरंभ की पुष्टि करें",
     "confirmMessage": "हार्डवेयर परिवर्तन लागू करने के लिए सिस्टम पुनः आरंभ होगा।",
     "rebooting": "पुनः आरंभ हो रहा है...",
     "rebootingDescription": "Milō पुनः आरंभ हो रहा है। यह पृष्ठ स्वचालित रूप से पुनः लोड होगा।"

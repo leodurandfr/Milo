@@ -50,31 +50,11 @@
       </div>
     </SettingsSection>
 
-    <!-- Apply & Reboot (sticky, visible only when dirty) -->
-    <Button v-if="isDirty && !isRebooting" variant="brand" class="apply-button-sticky"
-      :loading="isApplying" @click="showConfirm = true">
-      {{ t('hardwareSettings.applyAndReboot') }}
+    <!-- Apply & Reboot (sticky, two-step confirm) -->
+    <Button v-if="isDirty || isRebooting" :variant="confirmReboot ? 'important' : 'brand'" class="apply-button-sticky"
+      :loading="isApplying || isRebooting" :disabled="isApplying || isRebooting" @click="handleApply">
+      {{ applyButtonLabel }}
     </Button>
-
-    <!-- Confirm dialog -->
-    <div v-if="showConfirm && !isRebooting" class="confirm-section">
-      <p class="confirm-message text-mono">{{ t('hardwareSettings.confirmMessage') }}</p>
-      <div class="confirm-actions">
-        <Button variant="background-strong" @click="showConfirm = false">
-          {{ t('common.cancel') }}
-        </Button>
-        <Button variant="important" :loading="isApplying" @click="applyAndReboot">
-          {{ t('common.confirm') }}
-        </Button>
-      </div>
-    </div>
-
-    <!-- Rebooting overlay -->
-    <div v-if="isRebooting" class="rebooting-section">
-      <LoadingSpinner />
-      <p class="heading-3">{{ t('hardwareSettings.rebooting') }}</p>
-      <p class="text-mono text-secondary">{{ t('hardwareSettings.rebootingDescription') }}</p>
-    </div>
   </SettingsContainer>
 </template>
 
@@ -89,7 +69,6 @@ import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
 import Button from '@/components/ui/Button.vue';
-import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 
 const { t } = useI18n();
 const { loadHardwareConfig } = useHardwareConfig();
@@ -118,7 +97,7 @@ const audioCardOptions = ref([]);
 const screenOptions = ref([]);
 
 // UI state
-const showConfirm = ref(false);
+const confirmReboot = ref(false);
 const isApplying = ref(false);
 const isRebooting = ref(false);
 
@@ -148,24 +127,38 @@ function syncFromData(data) {
   screenOptions.value = data.options.screens;
 }
 
+const applyButtonLabel = computed(() => {
+  if (isRebooting.value) return t('hardwareSettings.rebooting');
+  if (confirmReboot.value) return t('hardwareSettings.confirmReboot');
+  return t('hardwareSettings.applyAndReboot');
+});
+
+function handleApply() {
+  if (!confirmReboot.value) {
+    confirmReboot.value = true;
+    return;
+  }
+  applyAndReboot();
+}
+
 function onAudioChange(value) {
   config.value.audio_id = value;
-  showConfirm.value = false;
+  confirmReboot.value = false;
 }
 
 function onScreenChange(value) {
   config.value.screen_type = value;
-  showConfirm.value = false;
+  confirmReboot.value = false;
 }
 
 function onPinChange(pin, value) {
   config.value[pin] = value;
-  showConfirm.value = false;
+  confirmReboot.value = false;
 }
 
 async function applyAndReboot() {
   isApplying.value = true;
-  showConfirm.value = false;
+  confirmReboot.value = false;
 
   try {
     const payload = {
@@ -250,33 +243,6 @@ onMounted(async () => {
   bottom: 0;
   width: 100%;
   z-index: 10;
-}
-
-/* Confirm section */
-.confirm-section {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-03);
-}
-
-.confirm-message {
-  color: var(--color-text-secondary);
-  text-align: center;
-}
-
-.confirm-actions {
-  display: flex;
-  gap: var(--space-03);
-}
-
-.rebooting-section {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-03);
-  padding: var(--space-06) 0;
-  text-align: center;
 }
 
 /* Mobile: stack label/control vertically */
