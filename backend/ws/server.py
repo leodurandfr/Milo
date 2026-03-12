@@ -18,10 +18,11 @@ class WebSocketServer:
 
     PING_INTERVAL = 30
 
-    def __init__(self, ws_manager: WebSocketManager, state_machine, volume_service=None):
+    def __init__(self, ws_manager: WebSocketManager, state_machine, volume_service=None, settings_service=None):
         self.manager = ws_manager
         self.state_machine = state_machine
         self.volume_service = volume_service
+        self.settings_service = settings_service
 
     async def _send_ping(self, websocket: WebSocket):
         """Sends periodic pings to maintain connection"""
@@ -89,11 +90,20 @@ class WebSocketServer:
             if client_msg.get("type") == "ready":
                 # Client is ready - send state IMMEDIATELY (no blocking waits)
                 current_state = await self.state_machine.get_current_state()
+
+                # Include setup_completed for first-boot wizard detection
+                setup_completed = False  # Safe default: show wizard if service unavailable
+                if self.settings_service:
+                    setup_completed = bool(await self.settings_service.get_setting("setup_completed"))
+
                 initial_event = {
                     "category": "system",
                     "type": "initial_state",
                     "source": "system",
-                    "data": {"full_state": current_state},
+                    "data": {
+                        "full_state": current_state,
+                        "setup_completed": setup_completed,
+                    },
                     "timestamp": time.time()
                 }
                 await websocket.send_text(json.dumps(initial_event))

@@ -449,7 +449,8 @@
     "restore": "恢复",
     "delete": "删除",
     "deleting": "删除中...",
-    "modify": "编辑"
+    "modify": "编辑",
+    "back": "返回"
   },
   "radio": {
     "edit_station_title": "编辑 {name}",
@@ -700,5 +701,33 @@
     "dominican_republic": "多米尼加",
     "south_korea": "韩国",
     "tunisia": "突尼斯"
+  },
+  "setup": {
+    "next": "下一步",
+    "welcome": {
+      "title": "欢迎使用 Milō",
+      "subtitle": "让我们配置您的音频系统。",
+      "getStarted": "开始"
+    },
+    "language": {
+      "title": "选择您的语言"
+    },
+    "audio": {
+      "title": "选择您的声卡"
+    },
+    "screen": {
+      "title": "选择您的屏幕",
+      "rebootNote": "需要重启以应用硬件更改。"
+    },
+    "summary": {
+      "title": "设置摘要",
+      "language": "语言",
+      "audioCard": "声卡",
+      "screen": "屏幕",
+      "rebootMessage": "您的系统需要重启以激活声卡和屏幕配置。",
+      "applyAndReboot": "应用并重启",
+      "rebooting": "正在重启...",
+      "rebootingDescription": "请等待系统重启。"
+    }
   }
 }

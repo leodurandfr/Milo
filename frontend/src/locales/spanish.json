@@ -449,7 +449,8 @@
     "restore": "Restaurar",
     "delete": "Eliminar",
     "deleting": "Eliminando...",
-    "modify": "Modificar"
+    "modify": "Modificar",
+    "back": "Atrás"
   },
   "radio": {
     "edit_station_title": "Editar {name}",
@@ -700,5 +701,33 @@
     "dominican_republic": "República Dominicana",
     "south_korea": "Corea del Sur",
     "tunisia": "Túnez"
+  },
+  "setup": {
+    "next": "Siguiente",
+    "welcome": {
+      "title": "Bienvenido a Milō",
+      "subtitle": "Configuremos tu sistema de audio.",
+      "getStarted": "Comenzar"
+    },
+    "language": {
+      "title": "Elige tu idioma"
+    },
+    "audio": {
+      "title": "Selecciona tu tarjeta de audio"
+    },
+    "screen": {
+      "title": "Selecciona tu pantalla",
+      "rebootNote": "Se necesitará un reinicio para aplicar los cambios de hardware."
+    },
+    "summary": {
+      "title": "Resumen de configuración",
+      "language": "Idioma",
+      "audioCard": "Tarjeta de audio",
+      "screen": "Pantalla",
+      "rebootMessage": "Tu sistema necesita reiniciarse para activar la configuración de la tarjeta de audio y la pantalla.",
+      "applyAndReboot": "Aplicar y reiniciar",
+      "rebooting": "Reiniciando...",
+      "rebootingDescription": "Por favor espera mientras el sistema se reinicia."
+    }
   }
 }

@@ -6,6 +6,9 @@ import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
 
 export const useSettingsStore = defineStore('settings', () => {
+  // === SETUP WIZARD ===
+  const setupCompleted = ref(null); // null = unknown, false = show wizard, true = normal UI
+
   // === LOADING STATE ===
   const isLoading = ref(false);
   const hasLoaded = ref(false);
@@ -370,8 +373,16 @@ export const useSettingsStore = defineStore('settings', () => {
   const updateInactivityTimeout = makeUpdater(inactivityTimeout);
   const updateRadioSettings = makeUpdater(radioSettings);
 
+  /**
+   * Update setup_completed state (from WebSocket initial_state)
+   */
+  function updateSetupCompleted(value) {
+    setupCompleted.value = value;
+  }
+
   return {
     // State
+    setupCompleted,
     isLoading,
     hasLoaded,
     language,
@@ -396,6 +407,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
     // Actions
     loadAllSettings,
+    updateSetupCompleted,
     updateLanguage,
     updateVolumeLimits,
     updateVolumeStartup,

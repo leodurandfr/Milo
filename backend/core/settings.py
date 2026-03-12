@@ -9,7 +9,7 @@ import aiofiles
 import asyncio
 from typing import Dict, Any
 
-from backend.config.constants import DEFAULT_VOLUME_DB, VALID_DOCK_APPS, AUDIO_SOURCE_APPS, UTILITY_DOCK_APPS, DEFAULT_DOCK_APPS, SETTINGS_FILE
+from backend.config.constants import DEFAULT_VOLUME_DB, VALID_DOCK_APPS, AUDIO_SOURCE_APPS, UTILITY_DOCK_APPS, DEFAULT_DOCK_APPS, SETTINGS_FILE, VALID_LANGUAGES
 from backend.shared.decorators import handle_errors
 
 class SettingsService:
@@ -22,6 +22,7 @@ class SettingsService:
         self._file_lock = asyncio.Lock()  # Native async lock instead of fcntl.flock
         
         self.defaults = {
+            "setup_completed": False,
             "language": "english",
             "volume": {
                 "limit_min_db": -80.0,
@@ -139,10 +140,12 @@ class SettingsService:
     def _validate_and_merge(self, settings: Dict[str, Any]) -> Dict[str, Any]:
         """Validation and merge with defaults - Support 0 = disabled"""
         validated = {}
-        
+
+        # Setup completed flag (first-boot wizard)
+        validated['setup_completed'] = bool(settings.get('setup_completed', False))
+
         # Language
-        valid_languages = ['french', 'english', 'spanish', 'hindi', 'chinese', 'portuguese', 'italian', 'german']
-        validated['language'] = settings.get('language') if settings.get('language') in valid_languages else 'english'
+        validated['language'] = settings.get('language') if settings.get('language') in VALID_LANGUAGES else 'english'
         
         # Volume (all values in dB, -80 to 0 range)
         vol_input = settings.get('volume', {})

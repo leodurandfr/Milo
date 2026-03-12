@@ -401,7 +401,8 @@
     "confirm": "Confirm",
     "restore": "Restore",
     "delete": "Delete",
-    "deleting": "Deleting..."
+    "deleting": "Deleting...",
+    "back": "Back"
   },
   "radio": {
     "country": "Country",
@@ -632,5 +633,33 @@
     "dominican_republic": "Dominican Republic",
     "south_korea": "South Korea",
     "tunisia": "Tunisia"
+  },
+  "setup": {
+    "next": "Next",
+    "welcome": {
+      "title": "Welcome to Milō",
+      "subtitle": "Let's configure your audio system.",
+      "getStarted": "Get Started"
+    },
+    "language": {
+      "title": "Choose your language"
+    },
+    "audio": {
+      "title": "Select your audio card"
+    },
+    "screen": {
+      "title": "Select your screen",
+      "rebootNote": "A reboot will be needed to apply hardware changes."
+    },
+    "summary": {
+      "title": "Setup Summary",
+      "language": "Language",
+      "audioCard": "Audio card",
+      "screen": "Screen",
+      "rebootMessage": "Your system needs to reboot to activate the audio card and screen configuration.",
+      "applyAndReboot": "Apply & Reboot",
+      "rebooting": "Rebooting...",
+      "rebootingDescription": "Please wait while the system restarts."
+    }
   }
 }

@@ -449,7 +449,8 @@
     "restore": "Wiederherstellen",
     "delete": "Löschen",
     "deleting": "Wird gelöscht...",
-    "modify": "Bearbeiten"
+    "modify": "Bearbeiten",
+    "back": "Zurück"
   },
   "radio": {
     "edit_station_title": "{name} bearbeiten",
@@ -700,5 +701,33 @@
     "dominican_republic": "Dominikanische Republik",
     "south_korea": "Südkorea",
     "tunisia": "Tunesien"
+  },
+  "setup": {
+    "next": "Weiter",
+    "welcome": {
+      "title": "Willkommen bei Milō",
+      "subtitle": "Lassen Sie uns Ihr Audiosystem konfigurieren.",
+      "getStarted": "Los geht's"
+    },
+    "language": {
+      "title": "Wählen Sie Ihre Sprache"
+    },
+    "audio": {
+      "title": "Wählen Sie Ihre Audiokarte"
+    },
+    "screen": {
+      "title": "Wählen Sie Ihren Bildschirm",
+      "rebootNote": "Ein Neustart ist erforderlich, um die Hardwareänderungen anzuwenden."
+    },
+    "summary": {
+      "title": "Einrichtungsübersicht",
+      "language": "Sprache",
+      "audioCard": "Audiokarte",
+      "screen": "Bildschirm",
+      "rebootMessage": "Ihr System muss neu gestartet werden, um die Audiokarten- und Bildschirmkonfiguration zu aktivieren.",
+      "applyAndReboot": "Anwenden und neu starten",
+      "rebooting": "Neustart...",
+      "rebootingDescription": "Bitte warten Sie, während das System neu startet."
+    }
   }
 }
