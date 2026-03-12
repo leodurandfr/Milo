@@ -449,7 +449,8 @@
     "restore": "Restaurar",
     "delete": "Eliminar",
     "deleting": "A eliminar...",
-    "modify": "Editar"
+    "modify": "Editar",
+    "back": "Voltar"
   },
   "radio": {
     "edit_station_title": "Editar {name}",
@@ -700,5 +701,33 @@
     "dominican_republic": "República Dominicana",
     "south_korea": "Coreia do Sul",
     "tunisia": "Tunísia"
+  },
+  "setup": {
+    "next": "Seguinte",
+    "welcome": {
+      "title": "Bem-vindo ao Milō",
+      "subtitle": "Vamos configurar o seu sistema de áudio.",
+      "getStarted": "Começar"
+    },
+    "language": {
+      "title": "Escolha o seu idioma"
+    },
+    "audio": {
+      "title": "Selecione a sua placa de áudio"
+    },
+    "screen": {
+      "title": "Selecione o seu ecrã",
+      "rebootNote": "Será necessário reiniciar para aplicar as alterações de hardware."
+    },
+    "summary": {
+      "title": "Resumo da configuração",
+      "language": "Idioma",
+      "audioCard": "Placa de áudio",
+      "screen": "Ecrã",
+      "rebootMessage": "O seu sistema precisa de reiniciar para ativar a configuração da placa de áudio e do ecrã.",
+      "applyAndReboot": "Aplicar e reiniciar",
+      "rebooting": "A reiniciar...",
+      "rebootingDescription": "Aguarde enquanto o sistema reinicia."
+    }
   }
 }

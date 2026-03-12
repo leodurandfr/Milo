@@ -449,7 +449,8 @@
     "restore": "Ripristina",
     "delete": "Elimina",
     "deleting": "Eliminazione...",
-    "modify": "Modifica"
+    "modify": "Modifica",
+    "back": "Indietro"
   },
   "radio": {
     "edit_station_title": "Modifica {name}",
@@ -700,5 +701,33 @@
     "dominican_republic": "Repubblica Dominicana",
     "south_korea": "Corea del Sud",
     "tunisia": "Tunisia"
+  },
+  "setup": {
+    "next": "Avanti",
+    "welcome": {
+      "title": "Benvenuto su Milō",
+      "subtitle": "Configuriamo il tuo sistema audio.",
+      "getStarted": "Inizia"
+    },
+    "language": {
+      "title": "Scegli la tua lingua"
+    },
+    "audio": {
+      "title": "Seleziona la tua scheda audio"
+    },
+    "screen": {
+      "title": "Seleziona il tuo schermo",
+      "rebootNote": "Sarà necessario un riavvio per applicare le modifiche hardware."
+    },
+    "summary": {
+      "title": "Riepilogo configurazione",
+      "language": "Lingua",
+      "audioCard": "Scheda audio",
+      "screen": "Schermo",
+      "rebootMessage": "Il sistema deve essere riavviato per attivare la configurazione della scheda audio e dello schermo.",
+      "applyAndReboot": "Applica e riavvia",
+      "rebooting": "Riavvio in corso...",
+      "rebootingDescription": "Attendi il riavvio del sistema."
+    }
   }
 }

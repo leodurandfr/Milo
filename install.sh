@@ -1,10 +1,11 @@
 #!/bin/bash
-# Milo Audio System - Installation Script v1.3
+# Milo Audio System - Installation Script v2.0
+#
+# Fully non-interactive: installs all dependencies for all hardware combinations.
+# Hardware configuration (audio card, screen) is done via the web UI setup wizard
+# after first boot at http://milo.local.
 #
 # IMPORTANT: This script is optimized for Raspberry Pi OS Lite (64-bit)
-# Raspberry Pi OS Lite is recommended to minimize resource usage
-# and avoid conflicts with unnecessary desktop services.
-#
 # Download Raspberry Pi OS Lite from: https://www.raspberrypi.com/software/operating-systems/
 
 set -e
@@ -17,16 +18,6 @@ MILO_REPO="https://github.com/leodurandfr/Milo.git"
 MILO_BRANCH="main"
 REQUIRED_HOSTNAME="milo"
 REBOOT_REQUIRED=false
-
-# Variables to store user choices
-USER_HOSTNAME_CHANGE=""
-USER_HIFIBERRY_CHOICE=""
-USER_SCREEN_CHOICE=""
-USER_RESTART_CHOICE=""
-HIFIBERRY_OVERLAY=""
-CARD_NAME=""
-ALSA_CONTROL=""
-SCREEN_TYPE=""
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -58,7 +49,7 @@ show_banner() {
     echo " | |  | | | | (_) |"
     echo " |_|  |_|_|_|\___/ "
     echo ""
-    echo "Audio System Installation Script v1.3"
+    echo "Audio System Installation Script v2.0"
     echo -e "${NC}"
 }
 
@@ -93,142 +84,15 @@ check_system() {
     log_success "Compatible system detected (Raspberry Pi OS 64-bit)"
 }
 
-collect_user_choices() {
-    echo ""
-    log_info "Initial configuration - Please answer the following questions:"
-    echo ""
-    
-    # 1. Hostname verification
-    local current_hostname=$(hostname)
-    log_info "Current hostname: $current_hostname"
-    
-    if [ "$current_hostname" != "$REQUIRED_HOSTNAME" ]; then
-        echo ""
-        echo -e "${YELLOW}⚠️  IMPORTANT:${NC} Milo requires the hostname '${REQUIRED_HOSTNAME}' for:"
-        echo "   • Access via ${REQUIRED_HOSTNAME}.local from the browser"
-        echo "   • Optimal multiroom functionality (Snapserver)"
-        echo "   • Network discovery of other Milo instances"
-        echo ""
-        echo -e "${BLUE}🔄 Hostname change required:${NC} '$current_hostname' → '$REQUIRED_HOSTNAME'"
-        echo ""
-        
-        while true; do
-            read -p "Change hostname to '$REQUIRED_HOSTNAME'? (Y/n): " USER_HOSTNAME_CHANGE
-            case $USER_HOSTNAME_CHANGE in
-                [Nn]* )
-                    log_error "Installation cancelled. Hostname '$REQUIRED_HOSTNAME' is required."
-                    exit 1
-                    ;;
-                [Yy]* | "" )
-                    USER_HOSTNAME_CHANGE="yes"
-                    break
-                    ;;
-                * )
-                    echo "Please answer 'Y' (yes) or 'n' (no)."
-                    ;;
-            esac
-        done
-    else
-        USER_HOSTNAME_CHANGE="already_set"
-    fi
-    
-    # 2. HiFiBerry card selection
-    echo ""
-    log_info "Configuring HiFiBerry audio card..."
-    echo ""
-    echo "Select your HiFiBerry audio card:"
-    echo ""
-    echo "  Amplifiers (connect speakers directly):"
-    echo "    1) Amp2"
-    echo "    2) Amp4"
-    echo "    3) Amp4 Pro"
-    echo "    4) Amp100"
-    echo "    5) Beocreate 4CA"
-    echo ""
-    echo "  DACs (connect to external amplifier):"
-    echo "    6) DAC2 HD"
-    echo "    7) DAC+ Pro"
-    echo ""
-    echo "    8) Skip (for manual installation)"
-    echo ""
-
-    while true; do
-        read -p "Your choice [1]: " USER_HIFIBERRY_CHOICE
-        USER_HIFIBERRY_CHOICE=${USER_HIFIBERRY_CHOICE:-1}
-
-        case $USER_HIFIBERRY_CHOICE in
-            1) AUDIO_CARD_ID="hifiberry_amp2"; HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Selected card: Amp2"; break;;
-            2) AUDIO_CARD_ID="hifiberry_amp4"; HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Selected card: Amp4"; break;;
-            3) AUDIO_CARD_ID="hifiberry_amp4pro"; HIFIBERRY_OVERLAY="hifiberry-amp4pro"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Selected card: Amp4 Pro"; break;;
-            4) AUDIO_CARD_ID="hifiberry_amp100"; HIFIBERRY_OVERLAY="hifiberry-amp100"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Selected card: Amp100"; break;;
-            5) AUDIO_CARD_ID="hifiberry_beocreate"; HIFIBERRY_OVERLAY="hifiberry-dac"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="DAC"; log_success "Selected card: Beocreate 4CA"; break;;
-            6) AUDIO_CARD_ID="hifiberry_dac2hd"; HIFIBERRY_OVERLAY="hifiberry-dacplushd"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="DAC"; log_success "Selected card: DAC2 HD"; break;;
-            7) AUDIO_CARD_ID="hifiberry_dacplus_pro"; HIFIBERRY_OVERLAY="hifiberry-dacplus"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Selected card: DAC+ Pro"; break;;
-            8) AUDIO_CARD_ID=""; HIFIBERRY_OVERLAY=""; CARD_NAME=""; ALSA_CONTROL=""; log_warning "HiFiBerry configuration skipped"; break;;
-            *) echo "Invalid choice. Please enter a number between 1 and 8.";;
-        esac
-    done
-    
-    # 3. Screen selection
-    echo ""
-    log_info "Configuring touchscreen..."
-    echo ""
-    echo "Select your screen:"
-    echo ""
-    echo "1) Waveshare 7\" 1024x600 (USB)"
-    echo "2) Waveshare 8\" 1280x800 (DSI)"  
-    echo "3) No screen or manual installation"
-    echo ""
-    
-    while true; do
-        read -p "Your choice [1]: " USER_SCREEN_CHOICE
-        USER_SCREEN_CHOICE=${USER_SCREEN_CHOICE:-1}
-        
-        case $USER_SCREEN_CHOICE in
-            1) SCREEN_TYPE="waveshare_7_usb"; log_success "Selected screen: Waveshare 7\" USB"; break;;
-            2) SCREEN_TYPE="waveshare_8_dsi"; log_success "Selected screen: Waveshare 8\" DSI"; break;;
-            3) SCREEN_TYPE="none"; log_warning "Screen configuration skipped"; break;;
-            *) echo "Invalid choice. Please enter a number between 1 and 3.";;
-        esac
-    done
-    
-    # 4. Reboot choice
-    echo ""
-    log_info "A reboot will be required at the end of installation."
-    while true; do
-        read -p "Automatically reboot at the end? (Y/n): " USER_RESTART_CHOICE
-        case $USER_RESTART_CHOICE in
-            [Nn]* )
-                USER_RESTART_CHOICE="no"
-                break
-                ;;
-            [Yy]* | "" )
-                USER_RESTART_CHOICE="yes"
-                break
-                ;;
-            * )
-                echo "Please answer 'Y' (yes) or 'n' (no)."
-                ;;
-        esac
-    done
-    
-    echo ""
-    log_success "Configuration complete! Installation will now continue automatically..."
-    echo ""
-    sleep 2
-}
-
 setup_hostname() {
     local current_hostname=$(hostname)
-    
-    log_info "Applying hostname configuration..."
-    
-    if [ "$USER_HOSTNAME_CHANGE" == "yes" ]; then
+
+    if [ "$current_hostname" != "$REQUIRED_HOSTNAME" ]; then
         log_info "Configuring hostname '$REQUIRED_HOSTNAME'..."
         configure_hostname "$REQUIRED_HOSTNAME"
         log_success "Hostname configured"
         REBOOT_REQUIRED=true
-    elif [ "$USER_HOSTNAME_CHANGE" == "already_set" ]; then
+    else
         log_success "Hostname '$REQUIRED_HOSTNAME' already configured"
     fi
 }
@@ -240,121 +104,6 @@ configure_hostname() {
     sudo hostnamectl set-hostname "$new_hostname"
 }
 
-configure_audio_hardware() {
-    if [[ -z "$HIFIBERRY_OVERLAY" ]]; then
-        log_info "HiFiBerry configuration skipped"
-        return
-    fi
-    
-    log_info "Configuring audio hardware for HiFiBerry..."
-    
-    local config_file="/boot/firmware/config.txt"
-    
-    if [[ ! -f "$config_file" ]]; then
-        config_file="/boot/config.txt"
-        if [[ ! -f "$config_file" ]]; then
-            log_error "config.txt file not found"
-            exit 1
-        fi
-    fi
-    
-    sudo cp "$config_file" "$config_file.backup.$(date +%Y%m%d_%H%M%S)"
-    
-    sudo sed -i '/^dtparam=audio=on/d' "$config_file"
-    
-    if grep -q "vc4-fkms-v3d" "$config_file"; then
-        sudo sed -i 's/dtoverlay=vc4-fkms-v3d.*/dtoverlay=vc4-fkms-v3d,audio=off/' "$config_file"
-    fi
-    
-    if grep -q "vc4-kms-v3d" "$config_file"; then
-        sudo sed -i 's/dtoverlay=vc4-kms-v3d.*/dtoverlay=vc4-kms-v3d,noaudio/' "$config_file"
-    fi
-    
-    if ! grep -q "$HIFIBERRY_OVERLAY" "$config_file"; then
-        echo "" | sudo tee -a "$config_file"
-        echo "# Milo - HiFiBerry Audio ($HIFIBERRY_OVERLAY)" | sudo tee -a "$config_file"
-        echo "dtoverlay=$HIFIBERRY_OVERLAY" | sudo tee -a "$config_file"
-    fi
-    
-    if ! grep -q "usb_max_current_enable=1" "$config_file"; then
-        echo "usb_max_current_enable=1" | sudo tee -a "$config_file"
-    fi
-    
-    log_success "Audio hardware configuration complete"
-    REBOOT_REQUIRED=true
-}
-
-initialize_alsa_volume() {
-    if [[ -z "$CARD_NAME" ]]; then
-        log_info "ALSA volume initialization skipped (no HiFiBerry card configured)"
-        return
-    fi
-
-    log_info "Initializing ALSA volume to 100%..."
-
-    # Wait for sound card to be available
-    sleep 2
-
-    # Set HiFiBerry volume to 100% (passthrough - CamillaDSP manages actual volume)
-    # Use the control name determined during card selection
-    if [[ -n "$ALSA_CONTROL" ]]; then
-        if amixer -c "$CARD_NAME" sset "$ALSA_CONTROL" 100% 2>/dev/null; then
-            log_success "ALSA $ALSA_CONTROL volume set to 100%"
-            return 0
-        fi
-    fi
-
-    # Fallback: try common controls
-    if amixer -c "$CARD_NAME" sset 'Digital' 100% 2>/dev/null; then
-        log_success "ALSA Digital volume set to 100%"
-    elif amixer -c "$CARD_NAME" sset 'DAC' 100% 2>/dev/null; then
-        log_success "ALSA DAC volume set to 100%"
-    elif amixer -c "$CARD_NAME" sset 'Master' 100% 2>/dev/null; then
-        log_success "ALSA Master volume set to 100%"
-    else
-        log_warning "Could not set ALSA volume (card may not be available until reboot)"
-    fi
-}
-
-configure_screen_hardware() {
-    if [[ "$SCREEN_TYPE" == "none" ]]; then
-        log_info "Screen configuration skipped"
-        return
-    fi
-    
-    log_info "Configuring screen hardware..."
-    
-    local config_file="/boot/firmware/config.txt"
-    
-    if [[ ! -f "$config_file" ]]; then
-        config_file="/boot/config.txt"
-        if [[ ! -f "$config_file" ]]; then
-            log_error "config.txt file not found"
-            exit 1
-        fi
-    fi
-    
-    if [[ ! -f "$config_file.backup.$(date +%Y%m%d)" ]]; then
-        sudo cp "$config_file" "$config_file.backup.$(date +%Y%m%d_%H%M%S)"
-    fi
-    
-    case $SCREEN_TYPE in
-        "waveshare_8_dsi")
-            log_info "Configuring for Waveshare 8\" DSI..."
-            if ! grep -q "dtoverlay=vc4-kms-dsi-waveshare-panel,8_0_inch" "$config_file"; then
-                echo "" | sudo tee -a "$config_file"
-                echo "#DSI1 Use - Waveshare 8\" 1280x800" | sudo tee -a "$config_file"
-                echo "dtoverlay=vc4-kms-dsi-waveshare-panel,8_0_inch" | sudo tee -a "$config_file"
-            fi
-            REBOOT_REQUIRED=true
-            ;;
-        "waveshare_7_usb")
-            log_info "Configuring for Waveshare 7\" USB (no config.txt modification required)"
-            ;;
-    esac
-    
-    log_success "Screen hardware configuration complete"
-}
 
 install_dependencies() {
     log_info "Updating system..."
@@ -1101,19 +850,10 @@ install_milo_cursor_theme() {
 }
 
 configure_boot_display() {
-    log_info "Configuring boot display for $SCREEN_TYPE..."
+    log_info "Configuring boot display (no screen selected yet)..."
 
-    # Map SCREEN_TYPE to configuration file
-    local screen_config=""
-    case "$SCREEN_TYPE" in
-        waveshare_7_usb) screen_config="screen-waveshare-7-usb.sh" ;;
-        waveshare_8_dsi) screen_config="screen-waveshare-8-dsi.sh" ;;
-        none) screen_config="boot-common.sh" ;;
-        *) log_warning "Unknown screen type: $SCREEN_TYPE, using common config"; screen_config="boot-common.sh" ;;
-    esac
-
-    # Load screen-specific configuration
-    source "$MILO_APP_DIR/install/$screen_config"
+    # Use common boot config — screen-specific config applied later by milo-apply-hardware
+    source "$MILO_APP_DIR/install/boot-common.sh"
 
     # Configure cmdline.txt
     configure_cmdline "$BOOT_PARAMS_COMMON $BOOT_PARAMS_SCREEN"
@@ -1121,7 +861,7 @@ configure_boot_display() {
     # Configure config.txt
     configure_config "$CONFIG_PARAMS_COMMON" "$CONFIG_PARAMS_SCREEN"
 
-    log_success "Boot display configured for $SCREEN_TYPE"
+    log_success "Boot display configured"
 }
 
 configure_cmdline() {
@@ -1279,94 +1019,54 @@ optimize_boot_performance() {
 }
 
 install_screen_brightness_control() {
-    if [[ "$SCREEN_TYPE" == "none" ]]; then
-        log_info "No brightness control to install"
-        return
-    fi
+    log_info "Installing brightness control for all screen types..."
 
-    log_info "Installing brightness control..."
+    # Waveshare 7" USB brightness control
+    log_info "Installing brightness control for Waveshare 7\" USB..."
+    sudo cp "$MILO_APP_DIR/rootfs/usr/local/bin/milo-brightness-7" /usr/local/bin/milo-brightness-7
+    sudo chmod +x /usr/local/bin/milo-brightness-7
+    log_success "7\" USB brightness control installed"
 
-    case $SCREEN_TYPE in
-        "waveshare_7_usb")
-            log_info "Installing brightness control for Waveshare 7\" USB..."
+    # Waveshare 8" DSI brightness control
+    log_info "Installing brightness control for Waveshare 8\" DSI..."
 
-            # Install Python brightness control script (no sudo needed - uses udev rules)
-            sudo cp "$MILO_APP_DIR/rootfs/usr/local/bin/milo-brightness-7" /usr/local/bin/milo-brightness-7
-            sudo chmod +x /usr/local/bin/milo-brightness-7
+    local temp_dir=$(mktemp -d)
+    cd "$temp_dir"
 
-            # Test brightness control
-            /usr/local/bin/milo-brightness-7 -b 6
+    wget https://files.waveshare.com/wiki/common/Brightness.zip
+    unzip Brightness.zip
+    cd Brightness
+    sudo chmod +x install.sh
+    ./install.sh
 
-            log_success "7\" USB brightness control installed"
-            ;;
+    cd ~
+    rm -rf "$temp_dir"
 
-        "waveshare_8_dsi")
-            log_info "Installing brightness control for Waveshare 8\" DSI..."
-
-            local temp_dir=$(mktemp -d)
-            cd "$temp_dir"
-
-            wget https://files.waveshare.com/wiki/common/Brightness.zip
-            unzip Brightness.zip
-            cd Brightness
-            sudo chmod +x install.sh
-            ./install.sh
-
-            # Test brightness (default value at 100)
-            echo 100 | sudo tee /sys/class/backlight/*/brightness > /dev/null 2>&1 || true
-
-            cd ~
-            rm -rf "$temp_dir"
-
-            # Create udev rule for backlight permissions
-            log_info "Configuring backlight permissions (udev rule)..."
-            sudo tee /etc/udev/rules.d/99-backlight.rules > /dev/null << 'EOF'
+    # Create udev rule for backlight permissions
+    log_info "Configuring backlight permissions (udev rule)..."
+    sudo tee /etc/udev/rules.d/99-backlight.rules > /dev/null << 'EOF'
 SUBSYSTEM=="backlight", RUN+="/bin/chmod 0666 /sys/class/backlight/%k/brightness"
 EOF
 
-            # Reload udev rules
-            sudo udevadm control --reload-rules
-            sudo udevadm trigger
+    # Reload udev rules
+    sudo udevadm control --reload-rules
+    sudo udevadm trigger
 
-            log_success "8\" DSI brightness control installed"
-            log_info "Udev rule created for backlight permissions"
-            log_info "Use: echo VALUE | sudo tee /sys/class/backlight/*/brightness (VALUE: 0-255)"
-            ;;
-    esac
+    log_success "All screen brightness controls installed"
 }
 
 save_hardware_config() {
-    log_info "Saving hardware configuration to $MILO_DATA_DIR/hardware.json..."
+    log_info "Saving default hardware configuration to $MILO_DATA_DIR/hardware.json..."
 
-    # Resolve screen resolution
-    local screen_resolution="null"
-    case "$SCREEN_TYPE" in
-        "waveshare_7_usb") screen_resolution='"1024x600"' ;;
-        "waveshare_8_dsi") screen_resolution='"1280x800"' ;;
-        *) SCREEN_TYPE="none" ;;
-    esac
-
-    # Build audio section
-    local audio_json='{}'
-    if [[ -n "$AUDIO_CARD_ID" ]]; then
-        audio_json=$(cat << AUDIO
-{
-      "id": "$AUDIO_CARD_ID",
-      "card_name": "$CARD_NAME",
-      "alsa_control": "$ALSA_CONTROL",
-      "overlay": "$HIFIBERRY_OVERLAY"
-    }
-AUDIO
-)
-    fi
-
-    sudo tee "$MILO_DATA_DIR/hardware.json" > /dev/null << EOF
+    sudo tee "$MILO_DATA_DIR/hardware.json" > /dev/null << 'EOF'
 {
   "screen": {
-    "type": "$SCREEN_TYPE",
-    "resolution": $screen_resolution
+    "type": "none",
+    "resolution": null
   },
-  "audio": $audio_json,
+  "audio": {
+    "id": "none"
+  },
   "rotary_encoder": {
     "clk_pin": 22,
     "dt_pin": 27,
@@ -1376,7 +1076,7 @@ AUDIO
 EOF
 
     sudo chown "$MILO_USER:$MILO_USER" "$MILO_DATA_DIR/hardware.json"
-    log_success "Hardware configuration saved (screen: $SCREEN_TYPE, audio: ${AUDIO_CARD_ID:-none})"
+    log_success "Default hardware configuration saved (configure via setup wizard)"
 }
 
 enable_services() {
@@ -1422,76 +1122,23 @@ enable_services() {
    log_success "Automatic startup configured"
 }
 
-start_services() {
-   log_info "Starting services..."
-
-   # Start only enabled services
-   sudo systemctl start milo-backend.service
-   sudo systemctl start milo-readiness.service
-   sudo systemctl start milo-bluealsa.service
-   sudo systemctl start milo-bluealsa-aplay.service
-   sudo systemctl start milo-disable-wifi-power-management.service
-   sudo systemctl start milo-camilladsp.service
-   sudo systemctl start avahi-daemon
-   sudo systemctl start nginx
-
-   # Note: milo-frontend.service is no longer used (nginx serves /dist directly)
-
-   # Note: Audio services (go-librespot, roc, radio, snapcast)
-   # will be started automatically by the Milo backend as needed
-
-   log_success "Services started"
-}
-
 finalize_installation() {
    log_info "Finalizing installation..."
-   
+
    echo ""
    echo -e "${GREEN}=================================${NC}"
-   echo -e "${GREEN}   Milo Installation Complete!${NC}"
+   echo -e "${GREEN}   Milo Installation Complete!   ${NC}"
    echo -e "${GREEN}=================================${NC}"
    echo ""
-   echo -e "${BLUE}Configuration:${NC}"
-   echo "  • Hostname: milo"
-   echo "  • User: $MILO_USER"
-   echo "  • Application: $MILO_APP_DIR"
-   echo "  • Data: $MILO_DATA_DIR"
-   if [[ -n "$HIFIBERRY_OVERLAY" ]]; then
-       echo "  • Audio card: $HIFIBERRY_OVERLAY"
-   fi
-   if [[ "$SCREEN_TYPE" != "none" ]]; then
-       case $SCREEN_TYPE in
-           "waveshare_7_usb") echo "  • Screen: Waveshare 7\" USB 1024x600" ;;
-           "waveshare_8_dsi") echo "  • Screen: Waveshare 8\" DSI 1280x800" ;;
-       esac
-   fi
+   echo -e "${BLUE}Next steps:${NC}"
+   echo "  1. System will reboot in 5 seconds"
+   echo "  2. Open http://milo.local in your browser"
+   echo "  3. Follow the setup wizard to configure your hardware"
    echo ""
-   echo -e "${BLUE}Access:${NC}"
-   echo "  • Web interface: http://milo.local"
-   echo "  • Spotify Connect: 'Milō'"
-   echo "  • Bluetooth: 'Milō · Bluetooth'"
-   echo ""
-   
-   if [[ "$REBOOT_REQUIRED" == "true" ]]; then
-       echo -e "${YELLOW}⚠️  REBOOT REQUIRED${NC}"
-       echo ""
-       
-       case $USER_RESTART_CHOICE in
-           "yes")
-               log_info "Automatic reboot in 5 seconds..."
-               sleep 5
-               sudo reboot
-               ;;
-           "no")
-               echo -e "${YELLOW}Remember to reboot manually with: sudo reboot${NC}"
-               ;;
-       esac
-   else
-       start_services
-       
-       echo ""
-       echo -e "${GREEN}✅ Milo is ready! Access it at http://milo.local${NC}"
-   fi
+
+   log_info "Automatic reboot in 5 seconds..."
+   sleep 5
+   sudo reboot
 }
 
 uninstall_milo() {
@@ -1573,24 +1220,20 @@ main() {
    fi
    
    check_root
-   
-   log_info "Starting Milo Audio System installation"
+
+   log_info "Starting Milo Audio System installation (fully non-interactive)"
    echo ""
-   
+
    check_system
-   
-   collect_user_choices
-   
+
    install_dependencies
    setup_hostname
-   configure_audio_hardware
-   configure_screen_hardware
-   
+
    create_milo_user
    install_milo_application
    fix_nginx_permissions
    suppress_pulseaudio
-   
+
    install_go_librespot
    install_roc_toolkit
    install_bluez_alsa
@@ -1606,9 +1249,8 @@ main() {
    configure_alsa_loopback
    install_camilladsp
    configure_alsa_complete
-   initialize_alsa_volume
    configure_snapserver
-   
+
    configure_fan_control
 
    install_seatd

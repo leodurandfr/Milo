@@ -9,8 +9,11 @@
       @dismiss="dismissNotification"
     />
 
-    <!-- App content only renders after boot completes -->
-    <template v-if="isBootComplete">
+    <!-- Setup Wizard (blocks entire UI when setup not completed) -->
+    <SetupWizard v-if="settingsStore.setupCompleted === false" />
+
+    <!-- App content only renders after boot completes AND setup is done -->
+    <template v-else-if="isBootComplete">
       <router-view />
       <VolumeBar />
       <Dock
@@ -32,12 +35,12 @@
       </Modal>
     </template>
 
-    <!-- Global Virtual Keyboard -->
+    <!-- Global Virtual Keyboard (available in wizard too) -->
     <VirtualKeyboard />
 
     <!-- Sleep shield: intercepts touch when screen is off to prevent accidental UI interaction -->
     <div
-      v-if="settingsStore.isScreenSleeping"
+      v-if="settingsStore.isScreenSleeping && settingsStore.setupCompleted !== false"
       class="sleep-shield"
       @touchstart.stop.prevent="handleScreenWake"
       @touchend.stop.prevent
@@ -68,6 +71,9 @@ const SettingsModal = defineAsyncComponent(() =>
 );
 const VirtualKeyboard = defineAsyncComponent(() =>
   import('@/components/ui/VirtualKeyboard.vue')
+);
+const SetupWizard = defineAsyncComponent(() =>
+  import('@/components/setup/SetupWizard.vue')
 );
 
 import axios from 'axios';
@@ -323,6 +329,11 @@ onMounted(async () => {
     on('system', 'initial_state', (event) => {
       clearBootTimeout();
       unifiedStore.updateState(event);
+
+      // Update setup_completed from initial state
+      if (event.data?.setup_completed !== undefined) {
+        settingsStore.updateSetupCompleted(event.data.setup_completed);
+      }
 
       // Populate podcastStore if active source is podcast
       const fullState = event.data?.full_state;

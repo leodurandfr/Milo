@@ -33,6 +33,7 @@ from backend.api.programs import create_programs_router
 from backend.hardware.bt_remote_routes import create_bt_remote_router
 from backend.api.health import create_health_router
 from backend.api.errors import create_errors_router
+from backend.api.setup import create_setup_router
 from backend.api.multiroom import create_multiroom_router
 from backend.ws import WebSocketServer
 from backend.core.models.audio_state import AudioSource
@@ -77,7 +78,7 @@ equalizer_sync_service = get_service("equalizer_settings_sync_service")
 client_registry_service = get_service("client_registry_service")
 equalizer_router_service = get_service("equalizer_router")
 ws_manager = get_service("websocket_manager")
-websocket_server = WebSocketServer(ws_manager, state_machine, volume_service)
+websocket_server = WebSocketServer(ws_manager, state_machine, volume_service, settings_service)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -228,6 +229,9 @@ app.include_router(multiroom_router)
 
 bt_remote_router = create_bt_remote_router(bt_remote_controller)
 app.include_router(bt_remote_router)
+
+setup_router = create_setup_router(settings_service, hardware_service)
+app.include_router(setup_router)
 
 app.add_websocket_route("/ws", websocket_server.websocket_endpoint)
 
