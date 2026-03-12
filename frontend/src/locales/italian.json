@@ -19,7 +19,9 @@
     "restart": "Riavvia",
     "confirmRestart": "Conferma riavvio",
     "shutdown": "Spegni",
-    "confirmShutdown": "Conferma spegnimento"
+    "confirmShutdown": "Conferma spegnimento",
+    "restartInProgress": "Riavvio in corso...",
+    "shutdownInProgress": "Spegnimento in corso..."
   },
   "audioSources": {
     "title": "Sorgenti audio",
@@ -255,6 +257,7 @@
     "rotaryEncoder": "Encoder rotativo",
     "rotaryEncoderDescription": "Seleziona i pin GPIO collegati al tuo encoder rotativo.",
     "applyAndReboot": "Applica e riavvia",
+    "confirmReboot": "Conferma riavvio",
     "confirmMessage": "Il sistema verrà riavviato per applicare le modifiche hardware.",
     "rebooting": "Riavvio in corso...",
     "rebootingDescription": "Milō si sta riavviando. Questa pagina si ricaricherà automaticamente."

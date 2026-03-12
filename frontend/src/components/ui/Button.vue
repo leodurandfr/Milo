@@ -49,7 +49,11 @@ const props = defineProps({
 const emit = defineEmits(['click'])
 
 function getStateClass() {
-    // Loading state takes precedence - keeps variant style
+    // Loading + disabled = disabled appearance with spinner
+    if (props.loading && props.disabled) {
+        return 'btn--disabled'
+    }
+    // Loading alone keeps variant style
     if (props.loading) {
         return 'btn--loading'
     }

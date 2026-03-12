@@ -24,14 +24,28 @@
         <div class="settings-nav-grid">
           <div class="power-menu-region" :class="{ 'power-menu-region--open': showPowerMenu }">
             <div class="power-menu-items">
-              <ListItemButton :title="confirmRestart ? t('settings.confirmRestart') : t('settings.restart')" @click="handleRestart">
+              <ListItemButton @click="handleRestart">
                 <template #icon>
                   <img :src="rebootIcon" alt="Restart" />
                 </template>
+                <template #title>
+                  <span class="power-text-crossfade">
+                    <span class="power-text" :class="{ 'power-text--active': !confirmRestart && !restartInProgress }">{{ t('settings.restart') }}</span>
+                    <span class="power-text" :class="{ 'power-text--active': confirmRestart && !restartInProgress }">{{ t('settings.confirmRestart') }}</span>
+                    <span class="power-text power-text--light" :class="{ 'power-text--active': restartInProgress }">{{ t('settings.restartInProgress') }}</span>
+                  </span>
+                </template>
               </ListItemButton>
-              <ListItemButton :title="confirmShutdown ? t('settings.confirmShutdown') : t('settings.shutdown')" @click="handleShutdown">
+              <ListItemButton @click="handleShutdown">
                 <template #icon>
                   <img :src="shutdownIcon" alt="Shutdown" />
+                </template>
+                <template #title>
+                  <span class="power-text-crossfade">
+                    <span class="power-text" :class="{ 'power-text--active': !confirmShutdown && !shutdownInProgress }">{{ t('settings.shutdown') }}</span>
+                    <span class="power-text" :class="{ 'power-text--active': confirmShutdown && !shutdownInProgress }">{{ t('settings.confirmShutdown') }}</span>
+                    <span class="power-text power-text--light" :class="{ 'power-text--active': shutdownInProgress }">{{ t('settings.shutdownInProgress') }}</span>
+                  </span>
                 </template>
               </ListItemButton>
             </div>
@@ -259,6 +273,8 @@ const macIdToEdit = ref(null);
 const showPowerMenu = ref(false);
 const confirmRestart = ref(false);
 const confirmShutdown = ref(false);
+const restartInProgress = ref(false);
+const shutdownInProgress = ref(false);
 
 // Scroll-aware view transition (shared with AudioSourceLayout via composable)
 const { prepareNavigation, onBeforeLeave, onEnter, onAfterLeave } = useViewTransition({
@@ -278,6 +294,8 @@ function push(view, params) {
   showPowerMenu.value = false;
   confirmRestart.value = false;
   confirmShutdown.value = false;
+  restartInProgress.value = false;
+  shutdownInProgress.value = false;
   navPush(view, params);
   prepareNavigation();
 }
@@ -433,31 +451,39 @@ function togglePowerMenu() {
   if (!showPowerMenu.value) {
     confirmRestart.value = false;
     confirmShutdown.value = false;
+    restartInProgress.value = false;
+    shutdownInProgress.value = false;
   }
 }
 
 // Power menu handlers
 async function handleRestart() {
+  if (restartInProgress.value) return;
   if (!confirmRestart.value) {
     confirmRestart.value = true;
     return;
   }
+  restartInProgress.value = true;
   try {
     await axios.post('/api/system/restart');
   } catch (error) {
     logger.error('settings', 'Restart request failed', error);
+    restartInProgress.value = false;
   }
 }
 
 async function handleShutdown() {
+  if (shutdownInProgress.value) return;
   if (!confirmShutdown.value) {
     confirmShutdown.value = true;
     return;
   }
+  shutdownInProgress.value = true;
   try {
     await axios.post('/api/system/shutdown');
   } catch (error) {
     logger.error('settings', 'Shutdown request failed', error);
+    shutdownInProgress.value = false;
   }
 }
 
@@ -586,6 +612,26 @@ onMounted(async () => {
 
 .power-menu-items :deep(.list-item-button) {
   background: var(--color-background-neutral-50);
+}
+
+/* Power button text crossfade */
+.power-text-crossfade {
+  display: grid;
+}
+
+.power-text {
+  grid-row: 1;
+  grid-column: 1;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.power-text--active {
+  opacity: 1;
+}
+
+.power-text--light {
+  color: var(--color-text-secondary);
 }
 
 /* Navigation Grid */

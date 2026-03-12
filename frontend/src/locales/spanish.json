@@ -19,7 +19,9 @@
     "restart": "Reiniciar",
     "confirmRestart": "Confirmar reinicio",
     "shutdown": "Apagar",
-    "confirmShutdown": "Confirmar apagado"
+    "confirmShutdown": "Confirmar apagado",
+    "restartInProgress": "Reiniciando...",
+    "shutdownInProgress": "Apagando..."
   },
   "audioSources": {
     "title": "Fuentes de audio",
@@ -255,6 +257,7 @@
     "rotaryEncoder": "Codificador rotativo",
     "rotaryEncoderDescription": "Seleccione los pines GPIO conectados a su codificador rotativo.",
     "applyAndReboot": "Aplicar y reiniciar",
+    "confirmReboot": "Confirmar reinicio",
     "confirmMessage": "El sistema se reiniciará para aplicar los cambios de hardware.",
     "rebooting": "Reiniciando...",
     "rebootingDescription": "Milō se está reiniciando. Esta página se recargará automáticamente."

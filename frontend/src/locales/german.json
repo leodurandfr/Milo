@@ -19,7 +19,9 @@
     "restart": "Neustart",
     "confirmRestart": "Neustart bestätigen",
     "shutdown": "Ausschalten",
-    "confirmShutdown": "Ausschalten bestätigen"
+    "confirmShutdown": "Ausschalten bestätigen",
+    "restartInProgress": "Neustart läuft...",
+    "shutdownInProgress": "Wird ausgeschaltet..."
   },
   "audioSources": {
     "title": "Audioquellen",
@@ -255,6 +257,7 @@
     "rotaryEncoder": "Drehregler",
     "rotaryEncoderDescription": "Wählen Sie die GPIO-Pins Ihres Drehreglers aus.",
     "applyAndReboot": "Anwenden und neu starten",
+    "confirmReboot": "Neustart bestätigen",
     "confirmMessage": "Das System wird neu gestartet, um die Hardwareänderungen anzuwenden.",
     "rebooting": "Neustart...",
     "rebootingDescription": "Milō startet neu. Diese Seite wird automatisch neu geladen."
