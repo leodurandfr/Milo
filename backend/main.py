@@ -224,7 +224,8 @@ app.include_router(health_router)
 errors_router = create_errors_router()
 app.include_router(errors_router)
 
-multiroom_router = create_multiroom_router(client_registry_service, multiroom_equalizer_service)
+pending_clients_service = get_service("pending_clients_service")
+multiroom_router = create_multiroom_router(client_registry_service, multiroom_equalizer_service, pending_clients_service)
 app.include_router(multiroom_router)
 
 bt_remote_router = create_bt_remote_router(bt_remote_controller)

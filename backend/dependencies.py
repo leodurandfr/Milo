@@ -126,6 +126,7 @@ def _create_service(name: str) -> Any:
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service")
         ),
+        "pending_clients_service": lambda: _import("backend.core.multiroom.pending_clients", "PendingClientsService")(),
         "crossover_service": lambda: _import("backend.core.multiroom.crossover", "CrossoverService")(
             settings_service=get_service("settings_service"),
             camilladsp_service=get_service("camilladsp_service")
@@ -250,6 +251,7 @@ def initialize_services() -> None:
     equalizer_settings_sync_service = get_service("equalizer_settings_sync_service")
     equalizer_client_proxy_service = get_service("equalizer_client_proxy_service")
     multiroom_equalizer_service = get_service("multiroom_equalizer_service")
+    pending_clients_service = get_service("pending_clients_service")
 
     state_machine.ws_manager = websocket_manager
 
@@ -328,6 +330,12 @@ def initialize_services() -> None:
     snapcast_websocket_service.set_equalizer_settings_sync_service(equalizer_settings_sync_service)
     snapcast_websocket_service.set_camilladsp_service(camilladsp_service)
 
+    # 2.18 - pending_clients_service → state_machine
+    pending_clients_service.set_state_machine(state_machine)
+
+    # 2.19 - snapcast_websocket_service → pending_clients_service
+    snapcast_websocket_service.set_pending_clients_service(pending_clients_service)
+
     # =========================================================================
     # STEP 3: Register sources (MUST be done BEFORE init_async)
     # =========================================================================
@@ -358,6 +366,7 @@ def initialize_services() -> None:
             ("snapcast_websocket_service", snapcast_websocket_service.initialize()),
             ("camilladsp_service", camilladsp_service.initialize()),
             ("crossover_service", crossover_service.initialize()),
+            ("pending_clients_service", pending_clients_service.initialize()),
             # Radio station data needs early init for API access
             ("radio_source", radio_source.initialize())
         ]
