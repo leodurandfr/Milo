@@ -120,12 +120,16 @@ class VersionService:
         }
 
         # Try to retrieve versions for each command
+        has_git_path = "git_path" in program_config
         for cmd_name, cmd_args in program_config["commands"].items():
             try:
-                version = await self._execute_version_command(cmd_args, program_config["version_regex"])
+                raw_output, version = await self._execute_version_command(cmd_args, program_config["version_regex"])
                 if version:
                     result["versions"][cmd_name] = version
                     result["status"] = "installed"
+                    # For git-based programs, include the raw command output (e.g. "v0.0.1-533-gc6d74a1")
+                    if has_git_path and raw_output:
+                        result["raw_version"] = raw_output
                 else:
                     result["errors"].append(f"{cmd_name}: Version not detected")
             except Exception as e:
@@ -137,8 +141,11 @@ class VersionService:
 
         return result
 
-    async def _execute_version_command(self, cmd_args: List[str], version_regex: str) -> Optional[str]:
-        """Executes a version command and extracts the number"""
+    async def _execute_version_command(self, cmd_args: List[str], version_regex: str) -> tuple:
+        """Executes a version command and extracts the version number.
+
+        Returns (raw_output, extracted_version) tuple.
+        """
         try:
             # Short timeout to avoid blocking
             proc = await asyncio.create_subprocess_exec(
@@ -152,10 +159,11 @@ class VersionService:
 
                 # Search for version in stdout then stderr
                 output_text = stdout.decode() + stderr.decode()
+                raw_output = output_text.strip()
                 match = re.search(version_regex, output_text)
 
                 if match:
-                    return match.group(1)
+                    return raw_output, match.group(1)
 
                 # Fallback: search for common version patterns
                 fallback_patterns = [
@@ -167,9 +175,9 @@ class VersionService:
                 for pattern in fallback_patterns:
                     match = re.search(pattern, output_text, re.IGNORECASE)
                     if match:
-                        return match.group(1)
+                        return raw_output, match.group(1)
 
-                return None
+                return raw_output, None
 
             except asyncio.TimeoutError:
                 proc.kill()

@@ -462,6 +462,19 @@ clone_milo_client_repo() {
         sudo -u "$MILO_CLIENT_USER" git -C "$MILO_CLIENT_REPO_DIR" checkout
         log_success "Repository cloned (sparse checkout: milo-client/)"
     fi
+
+    # Unshallow and fetch tags so git describe can resolve the version
+    # (shallow --depth 1 clone cannot trace back to tags)
+    if ! sudo -u "$MILO_CLIENT_USER" git -C "$MILO_CLIENT_REPO_DIR" fetch --unshallow --tags origin 2>/dev/null; then
+        log_warning "Could not fetch full tag history — version will show as a commit hash"
+    fi
+
+    # Write initial app version (same format as deploy_update writes)
+    local app_version
+    app_version=$(sudo -u "$MILO_CLIENT_USER" git -C "$MILO_CLIENT_REPO_DIR" describe --tags --always 2>/dev/null || echo "unknown")
+    sudo tee "$MILO_CLIENT_DATA_DIR/app-version" > /dev/null <<< "$app_version"
+    sudo chown "$MILO_CLIENT_USER:audio" "$MILO_CLIENT_DATA_DIR/app-version"
+    log_success "App version recorded: $app_version"
 }
 
 install_milo_client_application() {
