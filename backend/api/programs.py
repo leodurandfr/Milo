@@ -136,8 +136,8 @@ def create_programs_router(update_service, satellite_update_service, state_machi
             satellites = await satellite_service.discover_satellites()
 
             # Enrich with available snapclient version and update_available
-            latest_version = await satellite_service._get_latest_snapclient_version()
-            server_version = await satellite_service._get_server_version()
+            latest_version = await satellite_service.get_latest_snapclient_version()
+            server_version = await satellite_service.get_server_version()
 
             for satellite in satellites:
                 satellite["latest_version"] = latest_version
@@ -166,11 +166,11 @@ def create_programs_router(update_service, satellite_update_service, state_machi
                 "count": 0
             }
 
-    @router.get("/satellites/{hostname}")
-    async def get_satellite_status(hostname: str):
+    @router.get("/satellites/{mac_id}")
+    async def get_satellite_status(mac_id: str):
         """Retrieve the status of a specific satellite"""
         try:
-            result = await satellite_service.get_satellite_status(hostname)
+            result = await satellite_service.get_satellite_status(mac_id)
             return result
         except Exception as e:
             return {
@@ -178,53 +178,53 @@ def create_programs_router(update_service, satellite_update_service, state_machi
                 "message": str(e)
             }
 
-    @router.post("/satellites/{hostname}/update")
-    async def update_satellite(hostname: str, background_tasks: BackgroundTasks):
+    @router.post("/satellites/{mac_id}/update")
+    async def update_satellite(mac_id: str, background_tasks: BackgroundTasks):
         """Launch a satellite update in the background"""
 
-        satellite_key = f"satellite_{hostname}"
+        satellite_key = f"satellite_{mac_id}"
 
         if satellite_key in active_updates:
             return {
                 "status": "error",
-                "message": f"Update already in progress for {hostname}"
+                "message": f"Update already in progress for {mac_id}"
             }
 
         do_update = _create_background_update(
             update_key=satellite_key,
-            update_fn=lambda cb: satellite_service.update_satellite(hostname, cb),
+            update_fn=lambda cb: satellite_service.update_satellite(mac_id, cb),
             progress_event_type="satellite_update_progress",
             complete_event_type="satellite_update_complete",
             ws_source="satellite_update",
-            identifier_data={"hostname": hostname},
+            identifier_data={"mac_id": mac_id},
         )
 
         background_tasks.add_task(do_update)
 
         return {
             "status": "success",
-            "message": f"Update started for satellite {hostname}"
+            "message": f"Update started for satellite {mac_id}"
         }
 
-    @router.post("/satellites/{hostname}/update-app")
-    async def update_satellite_app(hostname: str, background_tasks: BackgroundTasks):
+    @router.post("/satellites/{mac_id}/update-app")
+    async def update_satellite_app(mac_id: str, background_tasks: BackgroundTasks):
         """Launch a satellite app update in the background"""
 
-        satellite_key = f"satellite_app_{hostname}"
+        satellite_key = f"satellite_app_{mac_id}"
 
         if satellite_key in active_updates:
             return {
                 "status": "error",
-                "message": f"App update already in progress for {hostname}"
+                "message": f"App update already in progress for {mac_id}"
             }
 
         do_update = _create_background_update(
             update_key=satellite_key,
-            update_fn=lambda cb: satellite_service.update_satellite_app(hostname, cb),
+            update_fn=lambda cb: satellite_service.update_satellite_app(mac_id, cb),
             progress_event_type="satellite_app_update_progress",
             complete_event_type="satellite_app_update_complete",
             ws_source="satellite_update",
-            identifier_data={"hostname": hostname},
+            identifier_data={"mac_id": mac_id},
             default_success_msg="App update completed",
         )
 
@@ -232,13 +232,13 @@ def create_programs_router(update_service, satellite_update_service, state_machi
 
         return {
             "status": "success",
-            "message": f"App update started for satellite {hostname}"
+            "message": f"App update started for satellite {mac_id}"
         }
 
-    @router.get("/satellites/{hostname}/update-status")
-    async def get_satellite_update_status(hostname: str):
+    @router.get("/satellites/{mac_id}/update-status")
+    async def get_satellite_update_status(mac_id: str):
         """Retrieve the update status of a satellite"""
-        satellite_key = f"satellite_{hostname}"
+        satellite_key = f"satellite_{mac_id}"
 
         if satellite_key in active_updates:
             return {

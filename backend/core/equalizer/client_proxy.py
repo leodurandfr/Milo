@@ -85,7 +85,7 @@ class EqualizerClientProxyService:
 
         The identifier can be:
         - IP address (e.g., "192.168.1.100") -> use directly
-        - Hostname (e.g., "milo-client-01") -> add .local suffix
+        - Hostname (e.g., "milo-client") -> add .local suffix
 
         IMPORTANT: MAC addresses are NOT supported. Callers must look up
         the IP from the client registry before calling proxy methods.

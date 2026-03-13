@@ -1,6 +1,6 @@
 # backend/core/updates/satellite.py
 """
-Satellite update service - Version with GitHub token support
+Satellite update service — discovers satellites via client registry and manages updates.
 """
 import asyncio
 import aiohttp
@@ -23,9 +23,13 @@ TARBALL_EXCLUDE_PATTERNS = {"__pycache__", ".pyc", ".pytest_cache", "tests", ".g
 
 
 class SatelliteUpdateService:
-    """Service to manage satellites and their updates"""
+    """Service to manage satellites and their updates.
 
-    def __init__(self, snapcast_service, client_registry_service=None):
+    Discovers satellites via ClientRegistryService (non-local clients)
+    and identifies them by mac_id.
+    """
+
+    def __init__(self, snapcast_service, client_registry_service):
         self.snapcast_service = snapcast_service
         self.client_registry_service = client_registry_service
         self.logger = logging.getLogger(__name__)
@@ -35,11 +39,6 @@ class SatelliteUpdateService:
         self.github_token = os.environ.get('GITHUB_TOKEN')
         if self.github_token:
             self.logger.debug("GitHub token detected for satellite updates")
-
-        # Cache for detected satellites
-        self._satellites_cache = {}
-        self._cache_timeout = 30  # 30 seconds
-        self._last_cache_time = 0
 
     def _get_github_headers(self) -> Dict[str, str]:
         """Returns headers for GitHub requests (with token if available)"""
@@ -55,38 +54,30 @@ class SatelliteUpdateService:
 
     @handle_errors(default=[])
     async def discover_satellites(self) -> List[Dict[str, Any]]:
-        """Discovers active satellites on the network"""
-        # Get Snapcast clients
-        clients = await self.snapcast_service.get_clients()
+        """Discovers active satellites on the network via the client registry.
+
+        Iterates all non-local clients from the registry and probes their API.
+        Returns only satellites whose API is reachable.
+        """
+        all_clients = self.client_registry_service.get_all_clients()
 
         satellites = []
 
-        for client in clients:
-            # Filter only clients with hostname milo-client-*
-            hostname = client.get("host", "")
-            if not hostname.startswith("milo-client-"):
+        for mac_id, client in all_clients.items():
+            if client.is_local:
                 continue
 
-            ip = client.get("ip", "")
+            ip = client.ip
             if not ip:
                 continue
 
-            # Check if satellite API responds
-            satellite_info = await self._check_satellite_api(hostname, ip)
+            satellite_info = await self._check_satellite_api(mac_id, ip)
 
             if satellite_info["online"]:
-                # Display name: registry > hostname
-                display_name = hostname
-                if self.client_registry_service:
-                    mac_id = client.get("mac_id")
-                    if mac_id:
-                        registry_client = self.client_registry_service.get_client(mac_id)
-                        if registry_client and registry_client.name:
-                            display_name = registry_client.name
-
                 satellites.append({
-                    "hostname": hostname,
-                    "display_name": display_name,
+                    "mac_id": mac_id,
+                    "hostname": client.host,
+                    "display_name": client.name or mac_id,
                     "ip": ip,
                     "snapclient_version": satellite_info.get("version"),
                     "app_version": satellite_info.get("app_version"),
@@ -99,8 +90,8 @@ class SatelliteUpdateService:
         return satellites
 
     @handle_errors(default={"online": False}, level='debug')
-    async def _check_satellite_api(self, hostname: str, ip: str) -> Dict[str, Any]:
-        """Checks if a satellite API responds and retrieves its info"""
+    async def _check_satellite_api(self, mac_id: str, ip: str) -> Dict[str, Any]:
+        """Checks if a satellite API responds and retrieves its info."""
         url = f"http://{ip}:{self.satellite_api_port}/status"
 
         timeout = aiohttp.ClientTimeout(total=3)
@@ -119,14 +110,13 @@ class SatelliteUpdateService:
 
         return {"online": False}
 
-    async def get_satellite_status(self, hostname: str) -> Dict[str, Any]:
-        """Gets complete status of a specific satellite"""
+    async def get_satellite_status(self, mac_id: str) -> Dict[str, Any]:
+        """Gets complete status of a specific satellite."""
         try:
             satellites = await self.discover_satellites()
 
             for satellite in satellites:
-                if satellite["hostname"] == hostname:
-                    # Enrichir avec version disponible
+                if satellite["mac_id"] == mac_id:
                     latest_version = await self._get_latest_snapclient_version()
                     satellite["latest_version"] = latest_version
                     satellite["update_available"] = compare_versions(
@@ -141,7 +131,7 @@ class SatelliteUpdateService:
 
             return {
                 "status": "error",
-                "message": f"Satellite {hostname} not found or offline"
+                "message": f"Satellite {mac_id} not found or offline"
             }
 
         except Exception as e:
@@ -153,19 +143,18 @@ class SatelliteUpdateService:
 
     async def update_satellite(
         self,
-        hostname: str,
+        mac_id: str,
         progress_callback: Optional[callable] = None
     ) -> Dict[str, Any]:
-        """Launches a satellite update"""
+        """Launches a satellite snapclient update."""
         try:
-            # Get satellite IP
             satellites = await self.discover_satellites()
-            satellite = next((s for s in satellites if s["hostname"] == hostname), None)
+            satellite = next((s for s in satellites if s["mac_id"] == mac_id), None)
 
             if not satellite:
                 return {
                     "success": False,
-                    "error": f"Satellite {hostname} not found or offline"
+                    "error": f"Satellite {mac_id} not found or offline"
                 }
 
             ip = satellite["ip"]
@@ -174,8 +163,7 @@ class SatelliteUpdateService:
             if progress_callback:
                 await progress_callback("updates.progress.startingUpdate", 0)
 
-            # Launch update via satellite API
-            timeout = aiohttp.ClientTimeout(total=300)  # 5 minutes timeout
+            timeout = aiohttp.ClientTimeout(total=300)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(url) as response:
                     if response.status == 200:
@@ -188,9 +176,8 @@ class SatelliteUpdateService:
                                     10
                                 )
 
-                            # Wait for update to complete
                             update_result = await self._wait_for_update_completion(
-                                hostname,
+                                mac_id,
                                 ip,
                                 progress_callback
                             )
@@ -208,7 +195,7 @@ class SatelliteUpdateService:
                         }
 
         except Exception as e:
-            self.logger.error(f"Error updating satellite {hostname}: {e}")
+            self.logger.error(f"Error updating satellite {mac_id}: {e}")
             return {
                 "success": False,
                 "error": str(e)
@@ -216,13 +203,13 @@ class SatelliteUpdateService:
 
     async def _wait_for_update_completion(
         self,
-        hostname: str,
+        mac_id: str,
         ip: str,
         progress_callback: Optional[callable] = None
     ) -> Dict[str, Any]:
-        """Waits for update completion on the satellite"""
-        max_wait_time = 180  # 3 minutes max
-        check_interval = 5   # Check every 5 seconds
+        """Waits for update completion on the satellite."""
+        max_wait_time = 180
+        check_interval = 5
         elapsed = 0
 
         while elapsed < max_wait_time:
@@ -237,7 +224,6 @@ class SatelliteUpdateService:
                     int(progress)
                 )
 
-            # Check update status
             try:
                 url = f"http://{ip}:{self.satellite_api_port}/update/status"
                 timeout = aiohttp.ClientTimeout(total=3)
@@ -248,7 +234,6 @@ class SatelliteUpdateService:
                             data = await response.json()
 
                             if not data.get("update_in_progress", False):
-                                # Update complete, check new version
                                 status_url = f"http://{ip}:{self.satellite_api_port}/status"
 
                                 async with session.get(status_url) as status_response:
@@ -264,19 +249,26 @@ class SatelliteUpdateService:
 
                                         return {
                                             "success": True,
-                                            "message": f"Satellite {hostname} updated successfully",
+                                            "message": f"Satellite {mac_id} updated successfully",
                                             "new_version": new_version
                                         }
 
             except Exception as e:
-                self.logger.debug(f"Waiting for update on {hostname}: {e}")
+                self.logger.debug(f"Waiting for update on {mac_id}: {e}")
                 continue
 
-        # Timeout
         return {
             "success": False,
-            "error": f"Update timeout for {hostname}"
+            "error": f"Update timeout for {mac_id}"
         }
+
+    async def get_latest_snapclient_version(self) -> Optional[str]:
+        """Public wrapper for latest snapclient version lookup."""
+        return await self._get_latest_snapclient_version()
+
+    async def get_server_version(self) -> Optional[str]:
+        """Public wrapper for server version lookup."""
+        return await self._get_server_version()
 
     @handle_errors(default=None)
     async def _get_latest_snapclient_version(self) -> Optional[str]:
@@ -349,26 +341,25 @@ class SatelliteUpdateService:
                 tar.add(str(MILO_CLIENT_DIR), arcname="milo-client", filter=_filter)
             return tarball_path
 
-        tarball_path = await asyncio.get_event_loop().run_in_executor(None, _create)
+        tarball_path = await asyncio.get_running_loop().run_in_executor(None, _create)
         self.logger.info(f"Created client tarball: {tarball_path} (version: {version})")
         return tarball_path, version
 
     async def update_satellite_app(
         self,
-        hostname: str,
+        mac_id: str,
         progress_callback: Optional[callable] = None
     ) -> Dict[str, Any]:
         """Pushes a milo-client app update to a satellite."""
         tarball_path = None
         try:
-            # Discover satellite
             satellites = await self.discover_satellites()
-            satellite = next((s for s in satellites if s["hostname"] == hostname), None)
+            satellite = next((s for s in satellites if s["mac_id"] == mac_id), None)
 
             if not satellite:
                 return {
                     "success": False,
-                    "error": f"Satellite {hostname} not found or offline"
+                    "error": f"Satellite {mac_id} not found or offline"
                 }
 
             ip = satellite["ip"]
@@ -376,13 +367,11 @@ class SatelliteUpdateService:
             if progress_callback:
                 await progress_callback("updates.progress.startingUpdate", 5)
 
-            # Create tarball
             tarball_path, version = await self._create_client_tarball()
 
             if progress_callback:
                 await progress_callback("updates.progress.sendingUpdate", 20)
 
-            # POST tarball to satellite
             url = f"http://{ip}:{self.satellite_api_port}/app/update"
             timeout = aiohttp.ClientTimeout(total=120)
 
@@ -404,18 +393,16 @@ class SatelliteUpdateService:
             if progress_callback:
                 await progress_callback("updates.progress.waitingForRestart", 50)
 
-            # Poll /status until satellite is back online with matching version
             result = await self._wait_for_app_update_completion(
-                hostname, ip, version, progress_callback
+                mac_id, ip, version, progress_callback
             )
             return result
 
         except Exception as e:
-            self.logger.error(f"Error updating satellite app {hostname}: {e}")
+            self.logger.error(f"Error updating satellite app {mac_id}: {e}")
             return {"success": False, "error": str(e)}
 
         finally:
-            # Clean up tarball
             if tarball_path:
                 try:
                     os.unlink(tarball_path)
@@ -424,7 +411,7 @@ class SatelliteUpdateService:
 
     async def _wait_for_app_update_completion(
         self,
-        hostname: str,
+        mac_id: str,
         ip: str,
         expected_version: str,
         progress_callback: Optional[callable] = None
@@ -465,17 +452,16 @@ class SatelliteUpdateService:
 
                                 return {
                                     "success": True,
-                                    "message": f"Satellite {hostname} app updated successfully",
+                                    "message": f"Satellite {mac_id} app updated successfully",
                                     "new_version": app_version
                                 }
 
             except Exception as e:
-                # Connection errors expected during restart
-                self.logger.debug(f"Waiting for satellite {hostname} restart: {e}")
+                self.logger.debug(f"Waiting for satellite {mac_id} restart: {e}")
                 continue
 
         return {
             "success": False,
-            "error": f"App update timeout for {hostname}"
+            "error": f"App update timeout for {mac_id}"
         }
 
