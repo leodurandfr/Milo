@@ -1,0 +1,144 @@
+#!/bin/bash
+# milo-client-apply-hardware — Apply audio hardware configuration and reboot
+#
+# Reads /var/lib/milo-client/hardware.json and updates /boot/firmware/config.txt
+# with the correct dtoverlay for the audio card.
+# Must be run as root (via sudoers rule).
+#
+# Managed block in config.txt:
+#   # BEGIN MILO CLIENT AUDIO ... # END MILO CLIENT AUDIO
+#
+# Usage:
+#   milo-client-apply-hardware              # Apply config and reboot
+#   milo-client-apply-hardware --no-reboot  # Apply config without rebooting
+
+set -euo pipefail
+
+HARDWARE_FILE="/var/lib/milo-client/hardware.json"
+CONFIG_FILE="/boot/firmware/config.txt"
+NO_REBOOT=false
+
+# Parse arguments
+for arg in "$@"; do
+    case "$arg" in
+        --no-reboot) NO_REBOOT=true ;;
+        *) echo "ERROR: Unknown argument '$arg'" >&2; exit 1 ;;
+    esac
+done
+
+# Fallback for older Pi OS
+if [[ ! -f "$CONFIG_FILE" ]]; then
+    CONFIG_FILE="/boot/config.txt"
+fi
+
+# =============================================================================
+# Validation
+# =============================================================================
+
+if [[ ! -f "$HARDWARE_FILE" ]]; then
+    echo "ERROR: $HARDWARE_FILE not found" >&2
+    exit 1
+fi
+
+if [[ ! -f "$CONFIG_FILE" ]]; then
+    echo "ERROR: $CONFIG_FILE not found" >&2
+    exit 1
+fi
+
+# Validate JSON
+if ! python3 -c "import json, sys; json.load(sys.stdin)" < "$HARDWARE_FILE" 2>/dev/null; then
+    echo "ERROR: $HARDWARE_FILE is not valid JSON" >&2
+    exit 1
+fi
+
+# =============================================================================
+# Parse hardware.json
+# =============================================================================
+
+read_json() {
+    python3 -c "
+import json, sys
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+keys = sys.argv[2].split('.')
+val = data
+for k in keys:
+    val = val.get(k, '') if isinstance(val, dict) else ''
+print(val if val is not None else '')
+" "$HARDWARE_FILE" "$1"
+}
+
+AUDIO_OVERLAY=$(read_json "audio.overlay")
+
+# Validate audio overlay against allowlist
+VALID_OVERLAYS="hifiberry-dacplus-std hifiberry-amp4pro hifiberry-amp100 hifiberry-dac hifiberry-dacplushd hifiberry-dacplus"
+
+if [[ -n "$AUDIO_OVERLAY" ]]; then
+    if ! echo "$VALID_OVERLAYS" | grep -qw "$AUDIO_OVERLAY"; then
+        echo "ERROR: Unknown audio overlay '$AUDIO_OVERLAY'" >&2
+        exit 1
+    fi
+fi
+
+# =============================================================================
+# Backup config.txt
+# =============================================================================
+
+cp "$CONFIG_FILE" "$CONFIG_FILE.backup.$(date +%Y%m%d_%H%M%S)"
+# Rotate backups: keep only the 3 most recent
+ls -1t "$CONFIG_FILE".backup.* 2>/dev/null | tail -n +4 | xargs -r rm -f
+
+# =============================================================================
+# Helper: remove managed block
+# =============================================================================
+
+remove_block() {
+    local tag="$1"
+    sed -i "/^# BEGIN $tag$/,/^# END $tag$/d" "$CONFIG_FILE"
+}
+
+# =============================================================================
+# Audio configuration
+# =============================================================================
+
+# Always remove previous managed audio block (cleanup)
+remove_block "MILO CLIENT AUDIO"
+
+# Always remove legacy (non-managed) entries from old installs
+for overlay in $VALID_OVERLAYS; do
+    sed -i "/^dtoverlay=$overlay$/d" "$CONFIG_FILE"
+done
+sed -i '/^# Milo Client - HiFiBerry Audio/d' "$CONFIG_FILE"
+
+# Only modify built-in audio and write overlay when an audio card is configured
+if [[ -n "$AUDIO_OVERLAY" ]]; then
+    # Disable built-in audio
+    sed -i '/^dtparam=audio=on$/d' "$CONFIG_FILE"
+
+    # Disable GPU audio on vc4 overlays
+    if grep -q "vc4-fkms-v3d" "$CONFIG_FILE"; then
+        sed -i 's/dtoverlay=vc4-fkms-v3d.*/dtoverlay=vc4-fkms-v3d,audio=off/' "$CONFIG_FILE"
+    fi
+    if grep -q "vc4-kms-v3d" "$CONFIG_FILE"; then
+        sed -i 's/dtoverlay=vc4-kms-v3d.*/dtoverlay=vc4-kms-v3d,noaudio/' "$CONFIG_FILE"
+    fi
+
+    # Write new audio block
+    cat >> "$CONFIG_FILE" << EOF
+
+# BEGIN MILO CLIENT AUDIO
+dtoverlay=$AUDIO_OVERLAY
+# END MILO CLIENT AUDIO
+EOF
+fi
+
+# =============================================================================
+# Reboot (unless --no-reboot)
+# =============================================================================
+
+if [[ "$NO_REBOOT" == "true" ]]; then
+    echo "Hardware configuration applied (reboot skipped)."
+else
+    echo "Hardware configuration applied. Rebooting..."
+    /sbin/reboot
+fi
