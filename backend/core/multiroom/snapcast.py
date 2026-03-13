@@ -14,6 +14,7 @@ from pathlib import Path
 import aiohttp
 import aiofiles
 
+from backend.config.constants import get_client_display_name
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.shared.decorators import handle_errors
 
@@ -132,7 +133,7 @@ class SnapcastService:
                 if not client_data.get("connected"):
                     continue
 
-                name = client_data["config"]["name"] or client_data["host"]["name"]
+                name = client_data["config"]["name"] or get_client_display_name(client_data["host"]["name"])
                 if any(exclude in name.lower() for exclude in exclude_names):
                     continue
 

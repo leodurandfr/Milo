@@ -16,7 +16,7 @@ import aiohttp
 
 from backend.core.multiroom.models import ReconnectionContext
 from backend.core.multiroom.client_registry import ClientRegistryService
-from backend.config.constants import CLIENT_API_PORT, DEFAULT_VOLUME_DB
+from backend.config.constants import CLIENT_API_PORT, DEFAULT_VOLUME_DB, get_client_display_name
 
 
 class SnapcastWebSocketService:
@@ -316,7 +316,7 @@ class SnapcastWebSocketService:
                     ip = host.get("ip", "").replace("::ffff:", "")
                     mac = host.get("mac", "")
                     mac_id = ClientRegistryService.compute_mac_id(hostname, ip, mac)
-                    client_name = client.get("config", {}).get("name") or hostname or mac_id
+                    client_name = client.get("config", {}).get("name") or get_client_display_name(hostname) or mac_id
 
                     # Check if client is already in registry
                     is_new_client = self.registry.get_client(mac_id) is None if self.registry else True
@@ -506,7 +506,7 @@ class SnapcastWebSocketService:
 
             # Compute mac_id using canonical method
             mac_id = ClientRegistryService.compute_mac_id(client_host, client_ip, client_mac)
-            client_name = client.get("config", {}).get("name") or client_host or mac_id
+            client_name = client.get("config", {}).get("name") or get_client_display_name(client_host) or mac_id
 
             is_local = (client_ip == "127.0.0.1")
             local_marker = " LOCAL CLIENT" if is_local else ""
