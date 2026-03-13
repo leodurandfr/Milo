@@ -20,7 +20,7 @@ WorkingDirectory=/var/lib/milo-client/camilladsp
 # -w: Wait for valid config before processing
 # -m: Start muted - milo-client will unmute after setting correct volume
 ExecStart=/bin/sh -c '\
-  AUDIO_ID=$(python3 -c "import json; print(json.load(open(\"/var/lib/milo-client/hardware.json\")).get(\"audio\",{}).get(\"id\",\"none\"))" || echo "none"); \
+  AUDIO_ID=$(python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get(sys.argv[1],{}).get(sys.argv[2],sys.argv[3]))" audio id none < /var/lib/milo-client/hardware.json || echo "none"); \
   if [ "$AUDIO_ID" = "none" ]; then echo "No audio card configured, skipping CamillaDSP"; exit 0; fi; \
   /usr/local/bin/camilladsp \
     -p 1234 \

@@ -552,6 +552,7 @@ create_systemd_services() {
 MILO_PRINCIPAL_IP=$MILO_PRINCIPAL_IP
 MILO_CLIENT_DSP_ENABLED=false
 EOF
+    sudo chown "$MILO_CLIENT_USER:audio" "$MILO_CLIENT_DATA_DIR/env"
 
     sudo systemctl daemon-reload
 
