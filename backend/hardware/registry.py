@@ -23,6 +23,7 @@ AUDIO_CARDS = {
         "card_name": None,
         "alsa_control": None,
         "brand": None,
+        "category": None,
     },
     "hifiberry_amp2": {
         "label": "HiFiBerry Amp2",
@@ -30,6 +31,7 @@ AUDIO_CARDS = {
         "card_name": "sndrpihifiberry",
         "alsa_control": "Digital",
         "brand": "HiFiBerry",
+        "category": "amplifier",
     },
     "hifiberry_amp4": {
         "label": "HiFiBerry Amp4",
@@ -37,6 +39,7 @@ AUDIO_CARDS = {
         "card_name": "sndrpihifiberry",
         "alsa_control": "Digital",
         "brand": "HiFiBerry",
+        "category": "amplifier",
     },
     "hifiberry_amp4pro": {
         "label": "HiFiBerry Amp4 Pro",
@@ -44,6 +47,7 @@ AUDIO_CARDS = {
         "card_name": "sndrpihifiberry",
         "alsa_control": "Digital",
         "brand": "HiFiBerry",
+        "category": "amplifier",
     },
     "hifiberry_amp100": {
         "label": "HiFiBerry Amp100",
@@ -51,6 +55,7 @@ AUDIO_CARDS = {
         "card_name": "sndrpihifiberry",
         "alsa_control": "Digital",
         "brand": "HiFiBerry",
+        "category": "amplifier",
     },
     "hifiberry_beocreate": {
         "label": "HiFiBerry Beocreate 4CA",
@@ -58,6 +63,7 @@ AUDIO_CARDS = {
         "card_name": "sndrpihifiberry",
         "alsa_control": "DAC",
         "brand": "HiFiBerry",
+        "category": "speaker",
     },
     "hifiberry_dac2hd": {
         "label": "HiFiBerry DAC2 HD",
@@ -65,6 +71,7 @@ AUDIO_CARDS = {
         "card_name": "sndrpihifiberry",
         "alsa_control": "DAC",
         "brand": "HiFiBerry",
+        "category": "dac",
     },
     "hifiberry_dacplus_pro": {
         "label": "HiFiBerry DAC+ Pro",
@@ -72,6 +79,7 @@ AUDIO_CARDS = {
         "card_name": "sndrpihifiberry",
         "alsa_control": "Digital",
         "brand": "HiFiBerry",
+        "category": "dac",
     },
 }
 

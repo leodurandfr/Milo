@@ -1048,7 +1048,7 @@ def create_settings_router(
 
             # Build dropdown options from registry
             audio_options = [
-                {"value": card_id, "label": card["label"]}
+                {"value": card_id, "label": card["label"], "category": card.get("category")}
                 for card_id, card in AUDIO_CARDS.items()
             ]
             screen_options = [
