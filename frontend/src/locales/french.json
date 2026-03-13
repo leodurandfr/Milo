@@ -656,29 +656,38 @@
     "tunisia": "Tunisie"
   },
   "setup": {
-    "next": "Suivant",
+    "stepLabel": "Étape {n}",
+    "back": "Retour",
+    "continue": "Continuer",
     "welcome": {
       "title": "Bienvenue sur Milō",
-      "subtitle": "Configurons votre système audio.",
+      "subtitle": "Configurons votre système audio !",
       "getStarted": "Commencer"
     },
     "language": {
       "title": "Choisissez votre langue"
     },
     "audio": {
-      "title": "Sélectionnez votre carte audio"
+      "title": "Sélectionnez votre carte audio",
+      "amplifiers": "Amplificateurs",
+      "dacs": "DACs",
+      "speakers": "Enceintes",
+      "none": "Aucune carte audio",
+      "other": "Autre"
     },
     "screen": {
       "title": "Sélectionnez votre écran",
+      "none": "Aucun écran",
       "rebootNote": "Un redémarrage sera nécessaire pour appliquer les changements matériels."
     },
     "summary": {
-      "title": "Résumé de la configuration",
+      "title": "Récapitulatif",
       "language": "Langue",
       "audioCard": "Carte audio",
       "screen": "Écran",
       "rebootMessage": "Votre système doit redémarrer pour activer la configuration de la carte audio et de l'écran.",
-      "applyAndReboot": "Appliquer et redémarrer",
+      "applyAndReboot": "Valider & Redémarrer",
+      "confirmReboot": "Confirmer le redémarrage",
       "rebooting": "Redémarrage en cours...",
       "rebootingDescription": "Veuillez patienter pendant le redémarrage du système."
     }

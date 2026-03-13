@@ -724,29 +724,38 @@
     "tunisia": "Túnez"
   },
   "setup": {
-    "next": "Siguiente",
+    "stepLabel": "Paso {n}",
+    "back": "Volver",
+    "continue": "Continuar",
     "welcome": {
       "title": "Bienvenido a Milō",
-      "subtitle": "Configuremos tu sistema de audio.",
+      "subtitle": "Configuremos tu sistema de audio!",
       "getStarted": "Comenzar"
     },
     "language": {
       "title": "Elige tu idioma"
     },
     "audio": {
-      "title": "Selecciona tu tarjeta de audio"
+      "title": "Selecciona tu tarjeta de audio",
+      "amplifiers": "Amplificadores",
+      "dacs": "DACs",
+      "speakers": "Altavoces",
+      "none": "Sin tarjeta de audio",
+      "other": "Otro"
     },
     "screen": {
       "title": "Selecciona tu pantalla",
+      "none": "Sin pantalla",
       "rebootNote": "Se necesitará un reinicio para aplicar los cambios de hardware."
     },
     "summary": {
-      "title": "Resumen de configuración",
+      "title": "Resumen",
       "language": "Idioma",
       "audioCard": "Tarjeta de audio",
       "screen": "Pantalla",
       "rebootMessage": "Tu sistema necesita reiniciarse para activar la configuración de la tarjeta de audio y la pantalla.",
       "applyAndReboot": "Aplicar y reiniciar",
+      "confirmReboot": "Confirmar reinicio",
       "rebooting": "Reiniciando...",
       "rebootingDescription": "Por favor espera mientras el sistema se reinicia."
     }

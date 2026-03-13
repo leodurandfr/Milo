@@ -656,29 +656,38 @@
     "tunisia": "Tunisia"
   },
   "setup": {
-    "next": "Next",
+    "stepLabel": "Step {n}",
+    "back": "Back",
+    "continue": "Continue",
     "welcome": {
       "title": "Welcome to Milō",
-      "subtitle": "Let's configure your audio system.",
-      "getStarted": "Get Started"
+      "subtitle": "Let's configure your audio system!",
+      "getStarted": "Get started"
     },
     "language": {
       "title": "Choose your language"
     },
     "audio": {
-      "title": "Select your audio card"
+      "title": "Select your audio card",
+      "amplifiers": "Amplifiers",
+      "dacs": "DACs",
+      "speakers": "Speakers",
+      "none": "No audio card",
+      "other": "Other"
     },
     "screen": {
       "title": "Select your screen",
+      "none": "No screen",
       "rebootNote": "A reboot will be needed to apply hardware changes."
     },
     "summary": {
-      "title": "Setup Summary",
+      "title": "Summary",
       "language": "Language",
       "audioCard": "Audio card",
       "screen": "Screen",
       "rebootMessage": "Your system needs to reboot to activate the audio card and screen configuration.",
       "applyAndReboot": "Apply & Reboot",
+      "confirmReboot": "Confirm reboot",
       "rebooting": "Rebooting...",
       "rebootingDescription": "Please wait while the system restarts."
     }
