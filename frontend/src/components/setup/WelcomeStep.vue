@@ -1,33 +1,17 @@
 <!-- frontend/src/components/setup/WelcomeStep.vue -->
 <template>
   <div class="welcome-step">
-    <div class="welcome-step__logo">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 57 32" preserveAspectRatio="xMidYMid meet">
-        <g fill="var(--color-text-primary)">
-          <path d="M48.833 12.1421C51.043 12.1421 52.863 12.8181 54.293 14.1441C55.723 15.4701 56.451 17.1601 56.451 19.2141C56.451 21.2681 55.723 22.9581 54.267 24.2841C52.837 25.6101 51.017 26.2861 48.833 26.2861C46.623 26.2861 44.777 25.6361 43.347 24.3101C41.917 22.9841 41.189 21.2681 41.189 19.2141C41.189 17.1601 41.917 15.4701 43.347 14.1441C44.777 12.8181 46.623 12.1421 48.833 12.1421ZM48.833 14.1701C47.247 14.1701 45.947 14.6381 44.933 15.5741C43.919 16.5101 43.425 17.7321 43.425 19.2141C43.425 20.6961 43.919 21.9181 44.933 22.8541C45.947 23.7901 47.247 24.2581 48.833 24.2581C50.393 24.2581 51.667 23.7901 52.681 22.8541C53.695 21.9181 54.189 20.6961 54.189 19.2141C54.189 17.7321 53.695 16.5101 52.681 15.5741C51.667 14.6381 50.393 14.1701 48.833 14.1701ZM53.123 8.37207V10.2441H44.491V8.37207H53.123Z"/>
-          <path d="M35.3462 7.33203H37.6862V26H35.3462V7.33203Z"/>
-          <path d="M31.0373 10.036H28.4893V7.33203H31.0373V10.036ZM28.5933 12.402H30.9333V26H28.5933V12.402Z"/>
-          <path d="M21.542 9.59403L13.482 26H11.4019L3.31595 9.59403V26H0.897949V7.33203H4.77195L12.4679 23.036L20.19 7.33203H23.9599V26H21.542V9.59403Z"/>
-        </g>
-      </svg>
-    </div>
-
-    <h1 class="heading-2">{{ t('setup.welcome.title') }}</h1>
+    <AppIcon name="milo" size="large" class="welcome-step__icon" />
+    <h1 class="heading-1">{{ t('setup.welcome.title') }}</h1>
     <p class="text-mono text-secondary">{{ t('setup.welcome.subtitle') }}</p>
-
-    <Button variant="brand" @click="emit('next')">
-      {{ t('setup.welcome.getStarted') }}
-    </Button>
   </div>
 </template>
 
 <script setup>
 import { useI18n } from '@/services/i18n';
-import Button from '@/components/ui/Button.vue';
+import AppIcon from '@/components/ui/AppIcon.vue';
 
 const { t } = useI18n();
-
-const emit = defineEmits(['next']);
 </script>
 
 <style scoped>
@@ -36,14 +20,13 @@ const emit = defineEmits(['next']);
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--space-04);
   flex: 1;
+  gap: var(--space-02);
   text-align: center;
 }
 
-.welcome-step__logo svg {
-  height: 48px;
-  display: block;
+.welcome-step__icon {
+  margin-bottom: var(--space-03);
 }
 
 .text-secondary {
