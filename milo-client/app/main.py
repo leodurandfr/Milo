@@ -12,8 +12,9 @@ from fastapi import FastAPI
 import uvicorn
 
 from services import EqualizerService, SnapclientService, AppUpdateService
-from routes import create_health_router, create_snapclient_router, create_equalizer_router, create_app_update_router
+from routes import create_health_router, create_snapclient_router, create_equalizer_router, create_app_update_router, create_hardware_router
 from routes.health import get_hostname
+from services.registration import register_with_main_milo
 
 # Constants
 API_PORT = 8001
@@ -69,8 +70,12 @@ async def lifespan(app: FastAPI):
 
     logger.info("Milo Client API startup complete")
 
+    # Register with main Milo (background task, retries until successful)
+    registration_task = asyncio.create_task(register_with_main_milo())
+
     yield  # Application runs here
 
+    registration_task.cancel()
     logger.info("Milo Client API shutting down...")
 
 
@@ -87,6 +92,7 @@ app.include_router(create_health_router(equalizer_service, snapclient_service, a
 app.include_router(create_snapclient_router(snapclient_service))
 app.include_router(create_equalizer_router(equalizer_service))
 app.include_router(create_app_update_router(app_update_service))
+app.include_router(create_hardware_router())
 
 
 # Main entry point
