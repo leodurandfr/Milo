@@ -20,15 +20,20 @@ Features:
 """
 import logging
 import uuid
-from fastapi import APIRouter, HTTPException
+
+import aiohttp
+from fastapi import APIRouter, HTTPException, Request
 
 from backend.api.route_helpers import api_error_handler
-from backend.api.models import ZoneCreate, ZoneUpdate, ZoneAddClient, ClientUpdateRequest
+from backend.api.models import (
+    ZoneCreate, ZoneUpdate, ZoneAddClient, ClientUpdateRequest,
+    RegisterClientRequest, UpdatePendingClientRequest, ConfigurePendingClientRequest,
+)
 
 logger = logging.getLogger(__name__)
 
 
-def create_multiroom_router(registry_service, multiroom_equalizer_service=None):
+def create_multiroom_router(registry_service, multiroom_equalizer_service=None, pending_clients_service=None):
     """
     Creates multiroom router with dependency injection.
 
@@ -427,5 +432,121 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None):
                     "status": "success",
                     "message": f"Client removed, zone '{zone_id}' deleted (< 2 clients)"
                 }
+
+    # === PENDING CLIENT ENDPOINTS ===
+
+    @router.post("/register-client")
+    async def register_client(request: RegisterClientRequest, raw_request: Request):
+        """
+        Register a milo-client as a pending speaker.
+
+        Called by milo-client at boot time. Stores the client in
+        PendingClientsService until it's configured and appears in Snapcast.
+        Validates that the declared IP matches the request origin to prevent spoofing.
+        """
+        async with api_error_handler("Error registering client", logger):
+            # Validate that the declared IP matches the actual request origin
+            # Strip IPv4-mapped IPv6 prefix (::ffff:) for dual-stack compatibility
+            caller_ip = raw_request.client.host
+            normalized_caller = caller_ip.removeprefix("::ffff:")
+            if normalized_caller != request.ip:
+                logger.warning(f"IP mismatch: body declares {request.ip} but request came from {caller_ip}")
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Declared IP {request.ip} does not match request origin {normalized_caller}",
+                )
+
+            client = await pending_clients_service.register_client(
+                mac_id=request.mac_id,
+                ip=request.ip,
+                hardware_configured=request.hardware_configured,
+                audio_id=request.audio_id,
+            )
+            return {"status": "success", "client": client}
+
+    @router.get("/pending-clients")
+    async def get_pending_clients():
+        """Get all pending (not yet configured) clients."""
+        async with api_error_handler("Error getting pending clients", logger):
+            return {"clients": pending_clients_service.get_all_clients()}
+
+    @router.patch("/pending-clients/{mac_id}")
+    async def update_pending_client(mac_id: str, request: UpdatePendingClientRequest):
+        """Update a pending client's metadata (name, speaker_type, audio_id)."""
+        async with api_error_handler(f"Error updating pending client {mac_id}", logger):
+            client = await pending_clients_service.update_client(
+                mac_id,
+                name=request.name,
+                speaker_type=request.speaker_type,
+                audio_id=request.audio_id,
+            )
+            if not client:
+                raise HTTPException(status_code=404, detail=f"Pending client '{mac_id}' not found")
+            return {"status": "success", "client": client}
+
+    @router.post("/pending-clients/{mac_id}/configure")
+    async def configure_pending_client(mac_id: str, request: ConfigurePendingClientRequest):
+        """
+        Configure a pending client's audio card and reboot it.
+
+        Orchestrates the full flow:
+        1. Updates pending storage with name/speaker_type/audio_id
+        2. Sends PUT /api/hardware/audio to the client
+        3. Sends POST /api/hardware/reboot to the client
+        """
+        async with api_error_handler(f"Error configuring pending client {mac_id}", logger):
+            client = pending_clients_service.get_client(mac_id)
+            if not client:
+                raise HTTPException(status_code=404, detail=f"Pending client '{mac_id}' not found")
+
+            client_ip = client["ip"]
+
+            # 1. Update pending storage
+            await pending_clients_service.update_client(
+                mac_id,
+                name=request.name,
+                speaker_type=request.speaker_type,
+                audio_id=request.audio_id,
+            )
+
+            # 2. Resolve overlay from audio card registry
+            from backend.hardware.registry import AUDIO_CARDS
+            card_info = AUDIO_CARDS.get(request.audio_id, {})
+            overlay = card_info.get("overlay", "")
+
+            # 3. Send audio config to client (includes overlay for client-side validation)
+            timeout = aiohttp.ClientTimeout(total=10)
+            try:
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.put(
+                        f"http://{client_ip}:8001/api/hardware/audio",
+                        json={"audio_id": request.audio_id, "overlay": overlay},
+                    ) as resp:
+                        if resp.status != 200:
+                            body = await resp.text()
+                            logger.error(f"Client {mac_id} rejected audio config: {resp.status} {body}")
+                            raise HTTPException(
+                                status_code=502,
+                                detail=f"Client rejected audio configuration: {resp.status}",
+                            )
+            except aiohttp.ClientError as e:
+                logger.error(f"Cannot reach client {mac_id} at {client_ip}: {e}")
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Cannot reach client at {client_ip}: {e}",
+                )
+
+            # 4. Send reboot to client
+            try:
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.post(f"http://{client_ip}:8001/api/hardware/reboot") as resp:
+                        if resp.status != 200:
+                            logger.warning(f"Client {mac_id} reboot returned {resp.status}")
+            except aiohttp.ClientError as e:
+                # Client may already be rebooting — this is expected but worth logging
+                logger.warning(f"Reboot request to client {mac_id} at {client_ip} failed (may already be rebooting): {e}")
+
+            logger.info(f"Pending client {mac_id} configured with audio={request.audio_id}, rebooting")
+            return {"status": "success", "message": f"Client {mac_id} configured and rebooting"}
 
     return router

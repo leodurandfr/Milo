@@ -74,6 +74,7 @@ class SnapcastWebSocketService:
         self._equalizer_client_proxy_service = None
         self._equalizer_settings_sync_service = None
         self._camilladsp_service = None
+        self._pending_clients_service = None
 
     @property
     def registry(self) -> Optional["ClientRegistryService"]:
@@ -213,6 +214,10 @@ class SnapcastWebSocketService:
     def set_camilladsp_service(self, service) -> None:
         """Set CamillaDSPService dependency."""
         self._camilladsp_service = service
+
+    def set_pending_clients_service(self, service) -> None:
+        """Set PendingClientsService dependency."""
+        self._pending_clients_service = service
 
     async def _connection_loop(self) -> None:
         """Connection loop with intelligent reconnection."""
@@ -509,9 +514,23 @@ class SnapcastWebSocketService:
             self.logger.info(f"  - Name: {client_name}, Host: {client_host}, IP: {client_ip}")
             self.logger.info(f"  - Snapcast volume: {snapcast_volume}% (passthrough)")
 
+            # Check if this client has pending configuration (registered via API before Snapcast)
+            pending = None
+            if self._pending_clients_service:
+                pending = self._pending_clients_service.get_client(mac_id)
+                if pending and pending.get("name"):
+                    self.logger.info(f"  - Pending client matched: name='{pending['name']}', speaker_type='{pending.get('speaker_type')}'")
+
             # Register client using new API (but don't set online yet - wait for volume sync)
+            # Use pending name/speaker_type if available (set during configuration flow)
+            reg_name = (pending.get("name") if pending else None) or client_name
+            reg_speaker_type = pending.get("speaker_type") if pending else None
+
             if self.registry:
-                await self.registry.register_client(mac_id, client_name, client_ip, host=client_host)
+                kwargs = {"host": client_host}
+                if reg_speaker_type:
+                    kwargs["speaker_type"] = reg_speaker_type
+                await self.registry.register_client(mac_id, reg_name, client_ip, **kwargs)
 
             self.logger.info(f"[{time.time():.3f}] CLIENT_CONNECT: Calling volume sync for {client_id}")
             sync_status = await self._notify_volume_service_client_connected(client_id, client)
@@ -523,6 +542,10 @@ class SnapcastWebSocketService:
 
             # Crossover recalculation is handled by CrossoverService._handle_registry_event
             # via CLIENT_CONNECTED event emitted by set_client_online()
+
+            # Transfer complete — remove from pending storage
+            if pending and self._pending_clients_service:
+                await self._pending_clients_service.remove_client(mac_id)
 
             # Push snapclient buffer config to remote clients (fire-and-forget)
             if not is_local:

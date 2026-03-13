@@ -478,3 +478,57 @@ class ClientUpdateRequest(BaseModel):
                 f"Must be one of: {', '.join(SPEAKER_TYPES)}"
             )
         return v
+
+
+class RegisterClientRequest(BaseModel):
+    """Request from a milo-client to register as a pending speaker."""
+    mac_id: str = Field(..., min_length=17, max_length=17)
+    ip: str = Field(..., min_length=7)
+    hardware_configured: bool
+    audio_id: str = Field(default="none")
+
+    @field_validator('mac_id')
+    @classmethod
+    def validate_mac_id(cls, v):
+        """Validate MAC address format (xx:xx:xx:xx:xx:xx)."""
+        import re
+        if not re.match(r'^([0-9a-f]{2}:){5}[0-9a-f]{2}$', v, re.IGNORECASE):
+            raise ValueError(f"Invalid MAC address format: '{v}'")
+        return v.lower()
+
+
+class UpdatePendingClientRequest(BaseModel):
+    """Request to update a pending client's metadata."""
+    name: Optional[str] = None
+    speaker_type: Optional[Literal['satellite', 'bookshelf', 'tower', 'subwoofer']] = None
+    audio_id: Optional[str] = None
+
+    @field_validator('speaker_type')
+    @classmethod
+    def validate_speaker_type(cls, v):
+        if v is not None and v not in SPEAKER_TYPES:
+            raise ValueError(f"Invalid speaker_type '{v}'. Must be one of: {', '.join(SPEAKER_TYPES)}")
+        return v
+
+
+class ConfigurePendingClientRequest(BaseModel):
+    """Request to configure a pending client's audio and reboot it."""
+    name: Optional[str] = None
+    speaker_type: Optional[Literal['satellite', 'bookshelf', 'tower', 'subwoofer']] = Field(default='bookshelf')
+    audio_id: str = Field(..., min_length=1)
+
+    @field_validator('speaker_type')
+    @classmethod
+    def validate_speaker_type(cls, v):
+        if v is not None and v not in SPEAKER_TYPES:
+            raise ValueError(f"Invalid speaker_type '{v}'. Must be one of: {', '.join(SPEAKER_TYPES)}")
+        return v
+
+    @field_validator('audio_id')
+    @classmethod
+    def validate_audio_id(cls, v):
+        from backend.hardware.registry import AUDIO_CARDS
+        if v not in AUDIO_CARDS or v == 'none':
+            valid = [k for k in AUDIO_CARDS if k != 'none']
+            raise ValueError(f"Invalid audio_id '{v}'. Must be one of: {', '.join(valid)}")
+        return v
