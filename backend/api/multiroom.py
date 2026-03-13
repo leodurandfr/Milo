@@ -440,9 +440,11 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
         """
         Register a milo-client as a pending speaker.
 
-        Called by milo-client at boot time. Stores the client in
-        PendingClientsService until it's configured and appears in Snapcast.
-        Validates that the declared IP matches the request origin to prevent spoofing.
+        Called by milo-client at boot time.
+        - hardware_configured=false → store as pending (user must configure via wizard).
+          If the mac_id already exists in the registry (reinstall scenario),
+          the old entry is removed so the client appears fresh.
+        - hardware_configured=true → no action needed (snapclient will reconnect).
         """
         async with api_error_handler("Error registering client", logger):
             # Validate that the declared IP matches the actual request origin
@@ -455,6 +457,17 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
                     status_code=403,
                     detail=f"Declared IP {request.ip} does not match request origin {normalized_caller}",
                 )
+
+            # Hardware already configured → snapclient will handle reconnection
+            if request.hardware_configured:
+                logger.info(f"Client {request.mac_id} registered with hardware configured, skipping pending")
+                return {"status": "success", "message": "Hardware configured, snapclient will reconnect"}
+
+            # Reinstall detection: if mac_id exists in registry, remove stale entry
+            existing = registry_service.get_client(request.mac_id)
+            if existing:
+                logger.info(f"Reinstall detected for {request.mac_id}, removing stale registry entry")
+                await registry_service.unregister_client(request.mac_id)
 
             client = await pending_clients_service.register_client(
                 mac_id=request.mac_id,
