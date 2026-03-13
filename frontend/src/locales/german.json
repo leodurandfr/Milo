@@ -724,29 +724,38 @@
     "tunisia": "Tunesien"
   },
   "setup": {
-    "next": "Weiter",
+    "stepLabel": "Schritt {n}",
+    "back": "Zurück",
+    "continue": "Weiter",
     "welcome": {
       "title": "Willkommen bei Milō",
-      "subtitle": "Lassen Sie uns Ihr Audiosystem konfigurieren.",
+      "subtitle": "Lassen Sie uns Ihr Audiosystem konfigurieren!",
       "getStarted": "Los geht's"
     },
     "language": {
       "title": "Wählen Sie Ihre Sprache"
     },
     "audio": {
-      "title": "Wählen Sie Ihre Audiokarte"
+      "title": "Wählen Sie Ihre Audiokarte",
+      "amplifiers": "Verstärker",
+      "dacs": "DACs",
+      "speakers": "Lautsprecher",
+      "none": "Keine Audiokarte",
+      "other": "Sonstige"
     },
     "screen": {
       "title": "Wählen Sie Ihren Bildschirm",
+      "none": "Kein Bildschirm",
       "rebootNote": "Ein Neustart ist erforderlich, um die Hardwareänderungen anzuwenden."
     },
     "summary": {
-      "title": "Einrichtungsübersicht",
+      "title": "Übersicht",
       "language": "Sprache",
       "audioCard": "Audiokarte",
       "screen": "Bildschirm",
       "rebootMessage": "Ihr System muss neu gestartet werden, um die Audiokarten- und Bildschirmkonfiguration zu aktivieren.",
       "applyAndReboot": "Anwenden und neu starten",
+      "confirmReboot": "Neustart bestätigen",
       "rebooting": "Neustart...",
       "rebootingDescription": "Bitte warten Sie, während das System neu startet."
     }
