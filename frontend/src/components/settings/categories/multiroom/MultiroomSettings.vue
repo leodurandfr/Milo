@@ -28,7 +28,7 @@
                 </template>
                 <template #title>
                   <div class="speaker-title">
-                    <span>{{ client.name || client.mac_id }}</span>
+                    <span>{{ client.name || client.ip }}</span>
                     <span v-if="multiroomClientStore.isClientConfiguring(client.mac_id)" class="text-mono-small speaker-title__status speaker-title__status--configuring">
                       {{ t('multiroom.pending.rebooting') }}
                     </span>
