@@ -63,18 +63,7 @@ const { containerHeight, resetFirstResize, requestHeightDelta } = useAnimatedHei
     const paddingTop = parseFloat(style.paddingTop);
     const paddingBottom = parseFloat(style.paddingBottom);
     const bounceMargin = 24;
-    const clientH = modalOverlay.value.clientHeight;
-    const bcrH = modalOverlay.value.getBoundingClientRect().height;
-    const result = clientH - paddingTop - paddingBottom - bounceMargin;
-    console.log('[Modal] getMaxHeight:', {
-      clientHeight: clientH,
-      getBCR: bcrH,
-      paddingTop,
-      paddingBottom,
-      bounceMargin,
-      result,
-    });
-    return result;
+    return modalOverlay.value.clientHeight - paddingTop - paddingBottom - bounceMargin;
   }
 });
 
