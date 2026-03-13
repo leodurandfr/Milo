@@ -552,6 +552,36 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     });
   }
 
+  // === CLIENT HARDWARE ===
+
+  /**
+   * Fetch hardware configuration from a registered milo-client.
+   * @param {string} macId - Client MAC address
+   * @returns {Promise<Object>} Hardware config { audio: { id, overlay } }
+   */
+  async function fetchClientHardware(macId) {
+    return apiCall('store', 'Error fetching client hardware', async () => {
+      const response = await axios.get(`/api/multiroom/clients/${encodeURIComponent(macId)}/hardware`);
+      return response.data;
+    }, { rethrow: true });
+  }
+
+  /**
+   * Change audio card on a registered milo-client and reboot it.
+   * @param {string} macId - Client MAC address
+   * @param {string} audioId - Audio card ID from hardware registry
+   * @returns {Promise<Object>} Response with status
+   */
+  async function configureClientAudio(macId, audioId) {
+    return apiCall('store', 'Error configuring client audio', async () => {
+      const response = await axios.put(
+        `/api/multiroom/clients/${encodeURIComponent(macId)}/audio`,
+        { audio_id: audioId },
+      );
+      return response.data;
+    }, { rethrow: true });
+  }
+
   // === PENDING CLIENTS ===
 
   /**
@@ -704,6 +734,10 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     updateClientType,
     updateClient,
     deleteClient,
+
+    // Client hardware
+    fetchClientHardware,
+    configureClientAudio,
 
     // Pending clients
     fetchPendingClients,

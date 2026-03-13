@@ -18,6 +18,7 @@ Features:
 - UUID auto-generation for zone creation
 - Enriched zone responses with computed fields
 """
+import asyncio
 import logging
 import uuid
 
@@ -28,9 +29,41 @@ from backend.api.route_helpers import api_error_handler
 from backend.api.models import (
     ZoneCreate, ZoneUpdate, ZoneAddClient, ClientUpdateRequest,
     RegisterClientRequest, UpdatePendingClientRequest, ConfigurePendingClientRequest,
+    ConfigureClientAudioRequest,
 )
+from backend.config.constants import CLIENT_API_PORT
 
 logger = logging.getLogger(__name__)
+
+
+async def _send_audio_config_and_reboot(mac_id: str, client_ip: str, audio_id: str, overlay: str):
+    """Send audio config to a milo-client and reboot it. Raises HTTPException on failure."""
+    timeout = aiohttp.ClientTimeout(total=10)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            # Step 1: Write audio config
+            async with session.put(
+                f"http://{client_ip}:{CLIENT_API_PORT}/api/hardware/audio",
+                json={"audio_id": audio_id, "overlay": overlay},
+            ) as resp:
+                if resp.status != 200:
+                    body = await resp.text()
+                    logger.error(f"Client {mac_id} rejected audio config: {resp.status} {body}")
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"Client rejected audio configuration: {resp.status}",
+                    )
+
+            # Step 2: Reboot
+            try:
+                async with session.post(f"http://{client_ip}:{CLIENT_API_PORT}/api/hardware/reboot") as resp:
+                    if resp.status != 200:
+                        logger.warning(f"Client {mac_id} reboot returned {resp.status}")
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                logger.warning(f"Reboot request to {mac_id} failed (may already be rebooting): {e}")
+    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+        logger.error(f"Cannot reach client {mac_id} at {client_ip}: {e}")
+        raise HTTPException(status_code=502, detail=f"Cannot reach client at {client_ip}")
 
 
 def create_multiroom_router(registry_service, multiroom_equalizer_service=None, pending_clients_service=None):
@@ -179,6 +212,41 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
                 "status": "success",
                 "message": f"Client '{mac_id}' deleted"
             }
+
+    @router.get("/clients/{mac_id}/hardware")
+    async def get_client_hardware(mac_id: str):
+        """Get hardware configuration from a registered milo-client."""
+        async with api_error_handler(f"Error getting hardware for client {mac_id}", logger):
+            client = registry_service.get_client(mac_id)
+            if not client:
+                raise HTTPException(status_code=404, detail=f"Client '{mac_id}' not found")
+
+            timeout = aiohttp.ClientTimeout(total=5)
+            try:
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.get(f"http://{client.ip}:{CLIENT_API_PORT}/api/hardware") as resp:
+                        if resp.status != 200:
+                            raise HTTPException(status_code=502, detail="Client returned an error")
+                        return await resp.json()
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                logger.error(f"Cannot reach client {mac_id} at {client.ip}: {e}")
+                raise HTTPException(status_code=502, detail=f"Cannot reach client at {client.ip}")
+
+    @router.put("/clients/{mac_id}/audio")
+    async def configure_client_audio(mac_id: str, request: ConfigureClientAudioRequest):
+        """Change audio card on a registered milo-client and reboot it."""
+        async with api_error_handler(f"Error configuring audio for client {mac_id}", logger):
+            client = registry_service.get_client(mac_id)
+            if not client:
+                raise HTTPException(status_code=404, detail=f"Client '{mac_id}' not found")
+
+            from backend.hardware.registry import AUDIO_CARDS
+            card_info = AUDIO_CARDS.get(request.audio_id, {})
+            overlay = card_info.get("overlay", "")
+
+            await _send_audio_config_and_reboot(mac_id, client.ip, request.audio_id, overlay)
+            logger.info(f"Client {mac_id} audio changed to {request.audio_id}, rebooting")
+            return {"status": "success", "message": f"Client {mac_id} audio changed, rebooting"}
 
     # === ZONE ENDPOINTS ===
 
@@ -522,43 +590,12 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
                 audio_id=request.audio_id,
             )
 
-            # 2. Resolve overlay from audio card registry
+            # 2. Resolve overlay and send config + reboot to client
             from backend.hardware.registry import AUDIO_CARDS
             card_info = AUDIO_CARDS.get(request.audio_id, {})
             overlay = card_info.get("overlay", "")
 
-            # 3. Send audio config to client (includes overlay for client-side validation)
-            timeout = aiohttp.ClientTimeout(total=10)
-            try:
-                async with aiohttp.ClientSession(timeout=timeout) as session:
-                    async with session.put(
-                        f"http://{client_ip}:8001/api/hardware/audio",
-                        json={"audio_id": request.audio_id, "overlay": overlay},
-                    ) as resp:
-                        if resp.status != 200:
-                            body = await resp.text()
-                            logger.error(f"Client {mac_id} rejected audio config: {resp.status} {body}")
-                            raise HTTPException(
-                                status_code=502,
-                                detail=f"Client rejected audio configuration: {resp.status}",
-                            )
-            except aiohttp.ClientError as e:
-                logger.error(f"Cannot reach client {mac_id} at {client_ip}: {e}")
-                raise HTTPException(
-                    status_code=502,
-                    detail=f"Cannot reach client at {client_ip}: {e}",
-                )
-
-            # 4. Send reboot to client
-            try:
-                async with aiohttp.ClientSession(timeout=timeout) as session:
-                    async with session.post(f"http://{client_ip}:8001/api/hardware/reboot") as resp:
-                        if resp.status != 200:
-                            logger.warning(f"Client {mac_id} reboot returned {resp.status}")
-            except aiohttp.ClientError as e:
-                # Client may already be rebooting — this is expected but worth logging
-                logger.warning(f"Reboot request to client {mac_id} at {client_ip} failed (may already be rebooting): {e}")
-
+            await _send_audio_config_and_reboot(mac_id, client_ip, request.audio_id, overlay)
             logger.info(f"Pending client {mac_id} configured with audio={request.audio_id}, rebooting")
             return {"status": "success", "message": f"Client {mac_id} configured and rebooting"}
 

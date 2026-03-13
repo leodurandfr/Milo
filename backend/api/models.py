@@ -511,6 +511,25 @@ class UpdatePendingClientRequest(BaseModel):
         return v
 
 
+def _validate_configurable_audio_id(v: str) -> str:
+    """Shared validator for audio_id fields that exclude 'none'."""
+    from backend.hardware.registry import AUDIO_CARDS
+    if v not in AUDIO_CARDS or v == 'none':
+        valid = [k for k in AUDIO_CARDS if k != 'none']
+        raise ValueError(f"Invalid audio_id '{v}'. Must be one of: {', '.join(valid)}")
+    return v
+
+
+class ConfigureClientAudioRequest(BaseModel):
+    """Request to change audio card on a registered milo-client and reboot it."""
+    audio_id: str = Field(..., min_length=1)
+
+    @field_validator('audio_id')
+    @classmethod
+    def validate_audio_id(cls, v):
+        return _validate_configurable_audio_id(v)
+
+
 class ConfigurePendingClientRequest(BaseModel):
     """Request to configure a pending client's audio and reboot it."""
     name: Optional[str] = None
@@ -527,8 +546,4 @@ class ConfigurePendingClientRequest(BaseModel):
     @field_validator('audio_id')
     @classmethod
     def validate_audio_id(cls, v):
-        from backend.hardware.registry import AUDIO_CARDS
-        if v not in AUDIO_CARDS or v == 'none':
-            valid = [k for k in AUDIO_CARDS if k != 'none']
-            raise ValueError(f"Invalid audio_id '{v}'. Must be one of: {', '.join(valid)}")
-        return v
+        return _validate_configurable_audio_id(v)
