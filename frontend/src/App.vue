@@ -401,6 +401,14 @@ onMounted(async () => {
     // Multiroom events - new standardized format (Story 6.2)
     on('multiroom', 'client_state_changed', (event) => multiroomStore.handleMultiroomEvent(event)),
     on('multiroom', 'zone_changed', (event) => multiroomStore.handleMultiroomEvent(event)),
+    on('multiroom', 'pending_client_changed', (event) => {
+      const isNew = event.data?.action === 'registered' &&
+        !multiroomStore.pendingClients.has(event.data?.client?.mac_id);
+      multiroomStore.handleMultiroomEvent(event);
+      if (isNew && !isSettingsOpen.value) {
+        openSettings('multiroom');
+      }
+    }),
     on('multiroom', 'equalizer_changed', (event) => equalizerStore.handleEqualizerChanged(event)),
     on('multiroom', 'crossover_changed', (event) => equalizerStore.handleZoneCrossoverChanged(event)),
     // Radio favorite events
