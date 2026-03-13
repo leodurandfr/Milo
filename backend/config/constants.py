@@ -73,3 +73,18 @@ DEFAULT_DOCK_APPS = ["spotify", "bluetooth", "radio", "podcast", "airplay", "mac
 
 # Supported UI languages (single source of truth for validation)
 VALID_LANGUAGES = ['french', 'english', 'spanish', 'hindi', 'chinese', 'portuguese', 'italian', 'german']
+
+# =============================================================================
+# MULTIROOM CLIENT DISPLAY NAMES
+# =============================================================================
+# Maps system hostnames to user-friendly display names for multiroom clients.
+# Used as fallback when no user-configured name exists in Snapcast.
+HOSTNAME_DISPLAY_NAMES = {
+    "milo": "Milō",
+    "milo-client": "Milō Client",
+}
+
+
+def get_client_display_name(hostname: str) -> str:
+    """Return user-friendly display name for a hostname, or the hostname itself."""
+    return HOSTNAME_DISPLAY_NAMES.get(hostname, hostname)
