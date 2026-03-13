@@ -724,29 +724,38 @@
     "tunisia": "突尼斯"
   },
   "setup": {
-    "next": "下一步",
+    "stepLabel": "步骤 {n}",
+    "back": "返回",
+    "continue": "继续",
     "welcome": {
       "title": "欢迎使用 Milō",
-      "subtitle": "让我们配置您的音频系统。",
+      "subtitle": "让我们配置您的音频系统！",
       "getStarted": "开始"
     },
     "language": {
       "title": "选择您的语言"
     },
     "audio": {
-      "title": "选择您的声卡"
+      "title": "选择您的声卡",
+      "amplifiers": "功放",
+      "dacs": "DAC",
+      "speakers": "音箱",
+      "none": "无声卡",
+      "other": "其他"
     },
     "screen": {
       "title": "选择您的屏幕",
+      "none": "无屏幕",
       "rebootNote": "需要重启以应用硬件更改。"
     },
     "summary": {
-      "title": "设置摘要",
+      "title": "摘要",
       "language": "语言",
       "audioCard": "声卡",
       "screen": "屏幕",
       "rebootMessage": "您的系统需要重启以激活声卡和屏幕配置。",
       "applyAndReboot": "应用并重启",
+      "confirmReboot": "确认重启",
       "rebooting": "正在重启...",
       "rebootingDescription": "请等待系统重启。"
     }

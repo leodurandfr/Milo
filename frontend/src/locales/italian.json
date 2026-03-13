@@ -724,29 +724,38 @@
     "tunisia": "Tunisia"
   },
   "setup": {
-    "next": "Avanti",
+    "stepLabel": "Passo {n}",
+    "back": "Indietro",
+    "continue": "Continua",
     "welcome": {
       "title": "Benvenuto su Milō",
-      "subtitle": "Configuriamo il tuo sistema audio.",
+      "subtitle": "Configuriamo il tuo sistema audio!",
       "getStarted": "Inizia"
     },
     "language": {
       "title": "Scegli la tua lingua"
     },
     "audio": {
-      "title": "Seleziona la tua scheda audio"
+      "title": "Seleziona la tua scheda audio",
+      "amplifiers": "Amplificatori",
+      "dacs": "DAC",
+      "speakers": "Altoparlanti",
+      "none": "Nessuna scheda audio",
+      "other": "Altro"
     },
     "screen": {
       "title": "Seleziona il tuo schermo",
+      "none": "Nessuno schermo",
       "rebootNote": "Sarà necessario un riavvio per applicare le modifiche hardware."
     },
     "summary": {
-      "title": "Riepilogo configurazione",
+      "title": "Riepilogo",
       "language": "Lingua",
       "audioCard": "Scheda audio",
       "screen": "Schermo",
       "rebootMessage": "Il sistema deve essere riavviato per attivare la configurazione della scheda audio e dello schermo.",
       "applyAndReboot": "Applica e riavvia",
+      "confirmReboot": "Conferma riavvio",
       "rebooting": "Riavvio in corso...",
       "rebootingDescription": "Attendi il riavvio del sistema."
     }
