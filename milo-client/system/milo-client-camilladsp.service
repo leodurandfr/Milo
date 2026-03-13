@@ -1,8 +1,9 @@
 [Unit]
 Description=Milo Client CamillaDSP Audio Processor
 Documentation=https://github.com/HEnquist/camilladsp
-After=sound.target
-Requires=sound.target
+After=local-fs.target milo-client.service
+Requires=milo-client.service
+BindsTo=milo-client.service
 
 [Service]
 Type=simple
@@ -12,17 +13,21 @@ Group=milo-client
 # Working directory for config files
 WorkingDirectory=/var/lib/milo-client/camilladsp
 
+# Check hardware.json before starting — exit cleanly if no audio card configured
 # Start CamillaDSP with WebSocket server enabled
 # -p 1234: WebSocket server port
 # -a 127.0.0.1: Listen only on localhost
 # -w: Wait for valid config before processing
 # -m: Start muted - milo-client will unmute after setting correct volume
-ExecStart=/usr/local/bin/camilladsp \
+ExecStart=/bin/sh -c '\
+  AUDIO_ID=$(python3 -c "import json; print(json.load(open(\"/var/lib/milo-client/hardware.json\")).get(\"audio\",{}).get(\"id\",\"none\"))" || echo "none"); \
+  if [ "$AUDIO_ID" = "none" ]; then echo "No audio card configured, skipping CamillaDSP"; exit 0; fi; \
+  /usr/local/bin/camilladsp \
     -p 1234 \
     -a 127.0.0.1 \
     -m \
     -w \
-    /var/lib/milo-client/camilladsp/config.yml
+    /var/lib/milo-client/camilladsp/config.yml'
 
 # Restart policy
 Restart=on-failure
