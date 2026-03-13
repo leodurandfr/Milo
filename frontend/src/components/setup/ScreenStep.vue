@@ -1,13 +1,11 @@
 <!-- frontend/src/components/setup/ScreenStep.vue -->
 <template>
   <div class="screen-step">
-    <h2 class="heading-2">{{ t('setup.screen.title') }}</h2>
-
     <div class="screen-list">
       <ListItemButton
         v-for="screen in screens"
         :key="screen.value"
-        :title="screen.label"
+        :title="screenLabel(screen)"
         variant="background"
         action="radio"
         :model-value="modelValue === screen.value"
@@ -18,6 +16,7 @@
 </template>
 
 <script setup>
+import { computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 
@@ -35,25 +34,21 @@ defineProps({
 });
 
 const emit = defineEmits(['update:modelValue']);
+
+function screenLabel(screen) {
+  return screen.value === 'none' ? t('setup.screen.none') : screen.label;
+}
 </script>
 
 <style scoped>
 .screen-step {
   display: flex;
   flex-direction: column;
-  gap: var(--space-03);
-  flex: 1;
 }
 
 .screen-list {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  flex-direction: column;
   gap: var(--space-01);
-}
-
-@media (max-aspect-ratio: 4/3) {
-  .screen-list {
-    grid-template-columns: 1fr;
-  }
 }
 </style>

@@ -1,55 +1,70 @@
 <!-- frontend/src/components/setup/SummaryStep.vue -->
 <template>
   <div class="summary-step">
-    <h2 class="heading-2">{{ t('setup.summary.title') }}</h2>
-
-    <div class="summary-table">
-      <div class="summary-row">
-        <span class="summary-label text-mono">{{ t('setup.summary.language') }}</span>
-        <span class="summary-value heading-3">{{ languageLabel }}</span>
-      </div>
-      <div class="summary-row">
-        <span class="summary-label text-mono">{{ t('setup.summary.audioCard') }}</span>
-        <span class="summary-value heading-3">{{ audioLabel }}</span>
-      </div>
-      <div class="summary-row">
-        <span class="summary-label text-mono">{{ t('setup.summary.screen') }}</span>
-        <span class="summary-value heading-3">{{ screenLabel }}</span>
+    <!-- Language -->
+    <div class="summary-item">
+      <span class="text-mono summary-item__label">{{ t('setup.summary.language') }}</span>
+      <div class="summary-item__card">
+        <img v-if="flagIcon" :src="flagIcon" :alt="languageLabel" class="summary-item__flag" />
+        <span class="heading-3">{{ languageLabel }}</span>
       </div>
     </div>
 
-    <p class="text-mono text-secondary reboot-message">
-      {{ t('setup.summary.rebootMessage') }}
-    </p>
+    <!-- Audio card -->
+    <div class="summary-item">
+      <span class="text-mono summary-item__label">{{ t('setup.summary.audioCard') }}</span>
+      <div class="summary-item__card">
+        <span class="heading-3">{{ audioLabel }}</span>
+      </div>
+    </div>
+
+    <!-- Screen -->
+    <div class="summary-item">
+      <span class="text-mono- summary-item__label">{{ t('setup.summary.screen') }}</span>
+      <div class="summary-item__card">
+        <span class="heading-3">{{ screenLabel }}</span>
+      </div>
+    </div>
 
     <p v-if="error" class="text-mono error-message">{{ error }}</p>
 
-    <!-- Rebooting state -->
-    <div v-if="isRebooting" class="rebooting-section">
-      <LoadingSpinner />
-      <p class="heading-3">{{ t('setup.summary.rebooting') }}</p>
-      <p class="text-mono text-secondary">{{ t('setup.summary.rebootingDescription') }}</p>
-    </div>
-
-    <Button
-      v-else
-      variant="brand"
-      :loading="isApplying"
-      @click="$emit('apply')"
-    >
-      {{ t('setup.summary.applyAndReboot') }}
-    </Button>
+    <p v-if="isRebooting" class="text-mono text-secondary">
+      {{ t('setup.summary.rebootingDescription') }}
+    </p>
   </div>
 </template>
 
 <script setup>
+import { computed } from 'vue';
 import { useI18n } from '@/services/i18n';
-import Button from '@/components/ui/Button.vue';
-import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
+
+import franceIcon from '@/assets/flags-icons/france.svg';
+import unitedKingdomIcon from '@/assets/flags-icons/united-kingdom.svg';
+import spainIcon from '@/assets/flags-icons/spain.svg';
+import indiaIcon from '@/assets/flags-icons/india.svg';
+import chinaIcon from '@/assets/flags-icons/china.svg';
+import portugalIcon from '@/assets/flags-icons/portugal.svg';
+import italyIcon from '@/assets/flags-icons/italy.svg';
+import germanyIcon from '@/assets/flags-icons/germany.svg';
+
+const flagIcons = {
+  french: franceIcon,
+  english: unitedKingdomIcon,
+  spanish: spainIcon,
+  hindi: indiaIcon,
+  chinese: chinaIcon,
+  portuguese: portugalIcon,
+  italian: italyIcon,
+  german: germanyIcon,
+};
 
 const { t } = useI18n();
 
-defineProps({
+const props = defineProps({
+  languageCode: {
+    type: String,
+    default: 'english',
+  },
   languageLabel: {
     type: String,
     default: '',
@@ -62,10 +77,6 @@ defineProps({
     type: String,
     default: '',
   },
-  isApplying: {
-    type: Boolean,
-    default: false,
-  },
   isRebooting: {
     type: Boolean,
     default: false,
@@ -76,57 +87,43 @@ defineProps({
   },
 });
 
-defineEmits(['apply']);
+const flagIcon = computed(() => flagIcons[props.languageCode] || null);
 </script>
 
 <style scoped>
 .summary-step {
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: var(--space-04);
-  flex: 1;
 }
 
-.summary-table {
-  width: 100%;
-  max-width: 400px;
+.summary-item {
   display: flex;
   flex-direction: column;
   gap: var(--space-02);
-  background: var(--color-background);
-  border-radius: var(--radius-03);
-  padding: var(--space-04);
 }
 
-.summary-row {
+.summary-item__label {
+  color: var(--color-text-secondary);
+}
+
+.summary-item__card {
   display: flex;
-  justify-content: space-between;
-  align-items: baseline;
+  align-items: center;
+  gap: var(--space-03);
+  padding: var(--space-03) var(--space-04);
+  background: var(--color-background);
+  border-radius: var(--radius-04);
 }
 
-.summary-label {
-  color: var(--color-text-secondary);
-}
-
-.reboot-message {
-  color: var(--color-text-secondary);
-  text-align: center;
-  max-width: 320px;
+.summary-item__flag {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
 }
 
 .error-message {
-  color: var(--color-important);
-  text-align: center;
-}
-
-.rebooting-section {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-03);
-  padding: var(--space-06) 0;
-  text-align: center;
+  color: var(--color-error);
 }
 
 .text-secondary {
