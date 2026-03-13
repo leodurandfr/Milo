@@ -14,10 +14,6 @@
         @click="emit('update:modelValue', screen.value)"
       />
     </div>
-
-    <p class="text-mono text-secondary reboot-note">
-      {{ t('setup.screen.rebootNote') }}
-    </p>
   </div>
 </template>
 
@@ -50,13 +46,14 @@ const emit = defineEmits(['update:modelValue']);
 }
 
 .screen-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: var(--space-01);
 }
 
-.reboot-note {
-  color: var(--color-text-secondary);
-  text-align: center;
+@media (max-aspect-ratio: 4/3) {
+  .screen-list {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
