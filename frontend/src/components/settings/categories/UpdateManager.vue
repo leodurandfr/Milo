@@ -33,7 +33,7 @@
                   <AppIcon :name="getProgramIcon('milo')" :size="48" class="program-icon" />
                   <span class="program-name heading-4">{{ localPrograms.milo.name }}</span>
                   <span class="program-version text-mono">
-                    milo {{ getLocalInstalledVersion(localPrograms.milo) || t('updates.notAvailable') }}
+                    milo {{ displayVersion(localPrograms.milo) }}
                     <template
                       v-if="localPrograms.milo.update_available && !isLocalUpdating('milo') && !isLocalUpdateCompleted('milo')">
                       <span class="version-new">> {{ getLocalLatestVersion(localPrograms.milo) }}</span>
@@ -151,10 +151,10 @@
                     <AppIcon name="milo-client" :size="48" class="program-icon" />
                     <span class="program-name heading-4">Milō Client</span>
                     <span class="program-version text-mono">
-                      milo-client {{ extractBaseTag(satelliteByMacId[client.mac_id].app_version) || t('updates.notAvailable') }}
+                      milo-client {{ formatGitVersion(satelliteByMacId[client.mac_id].app_version) || t('updates.notAvailable') }}
                       <template
                         v-if="satelliteByMacId[client.mac_id].app_update_available && !isSatelliteAppUpdating(client.mac_id) && !isSatelliteAppUpdateCompleted(client.mac_id)">
-                        <span class="version-new">> {{ extractBaseTag(satelliteByMacId[client.mac_id].server_version) }}</span>
+                        <span class="version-new">> {{ formatGitVersion(satelliteByMacId[client.mac_id].server_version) }}</span>
                       </template>
                     </span>
                   </div>
@@ -251,16 +251,27 @@ function getVersionLabel(key) {
   return labelOverrides[key] || key;
 }
 
-function extractBaseTag(version) {
+function formatGitVersion(version) {
   if (!version) return null;
-  // git describe format: <tag>-<N>-g<hash> or just <tag>
+  // git describe formats:
+  //   "v0.0.1"                → "0.0.1"
+  //   "v0.0.1-533-gc6d74a1"  → "0.0.1 · c6d74a1"
+  //   "b601da9"               → "b601da9"
   const parts = version.split('-');
-  let tag = version;
+
   if (parts.length >= 3 && parts[parts.length - 1].startsWith('g')) {
-    tag = parts.slice(0, -2).join('-');
+    const tag = parts.slice(0, -2).join('-').replace(/^v/, '');
+    const hash = parts[parts.length - 1].slice(1);
+    return `${tag} · ${hash}`;
   }
-  // Strip leading "v" prefix (e.g. "v0.1.0" → "0.1.0")
-  return tag.replace(/^v/, '');
+
+  return version.replace(/^v/, '');
+}
+
+function displayVersion(program) {
+  const raw = program?.installed?.raw_version;
+  if (raw) return formatGitVersion(raw);
+  return getLocalInstalledVersion(program) || t('updates.notAvailable');
 }
 
 const { t } = useI18n();
