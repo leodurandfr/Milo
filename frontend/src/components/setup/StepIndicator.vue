@@ -4,8 +4,11 @@
     <span
       v-for="step in total"
       :key="step"
-      class="step-dot"
-      :class="{ 'step-dot--active': step - 1 === current }"
+      class="step-bar"
+      :class="{
+        'step-bar--completed': step - 1 < current,
+        'step-bar--active': step - 1 === current,
+      }"
     />
   </div>
 </template>
@@ -26,19 +29,21 @@ defineProps({
 <style scoped>
 .step-indicator {
   display: flex;
-  justify-content: center;
-  gap: var(--space-02);
+  gap: var(--space-01);
+  padding-top: var(--space-02);
 }
 
-.step-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+.step-bar {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
   background: var(--color-background-strong);
-  transition: background 0.2s ease;
+  transition: background 0.3s ease;
 }
 
-.step-dot--active {
-  background: var(--color-brand);
+.step-bar--completed,
+.step-bar--active {
+  background: var(--color-text-light);
 }
+
 </style>

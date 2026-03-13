@@ -1,8 +1,6 @@
 <!-- frontend/src/components/setup/LanguageStep.vue -->
 <template>
   <div class="language-step">
-    <h2 class="heading-2">{{ t('setup.language.title') }}</h2>
-
     <div class="language-list">
       <ListItemButton
         v-for="lang in availableLanguages"
@@ -73,20 +71,11 @@ async function selectLanguage(code) {
 .language-step {
   display: flex;
   flex-direction: column;
-  gap: var(--space-03);
-  flex: 1;
 }
 
 .language-list {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  flex-direction: column;
   gap: var(--space-01);
-  overflow-y: auto;
-}
-
-@media (max-aspect-ratio: 4/3) {
-  .language-list {
-    grid-template-columns: 1fr;
-  }
 }
 </style>
