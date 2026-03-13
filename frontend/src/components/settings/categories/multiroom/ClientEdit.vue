@@ -2,9 +2,19 @@
 <!-- Form for editing a single client's settings -->
 <template>
   <div class="client-edit">
+    <!-- Rebooting State (after audio card change) -->
+    <MessageContent
+      v-if="isRebooting"
+      icon="multiroom"
+      :loading="!rebootTimedOut"
+      :loading-delay="0"
+      :title="t('multiroom.pending.rebootingMessage')"
+      :subtitle="rebootTimedOut ? t('multiroom.pending.rebootTimeout') : t('multiroom.pending.rebootingDescription')"
+    />
+
     <!-- Offline State -->
     <MessageContent
-      v-if="isOffline"
+      v-else-if="isOffline"
       icon="multiroom"
       :title="t('multiroom.speakerOffline', { name: clientDisplayName })"
       :subtitle="t('multiroom.speakerOfflineDescription', { ip: client?.ip || 'Unknown' })"
@@ -19,6 +29,20 @@
       <SettingsSection :title="t('multiroom.speakerName', 'Speaker Name')">
         <InputText v-model="clientName" :placeholder="client?.host" size="medium" :maxlength="16"
           @blur="saveClientName" />
+      </SettingsSection>
+
+      <!-- Audio Card Selection (remote clients only) -->
+      <SettingsSection v-if="!client?.is_local && audioCardOptions.length > 0" :title="t('multiroom.pending.audioCard')">
+        <div class="hardware-row">
+          <span class="hardware-row__label text-mono">{{ t('hardwareSettings.audioCardModel') }}</span>
+          <Dropdown
+            :model-value="selectedAudioId"
+            :options="audioCardOptions"
+            :disabled="isApplying"
+            @change="selectAudioCard"
+          />
+        </div>
+        <p v-if="audioError" class="audio-error text-mono">{{ audioError }}</p>
       </SettingsSection>
 
       <!-- Speaker Type Selection -->
@@ -73,20 +97,37 @@
           </div>
         </div>
       </SettingsSection>
+
+      <!-- Apply & Reboot (two-step confirm, only when audio card changed) -->
+      <Button
+        v-if="isAudioDirty"
+        :variant="confirmReboot ? 'important' : 'brand'"
+        size="medium"
+        class="apply-button-sticky"
+        :loading="isApplying"
+        :disabled="isApplying"
+        @click="handleApply"
+      >
+        {{ applyButtonLabel }}
+      </Button>
     </template>
 
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useSnapcastStore } from '@/stores/snapcastStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useEqualizerStore } from '@/stores/equalizerStore';
+import { useHardwareConfig } from '@/composables/useHardwareConfig';
+import { logger } from '@/services/logger';
 import InputText from '@/components/ui/InputText.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
+import Button from '@/components/ui/Button.vue';
+import Dropdown from '@/components/ui/Dropdown.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
@@ -105,12 +146,35 @@ const { t } = useI18n();
 const snapcastStore = useSnapcastStore();
 const multiroomClientStore = useMultiroomStore();
 const equalizerStore = useEqualizerStore();
+const { loadHardwareConfig } = useHardwareConfig();
 
 const clientName = ref('');
 const originalClientName = ref('');
 const selectedSpeakerType = ref('bookshelf');
 const deleting = ref(false);
 const crossoverFrequency = ref(80);
+
+// Audio card state
+const audioCards = ref([]);
+const selectedAudioId = ref('');
+const savedAudioId = ref('');
+const confirmReboot = ref(false);
+const audioError = ref('');
+const isApplying = ref(false);
+const isRebooting = ref(false);
+const rebootTimedOut = ref(false);
+let rebootTimeoutId = null;
+const REBOOT_TIMEOUT_MS = 120000;
+
+// Filter out "none" from audio card options
+const audioCardOptions = computed(() =>
+  audioCards.value.filter(card => card.value !== 'none')
+);
+
+// Dirty check for audio card change
+const isAudioDirty = computed(() =>
+  selectedAudioId.value && savedAudioId.value && selectedAudioId.value !== savedAudioId.value
+);
 
 // Find client by mac_id
 const client = computed(() =>
@@ -159,6 +223,20 @@ watch(
   { immediate: true }
 );
 
+// Watch client coming back online after reboot
+watch(
+  () => client.value?.online,
+  (online) => {
+    if (isRebooting.value && online) {
+      isRebooting.value = false;
+      rebootTimedOut.value = false;
+      if (rebootTimeoutId) clearTimeout(rebootTimeoutId);
+      // Update saved audio id to reflect the new card
+      savedAudioId.value = selectedAudioId.value;
+    }
+  }
+);
+
 // Show crossover info when relevant
 const showCrossoverInfo = computed(() => {
   // Always show for subwoofer (different message if not in zone)
@@ -175,6 +253,47 @@ const speakerTypes = computed(() => [
   { value: 'tower', label: t('multiroom.speakerTypes.tower', 'Tower speakers'), icon: 'speakerColumn' },
   { value: 'subwoofer', label: t('multiroom.speakerTypes.subwoofer', 'Subwoofer'), icon: 'speakerSub' }
 ]);
+
+// Apply button label (two-step confirm)
+const applyButtonLabel = computed(() => {
+  if (isApplying.value) return t('multiroom.pending.applying');
+  if (confirmReboot.value) return t('multiroom.pending.confirmReboot');
+  return t('multiroom.pending.applyAndReboot');
+});
+
+function selectAudioCard(audioId) {
+  selectedAudioId.value = audioId;
+  confirmReboot.value = false;
+  audioError.value = '';
+}
+
+function handleApply() {
+  if (!confirmReboot.value) {
+    confirmReboot.value = true;
+    return;
+  }
+  applyAudioChange();
+}
+
+async function applyAudioChange() {
+  if (!selectedAudioId.value || isApplying.value) return;
+
+  isApplying.value = true;
+  audioError.value = '';
+  try {
+    await multiroomClientStore.configureClientAudio(props.macId, selectedAudioId.value);
+    isRebooting.value = true;
+    rebootTimeoutId = setTimeout(() => {
+      rebootTimedOut.value = true;
+    }, REBOOT_TIMEOUT_MS);
+  } catch (e) {
+    audioError.value = e?.response?.data?.detail || t('multiroom.pending.errorGeneric');
+    logger.error('multiroom', 'Error configuring client audio', e);
+  } finally {
+    isApplying.value = false;
+    confirmReboot.value = false;
+  }
+}
 
 async function handleCrossoverChange(frequency) {
   if (!clientZone.value?.id) return;
@@ -230,13 +349,32 @@ async function handleDelete() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   if (client.value) {
     clientName.value = client.value.name || client.value.host;
     originalClientName.value = clientName.value;
-    // Load current speaker type from client data or equalizerStore
     selectedSpeakerType.value = client.value.speaker_type || equalizerStore.getClientSpeakerType(props.macId);
+
+    // Load audio card options and current card for remote clients
+    if (!client.value.is_local) {
+      const [config, hardware] = await Promise.all([
+        loadHardwareConfig(true),
+        multiroomClientStore.fetchClientHardware(props.macId).catch(() => null),
+      ]);
+
+      if (config?.options?.audio_cards) {
+        audioCards.value = config.options.audio_cards;
+      }
+      if (hardware?.audio?.id) {
+        selectedAudioId.value = hardware.audio.id;
+        savedAudioId.value = hardware.audio.id;
+      }
+    }
   }
+});
+
+onUnmounted(() => {
+  if (rebootTimeoutId) clearTimeout(rebootTimeoutId);
 });
 </script>
 
@@ -245,6 +383,27 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--space-03);
+}
+
+.hardware-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-03);
+}
+
+.hardware-row__label {
+  color: var(--color-text-secondary);
+  width: 33%;
+  flex-shrink: 0;
+}
+
+.hardware-row :deep(.dropdown) {
+  flex: 1;
+}
+
+.audio-error {
+  color: var(--color-error, #ef4444);
+  margin: 0;
 }
 
 .speaker-types {
@@ -308,8 +467,24 @@ onMounted(() => {
   text-align: right;
 }
 
+.apply-button-sticky {
+  position: sticky;
+  bottom: 0;
+  width: 100%;
+  z-index: 10;
+}
+
 /* Mobile adjustments */
 @media (max-aspect-ratio: 4/3) {
+  .hardware-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .hardware-row__label {
+    width: auto;
+  }
+
   .speaker-types {
     grid-template-columns: 1fr;
   }
