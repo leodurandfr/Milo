@@ -1,5 +1,12 @@
 #!/bin/bash
-# Milo Client - Installation Script v1.4 (refactored to use rootfs files)
+# Milo Client - Installation Script v2.0 (non-interactive)
+#
+# Usage:
+#   install-client.sh                                # No audio card, configure later via web UI
+#   install-client.sh --audio hifiberry_amp2         # Pre-configure audio card
+#   install-client.sh --server 192.168.1.10          # Manual server IP (if mDNS fails)
+#   install-client.sh --help                         # Show usage and available audio cards
+#   install-client.sh --uninstall                    # Remove Milo Client
 
 set -e
 
@@ -12,14 +19,24 @@ MILO_CLIENT_ROOTFS_DIR="$MILO_CLIENT_REPO_DIR/milo-client/rootfs"
 MILO_CLIENT_VENV_DIR="$MILO_CLIENT_HOME/venv"
 MILO_CLIENT_DATA_DIR="/var/lib/milo-client"
 MILO_CLIENT_REPO_URL="https://github.com/leodurandfr/Milo.git"
-REBOOT_REQUIRED=false
 
-# Variables to store user choices
-USER_HOSTNAME_CHOICE=""
-USER_HIFIBERRY_CHOICE=""
-USER_RESTART_CHOICE=""
-HIFIBERRY_OVERLAY=""
-CARD_NAME=""
+# Audio card lookup table (must match AUDIO_CARDS in backend/hardware/registry.py)
+# Format: "id|overlay|alsa_control|label"
+AUDIO_CARD_TABLE=(
+    "hifiberry_amp2|hifiberry-dacplus-std|Digital|HiFiBerry Amp2"
+    "hifiberry_amp4|hifiberry-dacplus-std|Digital|HiFiBerry Amp4"
+    "hifiberry_amp4pro|hifiberry-amp4pro|Digital|HiFiBerry Amp4 Pro"
+    "hifiberry_amp100|hifiberry-amp100|Digital|HiFiBerry Amp100"
+    "hifiberry_beocreate|hifiberry-dac|DAC|HiFiBerry Beocreate 4CA"
+    "hifiberry_dac2hd|hifiberry-dacplushd|DAC|HiFiBerry DAC2 HD"
+    "hifiberry_dacplus_pro|hifiberry-dacplus|Digital|HiFiBerry DAC+ Pro"
+)
+
+# CLI arguments
+ARG_AUDIO_ID=""
+ARG_SERVER_IP=""
+AUDIO_OVERLAY=""
+AUDIO_LABEL=""
 ALSA_CONTROL=""
 MILO_PRINCIPAL_IP=""
 
@@ -53,8 +70,95 @@ show_banner() {
     echo " | |  | | | | (_) || |___| | |  __/ | | | |_ "
     echo " |_|  |_|_|_|\___/  \____|_|_|\___|_| |_|\__|"
     echo ""
-    echo "Client Installation Script v1.4"
+    echo "Client Installation Script v2.0"
     echo -e "${NC}"
+}
+
+show_help() {
+    echo "Usage: install-client.sh [OPTIONS]"
+    echo ""
+    echo "Options:"
+    echo "  --audio <card_key>   Pre-configure audio card (see list below)"
+    echo "  --server <ip>        Main Milo IP address (if mDNS auto-discovery fails)"
+    echo "  --uninstall          Remove Milo Client"
+    echo "  --help               Show this help message"
+    echo ""
+    echo "Available audio cards:"
+    for entry in "${AUDIO_CARD_TABLE[@]}"; do
+        local id="${entry%%|*}"
+        local label="${entry##*|}"
+        printf "  %-25s %s\n" "$id" "$label"
+    done
+    echo ""
+    echo "Examples:"
+    echo "  install-client.sh                                # Configure audio later via web UI"
+    echo "  install-client.sh --audio hifiberry_amp2         # Pre-configure HiFiBerry Amp2"
+    echo "  install-client.sh --server 192.168.1.10          # Specify main Milo IP"
+}
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --audio)
+                if [[ -z "${2:-}" ]]; then
+                    log_error "--audio requires a card key argument"
+                    echo ""
+                    show_help
+                    exit 1
+                fi
+                ARG_AUDIO_ID="$2"
+                shift 2
+                ;;
+            --server)
+                if [[ -z "${2:-}" ]]; then
+                    log_error "--server requires an IP address argument"
+                    exit 1
+                fi
+                ARG_SERVER_IP="$2"
+                shift 2
+                ;;
+            --help)
+                show_help
+                exit 0
+                ;;
+            *)
+                log_error "Unknown argument: $1"
+                echo ""
+                show_help
+                exit 1
+                ;;
+        esac
+    done
+
+    # Validate --audio if provided
+    if [[ -n "$ARG_AUDIO_ID" ]]; then
+        local found=false
+        for entry in "${AUDIO_CARD_TABLE[@]}"; do
+            local id="${entry%%|*}"
+            if [[ "$id" == "$ARG_AUDIO_ID" ]]; then
+                # Parse: id|overlay|alsa_control|label
+                IFS='|' read -r _ AUDIO_OVERLAY ALSA_CONTROL AUDIO_LABEL <<< "$entry"
+                found=true
+                break
+            fi
+        done
+
+        if [[ "$found" != "true" ]]; then
+            log_error "Unknown audio card: $ARG_AUDIO_ID"
+            echo ""
+            echo "Available audio cards:"
+            for entry in "${AUDIO_CARD_TABLE[@]}"; do
+                local id="${entry%%|*}"
+                local label="${entry##*|}"
+                printf "  %-25s %s\n" "$id" "$label"
+            done
+            exit 1
+        fi
+
+        log_success "Audio card: $AUDIO_LABEL ($ARG_AUDIO_ID)"
+    else
+        log_info "No audio card specified (configure later via web UI)"
+    fi
 }
 
 check_root() {
@@ -82,106 +186,27 @@ check_system() {
 }
 
 discover_milo_principal() {
+    # Use --server if provided
+    if [[ -n "$ARG_SERVER_IP" ]]; then
+        MILO_PRINCIPAL_IP="$ARG_SERVER_IP"
+        log_success "Main Milo server: $MILO_PRINCIPAL_IP (from --server)"
+        return 0
+    fi
+
     log_info "Searching for main Milo on the network..."
 
-    if MILO_PRINCIPAL_IP=$(getent hosts milo.local 2>/dev/null | awk '{print $1}' | head -1); then
+    if MILO_PRINCIPAL_IP=$(getent hosts milo.local 2>/dev/null | awk '{print $1}' | head -1) && [[ -n "$MILO_PRINCIPAL_IP" ]]; then
         log_success "Main Milo found at: $MILO_PRINCIPAL_IP (milo.local)"
         return 0
     fi
 
-    log_error "Unable to find main Milo automatically."
-    echo ""
-    read -p "Enter the IP address of main Milo: " MILO_PRINCIPAL_IP
-    if [[ -z "$MILO_PRINCIPAL_IP" ]]; then
-        log_error "IP address required. Installation cancelled."
-        exit 1
-    fi
-}
-
-collect_user_choices() {
-    echo ""
-    log_info "Milo Client configuration - Answer the following questions:"
-    echo ""
-
-    # 1. Hostname choice
-    echo "Choose a number for this client (01-99):"
-    while true; do
-        read -p "Client number [01]: " USER_HOSTNAME_CHOICE
-        USER_HOSTNAME_CHOICE=${USER_HOSTNAME_CHOICE:-01}
-
-        if [[ $USER_HOSTNAME_CHOICE =~ ^[0-9]{1,2}$ ]]; then
-            USER_HOSTNAME_CHOICE=$(printf "%02d" $USER_HOSTNAME_CHOICE)
-            log_success "Hostname: milo-client-$USER_HOSTNAME_CHOICE"
-            break
-        else
-            echo "Please enter a number between 01 and 99."
-        fi
-    done
-
-    # 2. HiFiBerry card choice
-    echo ""
-    log_info "Configuring HiFiBerry audio card..."
-    echo ""
-    echo "Select your HiFiBerry audio card:"
-    echo ""
-    echo "=== Amplifiers ==="
-    echo "1) Amp2"
-    echo "2) Amp4"
-    echo "3) Amp4 Pro"
-    echo "4) Amp100"
-    echo ""
-    echo "=== DACs ==="
-    echo "5) DAC2 HD"
-    echo "6) DAC+ (Standard)"
-    echo ""
-    echo "=== Other ==="
-    echo "7) Beocreate 4CA"
-    echo ""
-
-    while true; do
-        read -p "Your choice [1]: " USER_HIFIBERRY_CHOICE
-        USER_HIFIBERRY_CHOICE=${USER_HIFIBERRY_CHOICE:-1}
-
-        case $USER_HIFIBERRY_CHOICE in
-            1) HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Card selected: Amp2"; break;;
-            2) HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Card selected: Amp4"; break;;
-            3) HIFIBERRY_OVERLAY="hifiberry-amp4pro"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Card selected: Amp4 Pro"; break;;
-            4) HIFIBERRY_OVERLAY="hifiberry-amp100"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Card selected: Amp100"; break;;
-            5) HIFIBERRY_OVERLAY="hifiberry-dacplushd"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="DAC"; log_success "Card selected: DAC2 HD"; break;;
-            6) HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Card selected: DAC+ (Standard)"; break;;
-            7) HIFIBERRY_OVERLAY="hifiberry-dac"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="DAC"; log_success "Card selected: Beocreate 4CA"; break;;
-            *) echo "Invalid choice. Please enter a number between 1 and 7.";;
-        esac
-    done
-
-    # 3. Reboot choice
-    echo ""
-    log_info "A reboot will be required at the end of installation."
-    while true; do
-        read -p "Automatically reboot at the end? (Y/n): " USER_RESTART_CHOICE
-        case $USER_RESTART_CHOICE in
-            [Nn]* )
-                USER_RESTART_CHOICE="no"
-                break
-                ;;
-            [Yy]* | "" )
-                USER_RESTART_CHOICE="yes"
-                break
-                ;;
-            * )
-                echo "Please answer 'Y' (yes) or 'n' (no)."
-                ;;
-        esac
-    done
-
-    echo ""
-    log_success "Configuration complete! Installation will now continue automatically..."
-    echo ""
-    sleep 2
+    log_error "Unable to find main Milo on the network."
+    log_error "Make sure the main Milo is running, or use --server <ip> to specify its IP address."
+    exit 1
 }
 
 setup_hostname() {
-    local new_hostname="milo-client-$USER_HOSTNAME_CHOICE"
+    local new_hostname="milo-client"
     local current_hostname=$(hostname)
 
     if [ "$current_hostname" != "$new_hostname" ]; then
@@ -190,45 +215,48 @@ setup_hostname() {
         sudo sed -i "s/127.0.1.1.*/127.0.1.1\t$new_hostname/" /etc/hosts
         sudo hostnamectl set-hostname "$new_hostname"
         log_success "Hostname configured"
-        REBOOT_REQUIRED=true
     else
         log_success "Hostname '$new_hostname' already configured"
     fi
 }
 
-configure_audio_hardware() {
-    log_info "Configuring audio hardware for HiFiBerry..."
+save_hardware_config() {
+    log_info "Saving hardware configuration..."
 
-    local config_file="/boot/firmware/config.txt"
+    sudo mkdir -p "$MILO_CLIENT_DATA_DIR"
 
-    if [[ ! -f "$config_file" ]]; then
-        config_file="/boot/config.txt"
-        if [[ ! -f "$config_file" ]]; then
-            log_error "config.txt file not found"
-            exit 1
-        fi
+    if [[ -n "$ARG_AUDIO_ID" ]]; then
+        sudo tee "$MILO_CLIENT_DATA_DIR/hardware.json" > /dev/null << EOF
+{
+  "audio": {
+    "id": "$ARG_AUDIO_ID",
+    "overlay": "$AUDIO_OVERLAY"
+  }
+}
+EOF
+        log_success "Hardware config saved (audio: $AUDIO_LABEL)"
+    else
+        sudo tee "$MILO_CLIENT_DATA_DIR/hardware.json" > /dev/null << 'EOF'
+{
+  "audio": {
+    "id": "none"
+  }
+}
+EOF
+        log_success "Hardware config saved (audio: none)"
     fi
 
-    sudo cp "$config_file" "$config_file.backup.$(date +%Y%m%d_%H%M%S)"
+    sudo chown "$MILO_CLIENT_USER:audio" "$MILO_CLIENT_DATA_DIR/hardware.json"
+}
 
-    sudo sed -i '/^dtparam=audio=on/d' "$config_file"
+install_apply_hardware_script() {
+    log_info "Installing hardware apply script..."
 
-    if grep -q "vc4-fkms-v3d" "$config_file"; then
-        sudo sed -i 's/dtoverlay=vc4-fkms-v3d.*/dtoverlay=vc4-fkms-v3d,audio=off/' "$config_file"
-    fi
+    sudo cp "$MILO_CLIENT_ROOTFS_DIR/usr/local/bin/milo-client-apply-hardware" /usr/local/bin/
+    sudo chmod +x /usr/local/bin/milo-client-apply-hardware
+    sudo chown root:root /usr/local/bin/milo-client-apply-hardware
 
-    if grep -q "vc4-kms-v3d" "$config_file"; then
-        sudo sed -i 's/dtoverlay=vc4-kms-v3d.*/dtoverlay=vc4-kms-v3d,noaudio/' "$config_file"
-    fi
-
-    if ! grep -q "$HIFIBERRY_OVERLAY" "$config_file"; then
-        echo "" | sudo tee -a "$config_file"
-        echo "# Milo Client - HiFiBerry Audio" | sudo tee -a "$config_file"
-        echo "dtoverlay=$HIFIBERRY_OVERLAY" | sudo tee -a "$config_file"
-    fi
-
-    log_success "Audio hardware configuration complete"
-    REBOOT_REQUIRED=true
+    log_success "Hardware apply script installed"
 }
 
 install_dependencies() {
@@ -487,7 +515,6 @@ initialize_alsa_volume() {
     sleep 2
 
     # Set HiFiBerry volume to 100% (passthrough - CamillaDSP manages actual volume)
-    # Use the control name determined during card selection
     if [[ -n "$ALSA_CONTROL" ]]; then
         if amixer -c sndrpihifiberry sset "$ALSA_CONTROL" 100% 2>/dev/null; then
             log_success "ALSA $ALSA_CONTROL volume set to 100%"
@@ -542,15 +569,20 @@ enable_services() {
     log_success "Services enabled"
 }
 
-install_wrapper_script() {
-    log_info "Installing secure wrapper script..."
+install_wrapper_scripts() {
+    log_info "Installing secure wrapper scripts..."
 
-    # Copy wrapper script from repo
+    # Snapclient install wrapper
     sudo cp "$MILO_CLIENT_ROOTFS_DIR/usr/local/bin/milo-client-install-snapclient" /usr/local/bin/
     sudo chmod 755 /usr/local/bin/milo-client-install-snapclient
     sudo chown root:root /usr/local/bin/milo-client-install-snapclient
 
-    log_success "Wrapper script installed"
+    # Deploy update wrapper
+    sudo cp "$MILO_CLIENT_ROOTFS_DIR/usr/local/bin/milo-client-deploy-update" /usr/local/bin/
+    sudo chmod 755 /usr/local/bin/milo-client-deploy-update
+    sudo chown root:root /usr/local/bin/milo-client-deploy-update
+
+    log_success "Wrapper scripts installed"
 }
 
 configure_sudoers() {
@@ -590,7 +622,7 @@ configure_avahi() {
     sudo systemctl enable avahi-daemon
     sudo systemctl restart avahi-daemon
 
-    log_success "Avahi configured (access via milo-client-$USER_HOSTNAME_CHOICE.local)"
+    log_success "Avahi configured"
 }
 
 configure_network_priority() {
@@ -614,52 +646,31 @@ configure_network_priority() {
     log_success "Network priority configured"
 }
 
-
 finalize_installation() {
-    log_info "Finalizing installation..."
-
     echo ""
-    echo -e "${GREEN}=====================================${NC}"
+    echo -e "${GREEN}====================================${NC}"
     echo -e "${GREEN}  Milo Client installation complete!${NC}"
-    echo -e "${GREEN}=====================================${NC}"
-    echo ""
-    echo -e "${BLUE}Configuration:${NC}"
-    echo "  - Hostname: milo-client-$USER_HOSTNAME_CHOICE"
-    echo "  - User: $MILO_CLIENT_USER"
-    echo "  - Application: $MILO_CLIENT_APP_DIR"
-    echo "  - Audio card: $HIFIBERRY_OVERLAY"
-    echo "  - Main Milo: $MILO_PRINCIPAL_IP"
-    echo "  - Default volume: 16%"
-    echo ""
-    echo -e "${BLUE}Services:${NC}"
-    echo "  - milo-client.service (API on port 8001)"
-    echo "  - milo-client-snapclient.service"
-    echo "  - milo-client-camilladsp.service (DSP processor)"
+    echo -e "${GREEN}====================================${NC}"
     echo ""
 
-    if [[ "$REBOOT_REQUIRED" == "true" ]]; then
-        echo -e "${YELLOW}REBOOT REQUIRED${NC}"
-        echo ""
-
-        case $USER_RESTART_CHOICE in
-            "yes")
-                log_info "Automatic reboot in 5 seconds..."
-                sleep 5
-                sudo reboot
-                ;;
-            "no")
-                echo -e "${YELLOW}Remember to reboot manually with: sudo reboot${NC}"
-                ;;
-        esac
+    if [[ -n "$ARG_AUDIO_ID" ]]; then
+        echo -e "  Audio: ${GREEN}$AUDIO_LABEL${NC}"
     else
-        log_info "Starting services..."
-        sudo systemctl start milo-client.service
-        sudo systemctl start milo-client-snapclient.service
-        sudo systemctl start milo-client-camilladsp.service
-
-        echo ""
-        echo -e "${GREEN}Milo Client is ready! It should appear automatically in main Milo.${NC}"
+        echo -e "  Audio: ${YELLOW}Not configured${NC}"
     fi
+    echo ""
+
+    if [[ -z "$ARG_AUDIO_ID" ]]; then
+        echo "  Next steps:"
+        echo "    1. System will reboot"
+        echo "    2. Open http://milo.local → Settings → Multiroom"
+        echo "    3. Your new speaker will appear for configuration"
+        echo ""
+    fi
+
+    log_info "System will reboot in 5 seconds..."
+    sleep 5
+    sudo reboot
 }
 
 # === UNINSTALL FUNCTION ===
@@ -703,10 +714,12 @@ uninstall_milo_client() {
     sudo rm -f /etc/systemd/system/milo-client-camilladsp.service
     sudo systemctl daemon-reload
 
-    # 3. Remove sudoers rules and wrapper script
-    log_info "Removing sudoers rules..."
+    # 3. Remove sudoers rules and wrapper scripts
+    log_info "Removing sudoers rules and scripts..."
     sudo rm -f /etc/sudoers.d/milo-client
     sudo rm -f /usr/local/bin/milo-client-install-snapclient
+    sudo rm -f /usr/local/bin/milo-client-deploy-update
+    sudo rm -f /usr/local/bin/milo-client-apply-hardware
 
     # 4. Uninstall Snapclient
     log_info "Uninstalling Snapclient..."
@@ -723,14 +736,20 @@ uninstall_milo_client() {
     log_info "Removing ALSA configuration..."
     sudo rm -f /etc/asound.conf
 
-    # 7. Restore config.txt (remove HiFiBerry)
+    # 7. Restore config.txt (remove HiFiBerry audio block)
     log_info "Restoring audio configuration..."
     local config_file="/boot/firmware/config.txt"
     if [[ ! -f "$config_file" ]]; then
         config_file="/boot/config.txt"
     fi
 
+    local reboot_required=false
+
     if [[ -f "$config_file" ]]; then
+        # Remove managed audio block
+        sudo sed -i '/^# BEGIN MILO CLIENT AUDIO$/,/^# END MILO CLIENT AUDIO$/d' "$config_file"
+
+        # Remove legacy (non-managed) entries from old installs
         sudo sed -i '/# Milo Client - HiFiBerry Audio/d' "$config_file"
         sudo sed -i '/dtoverlay=hifiberry-/d' "$config_file"
 
@@ -739,29 +758,29 @@ uninstall_milo_client() {
             echo "dtparam=audio=on" | sudo tee -a "$config_file" > /dev/null
         fi
 
-        REBOOT_REQUIRED=true
+        reboot_required=true
     fi
 
-    # 7. Remove application directories
+    # 8. Remove application directories
     log_info "Removing application files..."
     sudo rm -rf "$MILO_CLIENT_REPO_DIR"
     sudo rm -rf "$MILO_CLIENT_VENV_DIR"
     sudo rm -rf "$MILO_CLIENT_DATA_DIR"
 
-    # 8. Remove milo-client user
+    # 9. Remove milo-client user
     log_info "Removing milo-client user..."
     if id "$MILO_CLIENT_USER" &>/dev/null; then
         sudo userdel -r "$MILO_CLIENT_USER" 2>/dev/null || true
     fi
 
-    # 9. Restore default hostname (optional)
+    # 10. Restore default hostname
     local current_hostname=$(hostname)
-    if [[ "$current_hostname" == milo-client-* ]]; then
+    if [[ "$current_hostname" == "milo-client" || "$current_hostname" == milo-client-* ]]; then
         log_info "Restoring default hostname..."
         echo "raspberrypi" | sudo tee /etc/hostname > /dev/null
         sudo sed -i "s/127.0.1.1.*/127.0.1.1\traspberrypi/" /etc/hosts
         sudo hostnamectl set-hostname "raspberrypi"
-        REBOOT_REQUIRED=true
+        reboot_required=true
     fi
 
     echo ""
@@ -770,7 +789,7 @@ uninstall_milo_client() {
     echo -e "${GREEN}=================================${NC}"
     echo ""
 
-    if [[ "$REBOOT_REQUIRED" == "true" ]]; then
+    if [[ "$reboot_required" == "true" ]]; then
         echo -e "${YELLOW}REBOOT REQUIRED to finalize${NC}"
         echo ""
 
@@ -799,31 +818,34 @@ uninstall_milo_client() {
 # === MAIN FUNCTION ===
 
 main() {
-    # Check if uninstall mode
-    if [[ "$1" == "--uninstall" ]]; then
-        show_banner
-        check_root
-        uninstall_milo_client
-        exit 0
-    fi
+    # Check if uninstall mode (scan all args)
+    for arg in "$@"; do
+        if [[ "$arg" == "--uninstall" ]]; then
+            if [[ $# -gt 1 ]]; then
+                log_error "--uninstall cannot be combined with other arguments"
+                exit 1
+            fi
+            show_banner
+            check_root
+            uninstall_milo_client
+            exit 0
+        fi
+    done
 
     # Normal installation
     show_banner
-
     check_root
     check_system
+    parse_args "$@"
 
     log_info "Starting Milo Client installation"
     echo ""
 
-    discover_milo_principal
-    collect_user_choices
-
     install_dependencies
     suppress_pulseaudio
+    discover_milo_principal
     configure_journald
     setup_hostname
-    configure_audio_hardware
 
     create_milo_client_user
     clone_milo_client_repo
@@ -833,10 +855,19 @@ main() {
 
     configure_alsa_loopback
     configure_alsa
-    initialize_alsa_volume
+    install_apply_hardware_script
+    save_hardware_config
+
+    # If --audio provided, apply hardware config and set ALSA volume
+    if [[ -n "$ARG_AUDIO_ID" ]]; then
+        log_info "Applying audio hardware configuration..."
+        sudo /usr/local/bin/milo-client-apply-hardware --no-reboot
+        initialize_alsa_volume
+    fi
+
     create_systemd_services
     enable_services
-    install_wrapper_script
+    install_wrapper_scripts
     configure_sudoers
     configure_avahi
     configure_network_priority
