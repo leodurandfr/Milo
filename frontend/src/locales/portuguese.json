@@ -724,29 +724,38 @@
     "tunisia": "Tunísia"
   },
   "setup": {
-    "next": "Seguinte",
+    "stepLabel": "Passo {n}",
+    "back": "Voltar",
+    "continue": "Continuar",
     "welcome": {
       "title": "Bem-vindo ao Milō",
-      "subtitle": "Vamos configurar o seu sistema de áudio.",
+      "subtitle": "Vamos configurar o seu sistema de áudio!",
       "getStarted": "Começar"
     },
     "language": {
       "title": "Escolha o seu idioma"
     },
     "audio": {
-      "title": "Selecione a sua placa de áudio"
+      "title": "Selecione a sua placa de áudio",
+      "amplifiers": "Amplificadores",
+      "dacs": "DACs",
+      "speakers": "Colunas",
+      "none": "Sem placa de áudio",
+      "other": "Outro"
     },
     "screen": {
       "title": "Selecione o seu ecrã",
+      "none": "Sem ecrã",
       "rebootNote": "Será necessário reiniciar para aplicar as alterações de hardware."
     },
     "summary": {
-      "title": "Resumo da configuração",
+      "title": "Resumo",
       "language": "Idioma",
       "audioCard": "Placa de áudio",
       "screen": "Ecrã",
       "rebootMessage": "O seu sistema precisa de reiniciar para ativar a configuração da placa de áudio e do ecrã.",
       "applyAndReboot": "Aplicar e reiniciar",
+      "confirmReboot": "Confirmar reinício",
       "rebooting": "A reiniciar...",
       "rebootingDescription": "Aguarde enquanto o sistema reinicia."
     }
