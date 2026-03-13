@@ -153,7 +153,8 @@
 
       <!-- Multiroom view -->
       <MultiroomSettings v-else-if="currentView === 'multiroom'" key="multiroom" class="view-content"
-        @edit-zone="handleEditZone" @create-zone="handleCreateZone" @edit-client="handleEditClient" />
+        @edit-zone="handleEditZone" @create-zone="handleCreateZone" @edit-client="handleEditClient"
+        @configure-speaker="handleConfigureSpeaker" />
 
       <!-- Multiroom zone edit view -->
       <ZoneEdit v-else-if="currentView === 'multiroom-zone-edit'" key="multiroom-zone-edit" class="view-content"
@@ -162,6 +163,10 @@
       <!-- Multiroom client edit view -->
       <ClientEdit v-else-if="currentView === 'multiroom-client-edit'" key="multiroom-client-edit" class="view-content"
         :mac-id="macIdToEdit" @back="handleClientSaved" />
+
+      <!-- Multiroom configure pending speaker view -->
+      <ConfigureSpeaker v-else-if="currentView === 'multiroom-configure-speaker'" key="multiroom-configure-speaker"
+        class="view-content" :mac-id="macIdToEdit" @back="handleConfigureSpeakerBack" />
 
       <!-- Radio view -->
       <RadioSettings v-else-if="currentView === 'radio'" key="radio" class="view-content"
@@ -233,6 +238,7 @@ import SpotifySettings from '@/components/settings/categories/SpotifySettings.vu
 import MultiroomSettings from './categories/multiroom/MultiroomSettings.vue';
 import ZoneEdit from './categories/multiroom/ZoneEdit.vue';
 import ClientEdit from './categories/multiroom/ClientEdit.vue';
+import ConfigureSpeaker from './categories/multiroom/ConfigureSpeaker.vue';
 import RadioSettings from '@/components/settings/categories/radio/RadioSettings.vue';
 import ManageStation from '@/components/settings/categories/radio/ManageStation.vue';
 import PodcastSettings from '@/components/settings/categories/PodcastSettings.vue';
@@ -313,9 +319,10 @@ const headerTitle = computed(() => {
     'spotify': t('audioSources.spotify'),
     'multiroom': t('audioSources.multiroom'),
     'multiroom-zone-edit': zoneGroupId.value
-      ? t('equalizer.zones.editZone', 'Edit Zone')
-      : t('equalizer.zones.createZone', 'Create Zone'),
-    'multiroom-client-edit': t('multiroom.editSpeaker', 'Edit Speaker'),
+      ? t('equalizer.zones.editZone')
+      : t('equalizer.zones.createZone'),
+    'multiroom-client-edit': t('multiroom.editSpeaker'),
+    'multiroom-configure-speaker': t('multiroom.pending.configureTitle'),
     'radio': t('audioSources.radio'),
     'radio-add': t('radio.manageStation.addStationTitle'),
     'radio-edit': t('radio.manageStation.editStationTitle'),
@@ -425,6 +432,16 @@ function handleCreateZone() {
 function handleEditClient(macId) {
   macIdToEdit.value = macId;
   push('multiroom-client-edit');
+}
+
+function handleConfigureSpeaker(macId) {
+  macIdToEdit.value = macId;
+  push('multiroom-configure-speaker');
+}
+
+function handleConfigureSpeakerBack() {
+  macIdToEdit.value = null;
+  back();
 }
 
 function handleZoneSaved() {

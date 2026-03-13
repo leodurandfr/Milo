@@ -129,7 +129,7 @@
           </template>
           <div class="crossfade-wrapper">
             <Transition name="crossfade">
-              <div v-if="!satelliteByIp[client.ip]" key="skeleton" class="programs-list">
+              <div v-if="!satelliteByMacId[client.mac_id]" key="skeleton" class="programs-list">
                 <div class="program-item-skeleton">
                   <div class="skeleton-icon shimmer"></div>
                   <div class="skeleton-text shimmer skeleton-name"></div>
@@ -151,21 +151,21 @@
                     <AppIcon name="milo-client" :size="48" class="program-icon" />
                     <span class="program-name heading-4">Milō Client</span>
                     <span class="program-version text-mono">
-                      milo-client {{ extractBaseTag(satelliteByIp[client.ip].app_version) || t('updates.notAvailable') }}
+                      milo-client {{ extractBaseTag(satelliteByMacId[client.mac_id].app_version) || t('updates.notAvailable') }}
                       <template
-                        v-if="satelliteByIp[client.ip].app_update_available && !isSatelliteAppUpdating(satelliteByIp[client.ip].hostname) && !isSatelliteAppUpdateCompleted(satelliteByIp[client.ip].hostname)">
-                        <span class="version-new">> {{ extractBaseTag(satelliteByIp[client.ip].server_version) }}</span>
+                        v-if="satelliteByMacId[client.mac_id].app_update_available && !isSatelliteAppUpdating(client.mac_id) && !isSatelliteAppUpdateCompleted(client.mac_id)">
+                        <span class="version-new">> {{ extractBaseTag(satelliteByMacId[client.mac_id].server_version) }}</span>
                       </template>
                     </span>
                   </div>
 
                   <Button
-                    v-if="isSatelliteAppUpdating(satelliteByIp[client.ip].hostname) || debugForceUpdating || (satelliteByIp[client.ip].app_update_available && satelliteByIp[client.ip].online && !isSatelliteAppUpdateCompleted(satelliteByIp[client.ip].hostname))"
+                    v-if="isSatelliteAppUpdating(client.mac_id) || debugForceUpdating || (satelliteByMacId[client.mac_id].app_update_available && satelliteByMacId[client.mac_id].online && !isSatelliteAppUpdateCompleted(client.mac_id))"
                     size="small" variant="brand" class="program-button"
-                    :loading="isSatelliteAppUpdating(satelliteByIp[client.ip].hostname) || debugForceUpdating"
-                    @click="startSatelliteAppUpdate(satelliteByIp[client.ip].hostname)"
+                    :loading="isSatelliteAppUpdating(client.mac_id) || debugForceUpdating"
+                    @click="startSatelliteAppUpdate(client.mac_id)"
                     :disabled="debugForceUpdating || isAnyUpdateInProgress()">
-                    {{ (isSatelliteAppUpdating(satelliteByIp[client.ip].hostname) || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
+                    {{ (isSatelliteAppUpdating(client.mac_id) || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
                   </Button>
                   <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
                     {{ t('updates.upToDate') }}
@@ -178,21 +178,21 @@
                     <AppIcon name="multiroom" :size="48" class="program-icon" />
                     <span class="program-name heading-4">Multiroom Client</span>
                     <span class="program-version text-mono">
-                      snapclient {{ satelliteByIp[client.ip].snapclient_version || t('updates.notAvailable') }}
+                      snapclient {{ satelliteByMacId[client.mac_id].snapclient_version || t('updates.notAvailable') }}
                       <template
-                        v-if="satelliteByIp[client.ip].update_available && !isSatelliteUpdating(satelliteByIp[client.ip].hostname) && !isSatelliteUpdateCompleted(satelliteByIp[client.ip].hostname)">
-                        <span class="version-new">> {{ satelliteByIp[client.ip].latest_version }}</span>
+                        v-if="satelliteByMacId[client.mac_id].update_available && !isSatelliteUpdating(client.mac_id) && !isSatelliteUpdateCompleted(client.mac_id)">
+                        <span class="version-new">> {{ satelliteByMacId[client.mac_id].latest_version }}</span>
                       </template>
                     </span>
                   </div>
 
                   <Button
-                    v-if="isSatelliteUpdating(satelliteByIp[client.ip].hostname) || debugForceUpdating || (satelliteByIp[client.ip].update_available && satelliteByIp[client.ip].online && !isSatelliteUpdateCompleted(satelliteByIp[client.ip].hostname))"
+                    v-if="isSatelliteUpdating(client.mac_id) || debugForceUpdating || (satelliteByMacId[client.mac_id].update_available && satelliteByMacId[client.mac_id].online && !isSatelliteUpdateCompleted(client.mac_id))"
                     size="small" variant="brand" class="program-button"
-                    :loading="isSatelliteUpdating(satelliteByIp[client.ip].hostname) || debugForceUpdating"
-                    @click="startSatelliteUpdate(satelliteByIp[client.ip].hostname)"
+                    :loading="isSatelliteUpdating(client.mac_id) || debugForceUpdating"
+                    @click="startSatelliteUpdate(client.mac_id)"
                     :disabled="debugForceUpdating || isAnyUpdateInProgress()">
-                    {{ (isSatelliteUpdating(satelliteByIp[client.ip].hostname) || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
+                    {{ (isSatelliteUpdating(client.mac_id) || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
                   </Button>
                   <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
                     {{ t('updates.upToDate') }}
@@ -279,12 +279,12 @@ const localProgramsError = ref(false);
 const satellites = ref(null); // null = not loaded, [] = loaded empty, [...] = loaded
 const satellitesError = ref(false);
 
-// Lookup map: IP → satellite data (for matching anticipated clients to loaded satellites)
-const satelliteByIp = computed(() => {
+// Lookup map: mac_id → satellite data (for matching anticipated clients to loaded satellites)
+const satelliteByMacId = computed(() => {
   if (!satellites.value) return {};
   const map = {};
   for (const sat of satellites.value) {
-    map[sat.ip] = sat;
+    map[sat.mac_id] = sat;
   }
   return map;
 });
@@ -294,8 +294,7 @@ const anticipatedSatellites = computed(() =>
   multiroomStore.clientList.filter(c => {
     if (c.is_local) return false;
     if (c.online) return true;
-    const sat = satelliteByIp.value[c.ip];
-    return sat && (isSatelliteUpdating(sat.hostname) || isSatelliteAppUpdating(sat.hostname));
+    return isSatelliteUpdating(c.mac_id) || isSatelliteAppUpdating(c.mac_id);
   })
 );
 
@@ -418,57 +417,57 @@ async function loadSatellites() {
   }
 }
 
-function isSatelliteUpdating(hostname) {
-  return satelliteUpdateStates.value[hostname]?.updating || false;
+function isSatelliteUpdating(macId) {
+  return satelliteUpdateStates.value[macId]?.updating || false;
 }
 
-function isSatelliteUpdateCompleted(hostname) {
-  return satelliteCompletedUpdates.value.has(hostname);
+function isSatelliteUpdateCompleted(macId) {
+  return satelliteCompletedUpdates.value.has(macId);
 }
 
-async function startSatelliteUpdate(hostname) {
-  if (isSatelliteUpdating(hostname)) return;
+async function startSatelliteUpdate(macId) {
+  if (isSatelliteUpdating(macId)) return;
 
   try {
-    satelliteUpdateStates.value[hostname] = { updating: true };
+    satelliteUpdateStates.value[macId] = { updating: true };
 
-    const response = await axios.post(`/api/programs/satellites/${hostname}/update`);
+    const response = await axios.post(`/api/programs/satellites/${macId}/update`);
 
     if (response.data.status !== 'success') {
       throw new Error(response.data.message || 'Failed to start update');
     }
 
   } catch (error) {
-    console.error(`Error starting update for satellite ${hostname}:`, error);
-    delete satelliteUpdateStates.value[hostname];
+    console.error(`Error starting update for satellite ${macId}:`, error);
+    delete satelliteUpdateStates.value[macId];
   }
 }
 
 // === SATELLITE APP UPDATES ===
 
-function isSatelliteAppUpdating(hostname) {
-  return satelliteAppUpdateStates.value[hostname]?.updating || false;
+function isSatelliteAppUpdating(macId) {
+  return satelliteAppUpdateStates.value[macId]?.updating || false;
 }
 
-function isSatelliteAppUpdateCompleted(hostname) {
-  return satelliteAppCompletedUpdates.value.has(hostname);
+function isSatelliteAppUpdateCompleted(macId) {
+  return satelliteAppCompletedUpdates.value.has(macId);
 }
 
-async function startSatelliteAppUpdate(hostname) {
-  if (isSatelliteAppUpdating(hostname)) return;
+async function startSatelliteAppUpdate(macId) {
+  if (isSatelliteAppUpdating(macId)) return;
 
   try {
-    satelliteAppUpdateStates.value[hostname] = { updating: true };
+    satelliteAppUpdateStates.value[macId] = { updating: true };
 
-    const response = await axios.post(`/api/programs/satellites/${hostname}/update-app`);
+    const response = await axios.post(`/api/programs/satellites/${macId}/update-app`);
 
     if (response.data.status !== 'success') {
       throw new Error(response.data.message || 'Failed to start app update');
     }
 
   } catch (error) {
-    console.error(`Error starting app update for satellite ${hostname}:`, error);
-    delete satelliteAppUpdateStates.value[hostname];
+    console.error(`Error starting app update for satellite ${macId}:`, error);
+    delete satelliteAppUpdateStates.value[macId];
   }
 }
 
@@ -500,37 +499,37 @@ const wsListeners = {
     }
   },
   'satellite_update_progress': (msg) => {
-    const { hostname, status } = msg.data;
-    if (hostname && satelliteUpdateStates.value[hostname]) {
-      satelliteUpdateStates.value[hostname].updating = status === 'updating';
+    const { mac_id, status } = msg.data;
+    if (mac_id && satelliteUpdateStates.value[mac_id]) {
+      satelliteUpdateStates.value[mac_id].updating = status === 'updating';
     }
   },
   'satellite_update_complete': (msg) => {
-    const { hostname, success, message, error, new_version } = msg.data;
+    const { mac_id, success } = msg.data;
 
-    if (hostname) {
-      delete satelliteUpdateStates.value[hostname];
+    if (mac_id) {
+      delete satelliteUpdateStates.value[mac_id];
 
       if (success) {
-        satelliteCompletedUpdates.value.add(hostname);
+        satelliteCompletedUpdates.value.add(mac_id);
         loadSatellites();
       }
     }
   },
   'satellite_app_update_progress': (msg) => {
-    const { hostname, status } = msg.data;
-    if (hostname && satelliteAppUpdateStates.value[hostname]) {
-      satelliteAppUpdateStates.value[hostname].updating = status === 'updating';
+    const { mac_id, status } = msg.data;
+    if (mac_id && satelliteAppUpdateStates.value[mac_id]) {
+      satelliteAppUpdateStates.value[mac_id].updating = status === 'updating';
     }
   },
   'satellite_app_update_complete': (msg) => {
-    const { hostname, success, message, error, new_version } = msg.data;
+    const { mac_id, success } = msg.data;
 
-    if (hostname) {
-      delete satelliteAppUpdateStates.value[hostname];
+    if (mac_id) {
+      delete satelliteAppUpdateStates.value[mac_id];
 
       if (success) {
-        satelliteAppCompletedUpdates.value.add(hostname);
+        satelliteAppCompletedUpdates.value.add(mac_id);
         loadSatellites();
       }
     }

@@ -1,0 +1,260 @@
+<!-- frontend/src/components/settings/categories/multiroom/ConfigureSpeaker.vue -->
+<!-- Form for configuring a pending (unconfigured) speaker -->
+<template>
+  <div class="configure-speaker">
+    <!-- Rebooting State -->
+    <MessageContent
+      v-if="isRebooting"
+      icon="multiroom"
+      :loading="!rebootTimedOut"
+      :loading-delay="0"
+      :title="t('multiroom.pending.rebootingMessage')"
+      :subtitle="rebootTimedOut ? t('multiroom.pending.rebootTimeout') : t('multiroom.pending.rebootingDescription')"
+    />
+
+    <!-- Error State -->
+    <MessageContent
+      v-else-if="error"
+      icon="multiroom"
+      :title="t('multiroom.pending.errorTitle')"
+      :subtitle="error"
+      :cta-label="t('multiroom.pending.retry')"
+      :cta-click="resetError"
+    />
+
+    <!-- Configuration Form -->
+    <template v-else>
+      <!-- Speaker Name -->
+      <SettingsSection :title="t('multiroom.speakerName')">
+        <InputText
+          v-model="speakerName"
+          :placeholder="t('multiroom.pending.namePlaceholder')"
+          size="medium"
+          :maxlength="16"
+        />
+      </SettingsSection>
+
+      <!-- Audio Card Selection -->
+      <SettingsSection :title="t('multiroom.pending.audioCard')">
+        <div class="audio-list">
+          <ListItemButton
+            v-for="card in audioCardOptions"
+            :key="card.value"
+            :title="card.label"
+            variant="background"
+            action="radio"
+            :model-value="selectedAudioId === card.value"
+            @click="selectedAudioId = card.value; confirmReboot = false"
+          />
+        </div>
+      </SettingsSection>
+
+      <!-- Speaker Type Selection -->
+      <SettingsSection :title="t('multiroom.speakerType')">
+        <div class="speaker-types">
+          <ListItemButton
+            v-for="type in speakerTypes"
+            :key="type.value"
+            :title="type.label"
+            variant="background"
+            action="radio"
+            icon-variant="standard"
+            :model-value="selectedSpeakerType === type.value"
+            @click="selectedSpeakerType = type.value"
+          >
+            <template #icon>
+              <SvgIcon :name="type.icon" :size="28" />
+            </template>
+          </ListItemButton>
+        </div>
+      </SettingsSection>
+
+      <!-- Apply Button (two-step confirm like HardwareSettings) -->
+      <Button
+        :variant="confirmReboot ? 'important' : 'brand'"
+        size="medium"
+        class="apply-button-sticky"
+        :loading="isApplying"
+        :disabled="!selectedAudioId || isApplying"
+        @click="handleApply"
+      >
+        {{ applyButtonLabel }}
+      </Button>
+    </template>
+  </div>
+</template>
+
+<script setup>
+import { ref, computed, onMounted, watch, onUnmounted } from 'vue';
+import { useI18n } from '@/services/i18n';
+import { useMultiroomStore } from '@/stores/multiroomStore';
+import { useHardwareConfig } from '@/composables/useHardwareConfig';
+import InputText from '@/components/ui/InputText.vue';
+import ListItemButton from '@/components/ui/ListItemButton.vue';
+import Button from '@/components/ui/Button.vue';
+import SvgIcon from '@/components/ui/SvgIcon.vue';
+import MessageContent from '@/components/ui/MessageContent.vue';
+import SettingsSection from '@/components/settings/SettingsSection.vue';
+
+const props = defineProps({
+  macId: {
+    type: String,
+    required: true,
+  },
+});
+
+const emit = defineEmits(['back']);
+
+const { t } = useI18n();
+const multiroomStore = useMultiroomStore();
+const { loadHardwareConfig } = useHardwareConfig();
+
+// Form state
+const speakerName = ref('');
+const selectedAudioId = ref('');
+const selectedSpeakerType = ref('bookshelf');
+
+// UI state
+const isApplying = ref(false);
+const isRebooting = ref(false);
+const rebootTimedOut = ref(false);
+const confirmReboot = ref(false);
+const error = ref('');
+const audioCards = ref([]);
+let rebootTimeoutId = null;
+const REBOOT_TIMEOUT_MS = 120000; // 2 minutes
+
+// Filter out "none" — the whole point of this form is to configure audio
+const audioCardOptions = computed(() =>
+  audioCards.value.filter(card => card.value !== 'none')
+);
+
+// Speaker type options (same as ClientEdit)
+const speakerTypes = computed(() => [
+  { value: 'satellite', label: t('multiroom.speakerTypes.satellite'), icon: 'speakerSatellite' },
+  { value: 'bookshelf', label: t('multiroom.speakerTypes.bookshelf'), icon: 'speakerShelf' },
+  { value: 'tower', label: t('multiroom.speakerTypes.tower'), icon: 'speakerColumn' },
+  { value: 'subwoofer', label: t('multiroom.speakerTypes.subwoofer'), icon: 'speakerSub' },
+]);
+
+// Watch for the pending client being removed (means it appeared in Snapcast)
+const stopWatch = watch(
+  () => multiroomStore.pendingClients.get(props.macId),
+  (newVal) => {
+    if (isRebooting.value && !newVal) {
+      // Client moved from pending to real registry — success
+      emit('back');
+    }
+  },
+);
+
+async function loadAudioCards() {
+  const config = await loadHardwareConfig(true);
+  if (config?.options?.audio_cards) {
+    audioCards.value = config.options.audio_cards;
+    return true;
+  }
+  error.value = t('multiroom.pending.errorLoadingHardware');
+  return false;
+}
+
+async function resetError() {
+  error.value = '';
+  if (audioCards.value.length === 0) {
+    await loadAudioCards();
+  }
+}
+
+const applyButtonLabel = computed(() => {
+  if (isApplying.value) return t('multiroom.pending.applying');
+  if (confirmReboot.value) return t('multiroom.pending.confirmReboot');
+  return t('multiroom.pending.applyAndReboot');
+});
+
+function handleApply() {
+  if (!confirmReboot.value) {
+    confirmReboot.value = true;
+    return;
+  }
+  applyConfiguration();
+}
+
+async function applyConfiguration() {
+  if (!selectedAudioId.value || isApplying.value) return;
+
+  isApplying.value = true;
+  error.value = '';
+
+  try {
+    await multiroomStore.configurePendingClient(props.macId, {
+      name: speakerName.value.trim() || null,
+      speaker_type: selectedSpeakerType.value,
+      audio_id: selectedAudioId.value,
+    });
+    isRebooting.value = true;
+    rebootTimeoutId = setTimeout(() => {
+      rebootTimedOut.value = true;
+    }, REBOOT_TIMEOUT_MS);
+  } catch (e) {
+    error.value = e?.response?.data?.detail || t('multiroom.pending.errorGeneric');
+  } finally {
+    isApplying.value = false;
+  }
+}
+
+onMounted(async () => {
+  // Load audio card options from hardware registry
+  const loaded = await loadAudioCards();
+  if (!loaded) return;
+
+  // Pre-fill from pending client data
+  const client = multiroomStore.pendingClients.get(props.macId);
+  if (client) {
+    speakerName.value = client.name || '';
+    selectedSpeakerType.value = client.speaker_type || 'bookshelf';
+    if (client.audio_id && client.audio_id !== 'none') {
+      selectedAudioId.value = client.audio_id;
+    }
+  }
+});
+
+onUnmounted(() => {
+  stopWatch();
+  if (rebootTimeoutId) clearTimeout(rebootTimeoutId);
+});
+</script>
+
+<style scoped>
+.configure-speaker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-03);
+}
+
+.audio-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-01);
+}
+
+.speaker-types {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-01);
+}
+
+.apply-button-sticky {
+  position: sticky;
+  bottom: 0;
+  width: 100%;
+  z-index: 10;
+}
+
+/* Mobile adjustments */
+@media (max-aspect-ratio: 4/3) {
+  .audio-list,
+  .speaker-types {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

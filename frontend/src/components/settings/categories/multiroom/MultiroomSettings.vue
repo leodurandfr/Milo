@@ -6,13 +6,48 @@
           :icon="isLoading ? null : 'multiroom'" :title="messageTitle" />
         <!-- SETTINGS: Active and ready -->
         <SettingsContainer v-else key="settings">
+          <!-- Pending Speakers Section -->
+          <SettingsSection v-if="pendingClientsList.length > 0">
+            <template #header>
+              <SectionHeader :title="t('multiroom.pending.title')" />
+            </template>
+            <div class="pending-clients">
+              <ListItemButton
+                v-for="client in pendingClientsList"
+                :key="client.mac_id"
+                variant="background"
+                icon-variant="standard"
+                :action="multiroomClientStore.isClientConfiguring(client.mac_id) ? 'none' : 'caret'"
+                :disabled="multiroomClientStore.isClientConfiguring(client.mac_id)"
+                @click="handleConfigureSpeaker(client.mac_id)"
+              >
+                <template #icon>
+                  <div class="pending-icon">
+                    <SvgIcon name="speakerShelf" :size="28" />
+                  </div>
+                </template>
+                <template #title>
+                  <div class="speaker-title">
+                    <span>{{ client.name || client.mac_id }}</span>
+                    <span v-if="multiroomClientStore.isClientConfiguring(client.mac_id)" class="text-mono-small speaker-title__status speaker-title__status--configuring">
+                      {{ t('multiroom.pending.rebooting') }}
+                    </span>
+                    <span v-else class="text-mono-small speaker-title__status">
+                      {{ t('multiroom.pending.notConfigured') }}
+                    </span>
+                  </div>
+                </template>
+              </ListItemButton>
+            </div>
+          </SettingsSection>
+
           <!-- Zones & Speakers Section -->
           <SettingsSection>
             <template #header>
               <SectionHeader :title="t('multiroom.zonesAndSpeakers')">
                 <template #actions>
                   <Button v-if="ungroupedClients.length >= 2" variant="brand" size="small" @click="handleCreateZone">
-                    {{ t('equalizer.zones.createZone', 'Create Zone') }}
+                    {{ t('equalizer.zones.createZone') }}
                   </Button>
                 </template>
               </SectionHeader>
@@ -110,6 +145,7 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import Button from '@/components/ui/Button.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
+import ListItemButton from '@/components/ui/ListItemButton.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import SpeakerListItem from '@/components/settings/categories/multiroom/SpeakerListItem.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
@@ -119,7 +155,7 @@ import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SectionHeader from '@/components/settings/SectionHeader.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 
-const emit = defineEmits(['edit-zone', 'create-zone', 'edit-client']);
+const emit = defineEmits(['edit-zone', 'create-zone', 'edit-client', 'configure-speaker']);
 
 const { t } = useI18n();
 const snapcastStore = useSnapcastStore();
@@ -189,7 +225,15 @@ const ungroupedClients = computed(() => {
     }));
 });
 
+// Pending clients list
+const pendingClientsList = computed(() => multiroomClientStore.pendingClientList);
+
 // Navigation handlers - emit to parent (SettingsModal)
+function handleConfigureSpeaker(macId) {
+  if (multiroomClientStore.isClientConfiguring(macId)) return;
+  emit('configure-speaker', macId);
+}
+
 function handleEditZone(groupId) {
   emit('edit-zone', groupId);
 }
@@ -250,11 +294,12 @@ const codecOptions = [
 // === MULTIROOM - CLIENTS ===
 
 async function loadMultiroomData() {
-  // Load clients and server config from the store
+  // Load clients, server config, and pending clients
   // Zone/client data comes from multiroomStore (initialized in App.vue)
   await Promise.all([
     snapcastStore.loadClients(),
-    snapcastStore.loadServerConfig()
+    snapcastStore.loadServerConfig(),
+    multiroomClientStore.fetchPendingClients(),
   ]);
   // Volume data comes from unifiedAudioStore.volumeState via WebSocket
 }
@@ -284,9 +329,12 @@ watch(() => multiroomClientStore.transitionState, (newState, oldState) => {
 });
 
 onMounted(async () => {
-  // Load only if multiroom is enabled
   if (isMultiroomActive.value) {
+    // loadMultiroomData() already fetches pending clients
     await loadMultiroomData();
+  } else {
+    // Fetch pending clients even when multiroom is off (they register regardless)
+    multiroomClientStore.fetchPendingClients();
   }
 });
 </script>
@@ -382,6 +430,33 @@ onMounted(async () => {
   bottom: 0;
   width: 100%;
   z-index: 10;
+}
+
+/* Pending clients */
+.pending-clients {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-01);
+}
+
+.pending-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.6;
+}
+
+.speaker-title {
+  display: flex;
+  flex-direction: column;
+}
+
+.speaker-title__status {
+  color: var(--color-text-secondary);
+}
+
+.speaker-title__status--configuring {
+  color: var(--color-brand);
 }
 
 /* Responsive */

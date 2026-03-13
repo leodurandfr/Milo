@@ -27,6 +27,14 @@ export const useMultiroomStore = defineStore('multiroom', () => {
   // Zones indexed by zone_id
   const zones = ref(new Map());
 
+  // Pending clients (not yet in Snapcast) indexed by mac_id
+  const pendingClients = ref(new Map());
+
+  // Clients currently being configured/rebooting (for UI state)
+  const configuringClients = ref(new Set());
+  const configuringTimeouts = {};
+  const CONFIGURING_TIMEOUT_MS = 120000; // 2 minutes
+
   // Loading state
   const isLoading = ref(false);
   const isInitialized = ref(false);
@@ -99,6 +107,11 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * Number of zones.
    */
   const zoneCount = computed(() => zones.value.size);
+
+  /**
+   * Pending clients as an array.
+   */
+  const pendingClientList = computed(() => Array.from(pendingClients.value.values()));
 
   // === CACHE MANAGEMENT ===
 
@@ -330,6 +343,23 @@ export const useMultiroomStore = defineStore('multiroom', () => {
         }
         break;
 
+      case 'pending_client_changed':
+        if (data.action === 'registered' || data.action === 'updated') {
+          if (data.client?.mac_id) {
+            const next = new Map(pendingClients.value);
+            next.set(data.client.mac_id, data.client);
+            pendingClients.value = next;
+          }
+        } else if (data.action === 'removed' && data.mac_id) {
+          const nextPending = new Map(pendingClients.value);
+          nextPending.delete(data.mac_id);
+          pendingClients.value = nextPending;
+          const nextConfiguring = new Set(configuringClients.value);
+          nextConfiguring.delete(data.mac_id);
+          configuringClients.value = nextConfiguring;
+        }
+        break;
+
       default:
         // Ignore unknown event types silently
         // Note: equalizer_changed and crossover_changed are handled by equalizerStore
@@ -522,6 +552,71 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     });
   }
 
+  // === PENDING CLIENTS ===
+
+  /**
+   * Fetch all pending clients from the backend.
+   */
+  async function fetchPendingClients() {
+    return apiCall('store', 'Error fetching pending clients', async () => {
+      const response = await axios.get('/api/multiroom/pending-clients');
+      const data = response.data.clients || {};
+      pendingClients.value = new Map(Object.entries(data));
+    });
+  }
+
+  /**
+   * Configure a pending client's audio and reboot it.
+   * @param {string} macId - Client MAC address
+   * @param {Object} config - { name, speaker_type, audio_id }
+   */
+  async function configurePendingClient(macId, config) {
+    // Add to configuring set BEFORE the request to avoid race with WebSocket events
+    configuringClients.value = new Set([...configuringClients.value, macId]);
+    try {
+      const result = await apiCall('store', 'Error configuring pending client', async () => {
+        const response = await axios.post(
+          `/api/multiroom/pending-clients/${encodeURIComponent(macId)}/configure`,
+          config,
+        );
+        return response.data;
+      }, { rethrow: true });
+
+      // Auto-clear configuring state after timeout (cleanup if client never comes back)
+      configuringTimeouts[macId] = setTimeout(() => {
+        clearConfiguringClient(macId);
+      }, CONFIGURING_TIMEOUT_MS);
+
+      return result;
+    } catch (e) {
+      // Remove from configuring set on failure
+      const next = new Set(configuringClients.value);
+      next.delete(macId);
+      configuringClients.value = next;
+      throw e;
+    }
+  }
+
+  /**
+   * Check if a pending client is currently being configured/rebooting.
+   */
+  function isClientConfiguring(macId) {
+    return configuringClients.value.has(macId);
+  }
+
+  /**
+   * Remove a client from the configuring set and clear its timeout.
+   */
+  function clearConfiguringClient(macId) {
+    if (configuringTimeouts[macId]) {
+      clearTimeout(configuringTimeouts[macId]);
+      delete configuringTimeouts[macId];
+    }
+    const next = new Set(configuringClients.value);
+    next.delete(macId);
+    configuringClients.value = next;
+  }
+
   // === SYNC STATUS HELPERS ===
 
   /**
@@ -560,6 +655,8 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     // State
     clients,
     zones,
+    pendingClients,
+    configuringClients,
     isLoading,
     isInitialized,
     transitionState,
@@ -570,6 +667,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     onlineClients,
     onlineClientIds,
     zoneList,
+    pendingClientList,
     clientCount,
     zoneCount,
     isTransitioning,
@@ -606,6 +704,12 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     updateClientType,
     updateClient,
     deleteClient,
+
+    // Pending clients
+    fetchPendingClients,
+    configurePendingClient,
+    isClientConfiguring,
+    clearConfiguringClient,
 
     // Sync status
     hasSyncError,
