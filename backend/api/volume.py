@@ -212,7 +212,7 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
         Validate that a client exists in the registry.
 
         Args:
-            client_id: Client equalizer ID (hostname like "local" or "milo-client-01")
+            client_id: Client equalizer ID (mac_id, e.g., "local" or "dc:a6:32:7e:d3:43")
 
         Returns:
             Client data dict if found
@@ -261,7 +261,7 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
         Set volume for a specific client.
 
         Args:
-            client_id: Client equalizer ID (e.g., "local", "milo-client-01")
+            client_id: Client equalizer ID (mac_id, e.g., "local" or "dc:a6:32:7e:d3:43")
             request: Volume in dB (-80 to 0)
 
         Returns:
@@ -293,7 +293,7 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
         Set mute state for a specific client.
 
         Args:
-            client_id: Client equalizer ID (e.g., "local", "milo-client-01")
+            client_id: Client equalizer ID (mac_id, e.g., "local" or "dc:a6:32:7e:d3:43")
             request: Mute state (true/false)
 
         Returns:
@@ -321,7 +321,7 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
         Get volume state for a specific client.
 
         Args:
-            client_id: Client equalizer ID (e.g., "local", "milo-client-01")
+            client_id: Client equalizer ID (mac_id, e.g., "local" or "dc:a6:32:7e:d3:43")
 
         Returns:
             Client volume state including volume_db, mute, and online status

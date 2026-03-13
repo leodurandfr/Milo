@@ -505,7 +505,7 @@ class VolumeStateStore:
         Register or update a client.
 
         Args:
-            hostname: Client hostname (e.g., 'local', 'milo-client-01')
+            hostname: Client hostname (e.g., 'local', 'milo-client')
             volume_db: Volume in dB (None = keep existing or use default)
             mute: Initial mute state
             available: Initial availability
