@@ -559,7 +559,7 @@ function stopOriginCheck() {
 function focusDisplayInput() {
   nextTick(() => {
     if (displayInput.value) {
-      displayInput.value.focus();
+      displayInput.value.focus({ preventScroll: true });
       const len = displayInput.value.value.length;
       displayInput.value.setSelectionRange(len, len);
     }
