@@ -245,13 +245,13 @@ class EqualizerSettings:
         filters: List of EQ filter configurations (typed EqFilter objects)
         compressor: Compressor settings
         loudness: Loudness compensation settings
-        active_preset: Currently active EQ preset ID ("custom" or preset name)
+        active_preset: Currently active EQ preset ID ("flat", "custom", or preset name)
     """
     enabled: bool = True
     filters: List[EqFilter] = field(default_factory=list)
     compressor: CompressorSettings = field(default_factory=CompressorSettings)
     loudness: LoudnessSettings = field(default_factory=LoudnessSettings)
-    active_preset: Optional[str] = "custom"
+    active_preset: Optional[str] = "flat"
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -294,7 +294,7 @@ class EqualizerSettings:
             filters=filters,
             compressor=compressor,
             loudness=loudness,
-            active_preset=data.get("active_preset", "custom")
+            active_preset=data.get("active_preset", "flat")
         )
 
     @classmethod
@@ -326,7 +326,7 @@ class EqualizerSettings:
             filters=filters,
             compressor=CompressorSettings(),  # disabled by default
             loudness=LoudnessSettings(),      # disabled by default
-            active_preset="custom"            # custom preset by default
+            active_preset="flat"              # flat preset by default
         )
 
 

@@ -23,7 +23,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   const filters = ref([]);
   const builtinPresets = ref([]); // Array of { id, gains } objects
   const customGains = ref([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]); // Saved custom EQ gains
-  const activePreset = ref(null); // Preset ID ('custom' or builtin ID)
+  const activePreset = ref('flat'); // Preset ID ('flat' default, 'custom' or builtin ID)
   const state = ref('disconnected'); // disconnected, inactive, running, paused
   const isLoading = ref(false);
   const isUpdating = ref(false);
@@ -222,7 +222,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       const response = await axios.get('/api/equalizer/presets');
       builtinPresets.value = response.data.presets || [];
       customGains.value = response.data.custom_gains || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-      activePreset.value = response.data.active_preset || 'custom';
+      activePreset.value = response.data.active_preset || 'flat';
       return builtinPresets.value;
     }, { fallback: [] });
   }
@@ -1363,7 +1363,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     }
     loudness.value = { enabled: false, low_boost: 5, high_boost: 5 };
     compressor.value = { enabled: false, threshold: -20, ratio: 4, attack: 10, release: 100, makeup_gain: 0 };
-    activePreset.value = 'custom';
+    activePreset.value = 'flat';
     isPresetEdited.value = false;
     originalPresetGains.value = null;
   }

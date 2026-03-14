@@ -217,7 +217,7 @@ const currentPresetValue = computed(() => {
   if (equalizerStore.isCustomMode && equalizerStore.activePreset !== 'custom') {
     return 'custom';
   }
-  return equalizerStore.activePreset || 'custom';
+  return equalizerStore.activePreset || 'flat';
 });
 
 // When preset is edited, override dropdown display to show "Edited"
