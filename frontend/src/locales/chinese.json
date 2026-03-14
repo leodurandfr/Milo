@@ -1,6 +1,7 @@
 {
   "app": {
-    "connectionUnavailable": "连接不可用"
+    "connectionUnavailable": "连接不可用",
+    "connecting": "正在连接..."
   },
   "notification": {
     "connectionLostTitle": "连接丢失",
@@ -36,9 +37,7 @@
       "favoritesTitle": "喜爱的广播",
       "discoverTitle": "发现广播",
       "searchPlaceholder": "搜索",
-      "allCountries": "所有国家",
       "loadingCountries": "正在加载国家...",
-      "allGenres": "所有类型",
       "loadingStations": "正在加载电台...",
       "connectionError": "连接错误",
       "cannotLoadStations": "无法加载电台",
@@ -46,24 +45,20 @@
       "noStationsFound": "未找到电台",
       "minCharactersRequired": "请输入至少3个字符进行搜索",
       "noFavorites": "没有喜爱的广播",
-      "stationNoImage": "无图片的电台",
       "playRadio": "收听",
       "stopRadio": "停止",
       "loadingMore": "加载中..."
     }
   },
   "multiroom": {
-    "settings": "多房间配置",
     "disabled": "多房间未启用",
     "starting": "正在启动多房间",
-    "noClients": "没有客户端连接",
     "zonesAndSpeakers": "音频系统",
     "individualSpeakers": "独立系统",
     "loadingSpeakers": "正在加载系统...",
     "noSpeakers": "没有系统连接",
     "restarting": "正在重启多房间...",
     "error": "激活多房间时出错",
-    "timeout_error": "激活超时，请重试。",
     "editSpeaker": "编辑音频系统",
     "speakerName": "系统名称",
     "speakerType": "扬声器类型",
@@ -106,66 +101,26 @@
     "speakerOffline": "「{name}」已离线",
     "speakerOfflineDescription": "此音频系统当前未连接到Milō。<br>IP：{ip}",
     "deleteSpeaker": "删除此音频系统",
-    "offline": "离线",
-    "syncing": "同步中...",
-    "syncError": "同步错误",
-    "retrySync": "重试"
+    "offline": "离线"
   },
   "equalizer": {
     "title": "Equalizer",
-    "disabled": "Equalizer 已禁用",
     "effects_disabled": "Equalizer 效果已禁用",
     "selectPreset": "预设",
-    "selectTarget": "设备",
     "zones": {
-      "title": "区域",
-      "configure": "配置区域",
       "zoneName": "区域名称",
       "zoneNamePlaceholder": "例如：客厅",
       "selectClients": "选择音频系统",
       "minimumClients": "一个区域至少需要2个音频系统。",
       "createZone": "创建区域",
       "editZone": "编辑区域",
-      "updateZone": "更新",
-      "deleteZone": "删除区域",
-      "description": "链接系统以创建具有共享DSP设置的区域。更改将应用于所有成员。",
-      "noZones": "尚未创建区域。创建区域以链接多个系统。",
-      "inOtherZone": "在其他区域中",
-      "subwoofer": "低音炮",
-      "crossover": "分频器",
-      "crossoverFrequency": "分频频率",
-      "crossoverHint": "已对扬声器应用高通滤波器。将低音炮的分频点设置为相同频率。",
-      "manageZone": "管理区域",
-      "addToZone": "添加到区域"
+      "deleteZone": "删除区域"
     },
     "equalizer": {
       "title": "10 频段"
     },
-    "advanced": {
-      "title": "高级效果"
-    },
-    "filters": "滤波器",
-    "addFilter": "添加滤波器",
-    "removeFilter": "移除滤波器",
-    "resetFilters": "重置",
-    "frequency": "频率",
-    "gain": "增益",
-    "qFactor": "Q值",
-    "filterType": "类型",
-    "filterTypes": {
-      "peaking": "峰值",
-      "lowshelf": "低频搁架",
-      "highshelf": "高频搁架",
-      "lowpass": "低通",
-      "highpass": "高通",
-      "notch": "陷波",
-      "allpass": "全通"
-    },
-    "showAdvanced": "高级选项",
-    "hideAdvanced": "隐藏选项",
     "compressor": {
       "title": "压缩器",
-      "enable": "启用压缩器",
       "threshold": "阈值",
       "ratio": "比率",
       "attack": "起音",
@@ -174,14 +129,8 @@
     },
     "loudness": {
       "title": "响度",
-      "enable": "启用响度",
       "lowBoost": "低频增强",
       "highBoost": "高频增强"
-    },
-    "volume": {
-      "title": "音量",
-      "level": "电平",
-      "muted": "静音"
     },
     "presets": {
       "custom": "自定义",
@@ -212,15 +161,8 @@
     "meters": {
       "title": "音频输出电平"
     },
-    "linkedClients": {
-      "title": "链接客户端",
-      "description": "链接的客户端共享相同的DSP设置。更改将应用于所有客户端。",
-      "linked": "已链接",
-      "offline": "离线",
-      "currentGroup": "当前链接：",
-      "link": "链接所选",
-      "unlink": "取消链接"
-    }
+    "connecting": "正在连接...",
+    "syncError": "同步错误"
   },
   "status": {
     "loading": "正在启动...",
@@ -237,7 +179,6 @@
     "disconnecting": "正在断开..."
   },
   "volumeSettings": {
-    "title": "音量",
     "controls": "音量控制",
     "rotaryStep": "每次旋转的音量变化",
     "mobileStep": "移动设备上的音量变化",
@@ -257,7 +198,6 @@
     }
   },
   "screenSettings": {
-    "title": "屏幕",
     "brightness": "亮度",
     "brightnessIntensity": "亮度强度",
     "autoSleep": "屏幕休眠",
@@ -277,9 +217,7 @@
     "rotaryEncoderDescription": "选择连接到旋转编码器的 GPIO 引脚。",
     "applyAndReboot": "应用并重启",
     "confirmReboot": "确认重启",
-    "confirmMessage": "系统将重启以应用硬件更改。",
-    "rebooting": "正在重启...",
-    "rebootingDescription": "Milō 正在重启。此页面将自动重新加载。"
+    "rebooting": "正在重启..."
   },
   "spotifySettings": {
     "autoDisconnect": "自动断开",
@@ -306,15 +244,7 @@
     "userIdPlaceholder": "输入您的 Taddy 用户 ID",
     "apiKey": "API 密钥",
     "apiKeyPlaceholder": "输入您的 Taddy API 密钥",
-    "saveButton": "验证",
     "validateButton": "测试连接",
-    "validating": "测试中...",
-    "saveSuccess": "凭证保存成功",
-    "saveError": "保存凭证时出错",
-    "validationSuccess": "凭证有效！",
-    "validationError": "凭证无效",
-    "validationEmpty": "请填写两个字段",
-    "validationNetworkError": "验证时网络错误",
     "invalidCredentials": "您的 Taddy API 凭证无效",
     "apiUsage": "Taddy API 使用情况",
     "requestsPerMonth": "请求",
@@ -331,76 +261,22 @@
     "snapclientBuffer": "播放器缓冲区 (ms)",
     "codec": "音频编码",
     "chunkSize": "块大小 (ms)",
-    "serverName": "服务器名称",
     "apply": "应用"
   },
   "updates": {
-    "title": "更新",
     "osTitle": "操作系统",
     "programsTitle": "Milō 程序",
     "satelliteProgramsTitle": "Milō Clients",
     "satelliteSectionTitle": "Milō Client 程序",
-    "miloTitle": "Milō 程序",
-    "satellitesTitle": "已连接卫星程序",
-    "checking": "正在检查版本...",
     "error": "加载更新时出错",
     "retry": "重试",
-    "latestVersion": "最新版本",
-    "installed": "已安装",
     "notAvailable": "不可用",
     "update": "更新",
     "updating": "更新中...",
-    "errorDetails": "错误详情",
-    "searchingSatellites": "正在搜索卫星...",
     "errorDetectingSatellites": "检测卫星时出错",
-    "noSatellites": "网络上未检测到卫星",
-    "updatingInit": "正在初始化更新...",
-    "miloApp": "操作系统",
-    "upToDate": "已是最新",
-    "progress": {
-      "creatingBackup": "正在创建备份...",
-      "downloadingGoLibrespot": "正在下载 go-librespot...",
-      "stoppingService": "正在停止服务...",
-      "installingVersion": "正在安装新版本...",
-      "startingService": "正在启动服务...",
-      "verifyingUpdate": "正在验证更新...",
-      "downloadingSnapserver": "正在下载 snapserver...",
-      "downloadingSnapclient": "正在下载 snapclient...",
-      "stoppingMultiroom": "正在停止多房间服务...",
-      "installingSnapserver": "正在安装 snapserver...",
-      "installingSnapclient": "正在安装 snapclient...",
-      "startingMultiroom": "正在启动多房间服务...",
-      "cleaningUp": "正在清理...",
-      "completed": "更新完成！",
-      "startingUpdate": "正在开始更新...",
-      "updateInitiated": "更新已启动...",
-      "updateInProgress": "更新进行中...",
-      "checkingRepository": "正在检查仓库...",
-      "fetchingUpdates": "正在从 GitHub 获取更新...",
-      "checkingLocalChanges": "正在检查本地更改...",
-      "pullingChanges": "正在下载最新更改...",
-      "installingFrontendDeps": "正在安装前端依赖...",
-      "buildingFrontend": "正在编译前端...",
-      "installingPythonDeps": "正在安装 Python 依赖...",
-      "syncingSystemFiles": "正在同步系统文件...",
-      "restartingBackend": "正在重启后端服务...",
-      "restartingKiosk": "正在重启 kiosk...",
-      "rollingBack": "正在回滚到之前版本...",
-      "rollbackRebuilding": "回滚后重新编译...",
-      "rollbackRestarting": "回滚后重启服务...",
-      "rollbackComplete": "回滚完成",
-      "stoppingActiveSource": "正在停止活动音频源...",
-      "rebooting": "正在重启...",
-      "downloadingSource": "下载源代码...",
-      "configuringSource": "配置中...",
-      "compilingSource": "编译中...",
-      "sendingUpdate": "正在向卫星发送更新...",
-      "waitingForRestart": "等待卫星重启..."
-    }
+    "upToDate": "已是最新"
   },
   "info": {
-    "title": "信息",
-    "miloVersion": "Milō 版本",
     "temperature": "温度",
     "ipAddress": "Milō IP",
     "cpu": "CPU",
@@ -408,7 +284,6 @@
     "credits": "致谢"
   },
   "applications": {
-    "title": "应用程序",
     "features": "功能"
   },
   "applicationsSettings": {
@@ -418,35 +293,12 @@
     "done": "完成"
   },
   "clientDetails": {
-    "editClient": "编辑客户端",
-    "viewDetails": "查看客户端详情",
-    "displayName": "显示名称",
-    "currently": "当前",
     "hostname": "主机名",
-    "ipAddress": "IP 地址",
-    "clientName": "客户端名称",
-    "snapclientVersion": "Snapclient 版本",
-    "snapserverVersion": "Snapserver 版本",
-    "connection": "连接",
-    "validate": "验证",
-    "validating": "正在验证...",
-    "good": "良好",
-    "poor": "较差",
-    "unknown": "未知",
-    "loadingDetails": "正在加载详情...",
-    "errorLoadingDetails": "无法加载客户端详情",
-    "errorValidating": "验证更改时出错"
-  },
-  "playback": {
-    "unknownTitle": "未知标题",
-    "unknownArtist": "未知艺术家"
+    "ipAddress": "IP 地址"
   },
   "time": {
-    "5sec": "5 秒",
     "10sec": "10 秒",
-    "15sec": "15秒",
     "30sec": "30 秒",
-    "1min": "1 分钟",
     "2min": "2分",
     "5min": "5分",
     "10min": "10 分钟",
@@ -455,43 +307,21 @@
     "1h": "1小时",
     "2h": "2 h",
     "4h": "4 h",
-    "12h": "12 h",
-    "never": "从不"
+    "12h": "12 h"
   },
   "common": {
     "settings": "设置",
-    "parameters": "设置",
-    "configuration": "配置",
-    "language": "语言",
-    "unknown": "未知",
     "cancel": "取消",
     "save": "保存",
     "saving": "正在保存...",
     "confirm": "确认",
     "restore": "恢复",
     "delete": "删除",
-    "deleting": "删除中...",
-    "modify": "编辑",
-    "back": "返回"
+    "deleting": "删除中..."
   },
   "radio": {
-    "edit_station_title": "编辑 {name}",
-    "station_image_optional": "电台图片（可选）",
-    "click_to_choose": "点击选择",
-    "change_image": "更改图片",
-    "choose_image": "选择图片",
-    "image_formats": "JPG、PNG、WEBP、GIF - 最大 5MB",
-    "station_name": "电台名称",
-    "station_name_placeholder": "例：中国之声",
-    "stream_url": "流媒体URL",
-    "stream_url_placeholder": "例：http://streaming.radio.cn/stream",
     "country": "国家",
     "genre": "类型",
-    "invalid_image_format": "不支持的图片格式。请使用JPG、PNG、WEBP或GIF。",
-    "image_too_large": "图片太大。最大5MB。",
-    "edit_failed": "编辑电台失败",
-    "error_occurred": "发生错误",
-    "saving": "正在保存...",
     "manageStation": {
       "name": "电台名称",
       "namePlaceholder": "例：中国之声",
@@ -509,7 +339,6 @@
       "bitratePlaceholder": "例：128、192、320",
       "add": "添加",
       "adding": "正在添加...",
-      "confirmRestore": "确认恢复",
       "confirmDelete": "确认",
       "loading": "正在加载...",
       "invalidImageFormat": "不支持的图片格式。请使用JPG、PNG、WEBP或GIF。",
@@ -526,14 +355,10 @@
     "unmodifiedFavoritesTitle": "未修改的收藏",
     "modifiedStationsTitle": "已修改的电台",
     "noModifiedStations": "没有已修改的电台",
-    "restoreStationConfirm": "恢复原始电台？",
-    "modificationsWillBeLost": "所有修改将丢失，原始电台将被恢复。",
     "addedStationsTitle": "已添加的电台",
-    "noAddedStations": "尚未添加电台。点击'添加电台'开始。",
     "addStation": "添加电台",
-    "deleteStationConfirm": "删除电台？",
-    "cancel": "取消",
-    "delete": "删除"
+    "trackRecognition": "歌曲识别",
+    "trackRecognitionDescription": "通过 Shazam 识别正在播放的歌曲"
   },
   "podcasts": {
     "podcasts": "播客",
@@ -553,7 +378,6 @@
       "news": "新闻",
       "comedy": "喜剧",
       "trueCrime": "真实犯罪",
-      "tech": "科技",
       "sports": "体育",
       "education": "教育",
       "business": "商业",
@@ -574,25 +398,11 @@
       "tv_and_film": "电视与电影"
     },
     "searchPlaceholder": "搜索",
-    "podcastsCount": "播客 ({count})",
-    "episodesCount": "剧集 ({count})",
     "podcastsTitle": "播客",
     "recentEpisodesTitle": "最近两周的剧集",
-    "loadingMoreResults": "正在加载更多结果...",
     "noResultsFor": "没有找到\"{query}\"的结果",
     "noResults": "没有找到结果",
     "searchPrompt": "搜索播客或剧集",
-    "languages": {
-      "all": "所有语言",
-      "french": "法语",
-      "english": "英语",
-      "spanish": "西班牙语",
-      "german": "德语",
-      "italian": "意大利语",
-      "portuguese": "葡萄牙语",
-      "chinese": "中文",
-      "hindi": "印地语"
-    },
     "duration": {
       "label": "时长",
       "short": "短 (< 15分钟)",
@@ -600,7 +410,6 @@
       "long": "长 (> 45分钟)"
     },
     "languageFilter": {
-      "label": "语言",
       "all": "语言",
       "english": "英语",
       "french": "法语",
@@ -633,18 +442,11 @@
     "loading": "加载中...",
     "noEpisodesInQueue": "队列中没有剧集",
     "noEpisodesInQueueHint": "开始收听剧集，它们将显示在这里",
-    "markComplete": "完成",
-    "remove": "删除",
     "episodesCount2": "剧集",
-    "completed": "已完成",
-    "explicit": "露骨内容",
     "subscribed": "已订阅",
     "subscribe": "订阅",
     "description": "描述",
     "episodesTitle": "剧集",
-    "resume": "继续播放",
-    "listen": "收听",
-    "pause": "暂停",
     "remaining": "剩余",
     "episodeCompleted": "剧集已完成",
     "today": "今天",
@@ -653,7 +455,6 @@
     "weeksAgo": "{count}周前",
     "monthsAgo": "{count}个月前",
     "yearsAgo": "{count}年前",
-    "new": "新",
     "unsubscribe": "取消订阅",
     "credentialsError": "需要 Taddy API 凭据",
     "credentialsErrorHint": "配置您的凭据以访问播客",
@@ -746,15 +547,13 @@
     },
     "screen": {
       "title": "选择您的屏幕",
-      "none": "无屏幕",
-      "rebootNote": "需要重启以应用硬件更改。"
+      "none": "无屏幕"
     },
     "summary": {
       "title": "摘要",
       "language": "语言",
       "audioCard": "声卡",
       "screen": "屏幕",
-      "rebootMessage": "您的系统需要重启以激活声卡和屏幕配置。",
       "applyAndReboot": "应用并重启",
       "confirmReboot": "确认重启",
       "rebooting": "正在重启...",

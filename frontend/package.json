@@ -8,7 +8,12 @@
     "preview": "vite preview",
     "test": "vitest",
     "test:run": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "i18n:check": "node scripts/check-i18n.js",
+    "i18n:check:fix": "node scripts/check-i18n.js --fix",
+    "i18n:check:full": "node scripts/check-i18n.js --unused",
+    "i18n:cleanup": "node scripts/cleanup-i18n.js",
+    "i18n:cleanup:apply": "node scripts/cleanup-i18n.js --apply"
   },
   "dependencies": {
     "axios": "^1.4.0",

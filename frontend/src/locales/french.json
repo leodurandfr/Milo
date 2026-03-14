@@ -1,6 +1,7 @@
 {
   "app": {
-    "connectionUnavailable": "Connexion non disponible"
+    "connectionUnavailable": "Connexion non disponible",
+    "connecting": "Connexion en cours..."
   },
   "notification": {
     "connectionLostTitle": "Connexion perdue",
@@ -36,9 +37,7 @@
       "favoritesTitle": "Radios préférées",
       "discoverTitle": "Découvrir des radios",
       "searchPlaceholder": "Recherche",
-      "allCountries": "Tous les pays",
       "loadingCountries": "Chargement des pays...",
-      "allGenres": "Tous les genres",
       "loadingStations": "Chargement des stations...",
       "connectionError": "Erreur de connexion",
       "cannotLoadStations": "Impossible de charger les stations",
@@ -46,24 +45,20 @@
       "noStationsFound": "Aucune station trouvée",
       "minCharactersRequired": "Entrez au moins 3 caractères pour rechercher",
       "noFavorites": "Aucune radio favorite",
-      "stationNoImage": "Station sans image",
       "playRadio": "Écouter",
       "stopRadio": "Arrêter",
       "loadingMore": "Chargement..."
     }
   },
   "multiroom": {
-    "settings": "Configuration Multiroom",
     "disabled": "Le multiroom est désactivé",
     "starting": "Démarrage du Multiroom",
-    "noClients": "Aucun client n'est connecté",
     "zonesAndSpeakers": "Systèmes audio",
     "individualSpeakers": "Systèmes individuels",
     "loadingSpeakers": "Chargement des systèmes...",
     "noSpeakers": "Aucun système connecté",
     "restarting": "Redémarrage du multiroom en cours...",
     "error": "Erreur lors de l'activation du multiroom",
-    "timeout_error": "Délai d'activation dépassé. Veuillez réessayer.",
     "editSpeaker": "Modifier le système audio",
     "speakerName": "Nom du système",
     "speakerType": "Type d'enceinte",
@@ -106,42 +101,26 @@
     "speakerOffline": "« {name} » est hors ligne",
     "speakerOfflineDescription": "Ce système audio n'est actuellement pas connecté à Milō.<br>IP : {ip}",
     "deleteSpeaker": "Supprimer ce système audio",
-    "offline": "Hors ligne",
-    "syncing": "Synchronisation...",
-    "syncError": "Erreur de sync",
-    "retrySync": "Réessayer"
+    "offline": "Hors ligne"
   },
   "equalizer": {
     "title": "Égaliseur",
     "effects_disabled": "Les effets de l'égaliseur sont désactivés",
     "selectPreset": "Preset",
     "zones": {
-      "title": "Zones",
-      "configure": "Configurer les zones",
       "zoneName": "Nom de la zone",
       "zoneNamePlaceholder": "ex: Salon",
       "selectClients": "Sélectionner les systèmes audio",
       "minimumClients": "Une zone nécessite au moins 2 systèmes audio.",
       "createZone": "Créer une zone",
       "editZone": "Modifier la zone",
-      "updateZone": "Mettre à jour",
-      "deleteZone": "Supprimer la zone",
-      "description": "Liez les systèmes pour créer des zones avec des réglages d'égaliseur partagés. Les modifications s'appliqueront à tous les membres.",
-      "noZones": "Aucune zone créée. Créez une zone pour lier plusieurs systèmes.",
-      "inOtherZone": "Dans une autre zone",
-      "subwoofer": "Sub",
-      "crossover": "Crossover",
-      "crossoverFrequency": "Fréquence de coupure",
-      "crossoverHint": "Filtre passe-haut appliqué aux enceintes. Réglez le crossover de votre subwoofer à la même fréquence.",
-      "manageZone": "Gérer la zone",
-      "addToZone": "Ajouter à une zone"
+      "deleteZone": "Supprimer la zone"
     },
     "equalizer": {
       "title": "10 Bandes"
     },
     "compressor": {
       "title": "Compresseur",
-      "enable": "Activer le compresseur",
       "threshold": "Seuil",
       "ratio": "Ratio",
       "attack": "Attaque",
@@ -150,7 +129,6 @@
     },
     "loudness": {
       "title": "Loudness",
-      "enable": "Activer le loudness",
       "lowBoost": "Boost graves",
       "highBoost": "Boost aigus"
     },
@@ -182,7 +160,9 @@
     },
     "meters": {
       "title": "Niveaux de sortie audio"
-    }
+    },
+    "connecting": "Connexion en cours...",
+    "syncError": "Erreur de synchronisation"
   },
   "status": {
     "loading": "Démarrage...",
@@ -199,7 +179,6 @@
     "disconnecting": "Déconnexion..."
   },
   "volumeSettings": {
-    "title": "Volume",
     "controls": "Contrôles du volume",
     "rotaryStep": "Variation du volume par rotation",
     "mobileStep": "Variation du volume sur mobile",
@@ -219,7 +198,6 @@
     }
   },
   "screenSettings": {
-    "title": "Écran",
     "brightness": "Luminosité",
     "brightnessIntensity": "Intensité de la luminosité",
     "autoSleep": "Mise en veille de l'écran",
@@ -239,9 +217,7 @@
     "rotaryEncoderDescription": "Sélectionnez les pins GPIO connectés à votre encodeur rotatif.",
     "applyAndReboot": "Appliquer et redémarrer",
     "confirmReboot": "Confirmer le redémarrage",
-    "confirmMessage": "Le système va redémarrer pour appliquer les changements matériels.",
-    "rebooting": "Redémarrage en cours...",
-    "rebootingDescription": "Milō redémarre. Cette page se rechargera automatiquement."
+    "rebooting": "Redémarrage en cours..."
   },
   "spotifySettings": {
     "autoDisconnect": "Déconnexion automatique",
@@ -268,15 +244,7 @@
     "userIdPlaceholder": "Entrez votre User ID Taddy",
     "apiKey": "API Key",
     "apiKeyPlaceholder": "Entrez votre API Key Taddy",
-    "saveButton": "Valider",
     "validateButton": "Tester la connexion",
-    "validating": "Test en cours...",
-    "saveSuccess": "Identifiants sauvegardés avec succès",
-    "saveError": "Erreur lors de la sauvegarde",
-    "validationSuccess": "Identifiants valides !",
-    "validationError": "Identifiants invalides",
-    "validationEmpty": "Veuillez remplir les deux champs",
-    "validationNetworkError": "Erreur réseau lors de la validation",
     "invalidCredentials": "Vos identifiants Taddy API ne sont pas valides",
     "apiUsage": "Utilisation de Taddy API",
     "requestsPerMonth": "requêtes",
@@ -293,76 +261,22 @@
     "snapclientBuffer": "Buffer lecteur (ms)",
     "codec": "Codec audio",
     "chunkSize": "Taille des chunks (ms)",
-    "serverName": "Nom du serveur",
     "apply": "Appliquer"
   },
   "updates": {
-    "title": "Mises à jour",
     "osTitle": "Système d'exploitation",
     "programsTitle": "Programmes de Milō",
     "satelliteProgramsTitle": "Milō Clients",
     "satelliteSectionTitle": "Programmes de Milō Client",
-    "miloTitle": "Programmes de Milō",
-    "satellitesTitle": "Programmes des satellites connectés",
-    "checking": "Vérification des versions...",
     "error": "Erreur lors du chargement des mises à jour",
     "retry": "Réessayer",
-    "latestVersion": "Dernière ver.",
-    "installed": "Installé",
     "notAvailable": "Non disponible",
     "update": "Mettre à jour",
     "updating": "Mise à jour en cours...",
-    "errorDetails": "Détails des erreurs",
-    "searchingSatellites": "Recherche des satellites...",
     "errorDetectingSatellites": "Erreur lors de la détection des satellites",
-    "noSatellites": "Aucun satellite détecté sur le réseau",
-    "updatingInit": "Initialisation de la mise à jour...",
-    "miloApp": "Système d'exploitation",
-    "upToDate": "À jour",
-    "progress": {
-      "creatingBackup": "Création de la sauvegarde...",
-      "downloadingGoLibrespot": "Téléchargement de go-librespot...",
-      "stoppingService": "Arrêt du service...",
-      "installingVersion": "Installation de la nouvelle version...",
-      "startingService": "Démarrage du service...",
-      "verifyingUpdate": "Vérification de la mise à jour...",
-      "downloadingSnapserver": "Téléchargement de snapserver...",
-      "downloadingSnapclient": "Téléchargement de snapclient...",
-      "stoppingMultiroom": "Arrêt des services multiroom...",
-      "installingSnapserver": "Installation de snapserver...",
-      "installingSnapclient": "Installation de snapclient...",
-      "startingMultiroom": "Démarrage des services multiroom...",
-      "cleaningUp": "Nettoyage...",
-      "completed": "Mise à jour terminée !",
-      "startingUpdate": "Démarrage de la mise à jour...",
-      "updateInitiated": "Mise à jour lancée...",
-      "updateInProgress": "Mise à jour en cours...",
-      "checkingRepository": "Vérification du dépôt...",
-      "fetchingUpdates": "Récupération des mises à jour depuis GitHub...",
-      "checkingLocalChanges": "Vérification des changements locaux...",
-      "pullingChanges": "Téléchargement des dernières modifications...",
-      "installingFrontendDeps": "Installation des dépendances frontend...",
-      "buildingFrontend": "Compilation du frontend...",
-      "installingPythonDeps": "Installation des dépendances Python...",
-      "syncingSystemFiles": "Synchronisation des fichiers système...",
-      "restartingBackend": "Redémarrage du service backend...",
-      "restartingKiosk": "Redémarrage du kiosque...",
-      "rollingBack": "Restauration de la version précédente...",
-      "rollbackRebuilding": "Reconstruction après restauration...",
-      "rollbackRestarting": "Redémarrage des services après restauration...",
-      "rollbackComplete": "Restauration terminée",
-      "stoppingActiveSource": "Arrêt de la source audio active...",
-      "rebooting": "Redémarrage...",
-      "downloadingSource": "Téléchargement des sources...",
-      "configuringSource": "Configuration...",
-      "compilingSource": "Compilation...",
-      "sendingUpdate": "Envoi de la mise à jour au satellite...",
-      "waitingForRestart": "En attente du redémarrage du satellite..."
-    }
+    "upToDate": "À jour"
   },
   "info": {
-    "title": "Informations",
-    "miloVersion": "Version de Milō",
     "temperature": "Température",
     "ipAddress": "IP de Milō",
     "cpu": "CPU",
@@ -379,31 +293,12 @@
     "done": "Terminé"
   },
   "clientDetails": {
-    "editClient": "Modifier le client",
-    "viewDetails": "Voir les détails du client",
-    "displayName": "Nom affiché",
-    "currently": "Actuellement",
     "hostname": "Nom d'hôte",
-    "ipAddress": "Adresse IP",
-    "clientName": "Nom du client",
-    "snapclientVersion": "Version Snapclient",
-    "snapserverVersion": "Version Snapserver",
-    "connection": "Connexion",
-    "validate": "Valider",
-    "validating": "Validation...",
-    "good": "Bonne",
-    "poor": "Faible",
-    "unknown": "Inconnue",
-    "loadingDetails": "Chargement des détails...",
-    "errorLoadingDetails": "Impossible de charger les détails du client",
-    "errorValidating": "Erreur lors de la validation des modifications"
+    "ipAddress": "Adresse IP"
   },
   "time": {
-    "5sec": "5 sec",
     "10sec": "10 sec",
-    "15sec": "15 sec",
     "30sec": "30 sec",
-    "1min": "1 min",
     "2min": "2 min",
     "5min": "5 min",
     "10min": "10 min",
@@ -412,8 +307,7 @@
     "1h": "1 h",
     "2h": "2 h",
     "4h": "4 h",
-    "12h": "12 h",
-    "never": "Jamais"
+    "12h": "12 h"
   },
   "common": {
     "settings": "Paramètres",
@@ -423,8 +317,7 @@
     "confirm": "Confirmer",
     "restore": "Restaurer",
     "delete": "Supprimer",
-    "deleting": "Suppression...",
-    "back": "Retour"
+    "deleting": "Suppression..."
   },
   "radio": {
     "country": "Pays",
@@ -446,7 +339,6 @@
       "bitratePlaceholder": "Ex: 128, 192, 320",
       "add": "Ajouter",
       "adding": "Ajout en cours...",
-      "confirmRestore": "Confirmer la restauration",
       "confirmDelete": "Confirmer",
       "loading": "Chargement...",
       "invalidImageFormat": "Format d'image non supporté. Utilisez JPG, PNG, WEBP ou GIF.",
@@ -506,25 +398,11 @@
       "tv_and_film": "TV & Cinéma"
     },
     "searchPlaceholder": "Rechercher",
-    "podcastsCount": "Podcasts ({count})",
-    "episodesCount": "Épisodes ({count})",
     "podcastsTitle": "Podcasts",
     "recentEpisodesTitle": "Épisodes des deux dernières semaines",
-    "loadingMoreResults": "Chargement de plus de résultats...",
     "noResultsFor": "Aucun résultat pour \"{query}\"",
     "noResults": "Aucun résultat trouvé",
     "searchPrompt": "Recherchez des podcasts ou épisodes",
-    "languages": {
-      "all": "Toutes les langues",
-      "french": "Français",
-      "english": "Anglais",
-      "spanish": "Espagnol",
-      "german": "Allemand",
-      "italian": "Italien",
-      "portuguese": "Portugais",
-      "chinese": "Chinois",
-      "hindi": "Hindi"
-    },
     "duration": {
       "label": "Durée",
       "short": "Court (< 15 min)",
@@ -532,7 +410,6 @@
       "long": "Long (> 45 min)"
     },
     "languageFilter": {
-      "label": "Langue",
       "all": "Langue",
       "english": "Anglais",
       "french": "Français",
@@ -565,18 +442,11 @@
     "loading": "Chargement...",
     "noEpisodesInQueue": "Aucun épisode en cours",
     "noEpisodesInQueueHint": "Commencez à écouter des épisodes et ils apparaîtront ici",
-    "markComplete": "Terminer",
-    "remove": "Supprimer",
     "episodesCount2": "épisodes",
-    "completed": "Terminé",
-    "explicit": "Explicite",
     "subscribed": "Abonné",
     "subscribe": "S'abonner",
     "description": "Description",
     "episodesTitle": "Épisodes",
-    "resume": "Reprendre",
-    "listen": "Écouter",
-    "pause": "Mettre en pause",
     "remaining": "restantes",
     "episodeCompleted": "Épisode terminé",
     "today": "Aujourd'hui",
@@ -585,7 +455,6 @@
     "weeksAgo": "Il y a {count} semaines",
     "monthsAgo": "Il y a {count} mois",
     "yearsAgo": "Il y a {count} ans",
-    "new": "Nouveau",
     "unsubscribe": "Se désabonner",
     "credentialsError": "Identifiants Taddy API requis",
     "credentialsErrorHint": "Configurez vos identifiants pour accéder aux podcasts",
@@ -678,15 +547,13 @@
     },
     "screen": {
       "title": "Sélectionnez votre écran",
-      "none": "Aucun écran",
-      "rebootNote": "Un redémarrage sera nécessaire pour appliquer les changements matériels."
+      "none": "Aucun écran"
     },
     "summary": {
       "title": "Récapitulatif",
       "language": "Langue",
       "audioCard": "Carte audio",
       "screen": "Écran",
-      "rebootMessage": "Votre système doit redémarrer pour activer la configuration de la carte audio et de l'écran.",
       "applyAndReboot": "Valider & Redémarrer",
       "confirmReboot": "Confirmer le redémarrage",
       "rebooting": "Redémarrage en cours...",

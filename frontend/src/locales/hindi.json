@@ -1,6 +1,7 @@
 {
   "app": {
-    "connectionUnavailable": "कनेक्शन उपलब्ध नहीं"
+    "connectionUnavailable": "कनेक्शन उपलब्ध नहीं",
+    "connecting": "कनेक्ट हो रहा है..."
   },
   "notification": {
     "connectionLostTitle": "कनेक्शन खो गया",
@@ -36,9 +37,7 @@
       "favoritesTitle": "पसंदीदा रेडियो",
       "discoverTitle": "रेडियो खोजें",
       "searchPlaceholder": "खोजें",
-      "allCountries": "सभी देश",
       "loadingCountries": "देश लोड हो रहे हैं...",
-      "allGenres": "सभी शैलियां",
       "loadingStations": "स्टेशन लोड हो रहे हैं...",
       "connectionError": "कनेक्शन त्रुटि",
       "cannotLoadStations": "स्टेशन लोड करने में असमर्थ",
@@ -46,24 +45,20 @@
       "noStationsFound": "कोई स्टेशन नहीं मिला",
       "minCharactersRequired": "खोजने के लिए कम से कम 3 अक्षर दर्ज करें",
       "noFavorites": "कोई पसंदीदा रेडियो नहीं",
-      "stationNoImage": "बिना छवि के स्टेशन",
       "playRadio": "सुनें",
       "stopRadio": "रोकें",
       "loadingMore": "लोड हो रहा है..."
     }
   },
   "multiroom": {
-    "settings": "मल्टीरूम कॉन्फ़िगरेशन",
     "disabled": "मल्टीरूम सक्रिय नहीं है",
     "starting": "मल्टीरूम शुरू हो रहा है",
-    "noClients": "कोई क्लाइंट कनेक्ट नहीं है",
     "zonesAndSpeakers": "ऑडियो सिस्टम",
     "individualSpeakers": "व्यक्तिगत सिस्टम",
     "loadingSpeakers": "सिस्टम लोड हो रहे हैं...",
     "noSpeakers": "कोई सिस्टम कनेक्ट नहीं है",
     "restarting": "मल्टीरूम पुनः आरंभ हो रहा है...",
     "error": "मल्टीरूम सक्रिय करने में त्रुटि",
-    "timeout_error": "सक्रियण समय समाप्त। कृपया पुनः प्रयास करें।",
     "editSpeaker": "ऑडियो सिस्टम संपादित करें",
     "speakerName": "सिस्टम का नाम",
     "speakerType": "स्पीकर प्रकार",
@@ -106,66 +101,26 @@
     "speakerOffline": "« {name} » ऑफ़लाइन है",
     "speakerOfflineDescription": "यह ऑडियो सिस्टम वर्तमान में Milō से कनेक्ट नहीं है।<br>IP: {ip}",
     "deleteSpeaker": "इस ऑडियो सिस्टम को हटाएं",
-    "offline": "ऑफ़लाइन",
-    "syncing": "सिंक हो रहा है...",
-    "syncError": "सिंक त्रुटि",
-    "retrySync": "पुनः प्रयास करें"
+    "offline": "ऑफ़लाइन"
   },
   "equalizer": {
     "title": "Equalizer",
-    "disabled": "Equalizer अक्षम है",
     "effects_disabled": "Equalizer इफ़ेक्ट्स अक्षम हैं",
     "selectPreset": "प्रीसेट",
-    "selectTarget": "डिवाइस",
     "zones": {
-      "title": "ज़ोन",
-      "configure": "ज़ोन कॉन्फ़िगर करें",
       "zoneName": "ज़ोन का नाम",
       "zoneNamePlaceholder": "उदाहरण: लिविंग रूम",
       "selectClients": "ऑडियो सिस्टम चुनें",
       "minimumClients": "एक ज़ोन के लिए कम से कम 2 ऑडियो सिस्टम आवश्यक हैं।",
       "createZone": "ज़ोन बनाएं",
       "editZone": "ज़ोन संपादित करें",
-      "updateZone": "अपडेट करें",
-      "deleteZone": "ज़ोन हटाएं",
-      "description": "साझा equalizer सेटिंग्स के साथ ज़ोन बनाने के लिए सिस्टम लिंक करें। परिवर्तन सभी सदस्यों पर लागू होंगे।",
-      "noZones": "कोई ज़ोन नहीं बनाया गया। कई सिस्टम लिंक करने के लिए ज़ोन बनाएं।",
-      "inOtherZone": "अन्य ज़ोन में",
-      "subwoofer": "सब",
-      "crossover": "क्रॉसओवर",
-      "crossoverFrequency": "क्रॉसओवर आवृत्ति",
-      "crossoverHint": "स्पीकरों पर हाई-पास फ़िल्टर लागू। अपने सबवूफ़र के क्रॉसओवर को समान आवृत्ति पर सेट करें।",
-      "manageZone": "ज़ोन प्रबंधित करें",
-      "addToZone": "ज़ोन में जोड़ें"
+      "deleteZone": "ज़ोन हटाएं"
     },
     "equalizer": {
       "title": "10 बैंड"
     },
-    "advanced": {
-      "title": "उन्नत इफ़ेक्ट्स"
-    },
-    "filters": "फ़िल्टर",
-    "addFilter": "फ़िल्टर जोड़ें",
-    "removeFilter": "फ़िल्टर हटाएं",
-    "resetFilters": "रीसेट करें",
-    "frequency": "आवृत्ति",
-    "gain": "गेन",
-    "qFactor": "Q फ़ैक्टर",
-    "filterType": "प्रकार",
-    "filterTypes": {
-      "peaking": "पीकिंग",
-      "lowshelf": "लो शेल्फ़",
-      "highshelf": "हाई शेल्फ़",
-      "lowpass": "लो-पास",
-      "highpass": "हाई-पास",
-      "notch": "नॉच",
-      "allpass": "ऑल-पास"
-    },
-    "showAdvanced": "उन्नत विकल्प",
-    "hideAdvanced": "विकल्प छुपाएं",
     "compressor": {
       "title": "कंप्रेसर",
-      "enable": "कंप्रेसर सक्षम करें",
       "threshold": "थ्रेशोल्ड",
       "ratio": "रेशियो",
       "attack": "अटैक",
@@ -174,14 +129,8 @@
     },
     "loudness": {
       "title": "लाउडनेस",
-      "enable": "लाउडनेस सक्षम करें",
       "lowBoost": "लो बूस्ट",
       "highBoost": "हाई बूस्ट"
-    },
-    "volume": {
-      "title": "वॉल्यूम",
-      "level": "स्तर",
-      "muted": "म्यूट"
     },
     "presets": {
       "custom": "कस्टम",
@@ -212,15 +161,8 @@
     "meters": {
       "title": "ऑडियो आउटपुट स्तर"
     },
-    "linkedClients": {
-      "title": "क्लाइंट लिंक करें",
-      "description": "लिंक किए गए क्लाइंट समान equalizer सेटिंग्स साझा करते हैं। परिवर्तन सभी पर लागू होते हैं।",
-      "linked": "लिंक किया गया",
-      "offline": "ऑफ़लाइन",
-      "currentGroup": "वर्तमान में लिंक:",
-      "link": "चयन लिंक करें",
-      "unlink": "अनलिंक करें"
-    }
+    "connecting": "कनेक्ट हो रहा है...",
+    "syncError": "सिंक त्रुटि"
   },
   "status": {
     "loading": "शुरू हो रहा है...",
@@ -237,7 +179,6 @@
     "disconnecting": "डिस्कनेक्ट किया जा रहा है..."
   },
   "volumeSettings": {
-    "title": "वॉल्यूम",
     "controls": "वॉल्यूम नियंत्रण",
     "rotaryStep": "प्रति रोटेशन वॉल्यूम परिवर्तन",
     "mobileStep": "मोबाइल पर वॉल्यूम परिवर्तन",
@@ -257,7 +198,6 @@
     }
   },
   "screenSettings": {
-    "title": "स्क्रीन",
     "brightness": "चमक",
     "brightnessIntensity": "चमक की तीव्रता",
     "autoSleep": "स्क्रीन स्लीप",
@@ -277,9 +217,7 @@
     "rotaryEncoderDescription": "अपने रोटरी एन्कोडर से जुड़े GPIO पिन चुनें।",
     "applyAndReboot": "लागू करें और पुनः आरंभ करें",
     "confirmReboot": "पुनः आरंभ की पुष्टि करें",
-    "confirmMessage": "हार्डवेयर परिवर्तन लागू करने के लिए सिस्टम पुनः आरंभ होगा।",
-    "rebooting": "पुनः आरंभ हो रहा है...",
-    "rebootingDescription": "Milō पुनः आरंभ हो रहा है। यह पृष्ठ स्वचालित रूप से पुनः लोड होगा।"
+    "rebooting": "पुनः आरंभ हो रहा है..."
   },
   "spotifySettings": {
     "autoDisconnect": "ऑटो डिस्कनेक्ट",
@@ -306,15 +244,7 @@
     "userIdPlaceholder": "अपना Taddy यूजर आईडी दर्ज करें",
     "apiKey": "API कुंजी",
     "apiKeyPlaceholder": "अपनी Taddy API कुंजी दर्ज करें",
-    "saveButton": "सत्यापित करें",
     "validateButton": "कनेक्शन टेस्ट करें",
-    "validating": "टेस्ट हो रहा है...",
-    "saveSuccess": "क्रेडेंशियल सफलतापूर्वक सहेजे गए",
-    "saveError": "क्रेडेंशियल सहेजने में त्रुटि",
-    "validationSuccess": "मान्य क्रेडेंशियल!",
-    "validationError": "अमान्य क्रेडेंशियल",
-    "validationEmpty": "कृपया दोनों फ़ील्ड भरें",
-    "validationNetworkError": "सत्यापन के दौरान नेटवर्क त्रुटि",
     "invalidCredentials": "आपके Taddy API क्रेडेंशियल मान्य नहीं हैं",
     "apiUsage": "Taddy API उपयोग",
     "requestsPerMonth": "अनुरोध",
@@ -331,76 +261,22 @@
     "snapclientBuffer": "प्लेयर बफर (ms)",
     "codec": "ऑडियो कोडेक",
     "chunkSize": "चंक आकार (ms)",
-    "serverName": "सर्वर नाम",
     "apply": "लागू करें"
   },
   "updates": {
-    "title": "अपडेट",
     "osTitle": "ऑपरेटिंग सिस्टम",
     "programsTitle": "Milō प्रोग्राम",
     "satelliteProgramsTitle": "Milō Clients",
     "satelliteSectionTitle": "Milō Client प्रोग्राम",
-    "miloTitle": "Milō प्रोग्राम",
-    "satellitesTitle": "कनेक्टेड सैटेलाइट प्रोग्राम",
-    "checking": "संस्करण जांचे जा रहे हैं...",
     "error": "अपडेट लोड करने में त्रुटि",
     "retry": "पुनः प्रयास करें",
-    "latestVersion": "नवीनतम संस्करण",
-    "installed": "इंस्टॉल किया गया",
     "notAvailable": "उपलब्ध नहीं",
     "update": "अपडेट करें",
     "updating": "अपडेट हो रहा है...",
-    "errorDetails": "त्रुटि विवरण",
-    "searchingSatellites": "सैटेलाइट खोजे जा रहे हैं...",
     "errorDetectingSatellites": "सैटेलाइट का पता लगाने में त्रुटि",
-    "noSatellites": "नेटवर्क पर कोई सैटेलाइट का पता नहीं चला",
-    "updatingInit": "अपडेट प्रारंभ हो रहा है...",
-    "miloApp": "ऑपरेटिंग सिस्टम",
-    "upToDate": "अप टू डेट",
-    "progress": {
-      "creatingBackup": "बैकअप बनाया जा रहा है...",
-      "downloadingGoLibrespot": "go-librespot डाउनलोड हो रहा है...",
-      "stoppingService": "सेवा बंद हो रही है...",
-      "installingVersion": "नया संस्करण इंस्टॉल हो रहा है...",
-      "startingService": "सेवा शुरू हो रही है...",
-      "verifyingUpdate": "अपडेट सत्यापित हो रहा है...",
-      "downloadingSnapserver": "snapserver डाउनलोड हो रहा है...",
-      "downloadingSnapclient": "snapclient डाउनलोड हो रहा है...",
-      "stoppingMultiroom": "मल्टीरूम सेवाएं बंद हो रही हैं...",
-      "installingSnapserver": "snapserver इंस्टॉल हो रहा है...",
-      "installingSnapclient": "snapclient इंस्टॉल हो रहा है...",
-      "startingMultiroom": "मल्टीरूम सेवाएं शुरू हो रही हैं...",
-      "cleaningUp": "सफाई हो रही है...",
-      "completed": "अपडेट पूर्ण!",
-      "startingUpdate": "अपडेट शुरू हो रहा है...",
-      "updateInitiated": "अपडेट शुरू किया गया...",
-      "updateInProgress": "अपडेट प्रगति में...",
-      "checkingRepository": "रिपॉजिटरी जांची जा रही है...",
-      "fetchingUpdates": "GitHub से अपडेट प्राप्त हो रहे हैं...",
-      "checkingLocalChanges": "स्थानीय परिवर्तन जांचे जा रहे हैं...",
-      "pullingChanges": "नवीनतम परिवर्तन डाउनलोड हो रहे हैं...",
-      "installingFrontendDeps": "फ्रंटएंड डिपेंडेंसी इंस्टॉल हो रही हैं...",
-      "buildingFrontend": "फ्रंटएंड कंपाइल हो रहा है...",
-      "installingPythonDeps": "Python डिपेंडेंसी इंस्टॉल हो रही हैं...",
-      "syncingSystemFiles": "सिस्टम फ़ाइलें सिंक हो रही हैं...",
-      "restartingBackend": "बैकएंड सेवा पुनः आरंभ हो रही है...",
-      "restartingKiosk": "कियोस्क पुनः आरंभ हो रहा है...",
-      "rollingBack": "पिछले संस्करण पर वापस जा रहे हैं...",
-      "rollbackRebuilding": "रोलबैक के बाद पुनः संकलन...",
-      "rollbackRestarting": "रोलबैक के बाद सेवाएं पुनः आरंभ...",
-      "rollbackComplete": "रोलबैक पूर्ण",
-      "stoppingActiveSource": "सक्रिय ऑडियो स्रोत बंद किया जा रहा है...",
-      "rebooting": "रीबूट हो रहा है...",
-      "downloadingSource": "स्रोत डाउनलोड...",
-      "configuringSource": "कॉन्फ़िगर...",
-      "compilingSource": "कंपाइल...",
-      "sendingUpdate": "सैटेलाइट को अपडेट भेजा जा रहा है...",
-      "waitingForRestart": "सैटेलाइट के पुनरारंभ की प्रतीक्षा..."
-    }
+    "upToDate": "अप टू डेट"
   },
   "info": {
-    "title": "जानकारी",
-    "miloVersion": "Milō संस्करण",
     "temperature": "तापमान",
     "ipAddress": "Milō आईपी",
     "cpu": "CPU",
@@ -408,7 +284,6 @@
     "credits": "श्रेय"
   },
   "applications": {
-    "title": "एप्लिकेशन",
     "features": "सुविधाएं"
   },
   "applicationsSettings": {
@@ -418,35 +293,12 @@
     "done": "पूर्ण"
   },
   "clientDetails": {
-    "editClient": "क्लाइंट संपादित करें",
-    "viewDetails": "क्लाइंट विवरण देखें",
-    "displayName": "प्रदर्शित नाम",
-    "currently": "वर्तमान में",
     "hostname": "होस्टनाम",
-    "ipAddress": "आईपी ​​पता",
-    "clientName": "क्लाइंट नाम",
-    "snapclientVersion": "Snapclient संस्करण",
-    "snapserverVersion": "Snapserver संस्करण",
-    "connection": "कनेक्शन",
-    "validate": "मान्य करें",
-    "validating": "मान्य किया जा रहा है...",
-    "good": "अच्छा",
-    "poor": "कमज़ोर",
-    "unknown": "अज्ञात",
-    "loadingDetails": "विवरण लोड हो रहे हैं...",
-    "errorLoadingDetails": "क्लाइंट विवरण लोड करने में असमर्थ",
-    "errorValidating": "परिवर्तनों को मान्य करते समय त्रुटि"
-  },
-  "playback": {
-    "unknownTitle": "अज्ञात शीर्षक",
-    "unknownArtist": "अज्ञात कलाकार"
+    "ipAddress": "आईपी ​​पता"
   },
   "time": {
-    "5sec": "5 सेकंड",
     "10sec": "10 सेकंड",
-    "15sec": "15 सेक",
     "30sec": "30 सेकंड",
-    "1min": "1 मिनट",
     "2min": "2 मिन",
     "5min": "5 मिन",
     "10min": "10 मिनट",
@@ -455,43 +307,21 @@
     "1h": "1 घंटा",
     "2h": "2 h",
     "4h": "4 h",
-    "12h": "12 h",
-    "never": "कभी नहीं"
+    "12h": "12 h"
   },
   "common": {
     "settings": "सेटिंग्स",
-    "parameters": "सेटिंग्स",
-    "configuration": "कॉन्फ़िगरेशन",
-    "language": "भाषा",
-    "unknown": "अज्ञात",
     "cancel": "रद्द करें",
     "save": "सहेजें",
     "saving": "सहेजा जा रहा है...",
     "confirm": "पुष्टि करें",
     "restore": "पुनर्स्थापित",
     "delete": "हटाएं",
-    "deleting": "हटाया जा रहा है...",
-    "modify": "संपादित करें",
-    "back": "वापस"
+    "deleting": "हटाया जा रहा है..."
   },
   "radio": {
-    "edit_station_title": "{name} संपादित करें",
-    "station_image_optional": "स्टेशन छवि (वैकल्पिक)",
-    "click_to_choose": "चुनने के लिए क्लिक करें",
-    "change_image": "छवि बदलें",
-    "choose_image": "छवि चुनें",
-    "image_formats": "JPG, PNG, WEBP, GIF - अधिकतम 5MB",
-    "station_name": "स्टेशन का नाम",
-    "station_name_placeholder": "उदाहरण: ऑल इंडिया रेडियो",
-    "stream_url": "स्ट्रीम URL",
-    "stream_url_placeholder": "उदाहरण: http://streaming.radio.in/stream",
     "country": "देश",
     "genre": "शैली",
-    "invalid_image_format": "असमर्थित छवि प्रारूप। JPG, PNG, WEBP या GIF का उपयोग करें।",
-    "image_too_large": "छवि बहुत बड़ी है। अधिकतम 5MB।",
-    "edit_failed": "स्टेशन संपादित करने में विफल",
-    "error_occurred": "एक त्रुटि हुई",
-    "saving": "सहेजा जा रहा है...",
     "manageStation": {
       "name": "स्टेशन का नाम",
       "namePlaceholder": "उदाहरण: ऑल इंडिया रेडियो",
@@ -509,7 +339,6 @@
       "bitratePlaceholder": "उदाहरण: 128, 192, 320",
       "add": "जोड़ें",
       "adding": "जोड़ा जा रहा है...",
-      "confirmRestore": "पुनर्स्थापना की पुष्टि करें",
       "confirmDelete": "पुष्टि करना।",
       "loading": "लोड हो रहा है...",
       "invalidImageFormat": "असमर्थित छवि प्रारूप। JPG, PNG, WEBP या GIF का उपयोग करें।",
@@ -526,14 +355,10 @@
     "unmodifiedFavoritesTitle": "अपरिवर्तित पसंदीदा",
     "modifiedStationsTitle": "संशोधित स्टेशन",
     "noModifiedStations": "कोई संशोधित स्टेशन नहीं",
-    "restoreStationConfirm": "मूल स्टेशन पुनर्स्थापित करें?",
-    "modificationsWillBeLost": "सभी संशोधन खो जाएंगे और मूल स्टेशन पुनर्स्थापित हो जाएगा।",
     "addedStationsTitle": "जोड़े गए स्टेशन",
-    "noAddedStations": "कोई स्टेशन नहीं जोड़ा गया। शुरू करने के लिए \"स्टेशन जोड़ें\" पर क्लिक करें।",
     "addStation": "स्टेशन जोड़ें",
-    "deleteStationConfirm": "स्टेशन हटाएं?",
-    "cancel": "रद्द करें",
-    "delete": "हटाएं"
+    "trackRecognition": "गाना पहचान",
+    "trackRecognitionDescription": "Shazam के माध्यम से चल रहे गानों की पहचान करें"
   },
   "podcasts": {
     "podcasts": "पॉडकास्ट",
@@ -553,7 +378,6 @@
       "news": "समाचार",
       "comedy": "कॉमेडी",
       "trueCrime": "ट्रू क्राइम",
-      "tech": "प्रौद्योगिकी",
       "sports": "खेल",
       "education": "शिक्षा",
       "business": "व्यवसाय",
@@ -574,25 +398,11 @@
       "tv_and_film": "टीवी और फिल्म"
     },
     "searchPlaceholder": "खोजें",
-    "podcastsCount": "पॉडकास्ट ({count})",
-    "episodesCount": "एपिसोड ({count})",
     "podcastsTitle": "पॉडकास्ट",
     "recentEpisodesTitle": "पिछले दो हफ्तों के एपिसोड",
-    "loadingMoreResults": "अधिक परिणाम लोड हो रहे हैं...",
     "noResultsFor": "\"{query}\" के लिए कोई परिणाम नहीं",
     "noResults": "कोई परिणाम नहीं मिला",
     "searchPrompt": "पॉडकास्ट या एपिसोड खोजें",
-    "languages": {
-      "all": "सभी भाषाएं",
-      "french": "फ़्रांसीसी",
-      "english": "अंग्रेज़ी",
-      "spanish": "स्पेनिश",
-      "german": "जर्मन",
-      "italian": "इटालियन",
-      "portuguese": "पुर्तगाली",
-      "chinese": "चीनी",
-      "hindi": "हिंदी"
-    },
     "duration": {
       "label": "अवधि",
       "short": "छोटा (< 15 मिनट)",
@@ -600,7 +410,6 @@
       "long": "लंबा (> 45 मिनट)"
     },
     "languageFilter": {
-      "label": "भाषा",
       "all": "भाषा",
       "english": "अंग्रेज़ी",
       "french": "फ़्रांसीसी",
@@ -633,18 +442,11 @@
     "loading": "लोड हो रहा है...",
     "noEpisodesInQueue": "कतार में कोई एपिसोड नहीं",
     "noEpisodesInQueueHint": "एपिसोड सुनना शुरू करें और वे यहां दिखाई देंगे",
-    "markComplete": "पूर्ण",
-    "remove": "हटाएं",
     "episodesCount2": "एपिसोड",
-    "completed": "पूर्ण",
-    "explicit": "अश्लील",
     "subscribed": "सदस्यता ली गई",
     "subscribe": "सदस्यता लें",
     "description": "विवरण",
     "episodesTitle": "एपिसोड",
-    "resume": "फिर से शुरू करें",
-    "listen": "सुनें",
-    "pause": "रोकें",
     "remaining": "शेष",
     "episodeCompleted": "एपिसोड पूर्ण",
     "today": "आज",
@@ -653,7 +455,6 @@
     "weeksAgo": "{count} सप्ताह पहले",
     "monthsAgo": "{count} महीने पहले",
     "yearsAgo": "{count} साल पहले",
-    "new": "नया",
     "unsubscribe": "सदस्यता रद्द करें",
     "credentialsError": "Taddy API क्रेडेंशियल आवश्यक",
     "credentialsErrorHint": "पॉडकास्ट एक्सेस करने के लिए अपने क्रेडेंशियल कॉन्फ़िगर करें",
@@ -746,15 +547,13 @@
     },
     "screen": {
       "title": "अपनी स्क्रीन चुनें",
-      "none": "कोई स्क्रीन नहीं",
-      "rebootNote": "हार्डवेयर परिवर्तन लागू करने के लिए रीबूट आवश्यक होगा।"
+      "none": "कोई स्क्रीन नहीं"
     },
     "summary": {
       "title": "सारांश",
       "language": "भाषा",
       "audioCard": "ऑडियो कार्ड",
       "screen": "स्क्रीन",
-      "rebootMessage": "ऑडियो कार्ड और स्क्रीन कॉन्फ़िगरेशन सक्रिय करने के लिए आपके सिस्टम को रीबूट करने की आवश्यकता है।",
       "applyAndReboot": "लागू करें और रीबूट करें",
       "confirmReboot": "रीबूट की पुष्टि करें",
       "rebooting": "रीबूट हो रहा है...",
