@@ -123,6 +123,7 @@
       "zoneName": "区域名称",
       "zoneNamePlaceholder": "例如：客厅",
       "selectClients": "选择音频系统",
+      "minimumClients": "一个区域至少需要2个音频系统。",
       "createZone": "创建区域",
       "editZone": "编辑区域",
       "updateZone": "更新",
