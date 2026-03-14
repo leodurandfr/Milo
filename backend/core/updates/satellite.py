@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 from backend.config.constants import CLIENT_API_PORT
-from backend.core.updates.helpers import compare_versions, extract_base_tag
 from backend.shared.decorators import handle_errors
 
 MILO_REPO_DIR = Path("/home/milo/milo")
@@ -34,23 +33,6 @@ class SatelliteUpdateService:
         self.client_registry_service = client_registry_service
         self.logger = logging.getLogger(__name__)
         self.satellite_api_port = CLIENT_API_PORT
-
-        # GitHub token (optional)
-        self.github_token = os.environ.get('GITHUB_TOKEN')
-        if self.github_token:
-            self.logger.debug("GitHub token detected for satellite updates")
-
-    def _get_github_headers(self) -> Dict[str, str]:
-        """Returns headers for GitHub requests (with token if available)"""
-        headers = {
-            "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "Milo-Audio-System"
-        }
-
-        if self.github_token:
-            headers["Authorization"] = f"token {self.github_token}"
-
-        return headers
 
     @handle_errors(default=[])
     async def discover_satellites(self) -> List[Dict[str, Any]]:
@@ -109,37 +91,6 @@ class SatelliteUpdateService:
                     }
 
         return {"online": False}
-
-    async def get_satellite_status(self, mac_id: str) -> Dict[str, Any]:
-        """Gets complete status of a specific satellite."""
-        try:
-            satellites = await self.discover_satellites()
-
-            for satellite in satellites:
-                if satellite["mac_id"] == mac_id:
-                    latest_version = await self._get_latest_snapclient_version()
-                    satellite["latest_version"] = latest_version
-                    satellite["update_available"] = compare_versions(
-                        satellite.get("snapclient_version"),
-                        latest_version
-                    )
-
-                    return {
-                        "status": "success",
-                        "satellite": satellite
-                    }
-
-            return {
-                "status": "error",
-                "message": f"Satellite {mac_id} not found or offline"
-            }
-
-        except Exception as e:
-            self.logger.error(f"Error getting satellite status: {e}")
-            return {
-                "status": "error",
-                "message": str(e)
-            }
 
     async def update_satellite(
         self,
@@ -262,35 +213,6 @@ class SatelliteUpdateService:
             "error": f"Update timeout for {mac_id}"
         }
 
-    async def get_latest_snapclient_version(self) -> Optional[str]:
-        """Public wrapper for latest snapclient version lookup."""
-        return await self._get_latest_snapclient_version()
-
-    async def get_server_version(self) -> Optional[str]:
-        """Public wrapper for server version lookup."""
-        return await self._get_server_version()
-
-    @handle_errors(default=None)
-    async def _get_latest_snapclient_version(self) -> Optional[str]:
-        """Gets latest snapclient version from GitHub with token"""
-        url = "https://api.github.com/repos/badaix/snapcast/releases/latest"
-        headers = self._get_github_headers()
-
-        timeout = aiohttp.ClientTimeout(total=10)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url, headers=headers) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    tag_name = data.get("tag_name", "")
-
-                    # Extract version number (v0.31.0 -> 0.31.0)
-                    return tag_name.lstrip('v')
-                elif response.status == 403:
-                    self.logger.warning("GitHub API rate limit - snapclient version unavailable")
-
-        return None
-
-    @handle_errors(default=None)
     async def _get_server_version(self) -> Optional[str]:
         """Gets the current server version via git describe."""
         proc = await asyncio.create_subprocess_exec(
