@@ -1,6 +1,7 @@
 """
 Health check routes for Milo Client.
 """
+import asyncio
 import platform
 import time
 import logging
@@ -52,8 +53,12 @@ def create_health_router(
         try:
             hostname = get_hostname()
             uptime = get_system_uptime()
-            snapclient_version = await snapclient_service.get_installed_version()
-            snapclient_running = await snapclient_service.is_service_running()
+
+            # Parallel subprocess calls for faster response
+            snapclient_version, snapclient_running = await asyncio.gather(
+                snapclient_service.get_installed_version(),
+                snapclient_service.is_service_running()
+            )
 
             return {
                 "hostname": hostname,

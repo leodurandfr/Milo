@@ -2,6 +2,7 @@
 """
 API routes for program management — Full version with satellites
 """
+import asyncio
 from fastapi import APIRouter, BackgroundTasks
 from backend.core.models.audio_state import AudioSource
 from backend.core.updates.helpers import compare_versions, extract_base_tag
@@ -117,11 +118,17 @@ def create_programs_router(update_service, satellite_update_service, state_machi
     async def get_satellites():
         """Retrieve the list of detected satellites with their versions"""
         try:
-            satellites = await satellite_service.discover_satellites()
+            # Fetch all data in parallel: satellite discovery + cached version lookups
+            satellites_task = satellite_service.discover_satellites()
+            snapclient_task = update_service.get_latest_github_version("multiroom")
+            milo_task = update_service.get_installed_version("milo")
 
-            # Enrich with available snapclient version and update_available
-            latest_version = await satellite_service.get_latest_snapclient_version()
-            server_version = await satellite_service.get_server_version()
+            satellites, snapclient_github, milo_installed = await asyncio.gather(
+                satellites_task, snapclient_task, milo_task
+            )
+
+            latest_version = snapclient_github.get("version") if snapclient_github.get("status") == "success" else None
+            server_version = milo_installed.get("raw_version")
 
             for satellite in satellites:
                 satellite["latest_version"] = latest_version
@@ -131,9 +138,8 @@ def create_programs_router(update_service, satellite_update_service, state_machi
                 )
                 # App update: compare base tags (v0.0.1-347-g14ee633 -> v0.0.1)
                 satellite["server_version"] = server_version
-                sat_app_version = satellite.get("app_version")
                 satellite["app_update_available"] = compare_versions(
-                    extract_base_tag(sat_app_version),
+                    extract_base_tag(satellite.get("app_version")),
                     extract_base_tag(server_version)
                 )
 
@@ -154,13 +160,17 @@ def create_programs_router(update_service, satellite_update_service, state_machi
     async def get_satellite_status(mac_id: str):
         """Retrieve the status of a specific satellite"""
         try:
-            result = await satellite_service.get_satellite_status(mac_id)
-            return result
+            result = await get_satellites()
+            if result["status"] != "success":
+                return result
+
+            satellite = next((s for s in result["satellites"] if s["mac_id"] == mac_id), None)
+            if not satellite:
+                return {"status": "error", "message": f"Satellite {mac_id} not found or offline"}
+
+            return {"status": "success", "satellite": satellite}
         except Exception as e:
-            return {
-                "status": "error",
-                "message": str(e)
-            }
+            return {"status": "error", "message": str(e)}
 
     @router.post("/satellites/{mac_id}/update")
     async def update_satellite(mac_id: str, background_tasks: BackgroundTasks):
