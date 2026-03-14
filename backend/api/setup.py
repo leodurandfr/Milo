@@ -2,7 +2,6 @@
 """
 Setup wizard API routes — first-boot configuration.
 
-GET  /api/setup/status   → returns {setup_completed: bool}
 POST /api/setup/complete → atomic wizard completion (language + hardware + setup_completed)
 """
 import asyncio
@@ -23,15 +22,6 @@ class SetupCompleteRequest(BaseModel):
 def create_setup_router(settings_service, hardware_service):
     """Create setup wizard router with injected services."""
     router = APIRouter(prefix="/api/setup", tags=["setup"])
-
-    @router.get("/status")
-    async def get_setup_status():
-        """Check if first-boot setup has been completed."""
-        setup_completed = await settings_service.get_setting("setup_completed")
-        return {
-            "status": "success",
-            "setup_completed": bool(setup_completed)
-        }
 
     @router.post("/complete")
     async def complete_setup(payload: SetupCompleteRequest):

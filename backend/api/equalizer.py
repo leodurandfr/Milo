@@ -11,7 +11,6 @@ from fastapi import APIRouter, HTTPException, Request
 from backend.api.route_helpers import api_error_handler
 
 from backend.api.models import (
-    EqualizerFilterRequest,
     EqualizerFilterUpdateRequest,
     EqualizerMuteRequest,
     EqualizerCompressorRequest,
@@ -172,22 +171,6 @@ def create_equalizer_router(
 
         return {"available": available, "input_peak": input_peak, "output_peak": output_peak}
 
-    @router.post("/connect")
-    async def connect_equalizer():
-        """Manually trigger connection to CamillaDSP daemon"""
-        async with api_error_handler("Error connecting to CamillaDSP"):
-            success = await camilladsp_service.connect()
-            if success:
-                return {"status": "success", "message": "Connected to CamillaDSP"}
-            return {"status": "error", "message": "Failed to connect"}
-
-    @router.post("/disconnect")
-    async def disconnect_equalizer():
-        """Disconnect from CamillaDSP daemon"""
-        async with api_error_handler("Error disconnecting from CamillaDSP"):
-            await camilladsp_service.disconnect()
-            return {"status": "success", "message": "Disconnected from CamillaDSP"}
-
     # === Filter Management ===
 
     @router.get("/filters")
@@ -198,27 +181,6 @@ def create_equalizer_router(
             return {"filters": filters}
         except Exception as e:
             return {"filters": [], "error": str(e)}
-
-    @router.post("/filter")
-    async def add_filter(payload: EqualizerFilterRequest):
-        """Add a new filter band"""
-        async with api_error_handler("Error adding filter"):
-            existing_filters = await camilladsp_service.get_filters()
-            filter_num = len(existing_filters)
-            filter_id = f"eq_band_{filter_num:02d}"
-
-            success = await camilladsp_service.add_filter(
-                filter_id=filter_id,
-                freq=payload.freq,
-                gain=payload.gain,
-                q=payload.q,
-                filter_type=payload.filter_type
-            )
-
-            if success:
-                return {"status": "success", "id": filter_id}
-
-            return {"status": "error", "message": "Failed to add filter"}
 
     @router.put("/filter/{filter_id}")
     async def update_filter(filter_id: str, payload: EqualizerFilterUpdateRequest):
@@ -256,17 +218,6 @@ def create_equalizer_router(
                 }
 
             return {"status": "error", "message": "Failed to update filter"}
-
-    @router.delete("/filter/{filter_id}")
-    async def delete_filter(filter_id: str):
-        """Remove a filter band"""
-        async with api_error_handler("Error removing filter"):
-            success = await camilladsp_service.remove_filter(filter_id)
-
-            if success:
-                return {"status": "success", "id": filter_id}
-
-            raise HTTPException(status_code=404, detail=f"Filter {filter_id} not found")
 
     @router.post("/reset")
     async def reset_all_filters():
@@ -497,8 +448,6 @@ def create_equalizer_router(
             }
 
     # === Mute Control ===
-    # Note: Volume control is handled by /api/volume/* endpoints.
-    # Use /api/volume/set for volume changes.
 
     @router.put("/mute")
     async def set_mute(payload: EqualizerMuteRequest):
@@ -577,19 +526,6 @@ def create_equalizer_router(
                 return {"status": "success", **loudness}
 
             return {"status": "error", "message": "Failed to update loudness"}
-
-    # === Configuration Persistence ===
-
-    @router.post("/save")
-    async def save_configuration():
-        """Save current configuration to disk"""
-        async with api_error_handler("Error saving configuration"):
-            success = await camilladsp_service.save_current_config()
-
-            if success:
-                return {"status": "success", "message": "Configuration saved"}
-
-            return {"status": "error", "message": "Failed to save configuration"}
 
     # === Speaker Type / Crossover Management ===
     # Note: Zone CRUD moved to /api/multiroom/zones, speaker-type to /api/multiroom/clients

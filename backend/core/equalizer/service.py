@@ -477,69 +477,6 @@ class CamillaDSPService:
         return True
 
     @handle_errors(default=False)
-    async def add_filter(self, filter_id: str, freq: float = 1000,
-                         gain: float = 0, q: float = 1.0,
-                         filter_type: str = "Peaking") -> bool:
-        if not self._connected:
-            return False
-
-        filter_config = {
-            "type": "Biquad",
-            "parameters": {
-                "type": filter_type,
-                "freq": freq,
-                "gain": gain,
-                "q": q
-            }
-        }
-
-        config = await self._get_config()
-        config["filters"][filter_id] = filter_config
-
-        await self._set_config(config)
-
-        # Update local cache
-        self._filters.append({
-            "id": filter_id,
-            "type": filter_type,
-            "freq": freq,
-            "gain": gain,
-            "q": q,
-            "enabled": True
-        })
-
-        await self._broadcast_event("filter_added", {
-            "id": filter_id,
-            "freq": freq,
-            "gain": gain,
-            "q": q,
-            "type": filter_type
-        })
-
-        return True
-
-    @handle_errors(default=False)
-    async def remove_filter(self, filter_id: str) -> bool:
-        if not self._connected:
-            return False
-
-        config = await self._get_config()
-
-        if filter_id in config["filters"]:
-            del config["filters"][filter_id]
-
-            await self._set_config(config)
-
-            # Update local cache
-            self._filters = [f for f in self._filters if f["id"] != filter_id]
-
-            await self._broadcast_event("filter_removed", {"id": filter_id})
-
-            return True
-
-        return False
-
-    @handle_errors(default=False)
     async def reset_filters(self) -> bool:
         if not self._connected:
             return False

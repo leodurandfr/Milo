@@ -16,25 +16,6 @@ def create_routing_router(routing_service, state_machine):
     """Creates routing router (multiroom + equalizer)"""
     router = APIRouter(prefix="/api/routing", tags=["routing"])
 
-    @router.get("/status")
-    async def get_routing_status():
-        """Gets current routing status (including equalizer)"""
-        routing_state = routing_service.get_state()
-        snapcast_status = await routing_service.get_snapcast_status()
-
-        return {
-            "routing": routing_state,
-            "snapcast": snapcast_status
-        }
-
-    @router.get("/services")
-    async def get_services_status():
-        """Gets status of all services"""
-        services_status = await routing_service.get_available_services()
-        return {
-            "services": services_status
-        }
-
     @router.put("/multiroom")
     async def set_multiroom_enabled(request: MultiroomRequest):
         """Enables/disables multiroom mode"""
@@ -63,13 +44,5 @@ def create_routing_router(routing_service, state_machine):
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
-
-    @router.get("/multiroom/status")
-    async def get_multiroom_status():
-        """Gets current multiroom status"""
-        routing_state = routing_service.get_state()
-        return {
-            "multiroom_enabled": routing_state.get('multiroom_enabled', False)
-        }
 
     return router

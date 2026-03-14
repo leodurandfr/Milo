@@ -3,11 +3,9 @@
 Unit tests for /api/multiroom/ API endpoints.
 
 Tests cover:
-- GET /api/multiroom/clients (AC1: returns all clients with online status)
 - GET /api/multiroom/clients/{mac_id} (AC4: 404 for non-existent)
 - PATCH /api/multiroom/clients/{mac_id} (AC2: update name, AC3: update speaker_type)
 - Validation (AC4: 400 for invalid speaker_type)
-- PUT alias for PATCH (backward compatibility)
 """
 import pytest
 from unittest.mock import Mock, AsyncMock
@@ -87,45 +85,6 @@ def client(mock_registry_service):
     router = create_multiroom_router(mock_registry_service)
     app.include_router(router)
     return TestClient(app)
-
-
-class TestGetClients:
-    """Tests for GET /api/multiroom/clients endpoint (AC1)."""
-
-    def test_get_clients_returns_all_clients(self, client, mock_registry_service):
-        """AC1: GET /clients returns all registered clients with online status."""
-        response = client.get("/api/multiroom/clients")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert "clients" in data
-        assert len(data["clients"]) == 2
-
-        # Verify client data includes online status
-        client_macs = {c["mac_id"]: c for c in data["clients"]}
-        assert "dc:a6:32:7e:d3:43" in client_macs
-        assert "local" in client_macs
-        assert client_macs["dc:a6:32:7e:d3:43"]["online"] is True
-        assert client_macs["local"]["online"] is True
-
-    def test_get_clients_empty_registry(self, client, mock_registry_service):
-        """GET /clients with no clients returns empty list."""
-        mock_registry_service.get_all_clients.return_value = {}
-
-        response = client.get("/api/multiroom/clients")
-
-        assert response.status_code == 200
-        assert response.json() == {"clients": []}
-
-    def test_get_clients_response_format(self, client, mock_registry_service):
-        """AC1: Response format is {"clients": [...]}."""
-        response = client.get("/api/multiroom/clients")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, dict)
-        assert "clients" in data
-        assert isinstance(data["clients"], list)
 
 
 class TestGetClientById:

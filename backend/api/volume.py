@@ -6,7 +6,6 @@ from fastapi import APIRouter, HTTPException
 
 from backend.api.route_helpers import api_error_handler
 from backend.api.models import (
-    VolumeSetRequest,
     VolumeAdjustRequest,
     ClientVolumeRequest,
     ClientMuteRequest,
@@ -20,15 +19,6 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
     """Creates volume router with dependency injection"""
     router = APIRouter(prefix="/api/volume", tags=["volume"])
 
-    @router.get("/status")
-    async def get_volume_status():
-        """Gets current volume status"""
-        try:
-            status = await volume_service.get_status()
-            return {"status": "success", "data": status}
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
-
     @router.get("/state")
     async def get_volume_state():
         """Get unified volume state (single source of truth)."""
@@ -37,27 +27,6 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
             return {"status": "success", "data": state.to_dict()}
         except Exception as e:
             return {"status": "error", "message": str(e)}
-
-    @router.get("/")
-    async def get_current_volume():
-        """Gets current volume in dB"""
-        try:
-            volume_db = await volume_service.get_volume_db()
-            return {"status": "success", "volume_db": volume_db}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-
-    @router.post("/set")
-    async def set_volume(request: VolumeSetRequest):
-        """Sets volume in dB (-80 to 0)"""
-        async with api_error_handler("Failed to set volume"):
-            success = await volume_service.set_volume_db(request.volume_db, show_bar=request.show_bar)
-
-            if success:
-                volume_db = await volume_service.get_volume_db()
-                return {"status": "success", "volume_db": volume_db}
-            else:
-                raise HTTPException(status_code=500, detail="Failed to set volume")
 
     @router.post("/adjust")
     async def adjust_volume(request: VolumeAdjustRequest):

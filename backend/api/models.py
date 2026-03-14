@@ -28,12 +28,6 @@ class AudioControlRequest(BaseModel):
 # VOLUME
 # =============================================================================
 
-class VolumeSetRequest(BaseModel):
-    """Volume set request (in dB)"""
-    volume_db: float = Field(..., ge=-80, le=0, description="Volume in dB")
-    show_bar: bool = Field(default=True)
-
-
 class VolumeAdjustRequest(BaseModel):
     """Volume adjustment request (in dB)"""
     delta_db: float = Field(..., ge=-60, le=60, description="Volume delta in dB")
@@ -54,24 +48,10 @@ class ClientMuteRequest(BaseModel):
 # SNAPCAST
 # =============================================================================
 
-class SnapcastClientNameRequest(BaseModel):
-    """Snapcast client name request"""
-    name: str = Field(..., min_length=1, max_length=100)
-
-    @field_validator('name')
-    @classmethod
-    def validate_name(cls, v: str) -> str:
-        return v.strip()
-
-
 class SnapcastServerConfigRequest(BaseModel):
     """Snapcast server configuration request"""
     config: Dict[str, Any] = Field(default_factory=dict)
 
-
-# =============================================================================
-# EQUALIZER
-# =============================================================================
 
 # =============================================================================
 # SETTINGS - LANGUAGE
@@ -233,15 +213,6 @@ class ScreenUiScaleRequest(BaseModel):
 # =============================================================================
 
 EQUALIZER_FILTER_TYPES = Literal['Peaking', 'Lowshelf', 'Highshelf', 'Lowpass', 'Highpass', 'Notch', 'Allpass']
-
-
-class EqualizerFilterRequest(BaseModel):
-    """Equalizer filter configuration request"""
-    freq: float = Field(..., ge=20, le=20000, description="Filter frequency in Hz")
-    gain: float = Field(..., ge=-15, le=15, description="Filter gain in dB")
-    q: float = Field(default=1.0, ge=0.1, le=10.0, description="Filter Q factor")
-    filter_type: EQUALIZER_FILTER_TYPES = Field(default="Peaking", description="Filter type")
-    enabled: bool = Field(default=True, description="Whether filter is active")
 
 
 class EqualizerFilterUpdateRequest(BaseModel):

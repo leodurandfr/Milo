@@ -486,20 +486,6 @@ async def mark_episode_complete(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/queue/{episode_uuid}")
-async def remove_from_queue(
-    episode_uuid: str,
-    source: PodcastSource = Depends(get_source)
-) -> Dict[str, Any]:
-    """Remove episode from queue."""
-    try:
-        success = await source.podcast_data.clear_playback_progress(episode_uuid)
-        return {"success": success}
-    except Exception as e:
-        logger.error(f"Error removing from queue: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 # === Settings Routes ===
 
 @router.get("/settings")
