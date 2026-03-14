@@ -1,6 +1,7 @@
 {
   "app": {
-    "connectionUnavailable": "Connection unavailable"
+    "connectionUnavailable": "Connection unavailable",
+    "connecting": "Connecting..."
   },
   "notification": {
     "connectionLostTitle": "Connection lost",
@@ -36,9 +37,7 @@
       "favoritesTitle": "Favorite radios",
       "discoverTitle": "Discover radios",
       "searchPlaceholder": "Search",
-      "allCountries": "All countries",
       "loadingCountries": "Loading countries...",
-      "allGenres": "All genres",
       "loadingStations": "Loading stations...",
       "connectionError": "Connection error",
       "cannotLoadStations": "Unable to load stations",
@@ -46,24 +45,20 @@
       "noStationsFound": "No stations found",
       "minCharactersRequired": "Enter at least 3 characters to search",
       "noFavorites": "No favorite radios",
-      "stationNoImage": "Station without image",
       "playRadio": "Listen",
       "stopRadio": "Stop",
       "loadingMore": "Loading more..."
     }
   },
   "multiroom": {
-    "settings": "Multiroom settings",
     "disabled": "Multiroom is not enabled",
     "starting": "Starting multiroom",
-    "noClients": "No client is connected",
     "zonesAndSpeakers": "Audio systems",
     "individualSpeakers": "Individual systems",
     "loadingSpeakers": "Loading systems...",
     "noSpeakers": "No systems connected",
     "restarting": "Restarting multiroom...",
     "error": "Error activating multiroom",
-    "timeout_error": "Activation timeout. Please try again.",
     "editSpeaker": "Edit audio system",
     "speakerName": "System name",
     "speakerType": "Speaker type",
@@ -106,42 +101,26 @@
     "speakerOffline": "\"{name}\" is offline",
     "speakerOfflineDescription": "This audio system is not currently connected to Milō.<br>IP: {ip}",
     "deleteSpeaker": "Delete this audio system",
-    "offline": "Offline",
-    "syncing": "Syncing...",
-    "syncError": "Sync error",
-    "retrySync": "Retry"
+    "offline": "Offline"
   },
   "equalizer": {
     "title": "Equalizer",
     "effects_disabled": "Equalizer effects are disabled",
     "selectPreset": "Preset",
     "zones": {
-      "title": "Zones",
-      "configure": "Configure zones",
       "zoneName": "Zone name",
       "zoneNamePlaceholder": "e.g., Living Room",
       "selectClients": "Select audio systems",
       "minimumClients": "A zone requires at least 2 audio systems.",
       "createZone": "Create zone",
       "editZone": "Edit zone",
-      "updateZone": "Update zone",
-      "deleteZone": "Delete zone",
-      "description": "Link systems to create zones with shared equalizer settings. Changes to one zone member will apply to all.",
-      "noZones": "No zones created yet. Create a zone to link multiple systems.",
-      "inOtherZone": "In other zone",
-      "subwoofer": "Sub",
-      "crossover": "Crossover",
-      "crossoverFrequency": "Crossover frequency",
-      "crossoverHint": "High-pass filter applied to speakers. Set your subwoofer's crossover to match.",
-      "manageZone": "Manage zone",
-      "addToZone": "Add to zone"
+      "deleteZone": "Delete zone"
     },
     "equalizer": {
       "title": "10 Bands"
     },
     "compressor": {
       "title": "Compressor",
-      "enable": "Enable compressor",
       "threshold": "Threshold",
       "ratio": "Ratio",
       "attack": "Attack",
@@ -150,7 +129,6 @@
     },
     "loudness": {
       "title": "Loudness",
-      "enable": "Enable loudness",
       "lowBoost": "Bass boost",
       "highBoost": "Treble boost"
     },
@@ -182,7 +160,9 @@
     },
     "meters": {
       "title": "Audio output levels"
-    }
+    },
+    "connecting": "Connecting...",
+    "syncError": "Sync error"
   },
   "status": {
     "loading": "Starting...",
@@ -199,7 +179,6 @@
     "disconnecting": "Disconnecting..."
   },
   "volumeSettings": {
-    "title": "Volume",
     "controls": "Volume controls",
     "rotaryStep": "Volume variation per rotation",
     "mobileStep": "Volume variation on mobile",
@@ -219,7 +198,6 @@
     }
   },
   "screenSettings": {
-    "title": "Screen",
     "brightness": "Brightness",
     "brightnessIntensity": "Brightness intensity",
     "autoSleep": "Screen sleep",
@@ -239,9 +217,7 @@
     "rotaryEncoderDescription": "Select the GPIO pins connected to your rotary encoder.",
     "applyAndReboot": "Apply and reboot",
     "confirmReboot": "Confirm reboot",
-    "confirmMessage": "The system will reboot to apply hardware changes.",
-    "rebooting": "Rebooting...",
-    "rebootingDescription": "Milō is restarting. This page will reload automatically."
+    "rebooting": "Rebooting..."
   },
   "spotifySettings": {
     "autoDisconnect": "Auto disconnect",
@@ -268,15 +244,7 @@
     "userIdPlaceholder": "Enter your Taddy user ID",
     "apiKey": "API key",
     "apiKeyPlaceholder": "Enter your Taddy API key",
-    "saveButton": "Validate",
     "validateButton": "Test connection",
-    "validating": "Testing...",
-    "saveSuccess": "Credentials saved successfully",
-    "saveError": "Error saving credentials",
-    "validationSuccess": "Valid credentials!",
-    "validationError": "Invalid credentials",
-    "validationEmpty": "Please fill both fields",
-    "validationNetworkError": "Network error during validation",
     "invalidCredentials": "Your Taddy API credentials are not valid",
     "apiUsage": "Taddy API usage",
     "requestsPerMonth": "requests",
@@ -293,76 +261,22 @@
     "snapclientBuffer": "Player buffer (ms)",
     "codec": "Audio codec",
     "chunkSize": "Chunk size (ms)",
-    "serverName": "Server name",
     "apply": "Apply"
   },
   "updates": {
-    "title": "Updates",
     "osTitle": "Operating system",
     "programsTitle": "Milō programs",
     "satelliteProgramsTitle": "Milō Clients",
     "satelliteSectionTitle": "Milō Client programs",
-    "miloTitle": "Milō programs",
-    "satellitesTitle": "Connected satellite programs",
-    "checking": "Checking versions...",
     "error": "Error loading updates",
     "retry": "Retry",
-    "latestVersion": "Latest ver.",
-    "installed": "Installed",
     "notAvailable": "Not available",
     "update": "Update",
     "updating": "Updating...",
-    "errorDetails": "Error details",
-    "searchingSatellites": "Searching for satellites...",
     "errorDetectingSatellites": "Error detecting satellites",
-    "noSatellites": "No satellite detected on the network",
-    "updatingInit": "Initializing update...",
-    "miloApp": "Operating system",
-    "upToDate": "Up to date",
-    "progress": {
-      "creatingBackup": "Creating backup...",
-      "downloadingGoLibrespot": "Downloading go-librespot...",
-      "stoppingService": "Stopping service...",
-      "installingVersion": "Installing new version...",
-      "startingService": "Starting service...",
-      "verifyingUpdate": "Verifying update...",
-      "downloadingSnapserver": "Downloading snapserver...",
-      "downloadingSnapclient": "Downloading snapclient...",
-      "stoppingMultiroom": "Stopping multiroom services...",
-      "installingSnapserver": "Installing snapserver...",
-      "installingSnapclient": "Installing snapclient...",
-      "startingMultiroom": "Starting multiroom services...",
-      "cleaningUp": "Cleaning up...",
-      "completed": "Update completed!",
-      "startingUpdate": "Starting update...",
-      "updateInitiated": "Update initiated...",
-      "updateInProgress": "Update in progress...",
-      "checkingRepository": "Checking repository...",
-      "fetchingUpdates": "Fetching updates from GitHub...",
-      "checkingLocalChanges": "Checking for local changes...",
-      "pullingChanges": "Pulling latest changes...",
-      "installingFrontendDeps": "Installing frontend dependencies...",
-      "buildingFrontend": "Building frontend...",
-      "installingPythonDeps": "Installing Python dependencies...",
-      "syncingSystemFiles": "Syncing system files...",
-      "restartingBackend": "Restarting backend service...",
-      "restartingKiosk": "Restarting kiosk...",
-      "rollingBack": "Rolling back to previous version...",
-      "rollbackRebuilding": "Rebuilding after rollback...",
-      "rollbackRestarting": "Restarting services after rollback...",
-      "rollbackComplete": "Rollback complete",
-      "stoppingActiveSource": "Stopping active audio source...",
-      "rebooting": "Rebooting...",
-      "downloadingSource": "Downloading sources...",
-      "configuringSource": "Configuring...",
-      "compilingSource": "Compiling...",
-      "sendingUpdate": "Sending update to satellite...",
-      "waitingForRestart": "Waiting for satellite to restart..."
-    }
+    "upToDate": "Up to date"
   },
   "info": {
-    "title": "Information",
-    "miloVersion": "Milō version",
     "temperature": "Temperature",
     "ipAddress": "Milō IP",
     "cpu": "CPU",
@@ -379,31 +293,12 @@
     "done": "Done"
   },
   "clientDetails": {
-    "editClient": "Edit client",
-    "viewDetails": "View client details",
-    "displayName": "Display name",
-    "currently": "Currently",
     "hostname": "Hostname",
-    "ipAddress": "IP address",
-    "clientName": "Client name",
-    "snapclientVersion": "Snapclient version",
-    "snapserverVersion": "Snapserver version",
-    "connection": "Connection",
-    "validate": "Validate",
-    "validating": "Validating...",
-    "good": "Good",
-    "poor": "Poor",
-    "unknown": "Unknown",
-    "loadingDetails": "Loading details...",
-    "errorLoadingDetails": "Unable to load client details",
-    "errorValidating": "Error validating changes"
+    "ipAddress": "IP address"
   },
   "time": {
-    "5sec": "5 sec",
     "10sec": "10 sec",
-    "15sec": "15 sec",
     "30sec": "30 sec",
-    "1min": "1 min",
     "2min": "2 min",
     "5min": "5 min",
     "10min": "10 min",
@@ -412,8 +307,7 @@
     "1h": "1 h",
     "2h": "2 h",
     "4h": "4 h",
-    "12h": "12 h",
-    "never": "Never"
+    "12h": "12 h"
   },
   "common": {
     "settings": "Settings",
@@ -423,8 +317,7 @@
     "confirm": "Confirm",
     "restore": "Restore",
     "delete": "Delete",
-    "deleting": "Deleting...",
-    "back": "Back"
+    "deleting": "Deleting..."
   },
   "radio": {
     "country": "Country",
@@ -446,7 +339,6 @@
       "bitratePlaceholder": "Ex: 128, 192, 320",
       "add": "Add",
       "adding": "Adding...",
-      "confirmRestore": "Confirm restore",
       "confirmDelete": "Confirm",
       "loading": "Loading...",
       "invalidImageFormat": "Unsupported image format. Use JPG, PNG, WEBP or GIF.",
@@ -506,25 +398,11 @@
       "tv_and_film": "TV & Film"
     },
     "searchPlaceholder": "Search",
-    "podcastsCount": "Podcasts ({count})",
-    "episodesCount": "Episodes ({count})",
     "podcastsTitle": "Podcasts",
     "recentEpisodesTitle": "Episodes from the last two weeks",
-    "loadingMoreResults": "Loading more results...",
     "noResultsFor": "No results for \"{query}\"",
     "noResults": "No results found",
     "searchPrompt": "Search for podcasts or episodes",
-    "languages": {
-      "all": "All languages",
-      "french": "French",
-      "english": "English",
-      "spanish": "Spanish",
-      "german": "German",
-      "italian": "Italian",
-      "portuguese": "Portuguese",
-      "chinese": "Chinese",
-      "hindi": "Hindi"
-    },
     "duration": {
       "label": "Duration",
       "short": "Short (< 15 min)",
@@ -532,7 +410,6 @@
       "long": "Long (> 45 min)"
     },
     "languageFilter": {
-      "label": "Language",
       "all": "Language",
       "english": "English",
       "french": "French",
@@ -565,18 +442,11 @@
     "loading": "Loading...",
     "noEpisodesInQueue": "No episodes in queue",
     "noEpisodesInQueueHint": "Start listening to episodes and they will appear here",
-    "markComplete": "Complete",
-    "remove": "Remove",
     "episodesCount2": "episodes",
-    "completed": "Completed",
-    "explicit": "Explicit",
     "subscribed": "Subscribed",
     "subscribe": "Subscribe",
     "description": "Description",
     "episodesTitle": "Episodes",
-    "resume": "Resume",
-    "listen": "Listen",
-    "pause": "Pause",
     "remaining": "remaining",
     "episodeCompleted": "Episode completed",
     "today": "Today",
@@ -585,7 +455,6 @@
     "weeksAgo": "{count} weeks ago",
     "monthsAgo": "{count} months ago",
     "yearsAgo": "{count} years ago",
-    "new": "New",
     "unsubscribe": "Unsubscribe",
     "credentialsError": "Taddy API credentials required",
     "credentialsErrorHint": "Configure your credentials to access podcasts",
@@ -678,15 +547,13 @@
     },
     "screen": {
       "title": "Select your screen",
-      "none": "No screen",
-      "rebootNote": "A reboot will be needed to apply hardware changes."
+      "none": "No screen"
     },
     "summary": {
       "title": "Summary",
       "language": "Language",
       "audioCard": "Audio card",
       "screen": "Screen",
-      "rebootMessage": "Your system needs to reboot to activate the audio card and screen configuration.",
       "applyAndReboot": "Apply & Reboot",
       "confirmReboot": "Confirm reboot",
       "rebooting": "Rebooting...",

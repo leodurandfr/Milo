@@ -1,6 +1,7 @@
 {
   "app": {
-    "connectionUnavailable": "Verbindung nicht verfügbar"
+    "connectionUnavailable": "Verbindung nicht verfügbar",
+    "connecting": "Verbindung wird hergestellt..."
   },
   "notification": {
     "connectionLostTitle": "Verbindung verloren",
@@ -36,9 +37,7 @@
       "favoritesTitle": "Lieblings-Radios",
       "discoverTitle": "Radios entdecken",
       "searchPlaceholder": "Suchen",
-      "allCountries": "Alle Länder",
       "loadingCountries": "Länder werden geladen...",
-      "allGenres": "Alle Genres",
       "loadingStations": "Sender werden geladen...",
       "connectionError": "Verbindungsfehler",
       "cannotLoadStations": "Sender können nicht geladen werden",
@@ -46,24 +45,20 @@
       "noStationsFound": "Keine Sender gefunden",
       "minCharactersRequired": "Geben Sie mindestens 3 Zeichen ein, um zu suchen",
       "noFavorites": "Keine Lieblings-Radios",
-      "stationNoImage": "Sender ohne Bild",
       "playRadio": "Anhören",
       "stopRadio": "Stoppen",
       "loadingMore": "Laden..."
     }
   },
   "multiroom": {
-    "settings": "Multiroom-Einstellungen",
     "disabled": "Multiroom ist nicht aktiviert",
     "starting": "Multiroom wird gestartet",
-    "noClients": "Kein Client verbunden",
     "zonesAndSpeakers": "Audiosysteme",
     "individualSpeakers": "Einzelne Systeme",
     "loadingSpeakers": "Systeme werden geladen...",
     "noSpeakers": "Keine Systeme verbunden",
     "restarting": "Multiroom wird neu gestartet...",
     "error": "Fehler beim Aktivieren von Multiroom",
-    "timeout_error": "Aktivierungszeitüberschreitung. Bitte versuchen Sie es erneut.",
     "editSpeaker": "Audiosystem bearbeiten",
     "speakerName": "Systemname",
     "speakerType": "Lautsprechertyp",
@@ -106,66 +101,26 @@
     "speakerOffline": "\"{name}\" ist offline",
     "speakerOfflineDescription": "Dieses Audiosystem ist derzeit nicht mit Milō verbunden.<br>IP: {ip}",
     "deleteSpeaker": "Dieses Audiosystem löschen",
-    "offline": "Offline",
-    "syncing": "Synchronisierung...",
-    "syncError": "Sync-Fehler",
-    "retrySync": "Erneut versuchen"
+    "offline": "Offline"
   },
   "equalizer": {
     "title": "Equalizer",
-    "disabled": "Equalizer ist deaktiviert",
     "effects_disabled": "Equalizer-Effekte sind deaktiviert",
     "selectPreset": "Preset",
-    "selectTarget": "Gerät",
     "zones": {
-      "title": "Zonen",
-      "configure": "Zonen konfigurieren",
       "zoneName": "Zonenname",
       "zoneNamePlaceholder": "z.B.: Wohnzimmer",
       "selectClients": "Audiosysteme auswählen",
       "minimumClients": "Eine Zone erfordert mindestens 2 Audiosysteme.",
       "createZone": "Zone erstellen",
       "editZone": "Zone bearbeiten",
-      "updateZone": "Aktualisieren",
-      "deleteZone": "Zone löschen",
-      "description": "Verbinden Sie Systeme, um Zonen mit gemeinsamen Equalizer-Einstellungen zu erstellen. Änderungen werden auf alle Mitglieder angewendet.",
-      "noZones": "Keine Zonen erstellt. Erstellen Sie eine Zone, um mehrere Systeme zu verbinden.",
-      "inOtherZone": "In einer anderen Zone",
-      "subwoofer": "Sub",
-      "crossover": "Crossover",
-      "crossoverFrequency": "Trennfrequenz",
-      "crossoverHint": "Hochpassfilter auf Lautsprecher angewendet. Stellen Sie den Crossover Ihres Subwoofers auf die gleiche Frequenz ein.",
-      "manageZone": "Zone verwalten",
-      "addToZone": "Zu einer Zone hinzufügen"
+      "deleteZone": "Zone löschen"
     },
     "equalizer": {
       "title": "10 Bänder"
     },
-    "advanced": {
-      "title": "Erweiterte Effekte"
-    },
-    "filters": "Filter",
-    "addFilter": "Filter hinzufügen",
-    "removeFilter": "Filter entfernen",
-    "resetFilters": "Zurücksetzen",
-    "frequency": "Frequenz",
-    "gain": "Verstärkung",
-    "qFactor": "Q-Faktor",
-    "filterType": "Typ",
-    "filterTypes": {
-      "peaking": "Glocke",
-      "lowshelf": "Bässe",
-      "highshelf": "Höhen",
-      "lowpass": "Tiefpass",
-      "highpass": "Hochpass",
-      "notch": "Kerbfilter",
-      "allpass": "Allpass"
-    },
-    "showAdvanced": "Erweiterte Optionen",
-    "hideAdvanced": "Optionen ausblenden",
     "compressor": {
       "title": "Kompressor",
-      "enable": "Kompressor aktivieren",
       "threshold": "Schwellenwert",
       "ratio": "Verhältnis",
       "attack": "Attack",
@@ -174,14 +129,8 @@
     },
     "loudness": {
       "title": "Loudness",
-      "enable": "Loudness aktivieren",
       "lowBoost": "Bassverstärkung",
       "highBoost": "Höhenverstärkung"
-    },
-    "volume": {
-      "title": "Lautstärke",
-      "level": "Pegel",
-      "muted": "Stummgeschaltet"
     },
     "presets": {
       "custom": "Benutzerdefiniert",
@@ -212,15 +161,8 @@
     "meters": {
       "title": "Audio-Ausgangspegel"
     },
-    "linkedClients": {
-      "title": "Clients verknüpfen",
-      "description": "Verknüpfte Clients teilen die gleichen Equalizer-Einstellungen. Änderungen werden auf alle angewendet.",
-      "linked": "Verknüpft",
-      "offline": "Offline",
-      "currentGroup": "Aktuell verknüpft:",
-      "link": "Auswahl verknüpfen",
-      "unlink": "Trennen"
-    }
+    "connecting": "Verbindung wird hergestellt...",
+    "syncError": "Synchronisierungsfehler"
   },
   "status": {
     "loading": "Wird gestartet...",
@@ -237,7 +179,6 @@
     "disconnecting": "Trennen..."
   },
   "volumeSettings": {
-    "title": "Lautstärke",
     "controls": "Lautstärkeregler",
     "rotaryStep": "Lautstärkeänderung pro Drehung",
     "mobileStep": "Lautstärkeänderung auf dem Handy",
@@ -257,7 +198,6 @@
     }
   },
   "screenSettings": {
-    "title": "Bildschirm",
     "brightness": "Helligkeit",
     "brightnessIntensity": "Helligkeitsintensität",
     "autoSleep": "Bildschirm-Ruhemodus",
@@ -277,9 +217,7 @@
     "rotaryEncoderDescription": "Wählen Sie die GPIO-Pins Ihres Drehreglers aus.",
     "applyAndReboot": "Anwenden und neu starten",
     "confirmReboot": "Neustart bestätigen",
-    "confirmMessage": "Das System wird neu gestartet, um die Hardwareänderungen anzuwenden.",
-    "rebooting": "Neustart...",
-    "rebootingDescription": "Milō startet neu. Diese Seite wird automatisch neu geladen."
+    "rebooting": "Neustart..."
   },
   "spotifySettings": {
     "autoDisconnect": "Automatische Trennung",
@@ -306,15 +244,7 @@
     "userIdPlaceholder": "Geben Sie Ihre Taddy User ID ein",
     "apiKey": "API Key",
     "apiKeyPlaceholder": "Geben Sie Ihren Taddy API Key ein",
-    "saveButton": "Validieren",
     "validateButton": "Verbindung testen",
-    "validating": "Teste...",
-    "saveSuccess": "Anmeldedaten erfolgreich gespeichert",
-    "saveError": "Fehler beim Speichern der Anmeldedaten",
-    "validationSuccess": "Gültige Anmeldedaten!",
-    "validationError": "Ungültige Anmeldedaten",
-    "validationEmpty": "Bitte füllen Sie beide Felder aus",
-    "validationNetworkError": "Netzwerkfehler bei der Validierung",
     "invalidCredentials": "Ihre Taddy API-Anmeldedaten sind ungültig",
     "apiUsage": "Taddy API-Nutzung",
     "requestsPerMonth": "Anfragen",
@@ -331,76 +261,22 @@
     "snapclientBuffer": "Player-Puffer (ms)",
     "codec": "Audio-Codec",
     "chunkSize": "Chunk-Größe (ms)",
-    "serverName": "Servername",
     "apply": "Anwenden"
   },
   "updates": {
-    "title": "Aktualisierungen",
     "osTitle": "Betriebssystem",
     "programsTitle": "Milō Programme",
     "satelliteProgramsTitle": "Milō Clients",
     "satelliteSectionTitle": "Milō Client Programme",
-    "miloTitle": "Milō Programme",
-    "satellitesTitle": "Programme verbundener Satelliten",
-    "checking": "Versionen werden überprüft...",
     "error": "Fehler beim Laden der Aktualisierungen",
     "retry": "Wiederholen",
-    "latestVersion": "Neueste Ver.",
-    "installed": "Installiert",
     "notAvailable": "Nicht verfügbar",
     "update": "Aktualisieren",
     "updating": "Aktualisierung...",
-    "errorDetails": "Fehlerdetails",
-    "searchingSatellites": "Satelliten werden gesucht...",
     "errorDetectingSatellites": "Fehler beim Erkennen von Satelliten",
-    "noSatellites": "Kein Satellit im Netzwerk erkannt",
-    "updatingInit": "Update wird initialisiert...",
-    "miloApp": "Betriebssystem",
-    "upToDate": "Aktuell",
-    "progress": {
-      "creatingBackup": "Backup wird erstellt...",
-      "downloadingGoLibrespot": "go-librespot wird heruntergeladen...",
-      "stoppingService": "Dienst wird gestoppt...",
-      "installingVersion": "Neue Version wird installiert...",
-      "startingService": "Dienst wird gestartet...",
-      "verifyingUpdate": "Update wird überprüft...",
-      "downloadingSnapserver": "Snapserver wird heruntergeladen...",
-      "downloadingSnapclient": "Snapclient wird heruntergeladen...",
-      "stoppingMultiroom": "Multiroom-Dienste werden gestoppt...",
-      "installingSnapserver": "Snapserver wird installiert...",
-      "installingSnapclient": "Snapclient wird installiert...",
-      "startingMultiroom": "Multiroom-Dienste werden gestartet...",
-      "cleaningUp": "Aufräumen...",
-      "completed": "Update abgeschlossen!",
-      "startingUpdate": "Update wird gestartet...",
-      "updateInitiated": "Update eingeleitet...",
-      "updateInProgress": "Update läuft...",
-      "checkingRepository": "Repository wird überprüft...",
-      "fetchingUpdates": "Updates von GitHub abrufen...",
-      "checkingLocalChanges": "Lokale Änderungen prüfen...",
-      "pullingChanges": "Neueste Änderungen herunterladen...",
-      "installingFrontendDeps": "Frontend-Abhängigkeiten installieren...",
-      "buildingFrontend": "Frontend kompilieren...",
-      "installingPythonDeps": "Python-Abhängigkeiten installieren...",
-      "syncingSystemFiles": "Systemdateien werden synchronisiert...",
-      "restartingBackend": "Backend-Dienst neu starten...",
-      "restartingKiosk": "Kiosk neu starten...",
-      "rollingBack": "Auf vorherige Version zurücksetzen...",
-      "rollbackRebuilding": "Nach Rollback neu kompilieren...",
-      "rollbackRestarting": "Dienste nach Rollback neu starten...",
-      "rollbackComplete": "Rollback abgeschlossen",
-      "stoppingActiveSource": "Aktive Audioquelle wird gestoppt...",
-      "rebooting": "Neustart...",
-      "downloadingSource": "Quellcode herunterladen...",
-      "configuringSource": "Konfiguration...",
-      "compilingSource": "Kompilierung...",
-      "sendingUpdate": "Update wird an den Satelliten gesendet...",
-      "waitingForRestart": "Warten auf Neustart des Satelliten..."
-    }
+    "upToDate": "Aktuell"
   },
   "info": {
-    "title": "Informationen",
-    "miloVersion": "Milō-Version",
     "temperature": "Temperatur",
     "ipAddress": "Milō-IP",
     "cpu": "CPU",
@@ -408,7 +284,6 @@
     "credits": "Credits"
   },
   "applications": {
-    "title": "Anwendungen",
     "features": "Funktionen"
   },
   "applicationsSettings": {
@@ -418,35 +293,12 @@
     "done": "Fertig"
   },
   "clientDetails": {
-    "editClient": "Client bearbeiten",
-    "viewDetails": "Client-Details anzeigen",
-    "displayName": "Anzeigename",
-    "currently": "Aktuell",
     "hostname": "Hostname",
-    "ipAddress": "IP-Adresse",
-    "clientName": "Client-Name",
-    "snapclientVersion": "Snapclient-Version",
-    "snapserverVersion": "Snapserver-Version",
-    "connection": "Verbindung",
-    "validate": "Validieren",
-    "validating": "Wird validiert...",
-    "good": "Gut",
-    "poor": "Schlecht",
-    "unknown": "Unbekannt",
-    "loadingDetails": "Details werden geladen...",
-    "errorLoadingDetails": "Client-Details können nicht geladen werden",
-    "errorValidating": "Fehler bei der Validierung von Änderungen"
-  },
-  "playback": {
-    "unknownTitle": "Unbekannter Titel",
-    "unknownArtist": "Unbekannter Künstler"
+    "ipAddress": "IP-Adresse"
   },
   "time": {
-    "5sec": "5 Sek",
     "10sec": "10 Sek",
-    "15sec": "15 Sek",
     "30sec": "30 Sek",
-    "1min": "1 Min",
     "2min": "2 Min",
     "5min": "5 Min",
     "10min": "10 Min",
@@ -455,43 +307,21 @@
     "1h": "1 Std",
     "2h": "2 h",
     "4h": "4 h",
-    "12h": "12 h",
-    "never": "Nie"
+    "12h": "12 h"
   },
   "common": {
     "settings": "Einstellungen",
-    "parameters": "Einstellungen",
-    "configuration": "Einstellungen",
-    "language": "Sprache",
-    "unknown": "Unbekannt",
     "cancel": "Abbrechen",
     "save": "Speichern",
     "saving": "Wird gespeichert...",
     "confirm": "Bestätigen",
     "restore": "Wiederherstellen",
     "delete": "Löschen",
-    "deleting": "Wird gelöscht...",
-    "modify": "Bearbeiten",
-    "back": "Zurück"
+    "deleting": "Wird gelöscht..."
   },
   "radio": {
-    "edit_station_title": "{name} bearbeiten",
-    "station_image_optional": "Senderbild (optional)",
-    "click_to_choose": "Zum Auswählen klicken",
-    "change_image": "Bild ändern",
-    "choose_image": "Bild auswählen",
-    "image_formats": "JPG, PNG, WEBP, GIF - Max 5MB",
-    "station_name": "Sendername",
-    "station_name_placeholder": "z.B: WDR",
-    "stream_url": "Stream-URL",
-    "stream_url_placeholder": "z.B: http://streaming.radio.de/stream",
     "country": "Land",
     "genre": "Genre",
-    "invalid_image_format": "Nicht unterstütztes Bildformat. Verwenden Sie JPG, PNG, WEBP oder GIF.",
-    "image_too_large": "Bild zu groß. Maximum 5MB.",
-    "edit_failed": "Sender konnte nicht bearbeitet werden",
-    "error_occurred": "Ein Fehler ist aufgetreten",
-    "saving": "Wird gespeichert...",
     "manageStation": {
       "name": "Sendername",
       "namePlaceholder": "z.B: WDR",
@@ -509,7 +339,6 @@
       "bitratePlaceholder": "z.B: 128, 192, 320",
       "add": "Hinzufügen",
       "adding": "Wird hinzugefügt...",
-      "confirmRestore": "Wiederherstellung bestätigen",
       "confirmDelete": "Bestätigen",
       "loading": "Wird geladen...",
       "invalidImageFormat": "Nicht unterstütztes Bildformat. Verwenden Sie JPG, PNG, WEBP oder GIF.",
@@ -526,14 +355,10 @@
     "unmodifiedFavoritesTitle": "Unveränderte Favoriten",
     "modifiedStationsTitle": "Geänderte Sender",
     "noModifiedStations": "Keine geänderten Sender",
-    "restoreStationConfirm": "Originalsender wiederherstellen?",
-    "modificationsWillBeLost": "Alle Änderungen gehen verloren und der Originalsender wird wiederhergestellt.",
     "addedStationsTitle": "Hinzugefügte Sender",
-    "noAddedStations": "Kein Sender hinzugefügt. Klicken Sie auf \"Sender hinzufügen\", um zu beginnen.",
     "addStation": "Sender hinzufügen",
-    "deleteStationConfirm": "Sender löschen?",
-    "cancel": "Abbrechen",
-    "delete": "Löschen"
+    "trackRecognition": "Titelidentifikation",
+    "trackRecognitionDescription": "Laufende Titel über Shazam identifizieren"
   },
   "podcasts": {
     "podcasts": "Podcasts",
@@ -553,7 +378,6 @@
       "news": "Nachrichten",
       "comedy": "Komödie",
       "trueCrime": "True Crime",
-      "tech": "Technologie",
       "sports": "Sport",
       "education": "Bildung",
       "business": "Business",
@@ -574,25 +398,11 @@
       "tv_and_film": "TV & Film"
     },
     "searchPlaceholder": "Suchen",
-    "podcastsCount": "Podcasts ({count})",
-    "episodesCount": "Episoden ({count})",
     "podcastsTitle": "Podcasts",
     "recentEpisodesTitle": "Episoden der letzten zwei Wochen",
-    "loadingMoreResults": "Weitere Ergebnisse werden geladen...",
     "noResultsFor": "Keine Ergebnisse für \"{query}\"",
     "noResults": "Keine Ergebnisse gefunden",
     "searchPrompt": "Podcasts oder Episoden suchen",
-    "languages": {
-      "all": "Alle Sprachen",
-      "french": "Französisch",
-      "english": "Englisch",
-      "spanish": "Spanisch",
-      "german": "Deutsch",
-      "italian": "Italienisch",
-      "portuguese": "Portugiesisch",
-      "chinese": "Chinesisch",
-      "hindi": "Hindi"
-    },
     "duration": {
       "label": "Dauer",
       "short": "Kurz (< 15 Min.)",
@@ -600,7 +410,6 @@
       "long": "Lang (> 45 Min.)"
     },
     "languageFilter": {
-      "label": "Sprache",
       "all": "Sprache",
       "english": "Englisch",
       "french": "Französisch",
@@ -633,18 +442,11 @@
     "loading": "Wird geladen...",
     "noEpisodesInQueue": "Keine Episoden in der Warteschlange",
     "noEpisodesInQueueHint": "Beginnen Sie mit dem Hören von Episoden und sie werden hier angezeigt",
-    "markComplete": "Abschließen",
-    "remove": "Entfernen",
     "episodesCount2": "Episoden",
-    "completed": "Abgeschlossen",
-    "explicit": "Explizit",
     "subscribed": "Abonniert",
     "subscribe": "Abonnieren",
     "description": "Beschreibung",
     "episodesTitle": "Episoden",
-    "resume": "Fortsetzen",
-    "listen": "Anhören",
-    "pause": "Pausieren",
     "remaining": "verbleibend",
     "episodeCompleted": "Episode abgeschlossen",
     "today": "Heute",
@@ -653,7 +455,6 @@
     "weeksAgo": "Vor {count} Wochen",
     "monthsAgo": "Vor {count} Monaten",
     "yearsAgo": "Vor {count} Jahren",
-    "new": "Neu",
     "unsubscribe": "Abbestellen",
     "credentialsError": "Taddy API-Anmeldedaten erforderlich",
     "credentialsErrorHint": "Konfigurieren Sie Ihre Anmeldedaten, um auf Podcasts zuzugreifen",
@@ -746,15 +547,13 @@
     },
     "screen": {
       "title": "Wählen Sie Ihren Bildschirm",
-      "none": "Kein Bildschirm",
-      "rebootNote": "Ein Neustart ist erforderlich, um die Hardwareänderungen anzuwenden."
+      "none": "Kein Bildschirm"
     },
     "summary": {
       "title": "Übersicht",
       "language": "Sprache",
       "audioCard": "Audiokarte",
       "screen": "Bildschirm",
-      "rebootMessage": "Ihr System muss neu gestartet werden, um die Audiokarten- und Bildschirmkonfiguration zu aktivieren.",
       "applyAndReboot": "Anwenden und neu starten",
       "confirmReboot": "Neustart bestätigen",
       "rebooting": "Neustart...",
