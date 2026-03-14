@@ -1130,13 +1130,12 @@ finalize_installation() {
    echo -e "${GREEN}   Milo Installation Complete!   ${NC}"
    echo -e "${GREEN}=================================${NC}"
    echo ""
-   echo -e "${BLUE}Next steps:${NC}"
-   echo "  1. System will reboot in 5 seconds"
-   echo "  2. Open http://milo.local in your browser"
-   echo "  3. Follow the setup wizard to configure your hardware"
+   echo -e "  ${BLUE}Next steps:${NC}"
+   echo "    1. Open http://milo.local"
+   echo "    2. Follow the setup wizard to configure your hardware"
    echo ""
 
-   log_info "Automatic reboot in 5 seconds..."
+   log_info "Rebooting in 5 seconds..."
    sleep 5
    sudo reboot
 }
