@@ -26,7 +26,7 @@
     <!-- Online State - Settings -->
     <template v-else>
       <!-- Speaker Name Input -->
-      <SettingsSection :title="t('multiroom.speakerName', 'Speaker Name')">
+      <SettingsSection :title="t('multiroom.speakerName')">
         <InputText v-model="clientName" :placeholder="client?.host" size="medium" :maxlength="16"
           @blur="saveClientName" />
       </SettingsSection>
@@ -46,7 +46,7 @@
       </SettingsSection>
 
       <!-- Speaker Type Selection -->
-      <SettingsSection :title="t('multiroom.speakerType', 'Speaker Type')">
+      <SettingsSection :title="t('multiroom.speakerType')">
         <div class="speaker-types">
           <ListItemButton v-for="type in speakerTypes" :key="type.value" :title="type.label" variant="background"
             action="radio" icon-variant="standard" :model-value="selectedSpeakerType === type.value"
@@ -85,14 +85,14 @@
       </SettingsSection>
 
       <!-- Client Info -->
-      <SettingsSection :title="t('multiroom.speakerInfo', 'Speaker Info')">
+      <SettingsSection :title="t('multiroom.speakerInfo')">
         <div class="info-grid">
           <div class="info-item">
-            <span class="info-label text-mono">{{ t('clientDetails.hostname', 'Hostname') }}</span>
+            <span class="info-label text-mono">{{ t('clientDetails.hostname') }}</span>
             <span class="info-value text-mono">{{ client?.host }}</span>
           </div>
           <div class="info-item">
-            <span class="info-label text-mono">{{ t('clientDetails.ipAddress', 'IP Address') }}</span>
+            <span class="info-label text-mono">{{ t('clientDetails.ipAddress') }}</span>
             <span class="info-value text-mono">{{ client?.ip || 'Unknown' }}</span>
           </div>
         </div>
@@ -248,10 +248,10 @@ const showCrossoverInfo = computed(() => {
 
 // Speaker type options
 const speakerTypes = computed(() => [
-  { value: 'satellite', label: t('multiroom.speakerTypes.satellite', 'Satellite speakers'), icon: 'speakerSatellite' },
-  { value: 'bookshelf', label: t('multiroom.speakerTypes.bookshelf', 'Bookshelf speakers'), icon: 'speakerShelf' },
-  { value: 'tower', label: t('multiroom.speakerTypes.tower', 'Tower speakers'), icon: 'speakerColumn' },
-  { value: 'subwoofer', label: t('multiroom.speakerTypes.subwoofer', 'Subwoofer'), icon: 'speakerSub' }
+  { value: 'satellite', label: t('multiroom.speakerTypes.satellite'), icon: 'speakerSatellite' },
+  { value: 'bookshelf', label: t('multiroom.speakerTypes.bookshelf'), icon: 'speakerShelf' },
+  { value: 'tower', label: t('multiroom.speakerTypes.tower'), icon: 'speakerColumn' },
+  { value: 'subwoofer', label: t('multiroom.speakerTypes.subwoofer'), icon: 'speakerSub' }
 ]);
 
 // Apply button label (two-step confirm)
