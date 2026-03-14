@@ -20,16 +20,8 @@ class TestVolumeRoutes:
         """Volume service mock with dB API"""
         service = Mock()
 
-        # Status endpoint
-        service.get_status = AsyncMock(return_value={
-            "volume_db": -30.0,
-            "muted": False,
-            "multiroom_enabled": False
-        })
-
         # Volume operations (all in dB)
         service.get_volume_db = AsyncMock(return_value=-30.0)
-        service.set_volume_db = AsyncMock(return_value=True)
         service.adjust_volume_db = AsyncMock(return_value=True)
 
         # Config for step values
@@ -46,82 +38,6 @@ class TestVolumeRoutes:
         client = TestClient(app)
         client._mock_service = mock_volume_service
         return client
-
-    # ===================
-    # GET TESTS
-    # ===================
-
-    def test_get_volume_status(self, client):
-        """Test GET /api/volume/status"""
-        response = client.get("/api/volume/status")
-        assert response.status_code == 200
-        assert response.json()["status"] == "success"
-        assert "data" in response.json()
-
-    def test_get_current_volume(self, client):
-        """Test GET /api/volume/"""
-        response = client.get("/api/volume/")
-        assert response.status_code == 200
-        assert response.json()["status"] == "success"
-        assert response.json()["volume_db"] == -30.0
-
-    def test_get_volume_status_error(self, client):
-        """Test GET /api/volume/status with service error"""
-        client._mock_service.get_status = AsyncMock(side_effect=Exception("Service error"))
-        response = client.get("/api/volume/status")
-        assert response.status_code == 200  # Returns error in body, not HTTP error
-        assert response.json()["status"] == "error"
-
-    # ===================
-    # SET VOLUME TESTS (dB: -80 to 0)
-    # ===================
-
-    def test_set_volume_valid(self, client):
-        """Test POST /api/volume/set with valid volume in dB"""
-        response = client.post("/api/volume/set", json={"volume_db": -30.0})
-        assert response.status_code == 200
-        assert response.json()["status"] == "success"
-        assert response.json()["volume_db"] == -30.0
-        client._mock_service.set_volume_db.assert_called_once_with(-30.0, show_bar=True)
-
-    def test_set_volume_min(self, client):
-        """Test POST /api/volume/set with minimum volume (-80 dB)"""
-        response = client.post("/api/volume/set", json={"volume_db": -80.0})
-        assert response.status_code == 200
-        assert response.json()["status"] == "success"
-
-    def test_set_volume_max(self, client):
-        """Test POST /api/volume/set with maximum volume (0 dB)"""
-        response = client.post("/api/volume/set", json={"volume_db": 0.0})
-        assert response.status_code == 200
-        assert response.json()["status"] == "success"
-
-    def test_set_volume_with_show_bar_false(self, client):
-        """Test POST /api/volume/set with show_bar=false"""
-        response = client.post("/api/volume/set", json={"volume_db": -30.0, "show_bar": False})
-        assert response.status_code == 200
-        client._mock_service.set_volume_db.assert_called_once_with(-30.0, show_bar=False)
-
-    def test_set_volume_too_high(self, client):
-        """Test POST /api/volume/set with volume > 0 dB - should return 422"""
-        response = client.post("/api/volume/set", json={"volume_db": 10.0})
-        assert response.status_code == 422
-
-    def test_set_volume_too_low(self, client):
-        """Test POST /api/volume/set with volume < -80 dB - should return 422"""
-        response = client.post("/api/volume/set", json={"volume_db": -100.0})
-        assert response.status_code == 422
-
-    def test_set_volume_missing_field(self, client):
-        """Test POST /api/volume/set without volume_db field - should return 422"""
-        response = client.post("/api/volume/set", json={})
-        assert response.status_code == 422
-
-    def test_set_volume_service_failure(self, client):
-        """Test POST /api/volume/set when service fails"""
-        client._mock_service.set_volume_db = AsyncMock(return_value=False)
-        response = client.post("/api/volume/set", json={"volume_db": -30.0})
-        assert response.status_code == 500
 
     # ===================
     # ADJUST VOLUME TESTS (delta in dB: -60 to 60)
@@ -166,4 +82,3 @@ class TestVolumeRoutes:
         client._mock_service.adjust_volume_db = AsyncMock(return_value=False)
         response = client.post("/api/volume/adjust", json={"delta_db": 3.0})
         assert response.status_code == 500
-

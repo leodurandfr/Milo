@@ -76,21 +76,6 @@ async def get_status(source: RadioSource = Depends(get_source)) -> Dict[str, Any
         }
 
 
-@router.get("/stats")
-async def get_stats(source: RadioSource = Depends(get_source)) -> Dict[str, int]:
-    """
-    Get statistics (favorites, broken stations, etc.)
-
-    Returns:
-        Statistics dict
-    """
-    try:
-        return source.station_data.get_stats() if source.station_data else {}
-    except Exception as e:
-        logger.error("Stats error: %s", e)
-        raise HTTPException(status_code=500, detail=f"Stats error: {str(e)}")
-
-
 # === Playback Routes ===
 
 @router.post("/play")
@@ -197,36 +182,6 @@ async def search_stations(
     except Exception as e:
         logger.error("Search error: %s", e)
         raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")
-
-
-@router.get("/station/{station_id}")
-async def get_station(
-    station_id: str,
-    source: RadioSource = Depends(get_source)
-) -> Dict[str, Any]:
-    """
-    Get station details by ID.
-
-    Args:
-        station_id: Station UUID
-
-    Returns:
-        Station details
-    """
-    try:
-        station = await source.radio_api.get_station_by_id(station_id)
-
-        if not station:
-            raise HTTPException(status_code=404, detail="Station not found")
-
-        enriched = source.station_data.enrich_with_favorite_status([station])
-        return enriched[0]
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Station error: %s", e)
-        raise HTTPException(status_code=500, detail=f"Station error: {str(e)}")
 
 
 @router.get("/countries")

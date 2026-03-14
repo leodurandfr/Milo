@@ -114,20 +114,6 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
 
     # === CLIENT ENDPOINTS ===
 
-    @router.get("/clients")
-    async def get_clients():
-        """
-        Get all registered clients.
-
-        Returns:
-            {"clients": [...]} with each client including runtime 'online' status
-        """
-        async with api_error_handler("Error getting clients", logger):
-            clients = registry_service.get_all_clients()
-            return {
-                "clients": [_client_with_online(c) for c in clients.values()]
-            }
-
     @router.get("/clients/{mac_id}")
     async def get_client(mac_id: str):
         """

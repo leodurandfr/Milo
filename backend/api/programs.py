@@ -111,22 +111,6 @@ def create_programs_router(update_service, satellite_update_service, state_machi
                 "count": 0
             }
 
-    @router.get("/list")
-    async def get_program_list():
-        """Retrieve the list of configured programs"""
-        try:
-            programs = update_service.get_program_list()
-            return {
-                "status": "success",
-                "programs": programs
-            }
-        except Exception as e:
-            return {
-                "status": "error",
-                "message": str(e),
-                "programs": []
-            }
-
     # === SATELLITE ROUTES (specific, before generic routes) ===
 
     @router.get("/satellites")
@@ -287,38 +271,6 @@ def create_programs_router(update_service, satellite_update_service, state_machi
                 "installed": None
             }
 
-    @router.get("/{program_key}/latest")
-    async def get_program_latest_version(program_key: str):
-        """Retrieve only the latest version from GitHub"""
-        try:
-            result = await update_service.get_latest_github_version(program_key)
-            return {
-                "status": "success",
-                "latest": result
-            }
-        except Exception as e:
-            return {
-                "status": "error",
-                "message": str(e),
-                "latest": None
-            }
-
-    @router.get("/{program_key}/can-update")
-    async def check_can_update_program(program_key: str):
-        """Check if a program can be updated"""
-        try:
-            result = await update_service.can_update_program(program_key)
-            return {
-                "status": "success",
-                **result
-            }
-        except Exception as e:
-            return {
-                "status": "error",
-                "message": str(e),
-                "can_update": False
-            }
-
     @router.post("/{program_key}/update")
     async def update_program(program_key: str, background_tasks: BackgroundTasks):
         """Launch a local program update in the background"""
@@ -359,21 +311,5 @@ def create_programs_router(update_service, satellite_update_service, state_machi
             "message": f"Update started for {program_key}",
             "available_version": can_update.get("available_version")
         }
-
-    @router.get("/{program_key}/update-status")
-    async def get_update_status(program_key: str):
-        """Retrieve the update status of a program"""
-        if program_key in active_updates:
-            return {
-                "status": "success",
-                "updating": True,
-                **active_updates[program_key]
-            }
-        else:
-            return {
-                "status": "success",
-                "updating": False,
-                "message": "No update in progress"
-            }
 
     return router
