@@ -10,6 +10,8 @@ import { ref, onUnmounted } from 'vue';
  *
  * @param {Object} options
  * @param {Function} options.adjustVolume - (delta: number) => void
+ * @param {Function} [options.onHoldStart] - (delta, intervalMs) => void — called when hold begins
+ * @param {Function} [options.onHoldEnd] - () => void — called when hold ends
  * @param {import('vue').Ref<boolean>} options.gestureHasMoved - shared ref from drag composable
  * @param {import('vue').Ref<{x:number,y:number}>} options.gestureStartPosition - shared ref
  * @param {Function} options.getEventX - normalize event → clientX
@@ -17,6 +19,8 @@ import { ref, onUnmounted } from 'vue';
  */
 export function useVolumeHold({
   adjustVolume,
+  onHoldStart,
+  onHoldEnd,
   gestureHasMoved,
   gestureStartPosition,
   getEventX,
@@ -47,6 +51,7 @@ export function useVolumeHold({
         adjustVolume(delta);
         actionTaken = true;
         isHolding = true;
+        onHoldStart?.(delta, REPEAT_INTERVAL);
 
         repeatTimer = setInterval(() => {
           if (isHolding) {
@@ -69,6 +74,7 @@ export function useVolumeHold({
 
     isHolding = false;
     lockedPointerType = null;
+    onHoldEnd?.();
 
     if (startTimer) {
       clearTimeout(startTimer);
