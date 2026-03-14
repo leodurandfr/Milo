@@ -69,13 +69,20 @@
         </div>
       </SettingsSection>
 
+      <!-- Speaker Info -->
+      <SettingsSection :title="t('multiroom.speakerInfo')">
+        <div class="info-item">
+          <span class="info-label text-mono">{{ t('clientDetails.ipAddress') }}</span>
+          <span class="info-value text-mono">{{ pendingClient?.ip || 'Unknown' }}</span>
+        </div>
+      </SettingsSection>
+
       <!-- Apply Button (two-step confirm like HardwareSettings) -->
       <Button
         :variant="confirmReboot ? 'important' : 'brand'"
         size="medium"
         class="apply-button-sticky"
-        :loading="isApplying"
-        :disabled="!selectedAudioId || isApplying"
+        :disabled="!selectedAudioId"
         @click="handleApply"
       >
         {{ applyButtonLabel }}
@@ -115,7 +122,6 @@ const selectedAudioId = ref('');
 const selectedSpeakerType = ref('bookshelf');
 
 // UI state
-const isApplying = ref(false);
 const isRebooting = ref(false);
 const rebootTimedOut = ref(false);
 const confirmReboot = ref(false);
@@ -123,6 +129,9 @@ const error = ref('');
 const audioCards = ref([]);
 let rebootTimeoutId = null;
 const REBOOT_TIMEOUT_MS = 120000; // 2 minutes
+
+// Reactive reference to the pending client
+const pendingClient = computed(() => multiroomStore.pendingClients.get(props.macId));
 
 // Filter out "none" — the whole point of this form is to configure audio
 const audioCardOptions = computed(() =>
@@ -166,7 +175,6 @@ async function resetError() {
 }
 
 const applyButtonLabel = computed(() => {
-  if (isApplying.value) return t('multiroom.pending.applying');
   if (confirmReboot.value) return t('multiroom.pending.confirmReboot');
   return t('multiroom.pending.applyAndReboot');
 });
@@ -180,9 +188,9 @@ function handleApply() {
 }
 
 async function applyConfiguration() {
-  if (!selectedAudioId.value || isApplying.value) return;
+  if (!selectedAudioId.value) return;
 
-  isApplying.value = true;
+  isRebooting.value = true;
   error.value = '';
 
   try {
@@ -191,14 +199,12 @@ async function applyConfiguration() {
       speaker_type: selectedSpeakerType.value,
       audio_id: selectedAudioId.value,
     });
-    isRebooting.value = true;
     rebootTimeoutId = setTimeout(() => {
       rebootTimedOut.value = true;
     }, REBOOT_TIMEOUT_MS);
   } catch (e) {
+    isRebooting.value = false;
     error.value = e?.response?.data?.detail || t('multiroom.pending.errorGeneric');
-  } finally {
-    isApplying.value = false;
   }
 }
 
@@ -241,6 +247,24 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-01);
+}
+
+.info-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: var(--space-03) var(--space-04);
+  border-radius: var(--radius-04);
+  background: var(--color-background-strong);
+}
+
+.info-label {
+  color: var(--color-text-secondary);
+}
+
+.info-value {
+  color: var(--color-text);
+  text-align: right;
 }
 
 .apply-button-sticky {
