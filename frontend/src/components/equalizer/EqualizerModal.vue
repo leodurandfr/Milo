@@ -205,7 +205,7 @@ const presetOptions = computed(() => {
 
   equalizerStore.builtinPresets.forEach(preset => {
     options.push({
-      label: t(`equalizer.presets.${preset.id}`, preset.id),
+      label: t(`equalizer.presets.${preset.id}`),
       value: preset.id
     });
   });

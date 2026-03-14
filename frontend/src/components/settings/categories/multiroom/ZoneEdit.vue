@@ -3,10 +3,10 @@
 <template>
   <div class="zone-edit">
     <!-- Zone Name Input -->
-    <SettingsSection :title="t('equalizer.zones.zoneName', 'Zone Name')">
+    <SettingsSection :title="t('equalizer.zones.zoneName')">
       <InputText
         v-model="zoneName"
-        :placeholder="t('equalizer.zones.zoneNamePlaceholder', 'e.g., Living Room')"
+        :placeholder="t('equalizer.zones.zoneNamePlaceholder')"
         size="medium"
         :maxlength="16"
         @blur="saveZoneName"
@@ -14,8 +14,8 @@
     </SettingsSection>
 
     <!-- Client Selection -->
-    <SettingsSection :title="t('equalizer.zones.selectClients', 'Select Clients')">
-      <p class="text-mono zone-hint">{{ t('equalizer.zones.minimumClients', 'A zone requires at least 2 audio systems.') }}</p>
+    <SettingsSection :title="t('equalizer.zones.selectClients')">
+      <p class="text-mono zone-hint">{{ t('equalizer.zones.minimumClients') }}</p>
       <div class="clients-list">
         <SpeakerListItem
           v-for="target in availableTargets"
@@ -41,7 +41,7 @@
       :loading="saving"
       @click="handleCreate"
     >
-      {{ t('equalizer.zones.createZone', 'Create Zone') }}
+      {{ t('equalizer.zones.createZone') }}
     </Button>
 
     <!-- Delete Zone (only when editing existing zone) -->
@@ -53,7 +53,7 @@
       :loading="deleting"
       @click="handleDelete"
     >
-      {{ t('equalizer.zones.deleteZone', 'Delete Zone') }}
+      {{ t('equalizer.zones.deleteZone') }}
     </Button>
   </div>
 </template>
