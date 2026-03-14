@@ -58,9 +58,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useI18n } from '@/services/i18n';
-import useWebSocket from '@/services/websocket';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
 import axios from 'axios';
@@ -72,7 +71,6 @@ import SettingItem from '@/components/settings/SettingItem.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 
 const { t } = useI18n();
-const { on } = useWebSocket();
 const { updateSetting, clearAllTimers } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 const DEFAULT_DELAY = 30;
@@ -209,59 +207,20 @@ function setScreensaverDelay(value) {
   updateSetting('screen-screensaver', { screensaver_delay_seconds: value });
 }
 
-// WebSocket listeners - update both the store AND local refs
-const wsListeners = {
-  screen_timeout_changed: (msg) => {
-    if (msg.data?.config) {
-      const seconds = msg.data.config.screen_timeout_seconds;
-      settingsStore.updateScreenTimeout({
-        screen_timeout_seconds: seconds,
-        screen_timeout_enabled: seconds !== 0
-      });
-      config.value.timeout_seconds = seconds;
-      config.value.timeout_enabled = seconds !== 0;
-
-      if (seconds > 0) {
-        lastNonZeroTimeout.value = seconds;
-      }
-    }
-  },
-  screen_brightness_changed: (msg) => {
-    if (msg.data?.config?.brightness_on !== undefined) {
-      settingsStore.updateScreenBrightness({
-        brightness_on: msg.data.config.brightness_on
-      });
-      config.value.brightness_on = msg.data.config.brightness_on;
-    }
-  },
-  screen_ui_scale_changed: (msg) => {
-    if (msg.data?.config?.ui_scale !== undefined) {
-      settingsStore.updateScreenUiScale({ ui_scale: msg.data.config.ui_scale });
-      config.value.ui_scale = msg.data.config.ui_scale;
-    }
-  },
-  screen_screensaver_changed: (msg) => {
-    if (msg.data?.config) {
-      const c = msg.data.config;
-      settingsStore.updateScreenScreensaver(c);
-      if (c.screensaver_enabled !== undefined) {
-        config.value.screensaver_enabled = c.screensaver_enabled;
-      }
-      if (c.screensaver_delay_seconds !== undefined) {
-        config.value.screensaver_delay_seconds = c.screensaver_delay_seconds;
-      }
-    }
-  }
-};
+// Sync local config when store changes (e.g., WS event from another device)
+watch(
+  [
+    () => settingsStore.screenBrightness,
+    () => settingsStore.screenTimeout,
+    () => settingsStore.screenScreensaver,
+    () => settingsStore.screenUiScale
+  ],
+  syncFromStore,
+  { deep: true }
+);
 
 onMounted(() => {
-  // Sync with the store on mount
   syncFromStore();
-
-  // Register WebSocket listeners
-  Object.entries(wsListeners).forEach(([eventType, handler]) => {
-    on('settings', eventType, handler);
-  });
 });
 
 onUnmounted(() => {

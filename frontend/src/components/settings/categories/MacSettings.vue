@@ -11,7 +11,6 @@
           :max="500"
           :step="5"
           value-unit="ms"
-          @input="onConfigChange"
         />
       </SettingItem>
 
@@ -55,9 +54,9 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
-import useWebSocket from '@/services/websocket';
+import { useSettingsStore } from '@/stores/settingsStore';
 import axios from 'axios';
 import Button from '@/components/ui/Button.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
@@ -67,24 +66,23 @@ import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 
 const { t } = useI18n();
-const { on } = useWebSocket();
+const settingsStore = useSettingsStore();
 
 // Local config for immediate UI responsiveness
 const config = ref({
-  target_latency_ms: 200,
+  target_latency_ms: 10,
   latency_profile: 'responsive',
-  frame_length_ms: 7
+  frame_length_ms: 4
 });
 
-// Original config to detect changes
+// Original config to detect changes (synced from store)
 const originalConfig = ref({
-  target_latency_ms: 200,
+  target_latency_ms: 10,
   latency_profile: 'responsive',
-  frame_length_ms: 7
+  frame_length_ms: 4
 });
 
 const isApplying = ref(false);
-const isLoading = ref(true);
 
 // Profile options for ButtonGroup
 const profileOptions = computed(() => [
@@ -111,26 +109,15 @@ const hasChanges = computed(() => {
   );
 });
 
-// Load config from API
-async function loadConfig() {
-  try {
-    isLoading.value = true;
-    const response = await axios.get('/api/settings/mac-roc');
-    if (response.data.status === 'success' && response.data.config) {
-      const apiConfig = response.data.config;
-      config.value = {
-        target_latency_ms: apiConfig.target_latency_ms ?? 200,
-        latency_profile: apiConfig.latency_profile ?? 'responsive',
-        frame_length_ms: apiConfig.frame_length_ms ?? 7
-      };
-      // Store original for change detection
-      originalConfig.value = { ...config.value };
-    }
-  } catch (error) {
-    console.error('Error loading Mac ROC config:', error);
-  } finally {
-    isLoading.value = false;
-  }
+// Sync local refs with the store
+function syncFromStore() {
+  const s = settingsStore.macRocSettings;
+  config.value = {
+    target_latency_ms: s.target_latency_ms,
+    latency_profile: s.latency_profile,
+    frame_length_ms: s.frame_length_ms
+  };
+  originalConfig.value = { ...config.value };
 }
 
 // Handle profile change
@@ -141,11 +128,6 @@ function handleProfileChange(value) {
 // Handle frame length change
 function handleFrameLengthChange(value) {
   config.value.frame_length_ms = value;
-}
-
-// Called when slider changes (no-op, just for tracking)
-function onConfigChange() {
-  // Config is already updated via v-model
 }
 
 // Apply changes and restart service
@@ -162,7 +144,6 @@ async function applyChanges() {
     });
 
     if (response.data.status === 'success') {
-      // Update original config to match current (no more "changes")
       originalConfig.value = { ...config.value };
     } else {
       console.error('Failed to apply Mac ROC config:', response.data.message);
@@ -174,26 +155,11 @@ async function applyChanges() {
   }
 }
 
-// WebSocket listener for config changes from other sources
-function handleConfigChanged(msg) {
-  if (msg.data?.config) {
-    const apiConfig = msg.data.config;
-    config.value = {
-      target_latency_ms: apiConfig.target_latency_ms ?? config.value.target_latency_ms,
-      latency_profile: apiConfig.latency_profile ?? config.value.latency_profile,
-      frame_length_ms: apiConfig.frame_length_ms ?? config.value.frame_length_ms
-    };
-    originalConfig.value = { ...config.value };
-  }
-}
+// Sync local config when store changes (e.g., WS event from another device)
+watch(() => settingsStore.macRocSettings, syncFromStore, { deep: true });
 
-onMounted(async () => {
-  await loadConfig();
-  on('settings', 'mac_roc_changed', handleConfigChanged);
-});
-
-onUnmounted(() => {
-  // Cleanup handled by WebSocket service
+onMounted(() => {
+  syncFromStore();
 });
 </script>
 

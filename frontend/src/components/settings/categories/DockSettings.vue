@@ -114,7 +114,6 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useI18n } from '@/services/i18n';
-import useWebSocket from '@/services/websocket';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
@@ -128,7 +127,6 @@ import SettingItem from '@/components/settings/SettingItem.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 
 const { t } = useI18n();
-const { on } = useWebSocket();
 const { debouncedUpdate, updateSetting } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 
@@ -320,22 +318,11 @@ watch(sourceOrder, (newOrder) => {
   }
 });
 
-// === WebSocket listeners ===
-
-const handleInactivityTimeoutChanged = (msg) => {
-  if (msg.data?.config?.inactivity_timeout !== undefined) {
-    const timeout = msg.data.config.inactivity_timeout;
-    settingsStore.updateInactivityTimeout({ inactivity_timeout: timeout });
-    inactivityConfig.value.inactivity_timeout = timeout;
-    if (timeout > 0) {
-      lastNonZeroTimeout.value = timeout;
-    }
-  }
-};
+// Sync local config when store changes (e.g., WS event from another device)
+watch(() => settingsStore.inactivityTimeout, syncInactivityFromStore, { deep: true });
 
 onMounted(() => {
   syncInactivityFromStore();
-  on('settings', 'inactivity_timeout_changed', handleInactivityTimeoutChanged);
 });
 
 onUnmounted(() => {

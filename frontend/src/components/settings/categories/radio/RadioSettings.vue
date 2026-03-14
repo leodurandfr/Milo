@@ -110,13 +110,6 @@ on('plugin', 'favorite_modified', (event) => {
     radioStore.loadRadioSettingsData();
   }
 });
-
-// Listen for radio settings changes (from other clients)
-on('settings', 'radio_settings_changed', (msg) => {
-  if (msg.data?.config) {
-    settingsStore.updateRadioSettings(msg.data.config);
-  }
-});
 </script>
 
 <style scoped>

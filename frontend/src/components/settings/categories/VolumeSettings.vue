@@ -77,9 +77,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useI18n } from '@/services/i18n';
-import useWebSocket from '@/services/websocket';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
@@ -93,7 +92,6 @@ import ToggleSection from '@/components/ui/ToggleSection.vue';
 import Button from '@/components/ui/Button.vue';
 
 const { t } = useI18n();
-const { on } = useWebSocket();
 const { updateSetting, debouncedUpdate, clearAllTimers } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 const unifiedStore = useUnifiedAudioStore();
@@ -155,59 +153,20 @@ function handleBtRemoteToggle(enabled) {
   settingsStore.toggleBtRemote(enabled);
 }
 
-// WebSocket listeners - update both the store AND local refs
-const wsListeners = {
-  volume_limits_changed: (msg) => {
-    if (msg.data?.limits) {
-      const minDb = msg.data.limits.min_db ?? -80.0;
-      const maxDb = msg.data.limits.max_db ?? -21.0;
-      settingsStore.updateVolumeLimits({ min_db: minDb, max_db: maxDb });
-      config.value.limits.min = minDb;
-      config.value.limits.max = maxDb;
-    }
-  },
-  volume_startup_changed: (msg) => {
-    if (msg.data?.config) {
-      const startupDb = msg.data.config.startup_volume_db;
-      settingsStore.updateVolumeStartup({
-        restore_last_volume: msg.data.config.restore_last_volume,
-        startup_volume_db: startupDb
-      });
-      config.value.restore_last_volume = msg.data.config.restore_last_volume;
-      config.value.startup_volume_db = startupDb;
-    }
-  },
-  volume_steps_changed: (msg) => {
-    // step_mobile_db is handled by unifiedAudioStore via volume:volume_changed event
-    // Just update local config for immediate UI responsiveness
-    if (msg.data?.config?.step_mobile_db !== undefined) {
-      config.value.step_mobile_db = msg.data.config.step_mobile_db;
-    }
-  },
-  rotary_steps_changed: (msg) => {
-    if (msg.data?.config?.step_rotary_db !== undefined) {
-      const stepDb = msg.data.config.step_rotary_db;
-      settingsStore.updateVolumeSteps({ step_rotary_db: stepDb });
-      config.value.step_rotary_db = stepDb;
-    }
-  },
-  bt_remote_steps_changed: (msg) => {
-    if (msg.data?.config?.step_bt_remote_db !== undefined) {
-      const stepDb = msg.data.config.step_bt_remote_db;
-      settingsStore.updateVolumeSteps({ step_bt_remote_db: stepDb });
-      config.value.step_bt_remote_db = stepDb;
-    }
-  }
-};
+// Sync local config when store changes (e.g., WS event from another device)
+watch(
+  [
+    () => settingsStore.volumeLimits,
+    () => settingsStore.volumeStartup,
+    () => settingsStore.volumeSteps,
+    () => unifiedStore.volumeState.step_mobile_db
+  ],
+  syncFromStore,
+  { deep: true }
+);
 
 onMounted(() => {
-  // Sync with the store on mount
   syncFromStore();
-
-  // Register WebSocket listeners
-  Object.entries(wsListeners).forEach(([eventType, handler]) => {
-    on('settings', eventType, handler);
-  });
 });
 
 onUnmounted(() => {

@@ -427,7 +427,67 @@ onMounted(async () => {
         radioStore.handleMetadataModified(event.data.station);
       }
     }),
-    // Podcast credentials changed (settings panel may be closed)
+    // Settings events — centralized handlers for all settings changes
+    on('settings', 'volume_limits_changed', (event) => {
+      if (event.data?.limits) {
+        settingsStore.updateVolumeLimits(event.data.limits);
+      }
+    }),
+    on('settings', 'volume_startup_changed', (event) => {
+      if (event.data?.config) {
+        settingsStore.updateVolumeStartup(event.data.config);
+      }
+    }),
+    on('settings', 'rotary_steps_changed', (event) => {
+      if (event.data?.config) {
+        settingsStore.updateVolumeSteps(event.data.config);
+      }
+    }),
+    on('settings', 'bt_remote_steps_changed', (event) => {
+      if (event.data?.config) {
+        settingsStore.updateVolumeSteps(event.data.config);
+      }
+    }),
+    on('settings', 'spotify_disconnect_changed', (event) => {
+      if (event.data?.config) {
+        settingsStore.updateSpotifyDisconnect(event.data.config);
+      }
+    }),
+    on('settings', 'screen_timeout_changed', (event) => {
+      if (event.data?.config) {
+        settingsStore.updateScreenTimeout(event.data.config);
+      }
+    }),
+    on('settings', 'screen_brightness_changed', (event) => {
+      if (event.data?.config) {
+        settingsStore.updateScreenBrightness(event.data.config);
+      }
+    }),
+    on('settings', 'screen_screensaver_changed', (event) => {
+      if (event.data?.config) {
+        settingsStore.updateScreenScreensaver(event.data.config);
+      }
+    }),
+    on('settings', 'screen_ui_scale_changed', (event) => {
+      if (event.data?.config?.ui_scale !== undefined) {
+        settingsStore.updateScreenUiScale(event.data.config);
+      }
+    }),
+    on('settings', 'radio_settings_changed', (event) => {
+      if (event.data?.config) {
+        settingsStore.updateRadioSettings(event.data.config);
+      }
+    }),
+    on('settings', 'mac_roc_changed', (event) => {
+      if (event.data?.config) {
+        settingsStore.updateMacRocSettings(event.data.config);
+      }
+    }),
+    on('settings', 'inactivity_timeout_changed', (event) => {
+      if (event.data?.config) {
+        settingsStore.updateInactivityTimeout(event.data.config);
+      }
+    }),
     on('settings', 'bt_remote_config_changed', (event) => {
       if (event.data?.config) {
         settingsStore.updateBtRemoteConfig(event.data.config);
@@ -436,11 +496,6 @@ onMounted(async () => {
     on('settings', 'bt_remote_status_changed', (event) => {
       if (event.data) {
         settingsStore.updateBtRemoteStatus(event.data);
-      }
-    }),
-    on('settings', 'screen_ui_scale_changed', (event) => {
-      if (event.data?.config?.ui_scale !== undefined) {
-        settingsStore.updateScreenUiScale(event.data.config);
       }
     }),
     on('settings', 'podcast_credentials_changed', (event) => {
