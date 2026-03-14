@@ -38,35 +38,39 @@ class SatelliteUpdateService:
     async def discover_satellites(self) -> List[Dict[str, Any]]:
         """Discovers active satellites on the network via the client registry.
 
-        Iterates all non-local clients from the registry and probes their API.
-        Returns only satellites whose API is reachable.
+        Only probes online, non-local clients to avoid timeout delays on
+        unreachable devices. Probes run in parallel for speed.
         """
         all_clients = self.client_registry_service.get_all_clients()
 
+        # Only probe clients that Snapcast reports as online
+        candidates = [
+            (mac_id, client) for mac_id, client in all_clients.items()
+            if not client.is_local and client.ip and client.online
+        ]
+
+        if not candidates:
+            return []
+
+        # Probe all candidates in parallel
+        tasks = [self._check_satellite_api(mac_id, client.ip) for mac_id, client in candidates]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
         satellites = []
-
-        for mac_id, client in all_clients.items():
-            if client.is_local:
+        for (mac_id, client), result in zip(candidates, results):
+            if isinstance(result, Exception) or not result.get("online"):
                 continue
-
-            ip = client.ip
-            if not ip:
-                continue
-
-            satellite_info = await self._check_satellite_api(mac_id, ip)
-
-            if satellite_info["online"]:
-                satellites.append({
-                    "mac_id": mac_id,
-                    "hostname": client.host,
-                    "display_name": client.name or mac_id,
-                    "ip": ip,
-                    "snapclient_version": satellite_info.get("version"),
-                    "app_version": satellite_info.get("app_version"),
-                    "online": True,
-                    "uptime": satellite_info.get("uptime"),
-                    "snapclient_running": satellite_info.get("running", False)
-                })
+            satellites.append({
+                "mac_id": mac_id,
+                "hostname": client.host,
+                "display_name": client.name or mac_id,
+                "ip": client.ip,
+                "snapclient_version": result.get("version"),
+                "app_version": result.get("app_version"),
+                "online": True,
+                "uptime": result.get("uptime"),
+                "snapclient_running": result.get("running", False)
+            })
 
         self.logger.info(f"Discovered {len(satellites)} satellites")
         return satellites
