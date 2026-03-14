@@ -19,9 +19,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
-import useWebSocket from '@/services/websocket';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
@@ -30,7 +29,6 @@ import SettingItem from '@/components/settings/SettingItem.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 
 const { t } = useI18n();
-const { on } = useWebSocket();
 const { updateSetting } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 
@@ -86,22 +84,10 @@ function setSpotifyDisconnect(value) {
   updateSetting('spotify-disconnect', { auto_disconnect_delay: value });
 }
 
-// WebSocket listener - updates both store and local state
-const handleSpotifyDisconnectChanged = (msg) => {
-  if (msg.data?.config?.auto_disconnect_delay !== undefined) {
-    const delay = msg.data.config.auto_disconnect_delay;
-    settingsStore.updateSpotifyDisconnect({ auto_disconnect_delay: delay });
-    config.value.auto_disconnect_delay = delay;
-    config.value.auto_disconnect_enabled = delay !== 0;
-
-    if (delay > 0) {
-      lastNonZeroDelay.value = delay;
-    }
-  }
-};
+// Sync local config when store changes (e.g., WS event from another device)
+watch(() => settingsStore.spotifyDisconnect, syncFromStore, { deep: true });
 
 onMounted(() => {
   syncFromStore();
-  on('settings', 'spotify_disconnect_changed', handleSpotifyDisconnectChanged);
 });
 </script>

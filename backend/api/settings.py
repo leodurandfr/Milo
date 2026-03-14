@@ -116,6 +116,7 @@ def create_settings_router(
         audio = all_settings.get('audio', {})
         screen = all_settings.get('screen', {})
         radio = all_settings.get('radio', {})
+        mac = all_settings.get('mac', {})
 
         timeout_seconds = screen.get('timeout_seconds', 10)
 
@@ -150,7 +151,12 @@ def create_settings_router(
                 "screensaver_enabled": screen.get('screensaver_enabled', True),
                 "screensaver_delay_seconds": screen.get('screensaver_delay_seconds', 30)
             },
-            "radio_settings": {"shazam_enabled": radio.get('shazam_enabled', True)}
+            "radio_settings": {"shazam_enabled": radio.get('shazam_enabled', True)},
+            "mac_roc": {
+                "target_latency_ms": mac.get('target_latency_ms', 10),
+                "latency_profile": mac.get('latency_profile', 'responsive'),
+                "frame_length_ms": mac.get('frame_length_ms', 4)
+            }
         }
 
     # Language

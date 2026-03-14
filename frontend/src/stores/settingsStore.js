@@ -78,6 +78,13 @@ export const useSettingsStore = defineStore('settings', () => {
     shazam_enabled: true
   });
 
+  // === MAC ROC ===
+  const macRocSettings = ref({
+    target_latency_ms: 10,
+    latency_profile: 'responsive',
+    frame_length_ms: 4
+  });
+
   // === BT REMOTE ===
   const btRemote = ref({
     enabled: true,
@@ -199,6 +206,12 @@ export const useSettingsStore = defineStore('settings', () => {
 
         radioSettings.value = {
           shazam_enabled: d.radio_settings?.shazam_enabled ?? true
+        };
+
+        macRocSettings.value = {
+          target_latency_ms: d.mac_roc?.target_latency_ms ?? 10,
+          latency_profile: d.mac_roc?.latency_profile ?? 'responsive',
+          frame_length_ms: d.mac_roc?.frame_length_ms ?? 4
         };
       }
 
@@ -372,6 +385,7 @@ export const useSettingsStore = defineStore('settings', () => {
   }
   const updateInactivityTimeout = makeUpdater(inactivityTimeout);
   const updateRadioSettings = makeUpdater(radioSettings);
+  const updateMacRocSettings = makeUpdater(macRocSettings);
 
   /**
    * Update setup_completed state (from WebSocket initial_state)
@@ -398,6 +412,7 @@ export const useSettingsStore = defineStore('settings', () => {
     podcastCredentialsValidatedAt,
     inactivityTimeout,
     radioSettings,
+    macRocSettings,
     btRemote,
     isScreenSleeping,
     screenTimeout,
@@ -420,6 +435,7 @@ export const useSettingsStore = defineStore('settings', () => {
     refreshPodcastCredentialsStatus,
     updateInactivityTimeout,
     updateRadioSettings,
+    updateMacRocSettings,
     updateBtRemoteConfig,
     updateBtRemoteStatus,
     loadBtRemoteStatus,

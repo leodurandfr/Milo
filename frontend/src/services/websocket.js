@@ -19,11 +19,8 @@ import { logger } from '@/services/logger';
  *   - state_changed, metadata → App.vue → unifiedAudioStore, podcastStore
  *
  * settings:
- *   - language_changed → App.vue
- *   - dock_apps_changed → App.vue → settingsStore
- *   - volume_steps_changed → Dock.vue
- *   - podcast_credentials_changed → PodcastSettings.vue
- *   - spotify_disconnect_changed → SpotifySettings.vue
+ *   - All settings.* events → App.vue → settingsStore (centralized)
+ *   - Components watch store refs for local config sync
  *
  * plugin:
  *   - state_changed, error_cleared, metadata → App.vue → unifiedAudioStore
