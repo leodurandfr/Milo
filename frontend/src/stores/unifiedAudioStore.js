@@ -4,6 +4,7 @@ import { ref, computed } from 'vue';
 import axios from 'axios';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { SystemStateSchema, VolumeStateSchema, validateSchema } from '@/schemas/api';
 
 export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
@@ -104,6 +105,34 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   }
 
   // === VOLUME ACTIONS (all in dB) ===
+  // Smooth rAF interpolation for visual volume during hold
+  let _rafId = null;
+  let _rafLastTime = 0;
+  let _rafVelocity = 0; // dB per ms
+
+  function startVolumeInterpolation(delta_db, intervalMs) {
+    _rafVelocity = delta_db / intervalMs;
+    if (_rafId) return; // already running
+    _rafLastTime = performance.now();
+    const { min_db, max_db } = useSettingsStore().volumeLimits;
+    const tick = (now) => {
+      const dt = now - _rafLastTime;
+      _rafLastTime = now;
+      volumeState.value.global_volume_db = Math.max(min_db, Math.min(max_db,
+        volumeState.value.global_volume_db + _rafVelocity * dt));
+      _rafId = requestAnimationFrame(tick);
+    };
+    _rafId = requestAnimationFrame(tick);
+  }
+
+  function stopVolumeInterpolation() {
+    if (_rafId) {
+      cancelAnimationFrame(_rafId);
+      _rafId = null;
+    }
+    _rafVelocity = 0;
+  }
+
   async function adjustVolume(delta_db, showBar = true) {
     return apiCall('store', 'Adjust volume failed', async () => {
       const response = await axios.post('/api/volume/adjust', { delta_db, show_bar: showBar });
@@ -183,6 +212,8 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     setMultiroomEnabled,
     updateState,
     adjustVolume,
+    startVolumeInterpolation,
+    stopVolumeInterpolation,
     handleVolumeEvent,
   };
 });

@@ -238,6 +238,8 @@ const { isDragging } = drag;
 // === VOLUME HOLD COMPOSABLE ===
 const volumeHold = useVolumeHold({
   adjustVolume: (delta) => unifiedStore.adjustVolume(delta),
+  onHoldStart: (delta, intervalMs) => unifiedStore.startVolumeInterpolation(delta, intervalMs),
+  onHoldEnd: () => unifiedStore.stopVolumeInterpolation(),
   gestureHasMoved: drag.gestureHasMoved,
   gestureStartPosition: drag.gestureStartPosition,
   getEventX: drag.getEventX,
