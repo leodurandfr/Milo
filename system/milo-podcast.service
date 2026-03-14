@@ -1,7 +1,7 @@
 [Unit]
 Description=Milo Podcast Player (mpv)
 Documentation=https://mpv.io/manual/stable/
-After=sound.target milo-backend.service
+After=sound.target milo-backend.service milo-camilladsp.service
 Requires=sound.target
 BindsTo=milo-backend.service
 

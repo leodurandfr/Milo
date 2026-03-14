@@ -114,6 +114,7 @@ async def lifespan(app: FastAPI):
     logger.info("Milo backend shutting down...")
     try:
         state_machine.cleanup()
+        await camilladsp_service.cleanup()
         await snapcast_websocket_service.cleanup()
         await volume_service.cleanup()
         rotary_controller.cleanup()

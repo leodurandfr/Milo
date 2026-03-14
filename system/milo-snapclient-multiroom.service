@@ -1,7 +1,8 @@
 [Unit]
 Description=Snapcast Client for Milo Multiroom
-After=network-online.target milo-snapserver-multiroom.service
+After=network-online.target milo-snapserver-multiroom.service milo-camilladsp.service
 Wants=network-online.target
+PartOf=milo-backend.service
 
 [Service]
 Type=simple
