@@ -2,10 +2,9 @@
 # Milo Client - Installation Script v2.0 (non-interactive)
 #
 # Usage:
-#   install-client.sh                                # No audio card, configure later via web UI
-#   install-client.sh --audio hifiberry_amp2         # Pre-configure audio card
+#   install-client.sh                                # Auto-discover main Milo via mDNS
 #   install-client.sh --server 192.168.1.10          # Manual server IP (if mDNS fails)
-#   install-client.sh --help                         # Show usage and available audio cards
+#   install-client.sh --help                         # Show usage
 #   install-client.sh --uninstall                    # Remove Milo Client
 
 set -e
@@ -20,24 +19,8 @@ MILO_CLIENT_VENV_DIR="$MILO_CLIENT_HOME/venv"
 MILO_CLIENT_DATA_DIR="/var/lib/milo-client"
 MILO_CLIENT_REPO_URL="https://github.com/leodurandfr/Milo.git"
 
-# Audio card lookup table (must match AUDIO_CARDS in backend/hardware/registry.py)
-# Format: "id|overlay|alsa_control|label"
-AUDIO_CARD_TABLE=(
-    "hifiberry_amp2|hifiberry-dacplus-std|Digital|HiFiBerry Amp2"
-    "hifiberry_amp4|hifiberry-dacplus-std|Digital|HiFiBerry Amp4"
-    "hifiberry_amp4pro|hifiberry-amp4pro|Digital|HiFiBerry Amp4 Pro"
-    "hifiberry_amp100|hifiberry-amp100|Digital|HiFiBerry Amp100"
-    "hifiberry_beocreate|hifiberry-dac|DAC|HiFiBerry Beocreate 4CA"
-    "hifiberry_dac2hd|hifiberry-dacplushd|DAC|HiFiBerry DAC2 HD"
-    "hifiberry_dacplus_pro|hifiberry-dacplus|Digital|HiFiBerry DAC+ Pro"
-)
-
 # CLI arguments
-ARG_AUDIO_ID=""
 ARG_SERVER_IP=""
-AUDIO_OVERLAY=""
-AUDIO_LABEL=""
-ALSA_CONTROL=""
 MILO_PRINCIPAL_IP=""
 
 RED='\033[0;31m'
@@ -78,37 +61,18 @@ show_help() {
     echo "Usage: install-client.sh [OPTIONS]"
     echo ""
     echo "Options:"
-    echo "  --audio <card_key>   Pre-configure audio card (see list below)"
     echo "  --server <ip>        Main Milo IP address (if mDNS auto-discovery fails)"
     echo "  --uninstall          Remove Milo Client"
     echo "  --help               Show this help message"
     echo ""
-    echo "Available audio cards:"
-    for entry in "${AUDIO_CARD_TABLE[@]}"; do
-        local id="${entry%%|*}"
-        local label="${entry##*|}"
-        printf "  %-25s %s\n" "$id" "$label"
-    done
-    echo ""
     echo "Examples:"
-    echo "  install-client.sh                                # Configure audio later via web UI"
-    echo "  install-client.sh --audio hifiberry_amp2         # Pre-configure HiFiBerry Amp2"
+    echo "  install-client.sh                                # Auto-discover main Milo via mDNS"
     echo "  install-client.sh --server 192.168.1.10          # Specify main Milo IP"
 }
 
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --audio)
-                if [[ -z "${2:-}" ]]; then
-                    log_error "--audio requires a card key argument"
-                    echo ""
-                    show_help
-                    exit 1
-                fi
-                ARG_AUDIO_ID="$2"
-                shift 2
-                ;;
             --server)
                 if [[ -z "${2:-}" ]]; then
                     log_error "--server requires an IP address argument"
@@ -129,36 +93,6 @@ parse_args() {
                 ;;
         esac
     done
-
-    # Validate --audio if provided
-    if [[ -n "$ARG_AUDIO_ID" ]]; then
-        local found=false
-        for entry in "${AUDIO_CARD_TABLE[@]}"; do
-            local id="${entry%%|*}"
-            if [[ "$id" == "$ARG_AUDIO_ID" ]]; then
-                # Parse: id|overlay|alsa_control|label
-                IFS='|' read -r _ AUDIO_OVERLAY ALSA_CONTROL AUDIO_LABEL <<< "$entry"
-                found=true
-                break
-            fi
-        done
-
-        if [[ "$found" != "true" ]]; then
-            log_error "Unknown audio card: $ARG_AUDIO_ID"
-            echo ""
-            echo "Available audio cards:"
-            for entry in "${AUDIO_CARD_TABLE[@]}"; do
-                local id="${entry%%|*}"
-                local label="${entry##*|}"
-                printf "  %-25s %s\n" "$id" "$label"
-            done
-            exit 1
-        fi
-
-        log_success "Audio card: $AUDIO_LABEL ($ARG_AUDIO_ID)"
-    else
-        log_info "No audio card specified (configure later via web UI)"
-    fi
 }
 
 check_root() {
@@ -225,28 +159,16 @@ save_hardware_config() {
 
     sudo mkdir -p "$MILO_CLIENT_DATA_DIR"
 
-    if [[ -n "$ARG_AUDIO_ID" ]]; then
-        sudo tee "$MILO_CLIENT_DATA_DIR/hardware.json" > /dev/null << EOF
-{
-  "audio": {
-    "id": "$ARG_AUDIO_ID",
-    "overlay": "$AUDIO_OVERLAY"
-  }
-}
-EOF
-        log_success "Hardware config saved (audio: $AUDIO_LABEL)"
-    else
-        sudo tee "$MILO_CLIENT_DATA_DIR/hardware.json" > /dev/null << 'EOF'
+    sudo tee "$MILO_CLIENT_DATA_DIR/hardware.json" > /dev/null << 'EOF'
 {
   "audio": {
     "id": "none"
   }
 }
 EOF
-        log_success "Hardware config saved (audio: none)"
-    fi
 
     sudo chown "$MILO_CLIENT_USER:audio" "$MILO_CLIENT_DATA_DIR/hardware.json"
+    log_success "Hardware config saved"
 }
 
 install_apply_hardware_script() {
@@ -521,32 +443,6 @@ configure_alsa() {
     log_success "ALSA configuration complete"
 }
 
-initialize_alsa_volume() {
-    log_info "Initializing ALSA volume to 100%..."
-
-    # Wait for sound card to be available
-    sleep 2
-
-    # Set HiFiBerry volume to 100% (passthrough - CamillaDSP manages actual volume)
-    if [[ -n "$ALSA_CONTROL" ]]; then
-        if amixer -c sndrpihifiberry sset "$ALSA_CONTROL" 100% 2>/dev/null; then
-            log_success "ALSA $ALSA_CONTROL volume set to 100%"
-            return 0
-        fi
-    fi
-
-    # Fallback: try common controls
-    if amixer -c sndrpihifiberry sset 'Digital' 100% 2>/dev/null; then
-        log_success "ALSA Digital volume set to 100%"
-    elif amixer -c sndrpihifiberry sset 'DAC' 100% 2>/dev/null; then
-        log_success "ALSA DAC volume set to 100%"
-    elif amixer -c sndrpihifiberry sset 'Master' 100% 2>/dev/null; then
-        log_success "ALSA Master volume set to 100%"
-    else
-        log_warning "Could not set ALSA volume (card may not be available until reboot)"
-    fi
-}
-
 create_systemd_services() {
     log_info "Installing systemd services..."
 
@@ -663,26 +559,15 @@ configure_network_priority() {
 finalize_installation() {
     echo ""
     echo -e "${GREEN}====================================${NC}"
-    echo -e "${GREEN}  Milo Client installation complete!${NC}"
+    echo -e "${GREEN}  Milo Client Installation Complete! ${NC}"
     echo -e "${GREEN}====================================${NC}"
     echo ""
-
-    if [[ -n "$ARG_AUDIO_ID" ]]; then
-        echo -e "  Audio: ${GREEN}$AUDIO_LABEL${NC}"
-    else
-        echo -e "  Audio: ${YELLOW}Not configured${NC}"
-    fi
+    echo -e "  ${BLUE}Next steps:${NC}"
+    echo "    1. Open http://milo.local → Settings → Multiroom"
+    echo "    2. Your new speaker will appear for configuration"
     echo ""
 
-    if [[ -z "$ARG_AUDIO_ID" ]]; then
-        echo "  Next steps:"
-        echo "    1. System will reboot"
-        echo "    2. Open http://milo.local → Settings → Multiroom"
-        echo "    3. Your new speaker will appear for configuration"
-        echo ""
-    fi
-
-    log_info "System will reboot in 5 seconds..."
+    log_info "Rebooting in 5 seconds..."
     sleep 5
     sudo reboot
 }
@@ -871,13 +756,6 @@ main() {
     configure_alsa
     install_apply_hardware_script
     save_hardware_config
-
-    # If --audio provided, apply hardware config and set ALSA volume
-    if [[ -n "$ARG_AUDIO_ID" ]]; then
-        log_info "Applying audio hardware configuration..."
-        sudo /usr/local/bin/milo-client-apply-hardware --no-reboot
-        initialize_alsa_volume
-    fi
 
     create_systemd_services
     enable_services
