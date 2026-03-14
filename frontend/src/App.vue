@@ -459,6 +459,7 @@ onMounted(async () => {
     on('equalizer', 'compressor_changed', (event) => equalizerStore.handleCompressorChanged(event)),
     on('equalizer', 'loudness_changed', (event) => equalizerStore.handleLoudnessChanged(event)),
     on('equalizer', 'enabled_changed', (event) => equalizerStore.handleEnabledChanged(event)),
+    on('equalizer', 'zone_enabled_changed', (event) => equalizerStore.handleZoneEnabledChanged(event)),
     onReconnect(() => {
       logger.info('websocket', 'WebSocket reconnected');
       // Refresh registry state on reconnect (AC3: State Resync)

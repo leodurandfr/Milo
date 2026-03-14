@@ -1430,6 +1430,18 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     }
   }
 
+  function handleZoneEnabledChanged(event) {
+    if (!event.data) return;
+    const { zone_id, enabled } = event.data;
+    if (enabled === undefined) return;
+
+    // Only update if our selected target is in the affected zone
+    const zone = registryStore.getZoneForClient(selectedTarget.value);
+    if (zone && zone.id === zone_id) {
+      isEqualizerEffectsEnabled.value = enabled;
+    }
+  }
+
   return {
     // State
     filters,
@@ -1543,6 +1555,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     updateLevels,
     handleCompressorChanged,
     handleLoudnessChanged,
-    handleEnabledChanged
+    handleEnabledChanged,
+    handleZoneEnabledChanged
   };
 });
