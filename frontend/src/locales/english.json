@@ -121,6 +121,7 @@
       "zoneName": "Zone name",
       "zoneNamePlaceholder": "e.g., Living Room",
       "selectClients": "Select audio systems",
+      "minimumClients": "A zone requires at least 2 audio systems.",
       "createZone": "Create zone",
       "editZone": "Edit zone",
       "updateZone": "Update zone",

@@ -15,6 +15,7 @@
 
     <!-- Client Selection -->
     <SettingsSection :title="t('equalizer.zones.selectClients', 'Select Clients')">
+      <p class="text-mono zone-hint">{{ t('equalizer.zones.minimumClients', 'A zone requires at least 2 audio systems.') }}</p>
       <div class="clients-list">
         <SpeakerListItem
           v-for="target in availableTargets"
@@ -33,11 +34,11 @@
 
     <!-- Create Zone Button (only when creating new zone) -->
     <Button
-      v-if="!groupId"
+      v-if="!groupId && selectedClients.length >= 2"
       variant="brand"
       size="medium"
+      class="action-button-sticky"
       :loading="saving"
-      :disabled="selectedClients.length < 2"
       @click="handleCreate"
     >
       {{ t('equalizer.zones.createZone', 'Create Zone') }}
@@ -105,39 +106,37 @@ async function toggleClient(clientId) {
   const index = selectedClients.value.indexOf(clientId);
 
   if (index === -1) {
-    // Adding client to zone
+    // Adding client — optimistic update before await to avoid stale index
+    selectedClients.value.push(clientId);
     if (props.groupId) {
       try {
         await multiroomStore.addClientToZone(props.groupId, clientId);
-        // State update comes via WebSocket, but update local state for responsiveness
-        selectedClients.value.push(clientId);
+        // Watcher syncs final state from WebSocket
       } catch (error) {
+        // Revert optimistic update
+        const revertIndex = selectedClients.value.indexOf(clientId);
+        if (revertIndex !== -1) selectedClients.value.splice(revertIndex, 1);
         console.error('Error adding client to zone:', error);
-        // Don't update local state on error
       }
-    } else {
-      // Just creating new zone, not yet saved - update local state only
-      selectedClients.value.push(clientId);
     }
   } else {
-    // Removing client from zone
+    // Prevent removing if it would drop below 2 clients
+    if (selectedClients.value.length <= 2) return;
+
+    // Removing client — optimistic update before await to avoid stale index
+    selectedClients.value.splice(index, 1);
     if (props.groupId) {
       try {
         const response = await multiroomStore.removeClientFromZone(props.groupId, clientId);
-        // Update local state after successful backend call
-        selectedClients.value.splice(index, 1);
-
-        // Check if zone was deleted (< 2 clients remaining)
+        // Watcher syncs final state from WebSocket
         if (response.message && response.message.includes('deleted')) {
-          emit('back'); // Navigate back since zone was deleted
+          emit('back');
         }
       } catch (error) {
+        // Revert optimistic update
+        selectedClients.value.push(clientId);
         console.error('Error removing client from zone:', error);
-        // State unchanged on error - stays in sync
       }
-    } else {
-      // Just creating new zone, not yet saved - update local state only
-      selectedClients.value.splice(index, 1);
     }
   }
 }
@@ -223,6 +222,18 @@ async function handleDelete() {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-01);
+}
+
+.zone-hint {
+  color: var(--color-text-secondary);
+}
+
+/* Sticky action button */
+.action-button-sticky {
+  position: sticky;
+  bottom: 0;
+  width: 100%;
+  z-index: 10;
 }
 
 /* Mobile adjustments */
