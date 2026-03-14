@@ -1,6 +1,6 @@
 [Unit]
 Description=Milo AirPlay 2 receiver (shairport-sync)
-After=network-online.target sound.service milo-backend.service nqptp.service
+After=network-online.target sound.target milo-backend.service milo-camilladsp.service nqptp.service
 Wants=network-online.target
 Requires=nqptp.service
 BindsTo=milo-backend.service

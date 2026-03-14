@@ -1,6 +1,6 @@
 [Unit]
 Description=Milo Spotify Connect via go-librespot
-After=network-online.target sound.service milo-backend.service
+After=network-online.target sound.target milo-backend.service milo-camilladsp.service
 Wants=network-online.target
 BindsTo=milo-backend.service
 

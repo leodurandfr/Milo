@@ -3,6 +3,7 @@ Description=Milo CamillaDSP Audio Processor
 Documentation=https://github.com/HEnquist/camilladsp
 After=sound.target
 Requires=sound.target
+PartOf=milo-backend.service
 
 [Service]
 Type=simple
