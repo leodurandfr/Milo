@@ -24,6 +24,14 @@ class SystemdServiceManager:
     async def restart(self, service: str) -> bool:
         """Restarts a systemd service."""
         return await self._control_service(service, "restart")
+
+    async def enable(self, service: str) -> bool:
+        """Enables a systemd service to start on boot."""
+        return await self._unit_file_command(service, "enable")
+
+    async def disable(self, service: str) -> bool:
+        """Disables a systemd service from starting on boot."""
+        return await self._unit_file_command(service, "disable")
     
     @handle_errors(default=False)
     async def is_active(self, service: str) -> bool:
@@ -108,6 +116,56 @@ class SystemdServiceManager:
             self.logger.error(f"Service {service} is {actual_state} but expected {expected_state} after {action}")
             return False
             
+        except asyncio.TimeoutError:
+            proc.kill()
+            self.logger.error(f"Timeout ({action} {service} took more than 10 seconds)")
+            return False
+        except Exception as e:
+            self.logger.error(f"Unexpected error during {action} {service}: {e}")
+            return False
+
+    async def set_hostname(self, hostname: str) -> bool:
+        """Sets the system hostname via hostnamectl."""
+        try:
+            self.logger.info(f"Setting hostname to {hostname}")
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", "hostnamectl", "set-hostname", hostname,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE
+            )
+            _, stderr = await asyncio.wait_for(proc.communicate(), 10.0)
+
+            if proc.returncode != 0:
+                error_msg = stderr.decode().strip() if stderr else "No error details"
+                self.logger.error(f"Failed to set hostname to {hostname}: {error_msg}")
+                return False
+
+            return True
+        except asyncio.TimeoutError:
+            proc.kill()
+            self.logger.error(f"Timeout setting hostname to {hostname}")
+            return False
+        except Exception as e:
+            self.logger.error(f"Unexpected error setting hostname: {e}")
+            return False
+
+    async def _unit_file_command(self, service: str, action: str) -> bool:
+        """Runs a systemd unit file command (enable/disable)."""
+        try:
+            self.logger.info(f"{action.capitalize()} service {service}")
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", "systemctl", action, service,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE
+            )
+            _, stderr = await asyncio.wait_for(proc.communicate(), 10.0)
+
+            if proc.returncode != 0:
+                error_msg = stderr.decode().strip() if stderr else "No error details"
+                self.logger.error(f"Failed to {action} {service} (exit code {proc.returncode}): {error_msg}")
+                return False
+
+            return True
         except asyncio.TimeoutError:
             proc.kill()
             self.logger.error(f"Timeout ({action} {service} took more than 10 seconds)")

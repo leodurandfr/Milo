@@ -547,6 +547,13 @@
     "language": {
       "title": "Escolha o seu idioma"
     },
+    "mode": {
+      "title": "Escolha o seu modo",
+      "server": "Aplicação Milo principal",
+      "serverDescription": "Este Milo será o servidor principal com todas as fontes de áudio (Spotify, AirPlay, Radio...)",
+      "client": "Cliente multiroom",
+      "clientDescription": "Este Milo receberá áudio de um servidor principal para audição multiroom"
+    },
     "audio": {
       "title": "Selecione a sua placa de áudio",
       "amplifiers": "Amplificadores",
@@ -561,6 +568,7 @@
     },
     "summary": {
       "title": "Resumo",
+      "mode": "Modo",
       "wifi": "WiFi",
       "language": "Idioma",
       "audioCard": "Placa de áudio",

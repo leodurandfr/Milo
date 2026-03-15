@@ -547,6 +547,13 @@
     "language": {
       "title": "选择您的语言"
     },
+    "mode": {
+      "title": "选择您的模式",
+      "server": "Milo 主应用",
+      "serverDescription": "此 Milo 将作为主服务器，拥有所有音频源（Spotify、AirPlay、Radio...）",
+      "client": "多房间客户端",
+      "clientDescription": "此 Milo 将从主服务器接收音频，用于多房间收听"
+    },
     "audio": {
       "title": "选择您的声卡",
       "amplifiers": "功放",
@@ -561,6 +568,7 @@
     },
     "summary": {
       "title": "摘要",
+      "mode": "模式",
       "wifi": "WiFi",
       "language": "语言",
       "audioCard": "声卡",
