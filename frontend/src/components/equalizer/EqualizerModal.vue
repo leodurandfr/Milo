@@ -40,7 +40,7 @@
             <template #header>
               <div class="eq-header">
                 <div class="eq-header__title">
-                  <h2 class="heading-2">{{ $t('equalizer.equalizer.title') }}</h2>
+                  <h2 class="heading-2">{{ t('equalizer.equalizer.title') }}</h2>
                   <span v-if="selectedZoneName" class="eq-header__subtitle text-mono">{{ selectedZoneName }}</span>
                 </div>
                 <Button v-if="equalizerStore.isPresetEdited" variant="brand" size="small"
@@ -196,20 +196,31 @@ async function handleEqualizerToggle(enabled) {
 
 // === PRESETS ===
 const presetOptions = computed(() => {
-  const options = [];
+  const options = [{ label: t('equalizer.presets.custom'), value: 'custom' }];
 
-  options.push({
-    label: t('equalizer.presets.custom'),
-    value: 'custom'
+  // Boost/reducer pairs: group together, sorted by the boost label
+  const pairSortKey = {
+    bass_boost: 'bass_boost', bass_reducer: 'bass_boost',
+    treble_boost: 'treble_boost', treble_reducer: 'treble_boost',
+  };
+
+  const items = equalizerStore.builtinPresets.map(preset => {
+    const label = t(`equalizer.presets.${preset.id}`);
+    const sortAnchor = pairSortKey[preset.id];
+    return {
+      label,
+      value: preset.id,
+      sortKey: sortAnchor ? t(`equalizer.presets.${sortAnchor}`) : label,
+      subOrder: preset.id.endsWith('_reducer') ? 1 : 0,
+    };
   });
 
-  equalizerStore.builtinPresets.forEach(preset => {
-    options.push({
-      label: t(`equalizer.presets.${preset.id}`),
-      value: preset.id
-    });
+  items.sort((a, b) => {
+    const cmp = a.sortKey.localeCompare(b.sortKey, undefined, { sensitivity: 'base' });
+    return cmp !== 0 ? cmp : a.subOrder - b.subOrder;
   });
 
+  items.forEach(({ label, value }) => options.push({ label, value }));
   return options;
 });
 
