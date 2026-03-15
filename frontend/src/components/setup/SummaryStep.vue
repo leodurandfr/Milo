@@ -1,6 +1,14 @@
 <!-- frontend/src/components/setup/SummaryStep.vue -->
 <template>
   <div class="summary-step">
+    <!-- WiFi -->
+    <div class="summary-item">
+      <span class="text-mono summary-item__label">{{ t('setup.summary.wifi') }}</span>
+      <div class="summary-item__card">
+        <span class="heading-3">{{ wifiSsid || t('setup.wifi.skipped') }}</span>
+      </div>
+    </div>
+
     <!-- Language -->
     <div class="summary-item">
       <span class="text-mono summary-item__label">{{ t('setup.summary.language') }}</span>
@@ -20,7 +28,7 @@
 
     <!-- Screen -->
     <div class="summary-item">
-      <span class="text-mono- summary-item__label">{{ t('setup.summary.screen') }}</span>
+      <span class="text-mono summary-item__label">{{ t('setup.summary.screen') }}</span>
       <div class="summary-item__card">
         <span class="heading-3">{{ screenLabel }}</span>
       </div>
@@ -61,6 +69,10 @@ const flagIcons = {
 const { t } = useI18n();
 
 const props = defineProps({
+  wifiSsid: {
+    type: String,
+    default: null,
+  },
   languageCode: {
     type: String,
     default: 'english',

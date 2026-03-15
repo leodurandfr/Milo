@@ -54,9 +54,9 @@
         <!-- Expand: password + connect (only for non-connected known networks) -->
         <div v-if="selectedSsid === network.ssid && !network.in_use" class="network-item__expand" @click.stop>
           <InputText v-if="network.security" v-model="password" type="password"
-            :placeholder="t('wifi.password')" @submit="connectToNetwork(network)" />
+            :placeholder="t('wifi.password')" @submit="connectToNetwork(network, t)" />
           <Button variant="brand" :loading="connecting" :disabled="connecting || (network.security && !password)"
-            @click="connectToNetwork(network)">
+            @click="connectToNetwork(network, t)">
             {{ connecting ? t('wifi.connecting') : t('wifi.connect') }}
           </Button>
           <span v-if="connectError" class="wifi-error text-mono-small">{{ connectError }}</span>
@@ -105,9 +105,9 @@
         <!-- Expand: password + connect -->
         <div v-if="selectedSsid === network.ssid" class="network-item__expand" @click.stop>
           <InputText v-if="network.security" v-model="password" type="password"
-            :placeholder="t('wifi.password')" @submit="connectToNetwork(network)" />
+            :placeholder="t('wifi.password')" @submit="connectToNetwork(network, t)" />
           <Button variant="brand" :loading="connecting" :disabled="connecting || (network.security && !password)"
-            @click="connectToNetwork(network)">
+            @click="connectToNetwork(network, t)">
             {{ connecting ? t('wifi.connecting') : t('wifi.connect') }}
           </Button>
           <span v-if="connectError" class="wifi-error text-mono-small">{{ connectError }}</span>
@@ -118,10 +118,9 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
-import { logger } from '@/services/logger';
-import axios from 'axios';
+import { useWifi } from '@/composables/useWifi';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SectionHeader from '@/components/settings/SectionHeader.vue';
@@ -131,106 +130,26 @@ import SignalDots from '@/components/settings/categories/wifi/SignalDots.vue';
 
 const { t } = useI18n();
 
-// State
-const status = ref({ connected: false, ssid: null, ip_address: null, signal: null });
-const networks = ref([]);
-const savedSsids = ref(new Set());
-const loading = ref(true);
-const scanning = ref(false);
-const connecting = ref(false);
-const connectError = ref('');
-const selectedSsid = ref(null);
-const password = ref('');
+const {
+  status,
+  loading,
+  scanning,
+  connecting,
+  connectError,
+  selectedSsid,
+  password,
+  knownNetworks,
+  otherNetworks,
+  selectNetwork,
+  scanNetworks,
+  connectToNetwork,
+  forgetNetwork,
+  initialize,
+} = useWifi();
 
-// Split networks into known and other
-const knownNetworks = computed(() =>
-  networks.value.filter(n => n.in_use || savedSsids.value.has(n.ssid))
-);
-
-const otherNetworks = computed(() =>
-  networks.value.filter(n => !n.in_use && !savedSsids.value.has(n.ssid))
-);
-
-// Actions
-function selectNetwork(network) {
-  if (network.in_use) return;
-  if (selectedSsid.value === network.ssid) {
-    selectedSsid.value = null;
-    password.value = '';
-    connectError.value = '';
-  } else {
-    selectedSsid.value = network.ssid;
-    password.value = '';
-    connectError.value = '';
-  }
-}
-
-async function loadStatus() {
-  try {
-    const res = await axios.get('/api/wifi/status');
-    status.value = res.data.data;
-  } catch (error) {
-    logger.error('wifi', 'Failed to load WiFi status', error);
-  }
-}
-
-async function loadSavedNetworks() {
-  try {
-    const res = await axios.get('/api/wifi/saved');
-    savedSsids.value = new Set(res.data.data.map(n => n.ssid));
-  } catch (error) {
-    logger.error('wifi', 'Failed to load saved networks', error);
-  }
-}
-
-async function scanNetworks() {
-  scanning.value = true;
-  try {
-    const res = await axios.get('/api/wifi/networks');
-    networks.value = res.data.data;
-  } catch (error) {
-    logger.error('wifi', 'Failed to scan networks', error);
-  } finally {
-    scanning.value = false;
-  }
-}
-
-async function connectToNetwork(network) {
-  connecting.value = true;
-  connectError.value = '';
-  try {
-    const payload = { ssid: network.ssid, password: network.security ? password.value : null };
-    const res = await axios.post('/api/wifi/connect', payload);
-    status.value = res.data.data;
-    selectedSsid.value = null;
-    password.value = '';
-    // Refresh lists to update in_use flags and saved
-    await Promise.all([scanNetworks(), loadSavedNetworks()]);
-  } catch (error) {
-    const detail = error.response?.data?.detail;
-    connectError.value = detail || t('wifi.connectFailed');
-    logger.error('wifi', 'WiFi connection failed', error);
-  } finally {
-    connecting.value = false;
-  }
-}
-
-async function forgetNetwork(ssid) {
-  try {
-    await axios.delete('/api/wifi/saved', { params: { ssid } });
-    savedSsids.value.delete(ssid);
-    // Trigger reactivity
-    savedSsids.value = new Set(savedSsids.value);
-  } catch (error) {
-    logger.error('wifi', 'Failed to forget network', error);
-  }
-}
-
-onMounted(async () => {
-  await Promise.all([loadStatus(), loadSavedNetworks(), scanNetworks()]);
-  loading.value = false;
+onMounted(() => {
+  initialize();
 });
-
 </script>
 
 <style scoped>

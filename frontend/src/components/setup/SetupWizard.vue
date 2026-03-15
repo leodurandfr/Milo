@@ -7,27 +7,30 @@
         <WelcomeStep />
       </div>
 
-      <!-- Steps 1-4: header + scrollable body -->
+      <!-- Steps 1-5: header + scrollable body -->
       <template v-else>
         <div class="setup-card__header">
           <button class="setup-card__back text-mono" @click="prevStep">
             <SvgIcon name="caretLeft" :size="20" />
-            {{ currentStep === 4 ? t('setup.back') : t('setup.stepLabel', { n: currentStep }) }}
+            {{ currentStep === 5 ? t('setup.back') : t('setup.stepLabel', { n: currentStep }) }}
           </button>
           <h2 class="heading-2">{{ stepTitle }}</h2>
-          <StepIndicator :current="currentStep - 1" :total="4" />
+          <StepIndicator :current="currentStep - 1" :total="5" />
         </div>
 
         <div class="setup-card__body">
-          <LanguageStep v-if="currentStep === 1" v-model="wizardState.language" />
+          <WifiStep v-if="currentStep === 1" v-model="wizardState.wifiSsid" />
 
-          <AudioStep v-else-if="currentStep === 2" v-model="wizardState.audioId" :audio-cards="audioCards" />
+          <LanguageStep v-else-if="currentStep === 2" v-model="wizardState.language" />
 
-          <ScreenStep v-else-if="currentStep === 3" v-model="wizardState.screenType" :screens="screens" />
+          <AudioStep v-else-if="currentStep === 3" v-model="wizardState.audioId" :audio-cards="audioCards" />
 
-          <SummaryStep v-else-if="currentStep === 4" :language-code="wizardState.language"
+          <ScreenStep v-else-if="currentStep === 4" v-model="wizardState.screenType" :screens="screens" />
+
+          <SummaryStep v-else-if="currentStep === 5" :language-code="wizardState.language"
             :language-label="selectedLanguageLabel" :audio-label="selectedAudioLabel"
-            :screen-label="selectedScreenLabel" :is-rebooting="isRebooting" :error="error" />
+            :screen-label="selectedScreenLabel" :wifi-ssid="wizardState.wifiSsid"
+            :is-rebooting="isRebooting" :error="error" />
         </div>
       </template>
 
@@ -37,7 +40,11 @@
           {{ t('setup.welcome.getStarted') }}
         </Button>
 
-        <Button v-else-if="currentStep <= 3" variant="brand" @click="nextStep">
+        <Button v-else-if="currentStep === 1" variant="brand" @click="nextStep">
+          {{ wizardState.wifiSsid ? t('setup.continue') : t('setup.skip') }}
+        </Button>
+
+        <Button v-else-if="currentStep <= 4" variant="brand" @click="nextStep">
           {{ t('setup.continue') }}
         </Button>
 
@@ -58,6 +65,7 @@ import axios from 'axios';
 import { logger } from '@/services/logger';
 import StepIndicator from './StepIndicator.vue';
 import WelcomeStep from './WelcomeStep.vue';
+import WifiStep from './WifiStep.vue';
 import LanguageStep from './LanguageStep.vue';
 import AudioStep from './AudioStep.vue';
 import ScreenStep from './ScreenStep.vue';
@@ -81,6 +89,7 @@ const screens = ref([]);
 
 // Wizard local state (not persisted until apply)
 const wizardState = reactive({
+  wifiSsid: null,
   language: i18n.getCurrentLanguage() || 'english',
   audioId: 'none',
   screenType: 'none',
@@ -88,10 +97,11 @@ const wizardState = reactive({
 
 // Step titles from i18n
 const stepTitles = {
-  1: 'setup.language.title',
-  2: 'setup.audio.title',
-  3: 'setup.screen.title',
-  4: 'setup.summary.title',
+  1: 'setup.wifi.title',
+  2: 'setup.language.title',
+  3: 'setup.audio.title',
+  4: 'setup.screen.title',
+  5: 'setup.summary.title',
 };
 
 const stepTitle = computed(() => t(stepTitles[currentStep.value] || ''));
@@ -133,7 +143,7 @@ function handleApply() {
 }
 
 function nextStep() {
-  if (currentStep.value < 4) {
+  if (currentStep.value < 5) {
     currentStep.value++;
   }
 }

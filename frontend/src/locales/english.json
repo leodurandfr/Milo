@@ -549,10 +549,16 @@
     "stepLabel": "Step {n}",
     "back": "Back",
     "continue": "Continue",
+    "skip": "Skip",
     "welcome": {
       "title": "Welcome to Milō",
       "subtitle": "Let's configure your audio system!",
       "getStarted": "Get started"
+    },
+    "wifi": {
+      "title": "Connect to WiFi",
+      "hotspotWarning": "After connecting to your home WiFi, you will need to access Milō at milo.local from your home network.",
+      "skipped": "Skipped"
     },
     "language": {
       "title": "Choose your language"
@@ -571,6 +577,7 @@
     },
     "summary": {
       "title": "Summary",
+      "wifi": "WiFi",
       "language": "Language",
       "audioCard": "Audio card",
       "screen": "Screen",
