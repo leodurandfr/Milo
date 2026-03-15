@@ -60,7 +60,8 @@
     "restarting": "Redémarrage du multiroom en cours...",
     "error": "Erreur lors de l'activation du multiroom",
     "editSpeaker": "Modifier le système audio",
-    "speakerName": "Nom du système",
+    "speakerNameMain": "Nom de l'enceinte principale",
+    "speakerNameRemote": "Nom de l'enceinte distante",
     "speakerType": "Type d'enceinte",
     "speakerInfo": "Informations",
     "speakerTypes": {

@@ -25,7 +25,7 @@
     <!-- Configuration Form -->
     <template v-else>
       <!-- Speaker Name -->
-      <SettingsSection :title="t('multiroom.speakerName')">
+      <SettingsSection :title="t('multiroom.speakerNameRemote')">
         <InputText
           v-model="speakerName"
           :placeholder="t('multiroom.pending.namePlaceholder')"

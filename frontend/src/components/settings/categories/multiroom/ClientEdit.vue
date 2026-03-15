@@ -26,7 +26,7 @@
     <!-- Online State - Settings -->
     <template v-else>
       <!-- Speaker Name Input -->
-      <SettingsSection :title="t('multiroom.speakerName')">
+      <SettingsSection :title="t(client?.is_local ? 'multiroom.speakerNameMain' : 'multiroom.speakerNameRemote')">
         <InputText v-model="clientName" :placeholder="client?.host" size="medium" :maxlength="16"
           @blur="saveClientName" />
       </SettingsSection>
@@ -356,7 +356,7 @@ onMounted(async () => {
     selectedSpeakerType.value = client.value.speaker_type || equalizerStore.getClientSpeakerType(props.macId);
 
     // Load audio card options and current card for remote clients
-    if (!client.value.is_local) {
+    if (!client.value.is_local && client.value.online) {
       const [config, hardware] = await Promise.all([
         loadHardwareConfig(true),
         multiroomClientStore.fetchClientHardware(props.macId).catch(() => null),

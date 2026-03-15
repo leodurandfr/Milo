@@ -60,7 +60,8 @@
     "restarting": "Multiroom wird neu gestartet...",
     "error": "Fehler beim Aktivieren von Multiroom",
     "editSpeaker": "Audiosystem bearbeiten",
-    "speakerName": "Systemname",
+    "speakerNameMain": "Name des Hauptlautsprechers",
+    "speakerNameRemote": "Name des Remote-Lautsprechers",
     "speakerType": "Lautsprechertyp",
     "speakerInfo": "Informationen",
     "speakerTypes": {
