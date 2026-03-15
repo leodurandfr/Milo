@@ -97,7 +97,7 @@ defineEmits(['dismiss']);
 }
 
 .notification-slide-leave-active {
-  transition: transform var(--transition-fast), opacity var(--transition-fast);
+  transition: transform var(--transition-fast-leave), opacity var(--transition-fast-leave);
 }
 
 .notification-slide-enter-from {

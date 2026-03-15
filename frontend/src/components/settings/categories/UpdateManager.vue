@@ -660,9 +660,12 @@ onMounted(async () => {
   grid-area: 1 / 1;
 }
 
-.crossfade-enter-active,
-.crossfade-leave-active {
+.crossfade-enter-active {
   transition: opacity var(--transition-normal);
+}
+
+.crossfade-leave-active {
+  transition: opacity var(--transition-normal-leave);
 }
 
 .crossfade-enter-from,

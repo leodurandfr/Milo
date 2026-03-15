@@ -192,7 +192,7 @@ const contentKey = computed(() => {
 }
 
 .audio-content-leave-active {
-  transition: all var(--transition-fast);
+  transition: all var(--transition-fast-leave);
 }
 
 /* Default direction: ALWAYS bottom to top */

@@ -196,7 +196,7 @@ function handleBack() {
 /* Header content cross-fade transition - aligned with fade-slide body transition */
 /* iOS WebKit requires transform to properly animate opacity */
 .header-fade-leave-active {
-  transition: opacity var(--transition-fast);
+  transition: opacity var(--transition-fast-leave);
   transform: translate3d(0, 0, 0);
   -webkit-backface-visibility: hidden;
 }
@@ -215,7 +215,7 @@ function handleBack() {
 /* Actions cross-fade transition - aligned with fade-slide body transition */
 /* iOS WebKit requires transform to properly animate opacity */
 .actions-fade-leave-active {
-  transition: opacity var(--transition-fast);
+  transition: opacity var(--transition-fast-leave);
   transform: translate3d(0, 0, 0);
   -webkit-backface-visibility: hidden;
 }

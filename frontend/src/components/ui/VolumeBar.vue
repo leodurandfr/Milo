@@ -51,7 +51,7 @@ const volumeFillStyle = computed(() => ({
   width: 472px;
   padding: var(--space-04);
   border-radius: var(--radius-full);
-  transition: all var(--transition-spring);
+  transition: all var(--transition-spring-snappy);
   z-index: 8000;
 }
 
