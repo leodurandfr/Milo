@@ -75,6 +75,12 @@
             </template>
           </ListItemButton>
 
+          <ListItemButton :title="t('settings.wifi')" action="caret" @click="push('wifi')">
+            <template #icon>
+              <img :src="wifiIcon" alt="WiFi" />
+            </template>
+          </ListItemButton>
+
           <ListItemButton v-if="settingsStore.dockApps.multiroom" :title="t('audioSources.multiroom')" action="caret"
             @click="push('multiroom')">
             <template #icon>
@@ -144,6 +150,9 @@
 
       <!-- Screen view -->
       <ScreenSettings v-else-if="currentView === 'screen'" key="screen" class="view-content" />
+
+      <!-- WiFi view -->
+      <WifiSettings v-else-if="currentView === 'wifi'" key="wifi" class="view-content" />
 
       <!-- Hardware view -->
       <HardwareSettings v-else-if="currentView === 'hardware'" key="hardware" class="view-content" />
@@ -229,6 +238,7 @@ import radioIcon from '@/assets/settings-icons/radio.svg';
 import podcastIcon from '@/assets/settings-icons/podcast.svg';
 import macosIcon from '@/assets/settings-icons/macos.svg';
 import hardwareIcon from '@/assets/settings-icons/hardware.svg';
+import wifiIcon from '@/assets/settings-icons/wifi.svg';
 import rebootIcon from '@/assets/settings-icons/reboot.svg';
 import shutdownIcon from '@/assets/settings-icons/shutdown.svg';
 import DockSettings from '@/components/settings/categories/DockSettings.vue';
@@ -246,6 +256,7 @@ import MacSettings from '@/components/settings/categories/MacSettings.vue';
 import HardwareSettings from '@/components/settings/categories/HardwareSettings.vue';
 import UpdateManager from '@/components/settings/categories/UpdateManager.vue';
 import InfoSettings from '@/components/settings/categories/InfoSettings.vue';
+import WifiSettings from '@/components/settings/categories/WifiSettings.vue';
 const props = defineProps({
   initialView: {
     type: String,
@@ -315,6 +326,7 @@ const headerTitle = computed(() => {
     'apps': t('settings.dock'),
     'volume': t('settings.volume'),
     'screen': t('settings.screen'),
+    'wifi': t('settings.wifi'),
     'hardware': t('settings.hardware'),
     'spotify': t('audioSources.spotify'),
     'multiroom': t('audioSources.multiroom'),
@@ -507,7 +519,7 @@ async function handleShutdown() {
 // Placeholder for odd grid
 const shouldShowPlaceholder = computed(() => {
   // Count the number of visible items
-  let count = 7; // Base: Languages, Applications, Volume, Screen, Hardware, Updates, Information
+  let count = 8; // Base: Languages, Applications, Volume, Screen, WiFi, Hardware, Updates, Information
   if (settingsStore.dockApps.spotify) count++;
   if (settingsStore.dockApps.mac) count++;
   if (settingsStore.dockApps.multiroom) count++;
