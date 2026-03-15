@@ -285,7 +285,7 @@
     "ipAddress": "Milō IP",
     "cpu": "CPU",
     "ram": "RAM",
-    "credits": "Credits"
+    "designedBy": "Milō app built by"
   },
   "applications": {
     "features": "Features"

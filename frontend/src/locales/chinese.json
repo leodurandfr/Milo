@@ -285,7 +285,7 @@
     "ipAddress": "Milō IP",
     "cpu": "CPU",
     "ram": "RAM",
-    "credits": "致谢"
+    "designedBy": "Milō 应用由此开发"
   },
   "applications": {
     "features": "功能"
