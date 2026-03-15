@@ -443,11 +443,6 @@ class BtRemoteController:
                     if not self._is_bt_hid_device(device):
                         device.close()
                         continue
-                    # Skip devices in reconnection cooldown (idle disconnect backoff)
-                    if device.uniq and self._is_in_cooldown(device.uniq):
-                        logger.debug("Skipping device in cooldown: %s (%s)", device.name, device.uniq)
-                        device.close()
-                        continue
                     # Verify the device is actually connected in BlueZ
                     if device.uniq and not await self._is_bt_connected(device.uniq):
                         logger.debug("Ignoring stale evdev node: %s (%s)", device.name, device.uniq)
