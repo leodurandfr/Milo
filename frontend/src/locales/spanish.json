@@ -533,10 +533,16 @@
     "stepLabel": "Paso {n}",
     "back": "Volver",
     "continue": "Continuar",
+    "skip": "Omitir",
     "welcome": {
       "title": "Bienvenido a Milō",
       "subtitle": "Configuremos tu sistema de audio!",
       "getStarted": "Comenzar"
+    },
+    "wifi": {
+      "title": "Conexión WiFi",
+      "hotspotWarning": "Después de conectarte a tu WiFi, deberás acceder a Milō en milo.local desde tu red doméstica.",
+      "skipped": "No configurado"
     },
     "language": {
       "title": "Elige tu idioma"
@@ -555,6 +561,7 @@
     },
     "summary": {
       "title": "Resumen",
+      "wifi": "WiFi",
       "language": "Idioma",
       "audioCard": "Tarjeta de audio",
       "screen": "Pantalla",

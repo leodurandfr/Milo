@@ -533,10 +533,16 @@
     "stepLabel": "步骤 {n}",
     "back": "返回",
     "continue": "继续",
+    "skip": "跳过",
     "welcome": {
       "title": "欢迎使用 Milō",
       "subtitle": "让我们配置您的音频系统！",
       "getStarted": "开始"
+    },
+    "wifi": {
+      "title": "连接 WiFi",
+      "hotspotWarning": "连接到家庭 WiFi 后，您需要通过家庭网络访问 milo.local 来使用 Milō。",
+      "skipped": "已跳过"
     },
     "language": {
       "title": "选择您的语言"
@@ -555,6 +561,7 @@
     },
     "summary": {
       "title": "摘要",
+      "wifi": "WiFi",
       "language": "语言",
       "audioCard": "声卡",
       "screen": "屏幕",

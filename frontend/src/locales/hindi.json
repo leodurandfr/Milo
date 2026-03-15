@@ -533,10 +533,16 @@
     "stepLabel": "चरण {n}",
     "back": "वापस",
     "continue": "जारी रखें",
+    "skip": "छोड़ें",
     "welcome": {
       "title": "Milō में आपका स्वागत है",
       "subtitle": "आइए आपका ऑडियो सिस्टम कॉन्फ़िगर करें!",
       "getStarted": "शुरू करें"
+    },
+    "wifi": {
+      "title": "WiFi कनेक्शन",
+      "hotspotWarning": "अपने WiFi से कनेक्ट होने के बाद, आपको अपने होम नेटवर्क से milo.local पर Milō एक्सेस करना होगा।",
+      "skipped": "छोड़ दिया गया"
     },
     "language": {
       "title": "अपनी भाषा चुनें"
@@ -555,6 +561,7 @@
     },
     "summary": {
       "title": "सारांश",
+      "wifi": "WiFi",
       "language": "भाषा",
       "audioCard": "ऑडियो कार्ड",
       "screen": "स्क्रीन",
