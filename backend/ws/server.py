@@ -18,11 +18,12 @@ class WebSocketServer:
 
     PING_INTERVAL = 30
 
-    def __init__(self, ws_manager: WebSocketManager, state_machine, volume_service=None, settings_service=None):
+    def __init__(self, ws_manager: WebSocketManager, state_machine, volume_service=None, settings_service=None, wifi_service=None):
         self.manager = ws_manager
         self.state_machine = state_machine
         self.volume_service = volume_service
         self.settings_service = settings_service
+        self.wifi_service = wifi_service
 
     async def _send_ping(self, websocket: WebSocket):
         """Sends periodic pings to maintain connection"""
@@ -96,6 +97,8 @@ class WebSocketServer:
                 if self.settings_service:
                     setup_completed = bool(await self.settings_service.get_setting("setup_completed"))
 
+                hotspot_active = self.wifi_service.hotspot_active if self.wifi_service else False
+
                 initial_event = {
                     "category": "system",
                     "type": "initial_state",
@@ -103,6 +106,7 @@ class WebSocketServer:
                     "data": {
                         "full_state": current_state,
                         "setup_completed": setup_completed,
+                        "hotspot_active": hotspot_active,
                     },
                     "timestamp": time.time()
                 }

@@ -76,8 +76,9 @@ equalizer_proxy_service = get_service("equalizer_client_proxy_service")
 equalizer_sync_service = get_service("equalizer_settings_sync_service")
 client_registry_service = get_service("client_registry_service")
 equalizer_router_service = get_service("equalizer_router")
+wifi_service = get_service("wifi_service")
 ws_manager = get_service("websocket_manager")
-websocket_server = WebSocketServer(ws_manager, state_machine, volume_service, settings_service)
+websocket_server = WebSocketServer(ws_manager, state_machine, volume_service, settings_service, wifi_service)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -101,6 +102,9 @@ async def lifespan(app: FastAPI):
         audio_settings = await settings_service.get_setting('audio') or {}
         inactivity_timeout = audio_settings.get('inactivity_timeout', 7200)
         state_machine.start_inactivity_monitor(inactivity_timeout)
+
+        # Activate WiFi hotspot for first-boot setup if no network is available
+        await wifi_service.maybe_start_hotspot(settings_service)
 
         logger.info("Milo backend startup completed with unified settings")
 
@@ -224,7 +228,7 @@ app.include_router(bt_remote_router)
 setup_router = create_setup_router(settings_service, hardware_service, systemd_manager)
 app.include_router(setup_router)
 
-wifi_router = create_wifi_router(get_service("wifi_service"))
+wifi_router = create_wifi_router(wifi_service)
 app.include_router(wifi_router)
 
 app.add_websocket_route("/ws", websocket_server.websocket_endpoint)

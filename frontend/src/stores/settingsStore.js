@@ -8,6 +8,7 @@ import { apiCall } from '@/services/apiCall';
 export const useSettingsStore = defineStore('settings', () => {
   // === SETUP WIZARD ===
   const setupCompleted = ref(null); // null = unknown, false = show wizard, true = normal UI
+  const hotspotActive = ref(false); // true when first-boot hotspot is running
 
   // === LOADING STATE ===
   const isLoading = ref(false);
@@ -402,9 +403,14 @@ export const useSettingsStore = defineStore('settings', () => {
     setupCompleted.value = value;
   }
 
+  function updateHotspotActive(value) {
+    hotspotActive.value = value;
+  }
+
   return {
     // State
     setupCompleted,
+    hotspotActive,
     isLoading,
     hasLoaded,
     language,
@@ -431,6 +437,7 @@ export const useSettingsStore = defineStore('settings', () => {
     // Actions
     loadAllSettings,
     updateSetupCompleted,
+    updateHotspotActive,
     updateLanguage,
     updateVolumeLimits,
     updateVolumeStartup,

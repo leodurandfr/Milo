@@ -23,7 +23,7 @@
 
           <ModeStep v-else-if="currentStep === 2" v-model="wizardState.mode" />
 
-          <WifiStep v-else-if="currentStep === 3" v-model="wizardState.wifiSsid" />
+          <WifiStep v-else-if="currentStep === 3" v-model="wizardState.wifiSsid" :hotspot-active="settingsStore.hotspotActive" />
 
           <AudioStep v-else-if="currentStep === 4" v-model="wizardState.audioId" :audio-cards="audioCards" />
 
@@ -64,6 +64,7 @@
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import { useI18n, i18n } from '@/services/i18n';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
+import { useSettingsStore } from '@/stores/settingsStore';
 import axios from 'axios';
 import { logger } from '@/services/logger';
 import StepIndicator from './StepIndicator.vue';
@@ -79,6 +80,7 @@ import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const { t } = useI18n();
 const { loadHardwareConfig } = useHardwareConfig();
+const settingsStore = useSettingsStore();
 
 const currentStep = ref(0);
 const isApplying = ref(false);

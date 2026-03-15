@@ -330,9 +330,12 @@ onMounted(async () => {
       clearBootTimeout();
       unifiedStore.updateState(event);
 
-      // Update setup_completed from initial state
+      // Update setup_completed and hotspot_active from initial state
       if (event.data?.setup_completed !== undefined) {
         settingsStore.updateSetupCompleted(event.data.setup_completed);
+      }
+      if (event.data?.hotspot_active !== undefined) {
+        settingsStore.updateHotspotActive(event.data.hotspot_active);
       }
 
       // Populate podcastStore if active source is podcast

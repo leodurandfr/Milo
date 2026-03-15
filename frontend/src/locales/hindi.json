@@ -542,6 +542,9 @@
     "wifi": {
       "title": "WiFi कनेक्शन",
       "hotspotWarning": "अपने WiFi से कनेक्ट होने के बाद, आपको अपने होम नेटवर्क से milo.local पर Milō एक्सेस करना होगा।",
+      "hotspotBanner": "आप Milo-Setup नेटवर्क से जुड़े हैं। नीचे अपना होम WiFi नेटवर्क चुनें।",
+      "hotspotConfigured": "WiFi कॉन्फ़िगर हो गया!",
+      "hotspotConfiguredDetail": "रीस्टार्ट के बाद, अपने नेटवर्क पर milo.local पर Milō खोजें",
       "skipped": "छोड़ दिया गया"
     },
     "language": {

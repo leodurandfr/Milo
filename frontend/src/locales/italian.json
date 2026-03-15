@@ -542,6 +542,9 @@
     "wifi": {
       "title": "Connessione WiFi",
       "hotspotWarning": "Dopo la connessione al WiFi, dovrai accedere a Milō tramite milo.local dalla tua rete domestica.",
+      "hotspotBanner": "Sei connesso alla rete Milo-Setup. Seleziona la tua rete WiFi di casa qui sotto.",
+      "hotspotConfigured": "WiFi configurato!",
+      "hotspotConfiguredDetail": "Dopo il riavvio, troverai Milō sulla tua rete all'indirizzo milo.local",
       "skipped": "Non configurato"
     },
     "language": {
