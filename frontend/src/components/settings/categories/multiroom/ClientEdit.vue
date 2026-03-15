@@ -32,10 +32,14 @@
       </SettingsSection>
 
       <!-- Audio Card Selection (remote clients only) -->
-      <SettingsSection v-if="!client?.is_local && audioCardOptions.length > 0" :title="t('multiroom.pending.audioCard')">
+      <SettingsSection v-if="!client?.is_local && (isLoadingAudio || audioCardOptions.length > 0)" :title="t('multiroom.pending.audioCard')">
         <div class="hardware-row">
           <span class="hardware-row__label text-mono">{{ t('hardwareSettings.audioCardModel') }}</span>
+          <div v-if="isLoadingAudio" class="skeleton-dropdown">
+            <span class="skeleton-dropdown__text shimmer"></span>
+          </div>
           <Dropdown
+            v-else
             :model-value="selectedAudioId"
             :options="audioCardOptions"
             :disabled="isApplying"
@@ -154,7 +158,13 @@ const selectedSpeakerType = ref('bookshelf');
 const deleting = ref(false);
 const crossoverFrequency = ref(80);
 
+// Find client by mac_id
+const client = computed(() =>
+  snapcastStore.clients.find(c => c.mac_id === props.macId)
+);
+
 // Audio card state
+const isLoadingAudio = ref(!!(client.value && !client.value.is_local && client.value.online));
 const audioCards = ref([]);
 const selectedAudioId = ref('');
 const savedAudioId = ref('');
@@ -174,11 +184,6 @@ const audioCardOptions = computed(() =>
 // Dirty check for audio card change
 const isAudioDirty = computed(() =>
   selectedAudioId.value && savedAudioId.value && selectedAudioId.value !== savedAudioId.value
-);
-
-// Find client by mac_id
-const client = computed(() =>
-  snapcastStore.clients.find(c => c.mac_id === props.macId)
 );
 
 // Check if client is offline
@@ -357,18 +362,24 @@ onMounted(async () => {
 
     // Load audio card options and current card for remote clients
     if (!client.value.is_local && client.value.online) {
-      const [config, hardware] = await Promise.all([
-        loadHardwareConfig(true),
-        multiroomClientStore.fetchClientHardware(props.macId).catch(() => null),
-      ]);
+      try {
+        const [config, hardware] = await Promise.all([
+          loadHardwareConfig(true),
+          multiroomClientStore.fetchClientHardware(props.macId).catch(() => null),
+        ]);
 
-      if (config?.options?.audio_cards) {
-        audioCards.value = config.options.audio_cards;
+        if (config?.options?.audio_cards) {
+          audioCards.value = config.options.audio_cards;
+        }
+        if (hardware?.audio?.id) {
+          selectedAudioId.value = hardware.audio.id;
+          savedAudioId.value = hardware.audio.id;
+        }
+      } finally {
+        isLoadingAudio.value = false;
       }
-      if (hardware?.audio?.id) {
-        selectedAudioId.value = hardware.audio.id;
-        savedAudioId.value = hardware.audio.id;
-      }
+    } else {
+      isLoadingAudio.value = false;
     }
   }
 });
@@ -399,6 +410,31 @@ onUnmounted(() => {
 
 .hardware-row :deep(.dropdown) {
   flex: 1;
+}
+
+.skeleton-dropdown {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  padding: var(--space-03) var(--space-04);
+  border-radius: var(--radius-04);
+  background: var(--color-background-neutral);
+  box-shadow: inset 0 0 0 2px var(--color-border);
+}
+
+.skeleton-dropdown::before {
+  content: '\200b';
+  font-family: 'Neue Montreal Medium', 'Noto Sans SC', sans-serif;
+  font-size: var(--font-size-h3);
+  line-height: var(--line-height-h3);
+}
+
+.skeleton-dropdown__text {
+  width: 60%;
+  height: var(--line-height-h3);
+  border-radius: var(--radius-02);
+  --shimmer-base: var(--color-background-strong);
+  --shimmer-highlight: var(--color-background-medium-16);
 }
 
 .audio-error {
