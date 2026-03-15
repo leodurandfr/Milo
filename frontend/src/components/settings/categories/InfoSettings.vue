@@ -66,8 +66,8 @@
 
     <!-- Credits -->
     <div class="info-item info-credits">
-      <span class="info-label text-mono">{{ t('info.credits') }}</span>
-      <span class="info-value text-mono"><span class="text-secondary">leodurand.com /</span> Léo Durand</span>
+      <span class="info-label text-mono">{{ t('info.designedBy') }}</span>
+      <span class="info-value text-mono">leodurand.com</span>
     </div>
     </div>
   </SettingsSection>
