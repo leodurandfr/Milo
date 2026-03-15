@@ -115,7 +115,9 @@
       "minimumClients": "Une zone nécessite au moins 2 systèmes audio.",
       "createZone": "Créer une zone",
       "editZone": "Modifier la zone",
-      "deleteZone": "Supprimer la zone"
+      "deleteZone": "Supprimer la zone",
+      "confirmDeleteZone": "Confirmer la suppression",
+      "deletingZone": "Suppression en cours..."
     },
     "equalizer": {
       "title": "10 Bandes"

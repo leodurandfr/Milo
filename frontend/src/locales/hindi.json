@@ -115,7 +115,9 @@
       "minimumClients": "एक ज़ोन के लिए कम से कम 2 ऑडियो सिस्टम आवश्यक हैं।",
       "createZone": "ज़ोन बनाएं",
       "editZone": "ज़ोन संपादित करें",
-      "deleteZone": "ज़ोन हटाएं"
+      "deleteZone": "ज़ोन हटाएं",
+      "confirmDeleteZone": "हटाने की पुष्टि करें",
+      "deletingZone": "हटाया जा रहा है..."
     },
     "equalizer": {
       "title": "10 बैंड"
