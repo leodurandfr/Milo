@@ -60,7 +60,8 @@
     "restarting": "A reiniciar multiroom...",
     "error": "Erro ao ativar multiroom",
     "editSpeaker": "Editar sistema de áudio",
-    "speakerName": "Nome do sistema",
+    "speakerNameMain": "Nome da coluna principal",
+    "speakerNameRemote": "Nome da coluna remota",
     "speakerType": "Tipo de coluna",
     "speakerInfo": "Informações",
     "speakerTypes": {

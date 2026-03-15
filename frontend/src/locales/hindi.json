@@ -60,7 +60,8 @@
     "restarting": "मल्टीरूम पुनः आरंभ हो रहा है...",
     "error": "मल्टीरूम सक्रिय करने में त्रुटि",
     "editSpeaker": "ऑडियो सिस्टम संपादित करें",
-    "speakerName": "सिस्टम का नाम",
+    "speakerNameMain": "मुख्य स्पीकर का नाम",
+    "speakerNameRemote": "रिमोट स्पीकर का नाम",
     "speakerType": "स्पीकर प्रकार",
     "speakerInfo": "जानकारी",
     "speakerTypes": {

@@ -60,7 +60,8 @@
     "restarting": "正在重启多房间...",
     "error": "激活多房间时出错",
     "editSpeaker": "编辑音频系统",
-    "speakerName": "系统名称",
+    "speakerNameMain": "主音箱名称",
+    "speakerNameRemote": "远程音箱名称",
     "speakerType": "扬声器类型",
     "speakerInfo": "信息",
     "speakerTypes": {

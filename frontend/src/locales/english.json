@@ -60,7 +60,8 @@
     "restarting": "Restarting multiroom...",
     "error": "Error activating multiroom",
     "editSpeaker": "Edit audio system",
-    "speakerName": "System name",
+    "speakerNameMain": "Main speaker name",
+    "speakerNameRemote": "Remote speaker name",
     "speakerType": "Speaker type",
     "speakerInfo": "Information",
     "speakerTypes": {
