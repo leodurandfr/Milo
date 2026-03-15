@@ -1,0 +1,114 @@
+name: Build Milo Image
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch or tag to build'
+        required: false
+        default: 'main'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout Milo
+        uses: actions/checkout@v4
+
+      - name: Set build variables
+        id: vars
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            # Tag push: use the tag name
+            TAG="${GITHUB_REF#refs/tags/}"
+            echo "milo_branch=${TAG}" >> "$GITHUB_OUTPUT"
+            echo "image_name=milo-${TAG}" >> "$GITHUB_OUTPUT"
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
+          else
+            # Manual dispatch
+            BRANCH="${{ github.event.inputs.branch || 'main' }}"
+            SHORT_SHA="${GITHUB_SHA:0:7}"
+            echo "milo_branch=${BRANCH}" >> "$GITHUB_OUTPUT"
+            echo "image_name=milo-${BRANCH}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+            echo "is_release=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y coreutils quilt parted qemu-user-static debootstrap zerofree zip \
+            dosfstools libarchive-tools libcap2-bin grep rsync xz-utils file git curl bc \
+            gpg pigz xxd arch-test
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Clone pi-gen
+        run: |
+          git clone --branch arm64 --depth 1 https://github.com/RPi-Distro/pi-gen.git pi-gen-build
+
+      - name: Configure pi-gen
+        run: |
+          # Copy Milo configuration
+          cp pi-gen/config pi-gen-build/config
+
+          # Set the branch/tag to build
+          echo "MILO_BRANCH=${{ steps.vars.outputs.milo_branch }}" >> pi-gen-build/config
+
+          # Copy custom stage
+          cp -r pi-gen/stage-milo pi-gen-build/stage-milo
+
+          # Prevent intermediate image exports
+          touch pi-gen-build/stage2/SKIP_IMAGES
+
+          # Skip desktop stages
+          for stage in stage3 stage4 stage5; do
+            if [ -d "pi-gen-build/${stage}" ]; then
+              touch "pi-gen-build/${stage}/SKIP"
+            fi
+          done
+
+      - name: Build image
+        run: |
+          cd pi-gen-build
+          sudo ./build.sh
+        env:
+          DEBIAN_FRONTEND: noninteractive
+
+      - name: Compress image
+        run: |
+          IMAGE=$(ls pi-gen-build/deploy/*.img 2>/dev/null | head -1)
+          if [ -z "$IMAGE" ]; then
+            echo "ERROR: No .img file found in deploy/"
+            ls -la pi-gen-build/deploy/ || true
+            exit 1
+          fi
+          echo "Compressing ${IMAGE}..."
+          xz -9 -T0 "${IMAGE}"
+          COMPRESSED="${IMAGE}.xz"
+          echo "compressed_image=${COMPRESSED}" >> "$GITHUB_ENV"
+          echo "image_basename=$(basename "${COMPRESSED}")" >> "$GITHUB_ENV"
+          ls -lh "${COMPRESSED}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.vars.outputs.image_name }}
+          path: ${{ env.compressed_image }}
+          retention-days: 14
+
+      - name: Create GitHub Release
+        if: steps.vars.outputs.is_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.compressed_image }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
