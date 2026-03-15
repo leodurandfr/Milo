@@ -17,6 +17,7 @@ Features:
 import asyncio
 import logging
 import re
+import time
 from typing import Dict, Optional, Set
 
 from backend.core.models.audio_state import AudioSource
@@ -47,6 +48,8 @@ MULTI_CLICK_WINDOW = 0.4   # 400ms window for multi-click grouping
 SCAN_INTERVAL = 5.0         # Seconds between evdev device scans
 DISCOVERY_INTERVAL = 30.0   # Seconds between BT discovery attempts
 DISCOVERY_DURATION = 5      # Seconds to run BT scan
+IDLE_COOLDOWN_BASE = 30.0   # Seconds before allowing reconnection after idle disconnect
+IDLE_COOLDOWN_MAX = 120.0   # Maximum cooldown duration (2 minutes)
 
 _MAC_PATTERN = re.compile(r'^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$')
 
@@ -77,10 +80,10 @@ class BtRemoteController:
         self._scan_task: Optional[asyncio.Task] = None
         self._discovery_task: Optional[asyncio.Task] = None
 
-        # Battery monitoring via D-Bus
-        self._battery_levels: Dict[str, Optional[int]] = {}  # MAC (upper) -> percentage
-        self._battery_bus = None  # dbus_next MessageBus
-        self._battery_subscribed_macs: Set[str] = set()
+        # Idle disconnect tracking (reconnection cooldown)
+        self._idle_disconnect_count: Dict[str, int] = {}  # MAC (upper) -> consecutive idle count
+        self._cooldown_until: Dict[str, float] = {}  # MAC (upper) -> monotonic expiry time
+        self._mac_had_key_event: Dict[str, bool] = {}  # MAC (upper) -> any key event this session
 
         # Volume accumulator (batch rapid events like rotary encoder)
         self._volume_accumulator = 0.0
@@ -145,7 +148,9 @@ class BtRemoteController:
         self._monitor_tasks.clear()
         self._monitored_paths.clear()
         self._device_info.clear()
-        self._cleanup_battery()
+        self._idle_disconnect_count.clear()
+        self._cooldown_until.clear()
+        self._mac_had_key_event.clear()
 
     def cleanup(self):
         """Clean up resources."""
@@ -208,10 +213,7 @@ class BtRemoteController:
             if mac and mac in seen_macs:
                 continue
             seen_macs.add(mac)
-            connected.append({
-                "path": path, **info,
-                "battery_percentage": self._battery_levels.get(mac)
-            })
+            connected.append({"path": path, **info})
 
         return {
             "available": EVDEV_AVAILABLE,
@@ -234,7 +236,7 @@ class BtRemoteController:
         )
 
     # ========================================================================
-    # BATTERY MONITORING (D-Bus)
+    # BATTERY (on-demand D-Bus read)
     # ========================================================================
 
     @staticmethod
@@ -242,68 +244,61 @@ class BtRemoteController:
         """Convert MAC address to BlueZ D-Bus object path."""
         return "/org/bluez/hci0/dev_" + address.upper().replace(":", "_")
 
-    async def _start_battery_monitor(self, address: str):
-        """Start monitoring battery level for a connected device via D-Bus."""
+    async def read_battery_level(self, address: str) -> Optional[int]:
+        """Read battery level for a connected device via D-Bus (one-shot).
+
+        Called on-demand from the API, not continuously in the background.
+        """
         if not DBUS_AVAILABLE:
-            return
+            return None
 
         mac = address.upper()
-        if mac in self._battery_subscribed_macs:
-            return
-
         dev_path = self._mac_to_dbus_path(mac)
+        bus = None
         try:
-            if self._battery_bus is None:
-                self._battery_bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
-
-            # Read initial battery level and subscribe to changes
-            introspection = await self._battery_bus.introspect("org.bluez", dev_path)
-            obj = self._battery_bus.get_proxy_object("org.bluez", dev_path, introspection)
+            bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+            introspection = await bus.introspect("org.bluez", dev_path)
+            obj = bus.get_proxy_object("org.bluez", dev_path, introspection)
             props = obj.get_interface("org.freedesktop.DBus.Properties")
             variant = await props.call_get("org.bluez.Battery1", "Percentage")
-            self._battery_levels[mac] = variant.value
-
-            # Subscribe via proxy signal (handles AddMatch automatically)
-            def on_properties_changed(interface_name, changed, invalidated):
-                if interface_name != "org.bluez.Battery1":
-                    return
-                if "Percentage" not in changed:
-                    return
-                percentage = changed["Percentage"].value
-                self._battery_levels[mac] = percentage
-                logger.debug("Battery updated for %s: %d%%", mac, percentage)
-                asyncio.ensure_future(self._broadcast_status())
-
-            props.on_properties_changed(on_properties_changed)
-            self._battery_subscribed_macs.add(mac)
-            logger.info("Battery monitor started for %s: %d%%", mac, variant.value)
+            return variant.value
         except Exception as e:
-            logger.debug("Battery monitoring unavailable for %s: %s", mac, e)
-            self._battery_levels[mac] = None
+            logger.debug("Battery read failed for %s: %s", mac, e)
+            return None
+        finally:
+            if bus:
+                try:
+                    bus.disconnect()
+                except Exception:
+                    pass
 
-    async def _stop_battery_monitor(self, address: str):
-        """Stop monitoring battery level for a device."""
-        mac = address.upper()
-        self._battery_subscribed_macs.discard(mac)
-        self._battery_levels.pop(mac, None)
+    # ========================================================================
+    # RECONNECTION COOLDOWN
+    # ========================================================================
 
-        if not self._battery_subscribed_macs and self._battery_bus:
-            try:
-                self._battery_bus.disconnect()
-            except Exception:
-                pass
-            self._battery_bus = None
+    def _is_in_cooldown(self, mac: str) -> bool:
+        """Check if a MAC address is in reconnection cooldown."""
+        until = self._cooldown_until.get(mac.upper())
+        if until is None:
+            return False
+        if time.monotonic() >= until:
+            self._cooldown_until.pop(mac.upper(), None)
+            return False
+        return True
 
-    def _cleanup_battery(self):
-        """Clean up all battery monitoring resources (sync-safe)."""
-        self._battery_subscribed_macs.clear()
-        self._battery_levels.clear()
-        if self._battery_bus:
-            try:
-                self._battery_bus.disconnect()
-            except Exception:
-                pass
-            self._battery_bus = None
+    def _has_any_cooldown(self) -> bool:
+        """Check if any MAC is currently in cooldown."""
+        now = time.monotonic()
+        expired = [mac for mac, until in self._cooldown_until.items() if now >= until]
+        for mac in expired:
+            self._cooldown_until.pop(mac)
+        return bool(self._cooldown_until)
+
+    def _clear_all_cooldowns(self):
+        """Clear all cooldown state (e.g. on manual discovery)."""
+        self._idle_disconnect_count.clear()
+        self._cooldown_until.clear()
+        self._mac_had_key_event.clear()
 
     # ========================================================================
     # BLUETOOTHCTL HELPERS
@@ -415,16 +410,12 @@ class BtRemoteController:
                 logger.debug("Error listing input devices: %s", e)
                 return
 
-            # Clean up disconnected devices and remove stale bonds
+            # Clean up disconnected devices
             active_paths = set(all_paths)
             disconnected = False
-            disconnected_macs = set()
             for path in list(self._monitored_paths):
                 if path not in active_paths:
-                    info = self._device_info.pop(path, {})
-                    address = info.get("address", "")
-                    if address:
-                        disconnected_macs.add(address.upper())
+                    self._device_info.pop(path, None)
                     self._monitored_paths.discard(path)
                     task = self._monitor_tasks.pop(path, None)
                     if task and not task.done():
@@ -432,10 +423,6 @@ class BtRemoteController:
                     logger.info("BT HID device disconnected: %s", path)
                     disconnected = True
             if disconnected and self.running:
-                # Stop battery monitoring for MACs with no remaining evdev nodes
-                for mac in disconnected_macs:
-                    if mac not in self._monitored_macs():
-                        await self._stop_battery_monitor(mac)
                 await self._broadcast_status()
 
             # Track which MACs we already monitor (for status broadcast dedup)
@@ -456,6 +443,11 @@ class BtRemoteController:
                     if not self._is_bt_hid_device(device):
                         device.close()
                         continue
+                    # Skip devices in reconnection cooldown (idle disconnect backoff)
+                    if device.uniq and self._is_in_cooldown(device.uniq):
+                        logger.debug("Skipping device in cooldown: %s (%s)", device.name, device.uniq)
+                        device.close()
+                        continue
                     # Verify the device is actually connected in BlueZ
                     if device.uniq and not await self._is_bt_connected(device.uniq):
                         logger.debug("Ignoring stale evdev node: %s (%s)", device.name, device.uniq)
@@ -473,8 +465,6 @@ class BtRemoteController:
             # Broadcast only if a new MAC appeared (not for each additional evdev node)
             new_macs = self._monitored_macs() - macs_before
             if new_macs:
-                for mac in new_macs:
-                    await self._start_battery_monitor(mac)
                 await self._broadcast_status()
 
     def _monitored_macs(self) -> set:
@@ -530,6 +520,8 @@ class BtRemoteController:
         if self._monitored_paths:
             return {"status": "already_connected", "message": "Device already connected"}
 
+        # Clear cooldowns on manual discovery
+        self._clear_all_cooldowns()
         logger.info("Manual BT discovery triggered")
         await self._auto_discover_and_pair()
 
@@ -544,7 +536,8 @@ class BtRemoteController:
 
         while self.running:
             try:
-                if not self._monitored_paths:
+                # Skip discovery if devices are in idle cooldown (let them sleep)
+                if not self._monitored_paths and not self._has_any_cooldown():
                     await self._auto_discover_and_pair()
             except Exception as e:
                 logger.error("Error in BT auto-discovery: %s", e)
@@ -665,6 +658,7 @@ class BtRemoteController:
         """Monitor a single evdev device for key events."""
         device_name = device.name
         device_path = device.path
+        device_mac = (self._device_info.get(device_path, {}).get("address", "") or device.uniq or "").upper()
         device_disconnected = False
         logger.info("Monitoring BT HID device: %s", device_name)
 
@@ -681,6 +675,12 @@ class BtRemoteController:
                 action = self.key_map.get(keycode_str)
                 if not action:
                     continue
+
+                # User is active — reset idle tracking for this MAC (shared across sibling nodes)
+                if device_mac and not self._mac_had_key_event.get(device_mac):
+                    self._mac_had_key_event[device_mac] = True
+                    self._idle_disconnect_count.pop(device_mac, None)
+                    self._cooldown_until.pop(device_mac, None)
 
                 logger.debug("BT HID key: code=%d -> action=%s", event.code, action)
 
@@ -700,6 +700,7 @@ class BtRemoteController:
         finally:
             info = self._device_info.pop(device_path, {})
             address = info.get("address", "")
+            mac = (address or device_mac).upper()
             self._monitored_paths.discard(device_path)
             self._monitor_tasks.pop(device_path, None)
             try:
@@ -707,11 +708,19 @@ class BtRemoteController:
             except Exception:
                 pass
 
-            if device_disconnected and address:
+            if device_disconnected and mac:
                 # BLE HID creates multiple evdev nodes per connection.
                 # When one dies, the others are stale — cancel them all.
-                self._cancel_all_for_mac(address)
-                await self._stop_battery_monitor(address)
+                self._cancel_all_for_mac(mac)
+
+                # Track idle disconnections and apply exponential cooldown
+                # Uses shared MAC-level flag so sibling evdev nodes don't cause false cooldowns
+                if not self._mac_had_key_event.pop(mac, False):
+                    count = self._idle_disconnect_count.get(mac, 0) + 1
+                    self._idle_disconnect_count[mac] = count
+                    cooldown = min(IDLE_COOLDOWN_BASE * (2 ** (count - 1)), IDLE_COOLDOWN_MAX)
+                    self._cooldown_until[mac] = time.monotonic() + cooldown
+                    logger.info("Idle disconnect #%d for %s, cooldown %.0fs", count, mac, cooldown)
 
             if self.running:
                 await self._broadcast_status()

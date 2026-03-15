@@ -310,7 +310,7 @@ export const useSettingsStore = defineStore('settings', () => {
     const devices = data.connected_devices || [];
     btRemote.value.connected = devices.length > 0;
     btRemote.value.device_name = devices[0]?.name || '';
-    btRemote.value.battery_percentage = devices[0]?.battery_percentage ?? null;
+    if (devices.length === 0) btRemote.value.battery_percentage = null;
     if (data.discovering !== undefined) btRemote.value.discovering = data.discovering;
   }
 
@@ -337,6 +337,14 @@ export const useSettingsStore = defineStore('settings', () => {
     if (!result) {
       Object.assign(btRemote.value, prev);
     }
+  }
+
+  async function fetchBtRemoteBattery() {
+    await apiCall('settings', 'Error fetching BT remote battery:', async () => {
+      const res = await axios.get('/api/bt-remote/battery');
+      const devices = res.data.devices || [];
+      btRemote.value.battery_percentage = devices[0]?.battery_percentage ?? null;
+    });
   }
 
   async function discoverBtRemote() {
@@ -440,6 +448,7 @@ export const useSettingsStore = defineStore('settings', () => {
     updateBtRemoteStatus,
     loadBtRemoteStatus,
     toggleBtRemote,
+    fetchBtRemoteBattery,
     discoverBtRemote,
     updateScreenSleeping,
     updateScreenTimeout,
