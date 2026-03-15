@@ -542,6 +542,9 @@
     "wifi": {
       "title": "连接 WiFi",
       "hotspotWarning": "连接到家庭 WiFi 后，您需要通过家庭网络访问 milo.local 来使用 Milō。",
+      "hotspotBanner": "您已连接到 Milo-Setup 网络。请在下方选择您的家庭 WiFi 网络。",
+      "hotspotConfigured": "WiFi 已配置！",
+      "hotspotConfiguredDetail": "重启后，在您的网络中访问 milo.local 找到 Milō",
       "skipped": "已跳过"
     },
     "language": {

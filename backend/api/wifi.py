@@ -50,4 +50,9 @@ def create_wifi_router(wifi_service):
             networks = await wifi_service.get_saved_networks()
             return {"status": "success", "data": [n.model_dump() for n in networks]}
 
+    @router.get("/hotspot/status")
+    async def get_hotspot_status():
+        """Return whether the setup hotspot is currently active."""
+        return {"status": "success", "data": {"active": wifi_service.hotspot_active}}
+
     return router

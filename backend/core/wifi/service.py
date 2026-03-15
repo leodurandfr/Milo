@@ -14,9 +14,17 @@ from backend.core.wifi.models import WifiNetwork, WifiStatus, SavedNetwork
 class WifiService:
     """WiFi management service wrapping nmcli commands."""
 
+    HOTSPOT_CON_NAME = "Milo-Setup"
+
     def __init__(self, state_machine):
         self.logger = logging.getLogger(__name__)
         self.state_machine = state_machine
+        self._hotspot_active: bool = False
+
+    @property
+    def hotspot_active(self) -> bool:
+        """Whether the setup hotspot is currently active."""
+        return self._hotspot_active
 
     # =========================================================================
     # Public API
@@ -157,6 +165,11 @@ class WifiService:
 
         self.logger.info("Successfully connected to WiFi: %s", ssid)
 
+        # Clean up hotspot profile if it was active
+        if self._hotspot_active:
+            self._hotspot_active = False
+            await self._delete_hotspot_profile()
+
         status = await self.get_status()
 
         await self.state_machine.broadcast_event(
@@ -203,6 +216,77 @@ class WifiService:
                 networks.append(SavedNetwork(ssid=fields[0]))
 
         return networks
+
+    # =========================================================================
+    # Hotspot management
+    # =========================================================================
+
+    async def maybe_start_hotspot(self, settings_service) -> bool:
+        """Activate WiFi hotspot if setup is incomplete and no network is available.
+
+        Called once at backend startup. Returns True if hotspot was activated.
+        """
+        setup_completed = bool(await settings_service.get_setting("setup_completed"))
+        if setup_completed:
+            return False
+
+        if await self._has_active_connection():
+            self.logger.info("Hotspot skipped: active network connection found")
+            return False
+
+        try:
+            await self._activate_hotspot()
+            self._hotspot_active = True
+            self.logger.info("Hotspot '%s' activated for first-boot setup", self.HOTSPOT_CON_NAME)
+            return True
+        except Exception as e:
+            self.logger.error("Failed to activate hotspot: %s", e)
+            return False
+
+    async def _has_active_connection(self) -> bool:
+        """Return True if any Ethernet or WiFi client (non-AP) connection is active."""
+        rc, stdout, _ = await self._run_nmcli(
+            "-t", "-f", "TYPE,STATE,CONNECTION",
+            "device", "status"
+        )
+        if rc != 0:
+            return False
+        for line in stdout.split("\n"):
+            fields = _parse_nmcli_line(line)
+            if len(fields) < 3:
+                continue
+            device_type, state, connection = fields[0], fields[1], fields[2]
+            if state != "connected":
+                continue
+            # Skip the hotspot's own AP connection
+            if connection == self.HOTSPOT_CON_NAME:
+                continue
+            if device_type in ("ethernet", "wifi"):
+                return True
+        return False
+
+    async def _activate_hotspot(self) -> None:
+        """Create and activate NetworkManager hotspot on wlan0."""
+        # Clean up any stale profile from a previous crashed run
+        await self._delete_hotspot_profile()
+
+        rc, _, stderr = await self._run_nmcli(
+            "device", "wifi", "hotspot",
+            "ifname", "wlan0",
+            "ssid", self.HOTSPOT_CON_NAME,
+            "con-name", self.HOTSPOT_CON_NAME,
+            timeout=20.0,
+        )
+        if rc != 0:
+            raise RuntimeError(f"nmcli hotspot failed: {stderr}")
+
+    async def _delete_hotspot_profile(self) -> None:
+        """Remove the Milo-Setup NM connection profile (ignores if missing)."""
+        rc, _, stderr = await self._run_nmcli(
+            "connection", "delete", self.HOTSPOT_CON_NAME
+        )
+        if rc != 0:
+            self.logger.debug("Hotspot profile cleanup (rc=%d): %s", rc, stderr)
 
     # =========================================================================
     # Private helpers

@@ -696,6 +696,10 @@ EOF
     sudo rm -f /etc/NetworkManager/dispatcher.d/98-wifi-eth0-priority
     sudo rm -f /etc/NetworkManager/dispatcher.d/99-avahi-interface
 
+    # Install dnsmasq config for captive portal DNS redirect (hotspot mode)
+    sudo mkdir -p /etc/NetworkManager/dnsmasq-shared.d
+    sudo cp "$MILO_APP_DIR/rootfs/etc/NetworkManager/dnsmasq-shared.d/milo-captive.conf" /etc/NetworkManager/dnsmasq-shared.d/
+
     log_success "Avahi configured (access via milo.local)"
 }
 
