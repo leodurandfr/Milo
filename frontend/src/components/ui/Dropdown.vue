@@ -371,11 +371,17 @@ onBeforeUnmount(() => {
 }
 
 /* Transition animations */
-.dropdown-menu-enter-active,
-.dropdown-menu-leave-active {
+.dropdown-menu-enter-active {
   transition:
     opacity var(--transition-fast),
     transform var(--transition-fast);
+  transform-origin: top;
+}
+
+.dropdown-menu-leave-active {
+  transition:
+    opacity var(--transition-fast-leave),
+    transform var(--transition-fast-leave);
   transform-origin: top;
 }
 

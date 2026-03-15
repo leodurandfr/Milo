@@ -851,7 +851,7 @@ onUnmounted(() => {
 }
 
 .keyboard-leave-active {
-  transition: transform 300ms ease, opacity 300ms ease;
+  transition: transform var(--transition-normal-leave), opacity var(--transition-normal-leave);
 }
 
 .keyboard-enter-from,

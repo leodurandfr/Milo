@@ -156,9 +156,12 @@ function getFaviconUrl(faviconUrl) {
 }
 
 /* Transition animations */
-.content-fade-enter-active,
-.content-fade-leave-active {
+.content-fade-enter-active {
   transition: opacity var(--transition-normal);
+}
+
+.content-fade-leave-active {
+  transition: opacity var(--transition-normal-leave);
 }
 
 .content-fade-enter-from,

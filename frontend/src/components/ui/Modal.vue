@@ -164,12 +164,12 @@ function resetInactivityTimer() {
 const ANIMATION_TIMINGS = {
   // Opening delays
   overlayDelay: 0,
-  containerDelay: 100,
-  closeButtonDelay: 600,
+  containerDelay: 80,
+  closeButtonDelay: 500,
 
   // Opening durations
-  overlayDuration: 400,
-  closeButtonDuration: 400,
+  overlayDuration: 350,
+  closeButtonDuration: 350,
 
   // Closing delays
   closeOverlayDelay: 0,
@@ -177,9 +177,9 @@ const ANIMATION_TIMINGS = {
   closeButtonDelayOut: 0,
 
   // Closing durations
-  closeOverlayDuration: 300,
-  closeContainerDuration: 200,
-  closeButtonDurationOut: 200
+  closeOverlayDuration: 250,
+  closeContainerDuration: 180,
+  closeButtonDurationOut: 150
 };
 
 function close() {
@@ -211,7 +211,7 @@ async function openModal() {
   // Initial container state (invisible and scaled down)
   modalContainer.value.style.transition = 'none';
   modalContainer.value.style.opacity = '0';
-  modalContainer.value.style.transform = 'scale(0.9)';
+  modalContainer.value.style.transform = 'scale(0.95)';
 
   // Initial close button state (invisible and higher position)
   closeButtonWrapper.value.style.transition = 'none';
@@ -225,7 +225,7 @@ async function openModal() {
   // Overlay enter animation (immediate)
   const overlayTimeout = setTimeout(() => {
     if (!modalOverlay.value) return;
-    modalOverlay.value.style.transition = `opacity ${ANIMATION_TIMINGS.overlayDuration}ms ease-out`;
+    modalOverlay.value.style.transition = `opacity ${ANIMATION_TIMINGS.overlayDuration}ms var(--easeOutCubic)`;
     modalOverlay.value.style.opacity = '1';
   }, ANIMATION_TIMINGS.overlayDelay);
   animationTimeouts.push(overlayTimeout);
@@ -233,7 +233,7 @@ async function openModal() {
   // Container enter animation (scale via --transition-spring, opacity via ease-out)
   const containerTimeout = setTimeout(() => {
     if (!modalContainer.value) return;
-    modalContainer.value.style.transition = 'transform var(--transition-spring-fast), opacity 400ms ease-out, height var(--transition-spring-fast)';
+    modalContainer.value.style.transition = 'transform var(--transition-spring-snappy), opacity 300ms var(--easeOutCubic), height var(--transition-spring-snappy)';
     modalContainer.value.style.opacity = '1';
     modalContainer.value.style.transform = 'scale(1)';
   }, ANIMATION_TIMINGS.containerDelay);
@@ -242,9 +242,9 @@ async function openModal() {
   // Delayed close button animation (wrapper slides, button fades independently)
   const closeButtonTimeout = setTimeout(() => {
     if (!closeButtonWrapper.value || !closeButton.value) return;
-    closeButtonWrapper.value.style.transition = 'transform var(--transition-spring-fast)';
+    closeButtonWrapper.value.style.transition = 'transform var(--transition-spring-snappy)';
     closeButtonWrapper.value.classList.add('visible');
-    closeButton.value.$el.style.transition = `opacity ${ANIMATION_TIMINGS.closeButtonDuration}ms ease-out`;
+    closeButton.value.$el.style.transition = `opacity ${ANIMATION_TIMINGS.closeButtonDuration}ms var(--easeOutCubic)`;
     closeButton.value.$el.style.opacity = '1';
   }, ANIMATION_TIMINGS.closeButtonDelay);
   animationTimeouts.push(closeButtonTimeout);
@@ -252,7 +252,7 @@ async function openModal() {
   // Wait for the end of the animation
   const totalDuration = Math.max(
     ANIMATION_TIMINGS.closeButtonDelay + ANIMATION_TIMINGS.closeButtonDuration,
-    ANIMATION_TIMINGS.containerDelay + 600,
+    ANIMATION_TIMINGS.containerDelay + 860,
     ANIMATION_TIMINGS.overlayDelay + ANIMATION_TIMINGS.overlayDuration
   );
 
@@ -277,16 +277,16 @@ async function closeModal() {
   // Exit animation with ease-out for closing
   const overlayCloseTimeout = setTimeout(() => {
     if (!modalOverlay.value) return;
-    modalOverlay.value.style.transition = `opacity ${ANIMATION_TIMINGS.closeOverlayDuration}ms ease-out`;
+    modalOverlay.value.style.transition = `opacity ${ANIMATION_TIMINGS.closeOverlayDuration}ms var(--easeOutCubic)`;
     modalOverlay.value.style.opacity = '0';
   }, ANIMATION_TIMINGS.closeOverlayDelay);
   animationTimeouts.push(overlayCloseTimeout);
 
   const containerCloseTimeout = setTimeout(() => {
     if (!modalContainer.value) return;
-    modalContainer.value.style.transition = `transform ${ANIMATION_TIMINGS.closeContainerDuration}ms ease-out, opacity ${ANIMATION_TIMINGS.closeContainerDuration}ms ease-out, height ${ANIMATION_TIMINGS.closeContainerDuration}ms ease-out`;
+    modalContainer.value.style.transition = `transform ${ANIMATION_TIMINGS.closeContainerDuration}ms var(--easeOutCubic), opacity ${ANIMATION_TIMINGS.closeContainerDuration}ms var(--easeOutCubic), height ${ANIMATION_TIMINGS.closeContainerDuration}ms var(--easeOutCubic)`;
     modalContainer.value.style.opacity = '0';
-    modalContainer.value.style.transform = 'scale(0.9)';
+    modalContainer.value.style.transform = 'scale(0.98)';
   }, ANIMATION_TIMINGS.closeContainerDelay);
   animationTimeouts.push(containerCloseTimeout);
 
