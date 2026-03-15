@@ -167,6 +167,10 @@ watch(
 
 onMounted(() => {
   syncFromStore();
+  // Fetch battery on-demand (only when this settings page is open)
+  if (settingsStore.btRemote.connected) {
+    settingsStore.fetchBtRemoteBattery();
+  }
 });
 
 onUnmounted(() => {
