@@ -17,7 +17,6 @@ Features:
 import asyncio
 import logging
 import re
-import time
 from typing import Dict, Optional, Set
 
 from backend.core.models.audio_state import AudioSource
@@ -46,10 +45,9 @@ DEFAULT_KEY_MAP = {
 DEFAULT_DEVICE_FILTER = "ANTICATER"
 MULTI_CLICK_WINDOW = 0.4   # 400ms window for multi-click grouping
 SCAN_INTERVAL = 5.0         # Seconds between evdev device scans
-DISCOVERY_INTERVAL = 30.0   # Seconds between BT discovery attempts
+RECONNECT_INTERVAL = 10.0   # Seconds between paired-device reconnect attempts
+DISCOVERY_INTERVAL = 60.0   # Seconds between full BT scan+pair cycles (new devices only)
 DISCOVERY_DURATION = 5      # Seconds to run BT scan
-IDLE_COOLDOWN_BASE = 30.0   # Seconds before allowing reconnection after idle disconnect
-IDLE_COOLDOWN_MAX = 120.0   # Maximum cooldown duration (2 minutes)
 
 _MAC_PATTERN = re.compile(r'^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$')
 
@@ -78,12 +76,8 @@ class BtRemoteController:
         self._monitor_tasks: Dict[str, asyncio.Task] = {}
         self._device_info: Dict[str, dict] = {}  # path -> {name, address}
         self._scan_task: Optional[asyncio.Task] = None
+        self._reconnect_task: Optional[asyncio.Task] = None
         self._discovery_task: Optional[asyncio.Task] = None
-
-        # Idle disconnect tracking (reconnection cooldown)
-        self._idle_disconnect_count: Dict[str, int] = {}  # MAC (upper) -> consecutive idle count
-        self._cooldown_until: Dict[str, float] = {}  # MAC (upper) -> monotonic expiry time
-        self._mac_had_key_event: Dict[str, bool] = {}  # MAC (upper) -> any key event this session
 
         # Volume accumulator (batch rapid events like rotary encoder)
         self._volume_accumulator = 0.0
@@ -117,9 +111,10 @@ class BtRemoteController:
         return True
 
     def _start_scanning(self):
-        """Start evdev scan and BT discovery loops."""
+        """Start evdev scan, paired-device reconnect, and BT discovery loops."""
         self.running = True
         self._scan_task = asyncio.create_task(self._periodic_scan())
+        self._reconnect_task = asyncio.create_task(self._periodic_reconnect())
         self._discovery_task = asyncio.create_task(self._periodic_discovery())
 
     def _stop_scanning(self):
@@ -136,10 +131,11 @@ class BtRemoteController:
         self._volume_accumulator = 0.0
         self._volume_processor_running = False
 
-        for task_ref in (self._scan_task, self._discovery_task):
+        for task_ref in (self._scan_task, self._reconnect_task, self._discovery_task):
             if task_ref and not task_ref.done():
                 task_ref.cancel()
         self._scan_task = None
+        self._reconnect_task = None
         self._discovery_task = None
 
         for task in self._monitor_tasks.values():
@@ -148,9 +144,6 @@ class BtRemoteController:
         self._monitor_tasks.clear()
         self._monitored_paths.clear()
         self._device_info.clear()
-        self._idle_disconnect_count.clear()
-        self._cooldown_until.clear()
-        self._mac_had_key_event.clear()
 
     def cleanup(self):
         """Clean up resources."""
@@ -271,34 +264,6 @@ class BtRemoteController:
                     bus.disconnect()
                 except Exception:
                     pass
-
-    # ========================================================================
-    # RECONNECTION COOLDOWN
-    # ========================================================================
-
-    def _is_in_cooldown(self, mac: str) -> bool:
-        """Check if a MAC address is in reconnection cooldown."""
-        until = self._cooldown_until.get(mac.upper())
-        if until is None:
-            return False
-        if time.monotonic() >= until:
-            self._cooldown_until.pop(mac.upper(), None)
-            return False
-        return True
-
-    def _has_any_cooldown(self) -> bool:
-        """Check if any MAC is currently in cooldown."""
-        now = time.monotonic()
-        expired = [mac for mac, until in self._cooldown_until.items() if now >= until]
-        for mac in expired:
-            self._cooldown_until.pop(mac)
-        return bool(self._cooldown_until)
-
-    def _clear_all_cooldowns(self):
-        """Clear all cooldown state (e.g. on manual discovery)."""
-        self._idle_disconnect_count.clear()
-        self._cooldown_until.clear()
-        self._mac_had_key_event.clear()
 
     # ========================================================================
     # BLUETOOTHCTL HELPERS
@@ -515,8 +480,6 @@ class BtRemoteController:
         if self._monitored_paths:
             return {"status": "already_connected", "message": "Device already connected"}
 
-        # Clear cooldowns on manual discovery
-        self._clear_all_cooldowns()
         logger.info("Manual BT discovery triggered")
         await self._auto_discover_and_pair()
 
@@ -524,16 +487,47 @@ class BtRemoteController:
             return {"status": "success", "message": "Device found and connected"}
         return {"status": "not_found", "message": "No matching device found"}
 
-    async def _periodic_discovery(self):
-        """Periodically discover and auto-pair matching BT devices."""
-        # Wait for periodic_scan to run first (2s delay + scan time)
-        await asyncio.sleep(4)
+    async def _periodic_reconnect(self):
+        """Periodically reconnect known paired devices.
+
+        Runs every RECONNECT_INTERVAL seconds. Calls 'bluetoothctl connect' for
+        each paired device matching the name filter. Failed attempts (device asleep)
+        are harmless — BlueZ returns immediately when the device is not advertising.
+        """
+        # Wait for the initial evdev scan to complete
+        await asyncio.sleep(6)
 
         while self.running:
             try:
-                # Skip discovery if devices are in idle cooldown (let them sleep)
-                if not self._monitored_paths and not self._has_any_cooldown():
-                    await self._auto_discover_and_pair()
+                if not self._monitored_paths:
+                    for address, name in await self._get_matching_devices("Paired"):
+                        if not self.running or self._monitored_paths:
+                            break
+                        logger.debug("Attempting reconnect: %s (%s)", name, address)
+                        if await self._run_bluetoothctl("connect", address, timeout=8):
+                            logger.info("Reconnected paired device: %s (%s)", name, address)
+                            await asyncio.sleep(1)
+                            await self._scan_devices()
+                            break
+            except Exception as e:
+                logger.error("Error in BT reconnect loop: %s", e)
+            await asyncio.sleep(RECONNECT_INTERVAL)
+
+    async def _periodic_discovery(self):
+        """Periodically scan for and pair new (unknown) BT devices.
+
+        Only runs a full BT scan when no device is connected AND no paired
+        devices exist. Paired device reconnection is handled by _periodic_reconnect.
+        """
+        # Wait longer than _periodic_reconnect to avoid competing on startup
+        await asyncio.sleep(10)
+
+        while self.running:
+            try:
+                if not self._monitored_paths:
+                    paired = await self._get_matching_devices("Paired")
+                    if not paired:
+                        await self._auto_discover_and_pair()
             except Exception as e:
                 logger.error("Error in BT auto-discovery: %s", e)
             await asyncio.sleep(DISCOVERY_INTERVAL)
@@ -551,22 +545,11 @@ class BtRemoteController:
             await self._broadcast_status()
 
     async def _run_discovery(self):
-        """Reconnect paired devices or discover and pair new ones."""
-        # Device already found by periodic_scan — nothing to do
-        if self._monitored_paths:
-            return
+        """Discover and pair a new matching BT device via full scan+pair sequence.
 
-        # Try reconnecting already-paired devices first (fast path after reboot)
-        for address, name in await self._get_matching_devices("Paired"):
-            logger.info("Reconnecting paired device: %s (%s)", name, address)
-            if await self._run_bluetoothctl("connect", address, timeout=10):
-                logger.info("Reconnected paired device: %s (%s)", name, address)
-                await asyncio.sleep(1)
-                await self._scan_devices()
-                return
-
-        # No paired devices — scan, then trust+pair+connect in a single
-        # bluetoothctl session to keep the BLE device in BlueZ cache.
+        Only called when no paired devices exist. Paired device reconnection
+        is handled separately by _periodic_reconnect.
+        """
         logger.debug("Starting BT discovery for '%s' devices...", self.device_name_filter)
 
         # Phase 1: BT scan (separate session is fine, populates daemon cache)
@@ -671,12 +654,6 @@ class BtRemoteController:
                 if not action:
                     continue
 
-                # User is active — reset idle tracking for this MAC (shared across sibling nodes)
-                if device_mac and not self._mac_had_key_event.get(device_mac):
-                    self._mac_had_key_event[device_mac] = True
-                    self._idle_disconnect_count.pop(device_mac, None)
-                    self._cooldown_until.pop(device_mac, None)
-
                 logger.debug("BT HID key: code=%d -> action=%s", event.code, action)
 
                 if action == "click":
@@ -707,15 +684,6 @@ class BtRemoteController:
                 # BLE HID creates multiple evdev nodes per connection.
                 # When one dies, the others are stale — cancel them all.
                 self._cancel_all_for_mac(mac)
-
-                # Track idle disconnections and apply exponential cooldown
-                # Uses shared MAC-level flag so sibling evdev nodes don't cause false cooldowns
-                if not self._mac_had_key_event.pop(mac, False):
-                    count = self._idle_disconnect_count.get(mac, 0) + 1
-                    self._idle_disconnect_count[mac] = count
-                    cooldown = min(IDLE_COOLDOWN_BASE * (2 ** (count - 1)), IDLE_COOLDOWN_MAX)
-                    self._cooldown_until[mac] = time.monotonic() + cooldown
-                    logger.info("Idle disconnect #%d for %s, cooldown %.0fs", count, mac, cooldown)
 
             if self.running:
                 await self._broadcast_status()
