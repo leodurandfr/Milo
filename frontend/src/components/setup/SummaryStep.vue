@@ -1,6 +1,14 @@
 <!-- frontend/src/components/setup/SummaryStep.vue -->
 <template>
   <div class="summary-step">
+    <!-- Mode -->
+    <div class="summary-item">
+      <span class="text-mono summary-item__label">{{ t('setup.summary.mode') }}</span>
+      <div class="summary-item__card">
+        <span class="heading-3">{{ modeLabel }}</span>
+      </div>
+    </div>
+
     <!-- WiFi -->
     <div class="summary-item">
       <span class="text-mono summary-item__label">{{ t('setup.summary.wifi') }}</span>
@@ -18,16 +26,16 @@
       </div>
     </div>
 
-    <!-- Audio card -->
-    <div class="summary-item">
+    <!-- Audio card (server only) -->
+    <div v-if="!isClient" class="summary-item">
       <span class="text-mono summary-item__label">{{ t('setup.summary.audioCard') }}</span>
       <div class="summary-item__card">
         <span class="heading-3">{{ audioLabel }}</span>
       </div>
     </div>
 
-    <!-- Screen -->
-    <div class="summary-item">
+    <!-- Screen (server only) -->
+    <div v-if="!isClient" class="summary-item">
       <span class="text-mono summary-item__label">{{ t('setup.summary.screen') }}</span>
       <div class="summary-item__card">
         <span class="heading-3">{{ screenLabel }}</span>
@@ -69,6 +77,14 @@ const flagIcons = {
 const { t } = useI18n();
 
 const props = defineProps({
+  modeLabel: {
+    type: String,
+    default: '',
+  },
+  isClient: {
+    type: Boolean,
+    default: false,
+  },
   wifiSsid: {
     type: String,
     default: null,
