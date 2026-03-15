@@ -47,13 +47,13 @@
     <!-- Delete Zone (only when editing existing zone) -->
     <Button
       v-if="groupId"
-      variant="brand"
+      :variant="deleteState === 'idle' ? 'brand' : 'important'"
       size="medium"
-      :disabled="deleting"
-      :loading="deleting"
+      :disabled="deleteState === 'deleting'"
+      :loading="deleteState === 'deleting'"
       @click="handleDelete"
     >
-      {{ t('equalizer.zones.deleteZone') }}
+      {{ deleteLabel }}
     </Button>
   </div>
 </template>
@@ -80,7 +80,7 @@ const emit = defineEmits(['back', 'saved']);
 const { t } = useI18n();
 const multiroomStore = useMultiroomStore();
 const saving = ref(false);
-const deleting = ref(false);
+const deleteState = ref('idle'); // 'idle' | 'confirming' | 'deleting'
 const zoneName = ref('');
 const originalZoneName = ref('');
 const selectedClients = ref([]);
@@ -196,17 +196,27 @@ async function handleCreate() {
   }
 }
 
+const deleteLabel = computed(() => {
+  if (deleteState.value === 'confirming') return t('equalizer.zones.confirmDeleteZone');
+  if (deleteState.value === 'deleting') return t('equalizer.zones.deletingZone');
+  return t('equalizer.zones.deleteZone');
+});
+
 async function handleDelete() {
   if (!props.groupId) return;
 
-  deleting.value = true;
+  if (deleteState.value === 'idle') {
+    deleteState.value = 'confirming';
+    return;
+  }
+
+  deleteState.value = 'deleting';
   try {
     await multiroomStore.deleteZone(props.groupId);
     emit('back');
   } catch (error) {
     console.error('Error deleting zone:', error);
-  } finally {
-    deleting.value = false;
+    deleteState.value = 'idle';
   }
 }
 </script>

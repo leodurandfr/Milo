@@ -115,7 +115,9 @@
       "minimumClients": "一个区域至少需要2个音频系统。",
       "createZone": "创建区域",
       "editZone": "编辑区域",
-      "deleteZone": "删除区域"
+      "deleteZone": "删除区域",
+      "confirmDeleteZone": "确认删除",
+      "deletingZone": "删除中..."
     },
     "equalizer": {
       "title": "10 频段"

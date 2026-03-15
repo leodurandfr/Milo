@@ -115,7 +115,9 @@
       "minimumClients": "Eine Zone erfordert mindestens 2 Audiosysteme.",
       "createZone": "Zone erstellen",
       "editZone": "Zone bearbeiten",
-      "deleteZone": "Zone löschen"
+      "deleteZone": "Zone löschen",
+      "confirmDeleteZone": "Löschen bestätigen",
+      "deletingZone": "Wird gelöscht..."
     },
     "equalizer": {
       "title": "10 Bänder"
