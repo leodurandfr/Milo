@@ -32,6 +32,7 @@ from backend.hardware.bt_remote_routes import create_bt_remote_router
 from backend.api.health import create_health_router
 from backend.api.errors import create_errors_router
 from backend.api.setup import create_setup_router
+from backend.api.wifi import create_wifi_router
 from backend.api.multiroom import create_multiroom_router
 from backend.ws import WebSocketServer
 from backend.core.models.audio_state import AudioSource
@@ -222,6 +223,9 @@ app.include_router(bt_remote_router)
 
 setup_router = create_setup_router(settings_service, hardware_service)
 app.include_router(setup_router)
+
+wifi_router = create_wifi_router(get_service("wifi_service"))
+app.include_router(wifi_router)
 
 app.add_websocket_route("/ws", websocket_server.websocket_endpoint)
 
