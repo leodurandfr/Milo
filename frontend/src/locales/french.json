@@ -14,6 +14,7 @@
     "dock": "Dock",
     "volume": "Volume",
     "screen": "Écran",
+    "wifi": "WiFi",
     "updates": "Mises à jour",
     "information": "Informations",
     "hardware": "Matériel",
@@ -286,6 +287,21 @@
     "cpu": "CPU",
     "ram": "RAM",
     "designedBy": "Application Milō conçue par"
+  },
+  "wifi": {
+    "title": "WiFi",
+    "connected": "Connecté",
+    "disconnected": "Déconnecté",
+    "noConnection": "Aucune connexion active",
+    "knownNetworks": "Réseaux connus",
+    "otherNetworks": "Autres réseaux",
+    "noNetworks": "Aucun réseau détecté",
+    "password": "Mot de passe",
+    "connect": "Connecter",
+    "connecting": "Connexion...",
+    "connectFailed": "Échec de la connexion",
+    "forget": "Oublier",
+    "refresh": "Actualiser"
   },
   "applications": {
     "features": "Fonctionnalités"
