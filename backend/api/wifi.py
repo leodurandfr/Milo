@@ -1,0 +1,53 @@
+"""
+WiFi management API routes.
+"""
+import logging
+from fastapi import APIRouter, Query
+
+from backend.api.route_helpers import api_error_handler
+from backend.core.wifi.models import WifiConnectRequest
+
+logger = logging.getLogger(__name__)
+
+
+def create_wifi_router(wifi_service):
+    router = APIRouter(prefix="/api/wifi", tags=["wifi"])
+
+    @router.get("/networks")
+    async def scan_networks():
+        """Scan for available WiFi networks."""
+        async with api_error_handler("WiFi scan", logger):
+            networks = await wifi_service.scan_networks()
+            return {"status": "success", "data": [n.model_dump() for n in networks]}
+
+    @router.get("/status")
+    async def get_wifi_status():
+        """Get current WiFi connection status."""
+        async with api_error_handler("WiFi status", logger):
+            status = await wifi_service.get_status()
+            return {"status": "success", "data": status.model_dump()}
+
+    @router.post("/connect")
+    async def connect_to_network(request: WifiConnectRequest):
+        """Connect to a WiFi network."""
+        async with api_error_handler("WiFi connect", logger):
+            status = await wifi_service.connect(request.ssid, request.password)
+            return {"status": "success", "data": status.model_dump()}
+
+    @router.delete("/saved")
+    async def forget_network(
+        ssid: str = Query(..., min_length=1, description="SSID of the network to forget"),
+    ):
+        """Forget a saved WiFi network."""
+        async with api_error_handler("WiFi forget", logger):
+            await wifi_service.forget_network(ssid)
+            return {"status": "success"}
+
+    @router.get("/saved")
+    async def get_saved_networks():
+        """List saved WiFi networks."""
+        async with api_error_handler("WiFi saved networks", logger):
+            networks = await wifi_service.get_saved_networks()
+            return {"status": "success", "data": [n.model_dump() for n in networks]}
+
+    return router

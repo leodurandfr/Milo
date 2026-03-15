@@ -142,6 +142,11 @@ def _create_service(name: str) -> Any:
         ),
         "equalizer_router": lambda: _create_equalizer_router(),
 
+        # WiFi service
+        "wifi_service": lambda: _import("backend.core.wifi", "WifiService")(
+            state_machine=get_service("audio_state_machine")
+        ),
+
         # Update services
         "update_service": lambda: _import("backend.core.updates", "UpdateService")(),
         "satellite_update_service": lambda: _import("backend.core.updates", "SatelliteUpdateService")(
