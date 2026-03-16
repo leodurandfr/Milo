@@ -1,6 +1,6 @@
 <!-- WiFi signal strength icon with 4 arcs colored by signal level -->
 <template>
-  <svg class="wifi-signal" width="20" height="20" viewBox="0 0 24 24" fill="none">
+  <svg class="wifi-signal" :width="size" :height="size" viewBox="0 0 24 24" fill="none">
     <path :fill="signal != null ? 'var(--color-text)' : 'var(--color-text-light)'"
       d="M12 20.25A1.125 1.125 0 1 0 12 18a1.125 1.125 0 0 0 0 2.25" />
     <path :fill="signal >= 25 ? 'var(--color-text)' : 'var(--color-text-light)'"
@@ -17,6 +17,10 @@ defineProps({
   signal: {
     type: Number,
     default: null
+  },
+  size: {
+    type: [String, Number],
+    default: 20
   }
 });
 </script>

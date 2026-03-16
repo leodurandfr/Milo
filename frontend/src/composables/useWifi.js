@@ -4,19 +4,47 @@ import axios from 'axios';
 import { logger } from '@/services/logger';
 
 /**
+ * Module-level singleton state (persists across component instances).
+ * Same pattern as Pinia stores: data survives mount/unmount cycles.
+ */
+const _status = ref({
+  wifi_enabled: true,
+  ethernet: { connected: false, ip_address: null },
+  wifi: { connected: false, ssid: null, ip_address: null, signal: null, saved_ssid: null },
+});
+const _networks = ref([]);
+const _savedSsids = ref(new Set());
+const _scanning = ref(false);
+let _statusLoaded = false;
+
+/**
+ * Pre-load wifi status for instant rendering when NetworkSettings opens.
+ * Call from SettingsModal.onMounted() (non-blocking, like radioStore).
+ */
+export async function preloadWifiStatus() {
+  if (_statusLoaded) return;
+  try {
+    const res = await axios.get('/api/wifi/status');
+    _status.value = res.data.data;
+    _statusLoaded = true;
+  } catch (error) {
+    logger.error('wifi', 'Failed to preload network status', error);
+  }
+}
+
+/**
  * Composable for WiFi state and API interactions.
- * Each component instance gets its own state (not a singleton).
+ * Shared state is module-level (singleton); UI state is per-instance.
  */
 export function useWifi() {
-  const status = ref({
-    wifi_enabled: true,
-    ethernet: { connected: false, ip_address: null },
-    wifi: { connected: false, ssid: null, ip_address: null, signal: null, saved_ssid: null },
-  });
-  const networks = ref([]);
-  const savedSsids = ref(new Set());
-  const loading = ref(true);
-  const scanning = ref(false);
+  // Shared state (module-level singleton)
+  const status = _status;
+  const networks = _networks;
+  const savedSsids = _savedSsids;
+  const scanning = _scanning;
+
+  // Per-instance UI state
+  const loading = ref(!_statusLoaded);
   const connecting = ref(false);
   const connectError = ref('');
   const selectedSsid = ref(null);
@@ -57,6 +85,7 @@ export function useWifi() {
     try {
       const res = await axios.get('/api/wifi/status');
       status.value = res.data.data;
+      _statusLoaded = true;
     } catch (error) {
       logger.error('wifi', 'Failed to load network status', error);
     }
@@ -152,7 +181,12 @@ export function useWifi() {
 
   async function initialize() {
     try {
-      await Promise.all([loadStatus(), loadSavedNetworks(), scanNetworks()]);
+      if (_statusLoaded) {
+        // Status already pre-loaded — only scan networks + saved
+        await Promise.all([loadSavedNetworks(), scanNetworks()]);
+      } else {
+        await Promise.all([loadStatus(), loadSavedNetworks(), scanNetworks()]);
+      }
     } finally {
       loading.value = false;
     }

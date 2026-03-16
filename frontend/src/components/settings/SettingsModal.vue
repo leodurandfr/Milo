@@ -77,7 +77,7 @@
 
           <ListItemButton :title="t('settings.network')" action="caret" @click="push('network')">
             <template #icon>
-              <img :src="wifiIcon" alt="Network" />
+              <img :src="networkIcon" alt="Network" />
             </template>
           </ListItemButton>
 
@@ -238,7 +238,7 @@ import radioIcon from '@/assets/settings-icons/radio.svg';
 import podcastIcon from '@/assets/settings-icons/podcast.svg';
 import macosIcon from '@/assets/settings-icons/macos.svg';
 import hardwareIcon from '@/assets/settings-icons/hardware.svg';
-import wifiIcon from '@/assets/settings-icons/wifi.svg';
+import networkIcon from '@/assets/settings-icons/network.svg';
 import rebootIcon from '@/assets/settings-icons/reboot.svg';
 import shutdownIcon from '@/assets/settings-icons/shutdown.svg';
 import DockSettings from '@/components/settings/categories/DockSettings.vue';
@@ -257,6 +257,7 @@ import HardwareSettings from '@/components/settings/categories/HardwareSettings.
 import UpdateManager from '@/components/settings/categories/UpdateManager.vue';
 import InfoSettings from '@/components/settings/categories/InfoSettings.vue';
 import NetworkSettings from '@/components/settings/categories/NetworkSettings.vue';
+import { preloadWifiStatus } from '@/composables/useWifi';
 const props = defineProps({
   initialView: {
     type: String,
@@ -548,6 +549,9 @@ onMounted(async () => {
   if (settingsStore.dockApps.radio) {
     radioStore.loadRadioSettingsData();
   }
+
+  // Preload wifi status for instant NetworkSettings rendering (non-blocking)
+  preloadWifiStatus();
 });
 
 </script>
