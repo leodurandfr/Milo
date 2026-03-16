@@ -63,6 +63,8 @@ import keyboardEnterIcon from '@/assets/icons/keyboard/enter.svg?raw'
 import keyboardHideIcon from '@/assets/icons/keyboard/hide-keyboard.svg?raw'
 import keyboardShiftIcon from '@/assets/icons/keyboard/shift.svg?raw'
 import keyboardDeleteIcon from '@/assets/icons/keyboard/delete.svg?raw'
+import networkIcon from '@/assets/icons/network.svg?raw'
+import wifiIcon from '@/assets/icons/wifi.svg?raw'
 
 const icons = {
   play: playIcon,
@@ -105,7 +107,9 @@ const icons = {
   keyboardEnter: keyboardEnterIcon,
   keyboardHide: keyboardHideIcon,
   keyboardShift: keyboardShiftIcon,
-  keyboardDelete: keyboardDeleteIcon
+  keyboardDelete: keyboardDeleteIcon,
+  network: networkIcon,
+  wifi: wifiIcon
 }
 
 const props = defineProps({

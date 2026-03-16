@@ -1,227 +1,404 @@
 <!-- frontend/src/components/settings/categories/NetworkSettings.vue -->
 <template>
   <SettingsContainer>
-    <!-- Current status -->
-    <SettingsSection>
-      <div class="network-status">
-        <div class="network-status__info">
-          <span class="heading-3">{{ statusHeading }}</span>
-          <span class="text-mono network-status__detail">
-            <template v-if="status.connected && status.connection_type === 'wifi'">
-              <SignalDots :signal="status.signal" />
-              <span class="network-status__ip">{{ status.ip_address }}</span>
-            </template>
-            <template v-else-if="status.connected && status.connection_type === 'ethernet'">
-              <span class="network-status__ip">{{ status.ip_address }}</span>
-            </template>
-            <template v-else-if="!status.saved_ssid">
-              {{ t('network.noConnection') }}
-            </template>
-          </span>
+    <!-- Connection status card (MultiroomItem zone pattern) -->
+    <div class="connection-section" :class="{ 'is-expanded': showWifiCard, 'no-transition': skipTransition }">
+      <!-- Ethernet row (always visible, like zone header) -->
+      <div class="connection-card">
+        <div class="connection-card__name">
+          <SvgIcon name="network" :size="20" />
+          <span class="heading-3">{{ t('network.ethernet') }}</span>
         </div>
-        <span class="network-status__badge text-mono-small" :class="statusBadgeClass">
-          {{ statusBadgeLabel }}
+        <span class="connection-badge text-mono-small"
+          :class="status.ethernet.connected ? 'connection-badge--connected' : 'connection-badge--disconnected'">
+          {{ status.ethernet.connected ? t('network.connected') : t('network.notConnected') }}
         </span>
       </div>
-    </SettingsSection>
 
-    <!-- Saved networks -->
-    <SettingsSection v-if="knownNetworks.length > 0 || loading">
-      <template #header>
-        <SectionHeader :title="t('network.savedNetworks')" />
-      </template>
-
-      <!-- Skeletons -->
-      <template v-if="loading && knownNetworks.length === 0">
-        <div v-for="i in (savedSsids.size || 1)" :key="'sk-known-' + i" class="network-skeleton">
-          <div class="skeleton-text-line shimmer" style="width: 120px"></div>
-          <div class="skeleton-text-line shimmer" style="width: 40px"></div>
+      <!-- WiFi row (expandable, like expanded-clients) -->
+      <div ref="wifiWrapperRef" class="expanded-wrapper" :class="{ 'no-transition': skipTransition }" :style="{ height: wifiRowHeight }">
+        <div ref="wifiRowRef" class="expanded-content" :class="{ 'is-visible': showWifiCard }">
+          <div class="connection-card">
+            <div class="connection-card__name">
+              <WifiSignal :signal="wifiCardSignal" />
+              <span class="heading-3">{{ wifiDisplaySsid }}</span>
+            </div>
+            <span class="connection-badge text-mono-small" :class="wifiBadgeClass">
+              {{ wifiBadgeLabel }}
+            </span>
+          </div>
         </div>
-      </template>
+      </div>
+    </div>
 
-      <!-- Network list -->
-      <div v-for="network in knownNetworks" :key="'known-' + network.ssid" class="network-item"
-        :class="{ 'network-item--active': network.in_use }" @click="selectNetwork(network)">
-        <div class="network-item__row">
-          <span class="heading-3 network-item__ssid">{{ network.ssid }}</span>
-          <div class="network-item__meta">
-            <SignalDots :signal="network.signal" />
-            <button v-if="!network.in_use" v-press type="button" class="network-item__forget text-mono-small"
-              @click.stop="forgetNetwork(network.ssid)">
-              {{ t('network.forget') }}
-            </button>
-            <span v-if="network.in_use" class="network-item__connected text-mono-small">{{ t('network.connected') }}</span>
+    <!-- WiFi section with toggle -->
+    <ToggleSection
+      :title="t('network.wifi')"
+      :enabled="status.wifi_enabled"
+      @change="handleWifiToggle"
+    >
+      <div ref="wifiContentRef" class="wifi-content">
+        <span class="text-mono wifi-content__description">{{ t('network.wifiDescription') }}</span>
+
+        <!-- Preferred network -->
+        <div v-if="preferredNetwork" class="wifi-group">
+          <span class="heading-3">{{ t('network.preferredNetwork') }}</span>
+          <div class="network-item network-item--preferred">
+            <div class="network-item__row">
+              <div class="network-item__ssid-row">
+                <WifiSignal :signal="preferredNetwork.signal" />
+                <span class="heading-3 network-item__ssid">{{ preferredNetwork.ssid }}</span>
+              </div>
+              <Button variant="important" size="small" @click="forgetNetwork(preferredNetwork.ssid)">
+                {{ t('network.forget') }}
+              </Button>
+            </div>
           </div>
         </div>
 
-        <!-- Expand: password + connect (only for non-connected known networks) -->
-        <div v-if="selectedSsid === network.ssid && !network.in_use" class="network-item__expand" @click.stop>
-          <InputText v-if="network.security" v-model="password" type="password"
-            :placeholder="t('network.password')" @submit="connectToNetwork(network, t)" />
-          <Button variant="brand" :loading="connecting" :disabled="connecting || (network.security && !password)"
-            @click="connectToNetwork(network, t)">
-            {{ connecting ? t('network.connecting') : t('network.connect') }}
-          </Button>
-          <span v-if="connectError" class="network-error text-mono-small">{{ connectError }}</span>
-        </div>
-      </div>
-    </SettingsSection>
-
-    <!-- Other networks -->
-    <SettingsSection>
-      <template #header>
-        <SectionHeader :title="t('network.otherNetworks')">
-          <template #actions>
+        <!-- Other networks -->
+        <div class="wifi-group">
+          <div class="network-subheader">
+            <span class="heading-3 network-subheader__title">{{ t('network.otherNetworks') }}</span>
             <Button variant="background-strong" size="small" left-icon="arrowsClockwise"
               :loading="scanning" :disabled="scanning"
               @click="scanNetworks">
               {{ t('network.refresh') }}
             </Button>
-          </template>
-        </SectionHeader>
-      </template>
-
-      <!-- Skeletons -->
-      <template v-if="loading && otherNetworks.length === 0">
-        <div v-for="i in 4" :key="'sk-other-' + i" class="network-skeleton">
-          <div class="skeleton-text-line shimmer" :style="{ width: (80 + i * 20) + 'px' }"></div>
-          <div class="skeleton-text-line shimmer" style="width: 40px"></div>
-        </div>
-      </template>
-
-      <!-- Empty state -->
-      <div v-if="!loading && otherNetworks.length === 0" class="network-empty text-mono">
-        {{ t('network.noNetworks') }}
-      </div>
-
-      <!-- Network list -->
-      <div v-for="network in otherNetworks" :key="'other-' + network.ssid" class="network-item"
-        @click="selectNetwork(network)">
-        <div class="network-item__row">
-          <div class="network-item__ssid-row">
-            <span class="heading-3 network-item__ssid">{{ network.ssid }}</span>
-            <span v-if="network.security" class="network-item__lock text-mono-small">{{ network.security }}</span>
           </div>
-          <SignalDots :signal="network.signal" />
-        </div>
 
-        <!-- Expand: password + connect -->
-        <div v-if="selectedSsid === network.ssid" class="network-item__expand" @click.stop>
-          <InputText v-if="network.security" v-model="password" type="password"
-            :placeholder="t('network.password')" @submit="connectToNetwork(network, t)" />
-          <Button variant="brand" :loading="connecting" :disabled="connecting || (network.security && !password)"
-            @click="connectToNetwork(network, t)">
-            {{ connecting ? t('network.connecting') : t('network.connect') }}
-          </Button>
-          <span v-if="connectError" class="network-error text-mono-small">{{ connectError }}</span>
+          <div class="network-list">
+            <!-- Skeletons -->
+            <template v-if="(loading || scanning) && otherNetworks.length === 0">
+              <div v-for="i in 3" :key="'sk-' + i" class="network-skeleton">
+                <div class="skeleton-text-line shimmer" :style="{ width: (80 + i * 20) + 'px' }"></div>
+                <div class="skeleton-text-line shimmer" style="width: 40px"></div>
+              </div>
+            </template>
+
+            <!-- Empty state -->
+            <div v-if="!loading && !scanning && otherNetworks.length === 0" class="network-empty text-mono">
+              {{ t('network.noNetworks') }}
+            </div>
+
+            <!-- Network items -->
+            <div v-for="network in otherNetworks" :key="'other-' + network.ssid" class="network-item"
+              @click="selectNetwork(network)">
+              <div class="network-item__row">
+                <div class="network-item__ssid-row">
+                  <WifiSignal :signal="network.signal" />
+                  <span class="heading-3 network-item__ssid">{{ network.ssid }}</span>
+                </div>
+                <SvgIcon name="caretDown" :size="24" color="var(--color-text-light)"
+                  class="network-item__caret" :class="{ 'network-item__caret--open': selectedSsid === network.ssid }" />
+              </div>
+
+              <!-- Expand: password + connect -->
+              <div v-if="selectedSsid === network.ssid" class="network-item__expand" @click.stop>
+                <InputText v-if="network.security" v-model="password" type="password"
+                  :placeholder="t('network.password')" @submit="connectToNetwork(network, t)" />
+                <Button variant="brand" :loading="connecting" :disabled="connecting || (network.security && !password)"
+                  @click="connectToNetwork(network, t)">
+                  {{ connecting ? t('network.connecting') : t('network.connect') }}
+                </Button>
+                <span v-if="connectError" class="network-error text-mono-small">{{ connectError }}</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-    </SettingsSection>
+    </ToggleSection>
   </SettingsContainer>
 </template>
 
 <script setup>
-import { computed, onMounted } from 'vue';
+import { ref, computed, watch, nextTick, onMounted, onUnmounted, inject } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useWifi } from '@/composables/useWifi';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
-import SectionHeader from '@/components/settings/SectionHeader.vue';
+import ToggleSection from '@/components/ui/ToggleSection.vue';
 import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
-import SignalDots from '@/components/settings/categories/wifi/SignalDots.vue';
+import SvgIcon from '@/components/ui/SvgIcon.vue';
+import WifiSignal from '@/components/settings/categories/wifi/WifiSignal.vue';
 
 const { t } = useI18n();
+const requestHeightDelta = inject('modalRequestHeightDelta', null);
+const modalContentInnerRef = inject('modalContentInnerRef', null);
 
 const {
   status,
-  savedSsids,
   loading,
   scanning,
   connecting,
   connectError,
   selectedSsid,
   password,
-  knownNetworks,
+  preferredNetwork,
   otherNetworks,
   selectNetwork,
   scanNetworks,
   connectToNetwork,
   forgetNetwork,
+  toggleWifi,
   initialize,
 } = useWifi();
 
-const statusHeading = computed(() => {
-  if (status.value.connected) {
-    return status.value.connection_type === 'ethernet'
-      ? t('network.ethernet')
-      : status.value.ssid;
-  }
-  return status.value.saved_ssid || t('network.disconnected');
+const wifiDisplaySsid = computed(() =>
+  status.value.wifi.ssid || status.value.wifi.saved_ssid
+);
+
+const wifiCardSignal = computed(() => {
+  if (status.value.wifi.connected) return status.value.wifi.signal;
+  return preferredNetwork.value?.signal ?? null;
 });
 
-const statusBadgeClass = computed(() => {
-  if (status.value.connected) return 'network-status__badge--connected';
-  if (status.value.saved_ssid) return 'network-status__badge--saved';
-  return 'network-status__badge--disconnected';
+const showWifiCard = computed(() =>
+  status.value.wifi_enabled && !!wifiDisplaySsid.value
+);
+
+const wifiBadgeClass = computed(() => {
+  if (status.value.ethernet.connected) return 'connection-badge--ready';
+  if (status.value.wifi.connected) return 'connection-badge--connected';
+  return 'connection-badge--disconnected';
 });
 
-const statusBadgeLabel = computed(() => {
-  if (status.value.connected) return t('network.connected');
-  if (status.value.saved_ssid) return t('network.saved');
+const wifiBadgeLabel = computed(() => {
+  if (status.value.ethernet.connected) return t('network.ready');
+  if (status.value.wifi.connected) return t('network.connected');
   return t('network.disconnected');
 });
 
+// === WiFi row expand/collapse (MultiroomItem pattern) ===
+const wifiWrapperRef = ref(null);
+const wifiRowRef = ref(null);
+const wifiContentRef = ref(null);
+const wifiRowHeight = ref('0px');
+const skipTransition = ref(true);
+let skipNextWatcher = false;
+
+function measureWifiRow() {
+  if (!wifiRowRef.value) return 0;
+  const el = wifiRowRef.value;
+  const marginTop = parseFloat(getComputedStyle(el).marginTop) || 0;
+  return el.offsetHeight + marginTop;
+}
+
+function getPaddingOffset() {
+  return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--space-05')) || 0;
+}
+
+// Announce wifi card + toggle content height deltas to Modal
+// (additive to ToggleSection's own requestHeightDelta call)
+function handleWifiToggle(enabled) {
+  const wasVisible = showWifiCard.value;
+  const prevHeight = wasVisible ? (parseFloat(wifiRowHeight.value) || 0) : 0;
+
+  // Measure toggle slot content BEFORE optimistic update changes it
+  // (offsetHeight works inside collapsed CSS grid: parent is 0px but children keep natural size)
+  const oldToggleContentH = wifiContentRef.value?.offsetHeight || 0;
+
+  toggleWifi(enabled);
+
+  if (enabled && showWifiCard.value) {
+    skipNextWatcher = true;
+    announceWifiCardShow(oldToggleContentH);
+  } else if (!enabled && wasVisible && prevHeight > 0) {
+    skipNextWatcher = true;
+    const paddingOffset = getPaddingOffset();
+    wifiRowHeight.value = '0px';
+    if (requestHeightDelta) requestHeightDelta(-(prevHeight - paddingOffset));
+  }
+}
+
+async function announceWifiCardShow(oldToggleContentH) {
+  await nextTick();
+
+  // Measure toggle slot content AFTER DOM update (preferred network + skeletons appeared)
+  const newToggleContentH = wifiContentRef.value?.offsetHeight || 0;
+  const contentDelta = newToggleContentH - oldToggleContentH;
+
+  // Wifi connection card delta (wrapper grows by fullHeight, parent loses paddingOffset)
+  const fullHeight = measureWifiRow();
+  const paddingOffset = getPaddingOffset();
+
+  // Total correction: (wrapper height - padding offset) + content change inside ToggleSection
+  const totalDelta = (fullHeight - paddingOffset) + contentDelta;
+  if (requestHeightDelta && totalDelta > 2) {
+    requestHeightDelta(totalDelta);
+  }
+
+  if (fullHeight > 0) {
+    wifiRowHeight.value = `${fullHeight}px`;
+  }
+}
+
+watch(showWifiCard, async (visible) => {
+  console.log(`[NetworkSettings] watch showWifiCard → ${visible} | skipNext=${skipNextWatcher} | skipTransition=${skipTransition.value} ${ts()}`);
+  if (skipNextWatcher) {
+    skipNextWatcher = false;
+    return;
+  }
+
+  // Measure contentInner BEFORE DOM update (watcher fires pre-render)
+  const beforeH = modalContentInnerRef?.value?.offsetHeight ?? 0;
+
+  if (visible) {
+    await nextTick();
+    const h = measureWifiRow();
+    console.log(`[NetworkSettings] watcher setting wifiRowHeight=${h}px ${ts()}`);
+    wifiRowHeight.value = `${h}px`;
+  } else {
+    wifiRowHeight.value = '0px';
+  }
+
+  // Measure contentInner AFTER DOM update and announce delta to Modal.
+  // This updates the viewTransition's locked target so the modal springs
+  // to the correct height in a single step (no 2-step jump).
+  await nextTick();
+  const afterH = modalContentInnerRef?.value?.offsetHeight ?? 0;
+  const delta = afterH - beforeH;
+  console.log(`[NetworkSettings] contentInner delta: ${beforeH} → ${afterH} (Δ${delta}) ${ts()}`);
+  if (requestHeightDelta && Math.abs(delta) > 2) {
+    requestHeightDelta(delta);
+  }
+});
+
+// Enable transitions only after all API data is loaded
+watch(loading, (isLoading) => {
+  if (!isLoading && skipTransition.value) {
+    console.log(`[NetworkSettings] loading done → enabling transitions ${ts()}`);
+    rafId = requestAnimationFrame(() => {
+      rafId = requestAnimationFrame(() => {
+        console.log(`[NetworkSettings] skipTransition → false ${ts()}`);
+        skipTransition.value = false;
+      });
+    });
+  }
+});
+
+let rafId = null;
+const t0 = performance.now();
+const ts = () => `+${(performance.now() - t0).toFixed(1)}ms`;
+
 onMounted(() => {
+  console.log(`[NetworkSettings] onMounted ${ts()}`);
+  // Fire and forget — don't block viewTransition's height measurement.
+  // The showWifiCard watcher handles height deltas as data arrives.
+  // The loading watcher enables transitions after all data is loaded.
   initialize();
+});
+
+onUnmounted(() => {
+  if (rafId) cancelAnimationFrame(rafId);
 });
 </script>
 
 <style scoped>
-/* Status card */
-.network-status {
+/* Connection status card (MultiroomItem zone pattern) */
+.connection-section {
+  background: var(--color-background-neutral);
+  border-radius: var(--radius-06);
+  padding: var(--space-05);
+  display: flex;
+  flex-direction: column;
+  transition: padding-bottom var(--transition-fast);
+}
+
+.connection-section.no-transition {
+  transition: none;
+}
+
+.connection-section.is-expanded {
+  padding-bottom: 0;
+}
+
+/* Connection rows */
+.connection-card {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: var(--space-03);
 }
 
-.network-status__info {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-01);
-}
-
-.network-status__detail {
-  color: var(--color-text-secondary);
+.connection-card__name {
   display: flex;
   align-items: center;
   gap: var(--space-03);
+  min-width: 0;
 }
 
-.network-status__ip {
-  color: var(--color-text-secondary);
-}
-
-.network-status__badge {
+.connection-badge {
   flex-shrink: 0;
   padding: var(--space-01) var(--space-02);
   border-radius: var(--radius-02);
 }
 
-.network-status__badge--connected {
+.connection-badge--connected {
   background: color-mix(in srgb, var(--color-success) 16%, transparent);
   color: var(--color-success);
 }
 
-.network-status__badge--saved {
+.connection-badge--ready {
   background: color-mix(in srgb, var(--color-brand) 16%, transparent);
   color: var(--color-brand);
 }
 
-.network-status__badge--disconnected {
+.connection-badge--disconnected {
   background: color-mix(in srgb, var(--color-error) 16%, transparent);
   color: var(--color-error);
+}
+
+/* Height wrapper for single-step animation */
+.expanded-wrapper {
+  height: 0;
+  overflow: hidden;
+  transition: height var(--transition-normal);
+}
+
+.expanded-wrapper.no-transition {
+  transition: none;
+}
+
+/* Suppress content opacity/visibility transition during initial mount */
+.expanded-wrapper.no-transition .expanded-content {
+  transition: none;
+}
+
+/* Content: border-top + opacity/visibility (like .expanded-clients in MultiroomItem) */
+.expanded-content {
+  margin-top: var(--space-04);
+  padding-top: var(--space-04);
+  padding-bottom: var(--space-05);
+  border-top: 1px solid var(--color-border);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 250ms ease, visibility 0ms linear 250ms;
+}
+
+.expanded-content.is-visible {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 300ms ease, visibility 0ms linear 0ms;
+}
+
+/* WiFi content inside ToggleSection */
+.wifi-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-05-fixed);
+}
+
+.wifi-content__description {
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+}
+
+/* Grouped sections (preferred + other networks) */
+.wifi-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-03);
 }
 
 /* Network items */
@@ -231,12 +408,12 @@ onMounted(() => {
   gap: var(--space-03);
   padding: var(--space-03) var(--space-04);
   border-radius: var(--radius-04);
-  background: var(--color-background-strong);
+  background: var(--color-background);
   cursor: pointer;
   transition: background-color var(--transition-fast), var(--transition-press);
 }
 
-.network-item--active {
+.network-item--preferred {
   cursor: default;
 }
 
@@ -250,7 +427,7 @@ onMounted(() => {
 .network-item__ssid-row {
   display: flex;
   align-items: center;
-  gap: var(--space-02);
+  gap: var(--space-03);
   min-width: 0;
 }
 
@@ -260,38 +437,32 @@ onMounted(() => {
   white-space: nowrap;
 }
 
-.network-item__lock {
-  color: var(--color-text-secondary);
+.network-item__caret {
   flex-shrink: 0;
+  transform: rotate(-90deg);
+  transition: transform var(--transition-fast);
 }
 
-.network-item__meta {
+.network-item__caret--open {
+  transform: rotate(-180deg);
+}
+
+/* Other networks sub-header */
+.network-subheader {
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: var(--space-03);
-  flex-shrink: 0;
 }
 
-.network-item__forget {
-  color: var(--color-error);
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: var(--space-01) var(--space-02);
-  border-radius: var(--radius-02);
-  transition: background-color var(--transition-fast), var(--transition-press);
+.network-subheader__title {
+  color: var(--color-text-secondary);
 }
 
-.network-item__forget:hover {
-  background: color-mix(in srgb, var(--color-error) 8%, transparent);
-}
-
-.network-item__connected {
-  color: var(--color-success);
-}
-
-.network-item__saved {
-  color: var(--color-brand);
+/* Network list */
+.network-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
 }
 
 /* Expanded connect form */
@@ -320,11 +491,18 @@ onMounted(() => {
   align-items: center;
   padding: var(--space-03) var(--space-04);
   border-radius: var(--radius-04);
-  background: var(--color-background-strong);
+  background: var(--color-background);
 }
 
 .network-skeleton .skeleton-text-line {
-  --shimmer-base: var(--color-background-strong);
+  --shimmer-base: var(--color-background);
   --shimmer-highlight: var(--color-background-medium-16);
+}
+
+/* Mobile adjustments */
+@media (max-aspect-ratio: 4/3) {
+  .connection-section {
+    border-radius: var(--radius-05);
+  }
 }
 </style>

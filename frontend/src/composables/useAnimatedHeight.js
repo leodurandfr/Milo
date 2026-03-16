@@ -44,7 +44,10 @@ export function useAnimatedHeight(contentRef, options = {}) {
       if (!entries[0]) return;
 
       // Skip updates while height is locked (child animation in progress)
-      if (isHeightLocked) return;
+      if (isHeightLocked) {
+        console.log(`[AnimatedHeight] ResizeObserver LOCKED — skipping (contentH=${entries[0].contentRect.height})`);
+        return;
+      }
 
       // Get content height
       let newHeight = entries[0].contentRect.height;
@@ -61,6 +64,7 @@ export function useAnimatedHeight(contentRef, options = {}) {
 
       // First resize: initialize without transition
       if (isFirstResize) {
+        console.log(`[AnimatedHeight] ResizeObserver FIRST → ${newHeight}px`);
         applyHeight(newHeight);
         isFirstResize = false;
         return;
@@ -69,6 +73,7 @@ export function useAnimatedHeight(contentRef, options = {}) {
       // Threshold to avoid micro-adjustments (jitter)
       const currentHeight = parseFloat(containerHeight.value) || 0;
       if (Math.abs(newHeight - currentHeight) > threshold) {
+        console.log(`[AnimatedHeight] ResizeObserver ${currentHeight} → ${newHeight}px (delta=${(newHeight - currentHeight).toFixed(1)})`);
         applyHeight(newHeight);
       }
     });
@@ -104,6 +109,8 @@ export function useAnimatedHeight(contentRef, options = {}) {
     // Calculate target height
     const currentHeight = parseFloat(containerHeight.value) || 0;
     let targetHeight = currentHeight + delta;
+
+    console.log(`[AnimatedHeight] requestHeightDelta(${delta.toFixed(1)}) current=${currentHeight} → target=${targetHeight.toFixed(1)} locked=${isHeightLocked}`);
 
     // Get max height constraint
     let maxAvailable = Infinity;
@@ -156,7 +163,10 @@ export function useAnimatedHeight(contentRef, options = {}) {
           // Only update if difference exceeds threshold — avoids
           // restarting the spring transition for sub-pixel discrepancies
           if (Math.abs(actualHeight - currentHeight) > threshold) {
+            console.log(`[AnimatedHeight] unlock correction ${currentHeight} → ${actualHeight}px (delta=${(actualHeight - currentHeight).toFixed(1)})`);
             applyHeight(actualHeight);
+          } else {
+            console.log(`[AnimatedHeight] unlock — no correction needed (current=${currentHeight} actual=${actualHeight})`);
           }
         }
       }, duration);

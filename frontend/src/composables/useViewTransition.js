@@ -253,6 +253,8 @@ export function useViewTransition({
         let delta = enteringHeight - savedLeavingHeight;
         let usedOverflowPath = false;
 
+        console.log(`[ViewTransition] onEnter rAF — leaving=${savedLeavingHeight} entering=${enteringHeight} savedInner=${savedInnerHeight} rawDelta=${delta}`);
+
         // When both old and new views overflow the modal, cap heights to the visible
         // slot area so the modal stays at max height (avoids double-spring).
         // Use savedInnerHeight (captured before DOM change) instead of scrollEl.scrollHeight
@@ -275,7 +277,10 @@ export function useViewTransition({
           const effectiveEntering = Math.min(enteringHeight, maxSlotVisible);
 
           delta = effectiveEntering - effectiveLeaving;
+          console.log(`[ViewTransition] overflow path — clientH=${scrollEl.clientHeight} scrollPad=${scrollPadding} effectiveLeaving=${effectiveLeaving} effectiveEntering=${effectiveEntering} finalDelta=${delta}`);
         }
+
+        console.log(`[ViewTransition] onEnter — finalDelta=${delta} overflow=${usedOverflowPath} → ${Math.abs(delta) > 2 ? 'calling requestHeightDelta' : 'skipped (< 2px)'}`);
 
         if (Math.abs(delta) > 2) {
           requestHeightDelta(delta, 800, { skipOverflowCheck: true });

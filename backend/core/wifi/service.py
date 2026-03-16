@@ -8,7 +8,10 @@ import asyncio
 import logging
 from typing import List, Optional, Tuple
 
-from backend.core.wifi.models import WifiNetwork, WifiStatus, SavedNetwork
+from backend.core.wifi.models import (
+    WifiNetwork, WifiConnectionStatus, EthernetStatus,
+    NetworkStatus, SavedNetwork,
+)
 
 
 class WifiService:
@@ -82,93 +85,36 @@ class WifiService:
 
         return sorted(networks.values(), key=lambda n: n.signal, reverse=True)
 
-    async def get_status(self) -> WifiStatus:
-        """Get current network connection status (ethernet takes priority over WiFi)."""
-        # Check ethernet first (it has priority over WiFi)
-        eth_status = await self._get_ethernet_status()
-        if eth_status:
-            return eth_status
+    async def get_network_status(self) -> NetworkStatus:
+        """Get combined network status (both ethernet and WiFi)."""
+        wifi_enabled = await self.get_wifi_enabled()
+        ethernet = await self._get_ethernet_info()
 
-        # Check WiFi
-        return await self._get_wifi_status()
+        if wifi_enabled:
+            wifi = await self._get_wifi_info()
+        else:
+            wifi = WifiConnectionStatus(connected=False)
 
-    async def _get_ethernet_status(self) -> WifiStatus | None:
-        """Return WifiStatus for eth0 if connected, else None."""
-        rc, stdout, _ = await self._run_nmcli(
-            "-t", "-f", "GENERAL.CONNECTION,IP4.ADDRESS",
-            "device", "show", "eth0"
+        return NetworkStatus(
+            wifi_enabled=wifi_enabled,
+            ethernet=ethernet,
+            wifi=wifi,
         )
+
+    async def get_wifi_enabled(self) -> bool:
+        """Check if WiFi radio is enabled."""
+        rc, stdout, _ = await self._run_nmcli("radio", "wifi")
+        return rc == 0 and stdout.strip() == "enabled"
+
+    async def set_wifi_enabled(self, enabled: bool) -> None:
+        """Enable or disable WiFi radio."""
+        state = "on" if enabled else "off"
+        rc, _, stderr = await self._run_nmcli("radio", "wifi", state)
         if rc != 0:
-            return None
+            raise RuntimeError(f"Failed to set WiFi radio {state}: {stderr}")
+        self.logger.info("WiFi radio set to %s", state)
 
-        connection = None
-        ip_address = None
-        for line in stdout.split("\n"):
-            key, _, value = line.partition(":")
-            value = value.strip()
-            if key == "GENERAL.CONNECTION":
-                connection = value if value and value != "--" else None
-            elif key.startswith("IP4.ADDRESS"):
-                ip_address = value.split("/")[0] if value and value != "--" else None
-
-        if not connection:
-            return None
-
-        return WifiStatus(connected=True, connection_type="ethernet", ip_address=ip_address)
-
-    async def _get_wifi_status(self) -> WifiStatus:
-        """Get WiFi-specific connection status."""
-        rc, stdout, _ = await self._run_nmcli(
-            "-t", "-f", "GENERAL.CONNECTION,IP4.ADDRESS",
-            "device", "show", self.WIFI_INTERFACE
-        )
-
-        if rc != 0:
-            return WifiStatus(connected=False)
-
-        connection = None
-        ip_address = None
-
-        for line in stdout.split("\n"):
-            key, _, value = line.partition(":")
-            value = value.strip()
-            if key == "GENERAL.CONNECTION":
-                connection = value if value and value != "--" else None
-            elif key.startswith("IP4.ADDRESS"):
-                ip_address = value.split("/")[0] if value and value != "--" else None
-
-        if not connection:
-            saved = await self._get_saved_ssid()
-            return WifiStatus(connected=False, saved_ssid=saved)
-
-        # Get actual SSID and signal from active wifi connection
-        ssid = connection[5:] if connection.startswith("milo-") else connection
-        signal = None
-
-        rc2, stdout2, _ = await self._run_nmcli(
-            "-t", "-f", "active,ssid,signal", "dev", "wifi"
-        )
-
-        if rc2 == 0:
-            for line in stdout2.split("\n"):
-                fields = _parse_nmcli_line(line)
-                if len(fields) >= 3 and fields[0] == "yes":
-                    ssid = fields[1] or ssid
-                    try:
-                        signal = int(fields[2])
-                    except ValueError:
-                        pass
-                    break
-
-        return WifiStatus(
-            connected=True,
-            connection_type="wifi",
-            ssid=ssid,
-            ip_address=ip_address,
-            signal=signal,
-        )
-
-    async def connect(self, ssid: str, password: Optional[str] = None) -> WifiStatus:
+    async def connect(self, ssid: str, password: Optional[str] = None) -> NetworkStatus:
         """Connect to a WiFi network.
 
         Removes all existing profiles for this SSID (including broken
@@ -179,7 +125,7 @@ class WifiService:
         async with self._connect_lock:
             return await self._connect_impl(ssid, password)
 
-    async def _connect_impl(self, ssid: str, password: Optional[str] = None) -> WifiStatus:
+    async def _connect_impl(self, ssid: str, password: Optional[str] = None) -> NetworkStatus:
         """Internal connect implementation (called under _connect_lock)."""
         self.logger.info("Connecting to WiFi network: %s", ssid)
 
@@ -243,7 +189,7 @@ class WifiService:
             self._hotspot_active = False
             await self._delete_hotspot_profile()
 
-        status = await self.get_status()
+        status = await self.get_network_status()
 
         await self.state_machine.broadcast_event(
             category="wifi",
@@ -351,6 +297,87 @@ class WifiService:
         )
         if rc != 0:
             raise RuntimeError(f"nmcli hotspot failed: {stderr}")
+
+    # =========================================================================
+    # Internal helpers
+    # =========================================================================
+
+    async def _get_ethernet_info(self) -> EthernetStatus:
+        """Return ethernet connection status."""
+        rc, stdout, _ = await self._run_nmcli(
+            "-t", "-f", "GENERAL.CONNECTION,IP4.ADDRESS",
+            "device", "show", "eth0"
+        )
+        if rc != 0:
+            return EthernetStatus(connected=False)
+
+        connection = None
+        ip_address = None
+        for line in stdout.split("\n"):
+            key, _, value = line.partition(":")
+            value = value.strip()
+            if key == "GENERAL.CONNECTION":
+                connection = value if value and value != "--" else None
+            elif key.startswith("IP4.ADDRESS"):
+                ip_address = value.split("/")[0] if value and value != "--" else None
+
+        return EthernetStatus(
+            connected=connection is not None,
+            ip_address=ip_address if connection else None,
+        )
+
+    async def _get_wifi_info(self) -> WifiConnectionStatus:
+        """Get WiFi connection status."""
+        rc, stdout, _ = await self._run_nmcli(
+            "-t", "-f", "GENERAL.CONNECTION,IP4.ADDRESS",
+            "device", "show", self.WIFI_INTERFACE
+        )
+
+        if rc != 0:
+            return WifiConnectionStatus(connected=False)
+
+        connection = None
+        ip_address = None
+
+        for line in stdout.split("\n"):
+            key, _, value = line.partition(":")
+            value = value.strip()
+            if key == "GENERAL.CONNECTION":
+                connection = value if value and value != "--" else None
+            elif key.startswith("IP4.ADDRESS"):
+                ip_address = value.split("/")[0] if value and value != "--" else None
+
+        saved = await self._get_saved_ssid()
+
+        if not connection:
+            return WifiConnectionStatus(connected=False, saved_ssid=saved)
+
+        # Get actual SSID and signal from active wifi connection
+        ssid = connection[5:] if connection.startswith("milo-") else connection
+        signal = None
+
+        rc2, stdout2, _ = await self._run_nmcli(
+            "-t", "-f", "active,ssid,signal", "dev", "wifi"
+        )
+
+        if rc2 == 0:
+            for line in stdout2.split("\n"):
+                fields = _parse_nmcli_line(line)
+                if len(fields) >= 3 and fields[0] == "yes":
+                    ssid = fields[1] or ssid
+                    try:
+                        signal = int(fields[2])
+                    except ValueError:
+                        pass
+                    break
+
+        return WifiConnectionStatus(
+            connected=True,
+            ssid=ssid,
+            ip_address=ip_address,
+            signal=signal,
+            saved_ssid=saved,
+        )
 
     async def _get_saved_ssid(self) -> Optional[str]:
         """Return the SSID of the first milo-managed WiFi profile, or None."""

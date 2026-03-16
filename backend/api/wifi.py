@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter
 
 from backend.api.route_helpers import api_error_handler
-from backend.core.wifi.models import WifiConnectRequest
+from backend.core.wifi.models import WifiConnectRequest, WifiRadioRequest
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +21,10 @@ def create_wifi_router(wifi_service):
             return {"status": "success", "data": [n.model_dump() for n in networks]}
 
     @router.get("/status")
-    async def get_wifi_status():
-        """Get current WiFi connection status."""
-        async with api_error_handler("WiFi status", logger):
-            status = await wifi_service.get_status()
+    async def get_network_status():
+        """Get current network status (ethernet + WiFi)."""
+        async with api_error_handler("Network status", logger):
+            status = await wifi_service.get_network_status()
             return {"status": "success", "data": status.model_dump()}
 
     @router.post("/connect")
@@ -47,6 +47,14 @@ def create_wifi_router(wifi_service):
         async with api_error_handler("WiFi saved networks", logger):
             networks = await wifi_service.get_saved_networks()
             return {"status": "success", "data": [n.model_dump() for n in networks]}
+
+    @router.put("/radio")
+    async def set_wifi_radio(request: WifiRadioRequest):
+        """Enable or disable WiFi radio."""
+        async with api_error_handler("WiFi radio", logger):
+            await wifi_service.set_wifi_enabled(request.enabled)
+            status = await wifi_service.get_network_status()
+            return {"status": "success", "data": status.model_dump()}
 
     @router.get("/hotspot/status")
     async def get_hotspot_status():

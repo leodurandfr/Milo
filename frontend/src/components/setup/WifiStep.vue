@@ -14,19 +14,19 @@
       </div>
 
       <!-- Current status -->
-      <div v-if="wifi.status.connected || wifi.status.saved_ssid" class="wifi-status">
+      <div v-if="isConnected || wifi.status.wifi.saved_ssid" class="wifi-status">
         <div class="wifi-status__info">
-          <span class="heading-3">{{ wifi.status.connected ? (wifi.status.connection_type === 'ethernet' ? t('network.ethernet') : wifi.status.ssid) : wifi.status.saved_ssid }}</span>
-          <span v-if="wifi.status.connected && wifi.status.connection_type === 'wifi'" class="text-mono wifi-status__detail">
-            <SignalDots :signal="wifi.status.signal" />
-            <span class="wifi-status__ip">{{ wifi.status.ip_address }}</span>
+          <span class="heading-3">{{ connectionLabel }}</span>
+          <span v-if="wifi.status.wifi.connected" class="text-mono wifi-status__detail">
+            <SignalDots :signal="wifi.status.wifi.signal" />
+            <span class="wifi-status__ip">{{ wifi.status.wifi.ip_address }}</span>
           </span>
-          <span v-else-if="wifi.status.connected && wifi.status.connection_type === 'ethernet'" class="text-mono wifi-status__detail">
-            <span class="wifi-status__ip">{{ wifi.status.ip_address }}</span>
+          <span v-else-if="wifi.status.ethernet.connected" class="text-mono wifi-status__detail">
+            <span class="wifi-status__ip">{{ wifi.status.ethernet.ip_address }}</span>
           </span>
         </div>
-        <span class="wifi-status__badge text-mono-small" :class="wifi.status.connected ? 'wifi-status__badge--connected' : 'wifi-status__badge--saved'">
-          {{ wifi.status.connected ? t('network.connected') : t('network.saved') }}
+        <span class="wifi-status__badge text-mono-small" :class="isConnected ? 'wifi-status__badge--connected' : 'wifi-status__badge--saved'">
+          {{ isConnected ? t('network.connected') : t('network.saved') }}
         </span>
       </div>
 
@@ -111,17 +111,29 @@ const props = defineProps({
 
 const wifiConfigured = ref(false);
 
+const isConnected = computed(() =>
+  wifi.status.wifi.connected || wifi.status.ethernet.connected
+);
+
+const connectionLabel = computed(() => {
+  if (wifi.status.ethernet.connected) return t('network.ethernet');
+  if (wifi.status.wifi.connected) return wifi.status.wifi.ssid;
+  return wifi.status.wifi.saved_ssid;
+});
+
 // Show all networks except the currently connected one
 const visibleNetworks = computed(() =>
   wifi.networks.filter(n => !n.in_use)
 );
 
 // Emit network identifier whenever status changes (connected or saved)
-watch(() => [wifi.status.connected, wifi.status.saved_ssid], () => {
-  if (wifi.status.connected) {
-    emit('update:modelValue', wifi.status.ssid || wifi.status.connection_type || null);
+watch(() => [wifi.status.wifi.connected, wifi.status.ethernet.connected, wifi.status.wifi.saved_ssid], () => {
+  if (wifi.status.wifi.connected) {
+    emit('update:modelValue', wifi.status.wifi.ssid || 'wifi');
+  } else if (wifi.status.ethernet.connected) {
+    emit('update:modelValue', 'ethernet');
   } else {
-    emit('update:modelValue', wifi.status.saved_ssid || null);
+    emit('update:modelValue', wifi.status.wifi.saved_ssid || null);
   }
 });
 

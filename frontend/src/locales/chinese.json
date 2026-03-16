@@ -293,8 +293,9 @@
     "wifi": "WiFi",
     "connected": "已连接",
     "disconnected": "已断开",
-    "noConnection": "无活动连接",
-    "savedNetworks": "已保存的网络",
+    "notConnected": "未连接",
+    "preferredNetwork": "首选网络",
+    "wifiDescription": "断开以太网后，首选网络连接将自动激活。",
     "otherNetworks": "其他网络",
     "noNetworks": "未检测到网络",
     "password": "密码",
@@ -303,7 +304,8 @@
     "connectFailed": "连接失败",
     "forget": "忘记",
     "refresh": "刷新",
-    "saved": "已保存"
+    "saved": "已保存",
+    "ready": "就绪"
   },
   "applications": {
     "features": "功能"
