@@ -50,11 +50,6 @@ jobs:
         with:
           platforms: arm64
 
-      - name: Register binfmt for ARM64
-        run: |
-          sudo update-binfmts --enable qemu-aarch64 2>/dev/null || true
-          ls /proc/sys/fs/binfmt_misc/qemu-aarch64 && echo "binfmt OK" || echo "binfmt not found"
-
       - name: Clone pi-gen
         run: |
           git clone --branch arm64 --depth 1 https://github.com/RPi-Distro/pi-gen.git pi-gen-build
@@ -79,6 +74,9 @@ jobs:
               touch "pi-gen-build/${stage}/SKIP"
             fi
           done
+
+          # Patch pi-gen dep check: qemu-user-static provides binfmt but conflicts with qemu-user-binfmt
+          sed -i 's/qemu-user-binfmt//g' pi-gen-build/depends
 
       - name: Build image
         run: |
