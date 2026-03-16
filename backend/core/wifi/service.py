@@ -83,8 +83,41 @@ class WifiService:
         return sorted(networks.values(), key=lambda n: n.signal, reverse=True)
 
     async def get_status(self) -> WifiStatus:
-        """Get current WiFi connection status."""
-        # Get connection name and IP from device info
+        """Get current network connection status (ethernet takes priority over WiFi)."""
+        # Check ethernet first (it has priority over WiFi)
+        eth_status = await self._get_ethernet_status()
+        if eth_status:
+            return eth_status
+
+        # Check WiFi
+        return await self._get_wifi_status()
+
+    async def _get_ethernet_status(self) -> WifiStatus | None:
+        """Return WifiStatus for eth0 if connected, else None."""
+        rc, stdout, _ = await self._run_nmcli(
+            "-t", "-f", "GENERAL.CONNECTION,IP4.ADDRESS",
+            "device", "show", "eth0"
+        )
+        if rc != 0:
+            return None
+
+        connection = None
+        ip_address = None
+        for line in stdout.split("\n"):
+            key, _, value = line.partition(":")
+            value = value.strip()
+            if key == "GENERAL.CONNECTION":
+                connection = value if value and value != "--" else None
+            elif key.startswith("IP4.ADDRESS"):
+                ip_address = value.split("/")[0] if value and value != "--" else None
+
+        if not connection:
+            return None
+
+        return WifiStatus(connected=True, connection_type="ethernet", ip_address=ip_address)
+
+    async def _get_wifi_status(self) -> WifiStatus:
+        """Get WiFi-specific connection status."""
         rc, stdout, _ = await self._run_nmcli(
             "-t", "-f", "GENERAL.CONNECTION,IP4.ADDRESS",
             "device", "show", self.WIFI_INTERFACE
@@ -105,12 +138,10 @@ class WifiService:
                 ip_address = value.split("/")[0] if value and value != "--" else None
 
         if not connection:
-            # wlan0 disconnected — check if there's a saved milo-* profile
             saved = await self._get_saved_ssid()
             return WifiStatus(connected=False, saved_ssid=saved)
 
         # Get actual SSID and signal from active wifi connection
-        # Strip milo- prefix from connection names we created
         ssid = connection[5:] if connection.startswith("milo-") else connection
         signal = None
 
@@ -131,6 +162,7 @@ class WifiService:
 
         return WifiStatus(
             connected=True,
+            connection_type="wifi",
             ssid=ssid,
             ip_address=ip_address,
             signal=signal,

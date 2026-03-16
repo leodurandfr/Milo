@@ -14,6 +14,7 @@
     "dock": "Dock",
     "volume": "Lautstärke",
     "screen": "Bildschirm",
+    "network": "Netzwerk",
     "updates": "Aktualisierungen",
     "information": "Informationen",
     "hardware": "Hardware",
@@ -287,12 +288,13 @@
     "ram": "RAM",
     "designedBy": "Milō App entwickelt von"
   },
-  "wifi": {
-    "title": "WLAN",
+  "network": {
+    "ethernet": "Ethernet",
+    "wifi": "WLAN",
     "connected": "Verbunden",
     "disconnected": "Getrennt",
     "noConnection": "Keine aktive Verbindung",
-    "knownNetworks": "Bekannte Netzwerke",
+    "savedNetworks": "Gespeicherte Netzwerke",
     "otherNetworks": "Andere Netzwerke",
     "noNetworks": "Keine Netzwerke erkannt",
     "password": "Passwort",

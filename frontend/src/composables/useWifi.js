@@ -8,7 +8,7 @@ import { logger } from '@/services/logger';
  * Each component instance gets its own state (not a singleton).
  */
 export function useWifi() {
-  const status = ref({ connected: false, ssid: null, ip_address: null, signal: null, saved_ssid: null });
+  const status = ref({ connected: false, connection_type: null, ssid: null, ip_address: null, signal: null, saved_ssid: null });
   const networks = ref([]);
   const savedSsids = ref(new Set());
   const loading = ref(true);
@@ -80,7 +80,7 @@ export function useWifi() {
       await Promise.all([loadStatus(), scanNetworks(), loadSavedNetworks()]);
     } catch (error) {
       const detail = error.response?.data?.detail;
-      connectError.value = detail || (t ? t('wifi.connectFailed') : 'Connection failed');
+      connectError.value = detail || (t ? t('network.connectFailed') : 'Connection failed');
       logger.error('wifi', 'WiFi connection failed', error);
     } finally {
       connecting.value = false;

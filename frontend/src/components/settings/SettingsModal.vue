@@ -75,9 +75,9 @@
             </template>
           </ListItemButton>
 
-          <ListItemButton :title="t('settings.wifi')" action="caret" @click="push('wifi')">
+          <ListItemButton :title="t('settings.network')" action="caret" @click="push('network')">
             <template #icon>
-              <img :src="wifiIcon" alt="WiFi" />
+              <img :src="wifiIcon" alt="Network" />
             </template>
           </ListItemButton>
 
@@ -151,8 +151,8 @@
       <!-- Screen view -->
       <ScreenSettings v-else-if="currentView === 'screen'" key="screen" class="view-content" />
 
-      <!-- WiFi view -->
-      <WifiSettings v-else-if="currentView === 'wifi'" key="wifi" class="view-content" />
+      <!-- Network view -->
+      <NetworkSettings v-else-if="currentView === 'network'" key="network" class="view-content" />
 
       <!-- Hardware view -->
       <HardwareSettings v-else-if="currentView === 'hardware'" key="hardware" class="view-content" />
@@ -256,7 +256,7 @@ import MacSettings from '@/components/settings/categories/MacSettings.vue';
 import HardwareSettings from '@/components/settings/categories/HardwareSettings.vue';
 import UpdateManager from '@/components/settings/categories/UpdateManager.vue';
 import InfoSettings from '@/components/settings/categories/InfoSettings.vue';
-import WifiSettings from '@/components/settings/categories/WifiSettings.vue';
+import NetworkSettings from '@/components/settings/categories/NetworkSettings.vue';
 const props = defineProps({
   initialView: {
     type: String,
@@ -326,7 +326,7 @@ const headerTitle = computed(() => {
     'apps': t('settings.dock'),
     'volume': t('settings.volume'),
     'screen': t('settings.screen'),
-    'wifi': t('settings.wifi'),
+    'network': t('settings.network'),
     'hardware': t('settings.hardware'),
     'spotify': t('audioSources.spotify'),
     'multiroom': t('audioSources.multiroom'),
@@ -519,7 +519,7 @@ async function handleShutdown() {
 // Placeholder for odd grid
 const shouldShowPlaceholder = computed(() => {
   // Count the number of visible items
-  let count = 8; // Base: Languages, Applications, Volume, Screen, WiFi, Hardware, Updates, Information
+  let count = 8; // Base: Languages, Applications, Volume, Screen, Network, Hardware, Updates, Information
   if (settingsStore.dockApps.spotify) count++;
   if (settingsStore.dockApps.mac) count++;
   if (settingsStore.dockApps.multiroom) count++;
