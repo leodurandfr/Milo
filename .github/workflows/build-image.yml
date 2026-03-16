@@ -82,7 +82,7 @@ jobs:
       - name: Build image
         run: |
           cd pi-gen-build
-          sudo ./build.sh
+          sudo SETFCAP=1 ./build.sh
         env:
           DEBIAN_FRONTEND: noninteractive
 
