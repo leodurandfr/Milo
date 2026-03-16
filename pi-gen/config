@@ -1,5 +1,5 @@
 IMG_NAME="milo"
-RELEASE="bookworm"
+RELEASE="trixie"
 TARGET_HOSTNAME="milo"
 FIRST_USER_NAME="milo"
 FIRST_USER_PASS=""
