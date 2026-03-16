@@ -89,7 +89,7 @@ export function useWifi() {
 
   async function forgetNetwork(ssid) {
     try {
-      await axios.delete('/api/wifi/saved', { params: { ssid } });
+      await axios.delete(`/api/wifi/saved/${encodeURIComponent(ssid)}`);
       savedSsids.value.delete(ssid);
       savedSsids.value = new Set(savedSsids.value);
     } catch (error) {
@@ -98,8 +98,11 @@ export function useWifi() {
   }
 
   async function initialize() {
-    await Promise.all([loadStatus(), loadSavedNetworks(), scanNetworks()]);
-    loading.value = false;
+    try {
+      await Promise.all([loadStatus(), loadSavedNetworks(), scanNetworks()]);
+    } finally {
+      loading.value = false;
+    }
   }
 
   return {

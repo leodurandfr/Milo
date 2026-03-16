@@ -2,7 +2,7 @@
 WiFi management API routes.
 """
 import logging
-from fastapi import APIRouter, Query
+from fastapi import APIRouter
 
 from backend.api.route_helpers import api_error_handler
 from backend.core.wifi.models import WifiConnectRequest
@@ -34,10 +34,8 @@ def create_wifi_router(wifi_service):
             status = await wifi_service.connect(request.ssid, request.password)
             return {"status": "success", "data": status.model_dump()}
 
-    @router.delete("/saved")
-    async def forget_network(
-        ssid: str = Query(..., min_length=1, description="SSID of the network to forget"),
-    ):
+    @router.delete("/saved/{ssid}")
+    async def forget_network(ssid: str):
         """Forget a saved WiFi network."""
         async with api_error_handler("WiFi forget", logger):
             await wifi_service.forget_network(ssid)

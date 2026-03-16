@@ -15,11 +15,13 @@ class WifiService:
     """WiFi management service wrapping nmcli commands."""
 
     HOTSPOT_CON_NAME = "Milo-Setup"
+    WIFI_INTERFACE = "wlan0"
 
     def __init__(self, state_machine):
         self.logger = logging.getLogger(__name__)
         self.state_machine = state_machine
         self._hotspot_active: bool = False
+        self._connect_lock = asyncio.Lock()
 
     @property
     def hotspot_active(self) -> bool:
@@ -85,7 +87,7 @@ class WifiService:
         # Get connection name and IP from device info
         rc, stdout, _ = await self._run_nmcli(
             "-t", "-f", "GENERAL.CONNECTION,IP4.ADDRESS",
-            "device", "show", "wlan0"
+            "device", "show", self.WIFI_INTERFACE
         )
 
         if rc != 0:
@@ -142,6 +144,11 @@ class WifiService:
         security settings. Broadcasts WebSocket events on success or failure.
         Timeout: 30 seconds.
         """
+        async with self._connect_lock:
+            return await self._connect_impl(ssid, password)
+
+    async def _connect_impl(self, ssid: str, password: Optional[str] = None) -> WifiStatus:
+        """Internal connect implementation (called under _connect_lock)."""
         self.logger.info("Connecting to WiFi network: %s", ssid)
 
         # Remove all existing profiles for this SSID to avoid
@@ -153,7 +160,7 @@ class WifiService:
         add_args = [
             "connection", "add",
             "type", "wifi",
-            "ifname", "wlan0",
+            "ifname", self.WIFI_INTERFACE,
             "con-name", con_name,
             "ssid", ssid,
         ]
@@ -299,13 +306,13 @@ class WifiService:
         return False
 
     async def _activate_hotspot(self) -> None:
-        """Create and activate NetworkManager hotspot on wlan0."""
+        """Create and activate NetworkManager hotspot."""
         # Clean up any stale profile from a previous crashed run
         await self._delete_hotspot_profile()
 
         rc, _, stderr = await self._run_nmcli(
             "device", "wifi", "hotspot",
-            "ifname", "wlan0",
+            "ifname", self.WIFI_INTERFACE,
             "ssid", self.HOTSPOT_CON_NAME,
             "con-name", self.HOTSPOT_CON_NAME,
             timeout=20.0,
