@@ -6,7 +6,7 @@
       <!-- Ethernet row (always visible, like zone header) -->
       <div class="connection-card">
         <div class="connection-card__name">
-          <SvgIcon name="network" :size="20" />
+          <SvgIcon name="network" :size="24" />
           <span class="heading-3">{{ t('network.ethernet') }}</span>
         </div>
         <span class="connection-badge text-mono-small"
@@ -20,7 +20,7 @@
         <div ref="wifiRowRef" class="expanded-content" :class="{ 'is-visible': showWifiCard }">
           <div class="connection-card">
             <div class="connection-card__name">
-              <WifiSignal :signal="wifiCardSignal" />
+              <WifiSignal :signal="wifiCardSignal" :size="24" />
               <span class="heading-3">{{ wifiDisplaySsid }}</span>
             </div>
             <span class="connection-badge text-mono-small" :class="wifiBadgeClass">
@@ -46,8 +46,8 @@
           <div class="network-item network-item--preferred">
             <div class="network-item__row">
               <div class="network-item__ssid-row">
-                <WifiSignal :signal="preferredNetwork.signal" />
-                <span class="heading-3 network-item__ssid">{{ preferredNetwork.ssid }}</span>
+                <WifiSignal :signal="preferredNetwork.signal" :size="24" />
+                <span class="text-body network-item__ssid">{{ preferredNetwork.ssid }}</span>
               </div>
               <Button variant="important" size="small" @click="forgetNetwork(preferredNetwork.ssid)">
                 {{ t('network.forget') }}
@@ -86,8 +86,8 @@
               @click="selectNetwork(network)">
               <div class="network-item__row">
                 <div class="network-item__ssid-row">
-                  <WifiSignal :signal="network.signal" />
-                  <span class="heading-3 network-item__ssid">{{ network.ssid }}</span>
+                  <WifiSignal :signal="network.signal" :size="24" />
+                  <span class="text-body network-item__ssid">{{ network.ssid }}</span>
                 </div>
                 <SvgIcon name="caretDown" :size="24" color="var(--color-text-light)"
                   class="network-item__caret" :class="{ 'network-item__caret--open': selectedSsid === network.ssid }" />
@@ -234,7 +234,6 @@ async function announceWifiCardShow(oldToggleContentH) {
 }
 
 watch(showWifiCard, async (visible) => {
-  console.log(`[NetworkSettings] watch showWifiCard → ${visible} | skipNext=${skipNextWatcher} | skipTransition=${skipTransition.value} ${ts()}`);
   if (skipNextWatcher) {
     skipNextWatcher = false;
     return;
@@ -245,47 +244,45 @@ watch(showWifiCard, async (visible) => {
 
   if (visible) {
     await nextTick();
-    const h = measureWifiRow();
-    console.log(`[NetworkSettings] watcher setting wifiRowHeight=${h}px ${ts()}`);
-    wifiRowHeight.value = `${h}px`;
+    wifiRowHeight.value = `${measureWifiRow()}px`;
   } else {
     wifiRowHeight.value = '0px';
   }
 
   // Measure contentInner AFTER DOM update and announce delta to Modal.
-  // This updates the viewTransition's locked target so the modal springs
-  // to the correct height in a single step (no 2-step jump).
   await nextTick();
   const afterH = modalContentInnerRef?.value?.offsetHeight ?? 0;
   const delta = afterH - beforeH;
-  console.log(`[NetworkSettings] contentInner delta: ${beforeH} → ${afterH} (Δ${delta}) ${ts()}`);
   if (requestHeightDelta && Math.abs(delta) > 2) {
     requestHeightDelta(delta);
   }
 });
 
+let rafId = null;
+
 // Enable transitions only after all API data is loaded
 watch(loading, (isLoading) => {
   if (!isLoading && skipTransition.value) {
-    console.log(`[NetworkSettings] loading done → enabling transitions ${ts()}`);
     rafId = requestAnimationFrame(() => {
       rafId = requestAnimationFrame(() => {
-        console.log(`[NetworkSettings] skipTransition → false ${ts()}`);
         skipTransition.value = false;
       });
     });
   }
-});
+}, { immediate: true });
 
-let rafId = null;
-const t0 = performance.now();
-const ts = () => `+${(performance.now() - t0).toFixed(1)}ms`;
+onMounted(async () => {
+  // If status was pre-loaded, wifi card may already be visible —
+  // set initial wrapper height before viewTransition measures entering height
+  if (showWifiCard.value) {
+    await nextTick();
+    const h = measureWifiRow();
+    if (h > 0) {
+      wifiRowHeight.value = `${h}px`;
+      skipNextWatcher = true;
+    }
+  }
 
-onMounted(() => {
-  console.log(`[NetworkSettings] onMounted ${ts()}`);
-  // Fire and forget — don't block viewTransition's height measurement.
-  // The showWifiCard watcher handles height deltas as data arrives.
-  // The loading watcher enables transitions after all data is loaded.
   initialize();
 });
 
@@ -367,8 +364,8 @@ onUnmounted(() => {
 
 /* Content: border-top + opacity/visibility (like .expanded-clients in MultiroomItem) */
 .expanded-content {
-  margin-top: var(--space-04);
-  padding-top: var(--space-04);
+  margin-top: var(--space-03);
+  padding-top: var(--space-03);
   padding-bottom: var(--space-05);
   border-top: 1px solid var(--color-border);
   opacity: 0;
@@ -406,7 +403,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--space-03);
-  padding: var(--space-03) var(--space-04);
+  padding: var(--space-03);
   border-radius: var(--radius-04);
   background: var(--color-background);
   cursor: pointer;
@@ -415,6 +412,12 @@ onUnmounted(() => {
 
 .network-item--preferred {
   cursor: default;
+    padding: var(--space-03) 6px var(--space-03) var(--space-03);
+
+}
+
+.network-item--preferred button {
+  margin-block: calc(-1 * var(--space-03));
 }
 
 .network-item__row {
@@ -489,7 +492,8 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: var(--space-03) var(--space-04);
+  height: 48px;
+  padding: 0 var(--space-04);
   border-radius: var(--radius-04);
   background: var(--color-background);
 }
@@ -504,5 +508,11 @@ onUnmounted(() => {
   .connection-section {
     border-radius: var(--radius-05);
   }
+
+  .wifi-signal {
+    width: 20px;
+    height: 20px;
+  }
+
 }
 </style>
