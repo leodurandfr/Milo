@@ -14,7 +14,7 @@ from backend.core.wifi.models import WifiNetwork, WifiStatus, SavedNetwork
 class WifiService:
     """WiFi management service wrapping nmcli commands."""
 
-    HOTSPOT_CON_NAME = "Milo-Setup"
+    HOTSPOT_CON_NAME = "Milō"
     WIFI_INTERFACE = "wlan0"
 
     def __init__(self, state_machine):
@@ -394,7 +394,7 @@ class WifiService:
                     self.logger.debug("Deleted WiFi profile: %s", name)
 
     async def _delete_hotspot_profile(self) -> None:
-        """Remove the Milo-Setup NM connection profile (ignores if missing)."""
+        """Remove the hotspot NM connection profile (ignores if missing)."""
         rc, _, stderr = await self._run_nmcli(
             "connection", "delete", self.HOTSPOT_CON_NAME
         )

@@ -88,26 +88,16 @@
 
 ## Installation
 
-### Prerequisites
+### Quick Start (Recommended)
 
-1. Download [Raspberry Pi Imager](https://www.raspberrypi.com/software/)
-2. Flash **Raspberry Pi OS (64-bit) Lite** (Debian Trixie)
+1. Download the latest `.img.xz` from [Releases](https://github.com/leodurandfr/Milo/releases)
+2. Flash it with [Raspberry Pi Imager](https://www.raspberrypi.com/software/) (select "Use custom" → choose the `.img.xz` file)
+3. Insert the SD card and power on your Raspberry Pi
+4. Connect to the **Milō** WiFi network that appears (open, no password)
+5. A setup page opens automatically — follow the wizard to configure language, mode (Server or Client), WiFi, audio card, and screen
+6. Milō reboots and is ready to use
 
-### Main Installation (Milō)
-
-In Raspberry Pi Imager "Edit Settings", configure:
-- Hostname: `milo`
-- Username: `milo`
-- Password: your choice
-- WiFi if needed
-
-```bash
-wget https://raw.githubusercontent.com/leodurandfr/Milo/main/install.sh
-chmod +x install.sh
-./install.sh
-```
-
-The script guides you through audio card and screen selection. Once complete:
+After setup:
 
 - **Web interface** → http://milo.local
 - **Spotify** → Select "Milō" in Spotify app
@@ -115,15 +105,24 @@ The script guides you through audio card and screen selection. Once complete:
 - **Bluetooth** → Connect to "Milō · Bluetooth"
 - **Mac** → Install [Milō Mac](https://github.com/leodurandfr/Milo-Mac), then select "Milō" in audio outputs
 
-### Client Installation (Milō Client)
+### Multiroom (Additional Speakers)
 
-For multiroom, install on additional Raspberry Pis. Each client is identified by its MAC address.
+Flash the same image on additional Raspberry Pis. In the setup wizard, select **Client** mode — the device will join your existing Milō server automatically.
 
-In Raspberry Pi Imager "Edit Settings", configure:
-- Hostname: `milo-client`
-- Username: `milo-client`
-- Password: your choice
-- WiFi if needed
+### Manual Installation (Advanced)
+
+<details>
+<summary>Install from Raspberry Pi OS Lite instead of using the pre-built image</summary>
+
+Flash **Raspberry Pi OS (64-bit) Lite** (Debian Trixie) with Raspberry Pi Imager. In "Edit Settings", set hostname to `milo` and username to `milo`.
+
+```bash
+wget https://raw.githubusercontent.com/leodurandfr/Milo/main/install.sh
+chmod +x install.sh
+./install.sh
+```
+
+For multiroom clients:
 
 ```bash
 wget https://raw.githubusercontent.com/leodurandfr/Milo/main/milo-client/install-client.sh
@@ -131,12 +130,14 @@ chmod +x install-client.sh
 ./install-client.sh
 ```
 
-### Uninstall
+Uninstall:
 
 ```bash
-./install.sh --uninstall         # Main
+./install.sh --uninstall         # Server
 ./install-client.sh --uninstall  # Client
 ```
+
+</details>
 
 ## Companion Apps
 

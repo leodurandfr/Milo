@@ -560,7 +560,7 @@
     "wifi": {
       "title": "WLAN-Verbindung",
       "hotspotWarning": "Nach der Verbindung mit Ihrem WLAN müssen Sie über milo.local in Ihrem Heimnetzwerk auf Milō zugreifen.",
-      "hotspotBanner": "Sie sind mit dem Milo-Setup-Netzwerk verbunden. Wählen Sie unten Ihr Heim-WLAN aus.",
+      "hotspotBanner": "Sie sind mit dem Milō-Netzwerk verbunden. Wählen Sie unten Ihr Heim-WLAN aus.",
       "hotspotConfigured": "WLAN konfiguriert!",
       "hotspotConfiguredDetail": "Nach dem Neustart finden Sie Milō in Ihrem Netzwerk unter milo.local",
       "skipped": "Übersprungen"

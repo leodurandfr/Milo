@@ -15,7 +15,7 @@ The image will be generated in `pi-gen-upstream/deploy/`.
 
 This uses [pi-gen](https://github.com/RPi-Distro/pi-gen), the official Raspberry Pi OS image builder. The build:
 
-1. Starts from Raspberry Pi OS Lite (arm64, Bookworm)
+1. Starts from Raspberry Pi OS Lite (arm64, Trixie)
 2. Runs stages 0-2 (base system)
 3. Runs `stage-milo` which installs everything Milo needs
 4. Exports a compressed `.img.xz` image
