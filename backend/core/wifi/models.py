@@ -13,20 +13,37 @@ class WifiNetwork(BaseModel):
     in_use: bool = Field(default=False, description="Currently connected network")
 
 
-class WifiStatus(BaseModel):
-    """Current network connection status."""
+class EthernetStatus(BaseModel):
+    """Current ethernet connection status."""
     connected: bool
-    connection_type: Optional[str] = Field(None, description="Active connection type: 'ethernet' or 'wifi'")
+    ip_address: Optional[str] = None
+
+
+class WifiConnectionStatus(BaseModel):
+    """Current WiFi connection status."""
+    connected: bool
     ssid: Optional[str] = None
     ip_address: Optional[str] = None
     signal: Optional[int] = None
     saved_ssid: Optional[str] = None
 
 
+class NetworkStatus(BaseModel):
+    """Combined network status for both ethernet and WiFi."""
+    wifi_enabled: bool
+    ethernet: EthernetStatus
+    wifi: WifiConnectionStatus
+
+
 class WifiConnectRequest(BaseModel):
     """Request to connect to a WiFi network."""
     ssid: str = Field(..., min_length=1)
     password: Optional[str] = None
+
+
+class WifiRadioRequest(BaseModel):
+    """Request to enable or disable WiFi radio."""
+    enabled: bool
 
 
 class SavedNetwork(BaseModel):

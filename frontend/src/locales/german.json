@@ -293,8 +293,9 @@
     "wifi": "WLAN",
     "connected": "Verbunden",
     "disconnected": "Getrennt",
-    "noConnection": "Keine aktive Verbindung",
-    "savedNetworks": "Gespeicherte Netzwerke",
+    "notConnected": "Nicht verbunden",
+    "preferredNetwork": "Bevorzugtes Netzwerk",
+    "wifiDescription": "Die Verbindung zum bevorzugten Netzwerk wird automatisch aktiviert, wenn Ethernet getrennt wird.",
     "otherNetworks": "Andere Netzwerke",
     "noNetworks": "Keine Netzwerke erkannt",
     "password": "Passwort",
@@ -303,7 +304,8 @@
     "connectFailed": "Verbindung fehlgeschlagen",
     "forget": "Vergessen",
     "refresh": "Aktualisieren",
-    "saved": "Gespeichert"
+    "saved": "Gespeichert",
+    "ready": "Bereit"
   },
   "applications": {
     "features": "Funktionen"

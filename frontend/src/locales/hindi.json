@@ -293,8 +293,9 @@
     "wifi": "WiFi",
     "connected": "कनेक्टेड",
     "disconnected": "डिस्कनेक्टेड",
-    "noConnection": "कोई सक्रिय कनेक्शन नहीं",
-    "savedNetworks": "सहेजे गए नेटवर्क",
+    "notConnected": "कनेक्ट नहीं है",
+    "preferredNetwork": "पसंदीदा नेटवर्क",
+    "wifiDescription": "ईथरनेट डिस्कनेक्ट होने पर पसंदीदा नेटवर्क कनेक्शन स्वचालित रूप से सक्रिय हो जाता है।",
     "otherNetworks": "अन्य नेटवर्क",
     "noNetworks": "कोई नेटवर्क नहीं मिला",
     "password": "पासवर्ड",
@@ -303,7 +304,8 @@
     "connectFailed": "कनेक्शन विफल",
     "forget": "भूल जाएं",
     "refresh": "रीफ़्रेश",
-    "saved": "सहेजा गया"
+    "saved": "सहेजा गया",
+    "ready": "तैयार"
   },
   "applications": {
     "features": "सुविधाएं"

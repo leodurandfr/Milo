@@ -293,8 +293,9 @@
     "wifi": "WiFi",
     "connected": "Connesso",
     "disconnected": "Disconnesso",
-    "noConnection": "Nessuna connessione attiva",
-    "savedNetworks": "Reti salvate",
+    "notConnected": "Non connesso",
+    "preferredNetwork": "Rete preferita",
+    "wifiDescription": "La connessione alla rete preferita si attiva automaticamente quando Ethernet viene disconnesso.",
     "otherNetworks": "Altre reti",
     "noNetworks": "Nessuna rete rilevata",
     "password": "Password",
@@ -303,7 +304,8 @@
     "connectFailed": "Connessione fallita",
     "forget": "Dimentica",
     "refresh": "Aggiorna",
-    "saved": "Salvato"
+    "saved": "Salvato",
+    "ready": "Pronto"
   },
   "applications": {
     "features": "Funzionalità"
