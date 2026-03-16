@@ -41,7 +41,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y coreutils quilt parted qemu-user-static qemu-user-binfmt debootstrap zerofree zip \
+          sudo apt-get install -y coreutils quilt parted qemu-user-static debootstrap zerofree zip \
             dosfstools libarchive-tools libcap2-bin grep rsync xz-utils file git curl bc \
             gpg pigz xxd arch-test
 
@@ -49,6 +49,11 @@ jobs:
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
+
+      - name: Register binfmt for ARM64
+        run: |
+          sudo update-binfmts --enable qemu-aarch64 2>/dev/null || true
+          ls /proc/sys/fs/binfmt_misc/qemu-aarch64 && echo "binfmt OK" || echo "binfmt not found"
 
       - name: Clone pi-gen
         run: |
