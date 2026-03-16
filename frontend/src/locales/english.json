@@ -301,7 +301,8 @@
     "connecting": "Connecting...",
     "connectFailed": "Connection failed",
     "forget": "Forget",
-    "refresh": "Refresh"
+    "refresh": "Refresh",
+    "saved": "Saved"
   },
   "applications": {
     "features": "Features"

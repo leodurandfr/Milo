@@ -8,7 +8,7 @@ import { logger } from '@/services/logger';
  * Each component instance gets its own state (not a singleton).
  */
 export function useWifi() {
-  const status = ref({ connected: false, ssid: null, ip_address: null, signal: null });
+  const status = ref({ connected: false, ssid: null, ip_address: null, signal: null, saved_ssid: null });
   const networks = ref([]);
   const savedSsids = ref(new Set());
   const loading = ref(true);
@@ -74,11 +74,10 @@ export function useWifi() {
     connectError.value = '';
     try {
       const payload = { ssid: network.ssid, password: network.security ? password.value : null };
-      const res = await axios.post('/api/wifi/connect', payload);
-      status.value = res.data.data;
+      await axios.post('/api/wifi/connect', payload);
       selectedSsid.value = null;
       password.value = '';
-      await Promise.all([scanNetworks(), loadSavedNetworks()]);
+      await Promise.all([loadStatus(), scanNetworks(), loadSavedNetworks()]);
     } catch (error) {
       const detail = error.response?.data?.detail;
       connectError.value = detail || (t ? t('wifi.connectFailed') : 'Connection failed');

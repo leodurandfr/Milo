@@ -1,0 +1,8 @@
+// Allow the milo user to manage NetworkManager connections from systemd services
+// (without requiring a local active session).
+polkit.addRule(function(action, subject) {
+    if (action.id.indexOf("org.freedesktop.NetworkManager.") === 0 &&
+        subject.user === "milo") {
+        return polkit.Result.YES;
+    }
+});

@@ -287,6 +287,22 @@
     "ram": "RAM",
     "designedBy": "Milō 应用由此开发"
   },
+  "wifi": {
+    "title": "WiFi",
+    "connected": "已连接",
+    "disconnected": "已断开",
+    "noConnection": "无活动连接",
+    "knownNetworks": "已知网络",
+    "otherNetworks": "其他网络",
+    "noNetworks": "未检测到网络",
+    "password": "密码",
+    "connect": "连接",
+    "connecting": "连接中...",
+    "connectFailed": "连接失败",
+    "forget": "忘记",
+    "refresh": "刷新",
+    "saved": "已保存"
+  },
   "applications": {
     "features": "功能"
   },
