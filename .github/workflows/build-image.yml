@@ -75,8 +75,9 @@ jobs:
             fi
           done
 
-          # Patch pi-gen dep check: qemu-user-static provides binfmt but conflicts with qemu-user-binfmt
-          sed -i 's/qemu-user-binfmt//g' pi-gen-build/depends
+          # qemu-user-static provides qemu-arm-static, but pi-gen checks for qemu-arm
+          sudo ln -sf /usr/bin/qemu-arm-static /usr/bin/qemu-arm 2>/dev/null || true
+          sudo ln -sf /usr/bin/qemu-aarch64-static /usr/bin/qemu-aarch64 2>/dev/null || true
 
       - name: Build image
         run: |
