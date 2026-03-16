@@ -14,6 +14,7 @@
     "dock": "Dock",
     "volume": "音量",
     "screen": "屏幕",
+    "network": "网络",
     "updates": "更新",
     "information": "信息",
     "hardware": "硬件",
@@ -287,12 +288,13 @@
     "ram": "RAM",
     "designedBy": "Milō 应用由此开发"
   },
-  "wifi": {
-    "title": "WiFi",
+  "network": {
+    "ethernet": "以太网",
+    "wifi": "WiFi",
     "connected": "已连接",
     "disconnected": "已断开",
     "noConnection": "无活动连接",
-    "knownNetworks": "已知网络",
+    "savedNetworks": "已保存的网络",
     "otherNetworks": "其他网络",
     "noNetworks": "未检测到网络",
     "password": "密码",

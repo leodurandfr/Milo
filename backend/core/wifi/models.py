@@ -14,8 +14,9 @@ class WifiNetwork(BaseModel):
 
 
 class WifiStatus(BaseModel):
-    """Current WiFi connection status."""
+    """Current network connection status."""
     connected: bool
+    connection_type: Optional[str] = Field(None, description="Active connection type: 'ethernet' or 'wifi'")
     ssid: Optional[str] = None
     ip_address: Optional[str] = None
     signal: Optional[int] = None

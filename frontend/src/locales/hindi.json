@@ -14,6 +14,7 @@
     "dock": "Dock",
     "volume": "वॉल्यूम",
     "screen": "स्क्रीन",
+    "network": "नेटवर्क",
     "updates": "अपडेट",
     "information": "जानकारी",
     "hardware": "हार्डवेयर",
@@ -287,12 +288,13 @@
     "ram": "RAM",
     "designedBy": "Milō ऐप द्वारा निर्मित"
   },
-  "wifi": {
-    "title": "WiFi",
+  "network": {
+    "ethernet": "ईथरनेट",
+    "wifi": "WiFi",
     "connected": "कनेक्टेड",
     "disconnected": "डिस्कनेक्टेड",
     "noConnection": "कोई सक्रिय कनेक्शन नहीं",
-    "knownNetworks": "ज्ञात नेटवर्क",
+    "savedNetworks": "सहेजे गए नेटवर्क",
     "otherNetworks": "अन्य नेटवर्क",
     "noNetworks": "कोई नेटवर्क नहीं मिला",
     "password": "पासवर्ड",

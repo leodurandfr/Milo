@@ -14,6 +14,7 @@
     "dock": "Dock",
     "volume": "Volume",
     "screen": "Ecrã",
+    "network": "Rede",
     "updates": "Atualizações",
     "information": "Informações",
     "hardware": "Hardware",
@@ -287,12 +288,13 @@
     "ram": "RAM",
     "designedBy": "Aplicativo Milō criado por"
   },
-  "wifi": {
-    "title": "WiFi",
+  "network": {
+    "ethernet": "Ethernet",
+    "wifi": "WiFi",
     "connected": "Conectado",
     "disconnected": "Desconectado",
     "noConnection": "Sem conexão ativa",
-    "knownNetworks": "Redes conhecidas",
+    "savedNetworks": "Redes salvas",
     "otherNetworks": "Outras redes",
     "noNetworks": "Nenhuma rede detectada",
     "password": "Senha",

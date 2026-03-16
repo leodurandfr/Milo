@@ -16,25 +16,28 @@
       <!-- Current status -->
       <div v-if="wifi.status.connected || wifi.status.saved_ssid" class="wifi-status">
         <div class="wifi-status__info">
-          <span class="heading-3">{{ wifi.status.connected ? wifi.status.ssid : wifi.status.saved_ssid }}</span>
-          <span v-if="wifi.status.connected" class="text-mono wifi-status__detail">
+          <span class="heading-3">{{ wifi.status.connected ? (wifi.status.connection_type === 'ethernet' ? t('network.ethernet') : wifi.status.ssid) : wifi.status.saved_ssid }}</span>
+          <span v-if="wifi.status.connected && wifi.status.connection_type === 'wifi'" class="text-mono wifi-status__detail">
             <SignalDots :signal="wifi.status.signal" />
+            <span class="wifi-status__ip">{{ wifi.status.ip_address }}</span>
+          </span>
+          <span v-else-if="wifi.status.connected && wifi.status.connection_type === 'ethernet'" class="text-mono wifi-status__detail">
             <span class="wifi-status__ip">{{ wifi.status.ip_address }}</span>
           </span>
         </div>
         <span class="wifi-status__badge text-mono-small" :class="wifi.status.connected ? 'wifi-status__badge--connected' : 'wifi-status__badge--saved'">
-          {{ wifi.status.connected ? t('wifi.connected') : t('wifi.saved') }}
+          {{ wifi.status.connected ? t('network.connected') : t('network.saved') }}
         </span>
       </div>
 
       <!-- Network list -->
       <div class="wifi-networks">
         <div class="wifi-networks__header">
-          <span class="text-mono wifi-networks__label">{{ t('wifi.otherNetworks') }}</span>
+          <span class="text-mono wifi-networks__label">{{ t('network.otherNetworks') }}</span>
           <Button variant="background-strong" size="small" left-icon="arrowsClockwise"
             :loading="wifi.scanning" :disabled="wifi.scanning"
             @click="wifi.scanNetworks">
-            {{ t('wifi.refresh') }}
+            {{ t('network.refresh') }}
           </Button>
         </div>
 
@@ -48,7 +51,7 @@
 
         <!-- Empty state -->
         <div v-else-if="visibleNetworks.length === 0" class="wifi-empty text-mono">
-          {{ t('wifi.noNetworks') }}
+          {{ t('network.noNetworks') }}
         </div>
 
         <!-- Networks -->
@@ -61,18 +64,18 @@
             </div>
             <div class="network-item__meta">
               <SignalDots :signal="network.signal" />
-              <span v-if="wifi.savedSsids.has(network.ssid)" class="network-item__saved text-mono-small">{{ t('wifi.saved') }}</span>
+              <span v-if="wifi.savedSsids.has(network.ssid)" class="network-item__saved text-mono-small">{{ t('network.saved') }}</span>
             </div>
           </div>
 
           <!-- Expand: password + connect -->
           <div v-if="wifi.selectedSsid === network.ssid" class="network-item__expand" @click.stop>
             <InputText v-if="network.security" v-model="wifi.password" type="password"
-              :placeholder="t('wifi.password')" @submit="handleConnect(network)" />
+              :placeholder="t('network.password')" @submit="handleConnect(network)" />
             <Button variant="brand" :loading="wifi.connecting"
               :disabled="wifi.connecting || (network.security && !wifi.password)"
               @click="handleConnect(network)">
-              {{ wifi.connecting ? t('wifi.connecting') : t('wifi.connect') }}
+              {{ wifi.connecting ? t('network.connecting') : t('network.connect') }}
             </Button>
             <span v-if="wifi.connectError" class="wifi-error text-mono-small">{{ wifi.connectError }}</span>
           </div>
@@ -113,10 +116,13 @@ const visibleNetworks = computed(() =>
   wifi.networks.filter(n => !n.in_use)
 );
 
-// Emit SSID whenever status changes (connected or saved)
+// Emit network identifier whenever status changes (connected or saved)
 watch(() => [wifi.status.connected, wifi.status.saved_ssid], () => {
-  const ssid = wifi.status.connected ? wifi.status.ssid : wifi.status.saved_ssid;
-  emit('update:modelValue', ssid || null);
+  if (wifi.status.connected) {
+    emit('update:modelValue', wifi.status.ssid || wifi.status.connection_type || null);
+  } else {
+    emit('update:modelValue', wifi.status.saved_ssid || null);
+  }
 });
 
 async function handleConnect(network) {
