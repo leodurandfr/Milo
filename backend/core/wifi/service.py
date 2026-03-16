@@ -103,10 +103,13 @@ class WifiService:
                 ip_address = value.split("/")[0] if value and value != "--" else None
 
         if not connection:
-            return WifiStatus(connected=False)
+            # wlan0 disconnected — check if there's a saved milo-* profile
+            saved = await self._get_saved_ssid()
+            return WifiStatus(connected=False, saved_ssid=saved)
 
         # Get actual SSID and signal from active wifi connection
-        ssid = connection
+        # Strip milo- prefix from connection names we created
+        ssid = connection[5:] if connection.startswith("milo-") else connection
         signal = None
 
         rc2, stdout2, _ = await self._run_nmcli(
@@ -134,21 +137,52 @@ class WifiService:
     async def connect(self, ssid: str, password: Optional[str] = None) -> WifiStatus:
         """Connect to a WiFi network.
 
-        Broadcasts WebSocket events on success or failure.
+        Removes all existing profiles for this SSID (including broken
+        netplan-generated ones), then creates a clean profile with explicit
+        security settings. Broadcasts WebSocket events on success or failure.
         Timeout: 30 seconds.
         """
-        args = ["device", "wifi", "connect", ssid]
-        if password is not None:
-            args.extend(["password", password])
-
         self.logger.info("Connecting to WiFi network: %s", ssid)
 
+        # Remove all existing profiles for this SSID to avoid
+        # 'key-mgmt: property is missing' from stale netplan profiles
+        await self._delete_ssid_profiles(ssid)
+
+        # Create a fresh profile with explicit security settings
+        con_name = f"milo-{ssid}"
+        add_args = [
+            "connection", "add",
+            "type", "wifi",
+            "ifname", "wlan0",
+            "con-name", con_name,
+            "ssid", ssid,
+        ]
+        if password is not None:
+            add_args.extend([
+                "wifi-sec.key-mgmt", "wpa-psk",
+                "wifi-sec.psk", password,
+            ])
+
+        rc, _, stderr = await self._run_nmcli(*add_args)
+        if rc != 0:
+            error_msg = stderr or "Failed to create connection profile"
+            self.logger.error("Failed to create WiFi profile for '%s': %s", ssid, error_msg)
+            await self.state_machine.broadcast_event(
+                category="wifi",
+                event_type="connect_failed",
+                data={"ssid": ssid, "error": error_msg},
+            )
+            raise RuntimeError(f"WiFi connection failed: {error_msg}")
+
+        # Activate the connection
         try:
-            rc, stdout, stderr = await self._run_nmcli(*args, timeout=30.0)
+            rc, stdout, stderr = await self._run_nmcli(
+                "connection", "up", con_name, timeout=30.0
+            )
         except asyncio.TimeoutError:
             await self.state_machine.broadcast_event(
                 category="wifi",
-                type="connect_failed",
+                event_type="connect_failed",
                 data={"ssid": ssid, "error": "Connection timed out"},
             )
             raise RuntimeError(f"WiFi connection to '{ssid}' timed out")
@@ -158,7 +192,7 @@ class WifiService:
             self.logger.error("WiFi connection to '%s' failed: %s", ssid, error_msg)
             await self.state_machine.broadcast_event(
                 category="wifi",
-                type="connect_failed",
+                event_type="connect_failed",
                 data={"ssid": ssid, "error": error_msg},
             )
             raise RuntimeError(f"WiFi connection failed: {error_msg}")
@@ -174,26 +208,20 @@ class WifiService:
 
         await self.state_machine.broadcast_event(
             category="wifi",
-            type="connected",
+            event_type="connected",
             data=status.model_dump(),
         )
 
         return status
 
     async def forget_network(self, ssid: str) -> None:
-        """Forget (delete) a saved WiFi network connection."""
-        rc, _, stderr = await self._run_nmcli("connection", "delete", ssid)
-
-        if rc != 0:
-            error_msg = stderr or "Failed to forget network"
-            self.logger.error("Failed to forget network '%s': %s", ssid, error_msg)
-            raise RuntimeError(f"Failed to forget network: {error_msg}")
-
+        """Forget (delete) all saved WiFi connection profiles for this SSID."""
+        await self._delete_ssid_profiles(ssid)
         self.logger.info("Forgot WiFi network: %s", ssid)
 
         await self.state_machine.broadcast_event(
             category="wifi",
-            type="network_forgotten",
+            event_type="network_forgotten",
             data={"ssid": ssid},
         )
 
@@ -213,7 +241,12 @@ class WifiService:
                 continue
             fields = _parse_nmcli_line(line)
             if len(fields) >= 2 and "wireless" in fields[1]:
-                networks.append(SavedNetwork(ssid=fields[0]))
+                name = fields[0]
+                # Show milo-managed profiles with the SSID as display name
+                if name.startswith("milo-"):
+                    networks.append(SavedNetwork(ssid=name[5:]))
+                elif not name.startswith("netplan-"):
+                    networks.append(SavedNetwork(ssid=name))
 
         return networks
 
@@ -279,6 +312,47 @@ class WifiService:
         )
         if rc != 0:
             raise RuntimeError(f"nmcli hotspot failed: {stderr}")
+
+    async def _get_saved_ssid(self) -> Optional[str]:
+        """Return the SSID of the first milo-managed WiFi profile, or None."""
+        rc, stdout, _ = await self._run_nmcli(
+            "-t", "-f", "NAME,TYPE", "connection", "show"
+        )
+        if rc != 0:
+            return None
+        for line in stdout.split("\n"):
+            if not line:
+                continue
+            fields = _parse_nmcli_line(line)
+            if len(fields) >= 2 and "wireless" in fields[1]:
+                name = fields[0]
+                if name.startswith("milo-"):
+                    return name[5:]
+        return None
+
+    async def _delete_ssid_profiles(self, ssid: str) -> None:
+        """Delete all NM connection profiles matching a given SSID.
+
+        Handles netplan-prefixed names (e.g. 'netplan-wlan0-MySSID') and
+        milo-prefixed names from previous connections.
+        """
+        rc, stdout, _ = await self._run_nmcli(
+            "-t", "-f", "NAME,TYPE", "connection", "show"
+        )
+        if rc != 0:
+            return
+
+        for line in stdout.split("\n"):
+            if not line:
+                continue
+            fields = _parse_nmcli_line(line)
+            if len(fields) < 2 or "wireless" not in fields[1]:
+                continue
+            name = fields[0]
+            if name == ssid or name == f"milo-{ssid}" or f"-{ssid}" in name:
+                rc2, _, _ = await self._run_nmcli("connection", "delete", name)
+                if rc2 == 0:
+                    self.logger.debug("Deleted WiFi profile: %s", name)
 
     async def _delete_hotspot_profile(self) -> None:
         """Remove the Milo-Setup NM connection profile (ignores if missing)."""

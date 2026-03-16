@@ -14,15 +14,17 @@
       </div>
 
       <!-- Current status -->
-      <div v-if="wifi.status.connected" class="wifi-status">
+      <div v-if="wifi.status.connected || wifi.status.saved_ssid" class="wifi-status">
         <div class="wifi-status__info">
-          <span class="heading-3">{{ wifi.status.ssid }}</span>
-          <span class="text-mono wifi-status__detail">
+          <span class="heading-3">{{ wifi.status.connected ? wifi.status.ssid : wifi.status.saved_ssid }}</span>
+          <span v-if="wifi.status.connected" class="text-mono wifi-status__detail">
             <SignalDots :signal="wifi.status.signal" />
             <span class="wifi-status__ip">{{ wifi.status.ip_address }}</span>
           </span>
         </div>
-        <span class="wifi-status__badge text-mono-small">{{ t('wifi.connected') }}</span>
+        <span class="wifi-status__badge text-mono-small" :class="wifi.status.connected ? 'wifi-status__badge--connected' : 'wifi-status__badge--saved'">
+          {{ wifi.status.connected ? t('wifi.connected') : t('wifi.saved') }}
+        </span>
       </div>
 
       <!-- Network list -->
@@ -57,7 +59,10 @@
               <span class="heading-3 network-item__ssid">{{ network.ssid }}</span>
               <span v-if="network.security" class="network-item__lock text-mono-small">{{ network.security }}</span>
             </div>
-            <SignalDots :signal="network.signal" />
+            <div class="network-item__meta">
+              <SignalDots :signal="network.signal" />
+              <span v-if="wifi.savedSsids.has(network.ssid)" class="network-item__saved text-mono-small">{{ t('wifi.saved') }}</span>
+            </div>
           </div>
 
           <!-- Expand: password + connect -->
@@ -108,9 +113,10 @@ const visibleNetworks = computed(() =>
   wifi.networks.filter(n => !n.in_use)
 );
 
-// Emit connected SSID whenever status changes
-watch(() => wifi.status.connected, (connected) => {
-  emit('update:modelValue', connected ? wifi.status.ssid : null);
+// Emit SSID whenever status changes (connected or saved)
+watch(() => [wifi.status.connected, wifi.status.saved_ssid], () => {
+  const ssid = wifi.status.connected ? wifi.status.ssid : wifi.status.saved_ssid;
+  emit('update:modelValue', ssid || null);
 });
 
 async function handleConnect(network) {
@@ -205,8 +211,16 @@ onMounted(() => {
   flex-shrink: 0;
   padding: var(--space-01) var(--space-02);
   border-radius: var(--radius-02);
+}
+
+.wifi-status__badge--connected {
   background: color-mix(in srgb, var(--color-success) 16%, transparent);
   color: var(--color-success);
+}
+
+.wifi-status__badge--saved {
+  background: color-mix(in srgb, var(--color-brand) 16%, transparent);
+  color: var(--color-brand);
 }
 
 /* Network list */
@@ -260,6 +274,17 @@ onMounted(() => {
 .network-item__lock {
   color: var(--color-text-secondary);
   flex-shrink: 0;
+}
+
+.network-item__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-03);
+  flex-shrink: 0;
+}
+
+.network-item__saved {
+  color: var(--color-brand);
 }
 
 /* Expanded connect form */

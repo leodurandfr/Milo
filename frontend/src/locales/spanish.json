@@ -287,6 +287,22 @@
     "ram": "RAM",
     "designedBy": "Aplicación Milō creada por"
   },
+  "wifi": {
+    "title": "WiFi",
+    "connected": "Conectado",
+    "disconnected": "Desconectado",
+    "noConnection": "Sin conexión activa",
+    "knownNetworks": "Redes conocidas",
+    "otherNetworks": "Otras redes",
+    "noNetworks": "No se detectaron redes",
+    "password": "Contraseña",
+    "connect": "Conectar",
+    "connecting": "Conectando...",
+    "connectFailed": "Error de conexión",
+    "forget": "Olvidar",
+    "refresh": "Actualizar",
+    "saved": "Guardado"
+  },
   "applications": {
     "features": "Funcionalidades"
   },

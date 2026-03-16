@@ -301,7 +301,8 @@
     "connecting": "Connexion...",
     "connectFailed": "Échec de la connexion",
     "forget": "Oublier",
-    "refresh": "Actualiser"
+    "refresh": "Actualiser",
+    "saved": "Enregistré"
   },
   "applications": {
     "features": "Fonctionnalités"

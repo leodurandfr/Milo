@@ -5,19 +5,19 @@
     <SettingsSection>
       <div class="wifi-status">
         <div class="wifi-status__info">
-          <span class="heading-3">{{ status.connected ? status.ssid : t('wifi.disconnected') }}</span>
+          <span class="heading-3">{{ status.connected ? status.ssid : status.saved_ssid || t('wifi.disconnected') }}</span>
           <span class="text-mono wifi-status__detail">
             <template v-if="status.connected">
               <SignalDots :signal="status.signal" />
               <span class="wifi-status__ip">{{ status.ip_address }}</span>
             </template>
-            <template v-else>
+            <template v-else-if="!status.saved_ssid">
               {{ t('wifi.noConnection') }}
             </template>
           </span>
         </div>
-        <span class="wifi-status__badge text-mono-small" :class="status.connected ? 'wifi-status__badge--connected' : 'wifi-status__badge--disconnected'">
-          {{ status.connected ? t('wifi.connected') : t('wifi.disconnected') }}
+        <span class="wifi-status__badge text-mono-small" :class="status.connected ? 'wifi-status__badge--connected' : status.saved_ssid ? 'wifi-status__badge--saved' : 'wifi-status__badge--disconnected'">
+          {{ status.connected ? t('wifi.connected') : status.saved_ssid ? t('wifi.saved') : t('wifi.disconnected') }}
         </span>
       </div>
     </SettingsSection>
@@ -47,7 +47,8 @@
               @click.stop="forgetNetwork(network.ssid)">
               {{ t('wifi.forget') }}
             </button>
-            <span v-else class="network-item__connected text-mono-small">{{ t('wifi.connected') }}</span>
+            <span v-if="network.in_use" class="network-item__connected text-mono-small">{{ t('wifi.connected') }}</span>
+            <span v-else-if="savedSsids.has(network.ssid)" class="network-item__saved text-mono-small">{{ t('wifi.saved') }}</span>
           </div>
         </div>
 
@@ -132,6 +133,7 @@ const { t } = useI18n();
 
 const {
   status,
+  savedSsids,
   loading,
   scanning,
   connecting,
@@ -187,6 +189,11 @@ onMounted(() => {
 .wifi-status__badge--connected {
   background: color-mix(in srgb, var(--color-success) 16%, transparent);
   color: var(--color-success);
+}
+
+.wifi-status__badge--saved {
+  background: color-mix(in srgb, var(--color-brand) 16%, transparent);
+  color: var(--color-brand);
 }
 
 .wifi-status__badge--disconnected {
@@ -258,6 +265,10 @@ onMounted(() => {
 
 .network-item__connected {
   color: var(--color-success);
+}
+
+.network-item__saved {
+  color: var(--color-brand);
 }
 
 /* Expanded connect form */

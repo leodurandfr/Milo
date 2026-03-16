@@ -287,6 +287,22 @@
     "ram": "RAM",
     "designedBy": "Milō ऐप द्वारा निर्मित"
   },
+  "wifi": {
+    "title": "WiFi",
+    "connected": "कनेक्टेड",
+    "disconnected": "डिस्कनेक्टेड",
+    "noConnection": "कोई सक्रिय कनेक्शन नहीं",
+    "knownNetworks": "ज्ञात नेटवर्क",
+    "otherNetworks": "अन्य नेटवर्क",
+    "noNetworks": "कोई नेटवर्क नहीं मिला",
+    "password": "पासवर्ड",
+    "connect": "कनेक्ट करें",
+    "connecting": "कनेक्ट हो रहा है...",
+    "connectFailed": "कनेक्शन विफल",
+    "forget": "भूल जाएं",
+    "refresh": "रीफ़्रेश",
+    "saved": "सहेजा गया"
+  },
   "applications": {
     "features": "सुविधाएं"
   },

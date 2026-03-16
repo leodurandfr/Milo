@@ -19,6 +19,7 @@ class WifiStatus(BaseModel):
     ssid: Optional[str] = None
     ip_address: Optional[str] = None
     signal: Optional[int] = None
+    saved_ssid: Optional[str] = None
 
 
 class WifiConnectRequest(BaseModel):
