@@ -13,20 +13,21 @@
         {{ hotspotActive ? t('setup.wifi.hotspotBanner') : t('setup.wifi.hotspotWarning') }}
       </div>
 
-      <!-- Current status -->
-      <div v-if="isConnected || wifi.status.wifi.saved_ssid" class="wifi-status">
+      <!-- Ethernet status (minimal) -->
+      <div v-if="wifi.status.ethernet.connected" class="ethernet-status">
+        <SvgIcon name="network" :size="20" />
+        <span class="text-mono">{{ t('network.ethernet') }}</span>
+        <span class="ethernet-badge text-mono-small">{{ t('network.connected') }}</span>
+      </div>
+
+      <!-- Current WiFi status -->
+      <div v-if="wifi.status.wifi.connected" class="wifi-status">
         <div class="wifi-status__info">
-          <span class="heading-3">{{ connectionLabel }}</span>
-          <span v-if="wifi.status.wifi.connected" class="text-mono wifi-status__detail">
-            <SignalDots :signal="wifi.status.wifi.signal" />
-            <span class="wifi-status__ip">{{ wifi.status.wifi.ip_address }}</span>
-          </span>
-          <span v-else-if="wifi.status.ethernet.connected" class="text-mono wifi-status__detail">
-            <span class="wifi-status__ip">{{ wifi.status.ethernet.ip_address }}</span>
-          </span>
+          <WifiSignal :signal="wifi.status.wifi.signal" :size="20" />
+          <span class="heading-3">{{ wifi.status.wifi.ssid }}</span>
         </div>
-        <span class="wifi-status__badge text-mono-small" :class="isConnected ? 'wifi-status__badge--connected' : 'wifi-status__badge--saved'">
-          {{ isConnected ? t('network.connected') : t('network.saved') }}
+        <span class="wifi-status__badge text-mono-small wifi-status__badge--connected">
+          {{ t('network.connected') }}
         </span>
       </div>
 
@@ -42,8 +43,8 @@
         </div>
 
         <!-- Skeletons -->
-        <template v-if="wifi.loading">
-          <div v-for="i in 4" :key="'sk-' + i" class="network-skeleton">
+        <template v-if="(wifi.loading || wifi.scanning) && visibleNetworks.length === 0">
+          <div v-for="i in 3" :key="'sk-' + i" class="network-skeleton">
             <div class="skeleton-text-line shimmer" :style="{ width: (80 + i * 20) + 'px' }"></div>
             <div class="skeleton-text-line shimmer" style="width: 40px"></div>
           </div>
@@ -59,13 +60,11 @@
           @click="wifi.selectNetwork(network)">
           <div class="network-item__row">
             <div class="network-item__ssid-row">
-              <span class="heading-3 network-item__ssid">{{ network.ssid }}</span>
-              <span v-if="network.security" class="network-item__lock text-mono-small">{{ network.security }}</span>
+              <WifiSignal :signal="network.signal" :size="24" />
+              <span class="text-body network-item__ssid">{{ network.ssid }}</span>
             </div>
-            <div class="network-item__meta">
-              <SignalDots :signal="network.signal" />
-              <span v-if="wifi.savedSsids.has(network.ssid)" class="network-item__saved text-mono-small">{{ t('network.saved') }}</span>
-            </div>
+            <SvgIcon name="caretDown" :size="24" color="var(--color-text-light)"
+              class="network-item__caret" :class="{ 'network-item__caret--open': wifi.selectedSsid === network.ssid }" />
           </div>
 
           <!-- Expand: password + connect -->
@@ -89,9 +88,10 @@
 import { reactive, ref, computed, onMounted, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useWifi } from '@/composables/useWifi';
-import SignalDots from '@/components/settings/categories/wifi/SignalDots.vue';
+import WifiSignal from '@/components/settings/categories/wifi/WifiSignal.vue';
 import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
+import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const { t } = useI18n();
 const wifi = reactive(useWifi());
@@ -110,16 +110,6 @@ const props = defineProps({
 });
 
 const wifiConfigured = ref(false);
-
-const isConnected = computed(() =>
-  wifi.status.wifi.connected || wifi.status.ethernet.connected
-);
-
-const connectionLabel = computed(() => {
-  if (wifi.status.ethernet.connected) return t('network.ethernet');
-  if (wifi.status.wifi.connected) return wifi.status.wifi.ssid;
-  return wifi.status.wifi.saved_ssid;
-});
 
 // Show all networks except the currently connected one
 const visibleNetworks = computed(() =>
@@ -197,7 +187,26 @@ onMounted(() => {
   line-height: 1.4;
 }
 
-/* Status card */
+/* Ethernet status (minimal line) */
+.ethernet-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-03);
+  padding: var(--space-03) var(--space-04);
+  background: var(--color-background);
+  border-radius: var(--radius-04);
+}
+
+.ethernet-badge {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: var(--space-01) var(--space-02);
+  border-radius: var(--radius-02);
+  background: color-mix(in srgb, var(--color-success) 16%, transparent);
+  color: var(--color-success);
+}
+
+/* WiFi status card */
 .wifi-status {
   display: flex;
   justify-content: space-between;
@@ -210,19 +219,9 @@ onMounted(() => {
 
 .wifi-status__info {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-01);
-}
-
-.wifi-status__detail {
-  color: var(--color-text-secondary);
-  display: flex;
   align-items: center;
   gap: var(--space-03);
-}
-
-.wifi-status__ip {
-  color: var(--color-text-secondary);
+  min-width: 0;
 }
 
 .wifi-status__badge {
@@ -234,11 +233,6 @@ onMounted(() => {
 .wifi-status__badge--connected {
   background: color-mix(in srgb, var(--color-success) 16%, transparent);
   color: var(--color-success);
-}
-
-.wifi-status__badge--saved {
-  background: color-mix(in srgb, var(--color-brand) 16%, transparent);
-  color: var(--color-brand);
 }
 
 /* Network list */
@@ -262,7 +256,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--space-03);
-  padding: var(--space-03) var(--space-04);
+  padding: var(--space-03);
   border-radius: var(--radius-04);
   background: var(--color-background);
   cursor: pointer;
@@ -279,7 +273,7 @@ onMounted(() => {
 .network-item__ssid-row {
   display: flex;
   align-items: center;
-  gap: var(--space-02);
+  gap: var(--space-03);
   min-width: 0;
 }
 
@@ -289,20 +283,14 @@ onMounted(() => {
   white-space: nowrap;
 }
 
-.network-item__lock {
-  color: var(--color-text-secondary);
+.network-item__caret {
   flex-shrink: 0;
+  transform: rotate(-90deg);
+  transition: transform var(--transition-fast);
 }
 
-.network-item__meta {
-  display: flex;
-  align-items: center;
-  gap: var(--space-03);
-  flex-shrink: 0;
-}
-
-.network-item__saved {
-  color: var(--color-brand);
+.network-item__caret--open {
+  transform: rotate(-180deg);
 }
 
 /* Expanded connect form */
@@ -329,7 +317,8 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: var(--space-03) var(--space-04);
+  height: 48px;
+  padding: 0 var(--space-04);
   border-radius: var(--radius-04);
   background: var(--color-background);
 }
