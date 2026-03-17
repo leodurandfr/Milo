@@ -86,6 +86,17 @@ jobs:
           sudo ln -sf /usr/bin/qemu-arm-static /usr/bin/qemu-arm 2>/dev/null || true
           sudo ln -sf /usr/bin/qemu-aarch64-static /usr/bin/qemu-aarch64 2>/dev/null || true
 
+          # Clean apt cache inside rootfs at end of stage2 to free space before stage-milo
+          mkdir -p pi-gen-build/stage2/99-cleanup
+          cat > pi-gen-build/stage2/99-cleanup/00-run.sh << 'SCRIPT'
+#!/bin/bash -e
+on_chroot << CHROOT
+apt-get clean
+rm -rf /var/cache/apt/archives/*.deb
+CHROOT
+SCRIPT
+          chmod +x pi-gen-build/stage2/99-cleanup/00-run.sh
+
       - name: Build image
         run: |
           cd pi-gen-build
