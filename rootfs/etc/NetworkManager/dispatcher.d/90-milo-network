@@ -18,6 +18,7 @@ INTERFACE=$1
 ACTION=$2
 AVAHI_CONF="/etc/avahi/avahi-daemon.conf"
 AVAHI_STATE_FILE="/var/lib/milo/avahi-interface"
+HOTSPOT_CON_NAME="Milō"
 
 # Get current Avahi interface configuration
 get_avahi_interface() {
@@ -32,6 +33,12 @@ has_ip() {
 # Check if eth0 has carrier (cable connected) - means it's connecting or connected
 eth0_has_carrier() {
     [ "$(cat /sys/class/net/eth0/carrier 2>/dev/null)" = "1" ]
+}
+
+# Get the active NM connection name on wlan0
+get_wlan0_connection() {
+    nmcli -t -f NAME,DEVICE connection show --active 2>/dev/null | \
+        grep ":wlan0$" | cut -d: -f1
 }
 
 # Update Avahi interface - writes to state file then restarts Avahi
@@ -56,8 +63,9 @@ case "$INTERFACE" in
             up)
                 # Ethernet is now up - this is the preferred interface
 
-                # 1. Disconnect WiFi to avoid conflicts
-                if nmcli device status 2>/dev/null | grep -q "^wlan0.*connected"; then
+                # 1. Disconnect WiFi unless hotspot is active (managed by backend)
+                active_conn=$(get_wlan0_connection)
+                if [ -n "$active_conn" ] && [ "$active_conn" != "$HOTSPOT_CON_NAME" ]; then
                     nmcli device disconnect wlan0 2>/dev/null
                 fi
 
@@ -76,8 +84,12 @@ case "$INTERFACE" in
         case "$ACTION" in
             up)
                 # WiFi is now up - only use it if eth0 is not available
-                # Check both IP AND carrier (cable connected = eth0 is coming up)
-                if has_ip eth0 || eth0_has_carrier; then
+                active_conn=$(get_wlan0_connection)
+
+                if [ "$active_conn" = "$HOTSPOT_CON_NAME" ]; then
+                    # Hotspot is managed by the backend - do not disconnect
+                    set_avahi_interface "wlan0"
+                elif has_ip eth0 || eth0_has_carrier; then
                     # Ethernet is active or coming up - disconnect WiFi
                     nmcli device disconnect wlan0 2>/dev/null
                 else
