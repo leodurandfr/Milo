@@ -95,6 +95,9 @@ jobs:
 
       - name: Compress image
         run: |
+          # pi-gen outputs as root — fix permissions first
+          sudo chown -R runner:runner pi-gen-build/deploy/
+
           # pi-gen outputs a .zip — extract the .img first
           ZIP=$(ls pi-gen-build/deploy/*.zip 2>/dev/null | head -1)
           if [ -n "$ZIP" ]; then
