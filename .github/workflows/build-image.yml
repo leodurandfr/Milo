@@ -88,13 +88,7 @@ jobs:
 
           # Clean apt cache inside rootfs at end of stage2 to free space before stage-milo
           mkdir -p pi-gen-build/stage2/99-cleanup
-          cat > pi-gen-build/stage2/99-cleanup/00-run.sh << 'SCRIPT'
-#!/bin/bash -e
-on_chroot << CHROOT
-apt-get clean
-rm -rf /var/cache/apt/archives/*.deb
-CHROOT
-SCRIPT
+          printf '#!/bin/bash -e\non_chroot << CHROOT\napt-get clean\nrm -rf /var/cache/apt/archives/*.deb\nCHROOT\n' > pi-gen-build/stage2/99-cleanup/00-run.sh
           chmod +x pi-gen-build/stage2/99-cleanup/00-run.sh
 
       - name: Build image
