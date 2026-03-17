@@ -464,17 +464,51 @@ install_readiness_script() {
 install_apply_hardware_script() {
     log_info "Installing hardware apply script..."
 
-    # Copy apply-hardware script to /usr/local/bin/
     sudo cp "$MILO_APP_DIR/rootfs/usr/local/bin/milo-apply-hardware" /usr/local/bin/milo-apply-hardware
     sudo chmod +x /usr/local/bin/milo-apply-hardware
 
-    # Create sudoers rule so milo user can run it without password
-    sudo tee /etc/sudoers.d/milo-hardware > /dev/null << 'EOF'
+    # Remove legacy sudoers file if present
+    sudo rm -f /etc/sudoers.d/milo-hardware
+
+    # Consolidated sudoers for all backend sudo operations
+    sudo tee /etc/sudoers.d/milo-backend > /dev/null << 'EOF'
+# System control
+milo ALL=(root) NOPASSWD: /usr/bin/systemctl
+milo ALL=(root) NOPASSWD: /usr/bin/hostnamectl
+milo ALL=(root) NOPASSWD: /usr/sbin/reboot
+milo ALL=(root) NOPASSWD: /usr/sbin/poweroff
+# File operations (snapcast config, update service)
+milo ALL=(root) NOPASSWD: /usr/bin/mv
+milo ALL=(root) NOPASSWD: /usr/bin/cp
+milo ALL=(root) NOPASSWD: /usr/bin/mkdir
+milo ALL=(root) NOPASSWD: /usr/bin/chmod
+milo ALL=(root) NOPASSWD: /usr/bin/chown
+# Package management (update service, SETENV for DEBIAN_FRONTEND passthrough)
+milo ALL=(root) NOPASSWD: SETENV: /usr/bin/apt
+milo ALL=(root) NOPASSWD: SETENV: /usr/bin/apt-get
+milo ALL=(root) NOPASSWD: SETENV: /usr/bin/dpkg
+# Build tools (shairport-sync update)
+milo ALL=(root) NOPASSWD: /usr/bin/make
+# Device management (update service)
+milo ALL=(root) NOPASSWD: /usr/sbin/udevadm
+# Hardware configuration
 milo ALL=(root) NOPASSWD: /usr/local/bin/milo-apply-hardware
 EOF
-    sudo chmod 0440 /etc/sudoers.d/milo-hardware
+    sudo visudo -c -f /etc/sudoers.d/milo-backend || { echo "FATAL: sudoers syntax error"; exit 1; }
+    sudo chmod 0440 /etc/sudoers.d/milo-backend
 
-    log_success "Hardware apply script installed with sudoers rule"
+    log_success "Hardware apply script and sudoers installed"
+}
+
+install_polkit_rules() {
+    log_info "Installing PolicyKit rules for NetworkManager..."
+
+    sudo mkdir -p /etc/polkit-1/rules.d
+    sudo cp "$MILO_APP_DIR/rootfs/etc/polkit-1/rules.d/50-milo-networkmanager.rules" \
+        /etc/polkit-1/rules.d/50-milo-networkmanager.rules
+    sudo chmod 0644 /etc/polkit-1/rules.d/50-milo-networkmanager.rules
+
+    log_success "PolicyKit rules installed"
 }
 
 install_seatd() {
@@ -1245,6 +1279,7 @@ main() {
 
    install_readiness_script
    install_apply_hardware_script
+   install_polkit_rules
    create_systemd_services
    configure_journald
    install_udev_rules

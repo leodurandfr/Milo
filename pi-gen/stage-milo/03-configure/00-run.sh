@@ -115,11 +115,32 @@ CHROOT
 # ── Sudoers ───────────────────────────────────────────────────────────────────
 
 on_chroot << 'CHROOT'
-# Server hardware apply
-tee /etc/sudoers.d/milo-hardware > /dev/null << 'EOF'
+# Consolidated sudoers for the milo backend service
+tee /etc/sudoers.d/milo-backend > /dev/null << 'EOF'
+# System control
+milo ALL=(root) NOPASSWD: /usr/bin/systemctl
+milo ALL=(root) NOPASSWD: /usr/bin/hostnamectl
+milo ALL=(root) NOPASSWD: /usr/sbin/reboot
+milo ALL=(root) NOPASSWD: /usr/sbin/poweroff
+# File operations (snapcast config, update service)
+milo ALL=(root) NOPASSWD: /usr/bin/mv
+milo ALL=(root) NOPASSWD: /usr/bin/cp
+milo ALL=(root) NOPASSWD: /usr/bin/mkdir
+milo ALL=(root) NOPASSWD: /usr/bin/chmod
+milo ALL=(root) NOPASSWD: /usr/bin/chown
+# Package management (update service, SETENV for DEBIAN_FRONTEND passthrough)
+milo ALL=(root) NOPASSWD: SETENV: /usr/bin/apt
+milo ALL=(root) NOPASSWD: SETENV: /usr/bin/apt-get
+milo ALL=(root) NOPASSWD: SETENV: /usr/bin/dpkg
+# Build tools (shairport-sync update)
+milo ALL=(root) NOPASSWD: /usr/bin/make
+# Device management (update service)
+milo ALL=(root) NOPASSWD: /usr/sbin/udevadm
+# Hardware configuration
 milo ALL=(root) NOPASSWD: /usr/local/bin/milo-apply-hardware
 EOF
-chmod 0440 /etc/sudoers.d/milo-hardware
+visudo -c -f /etc/sudoers.d/milo-backend || { echo "FATAL: sudoers syntax error"; exit 1; }
+chmod 0440 /etc/sudoers.d/milo-backend
 
 # Client sudoers (if exists)
 if [ -f /home/milo/milo/milo-client/rootfs/etc/sudoers.d/milo-client ]; then

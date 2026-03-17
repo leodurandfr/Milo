@@ -283,6 +283,15 @@ mkdir -p /etc/NetworkManager/dnsmasq-shared.d
 cp /home/milo/milo/rootfs/etc/NetworkManager/dnsmasq-shared.d/milo-captive.conf /etc/NetworkManager/dnsmasq-shared.d/
 CHROOT
 
+# ── PolicyKit rules ───────────────────────────────────────────────────────────
+
+on_chroot << 'CHROOT'
+mkdir -p /etc/polkit-1/rules.d
+cp /home/milo/milo/rootfs/etc/polkit-1/rules.d/50-milo-networkmanager.rules \
+    /etc/polkit-1/rules.d/50-milo-networkmanager.rules
+chmod 0644 /etc/polkit-1/rules.d/50-milo-networkmanager.rules
+CHROOT
+
 # ── Bluetooth device name ────────────────────────────────────────────────────
 
 on_chroot << 'CHROOT'
