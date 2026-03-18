@@ -1,111 +1,105 @@
 <!-- frontend/src/components/setup/WifiStep.vue -->
 <template>
   <div class="wifi-step">
-    <!-- Post-connection message (hotspot mode: connection will drop) -->
-    <div v-if="wifiConfigured" class="wifi-configured">
-      <span class="heading-3 wifi-configured__title">{{ t('setup.wifi.hotspotConfigured') }}</span>
-      <span class="text-mono-small wifi-configured__detail">{{ t('setup.wifi.hotspotConfiguredDetail') }}</span>
+    <!-- Connection status card -->
+    <div class="connection-section">
+      <template v-if="loading">
+        <!-- Skeleton rows -->
+        <div class="connection-row">
+          <div class="skeleton-icon shimmer"></div>
+          <div class="skeleton-text-line shimmer" style="width: 70px"></div>
+          <div class="skeleton-text-line shimmer connection-badge-skeleton"></div>
+        </div>
+        <div class="connection-row connection-row--wifi">
+          <div class="skeleton-icon shimmer"></div>
+          <div class="skeleton-text-line shimmer" style="width: 50px"></div>
+          <div class="skeleton-text-line shimmer connection-badge-skeleton"></div>
+        </div>
+      </template>
+
+      <template v-else>
+        <!-- Ethernet row -->
+        <div class="connection-row">
+          <SvgIcon name="network" :size="24" />
+          <span class="text-body">{{ t('network.ethernet') }}</span>
+          <span class="connection-badge text-mono-small"
+            :class="status.ethernet.connected ? 'connection-badge--connected' : 'connection-badge--disconnected'">
+            {{ status.ethernet.connected ? t('network.connected') : t('network.notConnected') }}
+          </span>
+        </div>
+
+        <!-- WiFi row (always visible) -->
+        <div class="connection-row connection-row--wifi">
+          <WifiSignal :signal="wifiCardSignal" :size="24" />
+          <span class="text-body">{{ wifiDisplaySsid || t('setup.summary.wifi') }}</span>
+          <span class="connection-badge text-mono-small" :class="wifiBadgeClass">
+            {{ wifiBadgeLabel }}
+          </span>
+        </div>
+      </template>
     </div>
 
-    <template v-else>
-      <!-- Connection status card -->
-      <div class="connection-section">
-        <template v-if="loading">
-          <!-- Skeleton rows -->
-          <div class="connection-row">
-            <div class="skeleton-icon shimmer"></div>
-            <div class="skeleton-text-line shimmer" style="width: 70px"></div>
-            <div class="skeleton-text-line shimmer connection-badge-skeleton"></div>
-          </div>
-          <div class="connection-row connection-row--wifi">
-            <div class="skeleton-icon shimmer"></div>
-            <div class="skeleton-text-line shimmer" style="width: 50px"></div>
-            <div class="skeleton-text-line shimmer connection-badge-skeleton"></div>
-          </div>
-        </template>
+    <!-- Banner: only when no connection at all (hotspot / first boot) -->
+    <div v-if="!status.ethernet.connected && !wifiDisplaySsid" class="wifi-banner text-mono-small" :class="{ 'wifi-banner--hotspot': hotspotActive }">
+      {{ hotspotActive ? t('setup.wifi.hotspotBanner') : t('setup.wifi.hotspotWarning') }}
+    </div>
 
-        <template v-else>
-          <!-- Ethernet row -->
-          <div class="connection-row">
-            <SvgIcon name="network" :size="24" />
-            <span class="text-body">{{ t('network.ethernet') }}</span>
-            <span class="connection-badge text-mono-small"
-              :class="status.ethernet.connected ? 'connection-badge--connected' : 'connection-badge--disconnected'">
-              {{ status.ethernet.connected ? t('network.connected') : t('network.notConnected') }}
-            </span>
-          </div>
+    <!-- Network list -->
+    <div class="wifi-networks">
+      <span class="text-mono wifi-networks__label">{{ t('network.wifiNetworks') }}</span>
 
-          <!-- WiFi row (visible when SSID is known) -->
-          <div v-if="wifiDisplaySsid" class="connection-row connection-row--wifi">
-            <WifiSignal :signal="wifiCardSignal" :size="24" />
-            <span class="text-body">{{ wifiDisplaySsid }}</span>
-            <span class="connection-badge text-mono-small" :class="wifiBadgeClass">
-              {{ wifiBadgeLabel }}
-            </span>
-          </div>
-        </template>
+      <!-- Skeletons -->
+      <template v-if="(loading || scanning) && visibleNetworks.length === 0">
+        <div v-for="i in 3" :key="'sk-' + i" class="network-skeleton">
+          <div class="skeleton-text-line shimmer" :style="{ width: (80 + i * 20) + 'px' }"></div>
+          <div class="skeleton-text-line shimmer" style="width: 40px"></div>
+        </div>
+      </template>
+
+      <!-- Empty state -->
+      <div v-else-if="visibleNetworks.length === 0" class="wifi-empty text-mono">
+        {{ t('network.noNetworks') }}
       </div>
 
-      <!-- Banner: only when no connection at all (hotspot / first boot) -->
-      <div v-if="!status.ethernet.connected && !wifiDisplaySsid" class="wifi-banner text-mono-small" :class="{ 'wifi-banner--hotspot': hotspotActive }">
-        {{ hotspotActive ? t('setup.wifi.hotspotBanner') : t('setup.wifi.hotspotWarning') }}
-      </div>
-
-      <!-- Network list -->
-      <div class="wifi-networks">
-        <span class="text-mono wifi-networks__label">{{ t('network.wifiNetworks') }}</span>
-
-        <!-- Skeletons -->
-        <template v-if="(loading || scanning) && visibleNetworks.length === 0">
-          <div v-for="i in 3" :key="'sk-' + i" class="network-skeleton">
-            <div class="skeleton-text-line shimmer" :style="{ width: (80 + i * 20) + 'px' }"></div>
-            <div class="skeleton-text-line shimmer" style="width: 40px"></div>
+      <!-- Networks -->
+      <div v-for="network in visibleNetworks" :key="network.ssid" class="network-item"
+        @click="selectNetwork(network)">
+        <div class="network-item__row">
+          <div class="network-item__ssid-row">
+            <WifiSignal :signal="network.signal" :size="24" />
+            <span class="text-body network-item__ssid">{{ network.ssid }}</span>
           </div>
-        </template>
-
-        <!-- Empty state -->
-        <div v-else-if="visibleNetworks.length === 0" class="wifi-empty text-mono">
-          {{ t('network.noNetworks') }}
+          <SvgIcon name="caretDown" :size="24" color="var(--color-text-light)"
+            class="network-item__caret" :class="{ 'network-item__caret--open': selectedSsid === network.ssid }" />
         </div>
 
-        <!-- Networks -->
-        <div v-for="network in visibleNetworks" :key="network.ssid" class="network-item"
-          @click="selectNetwork(network)">
-          <div class="network-item__row">
-            <div class="network-item__ssid-row">
-              <WifiSignal :signal="network.signal" :size="24" />
-              <span class="text-body network-item__ssid">{{ network.ssid }}</span>
-            </div>
-            <SvgIcon name="caretDown" :size="24" color="var(--color-text-light)"
-              class="network-item__caret" :class="{ 'network-item__caret--open': selectedSsid === network.ssid }" />
-          </div>
-
-          <!-- Expand: password + connect -->
-          <div v-if="selectedSsid === network.ssid" class="network-item__expand" @click.stop>
-            <InputText v-if="network.security" v-model="password" type="password"
-              :placeholder="t('network.password')" @submit="handleConnect(network)" />
-            <Button variant="brand" :loading="connecting"
-              :disabled="connecting || (network.security && !password)"
-              @click="handleConnect(network)">
-              {{ connecting ? t('network.connecting') : t('network.connect') }}
-            </Button>
-            <span v-if="connectError" class="wifi-error text-mono-small">{{ connectError }}</span>
-          </div>
+        <!-- Expand: password + connect -->
+        <div v-if="selectedSsid === network.ssid" class="network-item__expand" @click.stop>
+          <InputText v-if="network.security" v-model="password" type="password"
+            :placeholder="t('network.password')" @submit="handleConnect(network)" />
+          <Button variant="brand" :loading="connecting"
+            :disabled="connecting || (network.security && !password)"
+            @click="handleConnect(network)">
+            {{ connecting
+              ? (hotspotActive ? t('network.saving') : t('network.connecting'))
+              : (hotspotActive ? t('network.save') : t('network.connect')) }}
+          </Button>
+          <span v-if="connectError" class="wifi-error text-mono-small">{{ connectError }}</span>
         </div>
-
-        <!-- Refresh button -->
-        <Button variant="background-strong" size="medium" left-icon="arrowsClockwise"
-          :loading="scanning" :disabled="scanning"
-          @click="scanNetworks">
-          {{ t('network.refresh') }}
-        </Button>
       </div>
-    </template>
+
+      <!-- Refresh button -->
+      <Button variant="background-strong" size="medium" left-icon="arrowsClockwise"
+        :loading="scanning" :disabled="scanning"
+        @click="scanNetworks">
+        {{ t('network.refresh') }}
+      </Button>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { computed, onMounted, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useWifi } from '@/composables/useWifi';
 import WifiSignal from '@/components/settings/categories/wifi/WifiSignal.vue';
@@ -127,6 +121,7 @@ const {
   selectNetwork,
   scanNetworks,
   connectToNetwork,
+  saveNetwork,
   initialize,
 } = useWifi();
 
@@ -143,8 +138,6 @@ const props = defineProps({
   },
 });
 
-const wifiConfigured = ref(false);
-
 // WiFi display: connected SSID or saved SSID (ready when ethernet takes over)
 const wifiDisplaySsid = computed(() =>
   status.value.wifi.ssid || status.value.wifi.saved_ssid
@@ -158,13 +151,13 @@ const wifiCardSignal = computed(() => {
 
 const wifiBadgeClass = computed(() => {
   if (status.value.wifi.connected) return 'connection-badge--connected';
-  if (status.value.ethernet.connected && wifiDisplaySsid.value) return 'connection-badge--ready';
+  if (wifiDisplaySsid.value) return 'connection-badge--ready';
   return 'connection-badge--disconnected';
 });
 
 const wifiBadgeLabel = computed(() => {
   if (status.value.wifi.connected) return t('network.connected');
-  if (status.value.ethernet.connected && wifiDisplaySsid.value) return t('network.ready');
+  if (wifiDisplaySsid.value) return t('network.ready');
   return t('network.notConnected');
 });
 
@@ -185,15 +178,8 @@ watch(() => [status.value.wifi.connected, status.value.wifi.saved_ssid], () => {
 
 async function handleConnect(network) {
   if (props.hotspotActive) {
-    // On hotspot: the connect call will likely error because wlan0 switches
-    // from AP to STA mode, dropping our connection. Treat any outcome as success.
-    try {
-      await connectToNetwork(network, t);
-    } catch {
-      // Expected: connection dropped during AP→STA switch
-    }
-    wifiConfigured.value = true;
-    emit('update:modelValue', network.ssid);
+    // Save credentials without connecting — hotspot stays active
+    await saveNetwork(network, t);
   } else {
     await connectToNetwork(network, t);
   }
@@ -222,25 +208,6 @@ onMounted(() => {
 .wifi-banner--hotspot {
   background: color-mix(in srgb, var(--color-brand) 10%, transparent);
   color: var(--color-text-primary);
-}
-
-/* Post-connection confirmation */
-.wifi-configured {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-03);
-  padding: var(--space-06) var(--space-04);
-  text-align: center;
-}
-
-.wifi-configured__title {
-  color: var(--color-success);
-}
-
-.wifi-configured__detail {
-  color: var(--color-text-secondary);
-  line-height: 1.4;
 }
 
 /* Connection status card (grouped ethernet + wifi) */

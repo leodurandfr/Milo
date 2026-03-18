@@ -42,6 +42,11 @@
       </div>
     </div>
 
+    <!-- milo.local access hint -->
+    <div v-if="wifiSsid" class="summary-hint text-mono-small">
+      {{ t('setup.summary.accessHint', { ssid: wifiSsid }) }}
+    </div>
+
     <p v-if="error" class="text-mono error-message">{{ error }}</p>
 
     <p v-if="isRebooting" class="text-mono text-secondary">
@@ -148,6 +153,14 @@ const flagIcon = computed(() => flagIcons[props.languageCode] || null);
   width: 32px;
   height: 32px;
   flex-shrink: 0;
+}
+
+.summary-hint {
+  color: var(--color-text-secondary);
+  padding: var(--space-03) var(--space-04);
+  background: color-mix(in srgb, var(--color-brand) 10%, transparent);
+  border-radius: var(--radius-04);
+  line-height: 1.4;
 }
 
 .error-message {

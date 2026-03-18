@@ -34,6 +34,13 @@ def create_wifi_router(wifi_service):
             status = await wifi_service.connect(request.ssid, request.password)
             return {"status": "success", "data": status.model_dump()}
 
+    @router.post("/save")
+    async def save_network(request: WifiConnectRequest):
+        """Save WiFi credentials without connecting (for hotspot setup mode)."""
+        async with api_error_handler("WiFi save", logger):
+            await wifi_service.save_network(request.ssid, request.password)
+            return {"status": "success", "data": {"ssid": request.ssid}}
+
     @router.delete("/saved/{ssid}")
     async def forget_network(ssid: str):
         """Forget a saved WiFi network."""

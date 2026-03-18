@@ -114,6 +114,41 @@ class WifiService:
             raise RuntimeError(f"Failed to set WiFi radio {state}: {stderr}")
         self.logger.info("WiFi radio set to %s", state)
 
+    async def save_network(self, ssid: str, password: Optional[str] = None) -> None:
+        """Save WiFi credentials without connecting.
+
+        Creates a NM profile for the given SSID so NetworkManager will
+        auto-connect on next boot.  The current connection (e.g. hotspot)
+        is left untouched.
+        """
+        async with self._connect_lock:
+            self.logger.info("Saving WiFi network: %s", ssid)
+
+            await self._delete_ssid_profiles(ssid)
+
+            con_name = f"milo-{ssid}"
+            add_args = [
+                "connection", "add",
+                "type", "wifi",
+                "ifname", self.WIFI_INTERFACE,
+                "con-name", con_name,
+                "ssid", ssid,
+            ]
+            if password is not None:
+                add_args.extend([
+                    "wifi-sec.key-mgmt", "wpa-psk",
+                    "wifi-sec.psk", password,
+                    "wifi-sec.psk-flags", "0",
+                ])
+
+            rc, _, stderr = await self._run_nmcli(*add_args)
+            if rc != 0:
+                error_msg = stderr or "Failed to create connection profile"
+                self.logger.error("Failed to save WiFi profile for '%s': %s", ssid, error_msg)
+                raise RuntimeError(f"WiFi save failed: {error_msg}")
+
+            self.logger.info("WiFi profile saved for '%s' (will connect on next boot)", ssid)
+
     async def connect(self, ssid: str, password: Optional[str] = None) -> NetworkStatus:
         """Connect to a WiFi network.
 
@@ -132,6 +167,12 @@ class WifiService:
         # Disconnect WiFi device first to ensure clean state — an active
         # connection prevents its profile from being fully removed by NM
         await self._run_nmcli("device", "disconnect", self.WIFI_INTERFACE)
+
+        # Delete hotspot profile early to prevent NM from auto-reconnecting
+        # to the AP while we switch to STA mode
+        if self._hotspot_active:
+            self._hotspot_active = False
+            await self._delete_hotspot_profile()
 
         # Remove all existing profiles for this SSID to avoid stale profiles
         await self._delete_ssid_profiles(ssid)
@@ -188,11 +229,6 @@ class WifiService:
             raise RuntimeError(f"WiFi connection failed: {error_msg}")
 
         self.logger.info("Successfully connected to WiFi: %s", ssid)
-
-        # Clean up hotspot profile if it was active
-        if self._hotspot_active:
-            self._hotspot_active = False
-            await self._delete_hotspot_profile()
 
         status = await self.get_network_status()
 
@@ -251,6 +287,8 @@ class WifiService:
         """
         setup_completed = bool(await settings_service.get_setting("setup_completed"))
         if setup_completed:
+            # Clean up stale hotspot profile from a previous setup session
+            await self._delete_hotspot_profile()
             return False
 
         if await self._has_active_connection():
@@ -289,19 +327,32 @@ class WifiService:
         return False
 
     async def _activate_hotspot(self) -> None:
-        """Create and activate NetworkManager hotspot."""
+        """Create and activate an open (no password) NetworkManager hotspot."""
         # Clean up any stale profile from a previous crashed run
         await self._delete_hotspot_profile()
 
+        # Create an open AP profile (nmcli device wifi hotspot always adds WPA)
         rc, _, stderr = await self._run_nmcli(
-            "device", "wifi", "hotspot",
+            "connection", "add",
+            "type", "wifi",
             "ifname", self.WIFI_INTERFACE,
-            "ssid", self.HOTSPOT_CON_NAME,
             "con-name", self.HOTSPOT_CON_NAME,
+            "ssid", self.HOTSPOT_CON_NAME,
+            "wifi.mode", "ap",
+            "wifi.band", "bg",
+            "ipv4.method", "shared",
             timeout=20.0,
         )
         if rc != 0:
-            raise RuntimeError(f"nmcli hotspot failed: {stderr}")
+            raise RuntimeError(f"Hotspot profile creation failed: {stderr}")
+
+        rc, _, stderr = await self._run_nmcli(
+            "connection", "up", self.HOTSPOT_CON_NAME,
+            timeout=20.0,
+        )
+        if rc != 0:
+            await self._delete_hotspot_profile()
+            raise RuntimeError(f"Hotspot activation failed: {stderr}")
 
     # =========================================================================
     # Internal helpers
@@ -354,7 +405,8 @@ class WifiService:
 
         saved = await self._get_saved_ssid()
 
-        if not connection:
+        # Hotspot's own AP connection is not a real WiFi client connection
+        if not connection or connection == self.HOTSPOT_CON_NAME:
             return WifiConnectionStatus(connected=False, saved_ssid=saved)
 
         # Get actual SSID and signal from active wifi connection
