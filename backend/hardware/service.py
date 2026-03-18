@@ -222,14 +222,18 @@ class HardwareService:
         self._cache = None
 
     async def apply_and_reboot(self) -> None:
-        """Reboot the system to apply hardware configuration changes."""
-        self.logger.info("Rebooting to apply hardware configuration...")
+        """Apply hardware config to config.txt and reboot via milo-apply-hardware."""
+        self.logger.info("Applying hardware configuration and rebooting...")
         proc = await asyncio.create_subprocess_exec(
-            'sudo', 'reboot',
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
+            'sudo', '/usr/local/bin/milo-apply-hardware',
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
-        await proc.communicate()
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            error_msg = stderr.decode().strip() if stderr else "unknown error"
+            self.logger.error(f"milo-apply-hardware failed (rc={proc.returncode}): {error_msg}")
+            raise RuntimeError(f"Hardware apply failed: {error_msg}")
 
     def reload(self):
         """Forces hardware configuration reload."""
