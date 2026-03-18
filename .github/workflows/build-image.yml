@@ -13,7 +13,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 180
 
     steps:
@@ -52,11 +52,6 @@ jobs:
             dosfstools libarchive-tools libcap2-bin grep rsync xz-utils file git curl bc \
             gpg pigz xxd arch-test
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
-
       - name: Clone pi-gen
         run: |
           git clone --branch arm64 --depth 1 https://github.com/RPi-Distro/pi-gen.git pi-gen-build
@@ -81,10 +76,6 @@ jobs:
               touch "pi-gen-build/${stage}/SKIP"
             fi
           done
-
-          # qemu-user-static provides qemu-arm-static, but pi-gen checks for qemu-arm
-          sudo ln -sf /usr/bin/qemu-arm-static /usr/bin/qemu-arm 2>/dev/null || true
-          sudo ln -sf /usr/bin/qemu-aarch64-static /usr/bin/qemu-aarch64 2>/dev/null || true
 
           # Clean apt cache inside rootfs at end of stage2 to free space before stage-milo
           mkdir -p pi-gen-build/stage2/99-cleanup
