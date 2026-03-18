@@ -130,6 +130,28 @@ export function useWifi() {
     }
   }
 
+  async function saveNetwork(network, t) {
+    connecting.value = true;
+    connectError.value = '';
+    try {
+      const payload = { ssid: network.ssid, password: network.security ? password.value : null };
+      await axios.post('/api/wifi/save', payload);
+      selectedSsid.value = null;
+      password.value = '';
+      // Update local state to reflect saved SSID without reloading from backend
+      status.value = {
+        ...status.value,
+        wifi: { ...status.value.wifi, saved_ssid: network.ssid },
+      };
+    } catch (error) {
+      const detail = error.response?.data?.detail;
+      connectError.value = detail || (t ? t('network.saveFailed') : 'Save failed');
+      logger.error('wifi', 'WiFi save failed', error);
+    } finally {
+      connecting.value = false;
+    }
+  }
+
   async function forgetNetwork(ssid) {
     try {
       await axios.delete(`/api/wifi/saved/${encodeURIComponent(ssid)}`);
@@ -210,6 +232,7 @@ export function useWifi() {
     loadSavedNetworks,
     scanNetworks,
     connectToNetwork,
+    saveNetwork,
     forgetNetwork,
     toggleWifi,
     initialize,

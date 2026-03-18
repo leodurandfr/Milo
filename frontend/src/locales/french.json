@@ -302,6 +302,9 @@
     "connect": "Connecter",
     "connecting": "Connexion...",
     "connectFailed": "Échec de la connexion",
+    "save": "Enregistrer",
+    "saving": "Enregistrement...",
+    "saveFailed": "Échec de l'enregistrement du réseau",
     "forget": "Oublier",
     "refresh": "Actualiser",
     "saved": "Enregistré",
@@ -565,8 +568,6 @@
       "title": "Configurez le réseau",
       "hotspotWarning": "Après la connexion à votre WiFi, vous devrez accéder à Milō via milo.local depuis votre réseau domestique.",
       "hotspotBanner": "Vous êtes connecté au réseau Milō. Sélectionnez votre réseau WiFi ci-dessous.",
-      "hotspotConfigured": "WiFi configuré !",
-      "hotspotConfiguredDetail": "Après le redémarrage, retrouvez Milō sur votre réseau à l'adresse milo.local",
       "skipped": "Non configuré"
     },
     "language": {
@@ -600,6 +601,7 @@
       "screen": "Écran",
       "applyAndReboot": "Valider & Redémarrer",
       "confirmReboot": "Confirmer le redémarrage",
+      "accessHint": "Après le redémarrage, connectez-vous au réseau {ssid} et ouvrez milo.local dans votre navigateur pour accéder à Milō.",
       "rebooting": "Redémarrage en cours...",
       "rebootingDescription": "Veuillez patienter pendant le redémarrage du système."
     }
