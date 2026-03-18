@@ -127,13 +127,18 @@ class WifiService:
 
     async def _connect_impl(self, ssid: str, password: Optional[str] = None) -> NetworkStatus:
         """Internal connect implementation (called under _connect_lock)."""
-        self.logger.info("Connecting to WiFi network: %s", ssid)
+        self.logger.info("Connecting to WiFi network: %s (password provided: %s)", ssid, password is not None)
 
-        # Remove all existing profiles for this SSID to avoid
-        # 'key-mgmt: property is missing' from stale netplan profiles
+        # Disconnect WiFi device first to ensure clean state — an active
+        # connection prevents its profile from being fully removed by NM
+        await self._run_nmcli("device", "disconnect", self.WIFI_INTERFACE)
+
+        # Remove all existing profiles for this SSID to avoid stale profiles
         await self._delete_ssid_profiles(ssid)
 
-        # Create a fresh profile with explicit security settings
+        # Create profile and activate in two steps with psk-flags=0
+        # to store the password in the system file (not via secret agent,
+        # which doesn't exist on headless systems).
         con_name = f"milo-{ssid}"
         add_args = [
             "connection", "add",
@@ -146,6 +151,7 @@ class WifiService:
             add_args.extend([
                 "wifi-sec.key-mgmt", "wpa-psk",
                 "wifi-sec.psk", password,
+                "wifi-sec.psk-flags", "0",
             ])
 
         rc, _, stderr = await self._run_nmcli(*add_args)
@@ -159,7 +165,6 @@ class WifiService:
             )
             raise RuntimeError(f"WiFi connection failed: {error_msg}")
 
-        # Activate the connection
         try:
             rc, stdout, stderr = await self._run_nmcli(
                 "connection", "up", con_name, timeout=30.0
@@ -416,9 +421,12 @@ class WifiService:
                 continue
             name = fields[0]
             if name == ssid or name == f"milo-{ssid}" or f"-{ssid}" in name:
-                rc2, _, _ = await self._run_nmcli("connection", "delete", name)
+                self.logger.info("Deleting WiFi profile: %s (ssid=%s)", name, ssid)
+                rc2, _, stderr2 = await self._run_nmcli("connection", "delete", name)
                 if rc2 == 0:
-                    self.logger.debug("Deleted WiFi profile: %s", name)
+                    self.logger.info("Deleted WiFi profile: %s", name)
+                else:
+                    self.logger.error("Failed to delete WiFi profile %s: %s", name, stderr2)
 
     async def _delete_hotspot_profile(self) -> None:
         """Remove the hotspot NM connection profile (ignores if missing)."""

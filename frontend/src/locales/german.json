@@ -296,7 +296,7 @@
     "notConnected": "Nicht verbunden",
     "preferredNetwork": "Bevorzugtes Netzwerk",
     "wifiDescription": "Die Verbindung zum bevorzugten Netzwerk wird automatisch aktiviert, wenn Ethernet getrennt wird.",
-    "otherNetworks": "Andere Netzwerke",
+    "otherNetworks": "Andere WLAN-Netzwerke",
     "noNetworks": "Keine Netzwerke erkannt",
     "password": "Passwort",
     "connect": "Verbinden",
@@ -305,7 +305,9 @@
     "forget": "Vergessen",
     "refresh": "Aktualisieren",
     "saved": "Gespeichert",
-    "ready": "Bereit"
+    "ready": "Bereit",
+    "connectedTo": "Verbunden mit",
+    "wifiNetworks": "WLAN-Netzwerke"
   },
   "applications": {
     "features": "Funktionen"
@@ -560,7 +562,7 @@
       "getStarted": "Los geht's"
     },
     "wifi": {
-      "title": "WLAN-Verbindung",
+      "title": "Netzwerk einrichten",
       "hotspotWarning": "Nach der Verbindung mit Ihrem WLAN müssen Sie über milo.local in Ihrem Heimnetzwerk auf Milō zugreifen.",
       "hotspotBanner": "Sie sind mit dem Milō-Netzwerk verbunden. Wählen Sie unten Ihr Heim-WLAN aus.",
       "hotspotConfigured": "WLAN konfiguriert!",

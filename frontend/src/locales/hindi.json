@@ -296,7 +296,7 @@
     "notConnected": "कनेक्ट नहीं है",
     "preferredNetwork": "पसंदीदा नेटवर्क",
     "wifiDescription": "ईथरनेट डिस्कनेक्ट होने पर पसंदीदा नेटवर्क कनेक्शन स्वचालित रूप से सक्रिय हो जाता है।",
-    "otherNetworks": "अन्य नेटवर्क",
+    "otherNetworks": "अन्य WiFi नेटवर्क",
     "noNetworks": "कोई नेटवर्क नहीं मिला",
     "password": "पासवर्ड",
     "connect": "कनेक्ट करें",
@@ -305,7 +305,9 @@
     "forget": "भूल जाएं",
     "refresh": "रीफ़्रेश",
     "saved": "सहेजा गया",
-    "ready": "तैयार"
+    "ready": "तैयार",
+    "connectedTo": "से जुड़ा हुआ",
+    "wifiNetworks": "WiFi नेटवर्क"
   },
   "applications": {
     "features": "सुविधाएं"
@@ -560,7 +562,7 @@
       "getStarted": "शुरू करें"
     },
     "wifi": {
-      "title": "WiFi कनेक्शन",
+      "title": "नेटवर्क सेट करें",
       "hotspotWarning": "अपने WiFi से कनेक्ट होने के बाद, आपको अपने होम नेटवर्क से milo.local पर Milō एक्सेस करना होगा।",
       "hotspotBanner": "आप Milō नेटवर्क से जुड़े हैं। नीचे अपना होम WiFi नेटवर्क चुनें।",
       "hotspotConfigured": "WiFi कॉन्फ़िगर हो गया!",

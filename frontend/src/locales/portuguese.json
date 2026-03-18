@@ -296,7 +296,7 @@
     "notConnected": "Não conectado",
     "preferredNetwork": "Rede preferida",
     "wifiDescription": "A conexão com a rede preferida é ativada automaticamente quando a Ethernet é desconectada.",
-    "otherNetworks": "Outras redes",
+    "otherNetworks": "Outras redes WiFi",
     "noNetworks": "Nenhuma rede detectada",
     "password": "Senha",
     "connect": "Conectar",
@@ -305,7 +305,9 @@
     "forget": "Esquecer",
     "refresh": "Atualizar",
     "saved": "Salvo",
-    "ready": "Pronto"
+    "ready": "Pronto",
+    "connectedTo": "Conectado a",
+    "wifiNetworks": "Redes WiFi"
   },
   "applications": {
     "features": "Funcionalidades"
@@ -560,7 +562,7 @@
       "getStarted": "Começar"
     },
     "wifi": {
-      "title": "Conexão WiFi",
+      "title": "Configure a rede",
       "hotspotWarning": "Após conectar ao WiFi, você precisará acessar o Milō em milo.local pela sua rede doméstica.",
       "hotspotBanner": "Você está conectado à rede Milō. Selecione sua rede WiFi doméstica abaixo.",
       "hotspotConfigured": "WiFi configurado!",

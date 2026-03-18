@@ -2,23 +2,23 @@
 <template>
   <div class="setup-wizard">
     <div class="setup-card">
-      <!-- Welcome step (step 0): no header, centered content -->
-      <div v-if="currentStep === 0" class="setup-card__body setup-card__body--welcome">
-        <WelcomeStep />
+      <!-- Header (steps 1+, outside transition) -->
+      <div v-if="currentStep > 0" class="setup-card__header">
+        <button class="setup-card__back text-mono" @click="prevStep">
+          <SvgIcon name="caretLeft" :size="20" />
+          {{ isSummaryStep ? t('setup.back') : t('setup.stepLabel', { n: stepIndex }) }}
+        </button>
+        <h2 class="heading-2">{{ stepTitle }}</h2>
+        <StepIndicator :current="stepIndex - 1" :total="totalIndicatorSteps" />
       </div>
 
-      <!-- Steps 1+: header + scrollable body -->
-      <template v-else>
-        <div class="setup-card__header">
-          <button class="setup-card__back text-mono" @click="prevStep">
-            <SvgIcon name="caretLeft" :size="20" />
-            {{ isSummaryStep ? t('setup.back') : t('setup.stepLabel', { n: stepIndex }) }}
-          </button>
-          <h2 class="heading-2">{{ stepTitle }}</h2>
-          <StepIndicator :current="stepIndex - 1" :total="totalIndicatorSteps" />
+      <!-- Body with crossfade -->
+      <Transition name="step-fade" mode="out-in">
+        <div v-if="currentStep === 0" key="welcome" class="setup-card__body setup-card__body--welcome">
+          <WelcomeStep />
         </div>
 
-        <div class="setup-card__body">
+        <div v-else :key="currentStep" class="setup-card__body">
           <LanguageStep v-if="currentStep === 1" v-model="wizardState.language" />
 
           <ModeStep v-else-if="currentStep === 2" v-model="wizardState.mode" />
@@ -35,7 +35,7 @@
             :wifi-ssid="wizardState.wifiSsid" :is-rebooting="isRebooting" :error="error"
             :is-client="isClientMode" />
         </div>
-      </template>
+      </Transition>
 
       <!-- Unified footer (absolute positioned, all steps) -->
       <div class="setup-card__footer">
@@ -412,6 +412,17 @@ onUnmounted(() => {
     padding: 12px 16px;
     border-radius: var(--radius-04);
   }
+}
+
+/* Crossfade between steps (body only) */
+.step-fade-enter-active,
+.step-fade-leave-active {
+  transition: opacity 200ms ease;
+}
+
+.step-fade-enter-from,
+.step-fade-leave-to {
+  opacity: 0;
 }
 
 /* PWA standalone: button flush to bottom (white body fills safe area) */
