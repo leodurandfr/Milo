@@ -7,6 +7,7 @@ BOOT_PARAMS_COMMON="quiet splash plymouth.ignore-serial-consoles"
 BOOT_PARAMS_COMMON="$BOOT_PARAMS_COMMON console=tty3 loglevel=0 consoleblank=0"
 BOOT_PARAMS_COMMON="$BOOT_PARAMS_COMMON logo.nologo vt.global_cursor_default=0"
 BOOT_PARAMS_COMMON="$BOOT_PARAMS_COMMON fbcon=map:99 vt.handoff=7"
+BOOT_PARAMS_COMMON="$BOOT_PARAMS_COMMON cfg80211.ieee80211_regdom=FR"
 
 # Paramètres config.txt universels
 CONFIG_PARAMS_COMMON="disable_splash=1"
