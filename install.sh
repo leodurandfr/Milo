@@ -927,6 +927,7 @@ configure_cmdline() {
         s/vt\.[^ ]*//g
         s/fbcon=[^ ]*//g
         s/video=[^ ]*//g
+        s/cfg80211\.[^ ]*//g
         s/  +/ /g
     ' | xargs)
 

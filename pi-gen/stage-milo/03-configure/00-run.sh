@@ -44,10 +44,11 @@ if [ -f "$CMDLINE" ]; then
         s/vt\.[^ ]*//g
         s/fbcon=[^ ]*//g
         s/video=[^ ]*//g
+        s/cfg80211\.[^ ]*//g
         s/  +/ /g
     ' | xargs)
 
-    BOOT_PARAMS="quiet splash plymouth.ignore-serial-consoles console=tty3 loglevel=0 consoleblank=0 logo.nologo vt.global_cursor_default=0 fbcon=map:99 vt.handoff=7"
+    BOOT_PARAMS="quiet splash plymouth.ignore-serial-consoles console=tty3 loglevel=0 consoleblank=0 logo.nologo vt.global_cursor_default=0 fbcon=map:99 vt.handoff=7 cfg80211.ieee80211_regdom=FR"
     echo "${CURRENT} ${BOOT_PARAMS}" | tr -s ' ' > "$CMDLINE"
 fi
 CHROOT
