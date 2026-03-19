@@ -309,6 +309,10 @@ chmod +x /usr/local/bin/milo-wait-ready.sh
 cp /home/milo/milo/rootfs/usr/local/bin/milo-apply-hardware /usr/local/bin/
 chmod +x /usr/local/bin/milo-apply-hardware
 
+# Update deployment wrapper
+cp /home/milo/milo/rootfs/usr/local/bin/milo-deploy-update /usr/local/bin/
+chmod +x /usr/local/bin/milo-deploy-update
+
 # Brightness control for Waveshare 7" USB
 cp /home/milo/milo/rootfs/usr/local/bin/milo-brightness-7 /usr/local/bin/
 chmod +x /usr/local/bin/milo-brightness-7

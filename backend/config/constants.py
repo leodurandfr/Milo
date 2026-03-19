@@ -29,6 +29,11 @@ ERROR_LOG_FILE = MILO_DATA_DIR / "errors.log"
 RADIO_IMAGES_DIR = MILO_DATA_DIR / "radio_images"
 
 # =============================================================================
+# SYSTEM SCRIPTS
+# =============================================================================
+DEPLOY_UPDATE_CMD = "/usr/local/bin/milo-deploy-update"
+
+# =============================================================================
 # NETWORK PORTS
 # =============================================================================
 CLIENT_API_PORT = 8001          # Milo-client API port (equalizer, health, etc.)

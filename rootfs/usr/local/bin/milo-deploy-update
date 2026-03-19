@@ -1,0 +1,227 @@
+#!/bin/bash
+# Milo - Secure Update Deployment Wrapper
+# Centralizes all privileged operations needed during updates.
+# Called via: sudo milo-deploy-update <subcommand> [args]
+set -euo pipefail
+
+REPO_PATH="/home/milo/milo"
+
+error_exit() { echo "ERROR: $1" >&2; exit 1; }
+
+# --- Input validation helpers ---
+
+validate_absolute_path() {
+    [[ "$1" == /* ]] || error_exit "Path must be absolute: $1"
+}
+
+validate_temp_path() {
+    case "$1" in
+        /tmp/*|/var/tmp/*) ;;
+        *) error_exit "Path must be in /tmp or /var/tmp: $1" ;;
+    esac
+}
+
+validate_no_traversal() {
+    [[ "$1" == *..* ]] && error_exit "Path traversal not allowed: $1"
+    return 0
+}
+
+validate_not_symlink() {
+    [ -L "$1" ] && error_exit "Symlinks not allowed: $1"
+    return 0
+}
+
+# --- Subcommands ---
+
+cmd_sync_system_files() {
+    # Sync system/*.service and rootfs/** from the repo to their system destinations.
+    # Hardcoded repo path — no arguments needed.
+    local synced_udev=false
+
+    # 1. Deploy systemd service files
+    echo "Deploying systemd service files..."
+    for service_file in "$REPO_PATH"/system/*.service; do
+        [ -f "$service_file" ] || continue
+        cp "$service_file" /etc/systemd/system/
+        echo "  Installed $(basename "$service_file")"
+    done
+
+    # Deploy avahi-daemon override if present
+    if [ -f "$REPO_PATH/system/avahi-daemon-override.conf" ]; then
+        mkdir -p /etc/systemd/system/avahi-daemon.service.d/
+        cp "$REPO_PATH/system/avahi-daemon-override.conf" \
+            /etc/systemd/system/avahi-daemon.service.d/milo-override.conf
+        echo "  Installed avahi-daemon override"
+    fi
+
+    systemctl daemon-reload
+    echo "  systemctl daemon-reload done"
+
+    # 2. Deploy rootfs files (preserving directory structure)
+    echo "Deploying rootfs files..."
+    cd "$REPO_PATH/rootfs"
+
+    # Process substitution avoids subshell so synced_udev is preserved
+    while read -r rel_path; do
+        rel_path="${rel_path#./}"
+
+        # Skip files that must not be overwritten during their own execution
+        case "$rel_path" in
+            var/lib/milo/camilladsp/*) echo "  Skipping /$rel_path (user config)"; continue ;;
+            usr/local/bin/milo-deploy-update) echo "  Skipping /$rel_path (self-protection)"; continue ;;
+        esac
+
+        target="/$rel_path"
+        target_dir=$(dirname "$target")
+
+        mkdir -p "$target_dir"
+        cp "$REPO_PATH/rootfs/$rel_path" "$target"
+        echo "  Installed $target"
+
+        # Set executable for scripts and dispatcher hooks
+        case "$target" in
+            /usr/local/bin/*|*/dispatcher.d/*|*.sh)
+                chmod +x "$target"
+                ;;
+        esac
+
+        # Set ownership for home directory files
+        case "$target" in
+            /home/milo/*)
+                chown milo:milo "$target"
+                ;;
+        esac
+
+        # Track udev rule changes
+        case "$rel_path" in
+            etc/udev/*) synced_udev=true ;;
+        esac
+    done < <(find . -type f)
+
+    # 3. Reload udev rules if any were synced
+    if [ "$synced_udev" = true ]; then
+        udevadm control --reload-rules
+        udevadm trigger
+        echo "  udev rules reloaded"
+    fi
+
+    echo "System files sync complete"
+}
+
+cmd_install_binary() {
+    [ $# -ne 2 ] && error_exit "Usage: install-binary <src> <dest>"
+    local src="$1" dest="$2"
+
+    validate_absolute_path "$src"
+    validate_absolute_path "$dest"
+    validate_no_traversal "$src"
+    validate_no_traversal "$dest"
+    validate_temp_path "$src"
+
+    # Destination must be in /usr/local/bin/
+    case "$dest" in
+        /usr/local/bin/*) ;;
+        *) error_exit "Destination must be in /usr/local/bin/: $dest" ;;
+    esac
+
+    [ ! -f "$src" ] && error_exit "Source file does not exist: $src"
+    validate_not_symlink "$src"
+
+    # Prevent overwriting this script itself
+    [[ "$(basename "$dest")" == "milo-deploy-update" ]] && \
+        error_exit "Cannot overwrite the deploy script itself"
+
+    cp "$src" "$dest"
+    chmod 755 "$dest"
+    sync
+    echo "OK: Installed binary $dest"
+}
+
+cmd_install_deb() {
+    [ $# -ne 1 ] && error_exit "Usage: install-deb <path>"
+    local deb_path="$1"
+
+    validate_absolute_path "$deb_path"
+    validate_no_traversal "$deb_path"
+    validate_temp_path "$deb_path"
+
+    # Must be a .deb file
+    [[ "$deb_path" == *.deb ]] || error_exit "Not a .deb file: $deb_path"
+    [ ! -f "$deb_path" ] && error_exit "File does not exist: $deb_path"
+    validate_not_symlink "$deb_path"
+
+    export DEBIAN_FRONTEND=noninteractive
+    export DEBCONF_NONINTERACTIVE_SEEN=true
+    export APT_LISTCHANGES_FRONTEND=none
+
+    echo "Updating APT package list..."
+    apt update -qq
+
+    echo "Installing $(basename "$deb_path") with dpkg..."
+    dpkg -i --force-confdef --force-confold "$deb_path" || true
+
+    echo "Resolving dependencies..."
+    apt-get -f install -y -qq
+
+    echo "OK: Package installed"
+}
+
+cmd_daemon_reload() {
+    systemctl daemon-reload
+    echo "OK: systemctl daemon-reload done"
+}
+
+cmd_reload_udev() {
+    udevadm control --reload-rules
+    udevadm trigger
+    echo "OK: udev rules reloaded"
+}
+
+cmd_write_config() {
+    [ $# -ne 2 ] && error_exit "Usage: write-config <src> <dest>"
+    local src="$1" dest="$2"
+
+    validate_absolute_path "$src"
+    validate_absolute_path "$dest"
+    validate_no_traversal "$src"
+    validate_no_traversal "$dest"
+
+    # Source must be in /tmp or /var/tmp
+    validate_temp_path "$src"
+
+    # Destination must be in /etc/
+    case "$dest" in
+        /etc/*) ;;
+        *) error_exit "Destination must be in /etc/: $dest" ;;
+    esac
+
+    [ ! -f "$src" ] && error_exit "Source file does not exist: $src"
+    validate_not_symlink "$src"
+
+    cp "$src" "$dest"
+    rm -f "$src"
+    echo "OK: Config written to $dest"
+}
+
+cmd_reboot() {
+    echo "Rebooting system..."
+    /sbin/reboot
+}
+
+# --- Main dispatcher ---
+
+[ $# -lt 1 ] && error_exit "Usage: $0 <subcommand> [args...]"
+
+subcommand="$1"
+shift
+
+case "$subcommand" in
+    sync-system-files) cmd_sync_system_files "$@" ;;
+    install-binary)    cmd_install_binary "$@" ;;
+    install-deb)       cmd_install_deb "$@" ;;
+    daemon-reload)     cmd_daemon_reload "$@" ;;
+    reload-udev)       cmd_reload_udev "$@" ;;
+    write-config)      cmd_write_config "$@" ;;
+    reboot)            cmd_reboot "$@" ;;
+    *) error_exit "Unknown subcommand: $subcommand" ;;
+esac

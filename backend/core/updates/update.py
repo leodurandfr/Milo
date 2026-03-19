@@ -12,6 +12,8 @@ import os
 from pathlib import Path
 from typing import Dict, Any, Optional, Callable, Awaitable
 from backend.core.updates.version import VersionService
+from backend.config.constants import DEPLOY_UPDATE_CMD
+
 
 class UpdateService(VersionService):
     """Update service - Extends VersionService"""
@@ -307,12 +309,7 @@ class UpdateService(VersionService):
             # Small delay to ensure the WebSocket message is sent
             await asyncio.sleep(1)
 
-            proc = await asyncio.create_subprocess_exec(
-                "sudo", "reboot",
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL
-            )
-            await proc.communicate()
+            await self._run_deploy("reboot")
 
             # The process will be killed by the reboot, but return success in case it somehow continues
             return {
@@ -350,127 +347,41 @@ class UpdateService(VersionService):
 
             return {"success": False, "error": str(e)}
 
+    async def _run_deploy(self, *args, timeout: int = 120) -> tuple[bool, str]:
+        """Run a milo-deploy-update subcommand via sudo."""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", DEPLOY_UPDATE_CMD, *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            if proc.returncode != 0:
+                error = stderr.decode().strip() or stdout.decode().strip()
+                return False, error
+            return True, stdout.decode().strip()
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            return False, f"Timed out after {timeout}s"
+        except Exception as e:
+            return False, str(e)
+
     async def _sync_system_files(self) -> None:
         """Sync system/ and rootfs/ files to their system destinations.
 
-        Non-fatal: logs warnings on individual failures but does not abort.
+        Delegates to milo-deploy-update sync-system-files which handles:
+        - Copying system/*.service to /etc/systemd/system/
+        - systemctl daemon-reload
+        - Copying rootfs/** preserving directory structure
+        - Setting executable/ownership permissions
+        - Reloading udev rules if needed
         """
-        repo_path = Path(self.update_config["milo"]["git_path"])
-        synced_udev = False
-
-        # 1. Sync system/*.service → /etc/systemd/system/
-        system_dir = repo_path / "system"
-        if system_dir.exists():
-            for service_file in system_dir.glob("*.service"):
-                try:
-                    proc = await asyncio.create_subprocess_exec(
-                        "sudo", "cp", str(service_file), f"/etc/systemd/system/{service_file.name}",
-                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-                    )
-                    _, stderr = await proc.communicate()
-                    if proc.returncode != 0:
-                        self.update_logger.warning(f"Failed to copy {service_file.name}: {stderr.decode()}")
-                except Exception as e:
-                    self.update_logger.warning(f"Failed to sync service file {service_file.name}: {e}")
-
-            # Sync avahi-daemon override
-            avahi_override = system_dir / "avahi-daemon-override.conf"
-            if avahi_override.exists():
-                try:
-                    dest_dir = "/etc/systemd/system/avahi-daemon.service.d"
-                    proc = await asyncio.create_subprocess_exec(
-                        "sudo", "mkdir", "-p", dest_dir,
-                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-                    )
-                    await proc.communicate()
-                    proc = await asyncio.create_subprocess_exec(
-                        "sudo", "cp", str(avahi_override), f"{dest_dir}/milo-override.conf",
-                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-                    )
-                    await proc.communicate()
-                except Exception as e:
-                    self.update_logger.warning(f"Failed to sync avahi override: {e}")
-
-            # Reload systemd after service file changes
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    "sudo", "systemctl", "daemon-reload",
-                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-                )
-                await proc.communicate()
-            except Exception as e:
-                self.update_logger.warning(f"Failed to run daemon-reload: {e}")
-
-        # 2. Sync rootfs/ → / (preserving directory structure)
-        rootfs_dir = repo_path / "rootfs"
-        if rootfs_dir.exists():
-            for src_file in rootfs_dir.rglob("*"):
-                if not src_file.is_file():
-                    continue
-
-                relative = src_file.relative_to(rootfs_dir)
-
-                # Skip user-configured CamillaDSP files
-                if str(relative).startswith("var/lib/milo/camilladsp/"):
-                    continue
-
-                dest = Path("/") / relative
-
-                try:
-                    # Ensure parent directory exists
-                    proc = await asyncio.create_subprocess_exec(
-                        "sudo", "mkdir", "-p", str(dest.parent),
-                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-                    )
-                    await proc.communicate()
-
-                    # Copy file
-                    proc = await asyncio.create_subprocess_exec(
-                        "sudo", "cp", str(src_file), str(dest),
-                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-                    )
-                    _, stderr = await proc.communicate()
-                    if proc.returncode != 0:
-                        self.update_logger.warning(f"Failed to copy {relative}: {stderr.decode()}")
-                        continue
-
-                    # Set executable permission for scripts and dispatcher hooks
-                    if (str(relative).startswith("usr/local/bin/")
-                            or str(relative).startswith("etc/NetworkManager/dispatcher.d/")
-                            or src_file.suffix == ".sh"):
-                        proc = await asyncio.create_subprocess_exec(
-                            "sudo", "chmod", "+x", str(dest),
-                            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-                        )
-                        await proc.communicate()
-
-                    # Set ownership for home directory files
-                    if str(relative).startswith("home/milo/"):
-                        proc = await asyncio.create_subprocess_exec(
-                            "sudo", "chown", "milo:milo", str(dest),
-                            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-                        )
-                        await proc.communicate()
-
-                    # Track if udev rules were synced
-                    if str(relative).startswith("etc/udev/"):
-                        synced_udev = True
-
-                except Exception as e:
-                    self.update_logger.warning(f"Failed to sync rootfs file {relative}: {e}")
-
-        # 3. Reload udev rules if any were synced
-        if synced_udev:
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    "sudo", "udevadm", "control", "--reload-rules",
-                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-                )
-                await proc.communicate()
-            except Exception as e:
-                self.update_logger.warning(f"Failed to reload udev rules: {e}")
-
-        self.update_logger.info("System files sync completed")
+        success, output = await self._run_deploy("sync-system-files", timeout=60)
+        if not success:
+            self.update_logger.warning(f"System files sync had errors: {output}")
+        else:
+            self.update_logger.info("System files sync completed")
 
     async def _update_go_librespot(self, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
         """Updates go-librespot with proper service state preservation"""
@@ -813,7 +724,7 @@ class UpdateService(VersionService):
     async def _download_shairport_sync_source(self, tag_name: str) -> Dict[str, Any]:
         """Downloads and extracts shairport-sync source tarball from GitHub"""
         try:
-            temp_dir = tempfile.mkdtemp()
+            temp_dir = tempfile.mkdtemp(dir="/tmp")
             url = f"https://github.com/mikebrady/shairport-sync/archive/refs/tags/{tag_name}.tar.gz"
 
             self.update_logger.info(f"Downloading shairport-sync source from {url}...")
@@ -939,28 +850,48 @@ class UpdateService(VersionService):
             return {"success": False, "error": f"Compilation failed: {e}"}
 
     async def _install_shairport_sync(self, source_dir: str) -> Dict[str, Any]:
-        """Installs compiled shairport-sync with sudo make install"""
+        """Installs compiled shairport-sync via DESTDIR staging + install-binary.
+
+        Stages to a temp directory as unprivileged user, then installs
+        only the binary via the secure milo-deploy-update wrapper.
+        """
+        staging_dir = tempfile.mkdtemp(prefix="milo-shairport-", dir="/tmp")
         try:
-            self.update_logger.info("Installing shairport-sync with sudo make install...")
+            # Stage install as unprivileged user (no sudo needed)
+            self.update_logger.info("Staging shairport-sync install...")
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "make", "install",
+                "make", "install", f"DESTDIR={staging_dir}",
                 cwd=source_dir,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            _, stderr = await proc.communicate()
+            try:
+                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                return {"success": False, "error": "make install staging timed out (120s)"}
 
             if proc.returncode != 0:
-                return {"success": False, "error": f"Installation failed: {stderr.decode()}"}
+                return {"success": False, "error": f"Staged install failed: {stderr.decode()}"}
 
-            # Force filesystem sync
-            proc = await asyncio.create_subprocess_exec("sync")
-            await proc.wait()
+            # Install only the binary via the secure wrapper
+            staged_binary = os.path.join(staging_dir, "usr/local/bin/shairport-sync")
+            if not os.path.isfile(staged_binary):
+                return {"success": False, "error": "Binary not found in staging directory"}
+
+            success, output = await self._run_deploy(
+                "install-binary", staged_binary, "/usr/local/bin/shairport-sync"
+            )
+            if not success:
+                return {"success": False, "error": f"Installation failed: {output}"}
 
             return {"success": True}
 
         except Exception as e:
             return {"success": False, "error": f"Installation failed: {e}"}
+        finally:
+            shutil.rmtree(staging_dir, ignore_errors=True)
 
     async def _verify_shairport_sync_update(self, config: Dict[str, Any], service_was_active: bool) -> Dict[str, Any]:
         """Verifies that shairport-sync was updated successfully"""
@@ -982,31 +913,28 @@ class UpdateService(VersionService):
             return {"success": False, "error": f"Verification failed: {e}"}
 
     async def _rollback_shairport_sync(self, config: Dict[str, Any], service_was_active: bool = True) -> bool:
-        """Rollback shairport-sync to the backed up version"""
+        """Rollback shairport-sync to the backed up version."""
         try:
-            backup_dir = Path(config["backup_path"])
-            binary_backup = backup_dir / "shairport-sync.backup"
-
+            binary_backup = Path(config["backup_path"]) / "shairport-sync.backup"
             if not binary_backup.exists():
                 self.update_logger.error("No backup found for rollback")
                 return False
 
-            # Stop the service if currently running
             await self._stop_service(config["service_name"])
 
-            # Restore the binary
-            proc = await asyncio.create_subprocess_exec(
-                "sudo", "cp", str(binary_backup), config["binary_path"],
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.PIPE
-            )
-            await proc.communicate()
+            # Copy backup to /tmp for install-binary (requires temp path)
+            tmp_backup = Path(tempfile.mktemp(prefix="milo-rollback-", dir="/tmp"))
+            shutil.copy2(binary_backup, tmp_backup)
+            try:
+                success, output = await self._run_deploy(
+                    "install-binary", str(tmp_backup), config["binary_path"]
+                )
+                if not success:
+                    self.update_logger.error(f"Rollback install failed: {output}")
+                    return False
+            finally:
+                tmp_backup.unlink(missing_ok=True)
 
-            # Force filesystem sync
-            proc = await asyncio.create_subprocess_exec("sync")
-            await proc.wait()
-
-            # Only restart service if it was originally active
             if service_was_active:
                 await self._start_service(config["service_name"])
 
@@ -1044,7 +972,7 @@ class UpdateService(VersionService):
         """Downloads go-librespot from GitHub"""
         try:
             # Create a temporary directory
-            temp_dir = tempfile.mkdtemp()
+            temp_dir = tempfile.mkdtemp(dir="/tmp")
 
             # Download URL
             url = f"https://github.com/devgianlu/go-librespot/releases/download/v{version}/go-librespot_linux_arm64.tar.gz"
@@ -1119,7 +1047,7 @@ class UpdateService(VersionService):
             # Detect Debian version
             debian_codename = await self._get_debian_codename()
 
-            temp_dir = tempfile.mkdtemp()
+            temp_dir = tempfile.mkdtemp(dir="/tmp")
 
             # Determine package name according to component
             if component_key == "snapserver":
@@ -1156,94 +1084,22 @@ class UpdateService(VersionService):
             return {"success": False, "error": str(e)}
 
     async def _install_go_librespot_binary(self, binary_path: str) -> Dict[str, Any]:
-        """Installs the new go-librespot binary"""
-        try:
-            # Copy with sudo
-            proc = await asyncio.create_subprocess_exec(
-                "sudo", "cp", binary_path, "/usr/local/bin/go-librespot",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            _, stderr = await proc.communicate()
-
-            if proc.returncode != 0:
-                return {"success": False, "error": f"Failed to copy binary: {stderr.decode()}"}
-
-            # Set permissions
-            proc = await asyncio.create_subprocess_exec(
-                "sudo", "chmod", "+x", "/usr/local/bin/go-librespot",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            await proc.communicate()
-
-            # Force filesystem sync to ensure binary is fully written
-            proc = await asyncio.create_subprocess_exec("sync")
-            await proc.wait()
-
-            return {"success": True}
-
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+        """Installs the new go-librespot binary via milo-deploy-update."""
+        success, output = await self._run_deploy(
+            "install-binary", binary_path, "/usr/local/bin/go-librespot"
+        )
+        if not success:
+            return {"success": False, "error": f"Failed to install binary: {output}"}
+        return {"success": True}
 
     async def _install_deb_package(self, deb_path: str) -> Dict[str, Any]:
-        """Installs a .deb package with dpkg + apt-get -f (official snapcast method)"""
-        try:
-            env = {
-                "DEBIAN_FRONTEND": "noninteractive",
-                "DEBCONF_NONINTERACTIVE_SEEN": "true",
-                "APT_LISTCHANGES_FRONTEND": "none"
-            }
-
-            # Step 1: Update package list
-            self.update_logger.info("Updating APT package list...")
-            proc = await asyncio.create_subprocess_exec(
-                "sudo", "-E", "apt", "update",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env={**os.environ, **env}
-            )
-            await proc.communicate()
-
-            # Step 2a: Install .deb with dpkg (may fail if dependencies missing - this is normal)
-            # --force-confdef --force-confold: automatically keeps old configs without prompt
-            self.update_logger.info(f"Installing {Path(deb_path).name} with dpkg...")
-            proc = await asyncio.create_subprocess_exec(
-                "sudo", "-E", "dpkg", "-i", "--force-confdef", "--force-confold", deb_path,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env={**os.environ, **env}
-            )
-
-            dpkg_stdout, dpkg_stderr = await proc.communicate()
-
-            # Note: dpkg may return an error if dependencies missing, this is expected
-            if proc.returncode != 0:
-                self.update_logger.info(f"dpkg returned non-zero (expected if dependencies missing): {dpkg_stderr.decode()}")
-
-            # Step 2b: Resolve dependencies with apt-get -f install
-            # This step determines final success or failure
-            self.update_logger.info("Resolving dependencies with apt-get -f install...")
-            proc = await asyncio.create_subprocess_exec(
-                "sudo", "-E", "apt-get", "-f", "install", "-y",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env={**os.environ, **env}
-            )
-
-            stdout, stderr = await proc.communicate()
-
-            if proc.returncode == 0:
-                self.update_logger.info("Package installed successfully with all dependencies resolved")
-                return {"success": True}
-            else:
-                return {
-                    "success": False,
-                    "error": f"Dependency resolution failed: {stderr.decode()}"
-                }
-
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+        """Installs a .deb package via milo-deploy-update (dpkg + apt-get -f)."""
+        self.update_logger.info(f"Installing {Path(deb_path).name}...")
+        success, output = await self._run_deploy("install-deb", deb_path, timeout=300)
+        if not success:
+            return {"success": False, "error": f"Package installation failed: {output}"}
+        self.update_logger.info("Package installed successfully")
+        return {"success": True}
 
     async def _is_service_active(self, service_name: str) -> bool:
         """Checks if a systemd service is currently active"""
@@ -1361,31 +1217,28 @@ class UpdateService(VersionService):
             return {"success": False, "error": f"Verification failed: {e}"}
 
     async def _rollback_go_librespot(self, config: Dict[str, Any], service_was_active: bool = True) -> bool:
-        """Rollback go-librespot to the backed up version, respecting previous service state"""
+        """Rollback go-librespot to the backed up version, respecting previous service state."""
         try:
-            backup_dir = Path(config["backup_path"])
-            binary_backup = backup_dir / "go-librespot.backup"
-
+            binary_backup = Path(config["backup_path"]) / "go-librespot.backup"
             if not binary_backup.exists():
                 self.update_logger.error("No backup found for rollback")
                 return False
 
-            # Stop the service if it's currently running
             await self._stop_service(config["service_name"])
 
-            # Restore the binary
-            proc = await asyncio.create_subprocess_exec(
-                "sudo", "cp", str(binary_backup), config["binary_path"],
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.PIPE
-            )
-            await proc.communicate()
+            # Copy backup to /tmp for install-binary (requires temp path)
+            tmp_backup = Path(tempfile.mktemp(prefix="milo-rollback-", dir="/tmp"))
+            shutil.copy2(binary_backup, tmp_backup)
+            try:
+                success, output = await self._run_deploy(
+                    "install-binary", str(tmp_backup), config["binary_path"]
+                )
+                if not success:
+                    self.update_logger.error(f"Rollback install failed: {output}")
+                    return False
+            finally:
+                tmp_backup.unlink(missing_ok=True)
 
-            # Force filesystem sync
-            proc = await asyncio.create_subprocess_exec("sync")
-            await proc.wait()
-
-            # Only restart service if it was originally active
             if service_was_active:
                 await self._start_service(config["service_name"])
 
