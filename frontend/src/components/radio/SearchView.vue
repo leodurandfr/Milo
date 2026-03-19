@@ -30,7 +30,18 @@
       <!-- Loading state -->
       <MessageContent v-if="isLoading" loading :loading-delay="0" :title="t('audioSources.radioSource.loadingStations')" />
 
-      <!-- Error state -->
+      <!-- Network error state -->
+      <MessageContent
+        v-else-if="networkError && searchResults.length === 0"
+        icon="network"
+        :title="t('audioSources.radioSource.noInternet')"
+        :subtitle="t('audioSources.radioSource.noInternetHint')"
+        :cta-label="t('audioSources.radioSource.retry')"
+        cta-variant="background-strong"
+        :cta-click="() => $emit('retry')"
+      />
+
+      <!-- Generic error state -->
       <MessageContent
         v-else-if="hasError && searchResults.length === 0"
         icon="stop"
@@ -140,6 +151,14 @@ defineProps({
    * Error state
    */
   hasError: {
+    type: Boolean,
+    default: false
+  },
+
+  /**
+   * Network error (DNS/connectivity)
+   */
+  networkError: {
     type: Boolean,
     default: false
   }

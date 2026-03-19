@@ -174,10 +174,13 @@ async def search_stations(
 
             enriched_stations = source.station_data.enrich_with_favorite_status(result["stations"])
 
-            return {
+            response = {
                 "stations": enriched_stations,
                 "total": result["total"]
             }
+            if result.get("network_error"):
+                response["network_error"] = True
+            return response
 
     except Exception as e:
         logger.error("Search error: %s", e)

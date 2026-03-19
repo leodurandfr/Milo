@@ -68,6 +68,9 @@ export const usePodcastStore = defineStore('podcast', () => {
     episodes: false
   });
 
+  // === NETWORK STATE ===
+  const networkError = ref(false);
+
   // === SETTINGS ===
   // Note: Language/country are centralized in /var/lib/milo/settings.json (via settingsStore)
   const settings = ref({
@@ -503,6 +506,9 @@ export const usePodcastStore = defineStore('podcast', () => {
     subscriptions: subscriptionsList, // Expose as array for iteration (backward compatible)
     latestSubscriptionEpisodes,
     subscriptionsLoaded,
+
+    // Network state
+    networkError,
 
     // Search state
     searchTerm,

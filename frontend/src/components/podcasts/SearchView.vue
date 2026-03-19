@@ -14,6 +14,17 @@
       <!-- Loading state -->
       <MessageContent v-if="loading" loading :loading-delay="0" :title="t('podcasts.loading')" />
 
+      <!-- Network error state -->
+      <MessageContent
+        v-else-if="podcastStore.networkError"
+        icon="network"
+        :title="t('podcasts.noInternet')"
+        :subtitle="t('podcasts.noInternetHint')"
+        :cta-label="t('podcasts.retry')"
+        cta-variant="background-strong"
+        :cta-click="performSearch"
+      />
+
       <!-- Search results -->
       <div v-else-if="hasSearched && (searchResults.podcasts.length > 0 || searchResults.episodes.length > 0)" class="results-content fade-in">
         <!-- Podcasts results -->
@@ -221,6 +232,11 @@ async function performSearch() {
   loading.value = true
   await apiCall('podcast', 'Error searching podcasts', async () => {
     const { data } = await axios.get('/api/podcast/search', { params: buildSearchParams(1) })
+    if (data.network_error) {
+      podcastStore.networkError = true
+      return
+    }
+    podcastStore.networkError = false
     podcastStore.setSearchResults(data.podcasts, data.episodes, data.pagination)
   })
   loading.value = false
