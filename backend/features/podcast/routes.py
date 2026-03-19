@@ -141,11 +141,14 @@ async def get_content_by_genre(
 
         podcasts = podcasts_result.get('results', [])
 
-        return {
+        response = {
             "podcasts": podcasts,
             "language": taddy_language,
             "country": itunes_country
         }
+        if podcasts_result.get("network_error"):
+            response["network_error"] = True
+        return response
 
     except HTTPException:
         raise

@@ -3,6 +3,15 @@
     <!-- Top podcasts of the genre -->
     <section class="section">
       <MessageContent v-if="loading" loading :title="t('podcasts.loading')" />
+      <MessageContent
+        v-else-if="networkError"
+        icon="network"
+        :title="t('podcasts.noInternet')"
+        :subtitle="t('podcasts.noInternetHint')"
+        :cta-label="t('podcasts.retry')"
+        cta-variant="background-strong"
+        :cta-click="loadData"
+      />
       <MessageContent v-else-if="topPodcasts.length === 0" icon="podcast" :title="t('podcasts.noPodcastsInGenre')" />
       <div v-else class="podcasts-grid">
         <PodcastCard v-for="podcast in topPodcasts" :key="podcast.itunes_id || podcast.uuid" :podcast="podcast"
@@ -46,11 +55,18 @@ function isPodcastLoading(podcast) {
   return podcast.itunes_id === props.loadingPodcastId || podcast.uuid === props.loadingPodcastId
 }
 const topPodcasts = ref([])
+const networkError = ref(false)
 
 const { loading, execute: loadData } = useAsyncData(async () => {
   const { data } = await axios.get('/api/podcast/discover/by-genre', {
     params: { genre: props.genre, limit: 30 }
   })
+  if (data.network_error) {
+    networkError.value = true
+    topPodcasts.value = []
+    return
+  }
+  networkError.value = false
   topPodcasts.value = data.podcasts || []
   logger.debug('podcast', `Loaded ${topPodcasts.value.length} podcasts for genre ${props.genre} in ${data.language}/${data.country}`)
 }, { logTag: 'podcast' })

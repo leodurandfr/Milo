@@ -9,6 +9,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from backend.features.radio.genres import extract_valid_genre
 from backend.shared.decorators import handle_errors
+from backend.shared.network import is_network_error, NetworkUnavailableError
 
 
 class RadioBrowserAPI:
@@ -216,10 +217,10 @@ class RadioBrowserAPI:
 
                 return deduplicated_stations
 
-        except asyncio.TimeoutError:
-            self.logger.error("Timeout fetching top stations")
-            return []
         except Exception as e:
+            if is_network_error(e):
+                self.logger.error(f"Network error fetching top stations: {e}")
+                raise NetworkUnavailableError(str(e)) from e
             self.logger.error(f"Error fetching top stations: {e}")
             return []
 
@@ -688,10 +689,10 @@ class RadioBrowserAPI:
 
                 return deduplicated_stations
 
-        except asyncio.TimeoutError:
-            self.logger.error(f"Timeout during [{description}]")
-            return []
         except Exception as e:
+            if is_network_error(e):
+                self.logger.error(f"Network error during [{description}]: {e}")
+                raise NetworkUnavailableError(str(e)) from e
             self.logger.error(f"Error during [{description}]: {e}")
             return []
 
@@ -734,15 +735,19 @@ class RadioBrowserAPI:
         self.logger.info(f"🔍 Search: {search_desc}")
 
         # Special case: no filters → top stations
-        if not query and not country and not genre:
-            self.logger.debug("No filters, loading top 500 stations")
-            all_stations = await self._fetch_top_stations(limit=500)
-        else:
-            # Build search parameters
-            search_params = self._build_search_params(query, country, genre)
+        try:
+            if not query and not country and not genre:
+                self.logger.debug("No filters, loading top 500 stations")
+                all_stations = await self._fetch_top_stations(limit=500)
+            else:
+                # Build search parameters
+                search_params = self._build_search_params(query, country, genre)
 
-            # Unified API call
-            all_stations = await self._fetch_with_search_params(search_params, search_desc)
+                # Unified API call
+                all_stations = await self._fetch_with_search_params(search_params, search_desc)
+        except NetworkUnavailableError:
+            self.logger.warning("Network unavailable for station search")
+            return {"stations": [], "total": 0, "network_error": True}
 
         # Add manually created stations (not modified favorites)
         # Modified favorites are already enriched in the normal API flow via station_manager

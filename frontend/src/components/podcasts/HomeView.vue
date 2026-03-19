@@ -44,9 +44,23 @@
           </div>
         </transition>
 
+        <!-- Network error state -->
+        <transition name="content-fade">
+          <MessageContent
+            v-if="!loadingTopCharts && topChartsNetworkError"
+            key="network-error-podcasts"
+            icon="network"
+            :title="t('podcasts.noInternet')"
+            :subtitle="t('podcasts.noInternetHint')"
+            :cta-label="t('podcasts.retry')"
+            cta-variant="background-strong"
+            :cta-click="loadData"
+          />
+        </transition>
+
         <!-- Real cards when loaded -->
         <transition name="content-fade">
-          <div v-if="!loadingTopCharts" key="loaded-podcasts" class="podcasts-grid">
+          <div v-if="!loadingTopCharts && !topChartsNetworkError" key="loaded-podcasts" class="podcasts-grid">
             <PodcastCard
               v-for="(podcast, index) in topCharts.slice(0, 6)"
               :key="podcast.uuid"
@@ -127,6 +141,7 @@ const loadingTopEpisodes = ref(true)
 const loadingSubscriptions = ref(true)
 const topCharts = ref([])
 const topEpisodes = ref([])
+const topChartsNetworkError = ref(false)
 
 // Use store's computed for hasSubscriptions (preloaded in App.vue)
 const hasSubscriptions = computed(() => podcastStore.hasSubscriptions)
@@ -174,19 +189,29 @@ async function loadData() {
     const { data } = await axios.get('/api/podcast/discover/top-charts', {
       params: { content_type: 'PODCASTSERIES', limit: 10 }
     })
+    if (data.network_error) {
+      topChartsNetworkError.value = true
+      topCharts.value = []
+      return
+    }
+    topChartsNetworkError.value = false
     topCharts.value = data.results || []
   })
   loadingTopCharts.value = false
 
-  // Load top episodes (Bloc 4) - backend derives country from user's language setting
-  loadingTopEpisodes.value = true
-  await apiCall('podcast', 'Error loading top episodes', async () => {
-    const { data } = await axios.get('/api/podcast/discover/top-charts', {
-      params: { content_type: 'PODCASTEPISODE', limit: 10 }
+  // Load top episodes (Bloc 4) - skip if network is already known to be down
+  if (!topChartsNetworkError.value) {
+    loadingTopEpisodes.value = true
+    await apiCall('podcast', 'Error loading top episodes', async () => {
+      const { data } = await axios.get('/api/podcast/discover/top-charts', {
+        params: { content_type: 'PODCASTEPISODE', limit: 10 }
+      })
+      topEpisodes.value = podcastStore.enrichEpisodesWithProgress(data.results || [])
     })
-    topEpisodes.value = podcastStore.enrichEpisodesWithProgress(data.results || [])
-  })
-  loadingTopEpisodes.value = false
+    loadingTopEpisodes.value = false
+  } else {
+    loadingTopEpisodes.value = false
+  }
 }
 
 onMounted(() => {

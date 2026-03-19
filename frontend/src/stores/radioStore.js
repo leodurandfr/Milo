@@ -24,7 +24,12 @@ export const useRadioStore = defineStore('radio', () => {
   // UI state
   const loading = ref(false);
   const hasError = ref(false);
+  const networkError = ref(false);
   const favoritesInitialized = ref(false);
+
+  // Auto-retry timer for network errors
+  let retryTimer = null;
+  const RETRY_INTERVAL_MS = 5000;
 
   // Active filters
   const searchQuery = ref('');
@@ -164,6 +169,22 @@ export const useRadioStore = defineStore('radio', () => {
     genreFilter.value = '';
   }
 
+  function startRetry() {
+    if (retryTimer !== null) return;
+    retryTimer = setInterval(() => {
+      if (loading.value) return; // Prevent concurrent requests
+      logger.debug('radio', 'Auto-retrying after network error...');
+      loadStations(false);
+    }, RETRY_INTERVAL_MS);
+  }
+
+  function stopRetry() {
+    if (retryTimer !== null) {
+      clearInterval(retryTimer);
+      retryTimer = null;
+    }
+  }
+
   // Guard against concurrent preload calls
   let preloadPromise = null;
 
@@ -252,6 +273,15 @@ export const useRadioStore = defineStore('radio', () => {
       logger.debug('radio', 'Fetching stations from API');
       const response = await axios.get('/api/radio/stations', { params, signal });
 
+      if (response.data.network_error) {
+        networkError.value = true;
+        hasError.value = true;
+        startRetry();
+        return false;
+      }
+
+      networkError.value = false;
+      stopRetry();
       searchResults.value = response.data.stations;
       totalResults.value = response.data.total;
       displayedCount.value = 40;
@@ -275,6 +305,14 @@ export const useRadioStore = defineStore('radio', () => {
       hasError.value = true;
       searchResults.value = [];
       totalResults.value = 0;
+
+      // Axios network error (backend unreachable) — keep retrying
+      if (!error.response) {
+        networkError.value = true;
+        startRetry();
+      } else {
+        stopRetry();
+      }
       return false;
     } finally {
       loading.value = false;
@@ -502,6 +540,7 @@ export const useRadioStore = defineStore('radio', () => {
     trackInfo,
     loading,
     hasError,
+    networkError,
     favoritesInitialized,
     searchQuery,
     countryFilter,

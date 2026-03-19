@@ -9,6 +9,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 
 from backend.shared.decorators import handle_errors
+from backend.shared.network import is_network_error
 
 
 # Mapping des genres Taddy vers les IDs de genre iTunes RSS
@@ -212,10 +213,10 @@ class TaddyAPI:
 
                 return data.get("data")
 
-        except asyncio.TimeoutError:
-            self.logger.error("Timeout calling Taddy API")
-            return None
         except Exception as e:
+            if is_network_error(e):
+                self.logger.error(f"Network error calling Taddy API: {e}")
+                return {"_network_error": True}
             self.logger.error(f"Error calling Taddy API: {e}")
             return None
 
@@ -315,6 +316,8 @@ class TaddyAPI:
         """
 
         data = await self._make_graphql_request(query)
+        if data and data.get("_network_error"):
+            return {"results": [], "total": 0, "network_error": True}
         if not data or "getTopChartsByCountry" not in data:
             return {"results": [], "total": 0}
 
@@ -332,7 +335,6 @@ class TaddyAPI:
         self._set_cache(self._discovery_cache, cache_key, result)
         return result
 
-    @handle_errors(default={"results": [], "total": 0})
     async def get_itunes_top_podcasts_by_genre(
         self,
         genre: str,
@@ -369,47 +371,55 @@ class TaddyAPI:
         # Ensure session exists
         await self._ensure_session()
 
-        # Fetch from iTunes RSS API
-        url = f"https://itunes.apple.com/{country_code}/rss/toppodcasts/genre={itunes_genre_id}/limit={limit}/json"
+        try:
+            # Fetch from iTunes RSS API
+            url = f"https://itunes.apple.com/{country_code}/rss/toppodcasts/genre={itunes_genre_id}/limit={limit}/json"
 
-        async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-            if resp.status != 200:
-                self.logger.error(f"iTunes RSS error: HTTP {resp.status}")
-                return {"results": [], "total": 0}
+            async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status != 200:
+                    self.logger.error(f"iTunes RSS error: HTTP {resp.status}")
+                    return {"results": [], "total": 0}
 
-            # iTunes returns text/javascript instead of application/json
-            text = await resp.text()
-            import json as json_module
-            data = json_module.loads(text)
-            entries = data.get('feed', {}).get('entry', [])
+                # iTunes returns text/javascript instead of application/json
+                text = await resp.text()
+                import json as json_module
+                data = json_module.loads(text)
+                entries = data.get('feed', {}).get('entry', [])
 
-            results = []
-            for entry in entries:
-                # Extract iTunes data
-                itunes_id = entry.get('id', {}).get('attributes', {}).get('im:id')
-                name = entry.get('im:name', {}).get('label', '')
-                artist = entry.get('im:artist', {}).get('label', '')
+                results = []
+                for entry in entries:
+                    # Extract iTunes data
+                    itunes_id = entry.get('id', {}).get('attributes', {}).get('im:id')
+                    name = entry.get('im:name', {}).get('label', '')
+                    artist = entry.get('im:artist', {}).get('label', '')
 
-                # Get image URL (take the largest one, upscale via Apple URL)
-                images = entry.get('im:image', [])
-                image_url = images[-1].get('label', '') if images else ''
-                if '170x170bb' in image_url:
-                    image_url = image_url.replace('170x170bb', '600x600bb')
+                    # Get image URL (take the largest one, upscale via Apple URL)
+                    images = entry.get('im:image', [])
+                    image_url = images[-1].get('label', '') if images else ''
+                    if '170x170bb' in image_url:
+                        image_url = image_url.replace('170x170bb', '600x600bb')
 
-                results.append({
-                    'itunes_id': itunes_id,
-                    'name': name,
-                    'artist': artist,
-                    'publisher': artist,
-                    'image_url': image_url,
-                    'source': 'itunes_rss',
-                    # UUID will be added during enrichment
-                    'uuid': None,
-                })
+                    results.append({
+                        'itunes_id': itunes_id,
+                        'name': name,
+                        'artist': artist,
+                        'publisher': artist,
+                        'image_url': image_url,
+                        'source': 'itunes_rss',
+                        # UUID will be added during enrichment
+                        'uuid': None,
+                    })
 
-            result = {"results": results, "total": len(results)}
-            self._set_cache(self._discovery_cache, cache_key, result)
-            return result
+                result = {"results": results, "total": len(results)}
+                self._set_cache(self._discovery_cache, cache_key, result)
+                return result
+
+        except Exception as e:
+            if is_network_error(e):
+                self.logger.error(f"Network error fetching iTunes top podcasts: {e}")
+                return {"results": [], "total": 0, "network_error": True}
+            self.logger.error(f"Error in get_itunes_top_podcasts_by_genre: {e}")
+            return {"results": [], "total": 0}
 
     @handle_errors(default=None)
     async def lookup_podcast_uuid_by_itunes_id(self, itunes_id: str, podcast_name: str = None) -> Optional[str]:
@@ -576,6 +586,16 @@ class TaddyAPI:
         """
 
         data = await self._make_graphql_request(query)
+        if data and data.get("_network_error"):
+            return {
+                "podcasts": [],
+                "episodes": [],
+                "pagination": {
+                    "podcasts": {"total": 0, "pages": 0},
+                    "episodes": {"total": 0, "pages": 0}
+                },
+                "network_error": True
+            }
         if not data or "search" not in data:
             return {
                 "podcasts": [],
@@ -891,6 +911,8 @@ class TaddyAPI:
         """
 
         data = await self._make_graphql_request(query)
+        if data and data.get("_network_error"):
+            return {"results": [], "total": 0, "network_error": True}
         if not data or "getLatestPodcastEpisodes" not in data:
             return {"results": [], "total": 0}
 
