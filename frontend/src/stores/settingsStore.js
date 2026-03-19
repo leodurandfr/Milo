@@ -309,10 +309,15 @@ export const useSettingsStore = defineStore('settings', () => {
 
   function updateBtRemoteStatus(data) {
     const devices = data.connected_devices || [];
+    const wasConnected = btRemote.value.connected;
     btRemote.value.connected = devices.length > 0;
     btRemote.value.device_name = devices[0]?.name || '';
     if (devices.length === 0) btRemote.value.battery_percentage = null;
     if (data.discovering !== undefined) btRemote.value.discovering = data.discovering;
+    // Fetch battery immediately when a device just connected
+    if (!wasConnected && devices.length > 0) {
+      fetchBtRemoteBattery();
+    }
   }
 
   async function loadBtRemoteStatus() {
