@@ -14,7 +14,7 @@ from pathlib import Path
 import aiohttp
 import aiofiles
 
-from backend.config.constants import get_client_display_name
+from backend.config.constants import get_client_display_name, DEPLOY_UPDATE_CMD
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.shared.decorators import handle_errors
 
@@ -347,7 +347,7 @@ class SnapcastService:
 
     @handle_errors(default=False)
     async def _update_config_file(self, config: Dict[str, Any]) -> bool:
-        """Update configuration file."""
+        """Update configuration file via milo-deploy-update write-config."""
         if not self.snapserver_conf.exists():
             self.logger.error("snapserver.conf not found")
             return False
@@ -357,14 +357,15 @@ class SnapcastService:
 
         updated_content = self._modify_config_content(content, config)
 
-        # Atomic write via temp file in same directory as target
-        temp_file = str(self.snapserver_conf) + ".tmp"
+        # Write temp file to /tmp (milo user has no write access to /etc/)
+        temp_file = "/tmp/snapserver.conf.tmp"
         async with aiofiles.open(temp_file, 'w') as f:
             await f.write(updated_content)
 
-        # Replace with sudo
+        # Deploy to /etc/ via secure wrapper
         proc = await asyncio.create_subprocess_exec(
-            "sudo", "mv", temp_file, str(self.snapserver_conf),
+            "sudo", DEPLOY_UPDATE_CMD,
+            "write-config", temp_file, str(self.snapserver_conf),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
