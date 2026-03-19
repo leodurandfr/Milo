@@ -1262,20 +1262,10 @@ class UpdateService(VersionService):
         if program_key not in self.update_config:
             return {"can_update": False, "reason": "Update not supported"}
 
-        # Check sudo permissions
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "sudo", "-n", "true",
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL
-            )
-            await proc.communicate()
-
-            if proc.returncode != 0:
-                return {"can_update": False, "reason": "Sudo access required"}
-
-        except Exception:
-            return {"can_update": False, "reason": "Cannot check sudo access"}
+        # Verify the deploy wrapper is reachable via sudo NOPASSWD
+        success, _ = await self._run_deploy("check", timeout=5)
+        if not success:
+            return {"can_update": False, "reason": "Deploy wrapper not accessible"}
 
         # Check that an update is available
         status = await self._get_program_full_status(program_key)

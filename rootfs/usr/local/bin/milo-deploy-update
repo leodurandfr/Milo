@@ -216,6 +216,7 @@ subcommand="$1"
 shift
 
 case "$subcommand" in
+    check)             echo "OK" ;;
     sync-system-files) cmd_sync_system_files "$@" ;;
     install-binary)    cmd_install_binary "$@" ;;
     install-deb)       cmd_install_deb "$@" ;;
