@@ -631,12 +631,24 @@ class AudioRoutingService:
     
     @handle_errors(default=False)
     async def _start_snapcast(self) -> bool:
-        """Starts snapcast services"""
+        """Starts snapcast services and waits for snapserver readiness"""
         success = await self.service_manager.start(self.snapserver_service)
         if not success:
             return False
 
-        await asyncio.sleep(0.5)
+        # Wait for snapserver to be ready on port 1780 before starting snapclient
+        await asyncio.sleep(1)
+        if self.snapcast_service:
+            for _ in range(10):
+                if await self.snapcast_service.is_available():
+                    self.logger.info("Snapserver is ready")
+                    break
+                await asyncio.sleep(1)
+            else:
+                self.logger.warning("Snapserver not ready after 10s, proceeding anyway")
+        else:
+            await asyncio.sleep(2)
+
         success = await self.service_manager.start(self.snapclient_service)
         return success
     
