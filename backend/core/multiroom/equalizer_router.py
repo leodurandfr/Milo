@@ -51,7 +51,8 @@ class EqualizerRouter:
         mac_id: str,
         local_action: Callable[[], Awaitable[Any]],
         remote_action: Callable[[str], Awaitable[Any]],
-        action_name: str = "action"
+        action_name: str = "action",
+        force: bool = False
     ) -> Dict[str, Any]:
         """
         Route action to local or remote based on client IP.
@@ -61,6 +62,8 @@ class EqualizerRouter:
             local_action: Async function to call for local client
             remote_action: Async function to call for remote (receives IP)
             action_name: Name for logging
+            force: If True, skip the online check (used during reconnection
+                sync when the client is registered but not yet marked online)
 
         Returns:
             Action result dict with status
@@ -78,7 +81,7 @@ class EqualizerRouter:
             if not self._proxy_service:
                 return {"status": "error", "message": "Proxy service not available"}
 
-            if not client.online:
+            if not force and not client.online:
                 logger.debug(f"Skipping offline client {mac_id} for {action_name}")
                 return {"status": "skipped", "reason": "client_offline"}
 
@@ -87,7 +90,7 @@ class EqualizerRouter:
 
     # === VOLUME ===
 
-    async def set_volume(self, mac_id: str, volume_db: float) -> Dict[str, Any]:
+    async def set_volume(self, mac_id: str, volume_db: float, force: bool = False) -> Dict[str, Any]:
         """Set volume for a client."""
         async def local():
             if self._camilladsp_service:
@@ -99,9 +102,9 @@ class EqualizerRouter:
             result = await self._proxy_service.request(ip, "PUT", "/equalizer/volume", {"volume": volume_db})
             return result
 
-        return await self._route(mac_id, local, remote, "set_volume")
+        return await self._route(mac_id, local, remote, "set_volume", force=force)
 
-    async def set_mute(self, mac_id: str, muted: bool) -> Dict[str, Any]:
+    async def set_mute(self, mac_id: str, muted: bool, force: bool = False) -> Dict[str, Any]:
         """Set mute for a client."""
         async def local():
             if self._camilladsp_service:
@@ -113,7 +116,7 @@ class EqualizerRouter:
             result = await self._proxy_service.request(ip, "PUT", "/equalizer/mute", {"muted": muted})
             return result
 
-        return await self._route(mac_id, local, remote, "set_mute")
+        return await self._route(mac_id, local, remote, "set_mute", force=force)
 
     # === PRESETS ===
 

@@ -435,15 +435,15 @@ class SnapcastWebSocketService:
                 self._processing_client_ids.add(snapcast_id)
                 try:
                     if self.registry:
+                        # Register but keep OFFLINE — client stays invisible in
+                        # frontend until volume is synced and confirmed on hardware.
                         await self.registry.register_client(mac_id, client["name"], client["ip"], host=client["host"])
-                        await self.registry.set_client_online(mac_id, client["online"])
 
-                    await self._broadcast_snapcast_event("client_connected", {
-                        "client_id": snapcast_id, "client_name": client["name"],
-                        "client_host": client["host"], "client_ip": client["ip"],
-                        "mac_id": mac_id, "online": client["online"]
-                    })
-                    await self._notify_volume_service_client_connected(snapcast_id, {"id": snapcast_id})
+                    # Sync volume then set online (fire-and-forget so we don't
+                    # hold _processing_client_ids which would dedup Client.OnConnect).
+                    # force=True in the router bypasses the online check.
+                    if client["online"]:
+                        asyncio.create_task(self._sync_reconnecting_client_volume(mac_id, set_online_after=True))
                 finally:
                     self._processing_client_ids.discard(snapcast_id)
 
@@ -471,8 +471,14 @@ class SnapcastWebSocketService:
 
             if online != previous_online:
                 self.logger.info(f"Client {mac_id} online status: {previous_online} -> {online}")
+
                 if self.registry:
                     await self.registry.set_client_online(mac_id, online)
+
+                # Sync volume as fire-and-forget after marking online
+                # (must not block event loop — retries can take 15+ seconds).
+                if online and not previous_online:
+                    asyncio.create_task(self._sync_reconnecting_client_volume(mac_id))
 
                 await self._broadcast_snapcast_event("client_availability_changed", {
                     "client_id": client["id"], "mac_id": mac_id,
@@ -535,9 +541,10 @@ class SnapcastWebSocketService:
             self.logger.info(f"[{time.time():.3f}] CLIENT_CONNECT: Calling volume sync for {client_id}")
             sync_status = await self._notify_volume_service_client_connected(client_id, client)
 
-            # Set client online AFTER volume is synced to prevent UI flicker
-            # (otherwise frontend briefly shows stale volume before sync completes)
-            if self.registry:
+            # Only set online if volume was successfully applied to hardware.
+            # If sync failed, the fire-and-forget retry from _process_new_clients
+            # will set online via set_online_after=True when hardware confirms.
+            if sync_status.get("volume_synced") and self.registry:
                 await self.registry.set_client_online(mac_id, True)
 
             # Crossover recalculation is handled by CrossoverService._handle_registry_event
@@ -840,30 +847,42 @@ class SnapcastWebSocketService:
         """
         Apply a specific volume to a client's equalizer and update state.
 
+        Always updates state store and registry (so the UI shows the correct
+        target volume). Applies to hardware on best-effort — returns False if
+        the hardware call fails so callers can retry.
+
         Args:
             mac_id: Client identifier
             target_volume_db: Volume to set in dB
 
         Returns:
-            True if volume applied successfully, False otherwise
+            True if hardware application succeeded, False otherwise.
+            State/registry are updated regardless.
         """
         try:
             if not self._volume_service:
                 self.logger.warning(f"No volume_service available to apply volume for {mac_id}")
                 return False
 
-            # Update client volume in state and apply to equalizer
-            await self._volume_service.update_client_volume_db(mac_id, target_volume_db, broadcast=False)
-
-            # Unmute DSP (CamillaDSP starts muted with -m flag)
-            # Use persisted mute state (defaults to False = unmuted)
-            persisted_mute = self._volume_service._state_store.get_client_mute(mac_id)
-            await self._volume_service._equalizer_controller.set_equalizer_mute(mac_id, persisted_mute)
-            self.logger.info(f"[{time.time():.3f}] MUTE_APPLY: Set {mac_id} mute={persisted_mute}")
-
-            # Update registry if available
+            # Always update state store and registry first (UI correctness)
+            await self._volume_service._state_store.set_client_volume(mac_id, target_volume_db)
             if self.registry:
                 await self.registry.update_volume(mac_id, volume_db=target_volume_db)
+
+            # Apply to hardware — force=True bypasses the online check in the
+            # router so we can sync clients that are registered but not yet
+            # marked online (they stay offline/muted in the frontend until
+            # this succeeds).
+            eq = self._volume_service._equalizer_controller
+            volume_ok = await eq.set_equalizer_volume(mac_id, target_volume_db, force=True)
+            if not volume_ok:
+                self.logger.warning(f"VOLUME_APPLY: Hardware failed for {mac_id}, state updated to {target_volume_db:.1f} dB")
+                return False
+
+            # Unmute DSP (CamillaDSP starts muted with -m flag)
+            persisted_mute = self._volume_service._state_store.get_client_mute(mac_id)
+            await eq.set_equalizer_mute(mac_id, persisted_mute, force=True)
+            self.logger.info(f"[{time.time():.3f}] MUTE_APPLY: Set {mac_id} mute={persisted_mute}")
 
             self.logger.info(
                 f"[{time.time():.3f}] VOLUME_APPLY: Set {mac_id} to {target_volume_db:.1f} dB"
@@ -1080,6 +1099,55 @@ class SnapcastWebSocketService:
         except Exception as e:
             self.logger.error(f"Error syncing standalone equalizer to {mac_id}: {e}", exc_info=True)
             return False
+
+    async def _sync_reconnecting_client_volume(
+        self, mac_id: str, set_online_after: bool = False,
+        max_retries: int = 5, retry_delay: float = 3.0
+    ) -> bool:
+        """
+        Sync volume for a known client that just came back online.
+
+        Lightweight version of _sync_existing_client_volume that works with
+        just a mac_id (no full Snapcast client object needed). Retries on
+        failure because remote clients may still be booting when their
+        snapclient connects before their API (port 8001) is ready.
+
+        Args:
+            mac_id: Client identifier
+            set_online_after: If True, mark client online in registry after
+                successful sync (keeps client offline/muted in frontend until
+                volume is confirmed on hardware).
+        """
+        if not self.registry or not self._volume_service:
+            return False
+
+        context = self.registry.get_reconnection_context(mac_id)
+        target_volume = self._resolve_target_volume(mac_id, context)
+
+        self.logger.info(
+            f"SYNC_RECONNECT: {mac_id} context={context.value}, "
+            f"target={target_volume:.1f} dB"
+        )
+
+        for attempt in range(max_retries + 1):
+            try:
+                volume_synced = await self._apply_target_volume_to_client(mac_id, target_volume)
+                if volume_synced:
+                    # Volume confirmed on hardware — now safe to show online
+                    if set_online_after and self.registry:
+                        await self.registry.set_client_online(mac_id, True)
+                    if self._volume_service:
+                        await self._volume_service._broadcast_volume_state(show_bar=False)
+                    self.logger.info(f"SYNC_RECONNECT: {mac_id} synced to {target_volume:.1f} dB (attempt {attempt + 1})")
+                    return True
+            except Exception as e:
+                self.logger.warning(f"SYNC_RECONNECT: {mac_id} attempt {attempt + 1} failed: {e}")
+
+            if attempt < max_retries:
+                await asyncio.sleep(retry_delay)
+
+        self.logger.warning(f"SYNC_RECONNECT: {mac_id} failed after {max_retries + 1} attempts")
+        return False
 
     async def _broadcast_snapcast_event(self, event_type: str, data: Dict[str, Any]) -> None:
         """Broadcast a Snapcast event via state machine (WebSocket)."""

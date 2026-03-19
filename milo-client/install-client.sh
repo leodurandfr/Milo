@@ -120,7 +120,7 @@ check_system() {
 }
 
 discover_milo_principal() {
-    # Use --server if provided
+    # Use --server if provided (static IP for environments without mDNS)
     if [[ -n "$ARG_SERVER_IP" ]]; then
         MILO_PRINCIPAL_IP="$ARG_SERVER_IP"
         log_success "Main Milo server: $MILO_PRINCIPAL_IP (from --server)"
@@ -129,8 +129,13 @@ discover_milo_principal() {
 
     log_info "Searching for main Milo on the network..."
 
-    if MILO_PRINCIPAL_IP=$(getent hosts milo.local 2>/dev/null | awk '{print $1}' | head -1) && [[ -n "$MILO_PRINCIPAL_IP" ]]; then
-        log_success "Main Milo found at: $MILO_PRINCIPAL_IP (milo.local)"
+    # Verify milo.local is reachable, but store the hostname instead of the
+    # resolved IP so the client stays connected after network interface changes
+    # (e.g. main Milo switching from Ethernet to WiFi).
+    local resolved_ip
+    if resolved_ip=$(getent hosts milo.local 2>/dev/null | awk '{print $1}' | head -1) && [[ -n "$resolved_ip" ]]; then
+        MILO_PRINCIPAL_IP="milo.local"
+        log_success "Main Milo found at: $resolved_ip (milo.local)"
         return 0
     fi
 
