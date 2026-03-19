@@ -49,7 +49,7 @@ class SnapcastService:
                         return data.get("result", {})
             return {}
         except Exception as e:
-            self.logger.error(f"Snapcast request failed: {type(e).__name__}: {e}")
+            self.logger.warning(f"Snapcast request failed: {type(e).__name__}: {e}")
             return {}
 
     # === CLIENT COMMANDS ===
