@@ -94,7 +94,7 @@ class EqualizerController:
 
     # ========== Single Client Operations ==========
 
-    async def set_equalizer_volume(self, mac_id: str, volume_db: float, retry: int = 0) -> bool:
+    async def set_equalizer_volume(self, mac_id: str, volume_db: float, retry: int = 0, force: bool = False) -> bool:
         """
         Set volume for a single client via EqualizerRouter.
 
@@ -102,6 +102,8 @@ class EqualizerController:
             mac_id: Client identifier (mac_id from registry)
             volume_db: Target volume in dB
             retry: Current retry attempt (internal)
+            force: Bypass online check in router (for reconnection sync)
+            force: Bypass online check in router (for reconnection sync)
 
         Returns:
             True if successful, False otherwise
@@ -110,7 +112,7 @@ class EqualizerController:
             if not self._router:
                 return False
             result = await asyncio.wait_for(
-                self._router.set_volume(mac_id, volume_db),
+                self._router.set_volume(mac_id, volume_db, force=force),
                 timeout=self._timeout
             )
             return self._is_success(result)
@@ -118,20 +120,20 @@ class EqualizerController:
         except asyncio.TimeoutError:
             if retry < self.RETRY_ATTEMPTS:
                 await asyncio.sleep(self.RETRY_DELAY)
-                return await self.set_equalizer_volume(mac_id, volume_db, retry + 1)
+                return await self.set_equalizer_volume(mac_id, volume_db, retry + 1, force=force)
             self.logger.error(f"Timeout setting volume for {mac_id}")
             return False
         except Exception as e:
-            self.logger.error(f"Error setting volume for {mac_id}: {e}")
+            self.logger.warning(f"Failed to set volume for {mac_id}: {e}")
             return False
 
-    async def set_equalizer_mute(self, mac_id: str, mute: bool) -> bool:
+    async def set_equalizer_mute(self, mac_id: str, mute: bool, force: bool = False) -> bool:
         """Set mute state for a client's equalizer via EqualizerRouter."""
         try:
             if not self._router:
                 return False
             result = await asyncio.wait_for(
-                self._router.set_mute(mac_id, mute),
+                self._router.set_mute(mac_id, mute, force=force),
                 timeout=self._timeout
             )
             return self._is_success(result)

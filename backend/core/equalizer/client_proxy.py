@@ -194,7 +194,7 @@ class EqualizerClientProxyService:
                     raise ValueError(f"Unsupported HTTP method: {method}")
 
         except aiohttp.ClientError as e:
-            self.logger.error(f"Error proxying request to {hostname}: {e}")
+            self.logger.warning(f"Cannot reach client {hostname}: {e}")
             raise HTTPException(status_code=503, detail=f"Cannot reach client {hostname}")
         except HTTPException:
             raise
