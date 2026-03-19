@@ -88,7 +88,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
   // === BT REMOTE ===
   const btRemote = ref({
-    enabled: true,
+    enabled: false,
     connected: false,
     discovering: false,
     device_name: '',
@@ -318,7 +318,7 @@ export const useSettingsStore = defineStore('settings', () => {
   async function loadBtRemoteStatus() {
     await apiCall('settings', 'Error loading BT remote status:', async () => {
       const res = await axios.get('/api/bt-remote/status');
-      btRemote.value.enabled = res.data.enabled ?? true;
+      btRemote.value.enabled = res.data.enabled ?? false;
       updateBtRemoteStatus(res.data);
     });
   }
