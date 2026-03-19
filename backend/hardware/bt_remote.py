@@ -67,7 +67,7 @@ class BtRemoteController:
         self.settings_service = settings_service
 
         self.running = False
-        self.enabled = True
+        self.enabled = False
         self.device_name_filter = DEFAULT_DEVICE_FILTER
         self.key_map: Dict[str, str] = dict(DEFAULT_KEY_MAP)
 
@@ -160,7 +160,7 @@ class BtRemoteController:
         if not config:
             return
 
-        self.enabled = config.get('enabled', True)
+        self.enabled = config.get('enabled', False)
         self.device_name_filter = config.get('device_name_filter', DEFAULT_DEVICE_FILTER)
 
         key_map = config.get('key_map', {})
