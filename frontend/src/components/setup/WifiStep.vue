@@ -202,7 +202,6 @@ onMounted(() => {
   padding: var(--space-03) var(--space-04);
   background: var(--color-background);
   border-radius: var(--radius-04);
-  line-height: 1.4;
 }
 
 .wifi-banner--hotspot {

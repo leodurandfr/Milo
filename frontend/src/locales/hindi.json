@@ -579,10 +579,10 @@
     },
     "mode": {
       "title": "अपना मोड चुनें",
-      "server": "Milo मुख्य ऐप",
-      "serverDescription": "यह Milo सभी ऑडियो स्रोतों (Spotify, AirPlay, Radio...) के साथ मुख्य सर्वर होगा",
-      "client": "मल्टीरूम क्लाइंट",
-      "clientDescription": "यह Milo मल्टीरूम सुनने के लिए मुख्य सर्वर से ऑडियो प्राप्त करेगा"
+      "server": "Milō OS",
+      "serverDescription": "ऑडियो स्रोतों वाला ऑपरेटिंग सिस्टम जैसे : Spotify, Bluetooth, Radio…",
+      "client": "Milō Client",
+      "clientDescription": "मल्टीरूम रिसीवर जो स्वचालित रूप से Milō ऑपरेटिंग सिस्टम से जुड़ता है।"
     },
     "audio": {
       "title": "अपना ऑडियो कार्ड चुनें",

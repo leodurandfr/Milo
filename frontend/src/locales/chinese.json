@@ -579,10 +579,10 @@
     },
     "mode": {
       "title": "选择您的模式",
-      "server": "Milo 主应用",
-      "serverDescription": "此 Milo 将作为主服务器，拥有所有音频源（Spotify、AirPlay、Radio...）",
-      "client": "多房间客户端",
-      "clientDescription": "此 Milo 将从主服务器接收音频，用于多房间收听"
+      "server": "Milō OS",
+      "serverDescription": "包含音频源的操作系统，如：Spotify、Bluetooth、Radio…",
+      "client": "Milō Client",
+      "clientDescription": "自动连接到 Milō 操作系统的多房间接收器。"
     },
     "audio": {
       "title": "选择您的声卡",

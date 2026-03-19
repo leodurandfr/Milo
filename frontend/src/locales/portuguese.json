@@ -579,10 +579,10 @@
     },
     "mode": {
       "title": "Escolha o seu modo",
-      "server": "Aplicação Milo principal",
-      "serverDescription": "Este Milo será o servidor principal com todas as fontes de áudio (Spotify, AirPlay, Radio...)",
-      "client": "Cliente multiroom",
-      "clientDescription": "Este Milo receberá áudio de um servidor principal para audição multiroom"
+      "server": "Milō OS",
+      "serverDescription": "Sistema operacional com fontes de áudio como: Spotify, Bluetooth, Radio…",
+      "client": "Milō Client",
+      "clientDescription": "Receptor multiroom que se conecta automaticamente ao sistema operacional Milō."
     },
     "audio": {
       "title": "Selecione a sua placa de áudio",
