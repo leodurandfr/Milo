@@ -580,10 +580,10 @@
     },
     "mode": {
       "title": "Choose your mode",
-      "server": "Main Milo app",
-      "serverDescription": "This Milo will be the main server with all audio sources (Spotify, AirPlay, Radio...)",
-      "client": "Multiroom client",
-      "clientDescription": "This Milo will receive audio from a main server for multiroom listening"
+      "server": "Milō OS",
+      "serverDescription": "Operating system with audio sources like: Spotify, Bluetooth, Radio…",
+      "client": "Milō Client",
+      "clientDescription": "Multiroom receiver that automatically connects to the Milō operating system."
     },
     "audio": {
       "title": "Select your audio card",

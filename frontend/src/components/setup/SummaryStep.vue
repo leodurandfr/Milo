@@ -1,6 +1,11 @@
 <!-- frontend/src/components/setup/SummaryStep.vue -->
 <template>
   <div class="summary-step">
+    <!-- milo.local access hint -->
+    <div v-if="wifiSsid" class="summary-hint text-mono-small">
+      {{ t('setup.summary.accessHint', { ssid: wifiSsid }) }}
+    </div>
+
     <!-- Mode -->
     <div class="summary-item">
       <span class="text-mono summary-item__label">{{ t('setup.summary.mode') }}</span>
@@ -40,11 +45,6 @@
       <div class="summary-item__card">
         <span class="heading-3">{{ screenLabel }}</span>
       </div>
-    </div>
-
-    <!-- milo.local access hint -->
-    <div v-if="wifiSsid" class="summary-hint text-mono-small">
-      {{ t('setup.summary.accessHint', { ssid: wifiSsid }) }}
     </div>
 
     <p v-if="error" class="text-mono error-message">{{ error }}</p>
@@ -158,9 +158,8 @@ const flagIcon = computed(() => flagIcons[props.languageCode] || null);
 .summary-hint {
   color: var(--color-text-secondary);
   padding: var(--space-03) var(--space-04);
-  background: color-mix(in srgb, var(--color-brand) 10%, transparent);
+  background: var(--color-background);
   border-radius: var(--radius-04);
-  line-height: 1.4;
 }
 
 .error-message {
