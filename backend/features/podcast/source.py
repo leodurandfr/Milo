@@ -579,6 +579,17 @@ class PodcastSource(MpvAudioSource):
 
     # === Public API ===
 
+    async def reload_credentials(self, user_id: str, api_key: str) -> bool:
+        """Hot-reload Taddy API credentials without restarting the plugin."""
+        self._taddy_api.user_id = user_id
+        self._taddy_api.api_key = api_key
+        # Close existing session so _ensure_session() recreates it with new headers
+        await self._taddy_api.close()
+        # Clear caches that may contain error responses from old credentials
+        self._taddy_api.clear_cache()
+        self._logger.info("Taddy API credentials reloaded")
+        return True
+
     @property
     def mpv(self) -> Optional[MpvController]:
         """Get MPV controller."""
