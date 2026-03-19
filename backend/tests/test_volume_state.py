@@ -3,7 +3,7 @@
 Unit tests for VolumeStateStore - Single Source of Truth for volume state.
 """
 import pytest
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import Mock, MagicMock, AsyncMock
 from backend.core.volume.state import VolumeStateStore, ZoneConfig
 from backend.core.models.volume import VolumeConfig
 from backend.core.models.volume_state import ClientVolume
@@ -440,7 +440,7 @@ class TestZoneVolumeDelta:
         }
 
         # Mock persist to avoid file I/O
-        store._persist_state = AsyncMock()
+        store._schedule_persist = MagicMock()
 
         # Action: apply updates
         await store.apply_zone_updates({'client-a': -25.0, 'client-b': -30.0})
@@ -448,8 +448,8 @@ class TestZoneVolumeDelta:
         # Assert: volumes updated
         assert store._clients['client-a'].volume_db == -25.0
         assert store._clients['client-b'].volume_db == -30.0
-        # Verify persist was called
-        store._persist_state.assert_called_once()
+        # Verify persist was scheduled
+        store._schedule_persist.assert_called_once()
 
 
 # ==============================================================================

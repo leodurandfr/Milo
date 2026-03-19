@@ -953,6 +953,9 @@ class TestStartupVolumeAutoUpdate:
         # Act: Adjust by +5dB -> -45dB
         await service.adjust_volume_db(5.0)
 
+        # Allow background task (_schedule_post_volume_tasks) to run
+        await asyncio.sleep(0)
+
         # Assert: startup_volume_db was updated
         mock_settings.set_setting.assert_called()
         call_args = mock_settings.set_setting.call_args
@@ -1235,3 +1238,154 @@ class TestStartupVolumeOnRestart:
 
         # Assert: Equalizer volume was NOT set (connection failed)
         mock_camilladsp_service.set_volume.assert_not_called()
+
+
+# ============================================================================
+# Volume Lock Regression Tests
+# ============================================================================
+
+class TestVolumeLockNoTimeout:
+    """
+    Regression tests for volume lock timeout issue.
+
+    Reproduces the scenario: rapid BT remote volume changes in multiroom mode
+    with a slow satellite client. Before the fix, _apply_global_volume ran
+    HTTP fan-out inside the lock, causing subsequent callers to timeout.
+    After the fix, only in-memory state updates happen under the lock.
+    """
+
+    @pytest.fixture
+    def mock_state_machine(self):
+        sm = Mock()
+        sm.broadcast_event = AsyncMock()
+        sm.routing_service = Mock()
+        sm.routing_service.get_state = Mock(return_value={'multiroom_enabled': True})
+        return sm
+
+    @pytest.fixture
+    def mock_snapcast_service(self):
+        service = Mock()
+        service.get_clients = AsyncMock(return_value=[
+            {"camilladsp_id": "local-mac", "available": True},
+            {"camilladsp_id": "satellite-mac", "available": True},
+        ])
+        return service
+
+    @pytest.fixture
+    def mock_settings(self):
+        settings = Mock()
+        settings.invalidate_cache = Mock()
+        settings.get_setting = AsyncMock(return_value=None)
+        settings.set_setting = AsyncMock()
+        return settings
+
+    @pytest.fixture
+    def slow_equalizer_controller(self):
+        """Simulate a slow satellite: apply_volumes_parallel takes 3 seconds."""
+        controller = Mock()
+
+        async def slow_apply(updates):
+            await asyncio.sleep(3.0)  # Simulate slow satellite HTTP
+            return {mac_id: True for mac_id in updates}
+
+        controller.apply_volumes_parallel = AsyncMock(side_effect=slow_apply)
+        return controller
+
+    @pytest.fixture
+    def service(self, mock_state_machine, mock_snapcast_service, mock_settings,
+                slow_equalizer_controller):
+        svc = VolumeService(
+            state_machine=mock_state_machine,
+            snapcast_service=mock_snapcast_service,
+            settings_service=mock_settings,
+            camilladsp_service=Mock(
+                set_volume=AsyncMock(return_value=True),
+                is_volume_control_available=Mock(return_value=True),
+            ),
+        )
+        svc._volume_config = VolumeConfig(
+            limit_min_db=-80.0, limit_max_db=0.0,
+            startup_volume_db=-40.0, restore_last_volume=False,
+        )
+        svc._routing_service = mock_state_machine.routing_service
+        svc._equalizer_controller = slow_equalizer_controller
+        svc._state_store._mode = "multiroom"
+        svc._state_store._clients = {
+            "local-mac": ClientVolume(volume_db=-40.0, offset_db=0.0, mute=False, available=True),
+            "satellite-mac": ClientVolume(volume_db=-40.0, offset_db=0.0, mute=False, available=True),
+        }
+        return svc
+
+    @pytest.mark.asyncio
+    async def test_rapid_volume_changes_no_lock_timeout(self, service):
+        """
+        Simulate rapid BT remote volume presses while satellite is slow.
+
+        Before the fix: second adjust_volume_db would timeout waiting for
+        the lock (held during 3s HTTP fan-out) and log:
+            "Timeout waiting for volume lock (>2s)"
+
+        After the fix: lock is only held for in-memory computation (~µs),
+        so all calls acquire it instantly. The slow HTTP fan-out happens
+        outside the lock.
+        """
+        # Simulate 5 rapid volume adjustments (like holding BT remote button)
+        results = []
+        for _ in range(5):
+            result = await service.adjust_volume_db(2.0)
+            results.append(result)
+
+        # All 5 should succeed (no timeouts)
+        assert all(results), f"Expected all True, got {results}"
+
+    @pytest.mark.asyncio
+    async def test_concurrent_volume_sources_no_lock_timeout(self, service):
+        """
+        Simulate concurrent volume changes from different sources
+        (BT remote + frontend slider) while satellite is slow.
+
+        Before the fix: one source holding the lock during HTTP fan-out
+        would block the other source for >2s, causing timeout.
+
+        After the fix: both acquire the lock in microseconds (state-only),
+        then fan out to hardware concurrently.
+        """
+        # Launch 3 concurrent volume changes (simulating BT + rotary + frontend)
+        tasks = [
+            asyncio.create_task(service.adjust_volume_db(2.0)),
+            asyncio.create_task(service.adjust_volume_db(2.0)),
+            asyncio.create_task(service.set_volume_db(-35.0)),
+        ]
+        results = await asyncio.gather(*tasks)
+
+        # All should succeed (no lock timeouts)
+        assert all(results), f"Expected all True, got {results}"
+
+    @pytest.mark.asyncio
+    async def test_zone_delta_no_lock_timeout(self, service):
+        """
+        apply_zone_volume_delta previously had NO timeout at all on the lock,
+        meaning it could block all other volume operations indefinitely.
+
+        After the fix: lock is only held for state computation, and has
+        a 2s timeout on acquisition.
+        """
+        # Setup zone
+        from backend.core.volume.state import ZoneConfig
+        service._state_store._zones = {
+            "zone-1": ZoneConfig(
+                zone_id="zone-1", name="Test",
+                client_ids=["local-mac", "satellite-mac"]
+            )
+        }
+
+        # Zone delta + concurrent adjust should both succeed
+        tasks = [
+            asyncio.create_task(service.apply_zone_volume_delta("zone-1", 3.0)),
+            asyncio.create_task(service.adjust_volume_db(2.0)),
+        ]
+        results = await asyncio.gather(*tasks)
+
+        # Zone delta returns float (new average), adjust returns bool
+        assert isinstance(results[0], float)
+        assert results[1] is True

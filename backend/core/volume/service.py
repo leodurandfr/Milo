@@ -50,6 +50,7 @@ class VolumeService:
         self._hardware_service = hardware_service
         self.logger = logging.getLogger(__name__)
         self._volume_lock = asyncio.Lock()
+        self._push_lock = asyncio.Lock()
 
         # Volume configuration (loaded from settings in _load_volume_config)
         self._volume_config = VolumeConfig()
@@ -81,16 +82,6 @@ class VolumeService:
     # HELPERS
     # ============================================================================
 
-    async def _with_lock(self, func, *args, **kwargs):
-        """Execute func with volume lock and 2s timeout."""
-        try:
-            async with asyncio.timeout(2.0):
-                async with self._volume_lock:
-                    return await func(*args, **kwargs)
-        except asyncio.TimeoutError:
-            self.logger.error("Timeout waiting for volume lock (>2s)")
-            return False
-
     async def _check_equalizer_or_error(self) -> bool:
         """Check equalizer availability. Returns True if OK."""
         if self._is_multiroom_enabled() or self._is_equalizer_available():
@@ -98,10 +89,51 @@ class VolumeService:
         self.logger.warning("Equalizer not available, volume change blocked")
         return False
 
-    async def _apply_to_multiroom_clients(self, updates: Dict[str, float]) -> bool:
-        """Apply volume updates to multiroom clients and update state store."""
+    async def _compute_multiroom_updates(self, target_db: float,
+                                         client_ids: list) -> Optional[Dict[str, float]]:
+        """Compute per-client volume updates for multiroom mode.
+
+        Must be called with _volume_lock held. Reads state and computes
+        deltas but does NOT write to memory (state is committed after
+        hardware application succeeds, via set_client_volume).
+
+        Args:
+            target_db: Target global volume in dB.
+            client_ids: Online client IDs (fetched before lock acquisition).
+
+        Returns:
+            Dict of {mac_id: volume_db} for multiroom, None for direct mode.
+        """
+        if not self._is_multiroom_enabled():
+            self._state_store.set_local_volume(target_db)
+            return None
+
+        if not client_ids:
+            return {}
+
+        volume_state = await self._state_store.get_complete_state()
+        delta = target_db - volume_state.global_volume_db
+        updates = {}
+        for cid in client_ids:
+            current = volume_state.clients.get(cid)
+            if current:
+                updates[cid] = self._volume_config.clamp(current.volume_db + delta)
+        return updates
+
+    async def _apply_volume_to_hardware(self, target_db: float, updates: Optional[Dict[str, float]]) -> bool:
+        """Apply volume to hardware outside the lock.
+
+        Args:
+            target_db: Target volume in dB (used for direct mode CamillaDSP call).
+            updates: Per-client updates from _compute_multiroom_updates, or None for direct mode.
+        """
+        if updates is None:
+            # Direct mode: apply to local CamillaDSP
+            success = await self._camilladsp_service.set_volume(target_db)
+            return success
         if not updates:
             return True
+        # Multiroom: fan-out to all clients, commit state only on success
         results = await self._equalizer_controller.apply_volumes_parallel(updates)
         for hostname, volume in updates.items():
             if results.get(hostname, False):
@@ -261,10 +293,6 @@ class VolumeService:
         finally:
             # Always sync state store even on partial failure
             self._state_store.set_volume_config(self._volume_config)
-
-    def _save_last_volume(self, volume_db: float) -> None:
-        """Save last volume in background (via VolumeStateStore)."""
-        self._state_store.save_local_volume(self._volume_config.restore_last_volume)
 
     @handle_errors(default=False)
     async def reload_volume_limits(self) -> bool:
@@ -463,6 +491,16 @@ class VolumeService:
             target_volume_db: If provided, use this volume for ALL clients (mode switch).
                              If None, respect startup settings (restore/startup volume).
         """
+        try:
+            async with asyncio.timeout(10.0):
+                async with self._push_lock:
+                    return await self._do_push_volume_to_all_clients(target_volume_db)
+        except asyncio.TimeoutError:
+            self.logger.warning("Timeout waiting for push lock (>10s)")
+            return False
+
+    async def _do_push_volume_to_all_clients(self, target_volume_db: Optional[float] = None) -> bool:
+        """Internal push implementation (called under _push_lock)."""
         client_ids = await get_online_client_ids(self.snapcast_service)
         if not client_ids:
             return True
@@ -541,40 +579,41 @@ class VolumeService:
 
     async def apply_zone_volume_delta(self, zone_id: str, delta_db: float) -> float:
         """Apply volume delta to entire zone atomically. Returns new zone average in dB."""
-        async with self._volume_lock:
-            try:
-                self._state_store.clear_zone_targets()
-                updates = await self._state_store.apply_zone_delta(zone_id, delta_db)
+        # Phase A: compute updates under lock (no hardware I/O)
+        try:
+            async with asyncio.timeout(2.0):
+                async with self._volume_lock:
+                    self._state_store.clear_zone_targets()
+                    updates = await self._state_store.apply_zone_delta(zone_id, delta_db)
+        except asyncio.TimeoutError:
+            self.logger.warning("Timeout waiting for volume lock (>2s) for zone delta")
+            return self._state_store.compute_zone_average(zone_id)
 
-                if not updates:
-                    self.logger.warning(f"No clients to update in zone {zone_id}")
-                    return self._state_store.compute_zone_average(zone_id)
+        if not updates:
+            self.logger.warning(f"No clients to update in zone {zone_id}")
+            return self._state_store.compute_zone_average(zone_id)
 
-                self.logger.info(f"Applying zone delta: {zone_id} {delta_db:+.1f}dB -> {len(updates)} clients")
-                results = await self._equalizer_controller.apply_volumes_parallel(updates)
+        # Phase B: hardware fan-out outside lock
+        self.logger.info(f"Applying zone delta: {zone_id} {delta_db:+.1f}dB -> {len(updates)} clients")
+        results = await self._equalizer_controller.apply_volumes_parallel(updates)
 
-                # Update state store with successful updates
-                successful = {h: v for h, v in updates.items() if results.get(h, False)}
-                await self._state_store.apply_zone_updates(successful)
+        successful = {h: v for h, v in updates.items() if results.get(h, False)}
+        await self._state_store.apply_zone_updates(successful)
 
-                failures = [h for h, ok in results.items() if not ok]
-                if failures:
-                    self.logger.warning(f"Failed to update clients: {failures}")
+        failures = [h for h, ok in results.items() if not ok]
+        if failures:
+            self.logger.warning(f"Failed to update clients: {failures}")
 
-                # FR11: Update startup volume using local client's new volume
-                local_mac_id = self._state_store.local_mac_id
-                local_volume = updates.get(local_mac_id) if local_mac_id else None
-                local_volume = local_volume or self._state_store.local_volume_db
-                await self._update_startup_volume_if_needed(local_volume)
+        # FR11 + broadcast
+        local_mac_id = self._state_store.local_mac_id
+        local_volume = updates.get(local_mac_id) if local_mac_id else None
+        local_volume = local_volume or self._state_store.local_volume_db
+        await self._update_startup_volume_if_needed(local_volume)
+        await self._broadcast_volume_state(show_bar=False)
 
-                await self._broadcast_volume_state(show_bar=False)
-
-                new_avg = self._state_store.compute_zone_average(zone_id)
-                self.logger.info(f"Zone {zone_id} updated: {new_avg:.1f}dB ({len(successful)}/{len(updates)} success)")
-                return new_avg
-            except Exception as e:
-                self.logger.error(f"Error applying zone delta: {e}", exc_info=True)
-                raise
+        new_avg = self._state_store.compute_zone_average(zone_id)
+        self.logger.info(f"Zone {zone_id} updated: {new_avg:.1f}dB ({len(successful)}/{len(updates)} success)")
+        return new_avg
 
     # ============================================================================
     # SERVICE INITIALIZATION
@@ -684,40 +723,45 @@ class VolumeService:
 
     async def set_volume_db(self, volume_db: float, show_bar: bool = True) -> bool:
         """Set volume to specific level in dB (-80 to 0)."""
-        async def _do_set():
-            try:
-                if not await self._check_equalizer_or_error():
-                    return False
-                target_db = self._volume_config.clamp(volume_db)
-                success = await self._apply_global_volume(target_db)
-                if success:
-                    self._save_last_volume(target_db)
-                    await self._update_startup_volume_if_needed(target_db)  # FR11
-                    await self._broadcast_volume_state(show_bar)
-                return success
-            except Exception as e:
-                self.logger.error(f"Error setting volume: {e}")
-                return False
-        return await self._with_lock(_do_set)
+        if not await self._check_equalizer_or_error():
+            return False
+        target_db = self._volume_config.clamp(volume_db)
+        # Fetch online clients before lock (network I/O)
+        client_ids = await get_online_client_ids(self.snapcast_service) if self._is_multiroom_enabled() else []
+        try:
+            async with asyncio.timeout(2.0):
+                async with self._volume_lock:
+                    updates = await self._compute_multiroom_updates(target_db, client_ids)
+        except asyncio.TimeoutError:
+            self.logger.warning("Timeout waiting for volume lock (>2s)")
+            return False
+
+        success = await self._apply_volume_to_hardware(target_db, updates)
+        if success:
+            await self._update_startup_volume_if_needed(target_db)
+            await self._broadcast_volume_state(show_bar)
+        return success
 
     async def adjust_volume_db(self, delta_db: float, show_bar: bool = True) -> bool:
         """Adjust volume by delta in dB (positive = louder, negative = quieter)."""
-        async def _do_adjust():
-            try:
-                if not await self._check_equalizer_or_error():
-                    return False
-                volume_state = await self._state_store.get_complete_state()
-                target_db = self._volume_config.clamp(volume_state.global_volume_db + delta_db)
-                success = await self._apply_global_volume(target_db)
-                if success:
-                    self._save_last_volume(target_db)
-                    # FR11 + broadcast run outside the lock as background tasks
-                    self._schedule_post_volume_tasks(target_db, show_bar)
-                return success
-            except Exception as e:
-                self.logger.error(f"Error adjusting volume: {e}")
-                return False
-        return await self._with_lock(_do_adjust)
+        if not await self._check_equalizer_or_error():
+            return False
+        # Fetch online clients before lock (network I/O)
+        client_ids = await get_online_client_ids(self.snapcast_service) if self._is_multiroom_enabled() else []
+        try:
+            async with asyncio.timeout(2.0):
+                async with self._volume_lock:
+                    volume_state = await self._state_store.get_complete_state()
+                    target_db = self._volume_config.clamp(volume_state.global_volume_db + delta_db)
+                    updates = await self._compute_multiroom_updates(target_db, client_ids)
+        except asyncio.TimeoutError:
+            self.logger.warning("Timeout waiting for volume lock (>2s)")
+            return False
+
+        success = await self._apply_volume_to_hardware(target_db, updates)
+        if success:
+            self._schedule_post_volume_tasks(target_db, show_bar)
+        return success
 
     def _schedule_post_volume_tasks(self, target_db: float, show_bar: bool) -> None:
         """Schedule FR11 check and WebSocket broadcast as background tasks."""
@@ -726,32 +770,6 @@ class VolumeService:
             await self._broadcast_volume_state(show_bar)
         task = asyncio.create_task(_post_update())
         task.add_done_callback(self._handle_broadcast_task_error)
-
-    @handle_errors(default=False)
-    async def _apply_global_volume(self, target_db: float) -> bool:
-        """Apply target global volume to CamillaDSP.
-
-        In multiroom mode, computes delta from current global volume and applies
-        it per-client to preserve individual volume offsets.
-        In direct mode, sets the volume directly.
-        """
-        if self._is_multiroom_enabled():
-            volume_state = await self._state_store.get_complete_state()
-            client_ids = await get_online_client_ids(self.snapcast_service)
-            if not client_ids:
-                return True
-            delta = target_db - volume_state.global_volume_db
-            updates = {}
-            for cid in client_ids:
-                current = volume_state.clients.get(cid)
-                if current:
-                    updates[cid] = self._volume_config.clamp(current.volume_db + delta)
-            return await self._apply_to_multiroom_clients(updates)
-        else:
-            success = await self._camilladsp_service.set_volume(target_db)
-            if success:
-                self._state_store.set_local_volume(target_db)
-            return success
 
     # ============================================================================
     # WEBSOCKET BROADCASTING
@@ -860,5 +878,6 @@ class VolumeService:
         return {"main": DEFAULT_VOLUME_DB, "mute": False}
 
     async def cleanup(self) -> None:
-        """Clean up resources. Currently a no-op as VolumeStateStore handles its own cleanup."""
+        """Clean up resources. Flushes pending volume state to disk."""
+        await self._state_store.cleanup()
         self.logger.info("VolumeService cleanup completed")

@@ -692,8 +692,8 @@ class TestVolumePersistence:
             # Set volume
             await service.set_volume_db(-42.0)
 
-            # Wait for async background save
-            await asyncio.sleep(0.3)
+            # Flush debounced persistence
+            await service.cleanup()
 
             # Check file exists and contains correct data
             assert temp_storage_path.exists(), "Persistence file should exist"
@@ -824,7 +824,9 @@ class TestVolumePersistence:
             await service.initialize()
 
             await service.set_volume_db(-28.0)
-            await asyncio.sleep(0.3)
+
+            # Flush debounced persistence
+            await service.cleanup()
 
             assert temp_storage_path.exists()
 

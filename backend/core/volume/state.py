@@ -97,8 +97,9 @@ class VolumeStateStore:
         # VolumeConfig reference (set via set_volume_config from VolumeService)
         self._volume_config: Optional[VolumeConfig] = None
 
-        # Background save task reference (prevent garbage collection)
-        self._save_task: Optional[asyncio.Task] = None
+        # Debounced persistence (prevent rapid disk writes during volume sweeps)
+        self._persist_debounce_task: Optional[asyncio.Task] = None
+        self._PERSIST_DEBOUNCE_S = 2.0
 
         # Concurrency control
         self._lock = asyncio.Lock()
@@ -162,7 +163,7 @@ class VolumeStateStore:
                     # Client was deleted from registry - remove from volume state
                     async with self._lock:
                         del self._clients[mac_id]
-                        await self._persist_state()
+                        self._schedule_persist()
                     self.logger.info(f"Deleted client {mac_id} from volume state")
 
         elif event_type == RegistryEventType.CLIENT_UPDATED:
@@ -233,7 +234,14 @@ class VolumeStateStore:
         """Create storage directory if it doesn't exist."""
         self.STORAGE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-    # ========== Initialization ==========
+    # ========== Lifecycle ==========
+
+    async def cleanup(self) -> None:
+        """Flush pending volume state to disk on shutdown."""
+        if self._persist_debounce_task and not self._persist_debounce_task.done():
+            self._persist_debounce_task.cancel()
+            await self._persist_state_async()
+            self.logger.info("Flushed pending volume state on shutdown")
 
     async def initialize(self) -> None:
         """
@@ -281,9 +289,8 @@ class VolumeStateStore:
 
     def set_local_volume(self, volume_db: float) -> None:
         """
-        Set local client volume in memory (no persistence, no lock).
+        Set local client volume in memory with debounced persistence.
         Used for direct mode where volume changes are frequent.
-        Call save_local_volume() separately to persist.
         """
         volume_db = self._clamp_db(volume_db)
         self._local_volume_db = volume_db
@@ -301,46 +308,7 @@ class VolumeStateStore:
                     available=True
                 )
 
-    def save_local_volume(self, enabled: bool = True) -> None:
-        """
-        Save local volume to disk in background (non-blocking).
-        Called after volume changes in direct mode.
-
-        Args:
-            enabled: Whether volume restore is enabled (if False, skip save)
-        """
-        if not enabled:
-            return
-
-        volume_db = self._local_volume_db
-
-        async def save_async():
-            try:
-                data = {
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "local_volume_db": volume_db,
-                    "clients": {
-                        hostname: {
-                            "volume_db": client.volume_db,
-                            "mute": client.mute
-                        }
-                        for hostname, client in self._clients.items()
-                    }
-                }
-                temp_file = self.STORAGE_PATH.with_suffix('.tmp')
-
-                async with aiofiles.open(temp_file, 'w') as f:
-                    content = json.dumps(data, indent=2)
-                    await f.write(content)
-                    await f.flush()
-
-                temp_file.replace(self.STORAGE_PATH)
-                self.logger.debug(f"Saved local volume: {volume_db:.1f}dB")
-            except Exception as e:
-                self.logger.error(f"Failed to save volume: {e}")
-
-        # Keep reference to prevent task from being garbage collected
-        self._save_task = asyncio.create_task(save_async())
+        self._schedule_persist()
 
     def get_startup_volume(self, default_volume_db: float, restore_enabled: bool) -> float:
         """
@@ -427,8 +395,8 @@ class VolumeStateStore:
                 self.logger.debug("No persisted volume state found")
                 return
 
-            with open(self.STORAGE_PATH, 'r') as f:
-                data = json.load(f)
+            async with aiofiles.open(self.STORAGE_PATH, 'r') as f:
+                data = json.loads(await f.read())
 
             # Validate age
             timestamp = data.get("timestamp")
@@ -467,10 +435,28 @@ class VolumeStateStore:
         except Exception as e:
             self.logger.error(f"Error loading persisted volume state: {e}", exc_info=True)
 
-    async def _persist_state(self) -> None:
-        """Persist current volume state to disk (unified format)."""
+    def _schedule_persist(self) -> None:
+        """Schedule a debounced persist (2s after last change). Safe to call rapidly."""
+        if self._persist_debounce_task and not self._persist_debounce_task.done():
+            self._persist_debounce_task.cancel()
+
         try:
-            # Prepare data (unified format with local_volume_db)
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return  # No event loop (e.g., during tests or init)
+
+        async def _debounced():
+            try:
+                await asyncio.sleep(self._PERSIST_DEBOUNCE_S)
+                await self._persist_state_async()
+            except asyncio.CancelledError:
+                pass
+
+        self._persist_debounce_task = loop.create_task(_debounced())
+
+    async def _persist_state_async(self) -> None:
+        """Persist current volume state to disk using async I/O."""
+        try:
             data = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "local_volume_db": self._local_volume_db,
@@ -483,15 +469,13 @@ class VolumeStateStore:
                 }
             }
 
-            # Atomic write (write to temp, then rename)
             temp_path = self.STORAGE_PATH.with_suffix(".tmp")
             self.STORAGE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-            with open(temp_path, 'w') as f:
-                json.dump(data, f, indent=2)
+            async with aiofiles.open(temp_path, 'w') as f:
+                await f.write(json.dumps(data, indent=2))
 
             temp_path.replace(self.STORAGE_PATH)
-
             self.logger.debug(f"Persisted volume state: local={self._local_volume_db:.1f}dB, {len(self._clients)} clients")
 
         except Exception as e:
@@ -516,7 +500,7 @@ class VolumeStateStore:
                 self._clients[hostname].available = available
                 if volume_db is not None:
                     self._clients[hostname].volume_db = self._clamp_db(volume_db)
-                    await self._persist_state()
+                    self._schedule_persist()
                 self.logger.debug(f"Updated client: {hostname} -> available={available}, volume_db={self._clients[hostname].volume_db:.1f}dB")
             else:
                 # New client
@@ -560,7 +544,7 @@ class VolumeStateStore:
         async with self._lock:
             if hostname in self._clients:
                 self._clients[hostname].mute = mute
-                await self._persist_state()
+                self._schedule_persist()
                 self.logger.debug(f"Client mute: {hostname} -> {mute}")
             else:
                 self.logger.warning(f"Cannot mute unknown client: {hostname}")
@@ -581,7 +565,7 @@ class VolumeStateStore:
 
             if mac_id in self._clients:
                 self._clients[mac_id].volume_db = volume_db
-                await self._persist_state()
+                self._schedule_persist()
                 self.logger.debug(f"Client volume: {mac_id} -> {volume_db:.1f}dB")
             else:
                 # Auto-register client inline (avoid deadlock with register_client's lock)
@@ -674,7 +658,7 @@ class VolumeStateStore:
                 if mac_id in self._clients:
                     self._clients[mac_id].volume_db = volume_db
 
-            await self._persist_state()
+            self._schedule_persist()
             self.logger.debug(f"Applied {len(updates)} volume updates")
 
         # Sync to ClientRegistry for reconnection context (FR7)
