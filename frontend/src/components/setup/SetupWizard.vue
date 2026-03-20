@@ -288,7 +288,6 @@ onUnmounted(() => {
   width: 100%;
   max-width: 380px;
   height: 100%;
-  max-height: 640px;
   background: var(--color-background-neutral);
   border-radius: var(--radius-06);
   outline: 1.5px solid var(--color-border);
