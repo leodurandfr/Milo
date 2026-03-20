@@ -20,9 +20,8 @@
     <div class="transition-wrapper">
     <Transition name="fade-slide" @before-leave="onBeforeLeave" @enter="onEnter" @after-leave="onAfterLeave">
       <!-- Home view: list of categories -->
-      <div v-if="currentView === 'home'" key="home" class="view-content">
-        <div class="settings-nav-grid">
-          <div class="power-menu-region" :class="{ 'power-menu-region--open': showPowerMenu }">
+      <div v-if="currentView === 'home'" key="home" class="view-content home-view">
+        <div class="power-menu-region" :class="{ 'power-menu-region--open': showPowerMenu }">
             <div class="power-menu-items">
               <ListItemButton @click="handleRestart">
                 <template #icon>
@@ -49,8 +48,8 @@
                 </template>
               </ListItemButton>
             </div>
-          </div>
-
+        </div>
+        <div class="settings-nav-grid">
           <ListItemButton :title="t('settings.languages')" action="caret" @click="push('languages')">
             <template #icon>
               <img :src="languagesIcon" alt="Languages" />
@@ -594,6 +593,10 @@ onMounted(async () => {
   gap: var(--space-02);
 }
 
+.home-view {
+  gap: 0;
+}
+
 /* Power toggle button */
 .power-toggle {
   display: grid;
@@ -618,10 +621,8 @@ onMounted(async () => {
 
 /* Power menu region (height animation without overflow clipping) */
 .power-menu-region {
-  grid-column: 1 / -1;
   max-height: 0;
   overflow: visible;
-  margin-bottom: calc(-1 * var(--space-01));
   transition: max-height var(--transition-fast);
 }
 
