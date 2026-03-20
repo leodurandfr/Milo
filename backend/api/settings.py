@@ -995,7 +995,7 @@ def create_settings_router(
             if total_diff > 0:
                 result["cpu_percent"] = round((1 - idle_diff / total_diff) * 100, 1)
         except Exception as e:
-            logger.warning(f"Failed to read CPU stats: {e}")
+            logger.info(f"Failed to read CPU stats: {e}")
 
         try:
             # RAM usage: read /proc/meminfo
@@ -1015,7 +1015,7 @@ def create_settings_router(
                 "total_mb": round(total_kb / 1024),
             }
         except Exception as e:
-            logger.warning(f"Failed to read memory stats: {e}")
+            logger.info(f"Failed to read memory stats: {e}")
 
         return result
 

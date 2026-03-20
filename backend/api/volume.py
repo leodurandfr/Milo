@@ -246,7 +246,7 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
             _validate_volume_limits(request.volume_db)
 
             if client.get("status") == "OFFLINE":
-                logger.warning(f"Setting volume for offline client {client_id}: will be applied on reconnection")
+                logger.info(f"Setting volume for offline client {client_id}: will be applied on reconnection")
 
             await volume_service.update_client_volume_db(client_id, request.volume_db)
 
@@ -337,7 +337,7 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
             _validate_volume_limits(request.volume_db)
 
             if hasattr(client, 'online') and not client.online:
-                logger.warning(f"Setting volume for offline client {mac_id}: will be applied on reconnection")
+                logger.info(f"Setting volume for offline client {mac_id}: will be applied on reconnection")
 
             await volume_service.update_client_volume_db(mac_id, request.volume_db)
 

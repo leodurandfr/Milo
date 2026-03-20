@@ -217,7 +217,7 @@ class BluetoothSource(BaseAudioSource):
         """Handle device connection from BlueALSA monitor."""
         # Single device enforcement: disconnect if another device is already connected
         if self.connected_device and self.connected_device.get("address") != address:
-            self._logger.warning(f"Disconnecting {name} ({address}) - another device already connected")
+            self._logger.info(f"Disconnecting {name} ({address}) - another device already connected")
             await self._disconnect_device(address)
             return
 

@@ -183,7 +183,7 @@ class ShazamRecognitionService:
             # Capture audio from stream
             audio_bytes = await self._capture_audio(self._stream_url)
             if not audio_bytes:
-                logger.warning("No audio captured, skipping recognition")
+                logger.info("No audio captured, skipping recognition")
                 return False
 
             logger.debug(f"Captured {len(audio_bytes)} bytes for recognition")
@@ -212,10 +212,10 @@ class ShazamRecognitionService:
         except asyncio.CancelledError:
             raise
         except asyncio.TimeoutError:
-            logger.warning("Shazam recognition timed out")
+            logger.info("Shazam recognition timed out")
             return False
         except Exception as e:
-            logger.warning(f"Recognition attempt failed: {e}")
+            logger.info(f"Recognition attempt failed: {e}")
             return False
 
     async def _capture_audio(self, url: str) -> Optional[bytes]:
