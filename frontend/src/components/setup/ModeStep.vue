@@ -74,6 +74,7 @@ const options = [
   display: flex;
   align-items: center;
   gap: var(--space-03);
+  width: 100%;
 }
 
 .mode-step__icon {
