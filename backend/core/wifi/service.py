@@ -379,6 +379,7 @@ class WifiService:
             "ssid", self.HOTSPOT_CON_NAME,
             "wifi.mode", "ap",
             "wifi.band", "bg",
+            "wifi.channel", "6",
             "ipv4.method", "shared",
             timeout=20.0,
         )
