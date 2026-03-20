@@ -23,7 +23,7 @@
 
           <ModeStep v-else-if="currentStep === 2" v-model="wizardState.mode" />
 
-          <WifiStep v-else-if="currentStep === 3" v-model="wizardState.wifiSsid" :hotspot-active="settingsStore.hotspotActive" />
+          <NetworkStep v-else-if="currentStep === 3" v-model="wizardState.wifiSsid" :hotspot-active="settingsStore.hotspotActive" />
 
           <AudioStep v-else-if="currentStep === 4" v-model="wizardState.audioId" :audio-cards="audioCards" />
 
@@ -70,7 +70,7 @@ import axios from 'axios';
 import { logger } from '@/services/logger';
 import StepIndicator from './StepIndicator.vue';
 import WelcomeStep from './WelcomeStep.vue';
-import WifiStep from './WifiStep.vue';
+import NetworkStep from './NetworkStep.vue';
 import LanguageStep from './LanguageStep.vue';
 import ModeStep from './ModeStep.vue';
 import AudioStep from './AudioStep.vue';

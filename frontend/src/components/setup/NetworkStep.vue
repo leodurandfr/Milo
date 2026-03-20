@@ -1,4 +1,4 @@
-<!-- frontend/src/components/setup/WifiStep.vue -->
+<!-- frontend/src/components/setup/NetworkStep.vue -->
 <template>
   <div class="wifi-step">
     <!-- Connection status card -->
