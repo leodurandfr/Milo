@@ -71,8 +71,9 @@ class CamillaDSPService:
         # Callback for volume restoration after reconnection (set by dependencies.py)
         self._on_reconnect_callback = None
 
-        # Bounded executor for pycamilladsp sync calls (avoid starving other executor users on RPi)
-        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="camilladsp")
+        # Single-thread executor for pycamilladsp sync calls (serializes all DSP commands
+        # to prevent concurrent access to the non-thread-safe CamillaClient)
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="camilladsp")
 
         # Current configuration cache
         self._current_config: Dict[str, Any] = {}
