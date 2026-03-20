@@ -621,6 +621,7 @@ onMounted(async () => {
   grid-column: 1 / -1;
   max-height: 0;
   overflow: visible;
+  margin-bottom: calc(-1 * var(--space-01));
   transition: max-height var(--transition-fast);
 }
 
