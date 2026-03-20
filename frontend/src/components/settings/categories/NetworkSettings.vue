@@ -108,6 +108,28 @@
         </div>
       </div>
     </ToggleSection>
+
+    <!-- WiFi country selector -->
+    <div class="country-row">
+      <span class="country-row__label text-mono">{{ t('network.wifiCountry') }}</span>
+      <Dropdown
+        :model-value="pendingCountry || country"
+        :options="countryOptions"
+        :placeholder="t('network.selectCountry')"
+        :disabled="isRebootingCountry"
+        @change="onCountryChange"
+      />
+    </div>
+
+    <!-- Apply & Reboot (sticky, two-step confirm) -->
+    <Button v-if="isCountryDirty || isRebootingCountry"
+      :variant="confirmRebootCountry ? 'important' : 'brand'"
+      class="apply-button-sticky"
+      :loading="isApplyingCountry || isRebootingCountry"
+      :disabled="isApplyingCountry || isRebootingCountry"
+      @click="handleCountryApply">
+      {{ countryApplyButtonLabel }}
+    </Button>
   </SettingsContainer>
 </template>
 
@@ -115,12 +137,16 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted, inject } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useWifi } from '@/composables/useWifi';
+import { wifiCountryOptions } from '@/constants/wifiCountries';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
+import Dropdown from '@/components/ui/Dropdown.vue';
 import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import WifiSignal from '@/components/settings/categories/wifi/WifiSignal.vue';
+import axios from 'axios';
+import { logger } from '@/services/logger';
 
 const { t } = useI18n();
 const requestHeightDelta = inject('modalRequestHeightDelta', null);
@@ -128,6 +154,7 @@ const modalContentInnerRef = inject('modalContentInnerRef', null);
 
 const {
   status,
+  country,
   loading,
   scanning,
   connecting,
@@ -141,8 +168,82 @@ const {
   connectToNetwork,
   forgetNetwork,
   toggleWifi,
+  setCountry,
   initialize,
 } = useWifi();
+
+// === WiFi country selector (Apply & Reboot pattern from HardwareSettings) ===
+const countryOptions = computed(() => wifiCountryOptions(t));
+const pendingCountry = ref('');
+const confirmRebootCountry = ref(false);
+const isApplyingCountry = ref(false);
+const isRebootingCountry = ref(false);
+
+const isCountryDirty = computed(() =>
+  pendingCountry.value && pendingCountry.value !== country.value
+);
+
+const countryApplyButtonLabel = computed(() => {
+  if (isRebootingCountry.value) return t('hardwareSettings.rebooting');
+  if (confirmRebootCountry.value) return t('hardwareSettings.confirmReboot');
+  return t('hardwareSettings.applyAndReboot');
+});
+
+// Sync pendingCountry when country loads from API
+watch(country, (val) => {
+  if (!isCountryDirty.value) pendingCountry.value = val;
+}, { immediate: true });
+
+function onCountryChange(code) {
+  pendingCountry.value = code;
+  confirmRebootCountry.value = false;
+}
+
+function handleCountryApply() {
+  if (!confirmRebootCountry.value) {
+    confirmRebootCountry.value = true;
+    return;
+  }
+  applyCountryAndReboot();
+}
+
+async function applyCountryAndReboot() {
+  isApplyingCountry.value = true;
+  confirmRebootCountry.value = false;
+
+  try {
+    await setCountry(pendingCountry.value);
+    isApplyingCountry.value = false;
+    isRebootingCountry.value = true;
+
+    // Trigger reboot
+    await axios.post('/api/system/restart');
+
+    // Poll for backend to come back after reboot
+    let pollCount = 0;
+    const maxPolls = 60;
+    countryPollIntervalId = setInterval(async () => {
+      pollCount++;
+      if (pollCount > maxPolls) {
+        clearInterval(countryPollIntervalId);
+        countryPollIntervalId = null;
+        isRebootingCountry.value = false;
+        return;
+      }
+      try {
+        await axios.get('/api/ping', { timeout: 2000 });
+        clearInterval(countryPollIntervalId);
+        countryPollIntervalId = null;
+        window.location.reload();
+      } catch {
+        // Backend still down, keep polling
+      }
+    }, 3000);
+  } catch (err) {
+    logger.error('network', 'Failed to apply WiFi country', err);
+    isApplyingCountry.value = false;
+  }
+}
 
 const wifiDisplaySsid = computed(() =>
   status.value.wifi.ssid || status.value.wifi.saved_ssid
@@ -259,6 +360,7 @@ watch(showWifiCard, async (visible) => {
 });
 
 let rafId = null;
+let countryPollIntervalId = null;
 
 // Enable transitions only after all API data is loaded
 watch(loading, (isLoading) => {
@@ -288,6 +390,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (rafId) cancelAnimationFrame(rafId);
+  if (countryPollIntervalId) clearInterval(countryPollIntervalId);
 });
 </script>
 
@@ -503,6 +606,31 @@ onUnmounted(() => {
   --shimmer-highlight: var(--color-background-medium-16);
 }
 
+/* Country selector row (hardware-row pattern) */
+.country-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-03);
+}
+
+.country-row__label {
+  color: var(--color-text-secondary);
+  width: 33%;
+  flex-shrink: 0;
+}
+
+.country-row :deep(.dropdown) {
+  flex: 1;
+}
+
+/* Sticky apply button (matches HardwareSettings pattern) */
+.apply-button-sticky {
+  position: sticky;
+  bottom: 0;
+  width: 100%;
+  z-index: 10;
+}
+
 /* Mobile adjustments */
 @media (max-aspect-ratio: 4/3) {
   .connection-section {
@@ -514,5 +642,13 @@ onUnmounted(() => {
     height: 20px;
   }
 
+  .country-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .country-row__label {
+    width: auto;
+  }
 }
 </style>

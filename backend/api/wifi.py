@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter
 
 from backend.api.route_helpers import api_error_handler
-from backend.core.wifi.models import WifiConnectRequest, WifiRadioRequest
+from backend.core.wifi.models import WifiConnectRequest, WifiRadioRequest, WifiCountryRequest
 
 logger = logging.getLogger(__name__)
 
@@ -67,5 +67,19 @@ def create_wifi_router(wifi_service):
     async def get_hotspot_status():
         """Return whether the setup hotspot is currently active."""
         return {"status": "success", "data": {"active": wifi_service.hotspot_active}}
+
+    @router.get("/country")
+    async def get_wifi_country():
+        """Get the configured WiFi regulatory domain country code."""
+        async with api_error_handler("WiFi country get", logger):
+            code = await wifi_service.get_country()
+            return {"status": "success", "data": {"country_code": code}}
+
+    @router.put("/country")
+    async def set_wifi_country(request: WifiCountryRequest):
+        """Set the WiFi regulatory domain. Reboot required for full effect."""
+        async with api_error_handler("WiFi country set", logger):
+            await wifi_service.set_country(request.country_code)
+            return {"status": "success", "data": {"country_code": request.country_code}}
 
     return router

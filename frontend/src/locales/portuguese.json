@@ -309,7 +309,9 @@
     "saved": "Salvo",
     "ready": "Pronto",
     "connectedTo": "Conectado a",
-    "wifiNetworks": "Redes WiFi"
+    "wifiNetworks": "Redes WiFi",
+    "wifiCountry": "País WiFi",
+    "selectCountry": "Selecione seu país"
   },
   "applications": {
     "features": "Funcionalidades"

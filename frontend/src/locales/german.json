@@ -309,7 +309,9 @@
     "saved": "Gespeichert",
     "ready": "Bereit",
     "connectedTo": "Verbunden mit",
-    "wifiNetworks": "WLAN-Netzwerke"
+    "wifiNetworks": "WLAN-Netzwerke",
+    "wifiCountry": "WLAN-Land",
+    "selectCountry": "Wählen Sie Ihr Land"
   },
   "applications": {
     "features": "Funktionen"

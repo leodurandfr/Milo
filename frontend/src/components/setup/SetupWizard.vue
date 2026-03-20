@@ -43,7 +43,7 @@
           {{ t('setup.welcome.getStarted') }}
         </Button>
 
-        <Button v-else-if="currentStep === 3" variant="brand" @click="nextStep">
+        <Button v-else-if="currentStep === 3" variant="brand" :disabled="!wifiCountry" @click="nextStep">
           {{ wizardState.wifiSsid ? t('setup.continue') : t('setup.skip') }}
         </Button>
 
@@ -65,6 +65,7 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import { useI18n, i18n } from '@/services/i18n';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useWifi } from '@/composables/useWifi';
 import axios from 'axios';
 import { logger } from '@/services/logger';
 import StepIndicator from './StepIndicator.vue';
@@ -81,6 +82,7 @@ import SvgIcon from '@/components/ui/SvgIcon.vue';
 const { t } = useI18n();
 const { loadHardwareConfig } = useHardwareConfig();
 const settingsStore = useSettingsStore();
+const { country: wifiCountry } = useWifi();
 
 const currentStep = ref(0);
 const isApplying = ref(false);

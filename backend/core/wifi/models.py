@@ -1,7 +1,7 @@
 """
 Pydantic models for WiFi service.
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 
 
@@ -49,3 +49,15 @@ class WifiRadioRequest(BaseModel):
 class SavedNetwork(BaseModel):
     """A saved WiFi network connection."""
     ssid: str
+
+
+class WifiCountryRequest(BaseModel):
+    """Request to set the WiFi regulatory domain country code."""
+    country_code: str = Field(..., min_length=2, max_length=2, description="ISO 3166-1 alpha-2 country code")
+
+    @field_validator("country_code")
+    @classmethod
+    def must_be_uppercase_alpha(cls, v: str) -> str:
+        if not v.isalpha() or not v.isupper():
+            raise ValueError("country_code must be two uppercase letters")
+        return v
