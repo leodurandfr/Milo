@@ -38,9 +38,9 @@ from backend.ws import WebSocketServer
 from backend.core.models.audio_state import AudioSource
 
 # Configurable log level via MILO_LOG_LEVEL environment variable
-# Valid values: DEBUG, INFO, WARNING, ERROR, CRITICAL (default: INFO)
-_log_level_name = os.environ.get('MILO_LOG_LEVEL', 'INFO').upper()
-_log_level = getattr(logging, _log_level_name, logging.INFO)
+# Valid values: DEBUG, INFO, WARNING, ERROR, CRITICAL (default: WARNING)
+_log_level_name = os.environ.get('MILO_LOG_LEVEL', 'WARNING').upper()
+_log_level = getattr(logging, _log_level_name, logging.WARNING)
 logging.basicConfig(level=_log_level)
 logger = logging.getLogger(__name__)
 
