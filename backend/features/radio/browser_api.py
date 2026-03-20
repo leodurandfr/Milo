@@ -76,7 +76,7 @@ class RadioBrowserAPI:
             url = f"{self.BASE_URL}/stations/bycountrycodeexact/{country_code}"
             async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                 if resp.status != 200:
-                    self.logger.warning(f"API error for {country_code}: {resp.status}")
+                    self.logger.info(f"API error for {country_code}: {resp.status}")
                     return []
 
                 stations = await resp.json()
@@ -110,7 +110,7 @@ class RadioBrowserAPI:
 
             async with self.session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
                 if resp.status != 200:
-                    self.logger.warning(f"API error for query '{query}': {resp.status}")
+                    self.logger.info(f"API error for query '{query}': {resp.status}")
                     return []
 
                 stations = await resp.json()
@@ -153,7 +153,7 @@ class RadioBrowserAPI:
             url = f"{self.BASE_URL}/stations/byuuid/{station_id}"
             async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                 if resp.status != 200:
-                    self.logger.warning(f"API error for station {station_id}: {resp.status}")
+                    self.logger.info(f"API error for station {station_id}: {resp.status}")
                     return None
 
                 stations = await resp.json()
@@ -197,7 +197,7 @@ class RadioBrowserAPI:
 
             async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
                 if resp.status != 200:
-                    self.logger.warning(f"API error for top stations: {resp.status}")
+                    self.logger.info(f"API error for top stations: {resp.status}")
                     return []
 
                 stations = await resp.json()
@@ -656,7 +656,7 @@ class RadioBrowserAPI:
                 timeout=aiohttp.ClientTimeout(total=15)
             ) as resp:
                 if resp.status != 200:
-                    self.logger.warning(f"API error [{description}]: HTTP {resp.status}")
+                    self.logger.info(f"API error [{description}]: HTTP {resp.status}")
                     return []
 
                 stations = await resp.json()
@@ -746,7 +746,7 @@ class RadioBrowserAPI:
                 # Unified API call
                 all_stations = await self._fetch_with_search_params(search_params, search_desc)
         except NetworkUnavailableError:
-            self.logger.warning("Network unavailable for station search")
+            self.logger.info("Network unavailable for station search")
             return {"stations": [], "total": 0, "network_error": True}
 
         # Add manually created stations (not modified favorites)
@@ -936,7 +936,7 @@ class RadioBrowserAPI:
 
             async with self.session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
                 if resp.status != 200:
-                    self.logger.warning(f"API error for country {country_name}: {resp.status}")
+                    self.logger.info(f"API error for country {country_name}: {resp.status}")
                     return []
 
                 stations = await resp.json()
@@ -981,7 +981,7 @@ class RadioBrowserAPI:
 
             async with self.session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
                 if resp.status != 200:
-                    self.logger.warning(f"API error for genre {genre}: {resp.status}")
+                    self.logger.info(f"API error for genre {genre}: {resp.status}")
                     return []
 
                 stations = await resp.json()
@@ -1027,7 +1027,7 @@ class RadioBrowserAPI:
 
             async with self.session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
                 if resp.status != 200:
-                    self.logger.warning(f"API error for {country_name} + {genre}: {resp.status}")
+                    self.logger.info(f"API error for {country_name} + {genre}: {resp.status}")
                     return []
 
                 stations = await resp.json()
@@ -1073,7 +1073,7 @@ class RadioBrowserAPI:
 
             async with self.session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
                 if resp.status != 200:
-                    self.logger.warning(f"API error for query '{query}' + genre {genre}: {resp.status}")
+                    self.logger.info(f"API error for query '{query}' + genre {genre}: {resp.status}")
                     return []
 
                 stations = await resp.json()
@@ -1126,7 +1126,7 @@ class RadioBrowserAPI:
                 url = f"{self.BASE_URL}/countries"
                 async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                     if resp.status != 200:
-                        self.logger.warning(f"API error fetching countries (attempt {attempt}): HTTP {resp.status}")
+                        self.logger.info(f"API error fetching countries (attempt {attempt}): HTTP {resp.status}")
                         if attempt < 3:
                             await asyncio.sleep(2)  # Wait 2s before retry
                             continue
@@ -1156,12 +1156,12 @@ class RadioBrowserAPI:
                     return sorted_countries
 
             except asyncio.TimeoutError:
-                self.logger.warning(f"Timeout fetching countries list (attempt {attempt}/3)")
+                self.logger.info(f"Timeout fetching countries list (attempt {attempt}/3)")
                 if attempt < 3:
                     await asyncio.sleep(2)  # Wait 2s before retry
                     continue
             except Exception as e:
-                self.logger.warning(f"Error fetching countries (attempt {attempt}/3): {e}")
+                self.logger.info(f"Error fetching countries (attempt {attempt}/3): {e}")
                 if attempt < 3:
                     await asyncio.sleep(2)  # Wait 2s before retry
                     continue
@@ -1170,7 +1170,7 @@ class RadioBrowserAPI:
         # Use stale cache if it exists
         if self._countries_cache:
             cache_age = datetime.now() - self._countries_cache_timestamp if self._countries_cache_timestamp else None
-            self.logger.warning(f"⚠️ API unreachable, using stale cache ({len(self._countries_cache)} countries, age: {cache_age})")
+            self.logger.info(f"API unreachable, using stale cache ({len(self._countries_cache)} countries, age: {cache_age})")
             return self._countries_cache
 
         # No cache, return empty list

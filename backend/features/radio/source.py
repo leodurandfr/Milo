@@ -253,7 +253,7 @@ class RadioSource(MpvAudioSource):
         if await self._try_single_url(primary_url):
             return primary_url
 
-        self._logger.warning(f"Primary URL failed for {station_name}, searching alternatives...")
+        self._logger.info(f"Primary URL failed for {station_name}, searching alternatives...")
 
         # Find and try alternative URLs
         alternatives = await self._radio_api.find_alternative_urls(

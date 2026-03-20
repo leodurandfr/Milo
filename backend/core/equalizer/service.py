@@ -806,7 +806,7 @@ class CamillaDSPService:
             else:
                 # Filter doesn't exist in cache - use default frequency
                 freq = DEFAULT_EQ_FREQS[i] if i < len(DEFAULT_EQ_FREQS) else 1000
-                self.logger.warning(f"Filter {filter_id} not in cache, creating with freq={freq}")
+                self.logger.info(f"Filter {filter_id} not in cache, creating with freq={freq}")
                 await self.set_filter(filter_id, freq, gain, 1.41, "Peaking",
                                        broadcast=False)
 

@@ -96,7 +96,7 @@ class BtRemoteController:
     async def initialize(self) -> bool:
         """Initialize the BT remote controller."""
         if not EVDEV_AVAILABLE:
-            logger.warning("evdev not installed — BT remote controller disabled")
+            logger.info("evdev not installed — BT remote controller disabled")
             return True  # Not a failure, just unavailable
 
         await self._load_config_from_settings()

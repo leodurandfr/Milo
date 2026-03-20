@@ -459,7 +459,7 @@ class UpdateService(VersionService):
                     legacy_version_file.unlink()
                     self.update_logger.info("Removed legacy go-librespot-version file")
                 except Exception as e:
-                    self.update_logger.warning(f"Could not remove legacy version file: {e}")
+                    self.update_logger.info(f"Could not remove legacy version file: {e}")
 
             # 8. Clean up temporary files
             await self._cleanup_temp_files(download_result.get("temp_dir"))

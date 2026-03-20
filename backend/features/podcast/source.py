@@ -239,7 +239,7 @@ class PodcastSource(MpvAudioSource):
             # Check if mpv is paused after loading and unpause if needed
             pause_state = await self._mpv.get_property("pause")
             if pause_state is True:
-                self._logger.warning("mpv is paused after load_stream! Forcing unpause...")
+                self._logger.info("mpv is paused after load_stream, forcing unpause")
                 await self._mpv.set_property("pause", False)
 
             # Wait for stream to be ready before seeking (if resuming)
@@ -301,7 +301,7 @@ class PodcastSource(MpvAudioSource):
             await asyncio.sleep(poll_interval)
             elapsed += poll_interval
 
-        self._logger.warning("Timeout waiting for stream to be ready, starting from beginning")
+        self._logger.info("Timeout waiting for stream to be ready, starting from beginning")
 
     async def _handle_pause(self) -> Dict[str, Any]:
         """Pause playback."""
@@ -395,7 +395,7 @@ class PodcastSource(MpvAudioSource):
             valid_speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
             speed = float(speed)
             if speed not in valid_speeds:
-                self._logger.warning(f"Invalid speed {speed}, using nearest valid")
+                self._logger.info(f"Invalid speed {speed}, using nearest valid")
                 speed = min(valid_speeds, key=lambda x: abs(x - speed))
 
             # Set mpv speed property
@@ -528,7 +528,7 @@ class PodcastSource(MpvAudioSource):
 
         # Detect stuck at position 0 with pause=True
         if self._is_playing and position == 0.0 and pause_state is True:
-            self._logger.warning("Stuck at 0.0 with pause=True! Forcing unpause...")
+            self._logger.info("Stuck at 0.0 with pause=True, forcing unpause")
             await self._mpv.set_property("pause", False)
 
         # Check if episode ended (position is None when mpv stops)

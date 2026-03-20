@@ -131,7 +131,7 @@ class MetadataReader:
             except asyncio.CancelledError:
                 raise
             except FileNotFoundError:
-                logger.warning(f"Metadata pipe not found: {self._pipe_path}, retrying...")
+                logger.info(f"Metadata pipe not found: {self._pipe_path}, retrying...")
                 await asyncio.sleep(2)
             except Exception as e:
                 logger.error(f"MetadataReader error: {e}")

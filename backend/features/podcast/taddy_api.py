@@ -360,7 +360,7 @@ class TaddyAPI:
         # Get iTunes genre ID from mapping
         itunes_genre_id = GENRE_TO_ITUNES_ID.get(genre)
         if not itunes_genre_id:
-            self.logger.warning(f"Unknown genre for iTunes mapping: {genre}")
+            self.logger.info(f"Unknown genre for iTunes mapping: {genre}")
             return {"results": [], "total": 0}
 
         cache_key = f"itunes_top_{genre}_{country_code}_{limit}"

@@ -408,7 +408,7 @@ class VolumeStateStore:
                 age_days = (datetime.now(timezone.utc) - saved_time).days
 
                 if age_days > self.MAX_AGE_DAYS:
-                    self.logger.warning(f"Persisted volume state is {age_days} days old (max {self.MAX_AGE_DAYS}), ignoring")
+                    self.logger.info(f"Persisted volume state is {age_days} days old (max {self.MAX_AGE_DAYS}), ignoring")
                     return
 
             # Load local_volume_db and clients

@@ -167,4 +167,4 @@ async def _configure_client_mode(systemd_manager):
         if success:
             logger.info(f"Setup wizard: disabled {service}")
         else:
-            logger.warning(f"Setup wizard: failed to disable {service} (may not exist)")
+            logger.info(f"Setup wizard: failed to disable {service} (may not exist)")
