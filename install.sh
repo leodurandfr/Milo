@@ -470,6 +470,9 @@ install_apply_hardware_script() {
     sudo cp "$MILO_APP_DIR/rootfs/usr/local/bin/milo-deploy-update" /usr/local/bin/milo-deploy-update
     sudo chmod +x /usr/local/bin/milo-deploy-update
 
+    sudo cp "$MILO_APP_DIR/rootfs/usr/local/bin/milo-set-wifi-country" /usr/local/bin/milo-set-wifi-country
+    sudo chmod +x /usr/local/bin/milo-set-wifi-country
+
     # Remove legacy sudoers file if present
     sudo rm -f /etc/sudoers.d/milo-hardware
 
@@ -484,6 +487,8 @@ milo ALL=(root) NOPASSWD: /usr/sbin/poweroff
 milo ALL=(root) NOPASSWD: /usr/local/bin/milo-apply-hardware
 # Update deployment (file ops, packages, udev — all via secure wrapper)
 milo ALL=(root) NOPASSWD: /usr/local/bin/milo-deploy-update
+# WiFi regulatory domain
+milo ALL=(root) NOPASSWD: /usr/local/bin/milo-set-wifi-country
 EOF
     sudo visudo -c -f /etc/sudoers.d/milo-backend || { echo "FATAL: sudoers syntax error"; exit 1; }
     sudo chmod 0440 /etc/sudoers.d/milo-backend

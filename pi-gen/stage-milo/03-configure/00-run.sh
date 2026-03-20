@@ -48,7 +48,7 @@ if [ -f "$CMDLINE" ]; then
         s/  +/ /g
     ' | xargs)
 
-    BOOT_PARAMS="quiet splash plymouth.ignore-serial-consoles console=tty3 loglevel=0 consoleblank=0 logo.nologo vt.global_cursor_default=0 fbcon=map:99 vt.handoff=7 cfg80211.ieee80211_regdom=FR"
+    BOOT_PARAMS="quiet splash plymouth.ignore-serial-consoles console=tty3 loglevel=0 consoleblank=0 logo.nologo vt.global_cursor_default=0 fbcon=map:99 vt.handoff=7 cfg80211.ieee80211_regdom=00"
     echo "${CURRENT} ${BOOT_PARAMS}" | tr -s ' ' > "$CMDLINE"
 fi
 CHROOT
@@ -127,6 +127,8 @@ milo ALL=(root) NOPASSWD: /usr/sbin/poweroff
 milo ALL=(root) NOPASSWD: /usr/local/bin/milo-apply-hardware
 # Update deployment (file ops, packages, udev — all via secure wrapper)
 milo ALL=(root) NOPASSWD: /usr/local/bin/milo-deploy-update
+# WiFi regulatory domain
+milo ALL=(root) NOPASSWD: /usr/local/bin/milo-set-wifi-country
 EOF
 visudo -c -f /etc/sudoers.d/milo-backend || { echo "FATAL: sudoers syntax error"; exit 1; }
 chmod 0440 /etc/sudoers.d/milo-backend

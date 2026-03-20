@@ -312,7 +312,9 @@
     "saved": "Saved",
     "ready": "Ready",
     "connectedTo": "Connected to",
-    "wifiNetworks": "WiFi networks"
+    "wifiNetworks": "WiFi networks",
+    "wifiCountry": "WiFi country",
+    "selectCountry": "Select your country"
   },
   "applications": {
     "features": "Features"

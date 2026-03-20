@@ -309,7 +309,9 @@
     "saved": "सहेजा गया",
     "ready": "तैयार",
     "connectedTo": "से जुड़ा हुआ",
-    "wifiNetworks": "WiFi नेटवर्क"
+    "wifiNetworks": "WiFi नेटवर्क",
+    "wifiCountry": "WiFi देश",
+    "selectCountry": "अपना देश चुनें"
   },
   "applications": {
     "features": "सुविधाएं"

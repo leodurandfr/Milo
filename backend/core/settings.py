@@ -59,6 +59,9 @@ class SettingsService:
             },
             "radio": {
                 "shazam_enabled": True
+            },
+            "wifi": {
+                "country": ""
             }
         }
     
@@ -260,6 +263,13 @@ class SettingsService:
         radio_input = settings.get('radio', {})
         validated['radio'] = {
             'shazam_enabled': bool(radio_input.get('shazam_enabled', True))
+        }
+
+        # WiFi regulatory domain
+        wifi_input = settings.get('wifi', {})
+        country_raw = str(wifi_input.get('country', ''))
+        validated['wifi'] = {
+            'country': country_raw if len(country_raw) == 2 and country_raw.isalpha() and country_raw.isupper() else ''
         }
 
         # Multiroom (client_types for crossover) - Preserve multiroom section without strict validation

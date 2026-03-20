@@ -39,6 +39,17 @@
       </template>
     </div>
 
+    <!-- WiFi country selector -->
+    <div class="country-row">
+      <span class="country-row__label text-mono">{{ t('network.wifiCountry') }}</span>
+      <Dropdown
+        :model-value="country"
+        :options="countryOptions"
+        :placeholder="t('network.selectCountry')"
+        @change="onCountryChange"
+      />
+    </div>
+
     <!-- Banner: only when no connection at all (hotspot / first boot) -->
     <div v-if="!status.ethernet.connected && !wifiDisplaySsid" class="wifi-banner text-mono-small" :class="{ 'wifi-banner--hotspot': hotspotActive }">
       {{ hotspotActive ? t('setup.wifi.hotspotBanner') : t('setup.wifi.hotspotWarning') }}
@@ -100,9 +111,11 @@
 
 <script setup>
 import { computed, onMounted, watch } from 'vue';
-import { useI18n } from '@/services/i18n';
+import { useI18n, i18n } from '@/services/i18n';
 import { useWifi } from '@/composables/useWifi';
+import { wifiCountryOptions, LANGUAGE_TO_COUNTRY } from '@/constants/wifiCountries';
 import WifiSignal from '@/components/settings/categories/wifi/WifiSignal.vue';
+import Dropdown from '@/components/ui/Dropdown.vue';
 import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
@@ -112,6 +125,7 @@ const { t } = useI18n();
 const {
   status,
   networks,
+  country,
   loading,
   scanning,
   connecting,
@@ -122,8 +136,20 @@ const {
   scanNetworks,
   connectToNetwork,
   saveNetwork,
+  setCountry,
   initialize,
 } = useWifi();
+
+const countryOptions = computed(() => wifiCountryOptions(t));
+
+async function onCountryChange(code) {
+  try {
+    await setCountry(code);
+    scanNetworks();
+  } catch {
+    // setCountry already logs via logger
+  }
+}
 
 const emit = defineEmits(['update:modelValue']);
 
@@ -185,8 +211,17 @@ async function handleConnect(network) {
   }
 }
 
-onMounted(() => {
-  initialize();
+onMounted(async () => {
+  await initialize();
+
+  // Pre-select country based on language if no country is set yet
+  if (!country.value) {
+    const lang = i18n.getCurrentLanguage();
+    const mapped = LANGUAGE_TO_COUNTRY[lang];
+    if (mapped) {
+      setCountry(mapped);
+    }
+  }
 });
 </script>
 
@@ -195,6 +230,23 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--space-06);
+}
+
+/* Country selector row (hardware-row pattern) */
+.country-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-03);
+}
+
+.country-row__label {
+  color: var(--color-text-secondary);
+  width: 33%;
+  flex-shrink: 0;
+}
+
+.country-row :deep(.dropdown) {
+  flex: 1;
 }
 
 .wifi-banner {

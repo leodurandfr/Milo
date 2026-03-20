@@ -309,7 +309,9 @@
     "saved": "已保存",
     "ready": "就绪",
     "connectedTo": "已连接到",
-    "wifiNetworks": "WiFi 网络"
+    "wifiNetworks": "WiFi 网络",
+    "wifiCountry": "WiFi 国家",
+    "selectCountry": "选择您的国家"
   },
   "applications": {
     "features": "功能"

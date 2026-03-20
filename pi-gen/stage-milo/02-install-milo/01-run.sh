@@ -313,6 +313,10 @@ chmod +x /usr/local/bin/milo-apply-hardware
 cp /home/milo/milo/rootfs/usr/local/bin/milo-deploy-update /usr/local/bin/
 chmod +x /usr/local/bin/milo-deploy-update
 
+# WiFi country regulatory domain script
+cp /home/milo/milo/rootfs/usr/local/bin/milo-set-wifi-country /usr/local/bin/
+chmod +x /usr/local/bin/milo-set-wifi-country
+
 # Brightness control for Waveshare 7" USB
 cp /home/milo/milo/rootfs/usr/local/bin/milo-brightness-7 /usr/local/bin/
 chmod +x /usr/local/bin/milo-brightness-7

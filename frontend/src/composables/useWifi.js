@@ -15,7 +15,9 @@ const _status = ref({
 const _networks = ref([]);
 const _savedSsids = ref(new Set());
 const _scanning = ref(false);
+const _country = ref('');
 let _statusLoaded = false;
+let _countryLoaded = false;
 
 /**
  * Pre-load wifi status for instant rendering when NetworkSettings opens.
@@ -88,6 +90,26 @@ export function useWifi() {
       _statusLoaded = true;
     } catch (error) {
       logger.error('wifi', 'Failed to load network status', error);
+    }
+  }
+
+  async function loadCountry() {
+    try {
+      const res = await axios.get('/api/wifi/country');
+      _country.value = res.data.data.country_code || '';
+      _countryLoaded = true;
+    } catch (error) {
+      logger.error('wifi', 'Failed to load WiFi country', error);
+    }
+  }
+
+  async function setCountry(code) {
+    try {
+      await axios.put('/api/wifi/country', { country_code: code });
+      _country.value = code;
+    } catch (error) {
+      logger.error('wifi', 'Failed to set WiFi country', error);
+      throw error;
     }
   }
 
@@ -203,12 +225,10 @@ export function useWifi() {
 
   async function initialize() {
     try {
-      if (_statusLoaded) {
-        // Status already pre-loaded — only scan networks + saved
-        await Promise.all([loadSavedNetworks(), scanNetworks()]);
-      } else {
-        await Promise.all([loadStatus(), loadSavedNetworks(), scanNetworks()]);
-      }
+      const tasks = [loadSavedNetworks(), scanNetworks()];
+      if (!_statusLoaded) tasks.push(loadStatus());
+      if (!_countryLoaded) tasks.push(loadCountry());
+      await Promise.all(tasks);
     } finally {
       loading.value = false;
     }
@@ -218,6 +238,7 @@ export function useWifi() {
     status,
     networks,
     savedSsids,
+    country: _country,
     loading,
     scanning,
     connecting,
@@ -235,6 +256,7 @@ export function useWifi() {
     saveNetwork,
     forgetNetwork,
     toggleWifi,
+    setCountry,
     initialize,
   };
 }

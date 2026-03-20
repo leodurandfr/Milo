@@ -1,0 +1,68 @@
+#!/bin/bash
+# milo-set-wifi-country — Apply WiFi regulatory domain
+#
+# Usage: milo-set-wifi-country <COUNTRY_CODE>
+#   COUNTRY_CODE: exactly two uppercase ASCII letters (e.g. FR, US, GB)
+#
+# Effects:
+#   1. iw reg set <CC>              — sets regulatory domain for current session
+#   2. /boot/firmware/cmdline.txt   — persists cfg80211.ieee80211_regdom=<CC>
+#
+# Must be run as root (via sudoers rule).
+
+set -euo pipefail
+
+CMDLINE_FILE="/boot/firmware/cmdline.txt"
+
+# Fallback for older Pi OS layouts
+if [[ ! -f "$CMDLINE_FILE" ]]; then
+    CMDLINE_FILE="/boot/cmdline.txt"
+fi
+
+# =============================================================================
+# Validation
+# =============================================================================
+
+if [[ $# -ne 1 ]]; then
+    echo "ERROR: Usage: milo-set-wifi-country <COUNTRY_CODE>" >&2
+    exit 1
+fi
+
+COUNTRY_CODE="$1"
+
+if ! [[ "$COUNTRY_CODE" =~ ^[A-Z0-9]{2}$ ]]; then
+    echo "ERROR: Invalid country code '$COUNTRY_CODE'. Must be two uppercase letters (e.g. FR, US, GB)." >&2
+    exit 1
+fi
+
+if [[ ! -f "$CMDLINE_FILE" ]]; then
+    echo "ERROR: $CMDLINE_FILE not found" >&2
+    exit 1
+fi
+
+# =============================================================================
+# Apply regulatory domain for current session
+# =============================================================================
+
+if ! iw reg set "$COUNTRY_CODE"; then
+    echo "ERROR: 'iw reg set $COUNTRY_CODE' failed" >&2
+    exit 1
+fi
+
+echo "Regulatory domain set to $COUNTRY_CODE (current session)"
+
+# =============================================================================
+# Persist to cmdline.txt for next boot
+# =============================================================================
+
+CURRENT=$(cat "$CMDLINE_FILE")
+
+if echo "$CURRENT" | grep -q "cfg80211.ieee80211_regdom="; then
+    NEW_CONTENT=$(echo "$CURRENT" | sed "s/cfg80211\.ieee80211_regdom=[A-Z0-9]*/cfg80211.ieee80211_regdom=$COUNTRY_CODE/")
+else
+    NEW_CONTENT="${CURRENT% } cfg80211.ieee80211_regdom=$COUNTRY_CODE"
+fi
+
+printf '%s\n' "$NEW_CONTENT" > "$CMDLINE_FILE"
+
+echo "cmdline.txt updated with cfg80211.ieee80211_regdom=$COUNTRY_CODE"
