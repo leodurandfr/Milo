@@ -106,30 +106,30 @@
             </div>
           </div>
         </div>
+
+        <!-- WiFi country selector -->
+        <div class="country-row">
+          <span class="country-row__label text-mono">{{ t('network.wifiCountry') }}</span>
+          <Dropdown
+            :model-value="pendingCountry || country"
+            :options="countryOptions"
+            :placeholder="t('network.selectCountry')"
+            :disabled="isRebootingCountry"
+            @change="onCountryChange"
+          />
+        </div>
+
+        <!-- Apply & Reboot (sticky, two-step confirm) -->
+        <Button v-if="isCountryDirty || isRebootingCountry"
+          :variant="confirmRebootCountry ? 'important' : 'brand'"
+          class="apply-button-sticky"
+          :loading="isApplyingCountry || isRebootingCountry"
+          :disabled="isApplyingCountry || isRebootingCountry"
+          @click="handleCountryApply">
+          {{ countryApplyButtonLabel }}
+        </Button>
       </div>
     </ToggleSection>
-
-    <!-- WiFi country selector -->
-    <div class="country-row">
-      <span class="country-row__label text-mono">{{ t('network.wifiCountry') }}</span>
-      <Dropdown
-        :model-value="pendingCountry || country"
-        :options="countryOptions"
-        :placeholder="t('network.selectCountry')"
-        :disabled="isRebootingCountry"
-        @change="onCountryChange"
-      />
-    </div>
-
-    <!-- Apply & Reboot (sticky, two-step confirm) -->
-    <Button v-if="isCountryDirty || isRebootingCountry"
-      :variant="confirmRebootCountry ? 'important' : 'brand'"
-      class="apply-button-sticky"
-      :loading="isApplyingCountry || isRebootingCountry"
-      :disabled="isApplyingCountry || isRebootingCountry"
-      @click="handleCountryApply">
-      {{ countryApplyButtonLabel }}
-    </Button>
   </SettingsContainer>
 </template>
 
@@ -611,6 +611,8 @@ onUnmounted(() => {
   display: flex;
   align-items: baseline;
   gap: var(--space-03);
+  padding-top: var(--space-05-fixed);
+  border-top: 1px solid var(--color-border);
 }
 
 .country-row__label {
