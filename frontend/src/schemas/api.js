@@ -77,7 +77,7 @@ const VolumeZoneSchema = z.object({
 
 export const VolumeStateSchema = z.object({
   mode: z.enum(['direct', 'multiroom']).catch('direct'),
-  global_volume_db: z.number().catch(-60.0),
+  global_volume_db: z.number().catch(-45.0),
   global_mute: z.boolean().catch(false),
   clients: z.record(z.string(), VolumeClientSchema).catch({}),
   zones: z.record(z.string(), VolumeZoneSchema).catch({})

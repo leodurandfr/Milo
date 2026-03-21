@@ -25,7 +25,7 @@ describe('unifiedAudioStore', () => {
 
     it('should have correct default volume state', () => {
       expect(store.volumeState.mode).toBe('direct');
-      expect(store.volumeState.global_volume_db).toBe(-60.0);
+      expect(store.volumeState.global_volume_db).toBe(-45.0);
       expect(store.volumeState.global_mute).toBe(false);
     });
 

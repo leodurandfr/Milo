@@ -151,7 +151,7 @@ class TestReconnectionInZone:
         FR8: IN_ZONE client reconnects with ALL others OFFLINE.
 
         Expected:
-        - volume = startup_volume_db (DEFAULT_VOLUME_DB = -60.0)
+        - volume = startup_volume_db (DEFAULT_VOLUME_DB = -45.0)
         - Equalizer = zone.equalizer_settings (from persistence)
         """
         # Setup: All clients in zone are offline
@@ -160,7 +160,7 @@ class TestReconnectionInZone:
         # Expected behavior: use DEFAULT_VOLUME_DB
         expected_volume = DEFAULT_VOLUME_DB
 
-        assert expected_volume == -60.0
+        assert expected_volume == -45.0
 
         # Zone Equalizer settings should still be applied from persistence
         assert mock_zone.equalizer_settings is not None
@@ -233,7 +233,7 @@ class TestReconnectionStandalone:
         FR10: STANDALONE client reconnects as FIRST client (none online).
 
         Expected:
-        - volume = startup_volume_db (DEFAULT_VOLUME_DB = -60.0)
+        - volume = startup_volume_db (DEFAULT_VOLUME_DB = -45.0)
         - Equalizer = standalone_equalizer[mac_id]
         """
         # Setup: No clients online (backend just started or all disconnected)
@@ -245,7 +245,7 @@ class TestReconnectionStandalone:
         else:
             expected_volume = sum(c.volume_db for c in online_clients) / len(online_clients)
 
-        assert expected_volume == -60.0
+        assert expected_volume == -45.0
 
     @pytest.mark.asyncio
     async def test_fr10_standalone_equalizer_defaults_when_none_saved(self):
@@ -447,7 +447,7 @@ class TestVolumeStateCalculations:
         else:
             volume = sum(online_volumes) / len(online_volumes)
 
-        assert volume == -60.0
+        assert volume == -45.0
 
 
 # =============================================================================

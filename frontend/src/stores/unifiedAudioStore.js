@@ -21,11 +21,11 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   // === VOLUME STATE (unified structure) ===
   const volumeState = ref({
     mode: 'direct',                  // 'direct' or 'multiroom'
-    global_volume_db: -60.0,         // Global volume (average of unmuted clients)
+    global_volume_db: -45.0,         // Global volume (average of unmuted clients)
     global_mute: false,              // Global mute state
     clients: {},                     // {hostname: {volume_db, offset_db, mute, available}}
     zones: {},                       // {zoneId: {id, name, client_ids, average_volume_db, all_muted}}
-    step_mobile_db: 3.0              // Volume step for mobile buttons
+    step_mobile_db: 2.0              // Volume step for mobile buttons
   });
 
   // Volume bar visibility state (replaces component coupling)

@@ -592,8 +592,8 @@ class TestVolumeSettings:
         service = MagicMock()
         service.config = MagicMock()
         service.volume_config = MagicMock()
-        service.volume_config.startup_volume_db = -60.0
-        service.volume_config.restore_last_volume = False
+        service.volume_config.startup_volume_db = -45.0
+        service.volume_config.restore_last_volume = True
         service.reload_startup_config = AsyncMock(return_value=True)
         return service
 
@@ -601,7 +601,7 @@ class TestVolumeSettings:
     def mock_settings_service(self):
         """Create a mock SettingsService."""
         service = MagicMock()
-        service.get_setting = AsyncMock(return_value=-60.0)
+        service.get_setting = AsyncMock(return_value=-45.0)
         service.set_setting = AsyncMock(return_value=True)
         return service
 
@@ -624,8 +624,8 @@ class TestVolumeSettings:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "success"
-        assert data["startup_volume_db"] == -60.0
-        assert data["restore_last_volume"] is False
+        assert data["startup_volume_db"] == -45.0
+        assert data["restore_last_volume"] is True
 
     def test_patch_volume_settings_startup(self, test_client, mock_volume_service, mock_settings_service):
         """AC5: Test PATCH volume settings updates startup_volume_db."""
