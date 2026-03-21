@@ -31,7 +31,7 @@
         <!-- WiFi row (always visible) -->
         <div class="connection-row connection-row--wifi">
           <WifiSignal :signal="wifiCardSignal" :size="24" />
-          <span class="text-body">{{ wifiDisplaySsid || t('setup.summary.wifi') }}</span>
+          <span class="text-body">{{ wifiDisplaySsid || t('network.wifi') }}</span>
           <span class="connection-badge text-mono-small" :class="wifiBadgeClass">
             {{ wifiBadgeLabel }}
           </span>
@@ -48,11 +48,6 @@
         :placeholder="t('network.selectCountry')"
         @change="onCountryChange"
       />
-    </div>
-
-    <!-- Banner: only when no connection at all (hotspot / first boot) -->
-    <div v-if="!status.ethernet.connected && !wifiDisplaySsid" class="wifi-banner text-mono-small" :class="{ 'wifi-banner--hotspot': hotspotActive }">
-      {{ hotspotActive ? t('setup.wifi.hotspotBanner') : t('setup.wifi.hotspotWarning') }}
     </div>
 
     <!-- Network list -->
@@ -193,14 +188,18 @@ const visibleNetworks = computed(() => {
   return networks.value.filter(n => !n.in_use && n.ssid !== ssid);
 });
 
-// Emit wifi SSID only (ethernet doesn't count — CTA shows "Skip" when no wifi configured)
-watch(() => [status.value.wifi.connected, status.value.wifi.saved_ssid], () => {
+// Emit connection identifier: wifi SSID or 'ethernet' — wizard disables CTA until truthy
+watch(() => [status.value.ethernet.connected, status.value.wifi.connected, status.value.wifi.saved_ssid], () => {
   if (status.value.wifi.connected) {
-    emit('update:modelValue', status.value.wifi.ssid || null);
+    emit('update:modelValue', status.value.wifi.ssid || 'wifi');
+  } else if (status.value.wifi.saved_ssid) {
+    emit('update:modelValue', status.value.wifi.saved_ssid);
+  } else if (status.value.ethernet.connected) {
+    emit('update:modelValue', 'ethernet');
   } else {
-    emit('update:modelValue', status.value.wifi.saved_ssid || null);
+    emit('update:modelValue', null);
   }
-});
+}, { immediate: true });
 
 async function handleConnect(network) {
   if (props.hotspotActive) {
@@ -247,18 +246,6 @@ onMounted(async () => {
 
 .country-row :deep(.dropdown) {
   flex: 1;
-}
-
-.wifi-banner {
-  color: var(--color-text-secondary);
-  padding: var(--space-03) var(--space-04);
-  background: var(--color-background);
-  border-radius: var(--radius-04);
-}
-
-.wifi-banner--hotspot {
-  background: color-mix(in srgb, var(--color-brand) 10%, transparent);
-  color: var(--color-text-primary);
 }
 
 /* Connection status card (grouped ethernet + wifi) */
