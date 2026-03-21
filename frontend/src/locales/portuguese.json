@@ -210,7 +210,7 @@
     "autoSleep": "Suspensão de tela",
     "sleepDelay": "Quando o aplicativo estiver inativo, desligar a tela após:",
     "screensaver": "Proteção de tela",
-    "screensaverSourceNote": "Apenas em Rádio, Podcasts e Bluetooth",
+    "screensaverSourceNote": "Apenas em Rádio, Podcasts, Bluetooth e macOS",
     "uiScale": "Exibição",
     "uiScaleLevel": "Escala da interface",
     "screensaverDelay": "Iniciar a proteção de tela após:"

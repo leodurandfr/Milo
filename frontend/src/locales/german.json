@@ -210,7 +210,7 @@
     "autoSleep": "Bildschirm-Ruhemodus",
     "sleepDelay": "Bei Inaktivität der App den Bildschirm ausschalten nach:",
     "screensaver": "Bildschirmschoner",
-    "screensaverSourceNote": "Nur bei Radio, Podcasts und Bluetooth",
+    "screensaverSourceNote": "Nur bei Radio, Podcasts, Bluetooth und macOS",
     "uiScale": "Anzeige",
     "uiScaleLevel": "Skalierung der Oberfläche",
     "screensaverDelay": "Bildschirmschoner starten nach:"
