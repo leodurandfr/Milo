@@ -6,7 +6,7 @@ devices:
   samplerate: 48000
   chunksize: 1024
   enable_rate_adjust: true
-  target_level: 1024
+  target_level: 2048
   adjust_period: 10.0
   silence_timeout: 0
   capture:
