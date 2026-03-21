@@ -210,7 +210,7 @@
     "autoSleep": "Sospensione schermo",
     "sleepDelay": "In caso di inattività dell'app, spegnere lo schermo dopo:",
     "screensaver": "Salvaschermo",
-    "screensaverSourceNote": "Solo su Radio, Podcasts e Bluetooth",
+    "screensaverSourceNote": "Solo su Radio, Podcasts, Bluetooth e macOS",
     "uiScale": "Display",
     "uiScaleLevel": "Scala dell'interfaccia",
     "screensaverDelay": "Avviare il salvaschermo dopo:"
