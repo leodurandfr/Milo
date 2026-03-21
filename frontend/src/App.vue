@@ -128,6 +128,30 @@ let bootScreenEl = null;
 let bootTimeoutId = null;
 let bootFailedTimeoutId = null;
 
+// Shared handler for initial state (WebSocket event or HTTP fallback)
+function processInitialState(event) {
+  clearBootTimeout();
+  unifiedStore.updateState(event);
+
+  if (event.data?.setup_completed !== undefined) {
+    settingsStore.updateSetupCompleted(event.data.setup_completed);
+  }
+  if (event.data?.hotspot_active !== undefined) {
+    settingsStore.updateHotspotActive(event.data.hotspot_active);
+  }
+
+  const fullState = event.data?.full_state;
+  if (fullState?.active_source === 'podcast' && fullState?.metadata) {
+    podcastStore.handleStateUpdate(fullState.metadata);
+  }
+
+  if (isBootComplete.value && showDockFn && unifiedStore.systemState.active_source === 'none') {
+    showDockFn();
+  }
+
+  isReady.value = true;
+}
+
 // === Boot timeout handling ===
 function startBootTimeout() {
   clearBootTimeout();
@@ -135,6 +159,12 @@ function startBootTimeout() {
   bootTimeoutId = setTimeout(() => {
     if (!isReady.value) {
       showBootMessage(t('app.connecting'));
+      // HTTP fallback for captive portal (macOS doesn't support WebSocket)
+      axios.get('/api/initial-state').then(({ data }) => {
+        if (!isReady.value && data?.status === 'success') {
+          processInitialState({ category: 'system', type: 'initial_state', source: 'system', data });
+        }
+      }).catch(() => {});
       // Stage 2: Show "unavailable" after more time
       bootFailedTimeoutId = setTimeout(() => {
         if (!isReady.value) {
@@ -177,6 +207,8 @@ const capitalize = (s) => s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
 // Watch connection state with iOS-specific delay to avoid flash on quick reconnects
 watch(isConnected, (connected) => {
   if (!isBootComplete.value) return;
+  // Suppress during setup wizard (HTTP fallback handles captive portal without WebSocket)
+  if (settingsStore.setupCompleted === false) return;
 
   if (connectionLostTimeout) {
     clearTimeout(connectionLostTimeout);
@@ -327,30 +359,7 @@ onMounted(async () => {
   // This prevents race condition where initial_state arrives before listeners are ready
   cleanupFunctions.push(
     on('system', 'initial_state', (event) => {
-      clearBootTimeout();
-      unifiedStore.updateState(event);
-
-      // Update setup_completed and hotspot_active from initial state
-      if (event.data?.setup_completed !== undefined) {
-        settingsStore.updateSetupCompleted(event.data.setup_completed);
-      }
-      if (event.data?.hotspot_active !== undefined) {
-        settingsStore.updateHotspotActive(event.data.hotspot_active);
-      }
-
-      // Populate podcastStore if active source is podcast
-      const fullState = event.data?.full_state;
-      if (fullState?.active_source === 'podcast' && fullState?.metadata) {
-        podcastStore.handleStateUpdate(fullState.metadata);
-      }
-
-      // Auto-show dock on reconnection if no audio source active
-      // (isBootComplete check avoids doubling with initial boot animation logic)
-      if (isBootComplete.value && showDockFn && unifiedStore.systemState.active_source === 'none') {
-        showDockFn();
-      }
-
-      isReady.value = true;
+      if (!isReady.value) processInitialState(event);
     }),
     on('volume', 'volume_changed', (event) => unifiedStore.handleVolumeEvent(event)),
     on('system', 'state_changed', (event) => unifiedStore.updateState(event)),
