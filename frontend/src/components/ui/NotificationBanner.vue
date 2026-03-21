@@ -40,7 +40,7 @@ defineEmits(['dismiss']);
   left: 50%;
   transform: translateX(-50%);
   max-width: 400px;
-  z-index: 9999;
+  z-index: 7500;
   padding: var(--space-03) var(--space-04) var(--space-04) var(--space-04);
   background: var(--color-background-contrast);
   border-radius: var(--radius-04);
