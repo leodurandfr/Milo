@@ -289,48 +289,41 @@ function getPaddingOffset() {
   return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--space-05')) || 0;
 }
 
-// Announce wifi card + toggle content height deltas to Modal
-// (additive to ToggleSection's own requestHeightDelta call)
+// Announce wifi card height delta to Modal (MultiroomItem toggleExpand pattern).
+// Synchronous height set so the animation starts immediately.
 function handleWifiToggle(enabled) {
   const wasVisible = showWifiCard.value;
   const prevHeight = wasVisible ? (parseFloat(wifiRowHeight.value) || 0) : 0;
-
-  // Measure toggle slot content BEFORE optimistic update changes it
-  // (offsetHeight works inside collapsed CSS grid: parent is 0px but children keep natural size)
   const oldToggleContentH = wifiContentRef.value?.offsetHeight || 0;
 
   toggleWifi(enabled);
 
-  if (enabled && showWifiCard.value) {
+  if (!wasVisible && showWifiCard.value) {
+    // OPENING: synchronous height + delta (like MultiroomItem expand)
     skipNextWatcher = true;
-    announceWifiCardShow(oldToggleContentH);
-  } else if (!enabled && wasVisible && prevHeight > 0) {
+    const fullHeight = measureWifiRow();
+    if (fullHeight > 0) {
+      const paddingOffset = getPaddingOffset();
+      if (requestHeightDelta) requestHeightDelta(fullHeight - paddingOffset);
+      wifiRowHeight.value = `${fullHeight}px`;
+    }
+    // Correct for toggle content changes after DOM update (e.g. preferred network appearing)
+    correctToggleContentDelta(oldToggleContentH);
+  } else if (wasVisible && !showWifiCard.value && prevHeight > 0) {
+    // CLOSING: synchronous height + delta (like MultiroomItem collapse)
     skipNextWatcher = true;
     const paddingOffset = getPaddingOffset();
-    wifiRowHeight.value = '0px';
     if (requestHeightDelta) requestHeightDelta(-(prevHeight - paddingOffset));
+    wifiRowHeight.value = '0px';
   }
 }
 
-async function announceWifiCardShow(oldToggleContentH) {
+async function correctToggleContentDelta(oldH) {
   await nextTick();
-
-  // Measure toggle slot content AFTER DOM update (preferred network + skeletons appeared)
-  const newToggleContentH = wifiContentRef.value?.offsetHeight || 0;
-  const contentDelta = newToggleContentH - oldToggleContentH;
-
-  // Wifi connection card delta (wrapper grows by fullHeight, parent loses paddingOffset)
-  const fullHeight = measureWifiRow();
-  const paddingOffset = getPaddingOffset();
-
-  // Total correction: (wrapper height - padding offset) + content change inside ToggleSection
-  const totalDelta = (fullHeight - paddingOffset) + contentDelta;
-  if (requestHeightDelta && totalDelta > 2) {
-    requestHeightDelta(totalDelta);
-  }
-
-  if (fullHeight > 0) {
-    wifiRowHeight.value = `${fullHeight}px`;
+  const newH = wifiContentRef.value?.offsetHeight || 0;
+  const delta = newH - oldH;
+  if (requestHeightDelta && Math.abs(delta) > 2) {
+    requestHeightDelta(delta);
   }
 }
 

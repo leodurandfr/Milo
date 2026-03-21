@@ -137,6 +137,9 @@ export function useAnimatedHeight(contentRef, options = {}) {
       const naturalAfterDelta = contentRef.value.offsetHeight + extra + delta;
       if (naturalAfterDelta >= maxAvailable - 2) {
         targetStillAtMax = true;
+      } else {
+        // Content will shrink below max — use natural post-delta height
+        targetHeight = Math.max(0, naturalAfterDelta);
       }
     }
 
