@@ -25,7 +25,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const props = defineProps({
@@ -150,9 +150,10 @@ function calculateDropdownDirection() {
 }
 
 async function toggleDropdown() {
-  // Calculate direction BEFORE opening to avoid animation glitch
   if (!isOpen.value) {
-    calculateDropdownDirection();
+    // Reset direction defaults (recalculated after render with actual dimensions)
+    openUpward.value = false;
+    openLeftward.value = false;
 
     // Initialize scroll position for detection
     const target = dropdownRef.value?.parentElement;
@@ -163,8 +164,9 @@ async function toggleDropdown() {
 
     isOpen.value = true;
 
-    // Recalculate after menu renders to get actual height
-    await new Promise(resolve => setTimeout(resolve, 10));
+    // Calculate direction after menu renders to get actual height
+    // Runs as microtask before CSS transition starts (double-rAF)
+    await nextTick();
     calculateDropdownDirection();
   } else {
     isOpen.value = false;
