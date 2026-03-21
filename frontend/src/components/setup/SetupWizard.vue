@@ -275,7 +275,7 @@ onUnmounted(() => {
 .setup-wizard {
   position: fixed;
   inset: 0;
-  z-index: 9999;
+  z-index: 4500;
   background: var(--color-background);
   display: flex;
   align-items: center;
