@@ -1,12 +1,13 @@
 # backend/api/health.py
 """
-Health check endpoint for monitoring
+Health check and initial state endpoints
 """
 import time
 from fastapi import APIRouter
 from typing import Dict, Any
 
-def create_health_router(state_machine, routing_service, snapcast_service):
+def create_health_router(state_machine, routing_service, snapcast_service,
+                         settings_service, wifi_service):
     """Creates health check router"""
     router = APIRouter(prefix="/api", tags=["health"])
 
@@ -90,5 +91,24 @@ def create_health_router(state_machine, routing_service, snapcast_service):
     async def ping() -> Dict[str, str]:
         """Simple endpoint to verify API is responding"""
         return {"status": "success", "message": "pong"}
+
+    @router.get("/initial-state")
+    async def get_initial_state() -> Dict[str, Any]:
+        """HTTP fallback for initial state (captive portal compatibility).
+
+        Returns the same data as the WebSocket initial_state event,
+        for browsers that don't support WebSocket (e.g., macOS captive portal).
+        """
+        current_state = await state_machine.get_current_state()
+
+        setup_completed = bool(await settings_service.get_setting("setup_completed"))
+        hotspot_active = wifi_service.hotspot_active
+
+        return {
+            "status": "success",
+            "full_state": current_state,
+            "setup_completed": setup_completed,
+            "hotspot_active": hotspot_active,
+        }
 
     return router

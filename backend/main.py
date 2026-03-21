@@ -212,7 +212,10 @@ programs_router = create_programs_router(
 )
 app.include_router(programs_router)
 
-health_router = create_health_router(state_machine, routing_service, snapcast_service)
+health_router = create_health_router(
+    state_machine, routing_service, snapcast_service,
+    settings_service=settings_service, wifi_service=wifi_service
+)
 app.include_router(health_router)
 
 errors_router = create_errors_router()
