@@ -51,8 +51,8 @@ class TestVolumeService:
         assert service.state_machine is not None
         assert service.snapcast_service is not None
         assert service.volume_config.limit_min_db == -80.0
-        assert service.volume_config.limit_max_db == -21.0
-        assert service.volume_config.step_mobile_db == 3.0
+        assert service.volume_config.limit_max_db == -20.0
+        assert service.volume_config.step_mobile_db == 2.0
         assert service.volume_config.step_rotary_db == 2.0
 
     def test_clamp_db_volume(self, service):
@@ -61,8 +61,8 @@ class TestVolumeService:
         assert config.clamp(-90.0) == -80.0  # Below min
         assert config.clamp(-80.0) == -80.0  # At min
         assert config.clamp(-30.0) == -30.0  # Middle
-        assert config.clamp(-21.0) == -21.0  # At max
-        assert config.clamp(0.0) == -21.0    # Above max (clamped to limit)
+        assert config.clamp(-20.0) == -20.0  # At max
+        assert config.clamp(0.0) == -20.0    # Above max (clamped to limit)
 
     @pytest.mark.asyncio
     async def test_load_volume_config(self, service):
@@ -202,14 +202,14 @@ class TestVolumeConfig:
     def test_default_limits(self, config):
         """Test default limits"""
         assert config.limit_min_db == -80.0
-        assert config.limit_max_db == -21.0
+        assert config.limit_max_db == -20.0
 
     def test_default_values(self, config):
         """Test all default values"""
-        assert config.step_mobile_db == 3.0
+        assert config.step_mobile_db == 2.0
         assert config.step_rotary_db == 2.0
-        assert config.startup_volume_db == -60.0  # DEFAULT_VOLUME_DB from constants
-        assert config.restore_last_volume is False
+        assert config.startup_volume_db == -45.0  # DEFAULT_VOLUME_DB from constants
+        assert config.restore_last_volume is True
 
     def test_custom_limits(self):
         """Test custom limit values"""
@@ -227,15 +227,15 @@ class TestVolumeConfig:
 
     def test_clamp_above_max(self, config):
         """Test clamping value above maximum"""
-        assert config.clamp(-10.0) == -21.0
+        assert config.clamp(-10.0) == -20.0
 
     def test_to_dict(self, config):
         """Test config serialization to dict"""
         result = config.to_dict()
         assert result["limit_min_db"] == -80.0
-        assert result["limit_max_db"] == -21.0
-        assert result["step_mobile_db"] == 3.0
+        assert result["limit_max_db"] == -20.0
+        assert result["step_mobile_db"] == 2.0
         assert result["step_rotary_db"] == 2.0
-        assert result["startup_volume_db"] == -60.0  # DEFAULT_VOLUME_DB from constants
-        assert result["restore_last_volume"] is False
+        assert result["startup_volume_db"] == -45.0  # DEFAULT_VOLUME_DB from constants
+        assert result["restore_last_volume"] is True
 

@@ -30,11 +30,11 @@ class TestVolumeConfig:
         """Test default configuration values."""
         config = VolumeConfig()
         assert config.limit_min_db == -80.0
-        assert config.limit_max_db == -21.0
-        assert config.step_mobile_db == 3.0
+        assert config.limit_max_db == -20.0
+        assert config.step_mobile_db == 2.0
         assert config.step_rotary_db == 2.0
         assert config.startup_volume_db == DEFAULT_VOLUME_DB
-        assert config.restore_last_volume is False
+        assert config.restore_last_volume is True
 
     def test_clamp_within_range(self):
         """Test clamping within configured range."""
@@ -232,7 +232,7 @@ class TestVolumeStateStore:
         """Test default store values (constants imported from backend.config.constants)."""
         assert MIN_VOLUME_DB == -80.0
         assert MAX_VOLUME_DB == 0.0
-        assert DEFAULT_VOLUME_DB == -60.0
+        assert DEFAULT_VOLUME_DB == -45.0
         # Verify initial local volume uses default
         assert state_store._local_volume_db == DEFAULT_VOLUME_DB
 
@@ -240,7 +240,7 @@ class TestVolumeStateStore:
         """Test dB clamping delegates to VolumeConfig."""
         assert state_store._clamp_db(-90.0) == -80.0  # Below min
         assert state_store._clamp_db(-30.0) == -30.0  # In range (but above default max)
-        assert state_store._clamp_db(5.0) == -21.0    # Above default user max
+        assert state_store._clamp_db(5.0) == -20.0    # Above default user max
 
     def test_clamp_db_fallback_without_config(self, mock_settings):
         """Test dB clamping falls back to technical limits when config not set."""
@@ -473,7 +473,7 @@ class TestVolumeService:
         config = service.volume_config
         assert config.clamp(-90.0) == -80.0  # Below min
         assert config.clamp(-30.0) == -30.0  # In range
-        assert config.clamp(0.0) == -21.0    # Above max
+        assert config.clamp(0.0) == -20.0    # Above max
 
     @pytest.mark.asyncio
     async def test_reload_volume_limits(self, service, mock_settings, mock_camilladsp_service, mock_state_machine):
@@ -594,7 +594,7 @@ class TestZoneReconnectionVolume:
             id="zone-1",
             name="Living Room",
             client_ids=["local", "client-01", "client-02"],
-            average_volume_db=DEFAULT_VOLUME_DB,  # -60.0 when all offline
+            average_volume_db=DEFAULT_VOLUME_DB,  # -45.0 when all offline
             all_muted=False
         )
         volume_state = VolumeState(
@@ -619,7 +619,7 @@ class TestZoneReconnectionVolume:
 
         # Assert: Uses DEFAULT_VOLUME_DB (startup default) when all offline
         assert expected_volume == DEFAULT_VOLUME_DB
-        assert expected_volume == -60.0
+        assert expected_volume == -45.0
 
     @pytest.mark.asyncio
     async def test_zone_reconnect_uses_cached_target_during_initial_sync(self, mock_state_store, mock_equalizer_controller):
@@ -730,12 +730,12 @@ class TestStandaloneReconnectionVolume:
     async def test_standalone_reconnect_uses_default_when_first_client(self, mock_state_store, mock_equalizer_controller):
         """
         FR10: STANDALONE client reconnects as FIRST client (no others ONLINE).
-        Expected: volume = startup_volume_db (DEFAULT_VOLUME_DB = -60.0)
+        Expected: volume = startup_volume_db (DEFAULT_VOLUME_DB = -45.0)
         """
         # Setup: No other clients online - global_volume_db falls back to DEFAULT
         volume_state = VolumeState(
             mode="multiroom",
-            global_volume_db=DEFAULT_VOLUME_DB,  # -60.0 when no available clients
+            global_volume_db=DEFAULT_VOLUME_DB,  # -45.0 when no available clients
             global_mute=False,
             clients={},  # No available clients
             zones={}
@@ -757,7 +757,7 @@ class TestStandaloneReconnectionVolume:
 
         # Assert: Uses DEFAULT_VOLUME_DB (startup_volume_db) when first client
         assert expected_volume == DEFAULT_VOLUME_DB
-        assert expected_volume == -60.0
+        assert expected_volume == -45.0
 
     @pytest.mark.asyncio
     async def test_standalone_reconnect_uses_saved_volume_if_exists(self, mock_state_store, mock_equalizer_controller):

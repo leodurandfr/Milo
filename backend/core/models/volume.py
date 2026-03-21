@@ -19,12 +19,12 @@ class VolumeConfig:
     Range: -80 dB (silent) to 0 dB (maximum)
     """
     limit_min_db: float = -80.0
-    limit_max_db: float = -21.0
-    step_mobile_db: float = 3.0
+    limit_max_db: float = -20.0
+    step_mobile_db: float = 2.0
     step_rotary_db: float = 2.0
     step_bt_remote_db: float = 2.0
     startup_volume_db: float = DEFAULT_VOLUME_DB
-    restore_last_volume: bool = False
+    restore_last_volume: bool = True
 
     def clamp(self, volume_db: float) -> float:
         """

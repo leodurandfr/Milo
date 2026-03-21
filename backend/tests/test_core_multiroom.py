@@ -2323,7 +2323,7 @@ class TestSnapcastClientDetection:
 
         # Verify AC3 default values
         assert client.speaker_type == DEFAULT_SPEAKER_TYPE  # 'bookshelf'
-        assert client.volume_db == DEFAULT_VOLUME_DB  # -60.0
+        assert client.volume_db == DEFAULT_VOLUME_DB  # -45.0
         assert client.online is True
         assert client.zone_id is None  # standalone
 

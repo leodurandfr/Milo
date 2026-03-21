@@ -55,7 +55,7 @@ MAC_AUDIO_OUTPUT = "hw:1,0"
 # =============================================================================
 # VOLUME SETTINGS (in dB)
 # =============================================================================
-DEFAULT_VOLUME_DB = -60.0       # Default volume for new clients and startup
+DEFAULT_VOLUME_DB = -45.0       # Default volume for new clients and startup
 MIN_VOLUME_DB = -80.0           # Technical minimum (silent)
 MAX_VOLUME_DB = 0.0             # Technical maximum
 

@@ -55,7 +55,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
   // === SPOTIFY ===
   const spotifyDisconnect = ref({
-    auto_disconnect_delay: 10.0
+    auto_disconnect_delay: 120.0
   });
 
   // === PODCAST ===
@@ -174,7 +174,7 @@ export const useSettingsStore = defineStore('settings', () => {
         }
 
         spotifyDisconnect.value = {
-          auto_disconnect_delay: d.spotify_disconnect?.auto_disconnect_delay ?? 10.0
+          auto_disconnect_delay: d.spotify_disconnect?.auto_disconnect_delay ?? 120.0
         };
 
         podcastCredentials.value = {

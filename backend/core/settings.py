@@ -26,25 +26,25 @@ class SettingsService:
             "language": "english",
             "volume": {
                 "limit_min_db": -80.0,
-                "limit_max_db": -21.0,
-                "restore_last_volume": False,
+                "limit_max_db": -20.0,
+                "restore_last_volume": True,
                 "startup_volume_db": DEFAULT_VOLUME_DB,
-                "step_mobile_db": 3.0,
+                "step_mobile_db": 2.0,
                 "step_rotary_db": 2.0,
                 "step_bt_remote_db": 2.0
             },
             "screen": {
-                "timeout_seconds": 10,
+                "timeout_seconds": 120,
                 "brightness_on": 5,
                 "screensaver_enabled": True,
-                "screensaver_delay_seconds": 30,
+                "screensaver_delay_seconds": 120,
                 "ui_scale": 1.0
             },
             "spotify": {
-                "auto_disconnect_delay": 10.0
+                "auto_disconnect_delay": 120.0
             },
             "airplay": {
-                "auto_disconnect_delay": 10.0
+                "auto_disconnect_delay": 120.0
             },
             "podcast": {
                 "taddy_user_id": "",
@@ -156,7 +156,7 @@ class SettingsService:
 
         # Limits in dB (-80 to 0)
         vol['limit_min_db'] = max(-80.0, min(0.0, float(vol_input.get('limit_min_db', -80.0))))
-        vol['limit_max_db'] = max(-80.0, min(0.0, float(vol_input.get('limit_max_db', -21.0))))
+        vol['limit_max_db'] = max(-80.0, min(0.0, float(vol_input.get('limit_max_db', -20.0))))
 
         # Guarantee minimum gap of 6 dB
         if vol['limit_max_db'] - vol['limit_min_db'] < 6.0:
@@ -165,29 +165,29 @@ class SettingsService:
                 vol['limit_max_db'] = 0.0
                 vol['limit_min_db'] = -6.0
 
-        vol['restore_last_volume'] = bool(vol_input.get('restore_last_volume', False))
+        vol['restore_last_volume'] = bool(vol_input.get('restore_last_volume', True))
         vol['startup_volume_db'] = max(vol['limit_min_db'], min(vol['limit_max_db'], float(vol_input.get('startup_volume_db', DEFAULT_VOLUME_DB))))
-        vol['step_mobile_db'] = max(1.0, min(6.0, float(vol_input.get('step_mobile_db', 3.0))))
+        vol['step_mobile_db'] = max(1.0, min(6.0, float(vol_input.get('step_mobile_db', 2.0))))
         vol['step_rotary_db'] = max(1.0, min(6.0, float(vol_input.get('step_rotary_db', 2.0))))
         vol['step_bt_remote_db'] = max(1.0, min(6.0, float(vol_input.get('step_bt_remote_db', 2.0))))
         validated['volume'] = vol
         
         # Screen - MODIFIED: Accept 0 for timeout_seconds (disabled)
         screen_input = settings.get('screen', {})
-        timeout_seconds_raw = int(screen_input.get('timeout_seconds', 10))
+        timeout_seconds_raw = int(screen_input.get('timeout_seconds', 120))
 
         validated['screen'] = {
             # 0 = disabled, otherwise minimum 3 seconds
             'timeout_seconds': 0 if timeout_seconds_raw == 0 else max(3, min(9999, timeout_seconds_raw)),
             'brightness_on': max(1, min(10, int(screen_input.get('brightness_on', 5)))),
             'screensaver_enabled': bool(screen_input.get('screensaver_enabled', True)),
-            'screensaver_delay_seconds': max(5, min(1800, int(screen_input.get('screensaver_delay_seconds', 30)))),
+            'screensaver_delay_seconds': max(5, min(1800, int(screen_input.get('screensaver_delay_seconds', 120)))),
             'ui_scale': max(0.5, min(2.0, float(screen_input.get('ui_scale', 1.0))))
         }
         
         # Spotify - MODIFIED: Accept 0 for auto_disconnect_delay (disabled)
         spotify_input = settings.get('spotify', {})
-        disconnect_delay_raw = float(spotify_input.get('auto_disconnect_delay', 10.0))
+        disconnect_delay_raw = float(spotify_input.get('auto_disconnect_delay', 120.0))
 
         validated['spotify'] = {
             # 0 = disabled, otherwise minimum 1.0 second, maximum 1h (3600s)
@@ -196,7 +196,7 @@ class SettingsService:
 
         # AirPlay - same pattern as Spotify: 0 = disabled
         airplay_input = settings.get('airplay', {})
-        airplay_delay_raw = float(airplay_input.get('auto_disconnect_delay', 10.0))
+        airplay_delay_raw = float(airplay_input.get('auto_disconnect_delay', 120.0))
 
         validated['airplay'] = {
             'auto_disconnect_delay': 0.0 if airplay_delay_raw == 0.0 else max(1.0, min(9999.0, airplay_delay_raw))
@@ -285,7 +285,7 @@ class SettingsService:
             bt_remote_input = plugins_input.get('bt_remote', {})
             if bt_remote_input:
                 validated_plugins['bt_remote'] = {
-                    'enabled': bool(bt_remote_input.get('enabled', True)),
+                    'enabled': bool(bt_remote_input.get('enabled', False)),
                     'device_name_filter': str(bt_remote_input.get('device_name_filter', 'ANTICATER'))[:64],
                     'key_map': bt_remote_input.get('key_map', {}) if isinstance(bt_remote_input.get('key_map'), dict) else {}
                 }
@@ -367,10 +367,10 @@ class SettingsService:
         volume_settings = self._cache.get('volume', {}) if self._cache else {}
         return {
             "limit_min_db": volume_settings.get("limit_min_db", -80.0),
-            "limit_max_db": volume_settings.get("limit_max_db", -21.0),
+            "limit_max_db": volume_settings.get("limit_max_db", -20.0),
             "startup_volume_db": volume_settings.get("startup_volume_db", DEFAULT_VOLUME_DB),
-            "restore_last_volume": volume_settings.get("restore_last_volume", False),
-            "step_mobile_db": volume_settings.get("step_mobile_db", 3.0),
+            "restore_last_volume": volume_settings.get("restore_last_volume", True),
+            "step_mobile_db": volume_settings.get("step_mobile_db", 2.0),
             "step_rotary_db": volume_settings.get("step_rotary_db", 2.0),
             "step_bt_remote_db": volume_settings.get("step_bt_remote_db", 2.0)
         }
@@ -380,10 +380,10 @@ class SettingsService:
         volume_settings = await self.get_setting('volume') or {}
         return {
             "limit_min_db": volume_settings.get("limit_min_db", -80.0),
-            "limit_max_db": volume_settings.get("limit_max_db", -21.0),
+            "limit_max_db": volume_settings.get("limit_max_db", -20.0),
             "startup_volume_db": volume_settings.get("startup_volume_db", DEFAULT_VOLUME_DB),
-            "restore_last_volume": volume_settings.get("restore_last_volume", False),
-            "step_mobile_db": volume_settings.get("step_mobile_db", 3.0),
+            "restore_last_volume": volume_settings.get("restore_last_volume", True),
+            "step_mobile_db": volume_settings.get("step_mobile_db", 2.0),
             "step_rotary_db": volume_settings.get("step_rotary_db", 2.0),
             "step_bt_remote_db": volume_settings.get("step_bt_remote_db", 2.0)
         }

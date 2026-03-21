@@ -253,7 +253,7 @@ class TestNestedSettings:
         max_db = await settings_service.get_setting('volume.limit_max_db')
 
         assert min_db == -80.0
-        assert max_db == -21.0
+        assert max_db == -20.0
 
     @pytest.mark.asyncio
     async def test_set_nested_setting_with_dot_notation(self, settings_service):
@@ -653,4 +653,4 @@ class TestVolumeConfig:
         config = await settings_service.get_volume_config_async()
 
         assert config['limit_min_db'] == -80.0
-        assert config['limit_max_db'] == -21.0
+        assert config['limit_max_db'] == -20.0
