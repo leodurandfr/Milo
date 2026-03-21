@@ -562,19 +562,13 @@
     "stepLabel": "चरण {n}",
     "back": "वापस",
     "continue": "जारी रखें",
-    "skip": "छोड़ें",
     "welcome": {
       "title": "Milō में आपका स्वागत है",
       "subtitle": "आइए आपका ऑडियो सिस्टम कॉन्फ़िगर करें!",
       "getStarted": "शुरू करें"
     },
     "wifi": {
-      "title": "नेटवर्क सेट करें",
-      "hotspotWarning": "अपने WiFi से कनेक्ट होने के बाद, आपको अपने होम नेटवर्क से milo.local पर Milō एक्सेस करना होगा।",
-      "hotspotBanner": "आप Milō नेटवर्क से जुड़े हैं। नीचे अपना होम WiFi नेटवर्क चुनें।",
-      "hotspotConfigured": "WiFi कॉन्फ़िगर हो गया!",
-      "hotspotConfiguredDetail": "रीस्टार्ट के बाद, अपने नेटवर्क पर milo.local पर Milō खोजें",
-      "skipped": "छोड़ दिया गया"
+      "title": "नेटवर्क सेट करें"
     },
     "language": {
       "title": "अपनी भाषा चुनें"
@@ -601,7 +595,7 @@
     "summary": {
       "title": "सारांश",
       "mode": "मोड",
-      "wifi": "WiFi",
+      "network": "नेटवर्क",
       "language": "भाषा",
       "audioCard": "ऑडियो कार्ड",
       "screen": "स्क्रीन",

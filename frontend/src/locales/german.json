@@ -562,19 +562,13 @@
     "stepLabel": "Schritt {n}",
     "back": "Zurück",
     "continue": "Weiter",
-    "skip": "Überspringen",
     "welcome": {
       "title": "Willkommen bei Milō",
       "subtitle": "Lassen Sie uns Ihr Audiosystem konfigurieren!",
       "getStarted": "Los geht's"
     },
     "wifi": {
-      "title": "Netzwerk einrichten",
-      "hotspotWarning": "Nach der Verbindung mit Ihrem WLAN müssen Sie über milo.local in Ihrem Heimnetzwerk auf Milō zugreifen.",
-      "hotspotBanner": "Sie sind mit dem Milō-Netzwerk verbunden. Wählen Sie unten Ihr Heim-WLAN aus.",
-      "hotspotConfigured": "WLAN konfiguriert!",
-      "hotspotConfiguredDetail": "Nach dem Neustart finden Sie Milō in Ihrem Netzwerk unter milo.local",
-      "skipped": "Übersprungen"
+      "title": "Netzwerk einrichten"
     },
     "language": {
       "title": "Wählen Sie Ihre Sprache"
@@ -601,7 +595,7 @@
     "summary": {
       "title": "Übersicht",
       "mode": "Modus",
-      "wifi": "WiFi",
+      "network": "Netzwerk",
       "language": "Sprache",
       "audioCard": "Audiokarte",
       "screen": "Bildschirm",

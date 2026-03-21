@@ -2,7 +2,7 @@
 <template>
   <div class="summary-step">
     <!-- milo.local access hint -->
-    <div v-if="wifiSsid" class="summary-hint text-mono-small">
+    <div v-if="wifiSsid && wifiSsid !== 'ethernet'" class="summary-hint text-mono-small">
       {{ t('setup.summary.accessHint', { ssid: wifiSsid }) }}
     </div>
 
@@ -14,11 +14,11 @@
       </div>
     </div>
 
-    <!-- WiFi -->
+    <!-- Network -->
     <div class="summary-item">
-      <span class="text-mono summary-item__label">{{ t('setup.summary.wifi') }}</span>
+      <span class="text-mono summary-item__label">{{ t('setup.summary.network') }}</span>
       <div class="summary-item__card">
-        <span class="heading-3">{{ wifiSsid || t('setup.wifi.skipped') }}</span>
+        <span class="heading-3">{{ wifiSsid === 'ethernet' ? t('network.ethernet') : wifiSsid }}</span>
       </div>
     </div>
 

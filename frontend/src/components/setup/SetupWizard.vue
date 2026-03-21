@@ -43,8 +43,8 @@
           {{ t('setup.welcome.getStarted') }}
         </Button>
 
-        <Button v-else-if="currentStep === 3" variant="brand" :disabled="!wifiCountry" @click="nextStep">
-          {{ wizardState.wifiSsid ? t('setup.continue') : t('setup.skip') }}
+        <Button v-else-if="currentStep === 3" variant="brand" :disabled="!wifiCountry || !wizardState.wifiSsid" @click="nextStep">
+          {{ t('setup.continue') }}
         </Button>
 
         <Button v-else-if="!isSummaryStep" variant="brand" @click="nextStep">
