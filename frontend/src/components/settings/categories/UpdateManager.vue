@@ -33,7 +33,7 @@
                   <AppIcon :name="getProgramIcon('milo')" :size="48" class="program-icon" />
                   <span class="program-name heading-4">{{ localPrograms.milo.name }}</span>
                   <span class="program-version text-mono">
-                    milo {{ displayVersion(localPrograms.milo) }}
+                    milo {{ getLocalInstalledVersion(localPrograms.milo) || t('updates.notAvailable') }}
                     <template
                       v-if="localPrograms.milo.update_available && !isLocalUpdating('milo') && !isLocalUpdateCompleted('milo')">
                       <span class="version-new">> {{ getLocalLatestVersion(localPrograms.milo) }}</span>
@@ -253,25 +253,12 @@ function getVersionLabel(key) {
 
 function formatGitVersion(version) {
   if (!version) return null;
-  // git describe formats:
+  // Extract base version only (no commit hash)
   //   "v0.0.1"                → "0.0.1"
-  //   "v0.0.1-533-gc6d74a1"  → "0.0.1 · c6d74a1"
+  //   "v0.0.1-533-gc6d74a1"  → "0.0.1"
   //   "b601da9"               → "b601da9"
-  const parts = version.split('-');
-
-  if (parts.length >= 3 && parts[parts.length - 1].startsWith('g')) {
-    const tag = parts.slice(0, -2).join('-').replace(/^v/, '');
-    const hash = parts[parts.length - 1].slice(1);
-    return `${tag} · ${hash}`;
-  }
-
-  return version.replace(/^v/, '');
-}
-
-function displayVersion(program) {
-  const raw = program?.installed?.raw_version;
-  if (raw) return formatGitVersion(raw);
-  return getLocalInstalledVersion(program) || t('updates.notAvailable');
+  const match = version.match(/v?(\d+\.\d+\.\d+)/);
+  return match ? match[1] : version.replace(/^v/, '');
 }
 
 const { t } = useI18n();
