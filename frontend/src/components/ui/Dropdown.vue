@@ -246,7 +246,6 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: var(--space-03) var(--space-04);
   border-radius: var(--radius-04);
   background: var(--color-background-neutral);
   cursor: pointer;
