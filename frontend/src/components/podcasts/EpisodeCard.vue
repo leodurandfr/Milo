@@ -44,7 +44,18 @@ import IconButton from '@/components/ui/IconButton.vue'
 import LazyImage from '@/components/ui/LazyImage.vue'
 import episodePlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
 
-const { t } = useI18n()
+const { t, currentLanguage } = useI18n()
+
+const LANGUAGE_TO_LOCALE = {
+  english: 'en-US',
+  french: 'fr-FR',
+  spanish: 'es-ES',
+  german: 'de-DE',
+  italian: 'it-IT',
+  portuguese: 'pt-BR',
+  chinese: 'zh-CN',
+  hindi: 'hi-IN'
+}
 
 const props = defineProps({
   episode: {
@@ -184,10 +195,12 @@ function formatRelativeDate(epochSeconds) {
 
   if (days === 0) return t('podcasts.today')
   if (days === 1) return t('podcasts.yesterday')
-  if (days < 7) return t('podcasts.daysAgo', { count: days })
-  if (days < 30) return t('podcasts.weeksAgo', { count: Math.floor(days / 7) })
-  if (days < 365) return t('podcasts.monthsAgo', { count: Math.floor(days / 30) })
-  return t('podcasts.yearsAgo', { count: Math.floor(days / 365) })
+
+  const locale = LANGUAGE_TO_LOCALE[currentLanguage.value] || 'en-US'
+  const day = date.getDate()
+  const month = date.toLocaleDateString(locale, { month: 'short' }).replace('.', '')
+  const capitalized = month.charAt(0).toUpperCase() + month.slice(1)
+  return `${day} ${capitalized}`
 }
 
 
@@ -298,11 +311,11 @@ function formatRelativeDate(epochSeconds) {
   }
 
   .card-image {
-    width: 64px;
-    height: 64px;
+    width: 96px;
+    height: 96px;
   }
   .episode-meta {
-    display: none;
+    display: flex;
   }
 }
 
