@@ -1,0 +1,53 @@
+[Unit]
+Description=Milo CD Player (mpv)
+Documentation=https://mpv.io/manual/stable/
+After=sound.target milo-backend.service milo-camilladsp.service
+# Depends on ALSA environment configured by Milo
+Requires=sound.target
+BindsTo=milo-backend.service
+
+[Service]
+Type=simple
+User=milo
+Group=milo
+
+# Automatically create /run/milo/ for IPC socket
+RuntimeDirectory=milo
+RuntimeDirectoryMode=0755
+
+# Load Milo environment variables (MILO_MODE)
+EnvironmentFile=/var/lib/milo/routing.env
+
+# The ALSA device milo_cd routes to direct (CamillaDSP) or multiroom (Snapcast)
+ExecStartPre=/bin/sh -c 'echo "ALSA routing: MILO_MODE=${MILO_MODE}"'
+
+# Launch mpv in daemon mode with IPC socket for CD playback
+ExecStart=/usr/bin/mpv \
+    --no-video \
+    --audio-device=alsa/milo_cd \
+    --input-ipc-server=/run/milo/cd-ipc.sock \
+    --idle=yes \
+    --msg-level=all=info \
+    --no-config \
+    --no-terminal \
+    --really-quiet
+
+# Restart policy
+Restart=on-failure
+RestartSec=5s
+
+# Resource limits
+CPUQuota=50%
+MemoryMax=256M
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=milo-cd
+
+[Install]
+WantedBy=multi-user.target

@@ -27,6 +27,9 @@ ERROR_LOG_FILE = MILO_DATA_DIR / "errors.log"
 # DIRECTORIES (derived from MILO_DATA_DIR)
 # =============================================================================
 RADIO_IMAGES_DIR = MILO_DATA_DIR / "radio_images"
+CD_DATA_FILE = MILO_DATA_DIR / "cd_data.json"
+CD_COVERS_DIR = MILO_DATA_DIR / "cd_covers"
+CD_DEVICE = "/dev/sr0"
 
 # =============================================================================
 # SYSTEM SCRIPTS
@@ -74,7 +77,7 @@ UTILITY_DOCK_APPS = frozenset({'equalizer', 'multiroom', 'settings'})
 VALID_DOCK_APPS = AUDIO_SOURCE_APPS | UTILITY_DOCK_APPS
 
 # Default dock apps (ordered for UI)
-DEFAULT_DOCK_APPS = ["spotify", "bluetooth", "radio", "podcast", "airplay", "mac", "equalizer", "multiroom", "settings"]
+DEFAULT_DOCK_APPS = ["spotify", "bluetooth", "radio", "podcast", "airplay", "mac", "cd", "equalizer", "multiroom", "settings"]
 
 # Supported UI languages (single source of truth for validation)
 VALID_LANGUAGES = ['french', 'english', 'spanish', 'hindi', 'chinese', 'portuguese', 'italian', 'german']
