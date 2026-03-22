@@ -1,0 +1,4 @@
+# Initialize Apple USB SuperDrive when plugged in
+# The SuperDrive requires a proprietary SCSI command to unlock the slot mechanism
+# This also works with other USB CD/DVD drives (the command is simply ignored)
+ACTION=="add", ATTRS{idProduct}=="1500", ATTRS{idVendor}=="05ac", DRIVERS=="usb", RUN+="/usr/bin/sg_raw --cmdset=1 /dev/$kernel EA 00 00 00 00 00 01"
