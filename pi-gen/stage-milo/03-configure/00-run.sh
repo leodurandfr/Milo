@@ -48,7 +48,7 @@ if [ -f "$CMDLINE" ]; then
         s/  +/ /g
     ' | xargs)
 
-    BOOT_PARAMS="quiet splash plymouth.ignore-serial-consoles console=tty3 loglevel=0 consoleblank=0 logo.nologo vt.global_cursor_default=0 fbcon=map:99 vt.handoff=7 cfg80211.ieee80211_regdom=00"
+    BOOT_PARAMS="quiet splash plymouth.ignore-serial-consoles console=tty3 loglevel=0 consoleblank=0 logo.nologo vt.global_cursor_default=0 fbcon=map:99 vt.handoff=7 cfg80211.ieee80211_regdom=FR"
     echo "${CURRENT} ${BOOT_PARAMS}" | tr -s ' ' > "$CMDLINE"
 fi
 CHROOT
