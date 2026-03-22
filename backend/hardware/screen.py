@@ -6,6 +6,7 @@ Multi-screen support: Waveshare 7" USB and Waveshare 8" DSI
 import asyncio
 import logging
 import os
+from pathlib import Path
 from time import monotonic
 
 from backend.shared.decorators import handle_errors
@@ -28,12 +29,14 @@ class ScreenController:
         self.brightness_on = 5
 
         # Brightness ranges based on screen type
+        self.backlight_path = None
         if self.screen_type == "waveshare_7_usb":
             self.brightness_min = 0
             self.brightness_max = 10
         elif self.screen_type == "waveshare_8_dsi":
             self.brightness_min = 0
             self.brightness_max = 255
+            self.backlight_path = self._detect_backlight_path()
         else:
             # No screen or unknown type
             self.brightness_min = 0
@@ -50,6 +53,15 @@ class ScreenController:
         self.running = False
         self.current_plugin_state = "ready"
     
+    def _detect_backlight_path(self):
+        """Detect the sysfs backlight brightness path for DSI screens."""
+        paths = list(Path('/sys/class/backlight').glob('*/brightness'))
+        if paths:
+            self.logger.info(f"Backlight device found: {paths[0]}")
+            return str(paths[0])
+        self.logger.warning("No backlight device found in /sys/class/backlight/")
+        return None
+
     def _map_brightness_value(self, ui_value: int) -> int:
         """
         Converts a UI value (1-10) to the screen's native range.
@@ -80,9 +92,14 @@ class ScreenController:
             self.screen_on_cmd = f"/usr/local/bin/milo-brightness-7 -b {native_brightness}"
             self.screen_off_cmd = "/usr/local/bin/milo-brightness-7 -b 0"
         elif self.screen_type == "waveshare_8_dsi":
-            # Waveshare 8" DSI: uses sysfs (no sudo - udev rule grants backlight access)
-            self.screen_on_cmd = f"/bin/sh -c 'echo {native_brightness} > /sys/class/backlight/*/brightness'"
-            self.screen_off_cmd = "/bin/sh -c 'echo 0 > /sys/class/backlight/*/brightness'"
+            # Waveshare 8" DSI: write directly to the resolved sysfs backlight path
+            if self.backlight_path:
+                self.screen_on_cmd = f"/bin/sh -c 'echo {native_brightness} > {self.backlight_path}'"
+                self.screen_off_cmd = f"/bin/sh -c 'echo 0 > {self.backlight_path}'"
+            else:
+                self.logger.warning("DSI screen configured but no backlight device found")
+                self.screen_on_cmd = ""
+                self.screen_off_cmd = ""
         else:
             # No screen or unknown type: empty commands
             self.logger.warning(f"Unknown screen type '{self.screen_type}', brightness control disabled")
