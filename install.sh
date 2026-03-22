@@ -124,7 +124,7 @@ install_dependencies() {
         sudo apt install -y \
             git python3-pip python3-venv python3-dev libasound2-dev libssl-dev \
             cmake build-essential pkg-config swig liblgpio-dev nodejs npm wget unzip \
-            fontconfig mpv libinput-tools bc eject libdiscid0 libdiscid-dev \
+            fontconfig mpv libinput-tools bc eject libdiscid0 libdiscid-dev sg3-utils \
             fonts-noto fonts-noto-cjk fonts-lohit-deva fonts-noto-color-emoji
     
     log_info "Updating Node.js and npm..."
@@ -144,11 +144,12 @@ create_milo_user() {
     else
         log_info "Creating user '$MILO_USER'..."
         sudo useradd -m -s /bin/bash "$MILO_USER"
-        sudo usermod -aG audio,video,bluetooth,input "$MILO_USER"
+        sudo usermod -aG audio,video,bluetooth,input,cdrom "$MILO_USER"
         log_success "User '$MILO_USER' created"
     fi
     
     sudo mkdir -p "$MILO_DATA_DIR"
+    sudo mkdir -p "$MILO_DATA_DIR/cd_covers"
     sudo chown -R "$MILO_USER:$MILO_USER" "$MILO_DATA_DIR"
 }
 
@@ -434,11 +435,15 @@ configure_journald() {
 }
 
 install_udev_rules() {
-    log_info "Installing udev rules for screen brightness control..."
+    log_info "Installing udev rules..."
 
     # Copy udev rules from rootfs
     sudo cp "$MILO_APP_DIR/rootfs/etc/udev/rules.d/99-milo-screen.rules" /etc/udev/rules.d/99-milo-screen.rules
     sudo chmod 0644 /etc/udev/rules.d/99-milo-screen.rules
+
+    # CD drive rules (Apple SuperDrive initialization)
+    sudo cp "$MILO_APP_DIR/rootfs/etc/udev/rules.d/90-milo-cd.rules" /etc/udev/rules.d/90-milo-cd.rules
+    sudo chmod 0644 /etc/udev/rules.d/90-milo-cd.rules
 
     # Reload udev rules
     sudo udevadm control --reload-rules
@@ -1151,6 +1156,7 @@ enable_services() {
    # - milo-mac.service
    # - milo-radio.service
    # - milo-airplay.service
+   # - milo-cd.service
    # - milo-snapserver-multiroom.service
    # - milo-snapclient-multiroom.service
    # These services should NOT be "enabled" at boot

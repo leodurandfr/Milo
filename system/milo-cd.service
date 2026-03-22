@@ -27,6 +27,7 @@ ExecStart=/usr/bin/mpv \
     --audio-device=alsa/milo_cd \
     --input-ipc-server=/run/milo/cd-ipc.sock \
     --idle=yes \
+    --cdda-cdtext=yes \
     --msg-level=all=info \
     --no-config \
     --no-terminal \
