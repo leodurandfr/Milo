@@ -124,7 +124,7 @@ install_dependencies() {
         sudo apt install -y \
             git python3-pip python3-venv python3-dev libasound2-dev libssl-dev \
             cmake build-essential pkg-config swig liblgpio-dev nodejs npm wget unzip \
-            fontconfig mpv libinput-tools bc \
+            fontconfig mpv libinput-tools bc eject libdiscid0 libdiscid-dev \
             fonts-noto fonts-noto-cjk fonts-lohit-deva fonts-noto-color-emoji
     
     log_info "Updating Node.js and npm..."
@@ -608,7 +608,7 @@ codec = flac
 chunk_ms = 15
 sampleformat = 48000:32:2
 
-source = meta:///Bluetooth/ROC/Spotify/Radio/Podcast/AirPlay?name=Multiroom
+source = meta:///Bluetooth/ROC/Spotify/Radio/Podcast/AirPlay/CD?name=Multiroom
 
 source = alsa:///?name=Bluetooth&device=hw:1,1,0&idle_threshold=5000&send_silence=true
 source = alsa:///?name=ROC&device=hw:1,1,1&idle_threshold=5000&send_silence=true
@@ -616,6 +616,7 @@ source = alsa:///?name=Spotify&device=hw:1,1,2&idle_threshold=5000&send_silence=
 source = alsa:///?name=Radio&device=hw:1,1,3&idle_threshold=5000&send_silence=true
 source = alsa:///?name=Podcast&device=hw:1,1,4&idle_threshold=5000&send_silence=true
 source = alsa:///?name=AirPlay&device=hw:1,1,6&idle_threshold=5000&send_silence=true
+source = alsa:///?name=CD&device=hw:1,1,7&idle_threshold=5000&send_silence=true
 
 [http]
 enabled = true

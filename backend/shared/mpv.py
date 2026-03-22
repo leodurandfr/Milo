@@ -164,6 +164,22 @@ class MpvController:
                 self._connected = False
                 return None
 
+    async def command(self, command: str, *args) -> Optional[Dict[str, Any]]:
+        """
+        Sends an arbitrary mpv IPC command.
+
+        This is a public wrapper around _send_command for commands not covered
+        by dedicated methods (e.g., chapter navigation).
+
+        Args:
+            command: mpv command name (e.g., "add", "cycle")
+            *args: Command arguments
+
+        Returns:
+            JSON response from mpv or None if error
+        """
+        return await self._send_command(command, *args)
+
     async def load_stream(self, url: str) -> bool:
         """
         Loads and plays a radio stream

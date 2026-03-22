@@ -202,6 +202,12 @@ def _create_service(name: str) -> Any:
             settings_service=get_service("settings_service"),
             systemd_manager=get_service("systemd_manager")
         ),
+        "cd_source": lambda: _import("backend.features.cd", "CdSource")(
+            config={"mpv_socket": "/run/milo/cd-ipc.sock"},
+            state_machine=get_service("audio_state_machine"),
+            settings_service=get_service("settings_service"),
+            systemd_manager=get_service("systemd_manager")
+        ),
     }
 
     if name not in creators:
@@ -351,14 +357,16 @@ def initialize_services() -> None:
     state_machine.register_plugin(AudioSource.RADIO, get_service("radio_source"))
     state_machine.register_plugin(AudioSource.PODCAST, get_service("podcast_source"))
     state_machine.register_plugin(AudioSource.AIRPLAY, get_service("airplay_source"))
+    state_machine.register_plugin(AudioSource.CD, get_service("cd_source"))
 
     # =========================================================================
     # STEP 4: Parallel async initialization
     # =========================================================================
     global _init_task
 
-    # Get radio source for initialization (station data needs early init for API)
+    # Get sources that need early init
     radio_source = get_service("radio_source")
+    cd_source = get_service("cd_source")
 
     async def init_async():
         """Async initialization with error handling."""
@@ -374,7 +382,9 @@ def initialize_services() -> None:
             ("crossover_service", crossover_service.initialize()),
             ("pending_clients_service", pending_clients_service.initialize()),
             # Radio station data needs early init for API access
-            ("radio_source", radio_source.initialize())
+            ("radio_source", radio_source.initialize()),
+            # CD disc watcher needs early init for auto-detection
+            ("cd_source", cd_source.initialize())
         ]
 
         results = await asyncio.gather(

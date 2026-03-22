@@ -16,6 +16,7 @@ class AudioSource(Enum):
     PODCAST = "podcast"
     AIRPLAY = "airplay"
     MAC = "mac"
+    CD = "cd"
 
 
 class PluginState(Enum):

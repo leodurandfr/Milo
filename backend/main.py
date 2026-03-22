@@ -25,6 +25,7 @@ from backend.features.bluetooth.routes import setup_bluetooth_routes
 from backend.features.radio.routes import setup_radio_routes
 from backend.features.podcast.routes import setup_podcast_routes
 from backend.features.airplay.routes import setup_airplay_routes
+from backend.features.cd.routes import setup_cd_routes
 from backend.api.settings import create_settings_router
 from backend.api.system import create_system_router
 from backend.api.programs import create_programs_router
@@ -190,6 +191,11 @@ airplay_router = setup_airplay_routes(
     lambda: state_machine.plugins.get(AudioSource.AIRPLAY)
 )
 app.include_router(airplay_router, prefix="/api")
+
+cd_router = setup_cd_routes(
+    lambda: state_machine.plugins.get(AudioSource.CD)
+)
+app.include_router(cd_router, prefix="/api")
 
 settings_router = create_settings_router(
     volume_service,
