@@ -34,6 +34,17 @@
     "airplay": "AirPlay",
     "macOS": "Récepteur macOS",
     "multiroom": "Multiroom",
+    "cd": "Lecteur CD",
+    "cdSource": {
+      "insertDisc": "Insérez un CD",
+      "noDisc": "Pas de disque",
+      "eject": "Éjecter",
+      "tracklist": "Liste des pistes",
+      "unknownAlbum": "Album inconnu",
+      "unknownArtist": "Artiste inconnu",
+      "trackN": "Piste {n}",
+      "connectDrive": "Branchez un lecteur CD pour activer le Lecteur CD"
+    },
     "radioSource": {
       "favoritesTitle": "Radios préférées",
       "discoverTitle": "Découvrir des radios",

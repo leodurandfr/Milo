@@ -79,6 +79,7 @@ const SetupWizard = defineAsyncComponent(() =>
 import axios from 'axios';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { usePodcastStore } from '@/stores/podcastStore';
+import { useCdStore } from '@/stores/cdStore';
 import { useRadioStore } from '@/stores/radioStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
@@ -103,6 +104,7 @@ const SCREEN_FADE_DELAY = isFastBoot ? 100 : 500;
 const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
 const podcastStore = usePodcastStore();
+const cdStore = useCdStore();
 const radioStore = useRadioStore();
 const settingsStore = useSettingsStore();
 const multiroomStore = useMultiroomStore();
@@ -368,6 +370,7 @@ onMounted(async () => {
     on('plugin', 'state_changed', (event) => {
       unifiedStore.updateState(event);
       podcastStore.handlePluginEvent(event);
+      cdStore.handlePluginEvent(event);
       // Display plugin error in notification banner
       if (event.data?.new_state === 'error') {
         const source = event.data?.source || 'plugin';
@@ -387,6 +390,10 @@ onMounted(async () => {
     on('plugin', 'metadata', (event) => {
       unifiedStore.updateState(event);
       podcastStore.handlePluginEvent(event);
+      cdStore.handlePluginEvent(event);
+    }),
+    on('system', 'cd_drive_status', (event) => {
+      cdStore.handleSystemEvent(event);
     }),
     on('settings', 'language_changed', (event) => {
       if (event.data?.language) {
@@ -557,6 +564,9 @@ onMounted(async () => {
 
   // Preload radio favorites in background (for instant display when user opens Radio)
   radioStore.preloadFavorites()
+
+  // Fetch CD drive status in background (for conditional dock display)
+  cdStore.fetchDriveStatus();
 
   // Preload modals in background for instant display when user opens them
   Promise.all([

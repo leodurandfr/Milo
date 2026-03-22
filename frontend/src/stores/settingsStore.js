@@ -36,7 +36,7 @@ export const useSettingsStore = defineStore('settings', () => {
   });
 
   // === DOCK APPS ===
-  const ALL_AUDIO_SOURCES = ['spotify', 'bluetooth', 'radio', 'podcast', 'airplay', 'mac'];
+  const ALL_AUDIO_SOURCES = ['spotify', 'bluetooth', 'radio', 'podcast', 'airplay', 'mac', 'cd'];
 
   const dockApps = ref({
     spotify: true,
@@ -45,6 +45,7 @@ export const useSettingsStore = defineStore('settings', () => {
     podcast: true,
     airplay: true,
     mac: true,
+    cd: true,
     equalizer: true,
     multiroom: true,
     settings: true
@@ -166,6 +167,7 @@ export const useSettingsStore = defineStore('settings', () => {
             podcast: enabledApps.includes('podcast'),
             airplay: enabledApps.includes('airplay'),
             mac: enabledApps.includes('mac'),
+            cd: enabledApps.includes('cd'),
             equalizer: enabledApps.includes('equalizer'),
             multiroom: enabledApps.includes('multiroom'),
             settings: enabledApps.includes('settings')
@@ -251,6 +253,7 @@ export const useSettingsStore = defineStore('settings', () => {
       podcast: enabledApps.includes('podcast'),
       airplay: enabledApps.includes('airplay'),
       mac: enabledApps.includes('mac'),
+      cd: enabledApps.includes('cd'),
       equalizer: enabledApps.includes('equalizer'),
       multiroom: enabledApps.includes('multiroom'),
       settings: enabledApps.includes('settings')

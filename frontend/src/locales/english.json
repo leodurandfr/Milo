@@ -34,6 +34,17 @@
     "airplay": "AirPlay",
     "macOS": "macOS receiver",
     "multiroom": "Multiroom",
+    "cd": "CD Player",
+    "cdSource": {
+      "insertDisc": "Insert a CD",
+      "noDisc": "No disc",
+      "eject": "Eject",
+      "tracklist": "Tracklist",
+      "unknownAlbum": "Unknown Album",
+      "unknownArtist": "Unknown Artist",
+      "trackN": "Track {n}",
+      "connectDrive": "Connect a CD drive to enable CD Player"
+    },
     "radioSource": {
       "favoritesTitle": "Favorite radios",
       "discoverTitle": "Discover radios",

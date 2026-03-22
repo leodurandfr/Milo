@@ -1,0 +1,135 @@
+<!-- frontend/src/components/cd/TrackCard.vue -->
+<template>
+  <div
+    class="track-card"
+    :class="{ 'track-card--current': isCurrent }"
+    @click="$emit('play', track.number)"
+  >
+    <!-- Track number or playing indicator -->
+    <div class="track-number text-mono">
+      <div v-if="isCurrent && isPlaying" class="playing-indicator">
+        <span class="bar"></span>
+        <span class="bar"></span>
+        <span class="bar"></span>
+      </div>
+      <span v-else>{{ track.number }}</span>
+    </div>
+
+    <!-- Track title -->
+    <div class="track-title heading-4">{{ track.title }}</div>
+
+    <!-- Track duration -->
+    <div class="track-duration text-mono-small">{{ formatDuration(track.duration) }}</div>
+  </div>
+</template>
+
+<script setup>
+defineProps({
+  track: {
+    type: Object,
+    required: true
+  },
+  isCurrent: {
+    type: Boolean,
+    default: false
+  },
+  isPlaying: {
+    type: Boolean,
+    default: false
+  }
+});
+
+defineEmits(['play']);
+
+function formatDuration(seconds) {
+  if (!seconds) return '0:00';
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+</script>
+
+<style scoped>
+.track-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-03);
+  padding: var(--space-03) var(--space-04);
+  border-radius: var(--radius-04);
+  cursor: pointer;
+  transition: background-color var(--transition-fast), var(--transition-press);
+}
+
+.track-card:active {
+  background: var(--color-background-strong);
+}
+
+.track-card--current {
+  background: var(--color-background-strong);
+}
+
+.track-card--current .track-title {
+  color: var(--color-text);
+}
+
+.track-number {
+  width: 28px;
+  flex-shrink: 0;
+  text-align: center;
+  color: var(--color-text-light);
+}
+
+.track-card--current .track-number {
+  color: var(--color-brand);
+}
+
+.track-title {
+  flex: 1;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.track-duration {
+  flex-shrink: 0;
+  color: var(--color-text-light);
+}
+
+/* Playing indicator animation */
+.playing-indicator {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  height: 14px;
+}
+
+.playing-indicator .bar {
+  display: block;
+  width: 3px;
+  background: var(--color-brand);
+  border-radius: 1px;
+  animation: bar-bounce 0.8s ease-in-out infinite;
+}
+
+.playing-indicator .bar:nth-child(1) {
+  height: 60%;
+  animation-delay: 0s;
+}
+
+.playing-indicator .bar:nth-child(2) {
+  height: 100%;
+  animation-delay: 0.15s;
+}
+
+.playing-indicator .bar:nth-child(3) {
+  height: 40%;
+  animation-delay: 0.3s;
+}
+
+@keyframes bar-bounce {
+  0%, 100% { transform: scaleY(0.4); }
+  50% { transform: scaleY(1); }
+}
+</style>
