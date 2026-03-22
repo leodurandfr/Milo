@@ -82,6 +82,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick, inject } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useCdStore } from '@/stores/cdStore';
 import { useI18n } from '@/services/i18n';
 import { useIsMobile } from '@/composables/useIsMobile';
 import { useDockDrag } from '@/composables/useDockDrag';
@@ -91,10 +92,11 @@ import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const { t } = useI18n();
 const settingsStore = useSettingsStore();
+const cdStore = useCdStore();
 const registerDockControl = inject('registerDockControl', null);
 
 // === STATIC CONFIGURATION ===
-const ALL_AUDIO_SOURCES = ['spotify', 'bluetooth', 'radio', 'podcast', 'airplay', 'mac'];
+const ALL_AUDIO_SOURCES = ['spotify', 'bluetooth', 'radio', 'podcast', 'airplay', 'mac', 'cd'];
 
 // === ANIMATION TIMING ===
 const DOCK_ANIM_INITIAL_DELAY = 0.08;  // Initial delay in seconds
@@ -115,6 +117,7 @@ const enabledApps = computed(() => settingsStore.buildEnabledAppsArray());
 const enabledAudioPlugins = computed(() => {
   return enabledApps.value
     .filter(source => ALL_AUDIO_SOURCES.includes(source))
+    .filter(source => source !== 'cd' || cdStore.driveConnected)
     .map(source => ({ id: source, icon: source }));
 });
 
@@ -364,7 +367,8 @@ const getAppTitle = (appId) => {
     'mac': t('audioSources.macOS'),
     'radio': t('audioSources.radio'),
     'podcast': t('audioSources.podcasts'),
-    'airplay': t('audioSources.airplay')
+    'airplay': t('audioSources.airplay'),
+    'cd': t('audioSources.cd')
   };
 
   if (ALL_AUDIO_SOURCES.includes(appId)) {

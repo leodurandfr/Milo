@@ -15,6 +15,9 @@
       <!-- PodcastView -->
       <PodcastSource v-else-if="shouldShowPodcast" :key="contentKey" />
 
+      <!-- CDView -->
+      <CDSource v-else-if="shouldShowCD" :key="contentKey" />
+
       <!-- AirPlayView -->
       <div v-else-if="shouldShowAirPlay" :key="contentKey" class="connect-container">
         <AirPlaySource />
@@ -45,6 +48,9 @@ const PodcastSource = defineAsyncComponent(() =>
 );
 const AirPlaySource = defineAsyncComponent(() =>
   import('../airplay/AirPlaySource.vue')
+);
+const CDSource = defineAsyncComponent(() =>
+  import('../cd/CDSource.vue')
 );
 import AudioSourceStatus from './AudioSourceStatus.vue';
 
@@ -86,6 +92,11 @@ const shouldShowRadio = computed(() => {
 
 const shouldShowPodcast = computed(() => {
   return activeSource.value === 'podcast' &&
+    !transitioning.value;
+});
+
+const shouldShowCD = computed(() => {
+  return activeSource.value === 'cd' &&
     !transitioning.value;
 });
 

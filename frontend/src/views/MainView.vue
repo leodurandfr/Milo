@@ -71,8 +71,8 @@ const logoVisible = computed(() => {
     return false;
   }
 
-  // Hidden: Radio or Podcast
-  if (active_source === 'radio' || active_source === 'podcast') {
+  // Hidden: Radio, Podcast, or CD
+  if (active_source === 'radio' || active_source === 'podcast' || active_source === 'cd') {
     return false;
   }
 
