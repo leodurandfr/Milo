@@ -5,7 +5,7 @@ CD audio source using mpv with cache-based architecture.
 Architecture:
 - Disc watcher detects disc → pre-starts mpv service immediately (CD keeps spinning)
 - cdda:// loaded ONCE, muted + playing → cache fills silently in background
-- Source stays in STARTING until chapter offsets are ready (CD fully spun up)
+- Source stays in READY until chapter offsets are ready (CD fully spun up)
 - Once ready → CONNECTED → user sees disc info + Play button
 - Track navigation via set_property("chapter", N) → instant from cache (~30ms)
 - Play = unmute + seek to chapter → instant (data already cached)
@@ -85,8 +85,7 @@ class CdSource(MpvAudioSource):
 
     async def _do_start(self) -> bool:
         """Start mpv service and connect IPC.
-        If _pre_start_service already ran, reuses the existing connection.
-        Stays in STARTING state until monitor tick confirms cache is ready."""
+        If _pre_start_service already ran, reuses the existing connection."""
         try:
             if self._mpv and self._mpv.is_connected and self._stream_loaded:
                 self._logger.info("Reusing pre-started mpv connection")
@@ -102,11 +101,13 @@ class CdSource(MpvAudioSource):
 
             self._start_monitor()
 
-            # If cache already ready (pre-start had time), go to CONNECTED
-            # Otherwise stay in STARTING — monitor tick will promote
+            # Set state based on disc/cache status
             if self._cache_ready and self._current_disc:
                 self.set_state(PluginState.CONNECTED, self._build_metadata())
-            # Don't call _update_connection_state here — let monitor tick handle it
+            else:
+                # READY — either no disc or disc loading (frontend reads
+                # disc_present/cache_ready from metadata to distinguish)
+                self.set_state(PluginState.READY, self._build_metadata())
 
             return True
 
@@ -279,7 +280,15 @@ class CdSource(MpvAudioSource):
             f"({disc_info.track_count} tracks)"
         )
 
-        await self.state_machine.transition_to_source(AudioSource.CD)
+        if (
+            self.state_machine
+            and self.state_machine.system_state.active_source == AudioSource.CD
+        ):
+            # CD already active — stay READY with disc_present metadata,
+            # monitor tick will promote to CONNECTED when cache is ready
+            self.set_state(PluginState.READY, self._build_metadata())
+        else:
+            await self.state_machine.transition_to_source(AudioSource.CD)
 
     async def _pre_start_service(self) -> None:
         """Start milo-cd service and load stream early to keep CD spinning.
@@ -328,13 +337,14 @@ class CdSource(MpvAudioSource):
         self._stream_loaded = False
         self._cache_ready = False
 
-        await self.state_machine.broadcast_event(
-            "system", "cd_drive_status", {
-                "source": "cd",
-                "drive_connected": self._drive_connected,
-                "disc_present": False,
-            }
-        )
+        if self.state_machine:
+            await self.state_machine.broadcast_event(
+                "system", "cd_drive_status", {
+                    "source": "cd",
+                    "drive_connected": self._drive_connected,
+                    "disc_present": False,
+                }
+            )
 
     # =========================================================================
     # COMMANDS
@@ -347,9 +357,9 @@ class CdSource(MpvAudioSource):
             return await self._handle_pause()
         if cmd == "resume":
             return await self._handle_resume()
-        if cmd == "next_track":
+        if cmd in ("next_track", "next"):
             return await self._handle_next_track()
-        if cmd == "prev_track":
+        if cmd in ("prev_track", "prev"):
             return await self._handle_prev_track()
         if cmd == "seek":
             return await self._handle_seek(data)
@@ -388,16 +398,21 @@ class CdSource(MpvAudioSource):
                 self._recalc_track_durations()
 
         try:
-            await self._mpv.set_property("chapter", track_number - 1)
-            await self._mpv.set_property("mute", False)
-            await self._mpv.resume()
-
             self._current_track = track_number
             self._track_position = 0
             self._track_duration = self._tracks[track_number - 1].duration
             self._is_playing = True
-            self._is_buffering = False
             self._album_finished = False
+
+            await self._mpv.set_property("chapter", track_number - 1)
+            await self._mpv.set_property("mute", False)
+            await self._mpv.resume()
+
+            # Check if mpv is still seeking (uncached track = physical CD seek)
+            await asyncio.sleep(0.15)
+            seeking = await self._mpv.get_property("seeking")
+            self._is_buffering = bool(seeking)
+
             self._update_connection_state()
             self.broadcast_error_cleared()
             return self.success_response(f"Playing track {track_number}")
@@ -453,7 +468,10 @@ class CdSource(MpvAudioSource):
         return await self._handle_play_track({"track_number": target})
 
     async def _handle_seek(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        # Support both position (seconds) and position_ms (milliseconds, from useSourceProgress)
         position = data.get("position")
+        if position is None and data.get("position_ms") is not None:
+            position = data["position_ms"] / 1000
         if position is None:
             return self.error_response("position required")
         try:
@@ -506,7 +524,7 @@ class CdSource(MpvAudioSource):
     # =========================================================================
 
     async def _on_monitor_tick(self) -> None:
-        """Track position, detect album end, and promote STARTING → CONNECTED."""
+        """Track position, detect album end, and promote READY → CONNECTED."""
         if not self._current_disc or not self._stream_loaded:
             return
 
@@ -520,7 +538,7 @@ class CdSource(MpvAudioSource):
                     f"CD ready: {len(self._chapter_offsets)} chapters, "
                     f"cache filling in background"
                 )
-                # Promote from STARTING → CONNECTED (disc info + Play button)
+                # Promote READY → CONNECTED
                 self.set_state(PluginState.CONNECTED, self._build_metadata())
             return
 
@@ -530,6 +548,7 @@ class CdSource(MpvAudioSource):
 
         chapter = await self._mpv.get_property("chapter")
         time_pos = await self._mpv.get_property("time-pos")
+        seeking = await self._mpv.get_property("seeking")
 
         # Album end: time-pos becomes None when mpv finishes the disc
         if (
@@ -546,6 +565,14 @@ class CdSource(MpvAudioSource):
 
         if time_pos is None or chapter is None:
             return
+
+        # Buffering detection via mpv's seeking property
+        if seeking and not self._is_buffering:
+            self._is_buffering = True
+            self._update_connection_state()
+            return
+        if not seeking and self._is_buffering:
+            self._is_buffering = False
 
         # Track auto-advance (mpv crossed a chapter boundary naturally)
         new_track = int(chapter) + 1
@@ -608,14 +635,20 @@ class CdSource(MpvAudioSource):
         }
 
         if self._current_disc:
+            # Default to track 1 when no track is playing
+            first_track = self._tracks[0] if self._tracks else None
             metadata.update({
                 "disc_id": self._current_disc.disc_id,
                 "album": self._current_disc.album,
                 "artist": self._current_disc.artist,
                 "year": self._current_disc.year,
-                "cover_url": self._current_disc.cover_url,
+                "album_art_url": self._current_disc.cover_url,
                 "track_count": self._current_disc.track_count,
                 "tracks": [t.model_dump() for t in self._tracks],
+                "current_track": 1,
+                "title": first_track.title if first_track else self._current_disc.album,
+                "position": 0,
+                "duration": int(first_track.duration * 1000) if first_track else 0,
             })
 
         if self._current_track and self._tracks:
@@ -623,9 +656,12 @@ class CdSource(MpvAudioSource):
             if 0 <= track_idx < len(self._tracks):
                 metadata.update({
                     "current_track": self._current_track,
-                    "track_title": self._tracks[track_idx].title,
+                    "title": self._tracks[track_idx].title,
                     "track_position": int(self._track_position),
                     "track_duration": int(self._track_duration),
+                    # Millisecond values for AudioPlayerFull / useSourceProgress
+                    "position": int(self._track_position * 1000),
+                    "duration": int(self._track_duration * 1000),
                 })
 
         return metadata
