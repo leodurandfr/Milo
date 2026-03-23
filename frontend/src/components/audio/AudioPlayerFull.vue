@@ -2,11 +2,8 @@
 <template>
   <div class="connect-player">
     <div class="now-playing">
-      <!-- Action buttons slot (used by CD for eject/tracklist) -->
-      <slot name="action-buttons" />
-
       <!-- Left side: Cover image with CSS staggering -->
-      <div class="album-art-section stagger-1">
+      <div class="album-art-section stagger-1" :class="{ 'art-collapsed': hideContent }">
         <div class="album-art-container">
           <!-- Background blur -->
           <div class="album-art-blur"
@@ -23,30 +20,38 @@
 
       <!-- Right side: Info and controls with CSS staggering -->
       <div class="content-section stagger-2">
-        <!-- Block 1: Information (takes remaining space) -->
-        <div class="track-info stagger-3" :class="{ 'no-controls': !showControls }">
-          <h1 class="track-title heading-1">{{ persistentMetadata.title || 'Titre inconnu' }}</h1>
-          <p class="track-artist heading-2">{{ persistentMetadata.artist || 'Artiste inconnu' }}</p>
-        </div>
+        <!-- Action buttons (used by CD for eject/tracklist) -->
+        <slot name="action-buttons" />
 
-        <!-- Block 2: Controls or source bar (aligned at bottom) -->
-        <div class="controls-section">
-          <template v-if="showControls">
-            <div class="progress-wrapper stagger-4">
-              <ConnectProgressBar :currentPosition="currentPosition" :duration="duration"
-                :progressPercentage="progressPercentage" :isReady="isPositionInitialized"
-                :interactive="true" @seek="seekTo" />
+        <!-- Content: player info or replacement (e.g., CD tracklist) -->
+        <Transition name="player-swap" mode="out-in">
+          <div v-if="!hideContent" key="player-info" class="player-info">
+            <div class="track-info" :class="{ 'no-controls': !showControls }">
+              <h1 class="track-title heading-1">{{ persistentMetadata.title || 'Titre inconnu' }}</h1>
+              <p class="track-artist heading-2">{{ persistentMetadata.artist || 'Artiste inconnu' }}</p>
             </div>
-            <div class="controls-wrapper stagger-5">
-              <PlaybackControls :isPlaying="isPlaying" :isBuffering="isBuffering"
-                @play-pause="togglePlayPause" @previous="previousTrack" @next="nextTrack" />
+            <div class="controls-section">
+              <template v-if="showControls">
+                <div class="progress-wrapper">
+                  <ConnectProgressBar :currentPosition="currentPosition" :duration="duration"
+                    :progressPercentage="progressPercentage" :isReady="isPositionInitialized"
+                    :interactive="true" @seek="seekTo" />
+                </div>
+                <div class="controls-wrapper">
+                  <PlaybackControls :isPlaying="isPlaying" :isBuffering="isBuffering"
+                    @play-pause="togglePlayPause" @previous="previousTrack" @next="nextTrack" />
+                </div>
+              </template>
+              <div v-else-if="clientName" class="source-bar">
+                <AppIcon :name="source" :size="40" />
+                <span class="source-bar-name heading-4">{{ clientName }}</span>
+              </div>
             </div>
-          </template>
-          <div v-else-if="clientName" class="source-bar stagger-4">
-            <AppIcon :name="source" :size="40" />
-            <span class="source-bar-name heading-4">{{ clientName }}</span>
           </div>
-        </div>
+          <div v-else key="content-replace" class="content-replace">
+            <slot name="content-replace" />
+          </div>
+        </Transition>
       </div>
     </div>
 
@@ -74,6 +79,10 @@ const props = defineProps({
   showControls: {
     type: Boolean,
     default: true
+  },
+  hideContent: {
+    type: Boolean,
+    default: false
   }
 });
 
@@ -141,20 +150,14 @@ const clientName = computed(() => unifiedStore.systemState.metadata?.client_name
 
 /* Initial states: all elements are hidden */
 .stagger-1,
-.stagger-2,
-.stagger-3,
-.stagger-4,
-.stagger-5 {
+.stagger-2 {
   opacity: 0;
   transform: translateY(var(--space-07));
 }
 
 /* Animation with two separate effects */
 .connect-player .stagger-1,
-.connect-player .stagger-2,
-.connect-player .stagger-3,
-.connect-player .stagger-4,
-.connect-player .stagger-5 {
+.connect-player .stagger-2 {
   animation:
     stagger-transform var(--transition-spring) forwards,
     stagger-opacity 0.4s ease forwards;
@@ -163,14 +166,11 @@ const clientName = computed(() => unifiedStore.systemState.metadata?.client_name
 /* Simple staggered delays */
 .connect-player .stagger-1 { animation-delay: 0ms; }
 .connect-player .stagger-2 { animation-delay: 0ms; }
-.connect-player .stagger-3 { animation-delay: 100ms; }
-.connect-player .stagger-4 { animation-delay: 200ms; }
-.connect-player .stagger-5 { animation-delay: 300ms; }
 
 /* Spring animation for transform */
 @keyframes stagger-transform {
   to {
-    transform: translateY(0);
+    transform: none;
   }
 }
 
@@ -203,6 +203,7 @@ const clientName = computed(() => unifiedStore.systemState.metadata?.client_name
   aspect-ratio: 1;
   order: 1;
   z-index: 2;
+  pointer-events: none;
 }
 
 /* Content Section */
@@ -210,10 +211,52 @@ const clientName = computed(() => unifiedStore.systemState.metadata?.client_name
   flex: 1;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  min-height: 0;
   order: 2;
   z-index: 1;
 }
+
+/* Player info (track-info + controls) */
+.player-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 0;
+}
+
+/* Content replacement (e.g., CD tracklist) */
+.content-replace {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* === PLAYER SWAP TRANSITION === */
+/* Leave: quick fade out */
+.player-swap-leave-active {
+  transition: opacity var(--transition-fast-leave);
+}
+
+.player-swap-leave-to {
+  opacity: 0;
+}
+
+/* Enter: no parent animation — children stagger themselves */
+
+/* Stagger children on mount (initial load + re-enter after swap) */
+.player-info > .track-info,
+.player-info > .controls-section {
+  opacity: 0;
+  transform: translateY(var(--space-05));
+  animation:
+    stagger-transform var(--transition-spring) forwards,
+    stagger-opacity 0.4s ease forwards;
+}
+
+.player-info > .track-info { animation-delay: 0ms; }
+.player-info > .controls-section { animation-delay: 100ms; }
 
 /* Container for the two stacked cover arts */
 .album-art-container {
@@ -325,6 +368,30 @@ const clientName = computed(() => unifiedStore.systemState.metadata?.client_name
 
   .controls-section {
     margin-bottom: calc(env(safe-area-inset-bottom, 0px));
+  }
+
+  .content-section {
+    z-index: auto;
+  }
+
+  .connect-player .content-section {
+    transform: none;
+    opacity: 1;
+    animation: none;
+  }
+
+  /* Collapse album art when tracklist is open, keeping a strip for action buttons */
+  .album-art-section {
+    transition: margin-top 400ms var(--easeInOutCubic);
+  }
+
+  .album-art-section.art-collapsed {
+    /* Buttons absolute top (from connect-player) minus album-art offset (from now-playing padding) */
+    --btn-top: calc(max(var(--space-06), env(safe-area-inset-top, 0px)) + var(--space-02));
+    --art-top: max(var(--space-05), env(safe-area-inset-top, 0px));
+    --btn-height: 40px;
+    --art-visible: calc(var(--btn-top) - var(--art-top) + var(--btn-height) + var(--space-04));
+    margin-top: calc(-100vw + 2 * var(--space-05) + var(--art-visible));
   }
 
   .album-art-blur {
