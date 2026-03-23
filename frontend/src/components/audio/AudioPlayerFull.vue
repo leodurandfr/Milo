@@ -211,6 +211,7 @@ const clientName = computed(() => unifiedStore.systemState.metadata?.client_name
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-width: 0;
   min-height: 0;
   order: 2;
   z-index: 1;
@@ -222,6 +223,7 @@ const clientName = computed(() => unifiedStore.systemState.metadata?.client_name
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  min-width: 0;
   min-height: 0;
 }
 
@@ -309,6 +311,7 @@ const clientName = computed(() => unifiedStore.systemState.metadata?.client_name
   justify-content: center;
   text-align: center;
   gap: var(--space-03);
+  min-width: 0;
   padding-top: var(--space-06);
 }
 
@@ -324,10 +327,16 @@ const clientName = computed(() => unifiedStore.systemState.metadata?.client_name
 
 .track-title {
   color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .track-artist {
   color: var(--color-text-light);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Source bar (AirPlay device info) */
