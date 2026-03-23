@@ -146,6 +146,9 @@ function processInitialState(event) {
   if (fullState?.active_source === 'podcast' && fullState?.metadata) {
     podcastStore.handleStateUpdate(fullState.metadata);
   }
+  if (fullState?.active_source === 'cd' && fullState?.metadata) {
+    cdStore.handlePluginEvent({ source: 'cd', type: 'state_changed', data: { metadata: fullState.metadata } });
+  }
 
   if (isBootComplete.value && showDockFn && unifiedStore.systemState.active_source === 'none') {
     showDockFn();
@@ -381,6 +384,11 @@ onMounted(async () => {
     on('plugin', 'error_cleared', () => {
       // Auto-dismiss error notification when the error condition is resolved
       currentError.value = null;
+    }),
+    on('system', 'error', (event) => {
+      const source = event.data?.source || 'system';
+      const message = event.data?.message || event.data?.error || 'Unknown error';
+      currentError.value = { title: `${capitalize(source)} Error`, detail: message };
     }),
     on('system', 'backend_error', (event) => {
       const level = event.data?.level || 'ERROR';
