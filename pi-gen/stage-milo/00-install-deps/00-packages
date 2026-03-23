@@ -62,6 +62,9 @@ libavahi-client3
 libavahi-common3
 avahi-daemon
 nginx
+sg3-utils
+libdiscid0
+libdiscid-dev
 cage
 seatd
 plymouth

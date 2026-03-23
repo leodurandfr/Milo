@@ -103,6 +103,10 @@ CHROOT
 # ── udev rules ───────────────────────────────────────────────────────────────
 
 on_chroot << 'CHROOT'
+# Apple SuperDrive initialization (sg_raw magic command on USB attach)
+cp /home/milo/milo/rootfs/etc/udev/rules.d/90-milo-cd.rules /etc/udev/rules.d/
+chmod 0644 /etc/udev/rules.d/90-milo-cd.rules
+
 # Screen brightness control (HID + backlight)
 cp /home/milo/milo/rootfs/etc/udev/rules.d/99-milo-screen.rules /etc/udev/rules.d/
 chmod 0644 /etc/udev/rules.d/99-milo-screen.rules
