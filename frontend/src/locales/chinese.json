@@ -183,7 +183,9 @@
     "connectedToMac": "已连接到",
     "audioReceivedFrom": "接收音频来自",
     "disconnect": "断开连接",
-    "disconnecting": "正在断开..."
+    "disconnecting": "正在断开...",
+    "unknownTitle": "未知标题",
+    "unknownArtist": "未知艺术家"
   },
   "volumeSettings": {
     "controls": "音量控制",

@@ -183,7 +183,9 @@
     "connectedToMac": "Connesso a",
     "audioReceivedFrom": "Audio ricevuto da",
     "disconnect": "Disconnetti",
-    "disconnecting": "Disconnessione..."
+    "disconnecting": "Disconnessione...",
+    "unknownTitle": "Titolo sconosciuto",
+    "unknownArtist": "Artista sconosciuto"
   },
   "volumeSettings": {
     "controls": "Controlli volume",
