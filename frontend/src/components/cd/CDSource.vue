@@ -63,7 +63,6 @@ const albumTitle = computed(() =>
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  overflow: hidden;
 }
 
 .tracklist-header {
