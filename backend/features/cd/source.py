@@ -6,8 +6,8 @@ Architecture:
 - Disc watcher detects disc → reads TOC, broadcasts presence (no auto-activation)
 - User activates CD from dock → _do_start() reads metadata + loads cdda:// stream
 - cdda:// loaded muted + playing → cache fills silently in background
-- Source stays in READY until chapter offsets are ready (CD fully spun up)
-- Once ready → CONNECTED → user sees disc info + Play button
+- Source stays in WAITING until chapter offsets are ready (CD fully spun up)
+- Once ready → ACTIVE → user sees disc info + Play button
 - Track navigation via set_property("chapter", N) → instant from cache (~30ms)
 - Play = unmute + seek to chapter → instant (data already cached)
 
@@ -89,6 +89,11 @@ class CdSource(MpvAudioSource):
     # LIFECYCLE
     # =========================================================================
 
+    async def _after_restart_restore(self) -> None:
+        """Reload CD stream after restart so cache refills and monitor can proceed."""
+        if self._disc_present and self._current_disc:
+            await self._load_disc_stream()
+
     @handle_errors(default=False)
     async def initialize(self) -> bool:
         """Initialize data service and start disc watcher."""
@@ -125,14 +130,7 @@ class CdSource(MpvAudioSource):
                     await self._load_disc_stream()
 
             self._start_monitor()
-
-            # Set state based on disc/cache status
-            if self._cache_ready and self._current_disc:
-                self.set_state(PluginState.ACTIVE, self._build_metadata())
-            else:
-                # WAITING — either no disc or disc loading (frontend reads
-                # disc_present/cache_ready from metadata to distinguish)
-                self.set_state(PluginState.WAITING, self._build_metadata())
+            self._update_connection_state()
 
             return True
 
@@ -333,19 +331,12 @@ class CdSource(MpvAudioSource):
             except Exception as e:
                 self._logger.error(f"Error muting on disc removal: {e}")
 
-        self._is_playing = False
-        self._is_paused = False
+        self._reset_playback_state()
+        # Clear disc-level state (not covered by _reset_playback_state)
         self._current_disc = None
         self._tracks = []
         self._last_disc_id = None
         self._disc_present = False
-        self._current_track = None
-        self._track_position = 0
-        self._track_duration = 0
-        self._album_finished = False
-        self._chapter_offsets = []
-        self._stream_loaded = False
-        self._cache_ready = False
 
         if is_active:
             self._update_connection_state()
@@ -408,7 +399,7 @@ class CdSource(MpvAudioSource):
             # Wait for chapter offsets after reload
             await self._read_chapter_offsets()
             if self._chapter_offsets:
-                self._recalc_track_durations()
+                await self._recalc_track_durations()
 
         try:
             self._current_track = track_number
@@ -535,6 +526,10 @@ class CdSource(MpvAudioSource):
                 stderr=asyncio.subprocess.PIPE,
             )
             await proc.wait()
+            if proc.returncode != 0:
+                stderr = (await proc.stderr.read()).decode().strip()
+                self._logger.error(f"Eject failed (rc={proc.returncode}): {stderr}")
+                return self.error_response(f"Eject failed: {stderr}")
             return self.success_response("Disc ejected")
         except Exception as e:
             self._logger.error(f"Eject error: {e}")
@@ -553,7 +548,7 @@ class CdSource(MpvAudioSource):
         if not self._chapter_offsets:
             await self._read_chapter_offsets(retries=1)
             if self._chapter_offsets:
-                self._recalc_track_durations()
+                await self._recalc_track_durations()
                 self._cache_ready = True
                 self._logger.info(
                     f"CD ready: {len(self._chapter_offsets)} chapters, "
@@ -613,15 +608,7 @@ class CdSource(MpvAudioSource):
         self._update_connection_state()
 
     async def _on_mpv_disconnect(self) -> None:
-        self._is_playing = False
-        self._is_paused = False
-        self._is_buffering = False
-        self._current_track = None
-        self._track_position = 0
-        self._album_finished = False
-        self._stream_loaded = False
-        self._cache_ready = False
-        self._chapter_offsets = []
+        self._reset_playback_state()
 
     # =========================================================================
     # HELPERS
@@ -639,7 +626,7 @@ class CdSource(MpvAudioSource):
             if attempt < retries - 1:
                 await asyncio.sleep(0.5)
 
-    def _recalc_track_durations(self) -> None:
+    async def _recalc_track_durations(self) -> None:
         """Recalculate track durations from chapter offsets for accurate progress."""
         if not self._chapter_offsets or not self._tracks:
             return
@@ -647,6 +634,11 @@ class CdSource(MpvAudioSource):
         for i, track in enumerate(self._tracks):
             if i + 1 < len(offsets):
                 track.duration = round(offsets[i + 1] - offsets[i])
+        # Last track: use total disc duration from mpv
+        if self._mpv and len(self._tracks) == len(offsets):
+            total = await self._mpv.get_property("duration")
+            if total is not None and total > offsets[-1]:
+                self._tracks[-1].duration = round(total - offsets[-1])
 
     def _build_metadata(self) -> Dict[str, Any]:
         metadata: Dict[str, Any] = {
