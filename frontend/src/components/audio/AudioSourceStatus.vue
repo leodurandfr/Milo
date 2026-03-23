@@ -60,7 +60,7 @@ const props = defineProps({
   pluginType: {
     type: String,
     required: true,
-    validator: (value) => ['spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'airplay', 'none'].includes(value)
+    validator: (value) => ['spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'airplay', 'cd', 'none'].includes(value)
   },
   pluginState: {
     type: String,
@@ -96,6 +96,8 @@ const displayedStatusLines = computed(() => {
         return [t('status.loadingOf'), t('audioSources.podcasts')];
       case 'airplay':
         return [t('status.loadingOf'), t('audioSources.airplay')];
+      case 'cd':
+        return [t('status.loadingOfMasculine'), t('audioSources.cd')];
       default:
         return [t('status.loading')];
     }
@@ -116,6 +118,8 @@ const displayedStatusLines = computed(() => {
         return [t('audioSources.podcasts'), t('status.ready')];
       case 'airplay':
         return [t('audioSources.airplay'), t('status.readyToStream')];
+      case 'cd':
+        return [t('audioSources.cd'), t('status.ready')];
       default:
         return [t('status.ready')];
     }

@@ -66,9 +66,11 @@ export const useCdStore = defineStore('cd', () => {
 
   // === PLAYBACK ACTIONS ===
   async function playTrack(trackNumber) {
+    console.log(`[CD TIMING] playTrack(${trackNumber}) called at ${Date.now()}`);
     await apiCall('cd', 'Error playing track', () =>
       axios.post('/api/cd/play', { track_number: trackNumber })
     );
+    console.log(`[CD TIMING] playTrack(${trackNumber}) API returned at ${Date.now()}`);
   }
 
   async function stop() {
@@ -90,6 +92,7 @@ export const useCdStore = defineStore('cd', () => {
   }
 
   async function togglePlayPause() {
+    console.log(`[CD TIMING] togglePlayPause: isPlaying=${isPlaying.value}, albumFinished=${albumFinished.value}`);
     if (albumFinished.value) {
       await playTrack(1);
     } else if (isPlaying.value) {
@@ -100,9 +103,11 @@ export const useCdStore = defineStore('cd', () => {
   }
 
   async function nextTrack() {
+    console.log(`[CD TIMING] nextTrack() called, currentTrack=${currentTrack.value}`);
     await apiCall('cd', 'Error next track', () =>
       axios.post('/api/cd/next')
     );
+    console.log(`[CD TIMING] nextTrack() API returned`);
   }
 
   async function prevTrack() {
@@ -145,6 +150,19 @@ export const useCdStore = defineStore('cd', () => {
 
     if (event.type === 'state_changed') {
       const metadata = event.data?.metadata || event.data || {};
+
+      // Log state changes with timing
+      const changes = [];
+      if (metadata.is_playing !== undefined && metadata.is_playing !== isPlaying.value)
+        changes.push(`is_playing: ${isPlaying.value}→${metadata.is_playing}`);
+      if (metadata.current_track !== undefined && metadata.current_track !== currentTrack.value)
+        changes.push(`track: ${currentTrack.value}→${metadata.current_track}`);
+      if (metadata.track_position !== undefined && Math.abs(metadata.track_position - trackPosition.value) > 2)
+        changes.push(`pos: ${trackPosition.value.toFixed(1)}→${metadata.track_position}`);
+      if (metadata.track_duration !== undefined && metadata.track_duration !== trackDuration.value)
+        changes.push(`dur: ${trackDuration.value}→${metadata.track_duration}`);
+      if (changes.length > 0)
+        console.log(`[CD TIMING] WS state_changed: ${changes.join(', ')}`);
 
       // Disc info
       if (metadata.disc_id !== undefined) {
@@ -193,7 +211,8 @@ export const useCdStore = defineStore('cd', () => {
 
   function handleSystemEvent(event) {
     if (event.type === 'cd_drive_status') {
-      driveConnected.value = event.data?.connected ?? false;
+      driveConnected.value = event.data?.drive_connected ?? false;
+      discPresent.value = event.data?.disc_present ?? false;
     }
   }
 
