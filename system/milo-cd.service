@@ -22,12 +22,16 @@ EnvironmentFile=/var/lib/milo/routing.env
 ExecStartPre=/bin/sh -c 'echo "ALSA routing: MILO_MODE=${MILO_MODE}"'
 
 # Launch mpv in daemon mode with IPC socket for CD playback
+# Cache: 800MB holds a full 74-min CD in RAM for instant track changes
 ExecStart=/usr/bin/mpv \
     --no-video \
     --audio-device=alsa/milo_cd \
     --input-ipc-server=/run/milo/cd-ipc.sock \
     --idle=yes \
     --cdda-cdtext=yes \
+    --cache=yes \
+    --demuxer-max-bytes=800MiB \
+    --demuxer-seekable-cache=yes \
     --msg-level=all=info \
     --no-config \
     --no-terminal \
@@ -39,7 +43,7 @@ RestartSec=5s
 
 # Resource limits
 CPUQuota=50%
-MemoryMax=256M
+MemoryMax=1G
 
 # Security hardening
 NoNewPrivileges=true
