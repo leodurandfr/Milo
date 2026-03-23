@@ -57,6 +57,10 @@ def bluetooth_source(config):
     source.monitor.set_callbacks = Mock()
     source.monitor.connected_devices = {}
 
+    # Mock settings_service (needed by _do_stop -> _cleanup)
+    source.settings_service = Mock()
+    source.settings_service.get_setting = AsyncMock(return_value=None)
+
     return source
 
 

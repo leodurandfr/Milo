@@ -72,6 +72,8 @@ def create_mock_plugin(source: AudioSource, start_success: bool = True) -> Mock:
         "metadata": {}
     })
     plugin.command = AsyncMock(return_value={"success": True})
+    plugin.state = PluginState.WAITING
+    plugin.metadata = {}
 
     return plugin
 
