@@ -4,7 +4,7 @@ BaseAudioSource - base class for all audio source plugins.
 
 Standard Status Format:
     {
-        "state": "ready",        # starting, ready, connected, error
+        "state": "waiting",       # starting, waiting, active, error
         "service_active": True,  # systemd service status
         "metadata": {},          # source-specific data
         "error": None            # error message if state=error
@@ -83,7 +83,7 @@ class BaseAudioSource(ABC):
         self.service_name = service_name
         self.state_machine = state_machine
 
-        self._state = PluginState.READY
+        self._state = PluginState.WAITING
         self._metadata: Dict[str, Any] = {}
         self._is_playing = False
         self._error: Optional[str] = None
@@ -137,9 +137,9 @@ class BaseAudioSource(ABC):
             success = await self._do_start()
 
             if success:
-                # State should be set by _do_start (READY or CONNECTED)
+                # State should be set by _do_start (WAITING or ACTIVE)
                 if self._state == PluginState.STARTING:
-                    self._state = PluginState.READY
+                    self._state = PluginState.WAITING
 
                 self._logger.info(f"{self.source_id} started successfully")
             else:
@@ -170,7 +170,7 @@ class BaseAudioSource(ABC):
             success = await self._do_stop()
 
             if success:
-                self._state = PluginState.READY
+                self._state = PluginState.WAITING
                 self._metadata = {}
                 self._error = None
 
@@ -262,7 +262,7 @@ class BaseAudioSource(ABC):
         Should:
         - Start systemd service if needed
         - Establish connections
-        - Set self._state to READY or CONNECTED
+        - Set self._state to WAITING or ACTIVE
         - Update self._metadata with initial data
 
         Returns:
@@ -575,16 +575,16 @@ class BaseAudioSource(ABC):
             except RuntimeError:
                 pass
 
-    def _set_connected_or_ready(
+    def _set_active_or_waiting(
         self,
         is_connected: bool,
-        connected_meta: Dict[str, Any],
-        ready_meta: Dict[str, Any]
+        active_meta: Dict[str, Any],
+        waiting_meta: Dict[str, Any]
     ) -> None:
-        """Set state to CONNECTED or READY based on connection status."""
+        """Set state to ACTIVE or WAITING based on connection status."""
         self.set_state(
-            PluginState.CONNECTED if is_connected else PluginState.READY,
-            connected_meta if is_connected else ready_meta
+            PluginState.ACTIVE if is_connected else PluginState.WAITING,
+            active_meta if is_connected else waiting_meta
         )
 
     def broadcast_error(self, error_message: str) -> None:

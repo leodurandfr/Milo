@@ -59,7 +59,7 @@ export function useScreensaver() {
     if (!settingsStore.screenScreensaver.screensaver_enabled) return false;
     const source = unifiedStore.systemState.active_source;
     const state = unifiedStore.systemState.plugin_state;
-    return ['radio', 'podcast', 'bluetooth', 'mac'].includes(source) && state === 'connected';
+    return ['radio', 'podcast', 'bluetooth', 'mac'].includes(source) && state === 'active';
   });
 
   // --- Timer management ---

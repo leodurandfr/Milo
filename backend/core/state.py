@@ -77,7 +77,7 @@ class AudioStateMachine:
         """Get state of the active source."""
         if source == self.system_state.active_source:
             return self.system_state.plugin_state
-        return PluginState.READY
+        return PluginState.WAITING
 
     async def get_current_state(self) -> Dict[str, Any]:
         """Return current system state as dict."""
@@ -130,7 +130,7 @@ class AudioStateMachine:
                         self.system_state.active_source = target_source
                         self.system_state.plugin_state = (
                             PluginState.STARTING if target_source != AudioSource.NONE
-                            else PluginState.READY
+                            else PluginState.WAITING
                         )
                         self.system_state.metadata = {}
 
@@ -160,7 +160,7 @@ class AudioStateMachine:
                                 self.system_state.plugin_state = plugin.state
                                 self.system_state.metadata = plugin.metadata
                             else:
-                                self.system_state.plugin_state = PluginState.READY
+                                self.system_state.plugin_state = PluginState.WAITING
 
                     await self.broadcast_event("system", "transition_complete", {
                         "active_source": target_source.value,
@@ -234,7 +234,7 @@ class AudioStateMachine:
                 self.system_state.error = None
 
             # Reset inactivity timer when plugin becomes active
-            if new_state == PluginState.CONNECTED:
+            if new_state == PluginState.ACTIVE:
                 self._last_activity_time = monotonic()
 
         await self.broadcast_event("plugin", "state_changed", {
@@ -335,7 +335,7 @@ class AudioStateMachine:
 
         async with self._state_lock:
             self.system_state.active_source = AudioSource.NONE
-            self.system_state.plugin_state = PluginState.READY
+            self.system_state.plugin_state = PluginState.WAITING
             self.system_state.metadata = {}
             self.system_state.error = None
 
@@ -370,7 +370,7 @@ class AudioStateMachine:
         return True
 
     async def _monitor_inactivity(self) -> None:
-        """Deactivate source after inactivity timeout without CONNECTED state."""
+        """Deactivate source after inactivity timeout without ACTIVE state."""
         try:
             while True:
                 await asyncio.sleep(60)
@@ -384,7 +384,7 @@ class AudioStateMachine:
                 if (
                     self._inactivity_timeout > 0
                     and source != AudioSource.NONE
-                    and plugin_state == PluginState.READY
+                    and plugin_state == PluginState.WAITING
                     and not transitioning
                     and (monotonic() - self._last_activity_time) >= self._inactivity_timeout
                 ):

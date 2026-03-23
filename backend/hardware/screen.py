@@ -51,7 +51,7 @@ class ScreenController:
         self.boot_grace_period = 30  # Will be calculated as max(30, timeout_seconds) during initialize()
         self.screen_on = True
         self.running = False
-        self.current_plugin_state = "ready"
+        self.current_plugin_state = "waiting"
     
     def _detect_backlight_path(self):
         """Detect the sysfs backlight brightness path for DSI screens."""
@@ -199,15 +199,15 @@ class ScreenController:
         while self.running:
             try:
                 system_state = await self.state_machine.get_current_state()
-                new_state = system_state.get("plugin_state", "ready")
+                new_state = system_state.get("plugin_state", "waiting")
 
-                if self.current_plugin_state != "connected" and new_state == "connected":
+                if self.current_plugin_state != "active" and new_state == "active":
                     was_sleeping = not self.screen_on
                     await self._screen_cmd(self.screen_on_cmd)
                     self.last_activity_time = monotonic()
                     if was_sleeping:
                         await self._broadcast_sleep_state(False)
-                elif self.current_plugin_state == "connected" and new_state == "ready":
+                elif self.current_plugin_state == "active" and new_state == "waiting":
                     self.last_activity_time = monotonic()
 
                 self.current_plugin_state = new_state
@@ -237,8 +237,8 @@ class ScreenController:
                         await asyncio.sleep(1)
                         continue
 
-                # Keep timer at 0 while plugin is "connected"
-                if self.current_plugin_state == "connected":
+                # Keep timer at 0 while plugin is "active"
+                if self.current_plugin_state == "active":
                     self.last_activity_time = monotonic()
 
                 time_since_activity = monotonic() - self.last_activity_time
@@ -246,7 +246,7 @@ class ScreenController:
                 should_turn_off = (
                     self.screen_on and
                     time_since_activity >= self.timeout_seconds and
-                    self.current_plugin_state != "connected"
+                    self.current_plugin_state != "active"
                 )
 
                 if should_turn_off:

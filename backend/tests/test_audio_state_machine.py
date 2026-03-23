@@ -37,10 +37,10 @@ class TestAudioStateMachineBasics:
 
     @pytest.mark.asyncio
     async def test_initial_state(self, state_machine):
-        """Test initial state is NONE with READY."""
+        """Test initial state is NONE with WAITING."""
         state = await state_machine.get_current_state()
         assert state["active_source"] == "none"
-        assert state["plugin_state"] == "ready"
+        assert state["plugin_state"] == "waiting"
         assert state["transitioning"] is False
         assert state["error"] is None
 
@@ -160,11 +160,11 @@ class TestPluginStateUpdate:
 
         await state_machine.update_plugin_state(
             AudioSource.RADIO,
-            PluginState.CONNECTED,
+            PluginState.ACTIVE,
             {"title": "Test Station"}
         )
 
-        assert state_machine.system_state.plugin_state == PluginState.CONNECTED
+        assert state_machine.system_state.plugin_state == PluginState.ACTIVE
         assert state_machine.system_state.metadata["title"] == "Test Station"
 
     @pytest.mark.asyncio
@@ -176,12 +176,12 @@ class TestPluginStateUpdate:
         # Try to update spotify while radio is active
         await state_machine.update_plugin_state(
             AudioSource.SPOTIFY,
-            PluginState.CONNECTED,
+            PluginState.ACTIVE,
             {}
         )
 
         # Should still be starting (from activation), not connected
-        assert state_machine.system_state.plugin_state != PluginState.CONNECTED
+        assert state_machine.system_state.plugin_state != PluginState.ACTIVE
 
     @pytest.mark.asyncio
     async def test_update_plugin_state_error(self, state_machine, mock_plugin):

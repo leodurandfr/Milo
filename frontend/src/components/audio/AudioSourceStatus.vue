@@ -109,7 +109,7 @@ const displayedStatusLines = computed(() => {
   }
 
   // Ready state: waiting messages
-  if (props.pluginState === 'ready') {
+  if (props.pluginState === 'waiting') {
     switch (props.pluginType) {
       case 'bluetooth':
         return [t('audioSources.bluetooth'), t('status.ready')];
@@ -131,7 +131,7 @@ const displayedStatusLines = computed(() => {
   }
 
   // Connected state: messages with device name
-  if (props.pluginState === 'connected' && props.deviceName) {
+  if (props.pluginState === 'active' && props.deviceName) {
     const formattedDeviceNames = formatDeviceNames(props.deviceName);
 
     switch (props.pluginType) {
@@ -153,7 +153,7 @@ const displayedShowDisconnectButton = computed(() => {
   if (props.pluginState === 'starting') {
     return false;
   }
-  return props.pluginType === 'bluetooth' && props.pluginState === 'connected';
+  return props.pluginType === 'bluetooth' && props.pluginState === 'active';
 });
 
 // Classes for status lines
@@ -161,8 +161,8 @@ function getDisplayedStatusLine1Class() {
   if (props.pluginState === 'starting') {
     return 'starting-state';
   }
-  if (props.pluginState === 'connected') {
-    return 'connected-state';
+  if (props.pluginState === 'active') {
+    return 'active-state';
   }
   return '';
 }
@@ -171,8 +171,8 @@ function getDisplayedStatusLine2Class() {
   if (props.pluginState === 'starting') {
     return 'starting-state';
   }
-  if (props.pluginState === 'connected') {
-    return 'connected-state';
+  if (props.pluginState === 'active') {
+    return 'active-state';
   }
   return 'secondary-state';
 }
@@ -277,13 +277,13 @@ function handleDisconnect() {
 
 /* Special states line 1 */
 .status-line-1.starting-state h2,
-.status-line-1.connected-state h2 {
+.status-line-1.active-state h2 {
   color: var(--color-text-secondary);
 }
 
 /* Special states line 2 */
 .status-line-2.starting-state h2,
-.status-line-2.connected-state h2 {
+.status-line-2.active-state h2 {
   color: var(--color-text);
 }
 

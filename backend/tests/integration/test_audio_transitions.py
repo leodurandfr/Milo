@@ -89,7 +89,7 @@ class TestTransitionSequence:
         # Verify state consistency
         assert sm.system_state.active_source == AudioSource.RADIO
         assert sm.system_state.transitioning is False
-        assert sm.system_state.plugin_state in (PluginState.STARTING, PluginState.READY)
+        assert sm.system_state.plugin_state in (PluginState.STARTING, PluginState.WAITING)
         assert sm.system_state.error is None
 
     @pytest.mark.asyncio
@@ -261,7 +261,7 @@ class TestDirectTransition:
         await sm.transition_to_source(AudioSource.RADIO)
         await sm.update_plugin_state(
             AudioSource.RADIO,
-            PluginState.CONNECTED,
+            PluginState.ACTIVE,
             {"station": "Test Radio", "bitrate": 320}
         )
 
@@ -455,7 +455,7 @@ class TestErrorHandling:
 
         # Should be back to NONE
         assert sm.system_state.active_source == AudioSource.NONE
-        assert sm.system_state.plugin_state == PluginState.READY
+        assert sm.system_state.plugin_state == PluginState.WAITING
 
 
 class TestUpdateBuffering:
@@ -479,7 +479,7 @@ class TestUpdateBuffering:
             # Simulate plugin sending update during transition
             await sm.update_plugin_state(
                 AudioSource.RADIO,
-                PluginState.CONNECTED,
+                PluginState.ACTIVE,
                 {"buffered": True}
             )
             return True
@@ -518,7 +518,7 @@ class TestUpdateBuffering:
         # Try to update from SPOTIFY (inactive)
         await sm.update_plugin_state(
             AudioSource.SPOTIFY,
-            PluginState.CONNECTED,
+            PluginState.ACTIVE,
             {"should_be": "ignored"}
         )
 

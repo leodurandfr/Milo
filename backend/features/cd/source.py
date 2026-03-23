@@ -116,11 +116,11 @@ class CdSource(MpvAudioSource):
 
             # Set state based on disc/cache status
             if self._cache_ready and self._current_disc:
-                self.set_state(PluginState.CONNECTED, self._build_metadata())
+                self.set_state(PluginState.ACTIVE, self._build_metadata())
             else:
-                # READY — either no disc or disc loading (frontend reads
+                # WAITING — either no disc or disc loading (frontend reads
                 # disc_present/cache_ready from metadata to distinguish)
-                self.set_state(PluginState.READY, self._build_metadata())
+                self.set_state(PluginState.WAITING, self._build_metadata())
 
             return True
 
@@ -287,7 +287,7 @@ class CdSource(MpvAudioSource):
             )
             self._current_disc = disc_info
             self._tracks = disc_info.tracks
-            self.set_state(PluginState.READY, self._build_metadata())
+            self.set_state(PluginState.WAITING, self._build_metadata())
 
     async def _pre_start_service(self) -> None:
         """Start milo-cd service and load stream early to keep CD spinning.
@@ -553,8 +553,8 @@ class CdSource(MpvAudioSource):
                     f"CD ready: {len(self._chapter_offsets)} chapters, "
                     f"cache filling in background"
                 )
-                # Promote READY → CONNECTED
-                self.set_state(PluginState.CONNECTED, self._build_metadata())
+                # Promote WAITING → ACTIVE
+                self.set_state(PluginState.ACTIVE, self._build_metadata())
             return
 
         # Phase 2: Track position during playback
@@ -686,7 +686,7 @@ class CdSource(MpvAudioSource):
     def _update_connection_state(self) -> None:
         has_disc = bool(self._current_disc)
         metadata = self._build_metadata()
-        self._set_connected_or_ready(
+        self._set_active_or_waiting(
             has_disc,
             metadata,
             {"is_playing": False, "is_buffering": False, "ready": True,

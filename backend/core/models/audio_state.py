@@ -22,8 +22,8 @@ class AudioSource(Enum):
 class PluginState(Enum):
     """Possible operational states for a plugin."""
     STARTING = "starting"      # Plugin starting or restarting
-    READY = "ready"            # Plugin started, waiting for connection
-    CONNECTED = "connected"    # Plugin connected and operational
+    WAITING = "waiting"        # Plugin started, waiting for connection
+    ACTIVE = "active"          # Plugin active and operational
     ERROR = "error"            # Plugin in error state
 
 
@@ -38,7 +38,7 @@ class SystemAudioState:
     - equalizer effects state (equalizer, compressor, loudness enabled)
     """
     active_source: AudioSource = AudioSource.NONE
-    plugin_state: PluginState = PluginState.READY
+    plugin_state: PluginState = PluginState.WAITING
     transitioning: bool = False
     metadata: Dict[str, Any] = None
     error: Optional[str] = None
