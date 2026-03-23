@@ -1,7 +1,10 @@
-<!-- AudioPlayerFull.vue - Full-screen player for Spotify and AirPlay -->
+<!-- AudioPlayerFull.vue - Full-screen player for Spotify, AirPlay, and CD -->
 <template>
   <div class="connect-player">
     <div class="now-playing">
+      <!-- Action buttons slot (used by CD for eject/tracklist) -->
+      <slot name="action-buttons" />
+
       <!-- Left side: Cover image with CSS staggering -->
       <div class="album-art-section stagger-1">
         <div class="album-art-container">
@@ -35,8 +38,8 @@
                 :interactive="true" @seek="seekTo" />
             </div>
             <div class="controls-wrapper stagger-5">
-              <PlaybackControls :isPlaying="isPlaying" @play-pause="togglePlayPause"
-                @previous="previousTrack" @next="nextTrack" />
+              <PlaybackControls :isPlaying="isPlaying" :isBuffering="isBuffering"
+                @play-pause="togglePlayPause" @previous="previousTrack" @next="nextTrack" />
             </div>
           </template>
           <div v-else-if="clientName" class="source-bar stagger-4">
@@ -124,6 +127,7 @@ const persistentMetadata = computed(() => {
 
 // Real-time playback state (not persisted)
 const isPlaying = computed(() => unifiedStore.systemState.metadata?.is_playing || false);
+const isBuffering = computed(() => unifiedStore.systemState.metadata?.is_buffering || false);
 
 // Client/device name (for source bar when controls are hidden)
 const clientName = computed(() => unifiedStore.systemState.metadata?.client_name || '');

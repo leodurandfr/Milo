@@ -97,6 +97,7 @@ const shouldShowPodcast = computed(() => {
 
 const shouldShowCD = computed(() => {
   return activeSource.value === 'cd' &&
+    pluginState.value === 'connected' &&
     !transitioning.value;
 });
 
@@ -129,6 +130,11 @@ const shouldShowPluginStatus = computed(() => {
     return !hasCompleteTrackInfo.value || pluginState.value !== 'connected';
   }
 
+  // CD: show status during starting/ready (not yet connected)
+  if (activeSource.value === 'cd') {
+    return pluginState.value !== 'connected';
+  }
+
   return false;
 });
 
@@ -137,6 +143,11 @@ const currentPluginType = computed(() => activeSource.value);
 
 const currentPluginState = computed(() => {
   if (transitioning.value) return 'starting';
+  // CD: disc present but cache still loading (READY state, not yet CONNECTED)
+  if (activeSource.value === 'cd' && pluginState.value === 'ready' &&
+      metadata.value?.disc_present && !metadata.value?.cache_ready) {
+    return 'loading_disc';
+  }
   return pluginState.value;
 });
 
