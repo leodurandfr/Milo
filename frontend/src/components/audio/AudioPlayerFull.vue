@@ -366,6 +366,10 @@ const clientName = computed(() => unifiedStore.systemState.metadata?.client_name
     gap: 0;
   }
 
+  .content-replace {
+    margin-bottom: calc(-1 * max(var(--space-06), env(safe-area-inset-bottom, 0px)));
+  }
+
   .controls-section {
     margin-bottom: calc(env(safe-area-inset-bottom, 0px));
   }
