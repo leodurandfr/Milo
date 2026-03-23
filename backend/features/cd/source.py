@@ -3,8 +3,9 @@
 CD audio source using mpv with cache-based architecture.
 
 Architecture:
-- Disc watcher detects disc → pre-starts mpv service immediately (CD keeps spinning)
-- cdda:// loaded ONCE, muted + playing → cache fills silently in background
+- Disc watcher detects disc → reads TOC, broadcasts presence (no auto-activation)
+- User activates CD from dock → _do_start() reads metadata + loads cdda:// stream
+- cdda:// loaded muted + playing → cache fills silently in background
 - Source stays in READY until chapter offsets are ready (CD fully spun up)
 - Once ready → CONNECTED → user sees disc info + Play button
 - Track navigation via set_property("chapter", N) → instant from cache (~30ms)
@@ -85,7 +86,7 @@ class CdSource(MpvAudioSource):
         return await super().initialize()
 
     async def _do_start(self) -> bool:
-        """Start mpv service and connect IPC.
+        """Start mpv service, connect IPC, load disc if present.
         If _pre_start_service already ran, reuses the existing connection."""
         try:
             if self._mpv and self._mpv.is_connected and self._stream_loaded:
@@ -97,7 +98,18 @@ class CdSource(MpvAudioSource):
                 if not await self._mpv.connect():
                     self._logger.error("Failed to connect to mpv IPC")
                     return False
-                if self._disc_present and self._current_disc:
+
+                if self._disc_present:
+                    # Metadata lookup if not already done (disc inserted while inactive)
+                    if not self._current_disc and self._last_disc_id:
+                        result = await self._data_service.read_disc()
+                        if result:
+                            disc_id, toc_string, toc_tracks = result
+                            disc_info = await self._data_service.lookup_metadata(
+                                disc_id, toc_string, toc_tracks
+                            )
+                            self._current_disc = disc_info
+                            self._tracks = disc_info.tracks
                     await self._load_disc_stream()
 
             self._start_monitor()
@@ -214,7 +226,7 @@ class CdSource(MpvAudioSource):
             self._watcher_first_check_done = True
 
     async def _handle_disc_detected_at_boot(self) -> None:
-        """Disc already present at boot: pre-start service, read metadata."""
+        """Disc already present at boot: read TOC and broadcast presence."""
         self._logger.info("Disc already present at boot")
 
         result = await self._data_service.read_disc()
@@ -226,19 +238,7 @@ class CdSource(MpvAudioSource):
         self._last_disc_id = disc_id
         self._disc_present = True
 
-        # Start service immediately while CD is still spinning from TOC read
-        await self._pre_start_service()
-
-        disc_info = await self._data_service.lookup_metadata(
-            disc_id, toc_string, toc_tracks
-        )
-        self._current_disc = disc_info
-        self._tracks = disc_info.tracks
-
-        self._logger.info(
-            f"Boot disc: {disc_info.artist} - {disc_info.album} "
-            f"({disc_info.track_count} tracks)"
-        )
+        self._logger.info(f"Boot disc detected: {disc_id}, {len(toc_tracks)} tracks")
 
         await self.state_machine.broadcast_event(
             "system", "cd_drive_status", {
@@ -249,7 +249,8 @@ class CdSource(MpvAudioSource):
         )
 
     async def _handle_disc_inserted(self) -> None:
-        """New disc inserted: pre-start service (keeps CD spinning), then metadata."""
+        """New disc inserted: read TOC and broadcast presence.
+        Does NOT auto-activate CD source — user must select it from the dock."""
         self._logger.info("Disc inserted, reading TOC...")
 
         result = await self._data_service.read_disc()
@@ -259,7 +260,7 @@ class CdSource(MpvAudioSource):
 
         disc_id, toc_string, toc_tracks = result
 
-        if disc_id == self._last_disc_id and self._current_disc:
+        if disc_id == self._last_disc_id:
             self._logger.info(f"Same disc re-detected: {disc_id}")
             return
 
@@ -267,30 +268,26 @@ class CdSource(MpvAudioSource):
         self._disc_present = True
         self._logger.info(f"New disc: {disc_id}, {len(toc_tracks)} tracks")
 
-        # Start service NOW while CD is still spinning from TOC read
-        await self._pre_start_service()
-
-        # Metadata lookup (network call — CD stays spinning in background)
-        disc_info = await self._data_service.lookup_metadata(
-            disc_id, toc_string, toc_tracks
-        )
-        self._current_disc = disc_info
-        self._tracks = disc_info.tracks
-
-        self._logger.info(
-            f"Disc metadata: {disc_info.artist} - {disc_info.album} "
-            f"({disc_info.track_count} tracks)"
+        await self.state_machine.broadcast_event(
+            "system", "cd_drive_status", {
+                "source": "cd",
+                "drive_connected": self._drive_connected,
+                "disc_present": True,
+            }
         )
 
+        # If CD is already the active source, start loading immediately
         if (
             self.state_machine
             and self.state_machine.system_state.active_source == AudioSource.CD
         ):
-            # CD already active — stay READY with disc_present metadata,
-            # monitor tick will promote to CONNECTED when cache is ready
+            await self._pre_start_service()
+            disc_info = await self._data_service.lookup_metadata(
+                disc_id, toc_string, toc_tracks
+            )
+            self._current_disc = disc_info
+            self._tracks = disc_info.tracks
             self.set_state(PluginState.READY, self._build_metadata())
-        else:
-            await self.state_machine.transition_to_source(AudioSource.CD)
 
     async def _pre_start_service(self) -> None:
         """Start milo-cd service and load stream early to keep CD spinning.
@@ -315,18 +312,23 @@ class CdSource(MpvAudioSource):
             self._logger.warning(f"Pre-start failed: {e}")
 
     async def _handle_disc_removed(self) -> None:
-        """Disc removal: stop playback and clear state."""
+        """Disc removal: stop playback if active, clear disc state."""
         self._logger.info("Disc removed")
 
-        if (
+        is_active = (
             self.state_machine
             and self.state_machine.system_state.active_source == AudioSource.CD
-        ):
-            try:
-                await self.state_machine.transition_to_source(AudioSource.NONE)
-            except Exception as e:
-                self._logger.error(f"Error stopping CD source: {e}")
+        )
 
+        # Stop playback only if CD is the active source with mpv running
+        if is_active and self._is_playing and self._mpv:
+            try:
+                await self._mpv.set_property("mute", True)
+            except Exception as e:
+                self._logger.error(f"Error muting on disc removal: {e}")
+
+        self._is_playing = False
+        self._is_paused = False
         self._current_disc = None
         self._tracks = []
         self._last_disc_id = None
@@ -338,6 +340,9 @@ class CdSource(MpvAudioSource):
         self._chapter_offsets = []
         self._stream_loaded = False
         self._cache_ready = False
+
+        if is_active:
+            self._update_connection_state()
 
         if self.state_machine:
             await self.state_machine.broadcast_event(
