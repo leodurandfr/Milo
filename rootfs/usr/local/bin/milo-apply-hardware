@@ -141,6 +141,9 @@ for param in hdmi_force_hotplug hdmi_blanking hdmi_group hdmi_mode hdmi_cvt fram
     sed -i "/^${param}=/d" "$CONFIG_FILE"
 done
 
+# Remove legacy DSI overlay (from old installs without managed blocks)
+sed -i '/^dtoverlay=vc4-kms-dsi-waveshare-panel/d' "$CONFIG_FILE"
+
 # Write screen-specific config
 case "$SCREEN_TYPE" in
     waveshare_7_usb)
@@ -158,7 +161,12 @@ framebuffer_height=600
 EOF
         ;;
     waveshare_8_dsi)
-        # DSI screen requires no config.txt parameters
+        cat >> "$CONFIG_FILE" << EOF
+
+# BEGIN MILO SCREEN
+dtoverlay=vc4-kms-dsi-waveshare-panel,8_0_inch
+# END MILO SCREEN
+EOF
         ;;
     none|"")
         # No screen configuration needed
