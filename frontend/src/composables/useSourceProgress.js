@@ -37,7 +37,8 @@ export function useSourceProgress(source) {
   function startProgressTimer() {
     if (!intervalId) {
       intervalId = setInterval(() => {
-        if (localPosition.value !== null && unifiedStore.systemState.metadata?.is_playing && localPosition.value < duration.value) {
+        const meta = unifiedStore.systemState.metadata;
+        if (localPosition.value !== null && meta?.is_playing && !meta?.is_buffering && localPosition.value < duration.value) {
           localPosition.value += 100;
         }
       }, 100);
