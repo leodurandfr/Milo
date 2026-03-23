@@ -16,7 +16,7 @@
     </div>
 
     <!-- Track title -->
-    <div class="track-title text-body">{{ track.title }}</div>
+    <div class="track-title text-body">{{ track.title || t('audioSources.cdSource.trackN', { n: track.number }) }}</div>
 
     <!-- Track duration -->
     <div class="track-duration text-mono-small">{{ formatDuration(track.duration) }}</div>
@@ -24,6 +24,10 @@
 </template>
 
 <script setup>
+import { useI18n } from '@/services/i18n';
+
+const { t } = useI18n();
+
 defineProps({
   track: {
     type: Object,
@@ -62,6 +66,12 @@ function formatDuration(seconds) {
 
 .track-card:last-child {
   border-bottom: none;
+}
+
+@media (max-aspect-ratio: 4/3) {
+  .track-card:last-child {
+    padding-bottom: var(--space-08);
+  }
 }
 
 .track-number {

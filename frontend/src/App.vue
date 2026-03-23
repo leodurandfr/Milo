@@ -548,11 +548,14 @@ onMounted(async () => {
       multiroomStore.fetchState();
       // Refresh equalizer state for current target
       equalizerStore.loadStatus();
+      // Refresh CD drive status (may have changed during disconnect)
+      cdStore.fetchDriveStatus();
     }),
     onVisibilityChange(() => {
       // Refresh stores when tab becomes visible (fixes stale data after background)
       multiroomStore.fetchState();
       equalizerStore.loadStatus();
+      cdStore.fetchDriveStatus();
     })
   );
 
