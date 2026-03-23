@@ -34,7 +34,7 @@
 </template>
 
 <script setup>
-import { computed, defineAsyncComponent } from 'vue';
+import { computed, ref, watch, onUnmounted, defineAsyncComponent } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 
 const SpotifySource = defineAsyncComponent(() =>
@@ -141,7 +141,7 @@ const shouldShowPluginStatus = computed(() => {
 // === PROPERTIES FOR PLUGINSTATUS ===
 const currentPluginType = computed(() => activeSource.value);
 
-const currentPluginState = computed(() => {
+const rawPluginState = computed(() => {
   if (transitioning.value) return 'starting';
   // CD: disc present but cache still loading (READY state, not yet CONNECTED)
   if (activeSource.value === 'cd' && pluginState.value === 'ready' &&
@@ -150,6 +150,39 @@ const currentPluginState = computed(() => {
   }
   return pluginState.value;
 });
+
+// Minimum display time for "starting" state (prevents flash before "loading_disc")
+const STARTING_MIN_MS = 2000;
+const currentPluginState = ref(rawPluginState.value);
+let startingEnteredAt = null;
+let startingTimer = null;
+
+watch(rawPluginState, (newState, oldState) => {
+  clearTimeout(startingTimer);
+
+  if (newState === 'starting') {
+    startingEnteredAt = Date.now();
+    currentPluginState.value = 'starting';
+    return;
+  }
+
+  // Leaving "starting" — enforce minimum display time
+  if (oldState === 'starting' && startingEnteredAt) {
+    const remaining = STARTING_MIN_MS - (Date.now() - startingEnteredAt);
+    if (remaining > 0) {
+      startingTimer = setTimeout(() => {
+        currentPluginState.value = rawPluginState.value;
+        startingEnteredAt = null;
+      }, remaining);
+      return;
+    }
+  }
+
+  startingEnteredAt = null;
+  currentPluginState.value = newState;
+});
+
+onUnmounted(() => clearTimeout(startingTimer));
 
 const currentDeviceName = computed(() => {
   const meta = metadata.value || {};
