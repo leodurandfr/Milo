@@ -67,6 +67,7 @@ class CdSource(MpvAudioSource):
         self._track_position: float = 0
         self._track_duration: float = 0
         self._album_finished = False
+        self._is_paused = False
         self._chapter_offsets: List[float] = []
         self._stream_loaded = False
         self._cache_ready = False  # True when chapter offsets loaded = CD fully ready
@@ -152,6 +153,7 @@ class CdSource(MpvAudioSource):
             await self._mpv.disconnect()
             self._mpv = None
         self._is_playing = False
+        self._is_paused = False
         self._is_buffering = False
         self._stream_loaded = False
 
@@ -402,6 +404,7 @@ class CdSource(MpvAudioSource):
             self._track_position = 0
             self._track_duration = self._tracks[track_number - 1].duration
             self._is_playing = True
+            self._is_paused = False
             self._album_finished = False
 
             await self._mpv.set_property("chapter", track_number - 1)
@@ -427,6 +430,7 @@ class CdSource(MpvAudioSource):
         try:
             await self._mpv.pause()
             self._is_playing = False
+            self._is_paused = True
             self._update_connection_state()
             return self.success_response("Paused")
         except Exception as e:
@@ -439,16 +443,20 @@ class CdSource(MpvAudioSource):
             if self._album_finished:
                 return await self._handle_play_track({"track_number": 1})
 
+            # Resume from pause — keep current position
+            if self._is_paused:
+                await self._mpv.resume()
+                self._is_playing = True
+                self._is_paused = False
+                self._update_connection_state()
+                return self.success_response("Resumed")
+
             # First play or resume from stop → go through play_track
             if not self._is_playing:
                 track = self._current_track or 1
                 return await self._handle_play_track({"track_number": track})
 
-            # Simple resume from pause
-            await self._mpv.resume()
-            self._is_playing = True
-            self._update_connection_state()
-            return self.success_response("Resumed")
+            return self.success_response("Already playing")
         except Exception as e:
             return self.error_response(str(e))
 
@@ -494,6 +502,7 @@ class CdSource(MpvAudioSource):
             if self._mpv:
                 await self._mpv.set_property("mute", True)
             self._is_playing = False
+            self._is_paused = False
             self._current_track = None
             self._track_position = 0
             self._album_finished = False
@@ -507,6 +516,7 @@ class CdSource(MpvAudioSource):
             if self._is_playing and self._mpv:
                 await self._mpv.pause()
                 self._is_playing = False
+                self._is_paused = False
 
             proc = await asyncio.create_subprocess_exec(
                 "eject", CD_DEVICE,
@@ -559,6 +569,7 @@ class CdSource(MpvAudioSource):
             self._logger.info("Album finished")
             self._album_finished = True
             self._is_playing = False
+            self._is_paused = False
             self._track_position = self._track_duration
             self._update_connection_state()
             return
@@ -592,6 +603,7 @@ class CdSource(MpvAudioSource):
 
     async def _on_mpv_disconnect(self) -> None:
         self._is_playing = False
+        self._is_paused = False
         self._is_buffering = False
         self._current_track = None
         self._track_position = 0
