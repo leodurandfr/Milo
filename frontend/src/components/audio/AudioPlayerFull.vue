@@ -7,12 +7,12 @@
         <div class="album-art-container">
           <!-- Background blur -->
           <div class="album-art-blur"
-            :style="{ backgroundImage: persistentMetadata.album_art_url ? `url(${persistentMetadata.album_art_url})` : 'none' }">
+            :style="{ backgroundImage: artworkUrl ? `url(${artworkUrl})` : 'none' }">
           </div>
 
           <!-- Main cover art -->
           <div class="album-art">
-            <img v-if="persistentMetadata.album_art_url" :src="persistentMetadata.album_art_url"
+            <img v-if="artworkUrl" :src="artworkUrl"
               alt="Album Art" />
           </div>
         </div>
@@ -70,6 +70,7 @@ import { logger } from '@/services/logger';
 import PlaybackControls from './PlaybackControls.vue';
 import ConnectProgressBar from './ConnectProgressBar.vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
+import cdPlaceholder from '@/assets/cd/cd-placeholder.jpg';
 
 const props = defineProps({
   source: {
@@ -140,6 +141,10 @@ const isBuffering = computed(() => unifiedStore.systemState.metadata?.is_bufferi
 
 // Client/device name (for source bar when controls are hidden)
 const clientName = computed(() => unifiedStore.systemState.metadata?.client_name || '');
+
+// Artwork URL with source-specific placeholder fallback
+const placeholders = { cd: cdPlaceholder };
+const artworkUrl = computed(() => persistentMetadata.value.album_art_url || placeholders[props.source] || '');
 
 
 
