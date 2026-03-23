@@ -1,15 +1,23 @@
 // frontend/src/stores/cdStore.js
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import axios from 'axios';
 import { apiCall } from '@/services/apiCall';
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 
 export const useCdStore = defineStore('cd', () => {
+  const unifiedStore = useUnifiedAudioStore();
+
   // === DISC & TRACK STATE ===
   const discInfo = ref(null); // { disc_id, album, artist, year, album_art_url, track_count }
   const tracks = ref([]); // [{ number, title, duration }]
   const currentTrack = ref(null); // 1-based track number
-  const isPlaying = ref(false);
+
+  // Derived from unified store (single source of truth for playback state)
+  const isPlaying = computed(() =>
+    unifiedStore.systemState.active_source === 'cd'
+      && !!unifiedStore.systemState.metadata?.is_playing
+  );
 
   // === DRIVE STATE ===
   const driveConnected = ref(false);
@@ -72,9 +80,6 @@ export const useCdStore = defineStore('cd', () => {
       // Playback state
       if (metadata.current_track !== undefined) {
         currentTrack.value = metadata.current_track;
-      }
-      if (metadata.is_playing !== undefined) {
-        isPlaying.value = metadata.is_playing;
       }
     }
   }
