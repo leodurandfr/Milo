@@ -189,6 +189,8 @@
     "loadingOfFeminine": "Starting",
     "ready": "Ready to connect",
     "readyToStream": "Ready to stream",
+    "readyToPlay": "Ready to play",
+    "loadingAlbum": "Loading album",
     "waiting": "Waiting...",
     "connectedTo": "Connected to",
     "connectedToMac": "Connected to",

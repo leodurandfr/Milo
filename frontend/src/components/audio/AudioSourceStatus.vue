@@ -9,7 +9,7 @@
             <div class="device-info-inner">
               <!-- Plugin icon -->
               <div class="plugin-icon">
-                <LoadingSpinner v-if="pluginState === 'starting'" :size="26" variant="background" />
+                <LoadingSpinner v-if="pluginState === 'starting' || pluginState === 'loading_disc'" :size="26" variant="background" />
                 <AppIcon v-else :name="pluginType" :size="32" />
               </div>
 
@@ -81,6 +81,11 @@ const emit = defineEmits(['disconnect']);
 
 // === COMPUTED FOR DISPLAYED CONTENT ===
 const displayedStatusLines = computed(() => {
+  // CD: disc inserted, loading album (spinner shown via loading_disc state)
+  if (props.pluginState === 'loading_disc') {
+    return [t('audioSources.cd'), t('status.loadingAlbum')];
+  }
+
   // Starting state
   if (props.pluginState === 'starting') {
     switch (props.pluginType) {
@@ -119,7 +124,7 @@ const displayedStatusLines = computed(() => {
       case 'airplay':
         return [t('audioSources.airplay'), t('status.readyToStream')];
       case 'cd':
-        return [t('audioSources.cd'), t('status.ready')];
+        return [t('audioSources.cd'), t('status.readyToPlay')];
       default:
         return [t('status.ready')];
     }
