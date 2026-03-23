@@ -147,6 +147,7 @@ function handleClick(event) {
 .icon-button--on-grey {
   background: var(--color-background-contrast-12);
   color: var(--color-text-contrast);
+  backdrop-filter: blur(var(--blur-02));
 }
 
 .icon-button--rounded {
