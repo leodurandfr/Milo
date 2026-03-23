@@ -1,1 +1,31 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72" fill="none"><path fill="#3A3A3C" d="M0 28.8C0 18.72 0 13.679 1.962 9.828a18 18 0 0 1 7.866-7.866C13.678 0 18.72 0 28.8 0h14.4c10.08 0 15.121 0 18.972 1.962a18 18 0 0 1 7.866 7.866C72 13.678 72 18.72 72 28.8v14.4c0 10.08 0 15.121-1.962 18.972a18 18 0 0 1-7.866 7.866C58.322 72 53.28 72 43.2 72H28.8c-10.08 0-15.121 0-18.972-1.962a18 18 0 0 1-7.866-7.866C0 58.322 0 53.28 0 43.2V28.8Z"/><g fill="#fff" opacity=".8"><circle cx="36" cy="36" r="20" fill="none" stroke="#fff" stroke-width="3"/><circle cx="36" cy="36" r="14" fill="none" stroke="#fff" stroke-width="1.5" opacity=".4"/><circle cx="36" cy="36" r="4.5" fill="#fff"/><path d="M36 16a20 20 0 0 1 14.142 5.858" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" opacity=".3"/></g><g fill="#fff" opacity=".8" style="mix-blend-mode:overlay"><circle cx="36" cy="36" r="20" fill="none" stroke="#fff" stroke-width="3"/><circle cx="36" cy="36" r="4.5" fill="#fff"/></g></svg>
+<svg width="72" height="72" viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M0 28.8C0 18.7191 0 13.6786 1.96188 9.82817C3.6876 6.44125 6.44125 3.6876 9.82817 1.96188C13.6786 0 18.7191 0 28.8 0H43.2C53.2809 0 58.3214 0 62.1718 1.96188C65.5587 3.6876 68.3124 6.44125 70.0381 9.82817C72 13.6786 72 18.7191 72 28.8V43.2C72 53.2809 72 58.3214 70.0381 62.1718C68.3124 65.5587 65.5587 68.3124 62.1718 70.0381C58.3214 72 53.2809 72 43.2 72H28.8C18.7191 72 13.6786 72 9.82817 70.0381C6.44125 68.3124 3.6876 65.5587 1.96188 62.1718C0 58.3214 0 53.2809 0 43.2V28.8Z" fill="#2C2B30"/>
+<foreignObject x="8" y="8" width="56" height="56">
+  <div xmlns="http://www.w3.org/1999/xhtml" style="
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: conic-gradient(
+      from 0deg,
+      rgb(175,198,238) 0deg,
+      rgb(232,182,200) 15deg,
+      rgb(230,222,188) 30deg,
+      rgb(208,203,222) 50deg,
+      rgb(195,190,215) 90deg,
+      rgb(208,203,222) 130deg,
+      rgb(230,222,188) 150deg,
+      rgb(232,182,200) 165deg,
+      rgb(175,198,238) 180deg,
+      rgb(232,182,200) 195deg,
+      rgb(230,222,188) 210deg,
+      rgb(208,203,222) 230deg,
+      rgb(195,190,215) 270deg,
+      rgb(208,203,222) 310deg,
+      rgb(230,222,188) 330deg,
+      rgb(232,182,200) 345deg,
+      rgb(175,198,238) 360deg
+    );
+  "></div>
+</foreignObject>
+<circle cx="36" cy="36" r="10" fill="#2C2B30"/>
+</svg>

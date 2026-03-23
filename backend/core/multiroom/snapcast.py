@@ -152,8 +152,8 @@ class SnapcastService:
                 # Client is online if connected AND seen recently (within 60 seconds)
                 is_online = client_data.get("connected", False) and last_seen_age < 60
 
-                # Main device (milo) is always online (localhost)
-                if host == "milo":
+                # Main device is always online (localhost)
+                if ip == "127.0.0.1":
                     is_online = True
 
                 # Skip offline clients unless explicitly requested

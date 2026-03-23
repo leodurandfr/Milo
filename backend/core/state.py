@@ -152,9 +152,15 @@ class AudioStateMachine:
 
                     async with self._state_lock:
                         self.system_state.transitioning = False
-                        # Set state to READY after successful start
                         if target_source != AudioSource.NONE:
-                            self.system_state.plugin_state = PluginState.READY
+                            # Sync with plugin's actual post-start state
+                            # (_do_start may have set CONNECTED with metadata)
+                            plugin = self.plugins.get(target_source)
+                            if plugin:
+                                self.system_state.plugin_state = plugin.state
+                                self.system_state.metadata = plugin.metadata
+                            else:
+                                self.system_state.plugin_state = PluginState.READY
 
                     await self.broadcast_event("system", "transition_complete", {
                         "active_source": target_source.value,
