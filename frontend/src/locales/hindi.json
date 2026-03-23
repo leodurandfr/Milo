@@ -183,7 +183,9 @@
     "connectedToMac": "से जुड़ा हुआ",
     "audioReceivedFrom": "से ऑडियो प्राप्त",
     "disconnect": "डिस्कनेक्ट",
-    "disconnecting": "डिस्कनेक्ट किया जा रहा है..."
+    "disconnecting": "डिस्कनेक्ट किया जा रहा है...",
+    "unknownTitle": "अज्ञात शीर्षक",
+    "unknownArtist": "अज्ञात कलाकार"
   },
   "volumeSettings": {
     "controls": "वॉल्यूम नियंत्रण",

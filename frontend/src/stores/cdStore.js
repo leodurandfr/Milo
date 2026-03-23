@@ -61,6 +61,7 @@ export const useCdStore = defineStore('cd', () => {
 
       // Disc info
       if (metadata.disc_id !== undefined) {
+        showTracklist.value = false;
         discInfo.value = {
           disc_id: metadata.disc_id,
           album: metadata.album,
@@ -88,6 +89,14 @@ export const useCdStore = defineStore('cd', () => {
     if (event.type === 'cd_drive_status') {
       driveConnected.value = event.data?.drive_connected ?? false;
       discPresent.value = event.data?.disc_present ?? false;
+
+      // Clear disc state when disc is removed (eject or physical removal)
+      if (!discPresent.value) {
+        discInfo.value = null;
+        tracks.value = [];
+        currentTrack.value = null;
+        showTracklist.value = false;
+      }
     }
   }
 

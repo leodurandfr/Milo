@@ -27,8 +27,8 @@
         <Transition name="player-swap" mode="out-in">
           <div v-if="!hideContent" key="player-info" class="player-info">
             <div class="track-info" :class="{ 'no-controls': !showControls }">
-              <h1 class="track-title heading-1">{{ persistentMetadata.title || 'Titre inconnu' }}</h1>
-              <p class="track-artist heading-2">{{ persistentMetadata.artist || 'Artiste inconnu' }}</p>
+              <h1 class="track-title heading-1">{{ persistentMetadata.title || t('status.unknownTitle') }}</h1>
+              <p class="track-artist heading-2">{{ persistentMetadata.artist || t('status.unknownArtist') }}</p>
             </div>
             <div class="controls-section">
               <template v-if="showControls">
@@ -65,6 +65,7 @@
 import { computed, ref } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useSourceProgress } from '@/composables/useSourceProgress';
+import { useI18n } from '@/services/i18n';
 import { logger } from '@/services/logger';
 
 import PlaybackControls from './PlaybackControls.vue';
@@ -87,6 +88,7 @@ const props = defineProps({
   }
 });
 
+const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
 const { currentPosition, duration, progressPercentage, seekTo, isPositionInitialized } = useSourceProgress(props.source);
 
