@@ -262,18 +262,18 @@ class TestConnectionState:
     """Test connection state management."""
 
     def test_update_state_no_clients(self, mac_source):
-        """Test state is READY with no clients."""
+        """Test state is WAITING with no clients."""
         mac_source.connected_clients = {}
         mac_source._update_connection_state()
 
-        assert mac_source.state == PluginState.READY
+        assert mac_source.state == PluginState.WAITING
 
     def test_update_state_with_clients(self, mac_source):
-        """Test state is CONNECTED with clients."""
+        """Test state is ACTIVE with clients."""
         mac_source.connected_clients = {"192.168.1.1": "TestMac"}
         mac_source._update_connection_state()
 
-        assert mac_source.state == PluginState.CONNECTED
+        assert mac_source.state == PluginState.ACTIVE
 
     @pytest.mark.asyncio
     async def test_add_client(self, mac_source):

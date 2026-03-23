@@ -19,7 +19,7 @@ const AudioSourceSchema = z.enum([
 ]);
 
 const PluginStateSchema = z.enum([
-  'starting', 'ready', 'connected', 'error'
+  'starting', 'waiting', 'active', 'error'
 ]);
 
 // Metadata varies by source, so we use a flexible schema
@@ -51,7 +51,7 @@ const MetadataSchema = z.object({
 
 export const SystemStateSchema = z.object({
   active_source: AudioSourceSchema.catch('none'),
-  plugin_state: PluginStateSchema.catch('ready'),
+  plugin_state: PluginStateSchema.catch('waiting'),
   transitioning: z.boolean().catch(false),
   metadata: MetadataSchema.optional().default({}),
   error: z.string().nullable().optional().catch(null),

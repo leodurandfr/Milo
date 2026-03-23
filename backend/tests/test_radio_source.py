@@ -337,21 +337,21 @@ class TestConnectionState:
     """Test connection state management."""
 
     def test_update_state_no_station(self, radio_source):
-        """Test state is READY with no station."""
+        """Test state is WAITING with no station."""
         radio_source._current_station = None
         radio_source._update_connection_state()
 
-        assert radio_source.state == PluginState.READY
+        assert radio_source.state == PluginState.WAITING
 
     def test_update_state_with_station(self, radio_source):
-        """Test state is CONNECTED with station."""
+        """Test state is ACTIVE with station."""
         radio_source._current_station = {"id": "test", "name": "Test"}
         radio_source._is_playing = True
         radio_source._station_data = Mock()
         radio_source._station_data.is_favorite = Mock(return_value=False)
         radio_source._update_connection_state()
 
-        assert radio_source.state == PluginState.CONNECTED
+        assert radio_source.state == PluginState.ACTIVE
 
 
 class TestPlaybackMetadata:

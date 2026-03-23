@@ -295,7 +295,7 @@ class RadioSource(MpvAudioSource):
             self._last_station = self._current_station
             self._current_station = None
             self._metadata = {"is_playing": False, "is_buffering": False, "ready": True}
-            self.set_state(PluginState.READY, self._metadata)
+            self.set_state(PluginState.WAITING, self._metadata)
 
             return self.success_response("Playback stopped")
 
@@ -379,7 +379,7 @@ class RadioSource(MpvAudioSource):
         """Update state based on playback."""
         if self._current_station and self._is_playing:
             self.broadcast_error_cleared()
-        self._set_connected_or_ready(
+        self._set_active_or_waiting(
             bool(self._current_station),
             self._build_playback_metadata(),
             {"is_playing": False, "is_buffering": False, "ready": True}

@@ -30,7 +30,7 @@ class ConcreteAudioSource(BaseAudioSource):
     async def _do_start(self) -> bool:
         self.start_called = True
         if self._start_success:
-            self.set_state(PluginState.CONNECTED, {"connected": True})
+            self.set_state(PluginState.ACTIVE, {"connected": True})
         return self._start_success
 
     async def _do_stop(self) -> bool:
@@ -58,7 +58,7 @@ class TestBaseAudioSourceLifecycle:
 
         assert result is True
         assert source.start_called
-        assert source.state == PluginState.CONNECTED
+        assert source.state == PluginState.ACTIVE
 
     @pytest.mark.asyncio
     async def test_start_failure(self):
@@ -80,7 +80,7 @@ class TestBaseAudioSourceLifecycle:
 
         assert result is True
         assert source.stop_called
-        assert source.state == PluginState.READY
+        assert source.state == PluginState.WAITING
 
     @pytest.mark.asyncio
     async def test_stop_failure(self):
@@ -143,7 +143,7 @@ class TestBaseAudioSourceStatus:
             await source.start()
             status = await source.status()
 
-        assert status["state"] == PluginState.CONNECTED.value
+        assert status["state"] == PluginState.ACTIVE.value
         assert status["metadata"]["connected"] is True
 
     @pytest.mark.asyncio
@@ -219,9 +219,9 @@ class TestBaseAudioSourceHelpers:
         """Test set_state helper."""
         source = ConcreteAudioSource()
 
-        source.set_state(PluginState.CONNECTED, {"key": "value"})
+        source.set_state(PluginState.ACTIVE, {"key": "value"})
 
-        assert source.state == PluginState.CONNECTED
+        assert source.state == PluginState.ACTIVE
         assert source.metadata["key"] == "value"
 
 
@@ -231,8 +231,8 @@ class TestPluginStateValues:
     def test_state_values(self):
         """Test state values match expected strings."""
         assert PluginState.STARTING.value == "starting"
-        assert PluginState.READY.value == "ready"
-        assert PluginState.CONNECTED.value == "connected"
+        assert PluginState.WAITING.value == "waiting"
+        assert PluginState.ACTIVE.value == "active"
         assert PluginState.ERROR.value == "error"
 
 
@@ -282,10 +282,10 @@ class TestBaseAudioSourceProperties:
         """Test state property."""
         source = ConcreteAudioSource()
 
-        assert source.state == PluginState.READY
+        assert source.state == PluginState.WAITING
 
-        source._state = PluginState.CONNECTED
-        assert source.state == PluginState.CONNECTED
+        source._state = PluginState.ACTIVE
+        assert source.state == PluginState.ACTIVE
 
     def test_metadata_property_returns_copy(self):
         """Test metadata property returns a copy."""

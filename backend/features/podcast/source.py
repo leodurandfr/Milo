@@ -377,7 +377,7 @@ class PodcastSource(MpvAudioSource):
                 "ready": True
             }
 
-            self.set_state(PluginState.READY, self._metadata)
+            self.set_state(PluginState.WAITING, self._metadata)
 
             return self.success_response("Playback stopped")
 
@@ -443,7 +443,7 @@ class PodcastSource(MpvAudioSource):
 
     def _update_connection_state(self) -> None:
         """Update state based on playback."""
-        self._set_connected_or_ready(
+        self._set_active_or_waiting(
             bool(self._current_episode),
             {"current_episode": self._current_episode,
              "is_playing": self._is_playing, "is_buffering": self._is_buffering,
@@ -548,7 +548,7 @@ class PodcastSource(MpvAudioSource):
             self._duration = 0
 
             self.set_state(
-                PluginState.READY,
+                PluginState.WAITING,
                 {"episode_ended": True}
             )
 

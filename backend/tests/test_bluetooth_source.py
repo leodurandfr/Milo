@@ -248,17 +248,17 @@ class TestConnectionState:
         bluetooth_source.connected_device = None
         bluetooth_source._update_connection_state()
 
-        assert bluetooth_source.state == PluginState.READY
+        assert bluetooth_source.state == PluginState.WAITING
 
     def test_update_state_with_device(self, bluetooth_source):
-        """Test state is CONNECTED with device."""
+        """Test state is ACTIVE with device."""
         bluetooth_source.connected_device = {
             "address": "AA:BB:CC:DD:EE:FF",
             "name": "iPhone"
         }
         bluetooth_source._update_connection_state()
 
-        assert bluetooth_source.state == PluginState.CONNECTED
+        assert bluetooth_source.state == PluginState.ACTIVE
 
     @pytest.mark.asyncio
     async def test_on_device_connected(self, bluetooth_source):

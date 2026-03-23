@@ -502,7 +502,7 @@ class SpotifySource(BaseAudioSource):
 
     def _update_connection_state(self) -> None:
         """Update state based on device connection."""
-        self._set_connected_or_ready(
+        self._set_active_or_waiting(
             self._device_connected,
             {**self._metadata, "device_connected": True, "is_playing": self._is_playing},
             {"device_connected": False, "is_playing": False}

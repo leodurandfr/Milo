@@ -387,7 +387,7 @@ const clientName = computed(() => unifiedStore.systemState.metadata?.client_name
 
   .album-art-section.art-collapsed {
     /* Buttons absolute top (from connect-player) minus album-art offset (from now-playing padding) */
-    --btn-top: calc(max(var(--space-06), env(safe-area-inset-top, 0px)) + var(--space-02));
+    --btn-top: calc(max(var(--space-05), env(safe-area-inset-top, 0px)) + var(--space-04));
     --art-top: max(var(--space-05), env(safe-area-inset-top, 0px));
     --btn-height: 40px;
     --art-visible: calc(var(--btn-top) - var(--art-top) + var(--btn-height) + var(--space-04));

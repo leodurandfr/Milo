@@ -338,7 +338,7 @@ class BluetoothSource(BaseAudioSource):
     def _update_connection_state(self) -> None:
         """Update state based on connected device."""
         device = self.connected_device or {}
-        self._set_connected_or_ready(
+        self._set_active_or_waiting(
             self.connected_device is not None,
             {"device_connected": True, "device_name": device.get("name"),
              "device_address": device.get("address")},

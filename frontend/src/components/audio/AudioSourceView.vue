@@ -72,7 +72,7 @@ function handleDisconnect() {
 // === DECISION LOGIC ===
 const hasCompleteTrackInfo = computed(() => {
   return !!(
-    pluginState.value === 'connected' &&
+    pluginState.value === 'active' &&
     metadata.value?.title &&
     metadata.value?.artist
   );
@@ -80,7 +80,7 @@ const hasCompleteTrackInfo = computed(() => {
 
 const shouldShowSpotify = computed(() => {
   return activeSource.value === 'spotify' &&
-    pluginState.value === 'connected' &&
+    pluginState.value === 'active' &&
     hasCompleteTrackInfo.value &&
     !transitioning.value;
 });
@@ -97,13 +97,13 @@ const shouldShowPodcast = computed(() => {
 
 const shouldShowCD = computed(() => {
   return activeSource.value === 'cd' &&
-    pluginState.value === 'connected' &&
+    pluginState.value === 'active' &&
     !transitioning.value;
 });
 
 const shouldShowAirPlay = computed(() => {
   return activeSource.value === 'airplay' &&
-    pluginState.value === 'connected' &&
+    pluginState.value === 'active' &&
     hasCompleteTrackInfo.value &&
     !transitioning.value;
 });
@@ -122,17 +122,17 @@ const shouldShowPluginStatus = computed(() => {
 
   // Spotify without complete conditions
   if (activeSource.value === 'spotify') {
-    return !hasCompleteTrackInfo.value || pluginState.value !== 'connected';
+    return !hasCompleteTrackInfo.value || pluginState.value !== 'active';
   }
 
   // AirPlay without complete conditions
   if (activeSource.value === 'airplay') {
-    return !hasCompleteTrackInfo.value || pluginState.value !== 'connected';
+    return !hasCompleteTrackInfo.value || pluginState.value !== 'active';
   }
 
-  // CD: show status during starting/ready (not yet connected)
+  // CD: show status during starting/waiting (not yet active)
   if (activeSource.value === 'cd') {
-    return pluginState.value !== 'connected';
+    return pluginState.value !== 'active';
   }
 
   return false;
@@ -143,8 +143,8 @@ const currentPluginType = computed(() => activeSource.value);
 
 const rawPluginState = computed(() => {
   if (transitioning.value) return 'starting';
-  // CD: disc present but cache still loading (READY state, not yet CONNECTED)
-  if (activeSource.value === 'cd' && pluginState.value === 'ready' &&
+  // CD: disc present but cache still loading (WAITING state, not yet ACTIVE)
+  if (activeSource.value === 'cd' && pluginState.value === 'waiting' &&
       metadata.value?.disc_present && !metadata.value?.cache_ready) {
     return 'loading_disc';
   }

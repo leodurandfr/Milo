@@ -353,20 +353,20 @@ class TestConnectionState:
     """Test connection state management."""
 
     def test_update_state_no_device(self, spotify_source):
-        """Test state is READY with no device."""
+        """Test state is WAITING with no device."""
         spotify_source._device_connected = False
         spotify_source._update_connection_state()
 
-        assert spotify_source.state == PluginState.READY
+        assert spotify_source.state == PluginState.WAITING
 
     def test_update_state_with_device(self, spotify_source):
-        """Test state is CONNECTED with device."""
+        """Test state is ACTIVE with device."""
         spotify_source._device_connected = True
         spotify_source._is_playing = True
         spotify_source._metadata = {"title": "Test"}
         spotify_source._update_connection_state()
 
-        assert spotify_source.state == PluginState.CONNECTED
+        assert spotify_source.state == PluginState.ACTIVE
 
 
 class TestLibrespotWebSocket:

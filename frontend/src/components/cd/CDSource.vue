@@ -63,6 +63,7 @@ const albumTitle = computed(() =>
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
 
 .tracklist-header {
@@ -93,9 +94,9 @@ const albumTitle = computed(() =>
 @media (max-aspect-ratio: 4/3) {
   .action-buttons {
     position: absolute;
-    top: calc(max(var(--space-06), env(safe-area-inset-top, 0px)) + var(--space-02));
-    left: calc(var(--space-06) + var(--space-02));
-    right: calc(var(--space-06) + var(--space-02));
+    top: calc(max(var(--space-05), env(safe-area-inset-top, 0px)) + var(--space-04));
+    left: calc(var(--space-05) + var(--space-04));
+    right: calc(var(--space-05) + var(--space-04));
     z-index: 10;
   }
 

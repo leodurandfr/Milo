@@ -125,7 +125,7 @@ def mock_state_machine_for_ws(mock_volume_service):
     # Basic state
     sm.system_state = SystemAudioState(
         active_source=AudioSource.NONE,
-        plugin_state=PluginState.READY,
+        plugin_state=PluginState.WAITING,
         transitioning=False,
         metadata={},
         error=None,
@@ -137,7 +137,7 @@ def mock_state_machine_for_ws(mock_volume_service):
     sm.refresh_active_metadata = AsyncMock()
     sm.get_current_state = AsyncMock(return_value={
         "active_source": "none",
-        "plugin_state": "ready",
+        "plugin_state": "waiting",
         "transitioning": False,
         "metadata": {},
         "error": None,

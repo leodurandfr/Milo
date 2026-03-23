@@ -11,7 +11,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   // === SINGLE SYSTEM STATE ===
   const systemState = ref({
     active_source: 'none',
-    plugin_state: 'ready',
+    plugin_state: 'waiting',
     transitioning: false,
     metadata: {},
     error: null,

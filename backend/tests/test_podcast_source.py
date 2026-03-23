@@ -373,14 +373,14 @@ class TestConnectionState:
     """Test connection state management."""
 
     def test_update_state_no_episode(self, podcast_source):
-        """Test state is READY with no episode."""
+        """Test state is WAITING with no episode."""
         podcast_source._current_episode = None
         podcast_source._update_connection_state()
 
-        assert podcast_source.state == PluginState.READY
+        assert podcast_source.state == PluginState.WAITING
 
     def test_update_state_with_episode(self, podcast_source):
-        """Test state is CONNECTED with episode."""
+        """Test state is ACTIVE with episode."""
         podcast_source._current_episode = {"uuid": "test", "name": "Test"}
         podcast_source._is_playing = True
         podcast_source._position = 60
@@ -388,7 +388,7 @@ class TestConnectionState:
         podcast_source._podcast_data = Mock()
         podcast_source._update_connection_state()
 
-        assert podcast_source.state == PluginState.CONNECTED
+        assert podcast_source.state == PluginState.ACTIVE
 
 
 class TestPlaybackMetadata:

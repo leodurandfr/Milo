@@ -283,7 +283,7 @@ class AirPlaySource(BaseAudioSource):
             "title": "", "artist": "", "album": "",
             "album_art_url": "", "duration": 0, "position": 0,
         }
-        self._set_connected_or_ready(
+        self._set_active_or_waiting(
             self._device_connected,
             {**base_metadata, **self._metadata, "device_connected": True,
              "is_playing": self._is_playing, "client_name": self._client_name},

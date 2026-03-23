@@ -8,7 +8,7 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
  * @param {string} source - Audio source identifier (e.g. 'radio', 'podcast')
  * @param {Object} [options]
  * @param {number} [options.hideDelayMs=5000] - Delay before hiding the player after playback stops
- * @param {boolean} [options.hideOnReady=false] - Hide immediately when plugin_state becomes 'ready'
+ * @param {boolean} [options.hideOnReady=false] - Hide immediately when plugin_state becomes 'waiting'
  * @param {Function} [options.onHideTimeout] - Called when the hide timer fires (e.g. to stop backend playback)
  * @param {Function} [options.onFadeOutStart] - Called when shouldShowPlayer transitions true → false
  * @param {Function} [options.shouldStartTimer] - Custom predicate: (isPlaying, isBuffering) => boolean.
@@ -44,13 +44,13 @@ export function useSourcePlaybackVisibility(source, options = {}) {
     }
   }
 
-  // Show player when connected (with smooth entrance via double rAF)
+  // Show player when active (with smooth entrance via double rAF)
   watch(
     () => unifiedStore.systemState.plugin_state,
     (newState) => {
       const isActive = unifiedStore.systemState.active_source === source;
 
-      if (isActive && newState === 'connected') {
+      if (isActive && newState === 'active') {
         clearTimer();
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
@@ -60,7 +60,7 @@ export function useSourcePlaybackVisibility(source, options = {}) {
       } else if (
         hideOnReady &&
         isActive &&
-        newState === 'ready' &&
+        newState === 'waiting' &&
         shouldShowPlayer.value
       ) {
         clearTimer();
