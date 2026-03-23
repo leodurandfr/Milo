@@ -402,8 +402,7 @@ class CdDataService:
                 await f.write(json.dumps({"discs": self._cache}, ensure_ascii=False, indent=2))
                 await f.write("\n")
                 await f.flush()
-                fd = f.fileno()
-                await asyncio.to_thread(os.fsync, fd)
+                os.fsync(f.fileno())
 
             os.replace(temp_file, self._data_file)
 

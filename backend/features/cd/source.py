@@ -73,6 +73,18 @@ class CdSource(MpvAudioSource):
         self._stream_loaded = False
         self._cache_ready = False  # True when chapter offsets loaded = CD fully ready
 
+    def _reset_playback_state(self) -> None:
+        """Reset CD-specific playback fields (called by _do_restart)."""
+        super()._reset_playback_state()
+        self._current_track = None
+        self._track_position = 0
+        self._track_duration = 0
+        self._album_finished = False
+        self._is_paused = False
+        self._chapter_offsets = []
+        self._stream_loaded = False
+        self._cache_ready = False
+
     # =========================================================================
     # LIFECYCLE
     # =========================================================================
@@ -149,13 +161,7 @@ class CdSource(MpvAudioSource):
     async def _do_stop(self) -> bool:
         """Stop playback and service."""
         await self._cleanup()
-        self._current_track = None
-        self._track_position = 0
-        self._track_duration = 0
-        self._album_finished = False
-        self._chapter_offsets = []
-        self._stream_loaded = False
-        self._cache_ready = False
+        self._reset_playback_state()
         return await self._stop_service()
 
     async def _cleanup(self) -> None:
@@ -615,6 +621,7 @@ class CdSource(MpvAudioSource):
         self._album_finished = False
         self._stream_loaded = False
         self._cache_ready = False
+        self._chapter_offsets = []
 
     # =========================================================================
     # HELPERS
