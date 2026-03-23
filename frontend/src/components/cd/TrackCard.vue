@@ -16,7 +16,7 @@
     </div>
 
     <!-- Track title -->
-    <div class="track-title heading-4">{{ track.title }}</div>
+    <div class="track-title text-body">{{ track.title }}</div>
 
     <!-- Track duration -->
     <div class="track-duration text-mono-small">{{ formatDuration(track.duration) }}</div>
@@ -54,38 +54,26 @@ function formatDuration(seconds) {
   display: flex;
   align-items: center;
   gap: var(--space-03);
-  padding: var(--space-03) var(--space-04);
-  border-radius: var(--radius-04);
+  padding: var(--space-04) 0;
+  border-bottom: 1px solid var(--color-border);
   cursor: pointer;
-  transition: background-color var(--transition-fast), var(--transition-press);
+  transition: var(--transition-press);
 }
 
-.track-card:active {
-  background: var(--color-background-strong);
-}
-
-.track-card--current {
-  background: var(--color-background-strong);
-}
-
-.track-card--current .track-title {
-  color: var(--color-text);
+.track-card:last-child {
+  border-bottom: none;
 }
 
 .track-number {
   width: 28px;
   flex-shrink: 0;
   text-align: center;
-  color: var(--color-text-light);
-}
-
-.track-card--current .track-number {
-  color: var(--color-brand);
+  color: var(--color-text-secondary);
 }
 
 .track-title {
   flex: 1;
-  color: var(--color-text-secondary);
+  color: var(--color-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -93,7 +81,14 @@ function formatDuration(seconds) {
 
 .track-duration {
   flex-shrink: 0;
-  color: var(--color-text-light);
+  color: var(--color-text-secondary);
+}
+
+/* Current track: all text in brand color */
+.track-card--current .track-number,
+.track-card--current .track-title,
+.track-card--current .track-duration {
+  color: var(--color-brand);
 }
 
 /* Playing indicator animation */
