@@ -6,7 +6,8 @@
   "notification": {
     "connectionLostTitle": "Connessione persa",
     "connectionLostDescription": "Riconnessione automatica quando disponibile",
-    "backendErrorTitle": "Errore di sistema"
+    "backendErrorTitle": "Errore di sistema",
+    "commandFailed": "Comando fallito"
   },
   "settings": {
     "title": "Impostazioni Milō",

@@ -15,7 +15,8 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     transitioning: false,
     metadata: {},
     error: null,
-    multiroom_enabled: false
+    multiroom_enabled: false,
+    equalizer_effects_enabled: false
   });
 
   // === VOLUME STATE (unified structure) ===
@@ -36,19 +37,18 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   const isChangingSource = ref(false);
   const isSendingCommand = ref(false);
 
+  // Transient command error (set on sendCommand failure, consumed by App.vue)
+  const commandError = ref(null);
+
 
   // === AUDIO ACTIONS ===
   async function changeSource(source) {
     isChangingSource.value = true;
     try {
-      logger.store('unifiedAudio', 'changeSource', { source });
-      const response = await axios.post(`/api/audio/source/${source}`);
-      const success = response.data.status === 'success';
-      logger.api('POST', `/api/audio/source/${source}`, { status: response.status, success });
-      return success;
-    } catch (err) {
-      logger.error('store', 'Change source failed', { source, error: err.message });
-      return false;
+      return await apiCall('store', `Change source failed: ${source}`, async () => {
+        const response = await axios.post(`/api/audio/source/${source}`);
+        return response.data.status === 'success';
+      });
     } finally {
       isChangingSource.value = false;
     }
@@ -57,10 +57,14 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   async function sendCommand(source, command, data = {}) {
     isSendingCommand.value = true;
     try {
-      return await apiCall('store', `Command failed: ${source}/${command}`, async () => {
+      const success = await apiCall('store', `Command failed: ${source}/${command}`, async () => {
         const response = await axios.post(`/api/audio/control/${source}`, { command, data });
         return response.data.status === 'success';
       });
+      if (!success) {
+        commandError.value = { source, command };
+      }
+      return success;
     } finally {
       isSendingCommand.value = false;
     }
@@ -156,7 +160,8 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
         transitioning: result.data.transitioning,
         metadata: result.data.metadata || {},
         error: result.data.error || null,
-        multiroom_enabled: result.data.multiroom_enabled
+        multiroom_enabled: result.data.multiroom_enabled,
+        equalizer_effects_enabled: result.data.equalizer_effects_enabled
       };
     }
   }
@@ -209,6 +214,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     systemState,
     volumeState,
     showVolumeBar,
+    commandError,
 
     // Actions
     changeSource,

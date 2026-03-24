@@ -267,6 +267,21 @@ function dismissNotification() {
   currentError.value = null;
 }
 
+// Auto-show transient notification on command failure (play/pause/next/prev)
+let commandErrorTimer = null;
+watch(() => unifiedStore.commandError, (err) => {
+  if (!err) return;
+  unifiedStore.commandError = null;
+  if (commandErrorTimer) clearTimeout(commandErrorTimer);
+  const source = capitalize(err.source || 'audio');
+  currentError.value = { title: `${source} · ${t('notification.commandFailed')}`, detail: err.command };
+  commandErrorTimer = setTimeout(() => {
+    if (currentError.value?.detail === err.command) {
+      currentError.value = null;
+    }
+  }, 4000);
+});
+
 // === Sleep shield: wake screen on first touch ===
 let sleepShieldTimeout = null;
 let wakeInProgress = false;
