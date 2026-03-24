@@ -1,0 +1,23 @@
+[Unit]
+Description=Milo First Boot — Auto-detect server or client mode
+# Run after NetworkManager so ethernet can get an IP,
+# but before avahi-daemon to avoid hostname conflicts
+After=NetworkManager.service
+Before=avahi-daemon.socket avahi-daemon.service milo-backend.service milo-readiness.service
+# Only run if mode has not been configured yet
+ConditionPathExists=!/var/lib/milo/.mode-configured
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/milo-first-boot
+RemainAfterExit=no
+
+# Give enough time for network wait + mDNS probe + client setup
+TimeoutStartSec=120
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=milo-first-boot
+
+[Install]
+WantedBy=multi-user.target

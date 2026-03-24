@@ -21,19 +21,16 @@
         <div v-else :key="currentStep" class="setup-card__body">
           <LanguageStep v-if="currentStep === 1" v-model="wizardState.language" />
 
-          <ModeStep v-else-if="currentStep === 2" v-model="wizardState.mode" />
+          <NetworkStep v-else-if="currentStep === 2" v-model="wizardState.wifiSsid" :hotspot-active="settingsStore.hotspotActive" />
 
-          <NetworkStep v-else-if="currentStep === 3" v-model="wizardState.wifiSsid" :hotspot-active="settingsStore.hotspotActive" />
+          <AudioStep v-else-if="currentStep === 3" v-model="wizardState.audioId" :audio-cards="audioCards" />
 
-          <AudioStep v-else-if="currentStep === 4" v-model="wizardState.audioId" :audio-cards="audioCards" />
+          <ScreenStep v-else-if="currentStep === 4" v-model="wizardState.screenType" :screens="screens" />
 
-          <ScreenStep v-else-if="currentStep === 5" v-model="wizardState.screenType" :screens="screens" />
-
-          <SummaryStep v-else-if="currentStep === 6" :mode-label="selectedModeLabel"
+          <SummaryStep v-else-if="currentStep === 5"
             :language-code="wizardState.language" :language-label="selectedLanguageLabel"
             :audio-label="selectedAudioLabel" :screen-label="selectedScreenLabel"
-            :wifi-ssid="wizardState.wifiSsid" :is-rebooting="isRebooting" :error="error"
-            :is-client="isClientMode" />
+            :wifi-ssid="wizardState.wifiSsid" :is-rebooting="isRebooting" :error="error" />
         </div>
       </Transition>
 
@@ -43,7 +40,7 @@
           {{ t('setup.welcome.getStarted') }}
         </Button>
 
-        <Button v-else-if="currentStep === 3" variant="brand" :disabled="!wifiCountry || !wizardState.wifiSsid" @click="nextStep">
+        <Button v-else-if="currentStep === 2" variant="brand" :disabled="!wifiCountry || !wizardState.wifiSsid" @click="nextStep">
           {{ t('setup.continue') }}
         </Button>
 
@@ -72,7 +69,6 @@ import StepIndicator from './StepIndicator.vue';
 import WelcomeStep from './WelcomeStep.vue';
 import NetworkStep from './NetworkStep.vue';
 import LanguageStep from './LanguageStep.vue';
-import ModeStep from './ModeStep.vue';
 import AudioStep from './AudioStep.vue';
 import ScreenStep from './ScreenStep.vue';
 import SummaryStep from './SummaryStep.vue';
@@ -97,60 +93,35 @@ const screens = ref([]);
 
 // Wizard local state (not persisted until apply)
 const wizardState = reactive({
-  mode: 'server',
   wifiSsid: null,
   language: i18n.getCurrentLanguage() || 'english',
   audioId: 'none',
   screenType: 'none',
 });
 
-const isClientMode = computed(() => wizardState.mode === 'client');
+// All steps: 0=welcome, 1=language, 2=wifi, 3=audio, 4=screen, 5=summary
+const TOTAL_STEPS = 6;
 
-// Steps that are skipped in client mode (audio=4, screen=5)
-const skippedSteps = computed(() => isClientMode.value ? new Set([4, 5]) : new Set());
-
-// All steps: 0=welcome, 1=language, 2=mode, 3=wifi, 4=audio, 5=screen, 6=summary
-const TOTAL_STEPS = 7;
-
-// Ordered list of visible step indices
-const visibleSteps = computed(() => {
-  const steps = [];
-  for (let i = 0; i < TOTAL_STEPS; i++) {
-    if (!skippedSteps.value.has(i)) {
-      steps.push(i);
-    }
-  }
-  return steps;
-});
-
-// Position of current step within visible steps (1-based, excluding welcome)
-const stepIndex = computed(() => {
-  const idx = visibleSteps.value.indexOf(currentStep.value);
-  return idx >= 0 ? idx : 1;
-});
+// Position of current step (1-based, excluding welcome)
+const stepIndex = computed(() => currentStep.value);
 
 // Total indicator steps (excluding welcome)
-const totalIndicatorSteps = computed(() => visibleSteps.value.length - 1);
+const totalIndicatorSteps = computed(() => TOTAL_STEPS - 1);
 
-const isSummaryStep = computed(() => currentStep.value === 6);
+const isSummaryStep = computed(() => currentStep.value === 5);
 
 // Step titles from i18n
 const stepTitles = {
   1: 'setup.language.title',
-  2: 'setup.mode.title',
-  3: 'setup.wifi.title',
-  4: 'setup.audio.title',
-  5: 'setup.screen.title',
-  6: 'setup.summary.title',
+  2: 'setup.wifi.title',
+  3: 'setup.audio.title',
+  4: 'setup.screen.title',
+  5: 'setup.summary.title',
 };
 
 const stepTitle = computed(() => t(stepTitles[currentStep.value] || ''));
 
 // Computed labels for summary
-const selectedModeLabel = computed(() =>
-  t(isClientMode.value ? 'setup.mode.client' : 'setup.mode.server')
-);
-
 const selectedLanguageLabel = computed(() => {
   const lang = getAvailableLanguages().find(l => l.code === wizardState.language);
   return lang?.name || wizardState.language;
@@ -189,16 +160,14 @@ function handleApply() {
 }
 
 function nextStep() {
-  const idx = visibleSteps.value.indexOf(currentStep.value);
-  if (idx < visibleSteps.value.length - 1) {
-    currentStep.value = visibleSteps.value[idx + 1];
+  if (currentStep.value < TOTAL_STEPS - 1) {
+    currentStep.value++;
   }
 }
 
 function prevStep() {
-  const idx = visibleSteps.value.indexOf(currentStep.value);
-  if (idx > 0) {
-    currentStep.value = visibleSteps.value[idx - 1];
+  if (currentStep.value > 0) {
+    currentStep.value--;
     confirmReboot.value = false;
   }
 }
@@ -210,7 +179,6 @@ async function applySetup() {
 
   try {
     await axios.post('/api/setup/complete', {
-      mode: wizardState.mode,
       language: wizardState.language,
       audio_id: wizardState.audioId,
       screen_type: wizardState.screenType,

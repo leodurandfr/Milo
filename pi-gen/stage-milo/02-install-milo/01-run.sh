@@ -321,6 +321,13 @@ chmod +x /usr/local/bin/milo-set-wifi-country
 cp /home/milo/milo/rootfs/usr/local/bin/milo-brightness-7 /usr/local/bin/
 chmod +x /usr/local/bin/milo-brightness-7
 
+# First-boot auto-detection (server vs client mode)
+cp /home/milo/milo/rootfs/usr/local/bin/milo-first-boot /usr/local/bin/
+chmod +x /usr/local/bin/milo-first-boot
+
+cp /home/milo/milo/rootfs/usr/local/bin/milo-mdns-probe /usr/local/bin/
+chmod +x /usr/local/bin/milo-mdns-probe
+
 # milo-client scripts
 if [ -d /home/milo/milo/milo-client/rootfs/usr/local/bin ]; then
     for script in /home/milo/milo/milo-client/rootfs/usr/local/bin/*; do

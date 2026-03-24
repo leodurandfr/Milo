@@ -1,0 +1,203 @@
+#!/bin/bash
+# milo-first-boot — Auto-detect device mode on first boot.
+#
+# Runs before avahi-daemon to avoid mDNS hostname conflicts.
+# If milo.local already exists on the network → configure as client.
+# Otherwise → continue normal boot (wizard will appear for server setup).
+#
+# Must be run as root (systemd service).
+
+set -euo pipefail
+
+SENTINEL="/var/lib/milo/.mode-configured"
+MILO_DATA_DIR="/var/lib/milo"
+MILO_APP_DIR="/home/milo/milo"
+
+MILO_CLIENT_USER="milo-client"
+MILO_CLIENT_HOME="/home/$MILO_CLIENT_USER"
+MILO_CLIENT_DATA_DIR="/var/lib/milo-client"
+
+log() { echo "[milo-first-boot] $1"; }
+
+# Already configured — nothing to do
+if [[ -f "$SENTINEL" ]]; then
+    exit 0
+fi
+
+# =============================================================================
+# Check for ethernet connection
+# =============================================================================
+
+has_ethernet_carrier() {
+    # Quick check: is an ethernet cable physically plugged in?
+    for iface in /sys/class/net/eth* /sys/class/net/end*; do
+        if [[ -f "$iface/carrier" ]] && [[ "$(cat "$iface/carrier" 2>/dev/null)" == "1" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+wait_for_ethernet_ip() {
+    # Ethernet carrier is present — wait for DHCP to assign an IP (max 15s)
+    local max_wait=15
+    local waited=0
+
+    while (( waited < max_wait )); do
+        for iface in /sys/class/net/eth* /sys/class/net/end*; do
+            if [[ -f "$iface/carrier" ]] && [[ "$(cat "$iface/carrier" 2>/dev/null)" == "1" ]]; then
+                local name
+                name=$(basename "$iface")
+                if ip -4 addr show "$name" 2>/dev/null | grep -q "inet "; then
+                    log "Network ready on $name"
+                    return 0
+                fi
+            fi
+        done
+
+        sleep 1
+        waited=$((waited + 1))
+    done
+
+    log "Ethernet carrier present but no IP after ${max_wait}s"
+    return 1
+}
+
+# =============================================================================
+# Configure as milo-client
+# =============================================================================
+
+configure_client() {
+    log "Configuring as milo-client..."
+
+    # 1. Set hostname
+    hostnamectl set-hostname milo-client
+    echo "milo-client" > /etc/hostname
+    if grep -q "127.0.1.1" /etc/hosts; then
+        sed -i "s/127.0.1.1.*/127.0.1.1\tmilo-client/" /etc/hosts
+    else
+        echo -e "127.0.1.1\tmilo-client" >> /etc/hosts
+    fi
+    log "Hostname set to milo-client"
+
+    # 2. Create milo-client user
+    if ! id "$MILO_CLIENT_USER" &>/dev/null; then
+        useradd -m -s /bin/bash -G audio,sudo "$MILO_CLIENT_USER"
+        log "User $MILO_CLIENT_USER created"
+    fi
+
+    # 3. Set up repo structure (symlink to pre-installed files)
+    # chown BEFORE creating symlinks to avoid traversing into shared source tree
+    local repo_dir="$MILO_CLIENT_HOME/repo"
+    mkdir -p "$repo_dir"
+    chown -R "$MILO_CLIENT_USER:audio" "$MILO_CLIENT_HOME"
+    ln -sfn "$MILO_APP_DIR/milo-client" "$repo_dir/milo-client"
+    chown -h "$MILO_CLIENT_USER:audio" "$repo_dir/milo-client"
+    log "Repo structure linked"
+
+    # 4. Set up venv (symlink to pre-built venv)
+    ln -sfn "$MILO_APP_DIR/milo-client/venv" "$MILO_CLIENT_HOME/venv"
+    chown -h "$MILO_CLIENT_USER:audio" "$MILO_CLIENT_HOME/venv"
+    log "Venv linked"
+
+    # 5. Create data directory with env and hardware config
+    mkdir -p "$MILO_CLIENT_DATA_DIR"
+
+    cat > "$MILO_CLIENT_DATA_DIR/env" << 'EOF'
+MILO_PRINCIPAL_IP=milo.local
+MILO_CLIENT_DSP_ENABLED=false
+EOF
+
+    cat > "$MILO_CLIENT_DATA_DIR/hardware.json" << 'EOF'
+{
+  "audio": {
+    "id": "none"
+  }
+}
+EOF
+
+    chown -R "$MILO_CLIENT_USER:audio" "$MILO_CLIENT_DATA_DIR"
+    log "Client data directory created"
+
+    # 6. Set up CamillaDSP config
+    mkdir -p "$MILO_CLIENT_DATA_DIR/camilladsp/configs"
+    if [[ -f "$MILO_APP_DIR/milo-client/configs/camilladsp/config.yml" ]]; then
+        cp "$MILO_APP_DIR/milo-client/configs/camilladsp/config.yml" \
+            "$MILO_CLIENT_DATA_DIR/camilladsp/config.yml"
+        chown -R "$MILO_CLIENT_USER:$MILO_CLIENT_USER" "$MILO_CLIENT_DATA_DIR/camilladsp"
+    fi
+    log "CamillaDSP config deployed"
+
+    # 7. Disable server-only services
+    local server_services=(
+        milo-backend
+        milo-kiosk
+        milo-readiness
+        milo-bluealsa
+        milo-bluealsa-aplay
+        milo-camilladsp
+        nginx
+    )
+    for svc in "${server_services[@]}"; do
+        systemctl disable "$svc.service" 2>/dev/null || true
+    done
+    log "Server services disabled"
+
+    # 8. Enable client services
+    local client_services=(
+        milo-client
+        milo-client-snapclient
+        milo-client-camilladsp
+    )
+    for svc in "${client_services[@]}"; do
+        systemctl enable "$svc.service" 2>/dev/null || log "Warning: could not enable $svc"
+    done
+    log "Client services enabled"
+
+    # 9. Write settings.json with setup_completed so wizard doesn't appear
+    cat > "$MILO_DATA_DIR/settings.json" << 'EOF'
+{
+  "setup_completed": true,
+  "mode": "client"
+}
+EOF
+    chown milo:milo "$MILO_DATA_DIR/settings.json"
+
+    log "Client configuration complete — rebooting"
+    touch "$SENTINEL"
+    /sbin/reboot
+}
+
+# =============================================================================
+# Main
+# =============================================================================
+
+log "First boot detected — checking for ethernet..."
+
+# No ethernet cable → server mode, exit immediately (no delay for hotspot)
+if ! has_ethernet_carrier; then
+    log "No ethernet cable — server mode (wizard will appear)"
+    touch "$SENTINEL"
+    exit 0
+fi
+
+# Ethernet cable present → could be server or client, need to check
+log "Ethernet detected — waiting for IP then probing for existing Milo..."
+
+if ! wait_for_ethernet_ip; then
+    log "No IP obtained — server mode (wizard will appear)"
+    touch "$SENTINEL"
+    exit 0
+fi
+
+# Small delay to let the network fully settle
+sleep 2
+
+# Probe for milo.local via raw mDNS (avahi is not running yet)
+if /usr/bin/python3 /usr/local/bin/milo-mdns-probe milo 10; then
+    configure_client
+else
+    log "No existing Milo found — server mode (wizard will appear)"
+    touch "$SENTINEL"
+    exit 0
+fi
