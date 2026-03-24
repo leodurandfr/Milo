@@ -11,6 +11,7 @@ CHROOT
 # ── Enable boot services ─────────────────────────────────────────────────────
 
 on_chroot << 'CHROOT'
+systemctl enable milo-first-boot.service
 systemctl enable milo-backend.service
 systemctl enable milo-readiness.service
 systemctl enable milo-kiosk.service
@@ -38,7 +39,7 @@ systemctl disable shairport-sync.service 2>/dev/null || true
 systemctl disable bluealsa-aplay.service 2>/dev/null || true
 systemctl disable bluealsa.service 2>/dev/null || true
 
-# milo-client services are not enabled by default (setup wizard handles mode selection)
+# milo-client services are not enabled by default (milo-first-boot auto-detects mode)
 systemctl disable milo-client.service 2>/dev/null || true
 systemctl disable milo-client-snapclient.service 2>/dev/null || true
 systemctl disable milo-client-camilladsp.service 2>/dev/null || true

@@ -6,14 +6,6 @@
       {{ t('setup.summary.accessHint', { ssid: wifiSsid }) }}
     </div>
 
-    <!-- Mode -->
-    <div class="summary-item">
-      <span class="text-mono summary-item__label">{{ t('setup.summary.mode') }}</span>
-      <div class="summary-item__card">
-        <span class="heading-3">{{ modeLabel }}</span>
-      </div>
-    </div>
-
     <!-- Network -->
     <div class="summary-item">
       <span class="text-mono summary-item__label">{{ t('setup.summary.network') }}</span>
@@ -31,16 +23,16 @@
       </div>
     </div>
 
-    <!-- Audio card (server only) -->
-    <div v-if="!isClient" class="summary-item">
+    <!-- Audio card -->
+    <div class="summary-item">
       <span class="text-mono summary-item__label">{{ t('setup.summary.audioCard') }}</span>
       <div class="summary-item__card">
         <span class="heading-3">{{ audioLabel }}</span>
       </div>
     </div>
 
-    <!-- Screen (server only) -->
-    <div v-if="!isClient" class="summary-item">
+    <!-- Screen -->
+    <div class="summary-item">
       <span class="text-mono summary-item__label">{{ t('setup.summary.screen') }}</span>
       <div class="summary-item__card">
         <span class="heading-3">{{ screenLabel }}</span>
@@ -82,14 +74,6 @@ const flagIcons = {
 const { t } = useI18n();
 
 const props = defineProps({
-  modeLabel: {
-    type: String,
-    default: '',
-  },
-  isClient: {
-    type: Boolean,
-    default: false,
-  },
   wifiSsid: {
     type: String,
     default: null,
