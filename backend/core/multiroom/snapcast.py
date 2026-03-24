@@ -42,14 +42,18 @@ class SnapcastService:
 
         try:
             timeout = aiohttp.ClientTimeout(total=3)
+            start = time.time()
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(self.base_url, json=request) as response:
+                    elapsed = (time.time() - start) * 1000
                     if response.status == 200:
                         data = await response.json()
+                        if elapsed > 500:
+                            self.logger.warning(f"SNAPCAST_SLOW: {method} took {elapsed:.0f}ms")
                         return data.get("result", {})
             return {}
         except Exception as e:
-            self.logger.warning(f"Snapcast request failed: {type(e).__name__}: {e}")
+            self.logger.warning(f"Snapcast request failed: {method} - {type(e).__name__}: {e}")
             return {}
 
     # === CLIENT COMMANDS ===
@@ -65,10 +69,13 @@ class SnapcastService:
                 current_muted = client["muted"]
                 break
 
+        self.logger.info(f"SNAPCAST_SET_VOLUME: client={client_id}, volume={volume}%, muted={current_muted}")
         result = await self._request("Client.SetVolume", {
             "id": client_id,
             "volume": {"percent": max(0, min(100, volume)), "muted": current_muted}
         })
+        if not result:
+            self.logger.warning(f"SNAPCAST_SET_VOLUME: Failed for client={client_id}")
         return bool(result)
 
     @handle_errors(default=False)

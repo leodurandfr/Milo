@@ -503,7 +503,9 @@ class VolumeService:
         """Internal push implementation (called under _push_lock)."""
         client_ids = await get_online_client_ids(self.snapcast_service)
         if not client_ids:
+            self.logger.warning("PUSH_VOLUME: No online clients found — nothing to push")
             return True
+        self.logger.info(f"PUSH_VOLUME: Found {len(client_ids)} online clients: {client_ids}")
 
         # Build volume updates
         updates = {}
@@ -538,9 +540,17 @@ class VolumeService:
 
         # Apply volumes and update state store
         results = await self._equalizer_controller.apply_volumes_parallel(updates)
+        succeeded = [h for h, ok in results.items() if ok]
+        failures = [h for h, ok in results.items() if not ok]
+
         for hostname, volume in updates.items():
             if results.get(hostname, False):
                 await self._state_store.set_client_volume(hostname, volume)
+
+        if succeeded:
+            self.logger.info(f"PUSH_VOLUME: Succeeded for {len(succeeded)} clients: {succeeded}")
+        if failures:
+            self.logger.warning(f"PUSH_VOLUME: FAILED for {len(failures)} clients: {failures} — these clients may be desynchronized")
 
         # Apply persisted mute states
         for cid in client_ids:
@@ -548,13 +558,9 @@ class VolumeService:
                 try:
                     await self._equalizer_controller.set_equalizer_mute(cid, self._state_store.get_client_mute(cid))
                 except Exception as e:
-                    self.logger.warning(f"Failed to apply mute to {cid}: {e}")
+                    self.logger.warning(f"PUSH_VOLUME: Failed to apply mute to {cid}: {e}")
 
         await self._broadcast_volume_state(show_bar=False)
-
-        failures = [h for h, ok in results.items() if not ok]
-        if failures:
-            self.logger.warning(f"Failed to push volume to: {failures}")
         return len(failures) == 0
 
     @handle_errors(default=None)

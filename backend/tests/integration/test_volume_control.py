@@ -487,8 +487,9 @@ class TestVolumeLimits:
         - Custom max limit is applied
         - Volume is clamped to custom limit
         """
-        # Update limits to custom values
-        custom_config = VolumeConfig(limit_min_db=-60.0, limit_max_db=-25.0)
+        # Update limits to custom values (disable restore_last_volume to prevent
+        # _update_startup_volume_if_needed from reloading config from settings)
+        custom_config = VolumeConfig(limit_min_db=-60.0, limit_max_db=-25.0, restore_last_volume=False)
         volume_service._volume_config = custom_config
         volume_service._state_store.set_volume_config(custom_config)
 

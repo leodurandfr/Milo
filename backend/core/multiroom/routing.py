@@ -468,12 +468,12 @@ class AudioRoutingService:
 
         # Wait for WebSocket readiness
         if enabled and self.snapcast_websocket_service:
-            self.logger.info("Waiting for Snapcast WebSocket to be ready...")
+            self.logger.info("POST_TRANSITION: Waiting for Snapcast WebSocket to be ready...")
             ws_ready = await self.snapcast_websocket_service.wait_for_ready(timeout=15.0)
             if ws_ready:
-                self.logger.info("Snapcast WebSocket is ready")
+                self.logger.info("POST_TRANSITION: Snapcast WebSocket is ready")
             else:
-                self.logger.warning("Snapcast WebSocket not ready after timeout, proceeding anyway")
+                self.logger.warning("POST_TRANSITION: Snapcast WebSocket NOT ready after 15s timeout — volume sync may fail")
 
         # Update volume mode and push to clients
         if self.state_machine:
@@ -483,9 +483,11 @@ class AudioRoutingService:
 
             if enabled:
                 if self.volume_service and target_volume is not None:
-                    self.logger.info(f"Pushing volume ({target_volume:.1f}dB) to all clients...")
-                    await self.volume_service.push_volume_to_all_clients(target_volume)
-                self.logger.info("Broadcasting multiroom_ready event")
+                    self.logger.info(f"POST_TRANSITION: Pushing volume ({target_volume:.1f}dB) to all clients...")
+                    push_ok = await self.volume_service.push_volume_to_all_clients(target_volume)
+                    if not push_ok:
+                        self.logger.warning(f"POST_TRANSITION: push_volume_to_all_clients returned failure")
+                self.logger.info("POST_TRANSITION: Broadcasting multiroom_ready event")
                 await self.state_machine.broadcast_event("routing", "multiroom_ready", {})
 
         # Persist setting
