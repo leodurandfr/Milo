@@ -122,6 +122,9 @@ CHROOT
 on_chroot << 'CHROOT'
 # Consolidated sudoers for the milo backend service
 tee /etc/sudoers.d/milo-backend > /dev/null << 'EOF'
+# Suppress PAM session logs (noisy in journalctl)
+Defaults:milo !syslog
+
 # System control (used by SystemdServiceManager and api/system.py)
 milo ALL=(root) NOPASSWD: /usr/bin/systemctl
 milo ALL=(root) NOPASSWD: /usr/bin/hostnamectl

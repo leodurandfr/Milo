@@ -483,6 +483,9 @@ install_apply_hardware_script() {
 
     # Consolidated sudoers for all backend sudo operations
     sudo tee /etc/sudoers.d/milo-backend > /dev/null << 'EOF'
+# Suppress PAM session logs (noisy in journalctl)
+Defaults:milo !syslog
+
 # System control (used by SystemdServiceManager and api/system.py)
 milo ALL=(root) NOPASSWD: /usr/bin/systemctl
 milo ALL=(root) NOPASSWD: /usr/bin/hostnamectl
