@@ -439,9 +439,13 @@ class AudioRoutingService:
             self._get_multiroom_enabled, set_multiroom_with_env,
             enabled, "multiroom", body,
         )
-        # Broadcast final state after successful transition
-        if success and self.state_machine:
-            await self.state_machine.update_multiroom_state(enabled)
+        if self.state_machine:
+            if success:
+                await self.state_machine.update_multiroom_state(enabled)
+            else:
+                await self.state_machine.broadcast_event("routing", "multiroom_error", {
+                    "error": f"Failed to {'enable' if enabled else 'disable'} multiroom",
+                })
         return success
 
     async def _broadcast_transition_event(self, enabled: bool) -> None:

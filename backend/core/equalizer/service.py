@@ -528,7 +528,6 @@ class CamillaDSPService:
             return False
         await self._run(lambda: self._client.volume.set_main_mute(muted))
         self._volume["mute"] = muted
-        await self._broadcast_event("mute_changed", {"muted": muted})
         return True
 
     # === Pipeline Management ===

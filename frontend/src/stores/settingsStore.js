@@ -20,12 +20,12 @@ export const useSettingsStore = defineStore('settings', () => {
   // === VOLUME (all values in dB) ===
   const volumeLimits = ref({
     min_db: -80.0,
-    max_db: -21.0
+    max_db: -20.0
   });
 
   const volumeStartup = ref({
-    startup_volume_db: -60.0,
-    restore_last_volume: false
+    startup_volume_db: -45.0,
+    restore_last_volume: true
   });
 
   // Note: step_mobile_db is in unifiedAudioStore.volumeState (single source of truth)
@@ -101,7 +101,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
   const screenTimeout = ref({
     screen_timeout_enabled: true,
-    screen_timeout_seconds: 10
+    screen_timeout_seconds: 120
   });
 
   const screenBrightness = ref({
@@ -110,7 +110,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
   const screenScreensaver = ref({
     screensaver_enabled: true,
-    screensaver_delay_seconds: 30
+    screensaver_delay_seconds: 120
   });
 
   const screenUiScale = ref({
@@ -147,12 +147,12 @@ export const useSettingsStore = defineStore('settings', () => {
 
         volumeLimits.value = {
           min_db: d.volume_limits?.min_db ?? -80.0,
-          max_db: d.volume_limits?.max_db ?? -21.0
+          max_db: d.volume_limits?.max_db ?? -20.0
         };
 
         volumeStartup.value = {
-          startup_volume_db: d.volume_startup?.startup_volume_db ?? -30.0,
-          restore_last_volume: d.volume_startup?.restore_last_volume ?? false
+          startup_volume_db: d.volume_startup?.startup_volume_db ?? -45.0,
+          restore_last_volume: d.volume_startup?.restore_last_volume ?? true
         };
 
         volumeSteps.value.step_rotary_db = d.rotary_steps?.step_rotary_db ?? 2.0;
@@ -190,7 +190,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
         screenTimeout.value = {
           screen_timeout_enabled: d.screen_timeout?.screen_timeout_enabled ?? true,
-          screen_timeout_seconds: d.screen_timeout?.screen_timeout_seconds ?? 10
+          screen_timeout_seconds: d.screen_timeout?.screen_timeout_seconds ?? 120
         };
 
         screenBrightness.value = {
@@ -199,7 +199,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
         screenScreensaver.value = {
           screensaver_enabled: d.screen_screensaver?.screensaver_enabled ?? true,
-          screensaver_delay_seconds: d.screen_screensaver?.screensaver_delay_seconds ?? 30
+          screensaver_delay_seconds: d.screen_screensaver?.screensaver_delay_seconds ?? 120
         };
 
         screenUiScale.value = {

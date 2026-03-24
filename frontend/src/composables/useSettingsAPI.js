@@ -16,7 +16,10 @@ export function useSettingsAPI() {
    */
   async function updateSetting(endpoint, payload) {
     try {
-      await axios.put(`/api/settings/${endpoint}`, payload);
+      const response = await axios.put(`/api/settings/${endpoint}`, payload);
+      if (response.data?.reload_success === false) {
+        logger.warn('api', `Setting ${endpoint} saved but runtime reload failed`);
+      }
     } catch (error) {
       logger.error('api', `Error updating ${endpoint}`, error);
       throw error;
@@ -36,7 +39,10 @@ export function useSettingsAPI() {
     }
 
     const timer = setTimeout(() => {
-      updateSetting(endpoint, payload);
+      updateSetting(endpoint, payload).catch(() => {
+        // Error already logged by updateSetting — silenced here to avoid
+        // unhandled promise rejection in the timer callback.
+      });
       debounceTimers.delete(key);
     }, delay);
 

@@ -262,7 +262,7 @@ function formatGitVersion(version) {
 }
 
 const { t } = useI18n();
-const { on } = useWebSocket();
+const { on, onReconnect } = useWebSocket();
 const unifiedStore = useUnifiedAudioStore();
 const multiroomStore = useMultiroomStore();
 const settingsStore = useSettingsStore();
@@ -541,6 +541,12 @@ onMounted(async () => {
   // Register WebSocket listeners first so no events are missed during loading
   Object.entries(wsListeners).forEach(([eventType, handler]) => {
     on('programs', eventType, handler);
+  });
+
+  // Re-sync state after WS reconnect (prevents stuck update buttons if events were missed)
+  onReconnect(() => {
+    loadLocalPrograms();
+    if (isMultiroomEnabled.value) loadSatellites();
   });
 
   const tasks = [loadLocalPrograms()];
