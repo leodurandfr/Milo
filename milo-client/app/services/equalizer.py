@@ -85,6 +85,11 @@ class EqualizerService:
         return CAMILLADSP_AVAILABLE
 
     @property
+    def equalizer_enabled(self) -> bool:
+        """Returns equalizer effects enabled state."""
+        return self._equalizer_enabled
+
+    @property
     def compressor(self) -> Dict[str, Any]:
         """Returns compressor state."""
         return self._compressor
@@ -448,7 +453,7 @@ class EqualizerService:
                         del config["filters"][name]
                     self._remove_filter_from_pipeline(config, name)
 
-            await self._exec(lambda: self._client.config.set_active(config))
+            await self._apply_config(config)
             return True
         except Exception as e:
             self.logger.error(f"Error setting loudness: {e}")
@@ -495,7 +500,7 @@ class EqualizerService:
                     del config["filters"]["delay_right"]
                 self._remove_filter_from_pipeline(config, "delay_right")
 
-            await self._exec(lambda: self._client.config.set_active(config))
+            await self._apply_config(config)
             return True
         except Exception as e:
             self.logger.error(f"Error setting delay: {e}")

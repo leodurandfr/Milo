@@ -624,6 +624,7 @@ class AudioRoutingService:
                     start_success = await plugin.start()
                     if not start_success:
                         self.logger.error(f"Plugin {active_source.value} start failed after {mode_label} transition")
+                        return False
 
             return True
 
