@@ -408,7 +408,9 @@ class SnapcastWebSocketService:
                 self.logger.warning("SnapcastService not available for online status detection")
                 return
 
+            self.logger.info("SERVER_UPDATE: Fetching client list from Snapcast...")
             all_clients = await self._snapcast_service.get_clients()
+            self.logger.info(f"SERVER_UPDATE: Got {len(all_clients)} clients from Snapcast")
             current_mac_ids = {c["mac_id"] for c in all_clients}
             known_mac_ids = set(self.registry.get_client_ids()) if self.registry else set()
 
@@ -546,6 +548,11 @@ class SnapcastWebSocketService:
             # will set online via set_online_after=True when hardware confirms.
             if sync_status.get("volume_synced") and self.registry:
                 await self.registry.set_client_online(mac_id, True)
+            elif not sync_status.get("volume_synced"):
+                self.logger.warning(
+                    f"CLIENT_CONNECT: {mac_id} volume sync FAILED — client stays offline until retry succeeds "
+                    f"(context: {sync_status.get('context', 'unknown')})"
+                )
 
             # Crossover recalculation is handled by CrossoverService._handle_registry_event
             # via CLIENT_CONNECTED event emitted by set_client_online()
@@ -1140,13 +1147,22 @@ class SnapcastWebSocketService:
                         await self._volume_service._broadcast_volume_state(show_bar=False)
                     self.logger.info(f"SYNC_RECONNECT: {mac_id} synced to {target_volume:.1f} dB (attempt {attempt + 1})")
                     return True
+                else:
+                    self.logger.warning(
+                        f"SYNC_RECONNECT: {mac_id} hardware apply returned False "
+                        f"(attempt {attempt + 1}/{max_retries + 1})"
+                    )
             except Exception as e:
                 self.logger.warning(f"SYNC_RECONNECT: {mac_id} attempt {attempt + 1} failed: {e}")
 
             if attempt < max_retries:
+                self.logger.info(f"SYNC_RECONNECT: {mac_id} retrying in {retry_delay}s...")
                 await asyncio.sleep(retry_delay)
 
-        self.logger.warning(f"SYNC_RECONNECT: {mac_id} failed after {max_retries + 1} attempts")
+        self.logger.warning(
+            f"SYNC_RECONNECT: {mac_id} GAVE UP after {max_retries + 1} attempts — "
+            f"client may be desynchronized (target was {target_volume:.1f} dB)"
+        )
         return False
 
     async def _broadcast_snapcast_event(self, event_type: str, data: Dict[str, Any]) -> None:

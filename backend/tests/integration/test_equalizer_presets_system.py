@@ -473,9 +473,9 @@ class TestAC4PresetsList:
     """AC4: GET /api/equalizer/presets returns 21 builtin + Custom"""
 
     def test_builtin_presets_count(self):
-        """Should have exactly 21 builtin presets"""
+        """Should have exactly 22 builtin presets"""
         presets = get_builtin_presets()
-        assert len(presets) == 21, f"Expected 21 builtin presets, got {len(presets)}"
+        assert len(presets) == 22, f"Expected 22 builtin presets, got {len(presets)}"
 
     def test_all_presets_have_10_gains(self):
         """Each preset should have exactly 10 gain values"""
@@ -531,7 +531,7 @@ class TestAC4PresetsList:
         active = await connected_camilladsp_service.get_active_preset()
         custom = await connected_camilladsp_service.get_custom_gains()
 
-        assert len(presets) == 21
+        assert len(presets) == 22
         assert active == "rock"
         assert custom == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 

@@ -138,7 +138,7 @@ class TestEqualizerController:
         result = await controller.set_equalizer_volume("local", -25.0)
 
         assert result is True
-        mock_router.set_volume.assert_called_once_with("local", -25.0)
+        mock_router.set_volume.assert_called_once_with("local", -25.0, force=False)
 
     @pytest.mark.asyncio
     async def test_set_volume_remote_delegates_to_router(self, controller, mock_router):
@@ -146,7 +146,7 @@ class TestEqualizerController:
         result = await controller.set_equalizer_volume("milo-client-01", -27.0)
 
         assert result is True
-        mock_router.set_volume.assert_called_once_with("milo-client-01", -27.0)
+        mock_router.set_volume.assert_called_once_with("milo-client-01", -27.0, force=False)
 
     @pytest.mark.asyncio
     async def test_set_volume_no_router(self, mock_camilladsp_service, mock_proxy_service):
@@ -161,7 +161,7 @@ class TestEqualizerController:
         result = await controller.set_equalizer_mute("local", True)
 
         assert result is True
-        mock_router.set_mute.assert_called_once_with("local", True)
+        mock_router.set_mute.assert_called_once_with("local", True, force=False)
 
     @pytest.mark.asyncio
     async def test_read_current_volume(self, controller, mock_router):

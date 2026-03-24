@@ -75,12 +75,32 @@ class TestSnapcastDetectionIntegration:
 
     @pytest.fixture
     def ws_service(self, mock_state_machine, mock_routing_service, registry):
-        """Create a SnapcastWebSocketService."""
+        """Create a SnapcastWebSocketService with mocked volume/snapcast services."""
         service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
             routing_service=mock_routing_service
         )
         service.set_registry(registry)
+
+        # Mock snapcast service so volume sync succeeds
+        mock_snapcast = MagicMock()
+        mock_snapcast.set_volume = AsyncMock(return_value=True)
+        mock_snapcast.get_clients = AsyncMock(return_value=[])
+        service._snapcast_service = mock_snapcast
+
+        # Mock volume service so _apply_target_volume_to_client succeeds
+        mock_volume_service = MagicMock()
+        mock_volume_service._state_store = MagicMock()
+        mock_volume_service._state_store.set_client_volume = AsyncMock()
+        mock_volume_service._state_store.get_client_mute = MagicMock(return_value=False)
+        mock_volume_service._equalizer_controller = MagicMock()
+        mock_volume_service._equalizer_controller.set_equalizer_volume = AsyncMock(return_value=True)
+        mock_volume_service._equalizer_controller.set_equalizer_mute = AsyncMock()
+        mock_volume_service._broadcast_volume_state = AsyncMock()
+        mock_volume_service.volume_config = MagicMock()
+        mock_volume_service.volume_config.startup_volume_db = DEFAULT_VOLUME_DB
+        service._volume_service = mock_volume_service
+
         return service
 
     # === End-to-End Flow Tests ===

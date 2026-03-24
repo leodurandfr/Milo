@@ -2171,6 +2171,24 @@ class TestSnapcastClientDetection:
         )
         ws_service.set_registry(registry)
 
+        # Mock snapcast and volume services so volume sync succeeds
+        mock_snapcast = MagicMock()
+        mock_snapcast.set_volume = AsyncMock(return_value=True)
+        mock_snapcast.get_clients = AsyncMock(return_value=[])
+        ws_service._snapcast_service = mock_snapcast
+
+        mock_volume_service = MagicMock()
+        mock_volume_service._state_store = MagicMock()
+        mock_volume_service._state_store.set_client_volume = AsyncMock()
+        mock_volume_service._state_store.get_client_mute = MagicMock(return_value=False)
+        mock_volume_service._equalizer_controller = MagicMock()
+        mock_volume_service._equalizer_controller.set_equalizer_volume = AsyncMock(return_value=True)
+        mock_volume_service._equalizer_controller.set_equalizer_mute = AsyncMock()
+        mock_volume_service._broadcast_volume_state = AsyncMock()
+        mock_volume_service.volume_config = MagicMock()
+        mock_volume_service.volume_config.startup_volume_db = -45.0
+        ws_service._volume_service = mock_volume_service
+
         # Simulate Client.OnConnect params (with MAC address as required)
         params = {
             "client": {
@@ -2306,6 +2324,24 @@ class TestSnapcastClientDetection:
             routing_service=MagicMock()
         )
         ws_service.set_registry(registry)
+
+        # Mock snapcast and volume services so volume sync succeeds
+        mock_snapcast = MagicMock()
+        mock_snapcast.set_volume = AsyncMock(return_value=True)
+        mock_snapcast.get_clients = AsyncMock(return_value=[])
+        ws_service._snapcast_service = mock_snapcast
+
+        mock_volume_service = MagicMock()
+        mock_volume_service._state_store = MagicMock()
+        mock_volume_service._state_store.set_client_volume = AsyncMock()
+        mock_volume_service._state_store.get_client_mute = MagicMock(return_value=False)
+        mock_volume_service._equalizer_controller = MagicMock()
+        mock_volume_service._equalizer_controller.set_equalizer_volume = AsyncMock(return_value=True)
+        mock_volume_service._equalizer_controller.set_equalizer_mute = AsyncMock()
+        mock_volume_service._broadcast_volume_state = AsyncMock()
+        mock_volume_service.volume_config = MagicMock()
+        mock_volume_service.volume_config.startup_volume_db = DEFAULT_VOLUME_DB
+        ws_service._volume_service = mock_volume_service
 
         # New client never seen before (with MAC address as required by compute_mac_id)
         params = {
@@ -3484,12 +3520,13 @@ class TestApplyTargetVolumeToClient:
         """Create a mock state machine with volume_service."""
         state_machine = MagicMock()
         volume_service = AsyncMock()
-        volume_service.update_client_volume_db = AsyncMock()
-        # Mock state store public accessors
+        # Mock state store (used by _apply_target_volume_to_client)
         volume_service._state_store = MagicMock()
+        volume_service._state_store.set_client_volume = AsyncMock()
         volume_service._state_store.get_client_mute = MagicMock(return_value=False)
-        # Mock Equalizer controller for mute operation
+        # Mock equalizer controller (used for hardware apply)
         volume_service._equalizer_controller = MagicMock()
+        volume_service._equalizer_controller.set_equalizer_volume = AsyncMock(return_value=True)
         volume_service._equalizer_controller.set_equalizer_mute = AsyncMock()
         state_machine.volume_service = volume_service
         return state_machine
@@ -3503,7 +3540,7 @@ class TestApplyTargetVolumeToClient:
 
     @pytest.mark.asyncio
     async def test_apply_volume_updates_service_and_registry(self, mock_state_machine, mock_registry):
-        """Test that applying volume updates both volume_service and registry."""
+        """Test that applying volume updates state store, registry, and hardware."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         ws_service = SnapcastWebSocketService(
@@ -3516,10 +3553,13 @@ class TestApplyTargetVolumeToClient:
         result = await ws_service._apply_target_volume_to_client("client-1", -30.0)
 
         assert result is True
-        mock_state_machine.volume_service.update_client_volume_db.assert_called_once_with(
-            "client-1", -30.0, broadcast=False
+        mock_state_machine.volume_service._state_store.set_client_volume.assert_called_once_with(
+            "client-1", -30.0
         )
         mock_registry.update_volume.assert_called_once_with("client-1", volume_db=-30.0)
+        mock_state_machine.volume_service._equalizer_controller.set_equalizer_volume.assert_called_once_with(
+            "client-1", -30.0, force=True
+        )
 
     @pytest.mark.asyncio
     async def test_apply_volume_without_volume_service_returns_false(self, mock_registry):
@@ -3542,7 +3582,7 @@ class TestApplyTargetVolumeToClient:
 
     @pytest.mark.asyncio
     async def test_apply_volume_works_without_registry(self, mock_state_machine):
-        """Test that apply works even without registry (updates only volume_service)."""
+        """Test that apply works even without registry (updates only state store and hardware)."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         # Test without registry
@@ -3555,16 +3595,18 @@ class TestApplyTargetVolumeToClient:
         result = await ws_service._apply_target_volume_to_client("client-1", -30.0)
 
         assert result is True
-        mock_state_machine.volume_service.update_client_volume_db.assert_called_once()
+        mock_state_machine.volume_service._state_store.set_client_volume.assert_called_once()
+        mock_state_machine.volume_service._equalizer_controller.set_equalizer_volume.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_apply_volume_handles_volume_service_exception(self, mock_registry):
-        """Test that apply returns False when volume_service raises an exception."""
+        """Test that apply returns False when state_store raises an exception."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         mock_state_machine = MagicMock()
         volume_service = AsyncMock()
-        volume_service.update_client_volume_db = AsyncMock(
+        volume_service._state_store = MagicMock()
+        volume_service._state_store.set_client_volume = AsyncMock(
             side_effect=Exception("Equalizer connection failed")
         )
 
@@ -3583,11 +3625,7 @@ class TestApplyTargetVolumeToClient:
 
     @pytest.mark.asyncio
     async def test_apply_volume_returns_false_when_registry_update_fails(self, mock_state_machine):
-        """Test that apply returns False if registry.update_volume raises an exception.
-
-        Note: The current implementation wraps everything in try/except and returns False
-        on any error. This test validates that behavior is consistent.
-        """
+        """Test that apply returns False if registry.update_volume raises an exception."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         mock_registry = MagicMock()
@@ -3603,8 +3641,8 @@ class TestApplyTargetVolumeToClient:
         # The method returns False on any exception (including registry errors)
         result = await ws_service._apply_target_volume_to_client("client-1", -30.0)
 
-        # volume_service was called successfully before registry failed
-        mock_state_machine.volume_service.update_client_volume_db.assert_called_once()
+        # state_store was called successfully before registry failed
+        mock_state_machine.volume_service._state_store.set_client_volume.assert_called_once()
         # registry was attempted but failed
         mock_registry.update_volume.assert_called_once()
         # Result is False due to exception handling
