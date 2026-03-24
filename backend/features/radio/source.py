@@ -14,7 +14,9 @@ Features:
 - Station image management
 """
 import asyncio
+import json
 from typing import Dict, Any, Optional
+from urllib.parse import urlparse
 
 from backend.core.models.audio_state import PluginState
 from backend.features.radio.data import StationDataService
@@ -72,6 +74,8 @@ class RadioSource(MpvAudioSource):
         self._metadata: Dict[str, Any] = {}
         self._current_station: Optional[Dict[str, Any]] = None
         self._last_station: Optional[Dict[str, Any]] = None
+        self._preroll_skip: int = 0
+        self._preroll_cache: Dict[str, int] = {}  # hostname → skip seconds
 
         # Schedule async initialization
         self._init_task: Optional[asyncio.Task] = None
@@ -201,20 +205,23 @@ class RadioSource(MpvAudioSource):
             # Increment Radio Browser counter (fire and forget)
             asyncio.create_task(self._radio_api.increment_station_clicks(station_id))
 
-            # Clear old Shazam track info before building metadata for new station
+            # Stop current playback before switching stations
             if self._shazam:
                 await self._shazam.stop()
+            if self._mpv and self._is_playing:
+                await self._mpv.stop()
+                self._is_playing = False
 
-            # Update state: buffering in progress
+            # Update state: buffering in progress (broadcast immediately for responsive UI)
             self._current_station = station
-            self._is_playing = False
             self._is_buffering = True
             self._metadata = self._build_playback_metadata()
-
-            # Notify buffering state
             self._update_connection_state()
 
-            # Try to play with fallback mechanism
+            # Detect pre-roll ads (cached per hostname, instant on repeated plays)
+            self._preroll_skip = await self._detect_preroll(primary_url)
+
+            # Try to play with fallback mechanism (skip pre-roll if detected)
             working_url = await self._try_play_with_fallback(station)
 
             if not working_url:
@@ -232,7 +239,7 @@ class RadioSource(MpvAudioSource):
 
             # Start Shazam recognition if enabled
             if self._shazam and await self._shazam.is_enabled():
-                await self._shazam.start(working_url)
+                await self._shazam.start(working_url, preroll_skip=self._preroll_skip)
 
             return self.success_response(f"Loading {station_name}", station=station)
 
@@ -275,8 +282,8 @@ class RadioSource(MpvAudioSource):
         return None
 
     async def _try_single_url(self, url: str) -> bool:
-        """Try to play a single URL in mpv."""
-        success = await self._mpv.load_stream(url)
+        """Try to play a single URL in mpv, skipping pre-roll if detected."""
+        success = await self._mpv.load_stream(url, start_offset=self._preroll_skip)
         if not success:
             self._logger.debug(f"mpv load_stream failed for: {url[:80]}")
         return success
@@ -346,6 +353,39 @@ class RadioSource(MpvAudioSource):
 
     # === Helpers ===
 
+    async def _detect_preroll(self, url: str) -> int:
+        """Detect pre-roll ad duration from stream ICY metadata via ffprobe.
+
+        Some streaming servers (e.g. Infomaniak) inject pre-roll ads on each
+        new HTTP connection. Results are cached per hostname so only the first
+        play of a given host pays the probe cost.
+        """
+        hostname = urlparse(url).hostname or ""
+        if hostname in self._preroll_cache:
+            return self._preroll_cache[hostname]
+
+        skip = 0
+        try:
+            process = await asyncio.create_subprocess_exec(
+                "ffprobe", "-v", "quiet", "-print_format", "json",
+                "-show_format", url,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=10)
+            if process.returncode == 0 and stdout:
+                tags = json.loads(stdout).get("format", {}).get("tags", {})
+                if tags.get("insertionType") == "preroll":
+                    duration_ms = int(tags.get("durationMilliseconds", 0))
+                    if duration_ms > 0:
+                        skip = (duration_ms // 1000) + 2
+                        self._logger.info(f"Pre-roll ad detected ({duration_ms}ms), skipping {skip}s")
+        except Exception:
+            pass
+
+        self._preroll_cache[hostname] = skip
+        return skip
+
     def _build_playback_metadata(self, track_override=None) -> Dict[str, Any]:
         """Build metadata dict for current station, enriched with Shazam track info."""
         if not self._current_station:
@@ -395,7 +435,7 @@ class RadioSource(MpvAudioSource):
             if self._current_station and self._is_playing:
                 stream_url = self._current_station.get('url')
                 if stream_url:
-                    await self._shazam.start(stream_url)
+                    await self._shazam.start(stream_url, preroll_skip=self._preroll_skip)
         else:
             # Stop recognition loop and clear track info
             await self._shazam.stop()

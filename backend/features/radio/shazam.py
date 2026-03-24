@@ -67,6 +67,7 @@ class ShazamRecognitionService:
         self._current_track: Optional[Dict[str, Any]] = None
         self._loop_task: Optional[asyncio.Task] = None
         self._running = False
+        self._preroll_skip: int = 0
 
     @property
     def current_track(self) -> Optional[Dict[str, Any]]:
@@ -83,12 +84,16 @@ class ShazamRecognitionService:
         """Clear the current track without stopping the recognition loop."""
         self._current_track = None
 
-    async def start(self, stream_url: str) -> None:
+    async def start(self, stream_url: str, preroll_skip: int = 0) -> None:
         """
         Start periodic recognition for the given stream URL.
 
         If already running on the same URL, this is a no-op.
         If running on a different URL, restarts with the new URL.
+
+        Args:
+            stream_url: The radio stream URL to capture audio from
+            preroll_skip: Seconds to skip at start of each capture (pre-roll ads)
         """
         if self._running and self._stream_url == stream_url:
             return
@@ -98,6 +103,7 @@ class ShazamRecognitionService:
             await self.stop()
 
         self._stream_url = stream_url
+        self._preroll_skip = preroll_skip
         self._running = True
         self._current_track = None
 
@@ -225,26 +231,33 @@ class ShazamRecognitionService:
         Outputs raw PCM from ffmpeg (avoiding the piped WAV header size issue
         where ffmpeg writes 0xFFFFFFFF as RIFF size, which rodio/hound rejects)
         and wraps it with Python's wave module to produce correct RIFF headers.
+
+        If a pre-roll skip is configured, ffmpeg decodes and discards that many
+        seconds before capturing, bypassing pre-roll ads injected on connection.
         """
         process = None
         try:
-            process = await asyncio.create_subprocess_exec(
-                "ffmpeg",
-                "-i", url,
+            cmd = ["ffmpeg", "-i", url]
+            if self._preroll_skip > 0:
+                cmd += ["-ss", str(self._preroll_skip)]
+            cmd += [
                 "-t", str(SEGMENT_DURATION_SECONDS),
                 "-f", "s16le",
                 "-acodec", "pcm_s16le",
-                "-ac", "1",
-                "-ar", "16000",
-                "-v", "quiet",
-                "pipe:1",
+                "-ac", "1", "-ar", "16000",
+                "-v", "quiet", "pipe:1",
+            ]
+
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
 
+            timeout = FFMPEG_TIMEOUT_SECONDS + self._preroll_skip
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(),
-                timeout=FFMPEG_TIMEOUT_SECONDS,
+                timeout=timeout,
             )
 
             if process.returncode != 0 or not stdout:
