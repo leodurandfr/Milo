@@ -59,40 +59,35 @@ class SnapcastService:
     # === CLIENT COMMANDS ===
 
     @handle_errors(default=False)
-    async def set_volume(self, client_id: str, volume: int) -> bool:
-        """Set a client's volume (0-100)."""
-        # Get current mute state
-        clients = await self.get_clients()
-        current_muted = False
-        for client in clients:
-            if client["id"] == client_id:
-                current_muted = client["muted"]
-                break
+    async def set_volume(self, client_id: str, volume: int, muted: bool = False) -> bool:
+        """Set a client's volume (0-100).
 
-        self.logger.info(f"SNAPCAST_SET_VOLUME: client={client_id}, volume={volume}%, muted={current_muted}")
+        Args:
+            client_id: Snapcast client ID
+            volume: Volume percentage (0-100)
+            muted: Mute state to set (default False = unmuted passthrough)
+        """
+        self.logger.info(f"SNAPCAST_SET_VOLUME: client={client_id}, volume={volume}%, muted={muted}")
         result = await self._request("Client.SetVolume", {
             "id": client_id,
-            "volume": {"percent": max(0, min(100, volume)), "muted": current_muted}
+            "volume": {"percent": max(0, min(100, volume)), "muted": muted}
         })
         if not result:
             self.logger.warning(f"SNAPCAST_SET_VOLUME: Failed for client={client_id}")
         return bool(result)
 
     @handle_errors(default=False)
-    async def set_mute(self, client_id: str, muted: bool) -> bool:
-        """Mute/unmute a client."""
-        # Get current volume
-        clients = await self.get_clients()
-        current_volume = 50  # Default value
+    async def set_mute(self, client_id: str, muted: bool, volume: int = 100) -> bool:
+        """Mute/unmute a client.
 
-        for client in clients:
-            if client["id"] == client_id:
-                current_volume = client["volume"]
-                break
-
+        Args:
+            client_id: Snapcast client ID
+            muted: Mute state to set
+            volume: Volume percentage to preserve (default 100 = passthrough)
+        """
         result = await self._request("Client.SetVolume", {
             "id": client_id,
-            "volume": {"percent": current_volume, "muted": muted}
+            "volume": {"percent": max(0, min(100, volume)), "muted": muted}
         })
         return bool(result)
 
