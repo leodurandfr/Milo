@@ -63,7 +63,7 @@ import { getTranslatedCountryName } from '@/constants/countries';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
 import SkeletonStationCard from './SkeletonStationCard.vue';
-import placeholderImg from '@/assets/radio/station-placeholder.jpg';
+import placeholderImg from '@/assets/radio/station-placeholder.png';
 
 const { t } = useI18n();
 
@@ -174,6 +174,7 @@ function getFaviconUrl(faviconUrl) {
   aspect-ratio: 1 / 1;
   width: 100%;
   border-radius: var(--radius-05);
+  background: var(--color-background-neutral-50);
   transition: transform var(--transition-fast);
 }
 
@@ -208,7 +209,7 @@ function getFaviconUrl(faviconUrl) {
   width: 60px;
   height: 60px;
   border-radius: var(--radius-02);
-  background: var(--color-background);
+  background: var(--color-background-neutral-12);
 }
 
 .station-details {

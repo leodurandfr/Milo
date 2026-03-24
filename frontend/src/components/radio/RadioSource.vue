@@ -77,7 +77,7 @@ import AudioPlayer from '@/components/audio/AudioPlayer.vue'
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue'
 import FavoritesView from './FavoritesView.vue'
 import SearchView from './SearchView.vue'
-import placeholderImg from '@/assets/radio/station-placeholder.jpg'
+import placeholderImg from '@/assets/radio/station-placeholder.png'
 
 const radioStore = useRadioStore()
 const unifiedStore = useUnifiedAudioStore()

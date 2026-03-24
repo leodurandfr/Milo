@@ -100,7 +100,7 @@ import { countryOptions as createCountryOptions } from '@/constants/countries';
 import Button from '@/components/ui/Button.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
 import InputText from '@/components/ui/InputText.vue';
-import placeholderImg from '@/assets/radio/station-placeholder.jpg';
+import placeholderImg from '@/assets/radio/station-placeholder.png';
 import axios from 'axios';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 
