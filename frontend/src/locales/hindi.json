@@ -6,7 +6,8 @@
   "notification": {
     "connectionLostTitle": "कनेक्शन खो गया",
     "connectionLostDescription": "उपलब्ध होने पर स्वचालित रूप से पुनः कनेक्ट हो रहा है",
-    "backendErrorTitle": "सिस्टम त्रुटि"
+    "backendErrorTitle": "सिस्टम त्रुटि",
+    "commandFailed": "कमांड विफल"
   },
   "settings": {
     "title": "Milō कॉन्फ़िगरेशन",
