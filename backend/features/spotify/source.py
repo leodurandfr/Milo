@@ -292,11 +292,17 @@ class SpotifySource(BaseAudioSource):
 
         await self._refresh_metadata()
         self._metadata["is_playing"] = is_playing
+        self._metadata["is_buffering"] = False
         self._update_connection_state()
 
     async def _on_metadata_update(self) -> None:
-        """Handle metadata update event."""
+        """Handle metadata update event.
+
+        Set is_buffering=true so the frontend shows a spinner while the new
+        track loads.  Cleared when the 'playing' event arrives.
+        """
         await self._refresh_metadata()
+        self._metadata["is_buffering"] = True
         self._update_connection_state()
 
     async def _on_seek(self) -> None:
@@ -308,6 +314,7 @@ class SpotifySource(BaseAudioSource):
         """Handle stopped event - context ended, nothing more to play."""
         self._logger.info("Playback stopped - context ended")
         self._is_playing = False
+        self._metadata["is_buffering"] = False
         self._start_pause_timer()
         self._update_connection_state()
 
@@ -315,6 +322,7 @@ class SpotifySource(BaseAudioSource):
         """Handle not_playing event - track finished naturally."""
         self._logger.debug("Track finished playing")
         self._is_playing = False
+        self._metadata["is_buffering"] = False
         self._start_pause_timer()
         self._update_connection_state()
 
