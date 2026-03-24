@@ -53,6 +53,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
+import stationPlaceholder from '@/assets/radio/station-placeholder-dark.jpg';
 
 const props = defineProps({
   isVisible: {
@@ -98,7 +99,7 @@ const emit = defineEmits(['close']);
 
 const isClosing = ref(false);
 
-const displayArtwork = computed(() => props.artwork || null);
+const displayArtwork = computed(() => props.artwork || stationPlaceholder);
 const showBottomBar = computed(() => !!props.stationName);
 
 function handleClose() {
