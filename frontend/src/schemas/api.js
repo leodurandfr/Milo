@@ -34,11 +34,6 @@ const MetadataSchema = z.object({
   is_buffering: z.boolean().optional(),
   album_art_url: z.string().nullable().optional(),
 
-  // Spotify-specific
-  track_uri: z.string().optional(),
-  album_uri: z.string().optional(),
-  artist_uri: z.string().optional(),
-
   // Radio-specific
   station_name: z.string().optional(),
   station_id: z.string().optional(),
@@ -55,7 +50,8 @@ export const SystemStateSchema = z.object({
   transitioning: z.boolean().catch(false),
   metadata: MetadataSchema.optional().default({}),
   error: z.string().nullable().optional().catch(null),
-  multiroom_enabled: z.boolean().catch(false)
+  multiroom_enabled: z.boolean().catch(false),
+  equalizer_effects_enabled: z.boolean().catch(false)
 }).passthrough();
 
 // === VOLUME ===
