@@ -10,7 +10,6 @@
   width: 100%;
   border-radius: var(--radius-05);
   overflow: hidden;
-  background: var(--color-background-neutral);
 }
 
 .skeleton-station-image {
