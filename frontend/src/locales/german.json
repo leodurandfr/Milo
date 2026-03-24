@@ -34,6 +34,17 @@
     "airplay": "AirPlay",
     "macOS": "macOS-Empfänger",
     "multiroom": "Multiroom",
+    "cd": "CD-Player",
+    "cdSource": {
+      "insertDisc": "CD einlegen",
+      "noDisc": "Keine CD",
+      "eject": "Auswerfen",
+      "tracklist": "Titelliste",
+      "unknownAlbum": "Unbekanntes Album",
+      "unknownArtist": "Unbekannter Künstler",
+      "trackN": "Titel {n}",
+      "connectDrive": "Schließe ein CD-Laufwerk an, um den CD-Player zu aktivieren"
+    },
     "radioSource": {
       "favoritesTitle": "Lieblings-Radios",
       "discoverTitle": "Radios entdecken",
@@ -185,7 +196,9 @@
     "disconnect": "Trennen",
     "disconnecting": "Trennen...",
     "unknownTitle": "Unbekannter Titel",
-    "unknownArtist": "Unbekannter Künstler"
+    "unknownArtist": "Unbekannter Künstler",
+    "readyToPlay": "Bereit zur Wiedergabe",
+    "loadingAlbum": "Album wird geladen"
   },
   "volumeSettings": {
     "controls": "Lautstärkeregler",
@@ -313,7 +326,10 @@
     "connectedTo": "Verbunden mit",
     "wifiNetworks": "WLAN-Netzwerke",
     "wifiCountry": "WLAN-Land",
-    "selectCountry": "Wählen Sie Ihr Land"
+    "selectCountry": "Wählen Sie Ihr Land",
+    "save": "Speichern",
+    "saving": "Speichern...",
+    "saveFailed": "Netzwerk konnte nicht gespeichert werden"
   },
   "applications": {
     "features": "Funktionen"
@@ -604,7 +620,8 @@
       "applyAndReboot": "Anwenden und neu starten",
       "confirmReboot": "Neustart bestätigen",
       "rebooting": "Neustart...",
-      "rebootingDescription": "Bitte warten Sie, während das System neu startet."
+      "rebootingDescription": "Bitte warten Sie, während das System neu startet.",
+      "accessHint": "Verbinde dich nach dem Neustart mit {ssid} und öffne milo.local in deinem Browser, um auf Milō zuzugreifen."
     }
   }
 }

@@ -34,6 +34,17 @@
     "airplay": "AirPlay",
     "macOS": "macOS रिसीवर",
     "multiroom": "Multiroom",
+    "cd": "सीडी प्लेयर",
+    "cdSource": {
+      "insertDisc": "एक सीडी डालें",
+      "noDisc": "कोई डिस्क नहीं",
+      "eject": "निकालें",
+      "tracklist": "ट्रैक सूची",
+      "unknownAlbum": "अज्ञात एल्बम",
+      "unknownArtist": "अज्ञात कलाकार",
+      "trackN": "ट्रैक {n}",
+      "connectDrive": "सीडी प्लेयर सक्षम करने के लिए एक सीडी ड्राइव कनेक्ट करें"
+    },
     "radioSource": {
       "favoritesTitle": "पसंदीदा रेडियो",
       "discoverTitle": "रेडियो खोजें",
@@ -185,7 +196,9 @@
     "disconnect": "डिस्कनेक्ट",
     "disconnecting": "डिस्कनेक्ट किया जा रहा है...",
     "unknownTitle": "अज्ञात शीर्षक",
-    "unknownArtist": "अज्ञात कलाकार"
+    "unknownArtist": "अज्ञात कलाकार",
+    "readyToPlay": "चलाने के लिए तैयार",
+    "loadingAlbum": "एल्बम लोड हो रहा है"
   },
   "volumeSettings": {
     "controls": "वॉल्यूम नियंत्रण",
@@ -313,7 +326,10 @@
     "connectedTo": "से जुड़ा हुआ",
     "wifiNetworks": "WiFi नेटवर्क",
     "wifiCountry": "WiFi देश",
-    "selectCountry": "अपना देश चुनें"
+    "selectCountry": "अपना देश चुनें",
+    "save": "सहेजें",
+    "saving": "सहेज रहे हैं...",
+    "saveFailed": "नेटवर्क सहेजने में विफल"
   },
   "applications": {
     "features": "सुविधाएं"
@@ -604,7 +620,8 @@
       "applyAndReboot": "लागू करें और रीबूट करें",
       "confirmReboot": "रीबूट की पुष्टि करें",
       "rebooting": "रीबूट हो रहा है...",
-      "rebootingDescription": "कृपया सिस्टम के पुनः आरंभ होने तक प्रतीक्षा करें।"
+      "rebootingDescription": "कृपया सिस्टम के पुनः आरंभ होने तक प्रतीक्षा करें।",
+      "accessHint": "पुनरारंभ के बाद, {ssid} से कनेक्ट करें और Milō तक पहुँचने के लिए अपने ब्राउज़र में milo.local खोलें।"
     }
   }
 }

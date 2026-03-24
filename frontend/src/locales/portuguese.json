@@ -34,6 +34,17 @@
     "airplay": "AirPlay",
     "macOS": "Receptor macOS",
     "multiroom": "Multiroom",
+    "cd": "Leitor de CD",
+    "cdSource": {
+      "insertDisc": "Insira um CD",
+      "noDisc": "Sem disco",
+      "eject": "Ejetar",
+      "tracklist": "Lista de faixas",
+      "unknownAlbum": "Álbum desconhecido",
+      "unknownArtist": "Artista desconhecido",
+      "trackN": "Faixa {n}",
+      "connectDrive": "Conecte um leitor de CD para ativar o Leitor de CD"
+    },
     "radioSource": {
       "favoritesTitle": "Rádios favoritas",
       "discoverTitle": "Descobrir rádios",
@@ -185,7 +196,9 @@
     "disconnect": "Desconectar",
     "disconnecting": "Desconectando...",
     "unknownTitle": "Título desconhecido",
-    "unknownArtist": "Artista desconhecido"
+    "unknownArtist": "Artista desconhecido",
+    "readyToPlay": "Pronto para reproduzir",
+    "loadingAlbum": "Carregando álbum"
   },
   "volumeSettings": {
     "controls": "Controles de volume",
@@ -313,7 +326,10 @@
     "connectedTo": "Conectado a",
     "wifiNetworks": "Redes WiFi",
     "wifiCountry": "País WiFi",
-    "selectCountry": "Selecione seu país"
+    "selectCountry": "Selecione seu país",
+    "save": "Salvar",
+    "saving": "Salvando...",
+    "saveFailed": "Falha ao salvar a rede"
   },
   "applications": {
     "features": "Funcionalidades"
@@ -604,7 +620,8 @@
       "applyAndReboot": "Aplicar e reiniciar",
       "confirmReboot": "Confirmar reinício",
       "rebooting": "A reiniciar...",
-      "rebootingDescription": "Aguarde enquanto o sistema reinicia."
+      "rebootingDescription": "Aguarde enquanto o sistema reinicia.",
+      "accessHint": "Após reiniciar, conecte-se a {ssid} e abra milo.local no seu navegador para acessar o Milō."
     }
   }
 }
