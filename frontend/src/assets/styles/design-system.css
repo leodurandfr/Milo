@@ -358,12 +358,12 @@
 .shimmer {
     background: linear-gradient(
         90deg,
-        var(--shimmer-base, var(--color-background-neutral)) 0%,
-        var(--shimmer-highlight, var(--color-background-strong)) 50%,
-        var(--shimmer-base, var(--color-background-neutral)) 100%
+        var(--shimmer-base, var(--color-background-neutral-50)) 0%,
+        var(--shimmer-highlight, var(--color-background-neutral-12)) 50%,
+        var(--shimmer-base, var(--color-background-neutral-50)) 100%
     );
     background-size: 200% 100%;
-    animation: shimmer 1.5s ease-in-out infinite;
+    animation: shimmer 1s linear infinite;
 }
 
 .skeleton-text-line {

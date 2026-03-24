@@ -15,7 +15,7 @@
   gap: var(--space-03);
   border-radius: var(--radius-04);
   padding: var(--space-03);
-  background: var(--color-background-neutral);
+  background: var(--color-background-neutral-50);
 }
 
 .skeleton-card-image {
