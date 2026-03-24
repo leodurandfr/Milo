@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from routes import create_health_router, create_snapclient_router, create_equalizer_router
 from services.equalizer import EqualizerService
 from services.snapclient import SnapclientService
+from services.app_update import AppUpdateService
 
 
 @pytest.fixture
@@ -28,6 +29,7 @@ def mock_equalizer_service():
     service.crossover = {"enabled": False, "frequency": 80.0, "q": 0.707}
     service.lowpass = {"enabled": False, "frequency": 80.0, "q": 0.707}
     service.volume_state = {"main": -20.0, "mute": False}
+    service.equalizer_enabled = True
 
     # Async methods
     service.get_status = AsyncMock(return_value={"available": True, "state": "running"})
@@ -62,10 +64,19 @@ def mock_snapclient_service():
 
 
 @pytest.fixture
-def app(mock_equalizer_service, mock_snapclient_service):
+def mock_app_update_service():
+    """Mock AppUpdateService for route tests."""
+    service = Mock(spec=AppUpdateService)
+    service.update_in_progress = False
+    service.get_app_version = Mock(return_value="1.0.0")
+    return service
+
+
+@pytest.fixture
+def app(mock_equalizer_service, mock_snapclient_service, mock_app_update_service):
     """FastAPI test app with mocked services."""
     app = FastAPI()
-    app.include_router(create_health_router(mock_equalizer_service, mock_snapclient_service))
+    app.include_router(create_health_router(mock_equalizer_service, mock_snapclient_service, mock_app_update_service))
     app.include_router(create_snapclient_router(mock_snapclient_service))
     app.include_router(create_equalizer_router(mock_equalizer_service))
     return app
@@ -121,6 +132,12 @@ class TestSnapclientRoutes:
 
 class TestEqualizerRoutes:
     """Test Equalizer control routes."""
+
+    def test_equalizer_enabled_get(self, client):
+        """GET /equalizer/enabled should return enabled state."""
+        response = client.get("/equalizer/enabled")
+        assert response.status_code == 200
+        assert response.json() == {"enabled": True}
 
     def test_equalizer_status_endpoint(self, client):
         """GET /equalizer/status should return Equalizer status."""

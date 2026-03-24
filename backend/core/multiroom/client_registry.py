@@ -575,6 +575,9 @@ class ClientRegistryService:
         """
         Add a client to a zone. Client's equalizer is replaced by zone's equalizer.
 
+        If the client's previous zone becomes invalid (< 2 members), that zone is
+        deleted and its remaining clients become standalone with the zone's EQ.
+
         Args:
             zone_id: The zone's ID
             mac_id: The client's mac_id
@@ -582,6 +585,10 @@ class ClientRegistryService:
         Returns:
             True if client was added, False if zone/client not found
         """
+        old_zone_deleted = False
+        old_zone_id = None
+        old_zone_dict = None
+
         async with self._lock:
             zone = self._zones.get(zone_id)
             if not zone:
@@ -599,8 +606,16 @@ class ClientRegistryService:
             # Remove from current zone if in one
             if client.zone_id and client.zone_id in self._zones:
                 old_zone = self._zones[client.zone_id]
+                old_zone_id = client.zone_id
+                # Snapshot before removal for consistent ZONE_DELETED payload
+                old_zone_dict = self.zone_to_enriched_dict(old_zone)
                 if mac_id in old_zone.client_ids:
                     old_zone.client_ids.remove(mac_id)
+                # Clean up orphan zone (< 2 members)
+                if not old_zone.is_valid():
+                    old_zone_deleted = True
+                    self._make_clients_standalone(old_zone.client_ids, old_zone)
+                    del self._zones[old_zone_id]
 
             zone.client_ids.append(mac_id)
             client.zone_id = zone_id
@@ -610,6 +625,14 @@ class ClientRegistryService:
                 del self._standalone_equalizer[mac_id]
 
         await self._persist_state()
+
+        if old_zone_deleted:
+            await self._emit_event(RegistryEventType.ZONE_DELETED, {
+                "zone_id": old_zone_id,
+                "zone": old_zone_dict
+            })
+            self.logger.info(f"Zone {old_zone_id} deleted (less than 2 clients after move)")
+
         await self._emit_event(RegistryEventType.ZONE_UPDATED, {
             "zone_id": zone_id,
             "zone": self.zone_to_enriched_dict(zone)

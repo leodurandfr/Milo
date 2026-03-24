@@ -156,13 +156,6 @@ class TestSnapcastDetectionIntegration:
         ]
         assert len(registry_events) >= 1, "Should have multiroom registry event"
 
-        # Verify 5: Snapcast event was broadcast
-        snapcast_events = [
-            b for b in mock_state_machine.broadcasts
-            if b["category"] == "snapcast"
-        ]
-        assert len(snapcast_events) >= 1, "Should have snapcast event"
-
     @pytest.mark.asyncio
     async def test_end_to_end_client_disconnect_flow(
         self, registry, mock_state_machine, ws_service

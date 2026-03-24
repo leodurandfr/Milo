@@ -30,6 +30,11 @@ def create_equalizer_router(equalizer_service: EqualizerService) -> APIRouter:
             logger.error(f"Error getting equalizer status: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
+    @router.get("/enabled")
+    async def get_equalizer_enabled():
+        """Get equalizer effects enabled state."""
+        return {"enabled": equalizer_service.equalizer_enabled}
+
     @router.put("/enabled")
     async def set_equalizer_enabled(update: EqualizerEnabledUpdate):
         """Enable or disable equalizer effects (compressor, loudness)."""

@@ -1870,14 +1870,6 @@ class TestStandaloneReconnectionSyncIntegration:
         ws_service._volume_service = mock_state_machine.volume_service
         ws_service._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)
 
-        # Track broadcast calls
-        broadcast_events = []
-
-        async def mock_broadcast(event_type, data):
-            broadcast_events.append({"type": event_type, "data": data})
-
-        ws_service._broadcast_snapcast_event = mock_broadcast
-
         # Simulate reconnection (use mac matching registered mac_id)
         client_data = {
             "id": "snapcast-client-123",
@@ -1887,15 +1879,9 @@ class TestStandaloneReconnectionSyncIntegration:
 
         sync_status = await ws_service._sync_existing_client_volume("snapcast-client-123", client_data)
 
-        # Verify sync_context is in sync_status
+        # Verify sync_context is in sync_status (AC5)
         assert "context" in sync_status
         assert sync_status["context"] == ReconnectionContext.STANDALONE_OTHERS_ONLINE.value
-
-        # Verify client_state_changed event was broadcast with sync_context
-        state_changed_events = [e for e in broadcast_events if e["type"] == "client_state_changed"]
-        assert len(state_changed_events) > 0
-        assert "sync_context" in state_changed_events[0]["data"]
-        assert state_changed_events[0]["data"]["sync_context"] == ReconnectionContext.STANDALONE_OTHERS_ONLINE.value
 
     @pytest.mark.asyncio
     async def test_sync_completes_within_1_second_standalone(

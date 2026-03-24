@@ -55,8 +55,12 @@ class SnapcastWebSocketService:
         self.should_connect = False
         self.reconnect_task = None
 
-        # Deduplication: track client IDs currently being processed
-        self._processing_client_ids: set = set()
+        # Deduplication: track mac_ids with an in-flight sync task
+        self._syncing_mac_ids: set = set()
+
+        # Background tasks (fire-and-forget sync, config push, etc.)
+        # Tracked so they can be cancelled cleanly in stop_connection().
+        self._background_tasks: set = set()
 
         # Initialization state - suppress verbose logs during startup
         self._is_initializing = False
@@ -149,6 +153,15 @@ class SnapcastWebSocketService:
                 pass
             self.reconnect_task = None
 
+        # Cancel all in-flight background tasks (sync retries, config push, etc.)
+        if self._background_tasks:
+            self.logger.info(f"Cancelling {len(self._background_tasks)} background tasks")
+            for task in list(self._background_tasks):
+                task.cancel()
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            self._background_tasks.clear()
+            self._syncing_mac_ids.clear()
+
         # Close current WebSocket connection
         if self.websocket:
             await self.websocket.close()
@@ -171,6 +184,13 @@ class SnapcastWebSocketService:
         self.logger.info("Cleaning up Snapcast WebSocket service")
         self.running = False
         self.should_connect = False
+
+        # Cancel background tasks
+        for task in list(self._background_tasks):
+            task.cancel()
+        if self._background_tasks:
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            self._background_tasks.clear()
 
         if self.reconnect_task:
             self.reconnect_task.cancel()
@@ -219,6 +239,13 @@ class SnapcastWebSocketService:
         """Set PendingClientsService dependency."""
         self._pending_clients_service = service
 
+    def _create_tracked_task(self, coro) -> asyncio.Task:
+        """Create a background task that is tracked for cleanup on stop."""
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return task
+
     async def _connection_loop(self) -> None:
         """Connection loop with intelligent reconnection."""
         reconnect_delay = 5
@@ -240,6 +267,11 @@ class SnapcastWebSocketService:
 
     async def _connect_and_listen(self) -> None:
         """Connect and listen for WebSocket messages."""
+        # Clear ready state so wait_for_ready() blocks until this connection
+        # is fully initialized. Without this, a stale True from a previous
+        # connection causes callers to proceed against a dead socket.
+        self._ready_event.clear()
+
         try:
             self.logger.info(f"Connecting to Snapcast WebSocket: {self.ws_url}")
 
@@ -396,9 +428,9 @@ class SnapcastWebSocketService:
 
         if method in non_volume_notifications:
             await non_volume_notifications[method](params)
-        elif method in ["Client.OnVolumeChanged", "Client.OnMute"]:
-            await self._delegate_volume_event_to_volume_service(method, params)
-        else:
+        elif method not in ["Client.OnVolumeChanged", "Client.OnMute"]:
+            # Volume/mute events are handled by the volume service path,
+            # not via WebSocket notifications
             self.logger.debug(f"Unhandled notification: {method}")
 
     async def _handle_server_update(self, params: Dict[str, Any]) -> None:
@@ -425,29 +457,25 @@ class SnapcastWebSocketService:
         """Register clients present in Snapcast but not yet in the registry."""
         for client in all_clients:
             mac_id = client["mac_id"]
-            snapcast_id = client["id"]
 
             if mac_id not in known_mac_ids:
-                self.logger.info(f"NEW CLIENT detected: {mac_id} (snapcast_id: {snapcast_id})")
+                self.logger.info(f"NEW CLIENT detected: {mac_id} (snapcast_id: {client['id']})")
 
-                if snapcast_id in self._processing_client_ids:
-                    self.logger.debug(f"Skipping Server.OnUpdate init for {snapcast_id} - already being processed")
+                if mac_id in self._syncing_mac_ids:
+                    self.logger.debug(f"Skipping Server.OnUpdate init for {mac_id} - sync already in flight")
                     continue
 
-                self._processing_client_ids.add(snapcast_id)
-                try:
-                    if self.registry:
-                        # Register but keep OFFLINE — client stays invisible in
-                        # frontend until volume is synced and confirmed on hardware.
-                        await self.registry.register_client(mac_id, client["name"], client["ip"], host=client["host"])
+                if self.registry:
+                    # Register but keep OFFLINE — client stays invisible in
+                    # frontend until volume is synced and confirmed on hardware.
+                    await self.registry.register_client(mac_id, client["name"], client["ip"], host=client["host"])
 
-                    # Sync volume then set online (fire-and-forget so we don't
-                    # hold _processing_client_ids which would dedup Client.OnConnect).
-                    # force=True in the router bypasses the online check.
-                    if client["online"]:
-                        asyncio.create_task(self._sync_reconnecting_client_volume(mac_id, set_online_after=True))
-                finally:
-                    self._processing_client_ids.discard(snapcast_id)
+                # Sync volume then set online. The sync task owns the
+                # _syncing_mac_ids guard and clears it when done.
+                if client["online"]:
+                    self._create_tracked_task(
+                        self._sync_reconnecting_client_volume(mac_id, set_online_after=True)
+                    )
 
     async def _process_disconnected_clients(self, current_mac_ids: set, known_mac_ids: set) -> None:
         """Mark registry clients as offline when they no longer appear in Snapcast."""
@@ -456,9 +484,6 @@ class SnapcastWebSocketService:
                 self.logger.info(f"CLIENT DISCONNECTED: {mac_id}")
                 if self.registry:
                     await self.registry.set_client_online(mac_id, False)
-                await self._broadcast_snapcast_event("client_disconnected", {
-                    "client_id": mac_id, "mac_id": mac_id
-                })
 
     async def _process_online_status_changes(self, all_clients: list) -> None:
         """Detect and apply online/offline transitions for known clients."""
@@ -474,18 +499,17 @@ class SnapcastWebSocketService:
             if online != previous_online:
                 self.logger.info(f"Client {mac_id} online status: {previous_online} -> {online}")
 
-                if self.registry:
-                    await self.registry.set_client_online(mac_id, online)
-
-                # Sync volume as fire-and-forget after marking online
-                # (must not block event loop — retries can take 15+ seconds).
                 if online and not previous_online:
-                    asyncio.create_task(self._sync_reconnecting_client_volume(mac_id))
-
-                await self._broadcast_snapcast_event("client_availability_changed", {
-                    "client_id": client["id"], "mac_id": mac_id,
-                    "online": online, "last_seen_age": client.get("last_seen_age", 0)
-                })
+                    # Client reconnecting: do NOT set online yet — the sync task
+                    # sets online after hardware confirms volume (set_online_after=True).
+                    # This prevents a window where the frontend shows the client
+                    # at a stale volume before sync completes.
+                    self._create_tracked_task(
+                        self._sync_reconnecting_client_volume(mac_id, set_online_after=True)
+                    )
+                elif self.registry:
+                    # Client going offline: update immediately
+                    await self.registry.set_client_online(mac_id, False)
 
                 # Crossover recalculation is handled by CrossoverService._handle_registry_event
                 # via CLIENT_CONNECTED/CLIENT_DISCONNECTED events emitted by set_client_online()
@@ -500,20 +524,21 @@ class SnapcastWebSocketService:
         client = params.get("client", {})
         client_id = client.get("id")
 
-        if client_id in self._processing_client_ids:
-            self.logger.debug(f"Skipping Client.OnConnect for {client_id} - already being processed")
+        client_host = client.get("host", {}).get("name") or "Unknown"
+        client_ip = client.get("host", {}).get("ip", "").replace("::ffff:", "")
+        client_mac = client.get("host", {}).get("mac", "")
+
+        # Compute mac_id early so we can dedup by stable identifier
+        mac_id = ClientRegistryService.compute_mac_id(client_host, client_ip, client_mac)
+
+        if mac_id in self._syncing_mac_ids:
+            self.logger.debug(f"Skipping Client.OnConnect for {mac_id} - sync already in flight")
             return
 
-        self._processing_client_ids.add(client_id)
+        self._syncing_mac_ids.add(mac_id)
 
         try:
-            client_host = client.get("host", {}).get("name") or "Unknown"
-            client_ip = client.get("host", {}).get("ip", "").replace("::ffff:", "")
-            client_mac = client.get("host", {}).get("mac", "")
             snapcast_volume = client.get("config", {}).get("volume", {}).get("percent", 100)
-
-            # Compute mac_id using canonical method
-            mac_id = ClientRegistryService.compute_mac_id(client_host, client_ip, client_mac)
             client_name = client.get("config", {}).get("name") or get_client_display_name(client_host) or mac_id
 
             is_local = (client_ip == "127.0.0.1")
@@ -541,7 +566,7 @@ class SnapcastWebSocketService:
                 await self.registry.register_client(mac_id, reg_name, client_ip, **kwargs)
 
             self.logger.info(f"[{time.time():.3f}] CLIENT_CONNECT: Calling volume sync for {client_id}")
-            sync_status = await self._notify_volume_service_client_connected(client_id, client)
+            sync_status = await self._notify_volume_service_client_connected(client_id, client, mac_id)
 
             # Only set online if volume was successfully applied to hardware.
             # If sync failed, the fire-and-forget retry from _process_new_clients
@@ -563,21 +588,9 @@ class SnapcastWebSocketService:
 
             # Push snapclient buffer config to remote clients (fire-and-forget)
             if not is_local:
-                asyncio.create_task(self._push_snapclient_config(client_ip))
-
-            await self._broadcast_snapcast_event("client_connected", {
-                "client_id": client_id,
-                "client_name": client_name,
-                "client_host": client_host,
-                "client_ip": client_ip,
-                "mac_id": mac_id,
-                "volume": snapcast_volume,
-                "muted": client.get("config", {}).get("volume", {}).get("muted", False),
-                "online": True,
-                "sync_status": sync_status
-            })
+                self._create_tracked_task(self._push_snapclient_config(client_ip))
         finally:
-            self._processing_client_ids.discard(client_id)
+            self._syncing_mac_ids.discard(mac_id)
 
     async def _handle_client_disconnect(self, params: Dict[str, Any]) -> None:
         """Handle client disconnected event."""
@@ -599,12 +612,6 @@ class SnapcastWebSocketService:
 
         # Note: Crossover recalculation is handled by CrossoverService via
         # CLIENT_DISCONNECTED event (triggered by set_client_online above)
-
-        await self._broadcast_snapcast_event("client_disconnected", {
-            "client_id": client_id,
-            "client_name": client_name,
-            "mac_id": mac_id
-        })
 
     async def _handle_client_name_changed(self, params: Dict[str, Any]) -> None:
         """Handle client name changed event."""
@@ -628,42 +635,11 @@ class SnapcastWebSocketService:
             except Exception as e:
                 self.logger.warning(f"Could not resolve mac_id for {client_id}: {e}")
 
-        await self._broadcast_snapcast_event("client_name_changed", {
-            "client_id": client_id,
-            "name": name,
-            "mac_id": mac_id
-        })
+        # Update the registry so the name change persists to settings.json
+        if self.registry and name:
+            await self.registry.update_client(mac_id, name=name)
 
-    async def _delegate_volume_event_to_volume_service(self, method: str, params: Dict[str, Any]) -> None:
-        """Broadcast Snapcast volume/mute events."""
-        try:
-            client_id = params.get("id")
-            if not client_id:
-                return
-
-            volume_data = params.get("volume", {})
-            snapcast_volume = volume_data.get("percent", 100)
-            muted = volume_data.get("muted", False)
-
-            if method == "Client.OnVolumeChanged":
-                await self._broadcast_snapcast_event("client_volume_changed", {
-                    "client_id": client_id,
-                    "volume": snapcast_volume,
-                    "muted": muted
-                })
-            elif method == "Client.OnMute":
-                await self._broadcast_snapcast_event("client_mute_changed", {
-                    "client_id": client_id,
-                    "volume": snapcast_volume,
-                    "muted": muted
-                })
-
-            self.logger.debug(f"Broadcast {method} for client {client_id}")
-
-        except Exception as e:
-            self.logger.error(f"Error broadcasting Snapcast event: {e}")
-
-    async def _notify_volume_service_client_connected(self, client_id: str, client: Dict[str, Any]) -> Dict[str, Any]:
+    async def _notify_volume_service_client_connected(self, client_id: str, client: Dict[str, Any], mac_id: str) -> Dict[str, Any]:
         """
         Initialize new client: set Multiroom group, sync volume, apply pending settings.
 
@@ -680,15 +656,13 @@ class SnapcastWebSocketService:
 
             sync_status = await self._sync_existing_client_volume(client_id, client)
 
-            # Apply pending settings
+            # Apply pending settings (keyed by mac_id)
             if self._crossover_service:
-                client_ip = client.get("host", {}).get("ip", "").replace("::ffff:", "") if isinstance(client.get("host"), dict) else ""
-                if client_ip:
-                    has_pending = self._crossover_service.has_pending_settings(client_ip)
-                    if has_pending:
-                        self.logger.info(f"  - Applying pending settings for reconnected client {client_ip}")
-                        pending_success = await self._crossover_service.apply_pending_settings(client_ip)
-                        sync_status["pending_applied"] = pending_success
+                has_pending = self._crossover_service.has_pending_settings(mac_id)
+                if has_pending:
+                    self.logger.info(f"  - Applying pending settings for reconnected client {mac_id}")
+                    pending_success = await self._crossover_service.apply_pending_settings(mac_id)
+                    sync_status["pending_applied"] = pending_success
 
         except Exception as e:
             self.logger.error(f"Error initializing new client: {e}", exc_info=True)
@@ -786,18 +760,6 @@ class SnapcastWebSocketService:
                         )
                     except Exception as e:
                         self.logger.warning(f"Failed to broadcast volume state: {e}")
-
-            # 7. Broadcast client_state_changed event (AC5)
-            # Includes sync_context for frontend to know why settings were applied
-            if self.registry:
-                client = self.registry.get_client(mac_id)
-                if client:
-                    await self._broadcast_snapcast_event("client_state_changed", {
-                        "mac_id": mac_id,
-                        "client": client.to_dict(),
-                        "sync_context": context.value,
-                        "equalizer_ready": equalizer_synced
-                    })
 
             self.logger.info(
                 f"[{time.time():.3f}] SYNC_VOLUME: Client {client_id} fully initialized "
@@ -1008,7 +970,7 @@ class SnapcastWebSocketService:
                 else:
                     failed.append("compressor")
                     if self._crossover_service:
-                        await self._crossover_service.queue_pending_settings(hostname, "compressor", data)
+                        await self._crossover_service.queue_pending_settings(mac_id, "compressor", data)
 
             # Sync loudness
             if eq.loudness:
@@ -1018,11 +980,11 @@ class SnapcastWebSocketService:
                 else:
                     failed.append("loudness")
                     if self._crossover_service:
-                        await self._crossover_service.queue_pending_settings(hostname, "loudness", data)
+                        await self._crossover_service.queue_pending_settings(mac_id, "loudness", data)
 
             # Queue failed filters for retry
             if filters_failed and self._crossover_service:
-                await self._crossover_service.queue_pending_settings(hostname, "filters", filters_failed)
+                await self._crossover_service.queue_pending_settings(mac_id, "filters", filters_failed)
 
             if synced:
                 self.logger.info(f"SYNC_EQ: Synced {synced} to {mac_id} from zone {zone.id}")
@@ -1076,7 +1038,7 @@ class SnapcastWebSocketService:
 
             # Queue failed filters for retry
             if filters_failed and self._crossover_service:
-                await self._crossover_service.queue_pending_settings(hostname, "filters", filters_failed)
+                await self._crossover_service.queue_pending_settings(mac_id, "filters", filters_failed)
 
             # Sync compressor
             if compressor := saved.get('compressor'):
@@ -1085,7 +1047,7 @@ class SnapcastWebSocketService:
                 else:
                     failed.append("compressor")
                     if self._crossover_service:
-                        await self._crossover_service.queue_pending_settings(hostname, "compressor", compressor)
+                        await self._crossover_service.queue_pending_settings(mac_id, "compressor", compressor)
 
             # Sync loudness
             if loudness := saved.get('loudness'):
@@ -1094,7 +1056,7 @@ class SnapcastWebSocketService:
                 else:
                     failed.append("loudness")
                     if self._crossover_service:
-                        await self._crossover_service.queue_pending_settings(hostname, "loudness", loudness)
+                        await self._crossover_service.queue_pending_settings(mac_id, "loudness", loudness)
 
             if synced:
                 self.logger.info(f"SYNC_STANDALONE: Synced {synced} to {mac_id}")
@@ -1119,6 +1081,10 @@ class SnapcastWebSocketService:
         failure because remote clients may still be booting when their
         snapclient connects before their API (port 8001) is ready.
 
+        Owns the _syncing_mac_ids guard: marks the mac_id as in-flight on
+        entry and clears it on exit, preventing duplicate sync tasks for
+        the same client.
+
         Args:
             mac_id: Client identifier
             set_online_after: If True, mark client online in registry after
@@ -1128,6 +1094,23 @@ class SnapcastWebSocketService:
         if not self.registry or not self._volume_service:
             return False
 
+        if mac_id in self._syncing_mac_ids:
+            self.logger.debug(f"SYNC_RECONNECT: {mac_id} already syncing, skipping duplicate")
+            return False
+
+        self._syncing_mac_ids.add(mac_id)
+        try:
+            return await self._do_sync_reconnecting_client_volume(
+                mac_id, set_online_after, max_retries, retry_delay
+            )
+        finally:
+            self._syncing_mac_ids.discard(mac_id)
+
+    async def _do_sync_reconnecting_client_volume(
+        self, mac_id: str, set_online_after: bool,
+        max_retries: int, retry_delay: float
+    ) -> bool:
+        """Internal sync implementation (called under _syncing_mac_ids guard)."""
         context = self.registry.get_reconnection_context(mac_id)
         target_volume = self._resolve_target_volume(mac_id, context)
 
@@ -1165,12 +1148,3 @@ class SnapcastWebSocketService:
         )
         return False
 
-    async def _broadcast_snapcast_event(self, event_type: str, data: Dict[str, Any]) -> None:
-        """Broadcast a Snapcast event via state machine (WebSocket)."""
-        if self.state_machine:
-            await self.state_machine.broadcast_event("snapcast", event_type, {
-                **data,
-                "source": "snapcast_websocket"
-            })
-
-        self.logger.debug(f"Broadcasted Snapcast event: {event_type}")

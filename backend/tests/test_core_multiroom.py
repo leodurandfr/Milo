@@ -2230,12 +2230,11 @@ class TestSnapcastClientDetection:
 
         await ws_service._handle_client_connect(params)
 
-        # Verify broadcast was called with snapcast event
+        # Verify broadcast was called with multiroom registry event
         mock_state_machine.broadcast_event.assert_called()
         call_args = mock_state_machine.broadcast_event.call_args_list
-        # Should have both registry and snapcast events
-        snapcast_calls = [c for c in call_args if c[0][0] == "snapcast"]
-        assert len(snapcast_calls) >= 1
+        multiroom_calls = [c for c in call_args if c[0][0] == "multiroom"]
+        assert len(multiroom_calls) >= 1
 
     # === AC2: Client Disconnection Detection ===
 
@@ -2303,11 +2302,11 @@ class TestSnapcastClientDetection:
 
         await ws_service._handle_client_disconnect(params)
 
-        # Verify disconnect event broadcast
+        # Verify disconnect event broadcast via registry (multiroom category)
         mock_state_machine.broadcast_event.assert_called()
         call_args = mock_state_machine.broadcast_event.call_args_list
-        snapcast_calls = [c for c in call_args if c[0][0] == "snapcast"]
-        assert len(snapcast_calls) >= 1
+        multiroom_calls = [c for c in call_args if c[0][0] == "multiroom"]
+        assert len(multiroom_calls) >= 1
 
     # === AC3: Auto-Registration with Default Values ===
 
