@@ -465,6 +465,11 @@ onMounted(async () => {
         settingsStore.updateVolumeStartup(event.data.config);
       }
     }),
+    on('settings', 'volume_steps_changed', (event) => {
+      if (event.data?.config?.step_mobile_db !== undefined) {
+        unifiedStore.updateMobileStep(event.data.config.step_mobile_db);
+      }
+    }),
     on('settings', 'rotary_steps_changed', (event) => {
       if (event.data?.config) {
         settingsStore.updateVolumeSteps(event.data.config);

@@ -118,24 +118,24 @@ def create_settings_router(
         radio = all_settings.get('radio', {})
         mac = all_settings.get('mac', {})
 
-        timeout_seconds = screen.get('timeout_seconds', 10)
+        timeout_seconds = screen.get('timeout_seconds', 120)
 
         return {
             "status": "success",
             "language": all_settings.get('language', 'english'),
             "volume_limits": {
                 "min_db": vol.get('limit_min_db', -80.0),
-                "max_db": vol.get('limit_max_db', -21.0)
+                "max_db": vol.get('limit_max_db', -20.0)
             },
             "volume_startup": {
                 "startup_volume_db": vol.get('startup_volume_db', DEFAULT_VOLUME_DB),
-                "restore_last_volume": vol.get('restore_last_volume', False)
+                "restore_last_volume": vol.get('restore_last_volume', True)
             },
             "rotary_steps": {"step_rotary_db": vol.get('step_rotary_db', 2.0)},
             "bt_remote_steps": {"step_bt_remote_db": vol.get('step_bt_remote_db', 2.0)},
             "dock_apps": {"enabled_apps": dock.get('enabled_apps', DEFAULT_DOCK_APPS)},
-            "spotify_disconnect": {"auto_disconnect_delay": spotify.get('auto_disconnect_delay', 10.0)},
-            "airplay_disconnect": {"auto_disconnect_delay": airplay.get('auto_disconnect_delay', 10.0)},
+            "spotify_disconnect": {"auto_disconnect_delay": spotify.get('auto_disconnect_delay', 120.0)},
+            "airplay_disconnect": {"auto_disconnect_delay": airplay.get('auto_disconnect_delay', 120.0)},
             "podcast_credentials": {
                 "taddy_user_id": podcast.get('taddy_user_id', ''),
                 "taddy_api_key": podcast.get('taddy_api_key', '')
@@ -149,7 +149,7 @@ def create_settings_router(
             "screen_ui_scale": {"ui_scale": screen.get('ui_scale', 1.0)},
             "screen_screensaver": {
                 "screensaver_enabled": screen.get('screensaver_enabled', True),
-                "screensaver_delay_seconds": screen.get('screensaver_delay_seconds', 30)
+                "screensaver_delay_seconds": screen.get('screensaver_delay_seconds', 120)
             },
             "radio_settings": {"shazam_enabled": radio.get('shazam_enabled', True)},
             "mac_roc": {
@@ -182,7 +182,7 @@ def create_settings_router(
             "status": "success",
             "limits": {
                 "min_db": vol.get("limit_min_db", -80.0),
-                "max_db": vol.get("limit_max_db", -21.0)
+                "max_db": vol.get("limit_max_db", -20.0)
             }
         }
 
@@ -211,7 +211,7 @@ def create_settings_router(
             "status": "success",
             "config": {
                 "startup_volume_db": vol.get("startup_volume_db", DEFAULT_VOLUME_DB),
-                "restore_last_volume": vol.get("restore_last_volume", False)
+                "restore_last_volume": vol.get("restore_last_volume", True)
             }
         }
 
@@ -238,7 +238,7 @@ def create_settings_router(
         vol = await settings.get_setting('volume') or {}
         return {
             "status": "success",
-            "config": {"step_mobile_db": vol.get("step_mobile_db", 3.0)}
+            "config": {"step_mobile_db": vol.get("step_mobile_db", 2.0)}
         }
 
     @router.put("/volume-steps")
@@ -517,7 +517,7 @@ def create_settings_router(
         spotify = await settings.get_setting('spotify') or {}
         return {
             "status": "success",
-            "config": {"auto_disconnect_delay": spotify.get("auto_disconnect_delay", 10.0)}
+            "config": {"auto_disconnect_delay": spotify.get("auto_disconnect_delay", 120.0)}
         }
     
     @router.put("/spotify-disconnect")
@@ -675,8 +675,8 @@ def create_settings_router(
     @router.get("/screen-timeout")
     async def get_screen_timeout():
         screen = await settings.get_setting('screen') or {}
-        timeout_seconds = screen.get("timeout_seconds", 10)
-        
+        timeout_seconds = screen.get("timeout_seconds", 120)
+
         timeout_enabled = timeout_seconds != 0
         
         return {
@@ -756,7 +756,7 @@ def create_settings_router(
             "status": "success",
             "config": {
                 "screensaver_enabled": screen.get("screensaver_enabled", True),
-                "screensaver_delay_seconds": screen.get("screensaver_delay_seconds", 15)
+                "screensaver_delay_seconds": screen.get("screensaver_delay_seconds", 120)
             }
         }
 
@@ -773,7 +773,7 @@ def create_settings_router(
         screen = await settings.get_setting('screen') or {}
         config = {
             "screensaver_enabled": payload.screensaver_enabled if payload.screensaver_enabled is not None else screen.get("screensaver_enabled", True),
-            "screensaver_delay_seconds": payload.screensaver_delay_seconds if payload.screensaver_delay_seconds is not None else screen.get("screensaver_delay_seconds", 15)
+            "screensaver_delay_seconds": payload.screensaver_delay_seconds if payload.screensaver_delay_seconds is not None else screen.get("screensaver_delay_seconds", 120)
         }
 
         return await _handle_setting_update(

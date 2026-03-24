@@ -198,6 +198,12 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     }
   }
 
+  function updateMobileStep(stepDb) {
+    if (typeof stepDb === 'number') {
+      volumeState.value.step_mobile_db = stepDb;
+    }
+  }
+
   return {
     // State
     systemState,
@@ -215,5 +221,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     startVolumeInterpolation,
     stopVolumeInterpolation,
     handleVolumeEvent,
+    updateMobileStep,
   };
 });
