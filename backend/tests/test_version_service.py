@@ -67,11 +67,12 @@ class TestExecuteVersionCommand:
         mock_proc.communicate = AsyncMock(return_value=(b"snapserver v0.28.0\n", b""))
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
-            result = await version_service._execute_version_command(
+            raw_output, version = await version_service._execute_version_command(
                 ["snapserver", "--version"],
                 r"v(\d+\.\d+\.\d+)"
             )
-        assert result == "0.28.0"
+        assert version == "0.28.0"
+        assert "snapserver" in raw_output
 
     @pytest.mark.asyncio
     async def test_version_from_stderr(self, version_service):
@@ -79,10 +80,10 @@ class TestExecuteVersionCommand:
         mock_proc.communicate = AsyncMock(return_value=(b"", b"version 1.2.3\n"))
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
-            result = await version_service._execute_version_command(
+            raw_output, version = await version_service._execute_version_command(
                 ["some-cmd"], r"(\d+\.\d+\.\d+)"
             )
-        assert result == "1.2.3"
+        assert version == "1.2.3"
 
     @pytest.mark.asyncio
     async def test_fallback_pattern_used(self, version_service):
@@ -91,10 +92,10 @@ class TestExecuteVersionCommand:
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             # Primary regex won't match, but fallback \d+\.\d+\.\d+ will
-            result = await version_service._execute_version_command(
+            raw_output, version = await version_service._execute_version_command(
                 ["cmd"], r"NOMATCH_(\d+)"
             )
-        assert result == "4.5.6"
+        assert version == "4.5.6"
 
     @pytest.mark.asyncio
     async def test_no_version_found(self, version_service):
@@ -102,10 +103,10 @@ class TestExecuteVersionCommand:
         mock_proc.communicate = AsyncMock(return_value=(b"no version here\n", b""))
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
-            result = await version_service._execute_version_command(
+            raw_output, version = await version_service._execute_version_command(
                 ["cmd"], r"NOMATCH_(\d+)"
             )
-        assert result is None
+        assert version is None
 
     @pytest.mark.asyncio
     async def test_timeout_raises(self, version_service):
@@ -136,7 +137,7 @@ class TestGetInstalledVersion:
 
     @pytest.mark.asyncio
     async def test_version_detected(self, version_service):
-        with patch.object(version_service, "_execute_version_command", return_value="0.28.0"):
+        with patch.object(version_service, "_execute_version_command", return_value=("snapserver v0.28.0", "0.28.0")):
             result = await version_service.get_installed_version("multiroom")
 
         assert result["status"] == "installed"

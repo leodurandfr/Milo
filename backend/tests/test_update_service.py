@@ -386,22 +386,8 @@ class TestInstallDebPackage:
         assert result["success"] is True
 
     @pytest.mark.asyncio
-    async def test_apt_fix_failure(self, update_service):
-        apt_update_proc = _make_mock_proc()
-        dpkg_proc = _make_mock_proc(returncode=1, stderr=b"dependency issue")
-        apt_fix_proc = _make_mock_proc(returncode=1, stderr=b"unresolved deps")
-
-        call_count = 0
-        async def mock_exec(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                return apt_update_proc
-            elif call_count == 2:
-                return dpkg_proc
-            return apt_fix_proc
-
-        with patch("asyncio.create_subprocess_exec", side_effect=mock_exec):
+    async def test_deploy_failure(self, update_service):
+        with patch.object(update_service, "_run_deploy", return_value=(False, "Package installation failed")):
             result = await update_service._install_deb_package("/tmp/snapserver.deb")
         assert result["success"] is False
 
@@ -482,11 +468,10 @@ class TestCanUpdateProgram:
 
     @pytest.mark.asyncio
     async def test_no_sudo(self, update_service):
-        proc = _make_mock_proc(returncode=1)
-        with patch("asyncio.create_subprocess_exec", return_value=proc):
+        with patch.object(update_service, "_run_deploy", return_value=(False, "not accessible")):
             result = await update_service.can_update_program("go-librespot")
         assert result["can_update"] is False
-        assert "sudo" in result["reason"].lower()
+        assert "deploy wrapper" in result["reason"].lower()
 
     @pytest.mark.asyncio
     async def test_no_update_available(self, update_service):
@@ -512,10 +497,10 @@ class TestCanUpdateProgram:
 
     @pytest.mark.asyncio
     async def test_sudo_exception(self, update_service):
-        with patch("asyncio.create_subprocess_exec", side_effect=Exception("no sudo")):
+        with patch.object(update_service, "_run_deploy", return_value=(False, "exception occurred")):
             result = await update_service.can_update_program("go-librespot")
         assert result["can_update"] is False
-        assert "sudo" in result["reason"].lower()
+        assert "deploy wrapper" in result["reason"].lower()
 
 
 class TestUpdateGoLibrespot:
