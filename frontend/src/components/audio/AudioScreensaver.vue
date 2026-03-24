@@ -32,7 +32,7 @@
           </div>
 
           <div v-if="showBottomBar" class="station-bar stagger-4">
-            <img :src="stationFavicon" alt="" class="station-favicon" />
+            <img v-if="stationFavicon" :src="stationFavicon" alt="" class="station-favicon" />
             <span class="station-name heading-4">{{ stationName }}</span>
           </div>
         </div>
@@ -99,7 +99,7 @@ const emit = defineEmits(['close']);
 const isClosing = ref(false);
 
 const displayArtwork = computed(() => props.artwork || null);
-const showBottomBar = computed(() => !!props.stationFavicon && !!props.stationName);
+const showBottomBar = computed(() => !!props.stationName);
 
 function handleClose() {
   if (isClosing.value) return;
