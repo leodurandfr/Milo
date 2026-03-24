@@ -34,6 +34,17 @@
     "airplay": "AirPlay",
     "macOS": "macOS 接收器",
     "multiroom": "Multiroom",
+    "cd": "CD播放器",
+    "cdSource": {
+      "insertDisc": "插入CD",
+      "noDisc": "无光盘",
+      "eject": "弹出",
+      "tracklist": "曲目列表",
+      "unknownAlbum": "未知专辑",
+      "unknownArtist": "未知艺术家",
+      "trackN": "曲目 {n}",
+      "connectDrive": "连接CD驱动器以启用CD播放器"
+    },
     "radioSource": {
       "favoritesTitle": "喜爱的广播",
       "discoverTitle": "发现广播",
@@ -185,7 +196,9 @@
     "disconnect": "断开连接",
     "disconnecting": "正在断开...",
     "unknownTitle": "未知标题",
-    "unknownArtist": "未知艺术家"
+    "unknownArtist": "未知艺术家",
+    "readyToPlay": "准备播放",
+    "loadingAlbum": "正在加载专辑"
   },
   "volumeSettings": {
     "controls": "音量控制",
@@ -313,7 +326,10 @@
     "connectedTo": "已连接到",
     "wifiNetworks": "WiFi 网络",
     "wifiCountry": "WiFi 国家",
-    "selectCountry": "选择您的国家"
+    "selectCountry": "选择您的国家",
+    "save": "保存",
+    "saving": "保存中...",
+    "saveFailed": "保存网络失败"
   },
   "applications": {
     "features": "功能"
@@ -604,7 +620,8 @@
       "applyAndReboot": "应用并重启",
       "confirmReboot": "确认重启",
       "rebooting": "正在重启...",
-      "rebootingDescription": "请等待系统重启。"
+      "rebootingDescription": "请等待系统重启。",
+      "accessHint": "重启后，连接到 {ssid} 并在浏览器中打开 milo.local 以访问 Milō。"
     }
   }
 }

@@ -34,6 +34,17 @@
     "airplay": "AirPlay",
     "macOS": "Ricevitore macOS",
     "multiroom": "Multiroom",
+    "cd": "Lettore CD",
+    "cdSource": {
+      "insertDisc": "Inserisci un CD",
+      "noDisc": "Nessun disco",
+      "eject": "Espelli",
+      "tracklist": "Lista tracce",
+      "unknownAlbum": "Album sconosciuto",
+      "unknownArtist": "Artista sconosciuto",
+      "trackN": "Traccia {n}",
+      "connectDrive": "Collega un lettore CD per attivare il Lettore CD"
+    },
     "radioSource": {
       "favoritesTitle": "Radio preferite",
       "discoverTitle": "Scopri radio",
@@ -185,7 +196,9 @@
     "disconnect": "Disconnetti",
     "disconnecting": "Disconnessione...",
     "unknownTitle": "Titolo sconosciuto",
-    "unknownArtist": "Artista sconosciuto"
+    "unknownArtist": "Artista sconosciuto",
+    "readyToPlay": "Pronto per la riproduzione",
+    "loadingAlbum": "Caricamento album"
   },
   "volumeSettings": {
     "controls": "Controlli volume",
@@ -313,7 +326,10 @@
     "connectedTo": "Connesso a",
     "wifiNetworks": "Reti WiFi",
     "wifiCountry": "Paese WiFi",
-    "selectCountry": "Seleziona il tuo paese"
+    "selectCountry": "Seleziona il tuo paese",
+    "save": "Salva",
+    "saving": "Salvataggio...",
+    "saveFailed": "Impossibile salvare la rete"
   },
   "applications": {
     "features": "Funzionalità"
@@ -604,7 +620,8 @@
       "applyAndReboot": "Applica e riavvia",
       "confirmReboot": "Conferma riavvio",
       "rebooting": "Riavvio in corso...",
-      "rebootingDescription": "Attendi il riavvio del sistema."
+      "rebootingDescription": "Attendi il riavvio del sistema.",
+      "accessHint": "Dopo il riavvio, connettiti a {ssid} e apri milo.local nel tuo browser per accedere a Milō."
     }
   }
 }
