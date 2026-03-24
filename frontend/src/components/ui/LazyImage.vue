@@ -13,6 +13,7 @@
       @error="handleImageError"
     />
     <img
+      v-if="!imageLoaded"
       :src="fallback"
       class="lazy-image-placeholder"
       alt=""
