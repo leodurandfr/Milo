@@ -283,12 +283,12 @@ describe('podcastStore', () => {
       });
     });
 
-    describe('handlePluginEvent', () => {
+    describe('handleSourceEvent', () => {
       it('should ignore non-podcast events', () => {
         const originalEpisode = store.currentEpisode;
 
-        store.handlePluginEvent({
-          source: 'radio',
+        store.handleSourceEvent({
+          origin: 'radio',
           type: 'state_changed',
           data: { current_episode: { uuid: 'radio-ep' } }
         });
@@ -297,8 +297,8 @@ describe('podcastStore', () => {
       });
 
       it('should process podcast state_changed events', () => {
-        store.handlePluginEvent({
-          source: 'podcast',
+        store.handleSourceEvent({
+          origin: 'podcast',
           type: 'state_changed',
           data: {
             current_episode: { uuid: 'ep1', name: 'Episode' },

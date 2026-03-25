@@ -1,4 +1,4 @@
-# backend/features/spotify/websocket.py
+# backend/sources/spotify/websocket.py
 """
 WebSocket client for go-librespot events.
 

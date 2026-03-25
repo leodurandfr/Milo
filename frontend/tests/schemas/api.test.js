@@ -4,7 +4,7 @@ import {
   SystemStateSchema,
   VolumeStateSchema,
   AudioSourceSchema,
-  PluginStateSchema,
+  SourceStateSchema,
   RegisteredClientSchema,
   MultiroomStateSchema,
   RadioStationSchema,
@@ -29,18 +29,18 @@ describe('API Schemas', () => {
     });
   });
 
-  describe('PluginStateSchema', () => {
+  describe('SourceStateSchema', () => {
     it('should accept valid states', () => {
-      const validStates = ['starting', 'ready', 'connected', 'error'];
+      const validStates = ['starting', 'waiting', 'active', 'error'];
 
       validStates.forEach(state => {
-        expect(PluginStateSchema.safeParse(state).success).toBe(true);
+        expect(SourceStateSchema.safeParse(state).success).toBe(true);
       });
     });
 
     it('should reject invalid states', () => {
-      expect(PluginStateSchema.safeParse('invalid').success).toBe(false);
-      expect(PluginStateSchema.safeParse('READY').success).toBe(false);
+      expect(SourceStateSchema.safeParse('invalid').success).toBe(false);
+      expect(SourceStateSchema.safeParse('READY').success).toBe(false);
     });
   });
 
@@ -48,7 +48,7 @@ describe('API Schemas', () => {
     it('should validate complete system state', () => {
       const validState = {
         active_source: 'spotify',
-        plugin_state: 'connected',
+        source_state: 'active',
         transitioning: false,
         metadata: { title: 'Song', artist: 'Artist' },
         multiroom_enabled: true
@@ -62,7 +62,7 @@ describe('API Schemas', () => {
     it('should provide defaults for optional fields', () => {
       const minimalState = {
         active_source: 'none',
-        plugin_state: 'ready',
+        source_state: 'waiting',
         transitioning: false,
         multiroom_enabled: false
       };
@@ -75,7 +75,7 @@ describe('API Schemas', () => {
     it('should reject invalid active_source', () => {
       const invalidState = {
         active_source: 'invalid_source',
-        plugin_state: 'ready',
+        source_state: 'waiting',
         transitioning: false,
         multiroom_enabled: false
       };
@@ -84,10 +84,10 @@ describe('API Schemas', () => {
       expect(result.success).toBe(false);
     });
 
-    it('should reject invalid plugin_state', () => {
+    it('should reject invalid source_state', () => {
       const invalidState = {
         active_source: 'spotify',
-        plugin_state: 'invalid_state',
+        source_state: 'invalid_state',
         transitioning: false,
         multiroom_enabled: false
       };

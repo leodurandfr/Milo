@@ -1,4 +1,4 @@
-# backend/features/cd/source.py
+# backend/sources/cd/source.py
 """
 CD audio source using mpv with cache-based architecture.
 
@@ -7,7 +7,7 @@ Architecture:
 - User activates CD from dock → _do_start() reads metadata + loads cdda:// stream
 - cdda:// loaded muted + playing → cache fills silently in background
 - Source stays in WAITING until chapter offsets are ready (CD fully spun up)
-- Once ready → ACTIVE → user sees disc info + Play button
+- Once ready → auto-plays track 1 (unmute + seek chapter 0)
 - Track navigation via set_property("chapter", N) → instant from cache (~30ms)
 - Play = unmute + seek to chapter → instant (data already cached)
 
@@ -21,9 +21,9 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from backend.config.constants import CD_DEVICE
-from backend.core.models.audio_state import AudioSource, PluginState
-from backend.features.cd.data import CdDataService
-from backend.features.cd.models import DiscInfo, TrackInfo
+from backend.core.models.audio_state import AudioSource, SourceState
+from backend.sources.cd.data import CdDataService
+from backend.sources.cd.models import DiscInfo, TrackInfo
 from backend.shared.decorators import handle_errors
 from backend.shared.mpv import MpvController
 from backend.shared.mpv_audio_source import MpvAudioSource
@@ -291,7 +291,7 @@ class CdSource(MpvAudioSource):
             )
             self._current_disc = disc_info
             self._tracks = disc_info.tracks
-            self.set_state(PluginState.WAITING, self._build_metadata())
+            self.set_state(SourceState.WAITING, self._build_metadata())
 
     async def _pre_start_service(self) -> None:
         """Start milo-cd service and load stream early to keep CD spinning.
@@ -552,10 +552,9 @@ class CdSource(MpvAudioSource):
                 self._cache_ready = True
                 self._logger.info(
                     f"CD ready: {len(self._chapter_offsets)} chapters, "
-                    f"cache filling in background"
+                    f"auto-playing track 1"
                 )
-                # Promote WAITING → ACTIVE
-                self.set_state(PluginState.ACTIVE, self._build_metadata())
+                await self._handle_play_track({"track_number": 1})
             return
 
         # Phase 2: Track position during playback

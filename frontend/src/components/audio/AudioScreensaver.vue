@@ -42,7 +42,7 @@
     <!-- ===== SIMPLE MODE (bluetooth, mac) ===== -->
     <template v-else>
       <div class="simple-screensaver stagger-1">
-        <AppIcon :name="pluginType" size="medium" :class="{ 'simple-icon-invert': pluginType === 'mac' }" />
+        <AppIcon :name="sourceType" size="medium" :class="{ 'simple-icon-invert': sourceType === 'mac' }" />
         <p class="simple-status heading-1">{{ title }}</p>
         <h1 class="simple-device-name heading-1">{{ subtitle }}</h1>
       </div>
@@ -65,7 +65,7 @@ const props = defineProps({
     default: 'media',
     validator: (value) => ['media', 'simple'].includes(value)
   },
-  pluginType: {
+  sourceType: {
     type: String,
     default: null
   },

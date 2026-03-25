@@ -1,4 +1,4 @@
-# backend/features/bluetooth/monitor.py
+# backend/sources/bluetooth/monitor.py
 """
 BlueALSA PCM monitor for connection detection.
 

@@ -156,7 +156,7 @@ class TestWebSocketServer:
         sm = Mock()
         sm.get_current_state = AsyncMock(return_value={
             "active_source": "none",
-            "plugin_state": "inactive",
+            "source_state": "inactive",
             "metadata": {},
             "multiroom": {"enabled": False},
             "equalizer": {"enabled": False}
@@ -234,7 +234,7 @@ class TestWebSocketServer:
 
         mock_state_machine.get_current_state = AsyncMock(return_value={
             "active_source": "spotify",
-            "plugin_state": "connected",
+            "source_state": "connected",
             "metadata": {"title": "Test Song"},
             "multiroom": {"enabled": True}
         })
@@ -249,7 +249,7 @@ class TestWebSocketServer:
         # Verify that the initial state contains the correct data
         sent_data = json.loads(mock_websocket.send_text.call_args_list[0][0][0])
         assert sent_data["data"]["full_state"]["active_source"] == "spotify"
-        assert sent_data["data"]["full_state"]["plugin_state"] == "connected"
+        assert sent_data["data"]["full_state"]["source_state"] == "connected"
 
     # ===================
     # PING TESTS
@@ -308,7 +308,7 @@ class TestWebSocketIntegration:
         state_machine = Mock()
         state_machine.get_current_state = AsyncMock(return_value={
             "active_source": "bluetooth",
-            "plugin_state": "connected",
+            "source_state": "connected",
             "metadata": {"device_name": "iPhone"},
             "multiroom": {"enabled": False},
             "equalizer": {"enabled": True}

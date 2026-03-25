@@ -1,4 +1,4 @@
-# backend/features/cd/routes.py
+# backend/sources/cd/routes.py
 """
 FastAPI routes for CD audio source.
 
@@ -20,8 +20,8 @@ from fastapi.responses import FileResponse
 from backend.api.route_helpers import api_error_handler, run_source_command
 from backend.api.source_dependency import make_source_dependency
 from backend.config.constants import CD_COVERS_DIR
-from backend.features.cd.models import PlayTrackRequest, SeekRequest
-from backend.features.cd.source import CdSource
+from backend.sources.cd.models import PlayTrackRequest, SeekRequest
+from backend.sources.cd.source import CdSource
 
 logger = logging.getLogger(__name__)
 

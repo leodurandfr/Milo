@@ -147,7 +147,7 @@ function processInitialState(event) {
     podcastStore.handleStateUpdate(fullState.metadata);
   }
   if (fullState?.active_source === 'cd' && fullState?.metadata) {
-    cdStore.handlePluginEvent({ source: 'cd', type: 'state_changed', data: { metadata: fullState.metadata } });
+    cdStore.handleSourceEvent({ origin: 'cd', type: 'state_changed', data: { metadata: fullState.metadata } });
   }
 
   if (isBootComplete.value && showDockFn && unifiedStore.systemState.active_source === 'none') {
@@ -244,7 +244,7 @@ const notificationTitle = computed(() => {
   if (showConnectionLost.value) {
     return t('notification.connectionLostTitle');
   }
-  // Priority 2: System/plugin errors
+  // Priority 2: System/source errors
   return currentError.value?.title || null;
 });
 
@@ -253,12 +253,12 @@ const notificationDetail = computed(() => {
   if (showConnectionLost.value) {
     return t('notification.connectionLostDescription');
   }
-  // Priority 2: System/plugin error detail
+  // Priority 2: System/source error detail
   return currentError.value?.detail || null;
 });
 
 // Connection lost is not dismissable (auto-clears on reconnect)
-// System/plugin errors are dismissable
+// System/source errors are dismissable
 const isNotificationDismissable = computed(() => {
   return !showConnectionLost.value && currentError.value !== null;
 });
@@ -385,22 +385,22 @@ onMounted(async () => {
     on('system', 'state_changed', (event) => unifiedStore.updateState(event)),
     on('system', 'transition_start', (event) => unifiedStore.updateState(event)),
     on('system', 'transition_complete', (event) => unifiedStore.updateState(event)),
-    on('plugin', 'state_changed', (event) => {
+    on('source', 'state_changed', (event) => {
       unifiedStore.updateState(event);
-      podcastStore.handlePluginEvent(event);
-      cdStore.handlePluginEvent(event);
-      // Display plugin error in notification banner
+      podcastStore.handleSourceEvent(event);
+      cdStore.handleSourceEvent(event);
+      // Display source error in notification banner
       if (event.data?.new_state === 'error') {
-        const source = event.data?.source || 'plugin';
+        const source = event.data?.source || 'source';
         const error = event.data?.metadata?.error || 'error';
         currentError.value = { title: `${capitalize(source)} Error`, detail: error };
       }
     }),
-    on('plugin', 'position_update', (event) => {
+    on('source', 'position_update', (event) => {
       unifiedStore.updatePosition(event);
       podcastStore.handlePositionUpdate(event);
     }),
-    on('plugin', 'error_cleared', () => {
+    on('source', 'error_cleared', () => {
       // Auto-dismiss error notification when the error condition is resolved
       currentError.value = null;
     }),
@@ -414,10 +414,10 @@ onMounted(async () => {
       const message = event.data?.message || 'Backend error';
       currentError.value = { title: `${t('notification.backendErrorTitle')} · ${level === 'WARNING' ? 'Warning' : 'Error'}`, detail: message, source: 'backend' };
     }),
-    on('plugin', 'metadata', (event) => {
+    on('source', 'metadata', (event) => {
       unifiedStore.updateState(event);
-      podcastStore.handlePluginEvent(event);
-      cdStore.handlePluginEvent(event);
+      podcastStore.handleSourceEvent(event);
+      cdStore.handleSourceEvent(event);
     }),
     on('system', 'cd_drive_status', (event) => {
       cdStore.handleSystemEvent(event);
@@ -458,17 +458,17 @@ onMounted(async () => {
     on('multiroom', 'equalizer_changed', (event) => equalizerStore.handleEqualizerChanged(event)),
     on('multiroom', 'crossover_changed', (event) => equalizerStore.handleZoneCrossoverChanged(event)),
     // Radio favorite events
-    on('plugin', 'favorite_added', (event) => {
+    on('source', 'favorite_added', (event) => {
       if (event.data?.source === 'radio' && event.data?.station_id) {
         radioStore.handleFavoriteEvent(event.data.station_id, true);
       }
     }),
-    on('plugin', 'favorite_removed', (event) => {
+    on('source', 'favorite_removed', (event) => {
       if (event.data?.source === 'radio' && event.data?.station_id) {
         radioStore.handleFavoriteEvent(event.data.station_id, false);
       }
     }),
-    on('plugin', 'favorite_modified', (event) => {
+    on('source', 'favorite_modified', (event) => {
       if (event.data?.source === 'radio' && event.data?.station) {
         radioStore.handleMetadataModified(event.data.station);
       }

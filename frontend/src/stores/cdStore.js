@@ -53,8 +53,8 @@ export const useCdStore = defineStore('cd', () => {
   }
 
   // === WEBSOCKET EVENT HANDLERS ===
-  function handlePluginEvent(event) {
-    if (event.source !== 'cd') return;
+  function handleSourceEvent(event) {
+    if (event.origin !== 'cd') return;
 
     if (event.type === 'state_changed') {
       const metadata = event.data?.metadata || event.data || {};
@@ -117,7 +117,7 @@ export const useCdStore = defineStore('cd', () => {
     toggleTracklist,
 
     // WS handlers
-    handlePluginEvent,
+    handleSourceEvent,
     handleSystemEvent,
   };
 });

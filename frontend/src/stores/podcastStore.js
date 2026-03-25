@@ -235,9 +235,9 @@ export const usePodcastStore = defineStore('podcast', () => {
     // They are updated by the unified audio state machine via WebSocket
   }
 
-  function handlePluginEvent(event) {
-    // Handle WebSocket plugin events for podcast
-    if (event.source !== 'podcast') {
+  function handleSourceEvent(event) {
+    // Handle WebSocket source events for podcast
+    if (event.origin !== 'podcast') {
       return;
     }
 
@@ -545,7 +545,7 @@ export const usePodcastStore = defineStore('podcast', () => {
     loadSettings,
     updateSettings,
     handleStateUpdate,
-    handlePluginEvent,
+    handleSourceEvent,
     handlePositionUpdate,
     clearState,
     clearDisplayEpisode,

@@ -18,7 +18,7 @@ describe('unifiedAudioStore', () => {
   describe('initial state', () => {
     it('should have correct default system state', () => {
       expect(store.systemState.active_source).toBe('none');
-      expect(store.systemState.plugin_state).toBe('ready');
+      expect(store.systemState.source_state).toBe('waiting');
       expect(store.systemState.transitioning).toBe(false);
       expect(store.systemState.multiroom_enabled).toBe(false);
     });
@@ -104,7 +104,7 @@ describe('unifiedAudioStore', () => {
         data: {
           full_state: {
             active_source: 'spotify',
-            plugin_state: 'connected',
+            source_state: 'active',
             transitioning: false,
             metadata: { title: 'Test Song' },
             multiroom_enabled: true,
@@ -116,7 +116,7 @@ describe('unifiedAudioStore', () => {
       store.updateState(event);
 
       expect(store.systemState.active_source).toBe('spotify');
-      expect(store.systemState.plugin_state).toBe('connected');
+      expect(store.systemState.source_state).toBe('active');
       expect(store.systemState.multiroom_enabled).toBe(true);
       expect(store.systemState.metadata.title).toBe('Test Song');
     });

@@ -1,4 +1,4 @@
-# backend/features/radio/__init__.py
+# backend/sources/radio/__init__.py
 """
 Radio audio source feature using MPV.
 
@@ -7,7 +7,7 @@ with RadioBrowser API integration, station management, and
 playback control.
 
 Usage:
-    from backend.features.radio import RadioSource, router
+    from backend.sources.radio import RadioSource, router
 
     # Create source
     source = RadioSource(config=config, state_machine=state_machine)
@@ -15,10 +15,10 @@ Usage:
     # Include router in FastAPI app
     app.include_router(router, prefix="/api")
 """
-from backend.features.radio.source import RadioSource
-from backend.features.radio.routes import router, setup_radio_routes
-from backend.features.radio.data import StationDataService, ImageManager
-from backend.features.radio.models import (
+from backend.sources.radio.source import RadioSource
+from backend.sources.radio.routes import router, setup_radio_routes
+from backend.sources.radio.data import StationDataService, ImageManager
+from backend.sources.radio.models import (
     Station,
     PlayStationRequest,
     FavoriteRequest,

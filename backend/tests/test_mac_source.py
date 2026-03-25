@@ -12,9 +12,9 @@ import pytest
 import asyncio
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
-from backend.features.mac.source import MacSource, _parse_ip_from_line, _normalize_ip
+from backend.sources.mac.source import MacSource, _parse_ip_from_line, _normalize_ip
 from backend.core.audio_source import BaseAudioSource
-from backend.core.models.audio_state import PluginState
+from backend.core.models.audio_state import SourceState
 
 
 @pytest.fixture
@@ -266,14 +266,14 @@ class TestConnectionState:
         mac_source.connected_clients = {}
         mac_source._update_connection_state()
 
-        assert mac_source.state == PluginState.WAITING
+        assert mac_source.state == SourceState.WAITING
 
     def test_update_state_with_clients(self, mac_source):
         """Test state is ACTIVE with clients."""
         mac_source.connected_clients = {"192.168.1.1": "TestMac"}
         mac_source._update_connection_state()
 
-        assert mac_source.state == PluginState.ACTIVE
+        assert mac_source.state == SourceState.ACTIVE
 
     @pytest.mark.asyncio
     async def test_add_client(self, mac_source):

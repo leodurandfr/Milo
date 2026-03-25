@@ -1,4 +1,4 @@
-# backend/features/bluetooth/agent.py
+# backend/sources/bluetooth/agent.py
 """
 Bluetooth D-Bus agent for auto-pairing.
 

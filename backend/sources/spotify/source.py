@@ -1,4 +1,4 @@
-# backend/features/spotify/source.py
+# backend/sources/spotify/source.py
 """
 Spotify audio source using go-librespot.
 
@@ -22,7 +22,7 @@ from typing import Dict, Any, Optional
 import aiohttp
 
 from backend.core.audio_source import BaseAudioSource
-from backend.features.spotify.websocket import LibrespotWebSocket
+from backend.sources.spotify.websocket import LibrespotWebSocket
 from backend.shared.decorators import handle_errors
 
 

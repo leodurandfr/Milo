@@ -13,10 +13,10 @@ import pytest
 import asyncio
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
-from backend.features.podcast.source import PodcastSource
-from backend.features.podcast.data import PodcastDataService
+from backend.sources.podcast.source import PodcastSource
+from backend.sources.podcast.data import PodcastDataService
 from backend.core.audio_source import BaseAudioSource
-from backend.core.models.audio_state import PluginState
+from backend.core.models.audio_state import SourceState
 
 
 @pytest.fixture
@@ -102,16 +102,16 @@ class TestPodcastSourceLifecycle:
         """Test successful start."""
         # Mock dependencies
         with patch.object(podcast_source, '_start_service', return_value=True):
-            with patch('backend.features.podcast.source.PodcastDataService') as mock_data_class:
+            with patch('backend.sources.podcast.source.PodcastDataService') as mock_data_class:
                 mock_data = AsyncMock()
                 mock_data.get_setting = AsyncMock(return_value=1.0)
                 mock_data_class.return_value = mock_data
 
-                with patch('backend.features.podcast.source.TaddyAPI') as mock_api_class:
+                with patch('backend.sources.podcast.source.TaddyAPI') as mock_api_class:
                     mock_api = AsyncMock()
                     mock_api_class.return_value = mock_api
 
-                    with patch('backend.features.podcast.source.MpvController') as mock_mpv_class:
+                    with patch('backend.sources.podcast.source.MpvController') as mock_mpv_class:
                         mock_mpv = Mock()
                         mock_mpv.connect = AsyncMock(return_value=True)
                         mock_mpv.is_connected = True
@@ -125,16 +125,16 @@ class TestPodcastSourceLifecycle:
     async def test_start_mpv_connection_failure(self, podcast_source):
         """Test start fails if MPV connection fails."""
         with patch.object(podcast_source, '_start_service', return_value=True):
-            with patch('backend.features.podcast.source.PodcastDataService') as mock_data_class:
+            with patch('backend.sources.podcast.source.PodcastDataService') as mock_data_class:
                 mock_data = AsyncMock()
                 mock_data.get_setting = AsyncMock(return_value=1.0)
                 mock_data_class.return_value = mock_data
 
-                with patch('backend.features.podcast.source.TaddyAPI') as mock_api_class:
+                with patch('backend.sources.podcast.source.TaddyAPI') as mock_api_class:
                     mock_api = AsyncMock()
                     mock_api_class.return_value = mock_api
 
-                    with patch('backend.features.podcast.source.MpvController') as mock_mpv_class:
+                    with patch('backend.sources.podcast.source.MpvController') as mock_mpv_class:
                         mock_mpv = Mock()
                         mock_mpv.connect = AsyncMock(return_value=False)
                         mock_mpv.disconnect = AsyncMock()
@@ -377,7 +377,7 @@ class TestConnectionState:
         podcast_source._current_episode = None
         podcast_source._update_connection_state()
 
-        assert podcast_source.state == PluginState.WAITING
+        assert podcast_source.state == SourceState.WAITING
 
     def test_update_state_with_episode(self, podcast_source):
         """Test state is ACTIVE with episode."""
@@ -388,7 +388,7 @@ class TestConnectionState:
         podcast_source._podcast_data = Mock()
         podcast_source._update_connection_state()
 
-        assert podcast_source.state == PluginState.ACTIVE
+        assert podcast_source.state == SourceState.ACTIVE
 
 
 class TestPlaybackMetadata:

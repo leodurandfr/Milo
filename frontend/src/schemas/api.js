@@ -18,7 +18,7 @@ const AudioSourceSchema = z.enum([
   'none', 'spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'airplay', 'cd'
 ]);
 
-const PluginStateSchema = z.enum([
+const SourceStateSchema = z.enum([
   'starting', 'waiting', 'active', 'error'
 ]);
 
@@ -46,7 +46,7 @@ const MetadataSchema = z.object({
 
 export const SystemStateSchema = z.object({
   active_source: AudioSourceSchema.catch('none'),
-  plugin_state: PluginStateSchema.catch('waiting'),
+  source_state: SourceStateSchema.catch('waiting'),
   transitioning: z.boolean().catch(false),
   metadata: MetadataSchema.optional().default({}),
   error: z.string().nullable().optional().catch(null),
@@ -68,13 +68,15 @@ const VolumeZoneSchema = z.object({
   name: z.string(),
   client_ids: z.array(z.string()),
   average_volume_db: z.number().optional(),
-  all_muted: z.boolean().optional()
+  all_muted: z.boolean().optional(),
+  all_external_volume: z.boolean().optional().default(false)
 });
 
 export const VolumeStateSchema = z.object({
   mode: z.enum(['direct', 'multiroom']).catch('direct'),
   global_volume_db: z.number().catch(-45.0),
   global_mute: z.boolean().catch(false),
+  volume_control: z.boolean().catch(true),  // False = DAC mode (external amp)
   clients: z.record(z.string(), VolumeClientSchema).catch({}),
   zones: z.record(z.string(), VolumeZoneSchema).catch({})
 });
@@ -84,7 +86,7 @@ export const VolumeStateSchema = z.object({
 const WebSocketMessageSchema = z.object({
   category: z.string(),
   type: z.string(),
-  source: z.string().optional(),
+  origin: z.string().optional(),
   data: z.unknown().optional()
 });
 
@@ -94,8 +96,8 @@ const VolumeEventDataSchema = z.object({
   state: VolumeStateSchema.optional()
 });
 
-const PluginEventDataSchema = z.object({
-  state: PluginStateSchema.optional(),
+const SourceEventDataSchema = z.object({
+  state: SourceStateSchema.optional(),
   metadata: MetadataSchema.optional()
 });
 
@@ -190,7 +192,8 @@ const RegisteredClientSchema = z.object({
   ip: z.string(),
   online: z.boolean().default(false),
   zone_id: z.string().nullable(),
-  speaker_type: z.enum(['satellite', 'bookshelf', 'tower', 'subwoofer']).default('bookshelf')
+  speaker_type: z.enum(['satellite', 'bookshelf', 'tower', 'subwoofer']).default('bookshelf'),
+  volume_control: z.boolean().default(true)
 });
 
 /**

@@ -19,7 +19,7 @@ import logging
 from time import monotonic
 from typing import Dict, Any, Optional
 
-from backend.core.models.audio_state import AudioSource, PluginState, SystemAudioState
+from backend.core.models.audio_state import AudioSource, SourceState, SystemAudioState
 from backend.core.audio_source import BaseAudioSource
 from backend.shared.decorators import handle_errors
 
@@ -34,14 +34,14 @@ class AudioStateMachine:
     TRANSITION_TIMEOUT = 10.0
     INACTIVITY_TIMEOUT = 7200  # 2 hours in seconds
 
-    # Only plugin/system events include full_state (used by unifiedAudioStore).
+    # Only "source"/"system" categories include full_state (used by unifiedAudioStore).
     # Other categories (volume, equalizer, multiroom, settings) send only
     # their specific data — their frontend stores don't read full_state.
-    _FULL_STATE_CATEGORIES = frozenset({"plugin", "system"})
+    _FULL_STATE_CATEGORIES = frozenset({"source", "system"})
 
     def __init__(self):
         self.system_state = SystemAudioState()
-        self.plugins: Dict[AudioSource, Optional[BaseAudioSource]] = {
+        self.sources: Dict[AudioSource, Optional[BaseAudioSource]] = {
             source: None for source in AudioSource
             if source != AudioSource.NONE
         }
@@ -57,27 +57,27 @@ class AudioStateMachine:
         self.ws_manager = None
         self.routing_service = None
 
-    def register_plugin(self, source: AudioSource, plugin: BaseAudioSource) -> None:
-        """Register a plugin for a specific source."""
-        if source in self.plugins:
-            self.plugins[source] = plugin
-            logger.info(f"Plugin registered for source: {source.value}")
+    def register_source(self, source: AudioSource, instance: BaseAudioSource) -> None:
+        """Register an audio source implementation."""
+        if source in self.sources:
+            self.sources[source] = instance
+            logger.info(f"Source registered: {source.value}")
 
-    def get_plugin(self, source: AudioSource) -> Optional[BaseAudioSource]:
-        """Get plugin for a specific source."""
-        return self.plugins.get(source)
+    def get_source(self, source: AudioSource) -> Optional[BaseAudioSource]:
+        """Get audio source implementation for a specific source."""
+        return self.sources.get(source)
 
-    def get_plugin_metadata(self, source: AudioSource) -> Dict[str, Any]:
+    def get_source_metadata(self, source: AudioSource) -> Dict[str, Any]:
         """Get metadata for the active source."""
         if source == self.system_state.active_source:
             return self.system_state.metadata
         return {}
 
-    def get_plugin_state(self, source: AudioSource) -> PluginState:
+    def get_source_state(self, source: AudioSource) -> SourceState:
         """Get state of the active source."""
         if source == self.system_state.active_source:
-            return self.system_state.plugin_state
-        return PluginState.WAITING
+            return self.system_state.source_state
+        return SourceState.WAITING
 
     async def get_current_state(self) -> Dict[str, Any]:
         """Return current system state as dict."""
@@ -114,12 +114,12 @@ class AudioStateMachine:
                 return False
 
             if self.system_state.active_source == target_source and \
-               self.system_state.plugin_state != PluginState.ERROR:
+               self.system_state.source_state != SourceState.ERROR:
                 logger.info(f"Already on source {target_source.value}")
                 return True
 
-            if target_source != AudioSource.NONE and target_source not in self.plugins:
-                logger.error(f"No plugin registered for source: {target_source.value}")
+            if target_source != AudioSource.NONE and target_source not in self.sources:
+                logger.error(f"No source registered for: {target_source.value}")
                 return False
 
             try:
@@ -128,9 +128,9 @@ class AudioStateMachine:
                         old_source = self.system_state.active_source
                         self.system_state.transitioning = True
                         self.system_state.active_source = target_source
-                        self.system_state.plugin_state = (
-                            PluginState.STARTING if target_source != AudioSource.NONE
-                            else PluginState.WAITING
+                        self.system_state.source_state = (
+                            SourceState.STARTING if target_source != AudioSource.NONE
+                            else SourceState.WAITING
                         )
                         self.system_state.metadata = {}
 
@@ -153,18 +153,18 @@ class AudioStateMachine:
                     async with self._state_lock:
                         self.system_state.transitioning = False
                         if target_source != AudioSource.NONE:
-                            # Sync with plugin's actual post-start state
+                            # Sync with source's actual post-start state
                             # (_do_start may have set CONNECTED with metadata)
-                            plugin = self.plugins.get(target_source)
-                            if plugin:
-                                self.system_state.plugin_state = plugin.state
-                                self.system_state.metadata = plugin.metadata
+                            source = self.sources.get(target_source)
+                            if source:
+                                self.system_state.source_state = source.state
+                                self.system_state.metadata = source.metadata
                             else:
-                                self.system_state.plugin_state = PluginState.WAITING
+                                self.system_state.source_state = SourceState.WAITING
 
                     await self.broadcast_event("system", "transition_complete", {
                         "active_source": target_source.value,
-                        "plugin_state": self.system_state.plugin_state.value,
+                        "source_state": self.system_state.source_state.value,
                         "source": "system"
                     })
 
@@ -206,13 +206,13 @@ class AudioStateMachine:
                 await self._emergency_stop()
                 return False
 
-    async def update_plugin_state(
+    async def update_source_state(
         self,
         source: AudioSource,
-        new_state: PluginState,
+        new_state: SourceState,
         metadata: Optional[Dict[str, Any]] = None
     ) -> None:
-        """Update plugin state and broadcast via WebSocket."""
+        """Update source state and broadcast via WebSocket."""
         async with self._state_lock:
             if source != self.system_state.active_source:
                 logger.debug(f"Ignoring state update from inactive source: {source.value}")
@@ -222,22 +222,22 @@ class AudioStateMachine:
                 logger.debug(f"Ignoring state update during transition: {source.value}")
                 return
 
-            old_state = self.system_state.plugin_state
-            self.system_state.plugin_state = new_state
+            old_state = self.system_state.source_state
+            self.system_state.source_state = new_state
 
             if metadata:
                 self.system_state.metadata.update(metadata)
 
-            if new_state == PluginState.ERROR:
+            if new_state == SourceState.ERROR:
                 self.system_state.error = metadata.get("error") if metadata else "Unknown"
             else:
                 self.system_state.error = None
 
-            # Reset inactivity timer when plugin becomes active
-            if new_state == PluginState.ACTIVE:
+            # Reset inactivity timer when source becomes active
+            if new_state == SourceState.ACTIVE:
                 self._last_activity_time = monotonic()
 
-        await self.broadcast_event("plugin", "state_changed", {
+        await self.broadcast_event("source", "state_changed", {
             "source": source.value,
             "old_state": old_state.value,
             "new_state": new_state.value,
@@ -287,17 +287,17 @@ class AudioStateMachine:
 
     @handle_errors(default=False, level='warning')
     async def refresh_active_metadata(self) -> bool:
-        """Refresh metadata from the active plugin."""
+        """Refresh metadata from the active source."""
         if self.system_state.active_source == AudioSource.NONE:
             return False
 
-        plugin = self.plugins.get(self.system_state.active_source)
-        if not plugin or not hasattr(plugin, '_refresh_metadata'):
+        source = self.sources.get(self.system_state.active_source)
+        if not source or not hasattr(source, '_refresh_metadata'):
             return False
 
-        if await plugin._refresh_metadata() and hasattr(plugin, '_metadata'):
+        if await source._refresh_metadata() and hasattr(source, '_metadata'):
             async with self._state_lock:
-                self.system_state.metadata = plugin._metadata.copy()
+                self.system_state.metadata = source._metadata.copy()
             return True
 
         return False
@@ -305,37 +305,37 @@ class AudioStateMachine:
     @handle_errors(default=None)
     async def _stop_source(self, source: AudioSource) -> None:
         """Stop specified source."""
-        plugin = self.plugins.get(source)
-        if plugin:
-            await plugin.stop()
+        instance = self.sources.get(source)
+        if instance:
+            await instance.stop()
 
     @handle_errors(default=False)
     async def _start_source(self, source: AudioSource) -> bool:
         """Start specified source."""
-        plugin = self.plugins.get(source)
-        if not plugin:
+        instance = self.sources.get(source)
+        if not instance:
             return False
 
-        if not getattr(plugin, '_initialized', False):
-            if await plugin.initialize():
-                plugin._initialized = True
+        if not getattr(instance, '_initialized', False):
+            if await instance.initialize():
+                instance._initialized = True
             else:
                 return False
 
-        return await plugin.start()
+        return await instance.start()
 
     async def _emergency_stop(self) -> None:
-        """Emergency stop all plugins and broadcast the reset state."""
-        for plugin in self.plugins.values():
-            if plugin:
+        """Emergency stop all sources and broadcast the reset state."""
+        for source in self.sources.values():
+            if source:
                 try:
-                    await plugin.stop()
+                    await source.stop()
                 except Exception as e:
                     logger.error(f"Emergency stop error: {e}")
 
         async with self._state_lock:
             self.system_state.active_source = AudioSource.NONE
-            self.system_state.plugin_state = PluginState.WAITING
+            self.system_state.source_state = SourceState.WAITING
             self.system_state.metadata = {}
             self.system_state.error = None
 
@@ -378,13 +378,13 @@ class AudioStateMachine:
                 # Atomic snapshot under lock
                 async with self._state_lock:
                     source = self.system_state.active_source
-                    plugin_state = self.system_state.plugin_state
+                    source_state = self.system_state.source_state
                     transitioning = self.system_state.transitioning
 
                 if (
                     self._inactivity_timeout > 0
                     and source != AudioSource.NONE
-                    and plugin_state == PluginState.WAITING
+                    and source_state == SourceState.WAITING
                     and not transitioning
                     and (monotonic() - self._last_activity_time) >= self._inactivity_timeout
                 ):
@@ -421,9 +421,15 @@ class AudioStateMachine:
         """
         Broadcast event to all connected WebSocket clients.
 
-        Plugin/system events include full_state for unifiedAudioStore
-        unless include_full_state=False (used for lightweight position updates).
-        Other categories send only their specific data.
+        Wire format:
+            { category, type, origin, data, timestamp }
+
+        - "origin" is read from data["source"] (falling back to category).
+          Callers using category="source" MUST provide "source" in the data dict
+          so that origin resolves to the audio source name (e.g. "radio", "spotify").
+        - source/system events include full_state for unifiedAudioStore
+          unless include_full_state=False (used for lightweight position updates).
+        - Other categories send only their specific data.
         """
         if not self.ws_manager:
             return
@@ -435,7 +441,7 @@ class AudioStateMachine:
         await self.ws_manager.broadcast_dict({
             "category": category,
             "type": event_type,
-            "source": data.get("source", category),
+            "origin": data.get("source", category),
             "data": event_payload,
             "timestamp": time.time()
         })

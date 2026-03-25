@@ -1,9 +1,9 @@
 # backend/api/source_dependency.py
 """
-Shared factory for audio plugin route source dependencies.
+Shared factory for audio source route dependencies.
 
 Eliminates the repeated source_provider boilerplate pattern
-across all 6 plugin routes.py files (~10 lines each).
+across all audio source routes.py files (~10 lines each).
 """
 from typing import Callable, TypeVar
 
@@ -14,7 +14,7 @@ T = TypeVar('T')
 
 def make_source_dependency(name: str):
     """
-    Create source provider boilerplate for an audio plugin router.
+    Create source provider boilerplate for an audio source router.
 
     Returns (set_provider, get_source) tuple:
     - set_provider: call with source_provider callable to configure

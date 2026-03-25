@@ -13,10 +13,10 @@ import pytest
 import asyncio
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
-from backend.features.radio.source import RadioSource
-from backend.features.radio.data import StationDataService, ImageManager
+from backend.sources.radio.source import RadioSource
+from backend.sources.radio.data import StationDataService, ImageManager
 from backend.core.audio_source import BaseAudioSource
-from backend.core.models.audio_state import PluginState
+from backend.core.models.audio_state import SourceState
 
 
 @pytest.fixture
@@ -88,17 +88,17 @@ class TestRadioSourceLifecycle:
         """Test successful start."""
         # Mock dependencies
         with patch.object(radio_source, '_start_service', return_value=True):
-            with patch('backend.features.radio.source.StationDataService') as mock_data_class:
+            with patch('backend.sources.radio.source.StationDataService') as mock_data_class:
                 mock_data = AsyncMock()
                 mock_data.initialize = AsyncMock()
                 mock_data.get_stats = Mock(return_value={'favorites_count': 0})
                 mock_data_class.return_value = mock_data
 
-                with patch('backend.features.radio.source.RadioBrowserAPI') as mock_api_class:
+                with patch('backend.sources.radio.source.RadioBrowserAPI') as mock_api_class:
                     mock_api = AsyncMock()
                     mock_api_class.return_value = mock_api
 
-                    with patch('backend.features.radio.source.MpvController') as mock_mpv_class:
+                    with patch('backend.sources.radio.source.MpvController') as mock_mpv_class:
                         mock_mpv = Mock()
                         mock_mpv.connect = AsyncMock(return_value=True)
                         mock_mpv.is_connected = True
@@ -112,16 +112,16 @@ class TestRadioSourceLifecycle:
     async def test_start_mpv_connection_failure(self, radio_source):
         """Test start fails if MPV connection fails."""
         with patch.object(radio_source, '_start_service', return_value=True):
-            with patch('backend.features.radio.source.StationDataService') as mock_data_class:
+            with patch('backend.sources.radio.source.StationDataService') as mock_data_class:
                 mock_data = AsyncMock()
                 mock_data.initialize = AsyncMock()
                 mock_data_class.return_value = mock_data
 
-                with patch('backend.features.radio.source.RadioBrowserAPI') as mock_api_class:
+                with patch('backend.sources.radio.source.RadioBrowserAPI') as mock_api_class:
                     mock_api = AsyncMock()
                     mock_api_class.return_value = mock_api
 
-                    with patch('backend.features.radio.source.MpvController') as mock_mpv_class:
+                    with patch('backend.sources.radio.source.MpvController') as mock_mpv_class:
                         mock_mpv = Mock()
                         mock_mpv.connect = AsyncMock(return_value=False)
                         mock_mpv.disconnect = AsyncMock()
@@ -341,7 +341,7 @@ class TestConnectionState:
         radio_source._current_station = None
         radio_source._update_connection_state()
 
-        assert radio_source.state == PluginState.WAITING
+        assert radio_source.state == SourceState.WAITING
 
     def test_update_state_with_station(self, radio_source):
         """Test state is ACTIVE with station."""
@@ -351,7 +351,7 @@ class TestConnectionState:
         radio_source._station_data.is_favorite = Mock(return_value=False)
         radio_source._update_connection_state()
 
-        assert radio_source.state == PluginState.ACTIVE
+        assert radio_source.state == SourceState.ACTIVE
 
 
 class TestPlaybackMetadata:

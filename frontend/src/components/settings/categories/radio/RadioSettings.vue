@@ -104,7 +104,7 @@ onMounted(() => {
 
 // Listen for metadata modifications to refresh custom stations
 // (favorites are already updated in real-time via RadioSource's WebSocket handlers)
-on('plugin', 'favorite_modified', (event) => {
+on('source', 'favorite_modified', (event) => {
   if (event.data?.source === 'radio') {
     logger.debug('radio', 'Station modified, reloading custom stations for settings');
     radioStore.loadRadioSettingsData();

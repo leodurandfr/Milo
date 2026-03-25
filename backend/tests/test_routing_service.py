@@ -75,12 +75,12 @@ class TestAudioRoutingService:
         assert AudioRoutingService._to_bool(1) is True
         assert AudioRoutingService._to_bool(0) is False
 
-    def test_set_plugin_callback(self, routing_service):
-        """Plugin callback definition test"""
+    def test_set_source_callback(self, routing_service):
+        """Source callback definition test"""
         callback = lambda source: None
-        routing_service.set_plugin_callback(callback)
+        routing_service.set_source_callback(callback)
 
-        assert routing_service.get_plugin == callback
+        assert routing_service.get_source == callback
 
     def test_set_snapcast_websocket_service(self, routing_service):
         """Snapcast WebSocket service definition test"""
@@ -253,8 +253,8 @@ class TestAudioRoutingService:
         mock_settings_service.set_setting.assert_called_with('equalizer.effects_enabled', True)
 
     @pytest.mark.asyncio
-    async def test_set_equalizer_effects_enabled_with_plugin_restart(self, routing_service, mock_plugin, mock_settings_service):
-        """Equalizer effects activation test with active plugin restart"""
+    async def test_set_equalizer_effects_enabled_with_source_restart(self, routing_service, mock_source, mock_settings_service):
+        """Equalizer effects activation test with active source restart"""
         mock_sm = Mock()
         mock_sm.system_state = Mock()
         mock_sm.system_state.equalizer_effects_enabled = False
@@ -263,13 +263,13 @@ class TestAudioRoutingService:
             side_effect=lambda v, silent=False: setattr(mock_sm.system_state, 'equalizer_effects_enabled', v)
         )
         routing_service.set_state_machine(mock_sm)
-        routing_service.set_plugin_callback(lambda source: mock_plugin if source == AudioSource.SPOTIFY else None)
+        routing_service.set_source_callback(lambda source: mock_source if source == AudioSource.SPOTIFY else None)
 
         result = await routing_service.set_equalizer_effects_enabled(True, active_source=AudioSource.SPOTIFY)
 
         assert result is True
-        # Note: Plugin restart is no longer done by set_equalizer_effects_enabled
-        # Equalizer effects toggle doesn't require plugin restart with CamillaDSP
+        # Note: Source restart is no longer done by set_equalizer_effects_enabled
+        # Equalizer effects toggle doesn't require source restart with CamillaDSP
 
     @pytest.mark.asyncio
     async def test_update_systemd_environment_validation(self, routing_service):

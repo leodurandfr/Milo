@@ -23,9 +23,9 @@
         <AirPlaySource />
       </div>
 
-      <!-- PluginStatus -->
-      <div v-else-if="shouldShowPluginStatus" :key="contentKey" class="plugin-status-container">
-        <AudioSourceStatus :plugin-type="currentPluginType" :plugin-state="currentPluginState"
+      <!-- Source Status -->
+      <div v-else-if="shouldShowSourceStatus" :key="contentKey" class="source-status-container">
+        <AudioSourceStatus :source-type="currentSourceType" :source-state="currentSourceState"
           :device-name="currentDeviceName" :is-disconnecting="isDisconnecting" @disconnect="handleDisconnect" />
       </div>
 
@@ -58,7 +58,7 @@ const unifiedStore = useUnifiedAudioStore();
 
 // Read all state directly from the store
 const activeSource = computed(() => unifiedStore.systemState.active_source);
-const pluginState = computed(() => unifiedStore.systemState.plugin_state);
+const sourceState = computed(() => unifiedStore.systemState.source_state);
 const transitioning = computed(() => unifiedStore.systemState.transitioning);
 const metadata = computed(() => unifiedStore.systemState.metadata);
 
@@ -72,7 +72,7 @@ function handleDisconnect() {
 // === DECISION LOGIC ===
 const hasCompleteTrackInfo = computed(() => {
   return !!(
-    pluginState.value === 'active' &&
+    sourceState.value === 'active' &&
     metadata.value?.title &&
     metadata.value?.artist
   );
@@ -80,7 +80,7 @@ const hasCompleteTrackInfo = computed(() => {
 
 const shouldShowSpotify = computed(() => {
   return activeSource.value === 'spotify' &&
-    pluginState.value === 'active' &&
+    sourceState.value === 'active' &&
     hasCompleteTrackInfo.value &&
     !transitioning.value;
 });
@@ -97,18 +97,18 @@ const shouldShowPodcast = computed(() => {
 
 const shouldShowCD = computed(() => {
   return activeSource.value === 'cd' &&
-    pluginState.value === 'active' &&
+    sourceState.value === 'active' &&
     !transitioning.value;
 });
 
 const shouldShowAirPlay = computed(() => {
   return activeSource.value === 'airplay' &&
-    pluginState.value === 'active' &&
+    sourceState.value === 'active' &&
     hasCompleteTrackInfo.value &&
     !transitioning.value;
 });
 
-const shouldShowPluginStatus = computed(() => {
+const shouldShowSourceStatus = computed(() => {
   // Don't show status during transition to "none" (deactivation)
   if (transitioning.value && activeSource.value === 'none') {
     return false;
@@ -122,47 +122,47 @@ const shouldShowPluginStatus = computed(() => {
 
   // Spotify without complete conditions
   if (activeSource.value === 'spotify') {
-    return !hasCompleteTrackInfo.value || pluginState.value !== 'active';
+    return !hasCompleteTrackInfo.value || sourceState.value !== 'active';
   }
 
   // AirPlay without complete conditions
   if (activeSource.value === 'airplay') {
-    return !hasCompleteTrackInfo.value || pluginState.value !== 'active';
+    return !hasCompleteTrackInfo.value || sourceState.value !== 'active';
   }
 
   // CD: show status during starting/waiting (not yet active)
   if (activeSource.value === 'cd') {
-    return pluginState.value !== 'active';
+    return sourceState.value !== 'active';
   }
 
   return false;
 });
 
-// === PROPERTIES FOR PLUGINSTATUS ===
-const currentPluginType = computed(() => activeSource.value);
+// === PROPERTIES FOR SOURCE STATUS ===
+const currentSourceType = computed(() => activeSource.value);
 
-const rawPluginState = computed(() => {
+const rawSourceState = computed(() => {
   if (transitioning.value) return 'starting';
   // CD: disc present but cache still loading (WAITING state, not yet ACTIVE)
-  if (activeSource.value === 'cd' && pluginState.value === 'waiting' &&
+  if (activeSource.value === 'cd' && sourceState.value === 'waiting' &&
       metadata.value?.disc_present && !metadata.value?.cache_ready) {
     return 'loading_disc';
   }
-  return pluginState.value;
+  return sourceState.value;
 });
 
 // Minimum display time for "starting" state (prevents flash before "loading_disc")
 const STARTING_MIN_MS = 2000;
-const currentPluginState = ref(rawPluginState.value);
+const currentSourceState = ref(rawSourceState.value);
 let startingEnteredAt = null;
 let startingTimer = null;
 
-watch(rawPluginState, (newState, oldState) => {
+watch(rawSourceState, (newState, oldState) => {
   clearTimeout(startingTimer);
 
   if (newState === 'starting') {
     startingEnteredAt = Date.now();
-    currentPluginState.value = 'starting';
+    currentSourceState.value = 'starting';
     return;
   }
 
@@ -171,7 +171,7 @@ watch(rawPluginState, (newState, oldState) => {
     const remaining = STARTING_MIN_MS - (Date.now() - startingEnteredAt);
     if (remaining > 0) {
       startingTimer = setTimeout(() => {
-        currentPluginState.value = rawPluginState.value;
+        currentSourceState.value = rawSourceState.value;
         startingEnteredAt = null;
       }, remaining);
       return;
@@ -179,7 +179,7 @@ watch(rawPluginState, (newState, oldState) => {
   }
 
   startingEnteredAt = null;
-  currentPluginState.value = newState;
+  currentSourceState.value = newState;
 });
 
 onUnmounted(() => clearTimeout(startingTimer));
@@ -199,10 +199,10 @@ const currentDeviceName = computed(() => {
   }
 });
 
-// Key for transitions - includes state for PluginStatus to animate between states
+// Key for transitions - includes state for source status to animate between states
 const contentKey = computed(() => {
-  if (shouldShowPluginStatus.value) {
-    return `${activeSource.value}-${currentPluginState.value}-${!!currentDeviceName.value}`;
+  if (shouldShowSourceStatus.value) {
+    return `${activeSource.value}-${currentSourceState.value}-${!!currentDeviceName.value}`;
   }
   return activeSource.value;
 });
@@ -230,8 +230,8 @@ const contentKey = computed(() => {
   height: 100%;
 }
 
-/* PluginStatus: naturally centered */
-.plugin-status-container {
+/* Source status: naturally centered */
+.source-status-container {
   width: 100%;
   height: 100%;
   display: flex;

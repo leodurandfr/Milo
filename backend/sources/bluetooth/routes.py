@@ -1,4 +1,4 @@
-# backend/features/bluetooth/routes.py
+# backend/sources/bluetooth/routes.py
 """
 FastAPI routes for Bluetooth audio source.
 
@@ -7,7 +7,7 @@ Provides REST API endpoints for:
 - Disconnect: Disconnect current device
 
 Usage:
-    from backend.features.bluetooth import router, BluetoothSource
+    from backend.sources.bluetooth import router, BluetoothSource
 
     source = BluetoothSource(config=config)
     setup_bluetooth_routes(lambda: source)
@@ -20,7 +20,7 @@ from typing import Dict, Any
 
 from backend.api.route_helpers import run_source_command
 from backend.api.source_dependency import make_source_dependency
-from backend.features.bluetooth.source import BluetoothSource
+from backend.sources.bluetooth.source import BluetoothSource
 
 logger = logging.getLogger(__name__)
 

@@ -1,4 +1,4 @@
-# backend/features/airplay/metadata_reader.py
+# backend/sources/airplay/metadata_reader.py
 """
 Async reader for shairport-sync metadata pipe.
 

@@ -4,7 +4,7 @@ Pytest configuration - Shared fixtures for all tests
 """
 import pytest
 from unittest.mock import Mock, AsyncMock
-from backend.core.models.audio_state import AudioSource, PluginState
+from backend.core.models.audio_state import AudioSource, SourceState
 
 
 
@@ -27,18 +27,18 @@ def mock_routing_service():
 
 
 @pytest.fixture
-def mock_plugin():
-    """Mock of an audio plugin"""
-    plugin = Mock()
-    plugin.initialize = AsyncMock(return_value=True)
-    plugin.start = AsyncMock(return_value=True)
-    plugin.stop = AsyncMock(return_value=True)
-    plugin.restart = AsyncMock(return_value=True)
-    plugin.status = AsyncMock(return_value={})
-    plugin._initialized = True
-    plugin.state = PluginState.WAITING
-    plugin.metadata = {}
-    return plugin
+def mock_source():
+    """Mock of an audio source"""
+    source = Mock()
+    source.initialize = AsyncMock(return_value=True)
+    source.start = AsyncMock(return_value=True)
+    source.stop = AsyncMock(return_value=True)
+    source.restart = AsyncMock(return_value=True)
+    source.status = AsyncMock(return_value={})
+    source._initialized = True
+    source.state = SourceState.WAITING
+    source.metadata = {}
+    return source
 
 
 @pytest.fixture

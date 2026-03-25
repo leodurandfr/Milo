@@ -23,8 +23,8 @@
     </div>
 
     <div ref="dock" class="dock glass-surface glass-border">
-      <!-- Volume Controls - Mobile only -->
-      <div class="volume-controls mobile-only" :style="{ transitionDelay: getDockItemDelay(0) }">
+      <!-- Volume Controls - Mobile only (hidden in DAC mode) -->
+      <div v-if="unifiedStore.volumeState.volume_control" class="volume-controls mobile-only" :style="{ transitionDelay: getDockItemDelay(0) }">
         <button v-for="{ icon, delta } in volumeControlsWithSteps" :key="icon"
           @pointerdown="(e) => onVolumeHoldStart(delta, e)" @pointerup="onVolumeHoldEnd"
           @pointercancel="onVolumeHoldEnd" @pointerleave="onVolumeHoldEnd" v-press
@@ -43,8 +43,8 @@
           <AppIcon :name="icon" size="large" class="dock-item-icon" />
         </button>
 
-        <!-- Desktop: Audio Plugins -->
-        <button v-for="({ id, icon }, index) in enabledAudioPlugins" :key="`desktop-audio-${id}`"
+        <!-- Desktop: Audio Sources -->
+        <button v-for="({ id, icon }, index) in enabledAudioSources" :key="`desktop-audio-${id}`"
           :ref="el => { if (el) desktopDockItems[index] = el }" @click="() => handleAppClick(id, index)"
           :disabled="unifiedStore.systemState.transitioning" :style="{ transitionDelay: getDockItemDelay(index) }"
           v-press class="dock-item button-interactive-subtle desktop-only">
@@ -53,7 +53,7 @@
 
         <!-- Separator - Desktop: shown if features exist, Mobile: shown if toggle button exists -->
         <div v-if="enabledFeatures.length > 0 || additionalDockApps.length > 0"
-          :style="{ transitionDelay: getDockItemDelay(enabledAudioPlugins.length) }"
+          :style="{ transitionDelay: getDockItemDelay(enabledAudioSources.length) }"
           class="dock-separator">
         </div>
 
@@ -66,7 +66,7 @@
 
         <!-- Desktop: Features -->
         <button v-for="({ id, icon, handler }, index) in enabledFeatures" :key="`desktop-feature-${id}`"
-          @click="handler" :style="{ transitionDelay: getDockItemDelay(enabledAudioPlugins.length + 1 + index) }"
+          @click="handler" :style="{ transitionDelay: getDockItemDelay(enabledAudioSources.length + 1 + index) }"
           v-press class="dock-item desktop-only button-interactive-subtle">
           <AppIcon :name="icon" size="large" class="dock-item-icon" />
         </button>
@@ -113,8 +113,8 @@ const ALL_ADDITIONAL_ACTIONS = computed(() => [
 // === DYNAMIC CONFIGURATION ===
 const enabledApps = computed(() => settingsStore.buildEnabledAppsArray());
 
-// Computed to separate audio plugins and features
-const enabledAudioPlugins = computed(() => {
+// Computed to separate audio sources and features
+const enabledAudioSources = computed(() => {
   return enabledApps.value
     .filter(source => ALL_AUDIO_SOURCES.includes(source))
     .filter(source => source !== 'cd' || cdStore.driveConnected)
@@ -128,7 +128,7 @@ const enabledFeatures = computed(() => {
 
 // All enabled apps in order (for mobile)
 const allEnabledApps = computed(() => {
-  return [...enabledAudioPlugins.value, ...enabledFeatures.value];
+  return [...enabledAudioSources.value, ...enabledFeatures.value];
 });
 
 // Split into two groups: if <=4 apps, all in dock; otherwise first 3 in dock and the rest in "additional" (for mobile)
@@ -259,7 +259,7 @@ const indicatorStyle = ref({
 
 const activeSourceIndex = computed(() => {
   if (isDesktop()) {
-    return enabledAudioPlugins.value.findIndex(app => app.id === unifiedStore.systemState.active_source);
+    return enabledAudioSources.value.findIndex(app => app.id === unifiedStore.systemState.active_source);
   } else {
     const currentSource = unifiedStore.systemState.active_source;
     if (!ALL_AUDIO_SOURCES.includes(currentSource)) return -1;

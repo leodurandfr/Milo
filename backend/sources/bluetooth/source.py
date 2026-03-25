@@ -1,4 +1,4 @@
-# backend/features/bluetooth/source.py
+# backend/sources/bluetooth/source.py
 """
 Bluetooth audio source using BlueALSA.
 
@@ -16,8 +16,8 @@ import asyncio
 from typing import Dict, Any, Optional
 
 from backend.core.audio_source import BaseAudioSource
-from backend.features.bluetooth.agent import BluetoothAgent
-from backend.features.bluetooth.monitor import BlueAlsaMonitor
+from backend.sources.bluetooth.agent import BluetoothAgent
+from backend.sources.bluetooth.monitor import BlueAlsaMonitor
 from backend.shared.decorators import handle_errors
 
 
@@ -127,7 +127,7 @@ class BluetoothSource(BaseAudioSource):
             await self._stop_service(self.bluealsa_service)
 
             # Keep bluetooth.service running if BT remote controller needs it
-            bt_remote = await self.settings_service.get_setting('plugins.bt_remote')
+            bt_remote = await self.settings_service.get_setting('hardware.bt_remote')
             if not (bt_remote and bt_remote.get('enabled')):
                 await self._stop_service(self.bluetooth_service)
 

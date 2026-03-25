@@ -13,11 +13,11 @@ import pytest
 import asyncio
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
-from backend.features.bluetooth.source import BluetoothSource
-from backend.features.bluetooth.agent import BluetoothAgent
-from backend.features.bluetooth.monitor import BlueAlsaMonitor
+from backend.sources.bluetooth.source import BluetoothSource
+from backend.sources.bluetooth.agent import BluetoothAgent
+from backend.sources.bluetooth.monitor import BlueAlsaMonitor
 from backend.core.audio_source import BaseAudioSource
-from backend.core.models.audio_state import PluginState
+from backend.core.models.audio_state import SourceState
 
 
 @pytest.fixture
@@ -252,7 +252,7 @@ class TestConnectionState:
         bluetooth_source.connected_device = None
         bluetooth_source._update_connection_state()
 
-        assert bluetooth_source.state == PluginState.WAITING
+        assert bluetooth_source.state == SourceState.WAITING
 
     def test_update_state_with_device(self, bluetooth_source):
         """Test state is ACTIVE with device."""
@@ -262,7 +262,7 @@ class TestConnectionState:
         }
         bluetooth_source._update_connection_state()
 
-        assert bluetooth_source.state == PluginState.ACTIVE
+        assert bluetooth_source.state == SourceState.ACTIVE
 
     @pytest.mark.asyncio
     async def test_on_device_connected(self, bluetooth_source):

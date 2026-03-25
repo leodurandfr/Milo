@@ -11,7 +11,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   // === SINGLE SYSTEM STATE ===
   const systemState = ref({
     active_source: 'none',
-    plugin_state: 'waiting',
+    source_state: 'waiting',
     transitioning: false,
     metadata: {},
     error: null,
@@ -24,6 +24,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     mode: 'direct',                  // 'direct' or 'multiroom'
     global_volume_db: -45.0,         // Global volume (average of unmuted clients)
     global_mute: false,              // Global mute state
+    volume_control: true,            // False = DAC mode (external amp manages volume)
     clients: {},                     // {hostname: {volume_db, offset_db, mute, available}}
     zones: {},                       // {zoneId: {id, name, client_ids, average_volume_db, all_muted}}
     step_mobile_db: 2.0              // Volume step for mobile buttons
@@ -156,7 +157,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     if (result.success) {
       systemState.value = {
         active_source: result.data.active_source,
-        plugin_state: result.data.plugin_state,
+        source_state: result.data.source_state,
         transitioning: result.data.transitioning,
         metadata: result.data.metadata || {},
         error: result.data.error || null,
@@ -193,6 +194,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
         volumeState.value.mode = result.data.mode;
         volumeState.value.global_volume_db = result.data.global_volume_db;
         volumeState.value.global_mute = result.data.global_mute;
+        volumeState.value.volume_control = result.data.volume_control ?? true;
         volumeState.value.clients = result.data.clients;
         volumeState.value.zones = result.data.zones;
       }

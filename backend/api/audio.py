@@ -35,12 +35,12 @@ def create_router(state_machine):
         """Sends command to specific source with validation and rate limiting"""
         try:
             source = AudioSource(source_name)
-            plugin = state_machine.plugins.get(source)
+            source_instance = state_machine.sources.get(source)
 
-            if not plugin:
-                raise HTTPException(status_code=404, detail=f"Plugin not found: {source_name}")
+            if not source_instance:
+                raise HTTPException(status_code=404, detail=f"Source not found: {source_name}")
 
-            result = await plugin.command(control_request.command, control_request.data)
+            result = await source_instance.command(control_request.command, control_request.data)
             return {"status": "success" if result.get("success") else "error", "result": result}
 
         except ValueError as e:

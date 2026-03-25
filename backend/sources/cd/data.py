@@ -1,4 +1,4 @@
-# backend/features/cd/data.py
+# backend/sources/cd/data.py
 """
 CD data service for disc detection, metadata lookup, and caching.
 
@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import aiofiles
 
 from backend.config.constants import CD_COVERS_DIR, CD_DATA_FILE, CD_DEVICE
-from backend.features.cd.models import DiscInfo, TrackInfo
+from backend.sources.cd.models import DiscInfo, TrackInfo
 from backend.shared.decorators import handle_errors
 
 logger = logging.getLogger(__name__)
