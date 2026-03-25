@@ -32,6 +32,7 @@ class AudioUpdate(BaseModel):
     """Request body for PUT /api/hardware/audio."""
     audio_id: str
     overlay: str = ""
+    volume_control: bool = True  # False for DAC cards (external amp manages volume)
 
     @field_validator("overlay")
     @classmethod
@@ -92,6 +93,7 @@ def create_hardware_router() -> APIRouter:
                 config["audio"] = {
                     "id": request.audio_id,
                     "overlay": request.overlay,
+                    "volume_control": request.volume_control,
                 }
 
             _write_hardware_json(config)

@@ -55,6 +55,9 @@ class VolumeService:
         # Volume configuration (loaded from settings in _load_volume_config)
         self._volume_config = VolumeConfig()
 
+        # Volume control flag (False = DAC mode, external amp manages volume)
+        self._volume_control: bool = True
+
         # VolumeStateStore (SSOT) + EqualizerController (hardware abstraction)
         self._state_store = VolumeStateStore(self.settings_service)
         self._equalizer_controller = EqualizerController(
@@ -241,6 +244,11 @@ class VolumeService:
         Returns:
             The volume to use for the new mode (for multiroom: local volume to push)
         """
+        # DAC mode: just switch mode, skip volume push to clients
+        if not self._volume_control:
+            await self._state_store.set_mode("multiroom" if multiroom_enabled else "direct")
+            return None
+
         if multiroom_enabled:
             # Switching TO multiroom: get current local volume BEFORE mode change
             current_local = self._state_store.local_volume_db
@@ -634,6 +642,13 @@ class VolumeService:
         """
         await self._load_volume_config()
 
+        # Read volume control flag from hardware (DAC mode detection)
+        if self._hardware_service:
+            self._volume_control = self._hardware_service.get_volume_control()
+        self._state_store.set_volume_control(self._volume_control)
+        if not self._volume_control:
+            self.logger.info("DAC mode: volume managed by external amplifier")
+
         # Initialize VolumeStateStore (loads zones, persisted state)
         await self._state_store.initialize()
         self.logger.info("VolumeStateStore initialized")
@@ -653,6 +668,11 @@ class VolumeService:
     async def reapply_current_volume(self) -> None:
         """Re-apply current volume and mute state to CamillaDSP (after reconnection)."""
         if not self._camilladsp_service:
+            return
+        if not self._volume_control:
+            await self._camilladsp_service.set_volume(0.0)
+            await self._camilladsp_service.set_mute(False)
+            self.logger.info("DAC mode: re-pinned CamillaDSP at 0 dB after reconnect")
             return
         volume_db = self._state_store.local_volume_db
         local_mac_id = self._state_store.local_mac_id
@@ -677,6 +697,14 @@ class VolumeService:
             if not await self._camilladsp_service.wait_for_connection(timeout=10.0):
                 self.logger.warning("FR12: CamillaDSP not connected after 10s, startup volume not applied")
                 return
+
+        # DAC mode: pin CamillaDSP at 0 dB (external amp manages volume)
+        if not self._volume_control:
+            if self._camilladsp_service:
+                await self._camilladsp_service.set_volume(0.0)
+                await self._camilladsp_service.set_mute(False)
+            self.logger.info("DAC mode: CamillaDSP pinned at 0 dB")
+            return
 
         # startup_volume_db is the single source of truth:
         # - restore_last_volume=true: auto-updated by FR11 to track current volume
@@ -729,6 +757,8 @@ class VolumeService:
 
     async def set_volume_db(self, volume_db: float, show_bar: bool = True) -> bool:
         """Set volume to specific level in dB (-80 to 0)."""
+        if not self._volume_control:
+            return True  # DAC mode: volume managed externally
         if not await self._check_equalizer_or_error():
             return False
         target_db = self._volume_config.clamp(volume_db)
@@ -750,6 +780,8 @@ class VolumeService:
 
     async def adjust_volume_db(self, delta_db: float, show_bar: bool = True) -> bool:
         """Adjust volume by delta in dB (positive = louder, negative = quieter)."""
+        if not self._volume_control:
+            return True  # DAC mode: volume managed externally
         if not await self._check_equalizer_or_error():
             return False
         # Fetch online clients before lock (network I/O)

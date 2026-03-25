@@ -58,12 +58,14 @@ class VolumeState:
     global_mute: bool
     clients: Dict[str, ClientVolume] = field(default_factory=dict)
     zones: Dict[str, ZoneVolume] = field(default_factory=dict)
+    volume_control: bool = True  # False when local device is a DAC (external amp)
 
     def to_dict(self) -> dict:
         return {
             "mode": self.mode,
             "global_volume_db": self.global_volume_db,
             "global_mute": self.global_mute,
+            "volume_control": self.volume_control,
             "clients": {k: v.to_dict() for k, v in self.clients.items()},
             "zones": {k: v.to_dict() for k, v in self.zones.items()}
         }

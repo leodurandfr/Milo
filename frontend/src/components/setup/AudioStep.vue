@@ -57,7 +57,6 @@ const emit = defineEmits(['update:modelValue']);
 const categoryLabelMap = {
   amplifier: 'setup.audio.amplifiers',
   dac: 'setup.audio.dacs',
-  speaker: 'setup.audio.speakers',
 };
 
 function categoryLabel(category) {
@@ -68,7 +67,7 @@ function cardLabel(card) {
   return card.value === 'none' ? t('setup.audio.none') : card.label;
 }
 
-const categoryOrder = ['amplifier', 'dac', 'speaker'];
+const categoryOrder = ['amplifier', 'dac'];
 
 const groupedCards = computed(() => {
   const groups = {};

@@ -36,7 +36,7 @@ from backend.config.constants import CLIENT_API_PORT
 logger = logging.getLogger(__name__)
 
 
-async def _send_audio_config_and_reboot(mac_id: str, client_ip: str, audio_id: str, overlay: str):
+async def _send_audio_config_and_reboot(mac_id: str, client_ip: str, audio_id: str, overlay: str, volume_control: bool = True):
     """Send audio config to a milo-client and reboot it. Raises HTTPException on failure."""
     timeout = aiohttp.ClientTimeout(total=10)
     try:
@@ -44,7 +44,7 @@ async def _send_audio_config_and_reboot(mac_id: str, client_ip: str, audio_id: s
             # Step 1: Write audio config
             async with session.put(
                 f"http://{client_ip}:{CLIENT_API_PORT}/api/hardware/audio",
-                json={"audio_id": audio_id, "overlay": overlay},
+                json={"audio_id": audio_id, "overlay": overlay, "volume_control": volume_control},
             ) as resp:
                 if resp.status != 200:
                     body = await resp.text()
@@ -226,11 +226,12 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
             if not client:
                 raise HTTPException(status_code=404, detail=f"Client '{mac_id}' not found")
 
-            from backend.hardware.registry import AUDIO_CARDS
+            from backend.hardware.registry import AUDIO_CARDS, is_dac_card
             card_info = AUDIO_CARDS.get(request.audio_id, {})
             overlay = card_info.get("overlay", "")
+            volume_control = not is_dac_card(request.audio_id)
 
-            await _send_audio_config_and_reboot(mac_id, client.ip, request.audio_id, overlay)
+            await _send_audio_config_and_reboot(mac_id, client.ip, request.audio_id, overlay, volume_control)
             logger.info(f"Client {mac_id} audio changed to {request.audio_id}, rebooting")
             return {"status": "success", "message": f"Client {mac_id} audio changed, rebooting"}
 
@@ -528,6 +529,7 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
                 ip=request.ip,
                 hardware_configured=request.hardware_configured,
                 audio_id=request.audio_id,
+                volume_control=request.volume_control,
             )
             return {"status": "success", "client": client}
 
@@ -577,11 +579,12 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
             )
 
             # 2. Resolve overlay and send config + reboot to client
-            from backend.hardware.registry import AUDIO_CARDS
+            from backend.hardware.registry import AUDIO_CARDS, is_dac_card
             card_info = AUDIO_CARDS.get(request.audio_id, {})
             overlay = card_info.get("overlay", "")
+            volume_control = not is_dac_card(request.audio_id)
 
-            await _send_audio_config_and_reboot(mac_id, client_ip, request.audio_id, overlay)
+            await _send_audio_config_and_reboot(mac_id, client_ip, request.audio_id, overlay, volume_control)
             logger.info(f"Pending client {mac_id} configured with audio={request.audio_id}, rebooting")
             return {"status": "success", "message": f"Client {mac_id} configured and rebooting"}
 

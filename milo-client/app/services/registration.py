@@ -58,12 +58,14 @@ def _read_hardware_config() -> dict:
             data = json.load(f)
         audio = data.get("audio", {})
         audio_id = audio.get("id", "none")
+        volume_control = audio.get("volume_control", True)
         return {
             "audio_id": audio_id,
             "hardware_configured": audio_id != "none",
+            "volume_control": volume_control,
         }
     except (FileNotFoundError, json.JSONDecodeError):
-        return {"audio_id": "none", "hardware_configured": False}
+        return {"audio_id": "none", "hardware_configured": False, "volume_control": True}
 
 
 async def register_with_main_milo() -> None:
@@ -93,6 +95,7 @@ async def register_with_main_milo() -> None:
                 "ip": local_ip,
                 "hardware_configured": hw_config["hardware_configured"],
                 "audio_id": hw_config["audio_id"],
+                "volume_control": hw_config["volume_control"],
             }
 
             url = f"http://{milo_ip}:{MILO_PRINCIPAL_PORT}{REGISTER_ENDPOINT}"

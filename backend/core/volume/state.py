@@ -97,6 +97,9 @@ class VolumeStateStore:
         # VolumeConfig reference (set via set_volume_config from VolumeService)
         self._volume_config: Optional[VolumeConfig] = None
 
+        # Volume control flag (False = DAC mode, external amp manages volume)
+        self._volume_control: bool = True
+
         # Debounced persistence (prevent rapid disk writes during volume sweeps)
         self._persist_debounce_task: Optional[asyncio.Task] = None
         self._PERSIST_DEBOUNCE_S = 2.0
@@ -113,6 +116,10 @@ class VolumeStateStore:
         """Set VolumeConfig reference for clamping (called by VolumeService after config load)."""
         self._volume_config = config
         self.logger.debug(f"VolumeConfig set: limits={config.limit_min_db:.1f}/{config.limit_max_db:.1f} dB")
+
+    def set_volume_control(self, enabled: bool) -> None:
+        """Set volume control flag (False = DAC mode, external amp manages volume)."""
+        self._volume_control = enabled
 
     def set_registry(self, registry: "ClientRegistryService") -> None:
         """
@@ -773,7 +780,8 @@ class VolumeStateStore:
                 global_volume_db=global_volume,
                 global_mute=global_mute,
                 clients=clients_with_offsets,
-                zones=zone_states
+                zones=zone_states,
+                volume_control=self._volume_control
             )
 
     def _zone_all_muted(self, zone_id: str) -> bool:

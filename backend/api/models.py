@@ -457,6 +457,7 @@ class RegisterClientRequest(BaseModel):
     ip: str = Field(..., min_length=7)
     hardware_configured: bool
     audio_id: str = Field(default="none")
+    volume_control: bool = Field(default=True)  # False for DAC cards (external amp)
 
     @field_validator('mac_id')
     @classmethod

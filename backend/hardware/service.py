@@ -201,6 +201,14 @@ class HardwareService:
             rotary.get('sw_pin', DEFAULT_ROTARY_PINS['sw_pin']),
         )
 
+    def get_volume_control(self) -> bool:
+        """Returns False if the audio card is a DAC (external amp manages volume)."""
+        from backend.hardware.registry import is_dac_card
+        audio_id = self.get_audio_id()
+        if not audio_id or audio_id == "none":
+            return True
+        return not is_dac_card(audio_id)
+
     def get_full_config(self) -> Dict:
         """Returns the complete normalized hardware config."""
         config = self._ensure_cache()

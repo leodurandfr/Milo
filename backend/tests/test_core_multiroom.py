@@ -96,16 +96,17 @@ class TestClient:
         # Runtime fields are now included by default for complete WebSocket events
         assert data["online"] is True
 
-        # Verify all 11 expected fields are present (including is_local and host)
+        # Verify all expected fields are present (including is_local, host, volume_control)
         expected_fields = {"mac_id", "name", "ip", "host", "speaker_type", "zone_id",
-                          "volume_db", "mute", "crossover_frequency", "online", "is_local"}
+                          "volume_db", "mute", "crossover_frequency", "online", "is_local",
+                          "volume_control"}
         assert set(data.keys()) == expected_fields
 
         # Explicit: exclude runtime fields (for persistence)
         data_persist = client.to_dict(include_runtime=False)
         assert "online" not in data_persist
         assert "is_local" not in data_persist
-        assert len(data_persist) == 9  # All fields except 'online' and 'is_local'
+        assert len(data_persist) == 10  # All fields except 'online' and 'is_local'
 
     def test_client_from_dict(self):
         """Test creating client from dictionary."""

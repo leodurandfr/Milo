@@ -563,6 +563,8 @@ class SnapcastWebSocketService:
                 kwargs = {"host": client_host}
                 if reg_speaker_type:
                     kwargs["speaker_type"] = reg_speaker_type
+                if pending:
+                    kwargs["volume_control"] = pending.get("volume_control", True)
                 await self.registry.register_client(mac_id, reg_name, client_ip, **kwargs)
 
             self.logger.info(f"[{time.time():.3f}] CLIENT_CONNECT: Calling volume sync for {client_id}")

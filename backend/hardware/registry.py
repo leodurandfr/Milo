@@ -63,7 +63,7 @@ AUDIO_CARDS = {
         "card_name": "sndrpihifiberry",
         "alsa_control": "DAC",
         "brand": "HiFiBerry",
-        "category": "speaker",
+        "category": "amplifier",
     },
     "hifiberry_dac2hd": {
         "label": "HiFiBerry DAC2 HD",
@@ -82,6 +82,13 @@ AUDIO_CARDS = {
         "category": "dac",
     },
 }
+
+
+def is_dac_card(audio_id: str) -> bool:
+    """Returns True if the audio card is a DAC (no built-in amplifier)."""
+    card = AUDIO_CARDS.get(audio_id)
+    return card is not None and card.get("category") == "dac"
+
 
 # =============================================================================
 # SCREENS

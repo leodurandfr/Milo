@@ -78,6 +78,15 @@
           {{ t('multiroom.offline') }}
         </div>
 
+        <!-- External volume indicator (DAC clients or all-DAC zones) -->
+        <div
+          v-else-if="isExternalVolume"
+          class="client-external-volume text-mono"
+          :class="{ 'visible': !isLoading }"
+        >
+          {{ t('multiroom.externalVolume') }}
+        </div>
+
         <!-- Real content (online clients or zones) -->
         <div
           v-else
@@ -157,8 +166,13 @@
             {{ zoneClient.name }}
           </span>
 
+          <!-- External volume indicator (DAC client) -->
+          <div v-if="zoneClient.volume_control === false" class="client-external-volume text-mono">
+            {{ t('multiroom.externalVolume') }}
+          </div>
+
           <!-- Client volume slider (when online) -->
-          <div v-if="zoneClient.online" class="client-volume">
+          <div v-else-if="zoneClient.online" class="client-volume">
             <RangeSlider
               :model-value="getClientDisplayVolume(zoneClient.mac_id, zoneClient.equalizerVolume)"
               :min="sliderMin"
@@ -285,6 +299,12 @@ const { getThrottledFn: getClientThrottledFn } = useVolumeThrottleMap(
 // === COMPUTED ===
 // Check if zone can be expanded (has client details with multiple clients)
 const canExpand = computed(() => props.isZone && props.zoneClientDetails?.length > 1);
+
+// DAC mode: external amplifier manages volume
+const isExternalVolume = computed(() => {
+  if (props.isZone) return props.client.all_external_volume === true;
+  return props.client.volume_control === false;
+});
 
 // Slider configuration - always in dB, respecting volume limits
 const sliderMin = computed(() => settingsStore.volumeLimits.min_db);
@@ -755,15 +775,27 @@ function handleClientMuteToggle(clientMacId, muted) {
   text-transform: uppercase;
 }
 
+.client-external-volume {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  background: var(--color-background-contrast);
+  border-radius: var(--radius-full);
+  color: var(--color-text-light);
+  padding-left: var(--space-04);
+}
+
 /* In volume-wrapper context: absolute positioning for skeleton transition */
-.volume-wrapper .client-offline {
+.volume-wrapper .client-offline,
+.volume-wrapper .client-external-volume {
   position: absolute;
   inset: 0;
   opacity: 0;
   transition: opacity 450ms ease 0ms;
 }
 
-.volume-wrapper .client-offline.visible {
+.volume-wrapper .client-offline.visible,
+.volume-wrapper .client-external-volume.visible {
   opacity: 1;
 }
 

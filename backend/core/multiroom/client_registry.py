@@ -100,7 +100,8 @@ class ClientRegistryService:
         name: str,
         ip: str,
         host: str = "",
-        speaker_type: SpeakerType = DEFAULT_SPEAKER_TYPE
+        speaker_type: SpeakerType = DEFAULT_SPEAKER_TYPE,
+        volume_control: bool = True
     ) -> Client:
         """
         Register a new client or update existing one.
@@ -111,6 +112,7 @@ class ClientRegistryService:
             ip: IP address (127.0.0.1 for local client)
             host: Hostname from Snapcast
             speaker_type: Speaker type for crossover (default: bookshelf)
+            volume_control: True if Milo manages volume, False for DAC (external amp)
 
         Returns:
             The registered or updated client
@@ -124,6 +126,7 @@ class ClientRegistryService:
                     existing.name = name
                 existing.ip = ip
                 existing.host = host
+                existing.volume_control = volume_control
                 client = existing
                 event_type = RegistryEventType.CLIENT_UPDATED
             else:
@@ -137,7 +140,8 @@ class ClientRegistryService:
                     zone_id=None,
                     volume_db=DEFAULT_VOLUME_DB,
                     mute=False,
-                    speaker_type=speaker_type
+                    speaker_type=speaker_type,
+                    volume_control=volume_control
                 )
                 self._clients[mac_id] = client
                 event_type = RegistryEventType.CLIENT_CONNECTED
@@ -1019,6 +1023,14 @@ class ClientRegistryService:
 
         base['online_client_count'] = online_count
         base['has_subwoofer'] = has_subwoofer
+
+        # All clients use external amplifier (DAC mode)
+        all_external_volume = all(
+            not self._clients[cid].volume_control
+            for cid in sorted_client_ids
+            if cid in self._clients
+        ) if sorted_client_ids else False
+        base['all_external_volume'] = all_external_volume
 
         # Use auto-calculated crossover frequency only if zone has no custom value
         if speaker_frequencies and zone.crossover_frequency is None:

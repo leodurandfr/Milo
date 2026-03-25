@@ -92,6 +92,11 @@ class EqualizerRouter:
 
     async def set_volume(self, mac_id: str, volume_db: float, force: bool = False) -> Dict[str, Any]:
         """Set volume for a client."""
+        client = self._get_client(mac_id)
+        if client and not client.volume_control:
+            logger.debug(f"Skipping volume for DAC client {mac_id}")
+            return {"status": "skipped", "reason": "external_volume_control"}
+
         async def local():
             if self._camilladsp_service:
                 success = await self._camilladsp_service.set_volume(volume_db)
