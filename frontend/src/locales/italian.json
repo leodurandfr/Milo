@@ -117,7 +117,8 @@
     "speakerOffline": "« {name} » è offline",
     "speakerOfflineDescription": "Questo sistema audio non è attualmente connesso a Milō.<br>IP: {ip}",
     "deleteSpeaker": "Elimina questo sistema audio",
-    "offline": "Offline"
+    "offline": "Offline",
+    "externalVolume": "Amplificatore esterno"
   },
   "equalizer": {
     "title": "Equalizzatore",
@@ -202,6 +203,7 @@
     "loadingAlbum": "Caricamento album"
   },
   "volumeSettings": {
+    "externalAmplifier": "Volume gestito da amplificatore esterno",
     "controls": "Controlli volume",
     "rotaryStep": "Variazione del volume per rotazione",
     "mobileStep": "Variazione del volume su mobile",
@@ -602,8 +604,7 @@
     "audio": {
       "title": "Seleziona la tua scheda audio",
       "amplifiers": "Amplificatori",
-      "dacs": "DAC",
-      "speakers": "Altoparlanti",
+      "dacs": "DAC (amplificatore esterno)",
       "none": "Nessuna scheda audio",
       "other": "Altro"
     },

@@ -117,7 +117,8 @@
     "speakerOffline": "« {name} » ऑफ़लाइन है",
     "speakerOfflineDescription": "यह ऑडियो सिस्टम वर्तमान में Milō से कनेक्ट नहीं है।<br>IP: {ip}",
     "deleteSpeaker": "इस ऑडियो सिस्टम को हटाएं",
-    "offline": "ऑफ़लाइन"
+    "offline": "ऑफ़लाइन",
+    "externalVolume": "बाहरी एम्पलीफायर"
   },
   "equalizer": {
     "title": "Equalizer",
@@ -202,6 +203,7 @@
     "loadingAlbum": "एल्बम लोड हो रहा है"
   },
   "volumeSettings": {
+    "externalAmplifier": "वॉल्यूम बाहरी एम्पलीफायर द्वारा प्रबंधित",
     "controls": "वॉल्यूम नियंत्रण",
     "rotaryStep": "प्रति रोटेशन वॉल्यूम परिवर्तन",
     "mobileStep": "मोबाइल पर वॉल्यूम परिवर्तन",
@@ -602,8 +604,7 @@
     "audio": {
       "title": "अपना ऑडियो कार्ड चुनें",
       "amplifiers": "एम्पलीफायर",
-      "dacs": "DACs",
-      "speakers": "स्पीकर",
+      "dacs": "DACs (बाहरी एम्पलीफायर)",
       "none": "कोई ऑडियो कार्ड नहीं",
       "other": "अन्य"
     },
