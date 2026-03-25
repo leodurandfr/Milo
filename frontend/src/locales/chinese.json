@@ -117,7 +117,8 @@
     "speakerOffline": "「{name}」已离线",
     "speakerOfflineDescription": "此音频系统当前未连接到Milō。<br>IP：{ip}",
     "deleteSpeaker": "删除此音频系统",
-    "offline": "离线"
+    "offline": "离线",
+    "externalVolume": "外置功放"
   },
   "equalizer": {
     "title": "Equalizer",
@@ -202,6 +203,7 @@
     "loadingAlbum": "正在加载专辑"
   },
   "volumeSettings": {
+    "externalAmplifier": "音量由外置功放管理",
     "controls": "音量控制",
     "rotaryStep": "每次旋转的音量变化",
     "mobileStep": "移动设备上的音量变化",
@@ -602,8 +604,7 @@
     "audio": {
       "title": "选择您的声卡",
       "amplifiers": "功放",
-      "dacs": "DAC",
-      "speakers": "音箱",
+      "dacs": "DAC（外置功放）",
       "none": "无声卡",
       "other": "其他"
     },
