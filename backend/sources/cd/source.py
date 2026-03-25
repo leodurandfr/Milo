@@ -7,7 +7,8 @@ Architecture:
 - User activates CD from dock → _do_start() reads metadata + loads cdda:// stream
 - cdda:// loaded muted + playing → cache fills silently in background
 - Source stays in WAITING until chapter offsets are ready (CD fully spun up)
-- Once ready → auto-plays track 1 (unmute + seek chapter 0)
+- Disc inserted while source active → auto-plays track 1 when ready
+- Source activated with disc already present → waits for user to press play
 - Track navigation via set_property("chapter", N) → instant from cache (~30ms)
 - Play = unmute + seek to chapter → instant (data already cached)
 
@@ -72,6 +73,7 @@ class CdSource(MpvAudioSource):
         self._chapter_offsets: List[float] = []
         self._stream_loaded = False
         self._cache_ready = False  # True when chapter offsets loaded = CD fully ready
+        self._auto_play_on_ready = False  # True only when disc inserted while source active
 
     def _reset_playback_state(self) -> None:
         """Reset CD-specific playback fields (called by _do_restart)."""
@@ -84,6 +86,7 @@ class CdSource(MpvAudioSource):
         self._chapter_offsets = []
         self._stream_loaded = False
         self._cache_ready = False
+        self._auto_play_on_ready = False
 
     # =========================================================================
     # LIFECYCLE
@@ -117,6 +120,8 @@ class CdSource(MpvAudioSource):
                     return False
 
                 if self._disc_present:
+                    # Disc already in drive: user must press play (no auto-play)
+                    self._auto_play_on_ready = False
                     # Metadata lookup if not already done (disc inserted while inactive)
                     if not self._current_disc and self._last_disc_id:
                         result = await self._data_service.read_disc()
@@ -280,11 +285,12 @@ class CdSource(MpvAudioSource):
             }
         )
 
-        # If CD is already the active source, start loading immediately
+        # If CD is already the active source, start loading and auto-play when ready
         if (
             self.state_machine
             and self.state_machine.system_state.active_source == AudioSource.CD
         ):
+            self._auto_play_on_ready = True
             await self._pre_start_service()
             disc_info = await self._data_service.lookup_metadata(
                 disc_id, toc_string, toc_tracks
@@ -550,11 +556,18 @@ class CdSource(MpvAudioSource):
             if self._chapter_offsets:
                 await self._recalc_track_durations()
                 self._cache_ready = True
-                self._logger.info(
-                    f"CD ready: {len(self._chapter_offsets)} chapters, "
-                    f"auto-playing track 1"
-                )
-                await self._handle_play_track({"track_number": 1})
+                if self._auto_play_on_ready:
+                    self._logger.info(
+                        f"CD ready: {len(self._chapter_offsets)} chapters, "
+                        f"auto-playing track 1"
+                    )
+                    await self._handle_play_track({"track_number": 1})
+                else:
+                    self._logger.info(
+                        f"CD ready: {len(self._chapter_offsets)} chapters, "
+                        f"waiting for user to press play"
+                    )
+                    self._update_connection_state()
             return
 
         # Phase 2: Track position during playback
