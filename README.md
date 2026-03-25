@@ -6,7 +6,7 @@
 
 > ⚠ Currently in work in progress — Available soon
 
-### Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, AirPlay 2, Bluetooth, Internet Radio, Podcasts, and Mac streaming.
+### Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, AirPlay 2, Bluetooth, CD playback, Internet Radio, Podcasts, and Mac streaming.
 
 <!-- TODO: Add screenshot or GIF of the interface -->
 <!-- ![Milō Interface](docs/assets/screenshot.png) -->
@@ -19,24 +19,28 @@
     <td><b>Spotify</b><br>Spotify Connect receiver — control playback directly</td>
   </tr>
   <tr>
-    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/airplay.png" width="48"></td>
-    <td><b>AirPlay</b><br>Stream from any Apple device (iPhone, iPad, Mac)</td>
+    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/radio.png" width="48"></td>
+    <td><b>Radio</b><br>Browse 50,000+ stations, save favorites, add custom stations, their image, and identify tracks with Shazam</td>
   </tr>
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/bluetooth.png" width="48"></td>
     <td><b>Bluetooth</b><br>Pair any device and stream audio</td>
   </tr>
   <tr>
-    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/radio.png" width="48"></td>
-    <td><b>Radio</b><br>Browse 50,000+ stations, save favorites, add custom stations, their image, and identify tracks with Shazam</td>
+    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/airplay.png" width="48"></td>
+    <td><b>AirPlay</b><br>Stream from any Apple device (iPhone, iPad, Mac)</td>
   </tr>
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/podcast.png" width="48"></td>
     <td><b>Podcasts</b><br>Search, subscribe, and resume episodes with variable speed (0.5x–2x)</td>
   </tr>
   <tr>
+    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/cd.png" width="48"></td>
+    <td><b>CD Player</b><br>Play audio CDs with automatic track listing and metadata lookup</td>
+  </tr>
+  <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/macos.png" width="48"></td>
-    <td><b>Mac</b><br>Stream your Mac's system audio (requires <a href="https://github.com/leodurandfr/Milo-Mac">Milō Mac</a>)</td>
+    <td><b>Mac</b><br>Stream your Mac's system audio with low latency (requires <a href="https://github.com/leodurandfr/Milo-Mac">Milō Mac</a>)</td>
   </tr>
 </table>
 
@@ -84,6 +88,10 @@
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/volume.png" width="48"></td>
     <td><b>Volume</b><br>Rotary encoder <i>(optional)</i></td>
   </tr>
+  <tr>
+    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/cd-hardware.png" width="48"></td>
+    <td><b>CD Player</b><br>USB CD drive <i>(optional)</i></td>
+  </tr>
 </table>
 
 ## Installation
@@ -94,7 +102,7 @@
 2. Flash it with [Raspberry Pi Imager](https://www.raspberrypi.com/software/) (select "Use custom" → choose the `.img.xz` file)
 3. Insert the SD card and power on your Raspberry Pi
 4. Connect to the **Milō** WiFi network that appears (open, no password)
-5. A setup page opens automatically — follow the wizard to configure language, mode (Server or Client), WiFi, audio card, and screen
+5. A setup page opens automatically — follow the wizard to configure language, WiFi, audio card, and screen
 6. Milō reboots and is ready to use
 
 After setup:
@@ -107,7 +115,7 @@ After setup:
 
 ### Multiroom (Additional Speakers)
 
-Flash the same image on additional Raspberry Pis. In the setup wizard, select **Client** mode — the device will join your existing Milō server automatically.
+Flash the same image on additional Raspberry Pis. On first boot, the device detects your existing Milō server on the network and automatically configures itself as a client.
 
 ### Manual Installation (Advanced)
 
@@ -122,7 +130,7 @@ chmod +x install.sh
 ./install.sh
 ```
 
-For multiroom clients:
+For multiroom clients, set hostname and username to `milo-client`:
 
 ```bash
 wget https://raw.githubusercontent.com/leodurandfr/Milo/main/milo-client/install-client.sh
