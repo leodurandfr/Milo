@@ -5,7 +5,7 @@ Settings Routes – Version with app deactivation and process stopping
 from fastapi import APIRouter, HTTPException
 from typing import Any, Callable, Dict, Optional
 from backend.core.models.audio_state import AudioSource
-from backend.features.podcast.taddy_api import TaddyAPI
+from backend.sources.podcast.taddy_api import TaddyAPI
 from backend.config.constants import DEFAULT_VOLUME_DB, DEFAULT_DOCK_APPS, AUDIO_SOURCE_APPS
 from backend.api.models import (
     LanguageRequest,
@@ -366,7 +366,7 @@ def create_settings_router(
                     
                     # === MULTIROOM ===
                     elif app == 'multiroom':
-                        # 1. Get the active source to restart the plugin
+                        # 1. Get the active source to restart the source
                         current_state = await state_machine.get_current_state()
                         active_source = None
                         if current_state["active_source"] != "none":
@@ -375,7 +375,7 @@ def create_settings_router(
                             except ValueError:
                                 pass
 
-                        # 2. Disable routing (automatically restarts the plugin in direct mode)
+                        # 2. Disable routing (automatically restarts the source in direct mode)
                         operations_log.append("Disabling multiroom routing and switching to direct mode")
                         logger.info(f"Disabling multiroom routing for active source: {active_source.value if active_source else 'none'}")
                         await routing_service.set_multiroom_enabled(False, active_source)
@@ -401,7 +401,7 @@ def create_settings_router(
                     
                     # === EQUALIZER ===
                     elif app == 'equalizer':
-                        # Get the active source to restart the plugin
+                        # Get the active source to restart the source
                         current_state = await state_machine.get_current_state()
                         active_source = None
                         if current_state["active_source"] != "none":
@@ -425,7 +425,7 @@ def create_settings_router(
                     
                     # === MULTIROOM ===
                     elif app == 'multiroom':
-                        # 1. Get the active source to restart the plugin
+                        # 1. Get the active source to restart the source
                         current_state = await state_machine.get_current_state()
                         active_source = None
                         if current_state["active_source"] != "none":
@@ -434,7 +434,7 @@ def create_settings_router(
                             except ValueError:
                                 pass
 
-                        # 2. Enable routing (automatically restarts the plugin in multiroom mode)
+                        # 2. Enable routing (automatically restarts the source in multiroom mode)
                         operations_log.append("Enabling multiroom routing and switching to multiroom mode")
                         logger.info(f"Enabling multiroom routing for active source: {active_source.value if active_source else 'none'}")
                         await routing_service.set_multiroom_enabled(True, active_source)
@@ -460,7 +460,7 @@ def create_settings_router(
                     
                     # === EQUALIZER ===
                     elif app == 'equalizer':
-                        # Get the active source to restart the plugin
+                        # Get the active source to restart the source
                         current_state = await state_machine.get_current_state()
                         active_source = None
                         if current_state["active_source"] != "none":
@@ -524,12 +524,12 @@ def create_settings_router(
     async def set_spotify_disconnect(payload: SpotifyDisconnectRequest):
         delay = payload.auto_disconnect_delay
 
-        async def apply_to_plugin():
+        async def apply_to_source():
             try:
-                plugin = state_machine.get_plugin(AudioSource.SPOTIFY)
-                if plugin:
+                source = state_machine.get_source(AudioSource.SPOTIFY)
+                if source:
                     enabled = delay != 0
-                    return await plugin.set_auto_disconnect_config(enabled=enabled, delay=delay, save_to_settings=False)
+                    return await source.set_auto_disconnect_config(enabled=enabled, delay=delay, save_to_settings=False)
             except Exception:
                 pass
             return False
@@ -540,7 +540,7 @@ def create_settings_router(
             setter=lambda: settings.set_setting('spotify.auto_disconnect_delay', delay),
             event_type="spotify_disconnect_changed",
             event_data={"config": {"auto_disconnect_delay": delay}},
-            reload_callback=apply_to_plugin
+            reload_callback=apply_to_source
         )
 
     # Podcast credentials
@@ -570,12 +570,12 @@ def create_settings_router(
             }
             return await settings.set_setting('podcast', podcast_config)
 
-        # Reload credentials in the podcast plugin without restarting
-        async def reload_plugin_credentials():
+        # Reload credentials in the podcast source without restarting
+        async def reload_source_credentials():
             try:
-                plugin = state_machine.get_plugin(AudioSource.PODCAST)
-                if plugin:
-                    return await plugin.reload_credentials(user_id, api_key)
+                source = state_machine.get_source(AudioSource.PODCAST)
+                if source:
+                    return await source.reload_credentials(user_id, api_key)
             except Exception as e:
                 logger.error(f"Failed to reload podcast credentials: {e}")
                 return False
@@ -587,7 +587,7 @@ def create_settings_router(
             setter=save_credentials,
             event_type="podcast_credentials_changed",
             event_data={"config": {"taddy_user_id": user_id, "taddy_api_key": api_key}},
-            reload_callback=reload_plugin_credentials
+            reload_callback=reload_source_credentials
         )
 
     @router.post("/podcast-credentials/validate")
@@ -827,7 +827,7 @@ def create_settings_router(
                 "time_since_activity": round(time_since_activity, 1),
                 "timeout_seconds": screen_controller.timeout_seconds,
                 "screen_on": screen_controller.screen_on,
-                "current_plugin_state": screen_controller.current_plugin_state,
+                "current_source_state": screen_controller.current_source_state,
                 "brightness_on": screen_controller.brightness_on,
                 "will_turn_off_in": round(time_until_off, 1) if time_until_off is not None else None
             }
@@ -1217,9 +1217,9 @@ def create_settings_router(
 
         async def apply_to_radio():
             try:
-                plugin = state_machine.get_plugin(AudioSource.RADIO)
-                if plugin:
-                    return await plugin.on_shazam_setting_changed(payload.shazam_enabled)
+                source = state_machine.get_source(AudioSource.RADIO)
+                if source:
+                    return await source.on_shazam_setting_changed(payload.shazam_enabled)
                 return True
             except Exception as e:
                 logger.error(f"Error applying radio settings: {e}")

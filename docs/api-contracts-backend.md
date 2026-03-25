@@ -37,7 +37,7 @@ The Milo backend exposes a comprehensive REST API organized by domain. All endpo
 |--------|----------|-------------|
 | GET | `/state` | Get current audio system state |
 | POST | `/source/{source_name}` | Change active audio source |
-| POST | `/control/{source_name}` | Send command to source plugin |
+| POST | `/control/{source_name}` | Send command to audio source |
 
 **Audio Sources:** `none`, `spotify`, `bluetooth`, `mac`, `radio`, `podcast`
 
@@ -263,7 +263,7 @@ Real-time bidirectional communication for state synchronization.
 - `initial_state` - Full state on connection
 - `state_changed` - Audio state updates
 - `volume_changed` - Volume updates
-- `plugin_state_changed` - Plugin status changes
+- `source_state_changed` - Source status changes
 - `routing_changed` - Routing configuration changes
 - `dsp_*` - DSP-related events
 - `registry_*` - Client registry events

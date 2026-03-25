@@ -21,13 +21,13 @@ class AudioSource(Enum):
     PODCAST = "podcast"
 ```
 
-### PluginState (Enum)
+### SourceState (Enum)
 ```python
-class PluginState(Enum):
-    STARTING = "starting"    # Plugin starting or restarting
-    READY = "ready"          # Plugin started, waiting for connection
-    CONNECTED = "connected"  # Plugin connected and operational
-    ERROR = "error"          # Plugin in error state
+class SourceState(Enum):
+    STARTING = "starting"    # Source starting or restarting
+    READY = "ready"          # Source started, waiting for connection
+    CONNECTED = "connected"  # Source connected and operational
+    ERROR = "error"          # Source in error state
 ```
 
 ### SystemAudioState (Dataclass)
@@ -35,7 +35,7 @@ class PluginState(Enum):
 @dataclass
 class SystemAudioState:
     active_source: AudioSource = AudioSource.NONE
-    plugin_state: PluginState = PluginState.READY
+    source_state: SourceState = SourceState.READY
     transitioning: bool = False
     metadata: Dict[str, Any] = None
     error: Optional[str] = None
@@ -43,7 +43,7 @@ class SystemAudioState:
     dsp_effects_enabled: bool = False
 ```
 
-**Purpose:** Complete audio system state combining active source, plugin state, metadata, and routing configuration.
+**Purpose:** Complete audio system state combining active source, source state, metadata, and routing configuration.
 
 ---
 
@@ -157,22 +157,22 @@ All settings modifications go through `SettingsService`:
 
 Central state manager handling:
 - Audio source transitions
-- Plugin state management
+- Source state management
 - Event broadcasting
 - State persistence
 
 **Key methods:**
-- `update_plugin_state(source, state, metadata)` - Update plugin state
+- `update_source_state(source, state, metadata)` - Update source state
 - `_broadcast_event(category, type, source, data)` - Broadcast state changes
 - `transition_lock` - Protects state transitions
 
 ---
 
-## Plugin Architecture
+## Source Architecture
 
-### AudioSourcePlugin Interface
+### AudioSourceProtocol Interface
 ```python
-class AudioSourcePlugin(ABC):
+class AudioSourceProtocol(Protocol):
     async def initialize(self) -> bool
     async def start(self) -> bool
     async def stop(self) -> bool
@@ -180,14 +180,14 @@ class AudioSourcePlugin(ABC):
     async def handle_command(self, command: str, data: Dict) -> Dict[str, Any]
 ```
 
-### Registered Plugins
-| Source | Plugin | Service |
-|--------|--------|---------|
-| SPOTIFY | SpotifyPlugin | milo-spotify (go-librespot) |
-| BLUETOOTH | BluetoothPlugin | milo-bluealsa |
-| MAC | MacPlugin | milo-mac (ROC) |
-| RADIO | RadioPlugin | milo-radio (mpv) |
-| PODCAST | PodcastPlugin | milo-podcast (mpv) |
+### Registered Sources
+| Source | Class | Service |
+|--------|-------|---------|
+| SPOTIFY | SpotifySource | milo-spotify (go-librespot) |
+| BLUETOOTH | BluetoothSource | milo-bluealsa |
+| MAC | MacSource | milo-mac (ROC) |
+| RADIO | RadioSource | milo-radio (mpv) |
+| PODCAST | PodcastSource | milo-podcast (mpv) |
 
 ---
 

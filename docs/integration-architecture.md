@@ -27,7 +27,7 @@ Milo is a multi-part system with three main components communicating via REST AP
 │         │                      │                      │                     │
 │         ▼                      ▼                      ▼                     │
 │  ┌─────────────┐        ┌─────────────┐        ┌─────────────┐              │
-│  │  CamillaDSP │        │  Snapcast   │        │   Plugins   │              │
+│  │  CamillaDSP │        │  Snapcast   │        │   Sources   │              │
 │  │  Port:1234  │        │  Port:1704  │        │  (5 types)  │              │
 │  └─────────────┘        └──────┬──────┘        └─────────────┘              │
 │                                │                                             │
@@ -57,7 +57,7 @@ Milo is a multi-part system with three main components communicating via REST AP
 | Frontend | Backend | WebSocket | Real-time state sync |
 | Backend | CamillaDSP | WebSocket | DSP configuration |
 | Backend | Snapcast | JSON-RPC | Client management |
-| Backend | Plugins | IPC/Systemd | Audio source control |
+| Backend | Sources | IPC/Systemd | Audio source control |
 | Backend | Satellites | REST API | DSP proxy, updates |
 | Snapcast | Satellites | TCP Stream | Audio distribution |
 
@@ -97,7 +97,7 @@ Milo is a multi-part system with three main components communicating via REST AP
 |----------|--------|-------------|
 | `system` | `initial_state`, `state_changed`, `ping` | Core audio state |
 | `volume` | `volume_changed` | Volume updates |
-| `plugin` | `state_changed`, `metadata` | Plugin status |
+| `source` | `state_changed`, `metadata` | Source status |
 | `settings` | `language_changed`, `dock_apps_changed`, etc. | Settings sync |
 | `radio` | `favorite_added`, `favorite_removed` | Radio state |
 | `snapcast` | `client_*` events | Multiroom clients |
@@ -162,9 +162,9 @@ Frontend: POST /api/audio/source/spotify
         ▼
 Backend: state_machine.change_source()
         │
-        ├─► Stop current plugin
+        ├─► Stop current source
         │
-        ├─► Start Spotify plugin
+        ├─► Start Spotify source
         │       │
         │       └─► systemctl start milo-spotify
         │
@@ -222,7 +222,7 @@ Backend: routing_service.set_multiroom(true)
         ├─► Start Snapcast client
         │       systemctl start milo-snapclient-multiroom
         │
-        ├─► Restart active source plugin (to use multiroom ALSA device)
+        ├─► Restart active source (to use multiroom ALSA device)
         │
         ├─► Initialize satellite connections
         │
@@ -361,7 +361,7 @@ delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 30000);
 
 ### Service Recovery
 
-- Plugins are `BindsTo` backend → restart together
+- Sources are `BindsTo` backend → restart together
 - Routing service has automatic rollback on failure
 - Settings service has atomic writes + backups
 

@@ -19,7 +19,7 @@ async def run_source_command(source, cmd: str, data: dict, context: str = "Comma
     On unexpected exception: raises HTTP 500.
 
     Args:
-        source: Audio source plugin instance
+        source: Audio source instance
         cmd: Command name to send
         data: Command data dict
         context: Human-readable context for error messages

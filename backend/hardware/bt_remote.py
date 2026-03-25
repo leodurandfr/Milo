@@ -12,7 +12,7 @@ Features:
 - Configurable key mapping (keycodes to actions)
 - Multi-click detection on click action (1=play/pause, 2=next, 3=prev)
 - Volume control via VolumeService
-- Playback control via state_machine plugins
+- Playback control via state_machine sources
 """
 import asyncio
 import logging
@@ -154,7 +154,7 @@ class BtRemoteController:
 
     async def _load_config_from_settings(self):
         """Load configuration from settings.json."""
-        config = await self.settings_service.get_setting('plugins.bt_remote')
+        config = await self.settings_service.get_setting('hardware.bt_remote')
         if not config:
             return
 
@@ -180,7 +180,7 @@ class BtRemoteController:
                 'device_name_filter': self.device_name_filter,
                 'key_map': self.key_map
             }
-            await self.settings_service.set_setting('plugins.bt_remote', config)
+            await self.settings_service.set_setting('hardware.bt_remote', config)
 
             # Handle enable/disable transitions
             if self.enabled and not self.running:
@@ -775,23 +775,23 @@ class BtRemoteController:
     async def _dispatch_play_pause(self):
         """Dispatch play/pause to the active audio source."""
         active_source = self.state_machine.system_state.active_source
-        plugin = self.state_machine.get_plugin(active_source)
-        if not plugin:
+        source_instance = self.state_machine.get_source(active_source)
+        if not source_instance:
             return
 
         try:
             if active_source == AudioSource.SPOTIFY:
-                await plugin.command("playpause", {})
+                await source_instance.command("playpause", {})
             elif active_source == AudioSource.RADIO:
-                if plugin.is_playing:
-                    await plugin.command("stop_playback", {})
+                if source_instance.is_playing:
+                    await source_instance.command("stop_playback", {})
                 else:
-                    await plugin.command("resume_playback", {})
+                    await source_instance.command("resume_playback", {})
             elif active_source == AudioSource.PODCAST:
-                if plugin.is_playing:
-                    await plugin.command("pause", {})
+                if source_instance.is_playing:
+                    await source_instance.command("pause", {})
                 else:
-                    await plugin.command("resume", {})
+                    await source_instance.command("resume", {})
         except Exception as e:
             logger.error("Error dispatching play/pause to %s: %s", active_source.value, e)
 
@@ -801,9 +801,9 @@ class BtRemoteController:
         if active_source != AudioSource.SPOTIFY:
             return
 
-        plugin = self.state_machine.get_plugin(active_source)
-        if plugin:
+        source_instance = self.state_machine.get_source(active_source)
+        if source_instance:
             try:
-                await plugin.command(cmd, {})
+                await source_instance.command(cmd, {})
             except Exception as e:
                 logger.error("Error dispatching %s to spotify: %s", cmd, e)

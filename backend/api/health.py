@@ -69,21 +69,21 @@ def create_health_router(state_machine, routing_service, snapcast_service,
                 "error": str(e)
             }
             checks["status"] = "degraded"
-        plugin_status = {}
-        for source, plugin in state_machine.plugins.items():
-            if plugin:
+        source_status = {}
+        for source, instance in state_machine.sources.items():
+            if instance:
                 try:
-                    plugin_status[source.value] = {
+                    source_status[source.value] = {
                         "registered": True,
-                        "initialized": getattr(plugin, '_initialized', False)
+                        "initialized": getattr(instance, '_initialized', False)
                     }
                 except Exception as e:
-                    plugin_status[source.value] = {
+                    source_status[source.value] = {
                         "registered": True,
                         "error": str(e)
                     }
 
-        checks["services"]["plugins"] = plugin_status
+        checks["services"]["sources"] = source_status
 
         return checks
 

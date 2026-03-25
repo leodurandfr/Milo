@@ -151,15 +151,15 @@ class CdDataService:
             result = None
 
         if result:
-            album, artist, year, release_mbid, mb_tracks = result
+            album, artist, year, release_mbid, release_group_mbid, mb_tracks = result
 
             # Merge MusicBrainz track titles with TOC durations
             merged_tracks = self._merge_tracks(mb_tracks, tracks)
 
-            # Download cover art (fire and forget on failure)
+            # Download cover art with fallback: release → release group → placeholder
             has_cover = False
             if release_mbid:
-                has_cover = await self._download_cover(disc_id, release_mbid)
+                has_cover = await self._download_cover(disc_id, release_mbid, release_group_mbid)
 
             # Cache the result
             cache_entry = {
@@ -192,22 +192,24 @@ class CdDataService:
 
     def _lookup_musicbrainz_sync(
         self, disc_id: str, toc_string: str
-    ) -> Optional[Tuple[str, str, str, str, List[Dict[str, Any]]]]:
+    ) -> Optional[Tuple[str, str, str, str, str, List[Dict[str, Any]]]]:
         """
         Synchronous MusicBrainz lookup (runs in thread).
 
         Returns:
-            (album, artist, year, release_mbid, tracks) or None
+            (album, artist, year, release_mbid, release_group_mbid, tracks) or None
         """
         try:
             import musicbrainzngs
         except ImportError:
             return None
 
+        includes = ["artists", "recordings", "release-groups"]
+
         # Try exact disc ID match first
         try:
             result = musicbrainzngs.get_releases_by_discid(
-                disc_id, includes=["artists", "recordings"]
+                disc_id, includes=includes
             )
             release = self._extract_release(result)
             if release:
@@ -218,7 +220,7 @@ class CdDataService:
         # Fallback: fuzzy match by TOC
         try:
             result = musicbrainzngs.get_releases_by_discid(
-                disc_id, toc=toc_string, includes=["artists", "recordings"]
+                disc_id, toc=toc_string, includes=includes
             )
             release = self._extract_release(result)
             if release:
@@ -244,10 +246,11 @@ class CdDataService:
 
     def _parse_release(
         self, release: Dict
-    ) -> Tuple[str, str, str, str, List[Dict[str, Any]]]:
+    ) -> Tuple[str, str, str, str, str, List[Dict[str, Any]]]:
         """Parse a MusicBrainz release into structured data."""
         album = release.get("title", "Unknown Album")
         release_mbid = release.get("id", "")
+        release_group_mbid = release.get("release-group", {}).get("id", "")
 
         # Artist
         artist_credit = release.get("artist-credit", [])
@@ -277,7 +280,7 @@ class CdDataService:
                     "duration": duration,
                 })
 
-        return album, artist, year, release_mbid, tracks
+        return album, artist, year, release_mbid, release_group_mbid, tracks
 
     def _merge_tracks(
         self, mb_tracks: List[Dict], toc_tracks: List[Dict]
@@ -316,15 +319,18 @@ class CdDataService:
     # COVER ART
     # =========================================================================
 
-    async def _download_cover(self, disc_id: str, release_mbid: str) -> bool:
-        """Download cover art from MusicBrainz Cover Art Archive."""
+    async def _download_cover(self, disc_id: str, release_mbid: str, release_group_mbid: str = "") -> bool:
+        """Download cover art from MusicBrainz Cover Art Archive.
+
+        Fallback chain: release image → release group image → give up (placeholder).
+        """
         cover_path = os.path.join(self._covers_dir, f"{disc_id}.jpg")
         if os.path.exists(cover_path):
             return True
 
         try:
             image_data = await asyncio.to_thread(
-                self._download_cover_sync, release_mbid
+                self._download_cover_sync, release_mbid, release_group_mbid
             )
             if image_data:
                 async with aiofiles.open(cover_path, "wb") as f:
@@ -336,13 +342,31 @@ class CdDataService:
 
         return False
 
-    def _download_cover_sync(self, release_mbid: str) -> Optional[bytes]:
-        """Synchronous cover art download (runs in thread)."""
+    def _download_cover_sync(self, release_mbid: str, release_group_mbid: str = "") -> Optional[bytes]:
+        """Synchronous cover art download (runs in thread).
+
+        Tries the specific release first, then falls back to the release group
+        which aggregates cover art from all editions (CD, digital, vinyl, etc.).
+        """
         try:
             import musicbrainzngs
-            return musicbrainzngs.get_image_front(release_mbid, size="500")
-        except Exception:
+        except ImportError:
             return None
+
+        # Try release-level cover art (exact CD pressing)
+        try:
+            return musicbrainzngs.get_image_front(release_mbid, size="500")
+        except musicbrainzngs.ResponseError:
+            self._logger.debug(f"No cover art for release {release_mbid}")
+
+        # Fallback: release group cover art (any edition of the album)
+        if release_group_mbid:
+            try:
+                return musicbrainzngs.get_release_group_image_front(release_group_mbid, size="500")
+            except musicbrainzngs.ResponseError:
+                self._logger.debug(f"No cover art for release group {release_group_mbid}")
+
+        return None
 
     def get_cover_path(self, disc_id: str) -> Optional[str]:
         """Get the file path for a disc's cover art, or None if not available."""
