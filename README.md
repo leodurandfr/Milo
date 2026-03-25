@@ -13,7 +13,7 @@
 
 ## Audio Sources
 
-<table>
+<table width="100%">
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/spotify.png" width="48"></td>
     <td><b>Spotify</b><br>Spotify Connect receiver — control playback directly</td>
@@ -46,7 +46,7 @@
 
 ## Features
 
-<table>
+<table width="100%">
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/multiroom.png" width="48"></td>
     <td><b>Multiroom Audio</b><br>Synchronized playback across speakers with zone management and per-speaker volume</td>
@@ -71,7 +71,7 @@
 
 ## Hardware
 
-<table>
+<table width="100%">
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/board.png" width="48"></td>
     <td><b>Board</b><br>Raspberry Pi 4 or 5 (64-bit)</td>
@@ -151,20 +151,44 @@ Uninstall:
 
 Control Milō from your other devices:
 
-| Platform | Description | Link |
-|----------|-------------|------|
-| **macOS** | Menu Bar app + audio output | [Milō Mac](https://github.com/leodurandfr/Milo-Mac) |
-| **iOS** | Fullscreen web interface | [Milō iOS](https://github.com/leodurandfr/Milo-iOS) |
-| **Android** | Fullscreen web interface | [Milō Android](https://github.com/leodurandfr/Milo-Android) |
+<table width="100%">
+  <tr>
+    <td width="120"><b>macOS</b></td>
+    <td>Menu Bar app + audio output</td>
+    <td><a href="https://github.com/leodurandfr/Milo-Mac">Milō Mac</a></td>
+  </tr>
+  <tr>
+    <td><b>iOS</b></td>
+    <td>Fullscreen web interface</td>
+    <td><a href="https://github.com/leodurandfr/Milo-iOS">Milō iOS</a></td>
+  </tr>
+  <tr>
+    <td><b>Android</b></td>
+    <td>Fullscreen web interface</td>
+    <td><a href="https://github.com/leodurandfr/Milo-Android">Milō Android</a></td>
+  </tr>
+</table>
 
 ## Built With
 
-| Layer | Technologies |
-|-------|-------------|
-| **Backend** | Python, FastAPI, asyncio |
-| **Frontend** | Vue 3, Pinia, Vite |
-| **Audio** | ALSA, CamillaDSP, Snapcast, mpv, go-librespot, shairport-sync, bluez-alsa, ROC |
-| **Platform** | Raspberry Pi OS (64-bit), systemd |
+<table width="100%">
+  <tr>
+    <td width="120"><b>Backend</b></td>
+    <td>Python, FastAPI, asyncio</td>
+  </tr>
+  <tr>
+    <td><b>Frontend</b></td>
+    <td>Vue 3, Pinia, Vite</td>
+  </tr>
+  <tr>
+    <td><b>Audio</b></td>
+    <td>ALSA, CamillaDSP, Snapcast, mpv, go-librespot, shairport-sync, bluez-alsa, ROC</td>
+  </tr>
+  <tr>
+    <td><b>Platform</b></td>
+    <td>Raspberry Pi OS (64-bit), systemd</td>
+  </tr>
+</table>
 
 ## Documentation
 
