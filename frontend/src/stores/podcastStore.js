@@ -246,6 +246,14 @@ export const usePodcastStore = defineStore('podcast', () => {
     }
   }
 
+  function handlePositionUpdate(event) {
+    if (event.data?.source !== 'podcast') return;
+    const { position, duration } = event.data;
+    // position_update sends milliseconds; podcastStore uses seconds
+    if (position !== undefined) currentPosition.value = Math.floor(position / 1000);
+    if (duration !== undefined) currentDuration.value = Math.floor(duration / 1000);
+  }
+
   // === PENDING STATE HELPER ===
   function isEpisodePending(episodeUuid) {
     return pendingEpisodeUuid.value === episodeUuid;
@@ -538,6 +546,7 @@ export const usePodcastStore = defineStore('podcast', () => {
     updateSettings,
     handleStateUpdate,
     handlePluginEvent,
+    handlePositionUpdate,
     clearState,
     clearDisplayEpisode,
 

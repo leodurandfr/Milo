@@ -6,8 +6,7 @@ import pytest
 import asyncio
 import json
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
-from backend.ws.server import WebSocketServer
-from backend.ws.manager import WebSocketManager
+from backend.ws.manager import WebSocketManager, WebSocketServer
 
 
 class TestWebSocketManager:
@@ -148,6 +147,7 @@ class TestWebSocketServer:
         manager.connect = AsyncMock()
         manager.disconnect = Mock()
         manager.broadcast_dict = AsyncMock()
+        manager.active_connections = set()
         return manager
 
     @pytest.fixture
@@ -256,25 +256,20 @@ class TestWebSocketServer:
     # ===================
 
     @pytest.mark.asyncio
+    @patch("backend.ws.manager.PING_INTERVAL", 0.1)
     async def test_send_ping(self, server, mock_websocket):
         """Test ping sending"""
-        # Create a modified version with a short interval
-        server.PING_INTERVAL = 0.1
+        server.manager.active_connections.add(mock_websocket)
 
-        # Launch the ping in a task with timeout
         ping_task = asyncio.create_task(server._send_ping(mock_websocket))
-
-        # Wait a bit for the ping to be sent
         await asyncio.sleep(0.2)
 
-        # Cancel the task
         ping_task.cancel()
         try:
             await ping_task
         except asyncio.CancelledError:
             pass
 
-        # Verify that at least one ping was sent
         assert mock_websocket.send_text.called
         sent_data = json.loads(mock_websocket.send_text.call_args[0][0])
         assert sent_data["category"] == "system"
@@ -282,23 +277,21 @@ class TestWebSocketServer:
         assert "timestamp" in sent_data
 
     @pytest.mark.asyncio
+    @patch("backend.ws.manager.PING_INTERVAL", 0.1)
     async def test_send_ping_stops_on_error(self, server):
         """Test that ping stops on error"""
         bad_ws = AsyncMock()
         bad_ws.send_text = AsyncMock(side_effect=Exception("Connection lost"))
 
-        server.PING_INTERVAL = 0.1
+        server.manager.active_connections.add(bad_ws)
 
-        # The task should terminate after the error
         ping_task = asyncio.create_task(server._send_ping(bad_ws))
 
-        # Wait for the task to terminate (after the error)
         try:
             await asyncio.wait_for(ping_task, timeout=1.0)
         except asyncio.TimeoutError:
             ping_task.cancel()
 
-        # The ping was attempted
         bad_ws.send_text.assert_called()
 
 

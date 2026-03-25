@@ -30,6 +30,10 @@ class MpvAudioSource(BaseAudioSource):
     - Common _is_buffering state
     """
 
+    # Interval (in ticks) between position-only broadcasts.
+    # Frontend interpolates locally, so this is just drift correction.
+    POSITION_SYNC_INTERVAL = 30
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._mpv_socket = self._config.get(
@@ -37,10 +41,20 @@ class MpvAudioSource(BaseAudioSource):
         )
         self._mpv: Optional[MpvController] = None
         self._is_buffering = False
+        self._position_ticks: int = 0
 
     def _reset_playback_state(self) -> None:
         super()._reset_playback_state()
         self._is_buffering = False
+        self._position_ticks = 0
+
+    def _position_sync_due(self) -> bool:
+        """Return True every POSITION_SYNC_INTERVAL ticks, then reset."""
+        self._position_ticks += 1
+        if self._position_ticks >= self.POSITION_SYNC_INTERVAL:
+            self._position_ticks = 0
+            return True
+        return False
 
     # === Restart skeleton ===
 

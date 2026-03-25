@@ -58,6 +58,7 @@ class AirPlaySource(BaseAudioSource):
         self._progress_start = 0
         self._progress_current = 0
         self._progress_end = 0
+        self._last_progress_broadcast: float = 0.0
 
         # Auto-disconnect (uses BaseAudioSource timer infrastructure)
         self.auto_disconnect_enabled = True
@@ -239,12 +240,24 @@ class AirPlaySource(BaseAudioSource):
             self._update_connection_state()
 
     async def _on_progress(self, start: int, current: int, end: int) -> None:
-        """Handle progress update from pipe reader (RTP frames at 44100Hz)."""
+        """Handle progress update from pipe reader (RTP frames at 44100Hz).
+
+        Updates internal metadata every tick but only broadcasts position
+        every 30s. Frontend interpolates locally via useSourceProgress.
+        """
         self._progress_start = start
         self._progress_current = current
         self._progress_end = end
         self._update_progress_metadata()
-        self._update_connection_state()
+
+        # Rate-limit position broadcasts (frontend interpolates locally)
+        now = asyncio.get_running_loop().time()
+        if now - self._last_progress_broadcast >= 30.0:
+            self._last_progress_broadcast = now
+            self.broadcast_position_update(
+                self._metadata.get("position", 0),
+                self._metadata.get("duration", 0),
+            )
 
     # === Helpers ===
 
