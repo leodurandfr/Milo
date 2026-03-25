@@ -14,7 +14,7 @@
 - Touch-screen interface with Vue 3 SPA
 - FastAPI async backend
 
-**Architecture Pattern:** Feature-Based Architecture + Plugin System
+**Architecture Pattern:** Feature-Based Architecture + Source System
 
 ---
 
@@ -22,7 +22,7 @@
 
 | Component | Technology | Location | Purpose |
 |-----------|------------|----------|---------|
-| **Backend** | FastAPI (Python) | `backend/` | API, state management, plugins |
+| **Backend** | FastAPI (Python) | `backend/` | API, state management, sources |
 | **Frontend** | Vue 3 + Pinia | `frontend/` | Touch-optimized SPA |
 | **Satellite** | FastAPI (Python) | `milo-client/` | Multiroom speakers |
 | **DSP Engine** | CamillaDSP | systemd | Audio processing |
@@ -35,8 +35,8 @@
 ### 1. Single Source of Truth
 `UnifiedAudioStateMachine` is THE authoritative source for all audio state. Never modify state directly - always use state machine methods.
 
-### 2. Plugin Architecture
-All audio sources implement the `AudioSourcePlugin` interface, enabling consistent behavior and easy addition of new sources.
+### 2. Source Architecture
+All audio sources implement the `AudioSourceProtocol` interface, enabling consistent behavior and easy addition of new sources.
 
 ### 3. Async-First
 All I/O operations use async/await. No blocking calls allowed in the main event loop.
@@ -56,7 +56,7 @@ All services use a simple dict-based Service Registry with lazy singleton creati
 ```
 backend/
 ├── core/                      # Core infrastructure
-│   ├── models/               # Domain models (AudioSource, PluginState, Volume)
+│   ├── models/               # Domain models (AudioSource, SourceState, Volume)
 │   ├── state.py              # AudioStateMachine (single source of truth)
 │   ├── audio_source.py       # AudioSourceProtocol interface
 │   ├── settings.py           # SettingsService
@@ -90,7 +90,7 @@ backend/
 | `CamillaDSPService` | `core/dsp/service.py` | DSP WebSocket control |
 | `ClientRegistryService` | `core/multiroom/registry.py` | Multiroom client/zone registry |
 
-### Plugin System
+### Source System
 
 ```python
 # Interface (core/audio_source.py)
@@ -102,9 +102,9 @@ class AudioSourceProtocol(Protocol):
     async def handle_command(self, command: str, data: Dict) -> Dict[str, Any]: ...
 ```
 
-**Registered Plugins** (in `features/`):
+**Registered Sources** (in `sources/`):
 
-| Plugin | Location | Service | IPC |
+| Source | Location | Service | IPC |
 |--------|----------|---------|-----|
 | SpotifySource | `features/spotify/` | milo-spotify (go-librespot) | HTTP API |
 | BluetoothSource | `features/bluetooth/` | milo-bluealsa | D-Bus |
@@ -140,7 +140,7 @@ App.vue (root)
 
 | Store | Purpose | Key State |
 |-------|---------|-----------|
-| `unifiedAudioStore` | Audio state | active_source, plugin_state, volume |
+| `unifiedAudioStore` | Audio state | active_source, source_state, volume |
 | `dspStore` | DSP state | filters, presets, zones, links |
 | `radioStore` | Radio state | stations, favorites, playback |
 | `podcastStore` | Podcast state | subscriptions, queue, progress |
@@ -171,11 +171,11 @@ Component Re-render
 ## Critical Implementation Rules
 
 ### DO:
-- Always use `state_machine.update_plugin_state()` for state changes
+- Always use `state_machine.update_source_state()` for state changes
 - Always use `state_machine._broadcast_event()` for notifications
 - Always use `settings_service.set_setting()` for persistence
 - Always use async/await for I/O operations
-- Always register plugins in `dependencies.py` before `initialize_services()`
+- Always register sources in `dependencies.py` before `initialize_services()`
 
 ### DON'T:
 - Don't modify `state_machine._state` directly
@@ -193,12 +193,12 @@ Component Re-render
 ```python
 # 1. Retrieve instances (triggers lazy creation via get_service())
 # 2. Resolve circular dependencies via setters:
-routing_service.set_plugin_callback()           # Access to plugins
+routing_service.set_source_callback()            # Access to sources
 routing_service.set_snapcast_websocket_service() # Lifecycle control
 routing_service.set_state_machine()             # Event broadcasting
 state_machine.routing_service = routing_service # Circular ref complete
 
-# 3. Register plugins in state_machine (BEFORE async init)
+# 3. Register sources in state_machine (BEFORE async init)
 # 4. Parallel async initialization via asyncio.gather()
 ```
 
@@ -210,7 +210,7 @@ state_machine.routing_service = routing_service # Circular ref complete
 |-------|----------|
 | API Routes | Return JSON error response, log exception |
 | Services | Raise domain exceptions, let caller handle |
-| Plugins | Return error dict, update state to ERROR |
+| Sources | Return error dict, update state to ERROR |
 | State Machine | Transition lock with timeout, rollback on failure |
 | WebSocket | Catch per-handler, continue serving other events |
 
@@ -274,7 +274,7 @@ state_machine.routing_service = routing_service # Circular ref complete
 ### Audio Sources
 `none` | `spotify` | `bluetooth` | `mac` | `radio` | `podcast`
 
-### Plugin States
+### Source States
 `starting` | `ready` | `connected` | `error`
 
 ### Volume Range

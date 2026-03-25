@@ -1,21 +1,21 @@
-# Deep Dive: Architecture des Plugins Audio
+# Deep Dive: Architecture des Sources Audio
 
-> Documentation exhaustive de l'architecture des plugins audio de Milo
+> Documentation exhaustive de l'architecture des sources audio de Milo
 > Générée le 2026-01-09
 
 ## Table des matières
 
 1. [Vue d'ensemble](#vue-densemble)
 2. [Architecture en couches](#architecture-en-couches)
-3. [Interface AudioSourcePlugin](#interface-audiosourceplugin)
-4. [Classe de base UnifiedAudioPlugin](#classe-de-base-unifiedaudioplugin)
+3. [Interface AudioSourceProtocol](#interface-audiosourceprotocol)
+4. [Classe de base UnifiedAudioSource](#classe-de-base-unifiedaudiosource)
 5. [Machine d'état UnifiedAudioStateMachine](#machine-détat-unifiedaudiostatemachine)
-6. [Les 5 plugins implémentés](#les-5-plugins-implémentés)
-   - [Spotify Plugin](#spotify-plugin)
-   - [Bluetooth Plugin](#bluetooth-plugin)
-   - [Mac Plugin](#mac-plugin)
-   - [Radio Plugin](#radio-plugin)
-   - [Podcast Plugin](#podcast-plugin)
+6. [Les 5 sources implémentées](#les-5-sources-implémentées)
+   - [Spotify Source](#spotify-source)
+   - [Bluetooth Source](#bluetooth-source)
+   - [Mac Source](#mac-source)
+   - [Radio Source](#radio-source)
+   - [Podcast Source](#podcast-source)
 7. [Flux de données et communications](#flux-de-données-et-communications)
 8. [Injection de dépendances](#injection-de-dépendances)
 9. [Routes API](#routes-api)
@@ -25,7 +25,7 @@
 
 ## Vue d'ensemble
 
-Le système de plugins audio de Milo permet de gérer 5 sources audio différentes de manière unifiée :
+Le système de sources audio de Milo permet de gérer 5 sources audio différentes de manière unifiée :
 
 | Source | Service externe | Protocole | État |
 |--------|-----------------|-----------|------|
@@ -38,7 +38,7 @@ Le système de plugins audio de Milo permet de gérer 5 sources audio différent
 ### Principes architecturaux
 
 1. **Single Source of Truth** : `UnifiedAudioStateMachine` gère tout l'état audio
-2. **Plugin Pattern** : Tous les plugins implémentent `AudioSourcePlugin`
+2. **Source Pattern** : Toutes les sources implémentent `AudioSourceProtocol`
 3. **Async-first** : Toutes les opérations I/O sont asynchrones
 4. **Dependency Injection** : via `dependency-injector`
 5. **Event-driven** : Communication WebSocket temps réel
@@ -60,7 +60,7 @@ Le système de plugins audio de Milo permet de gérer 5 sources audio différent
 ┌─────────────────────────────────────────────────────────────────┐
 │                    APPLICATION LAYER                             │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │              AudioSourcePlugin (Interface)                │   │
+│  │              AudioSourceProtocol (Interface)               │   │
 │  │  - initialize() - start() - stop() - restart()           │   │
 │  │  - get_status() - handle_command()                        │   │
 │  └──────────────────────────────────────────────────────────┘   │
@@ -71,15 +71,15 @@ Le système de plugins audio de Milo permet de gérer 5 sources audio différent
 │                   INFRASTRUCTURE LAYER                           │
 │  ┌────────────────────────────────────────────────────────────┐ │
 │  │              UnifiedAudioStateMachine                       │ │
-│  │  - transition_to_source() - update_plugin_state()          │ │
-│  │  - broadcast_event() - register_plugin()                   │ │
+│  │  - transition_to_source() - update_source_state()          │ │
+│  │  - broadcast_event() - register_source()                   │ │
 │  └────────────────────────────────────────────────────────────┘ │
 │                              │                                   │
 │    ┌─────────────────────────┼─────────────────────────┐        │
 │    ▼                         ▼                         ▼        │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐        │
 │  │ Spotify  │  │Bluetooth │  │   Mac    │  │  Radio   │ ...    │
-│  │ Plugin   │  │ Plugin   │  │ Plugin   │  │ Plugin   │        │
+│  │ Source   │  │ Source   │  │ Source   │  │ Source   │        │
 │  └──────────┘  └──────────┘  └──────────┘  └──────────┘        │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -87,7 +87,7 @@ Le système de plugins audio de Milo permet de gérer 5 sources audio différent
 ┌─────────────────────────────────────────────────────────────────┐
 │                      DOMAIN LAYER                                │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
-│  │ AudioSource │  │ PluginState │  │   SystemAudioState      │  │
+│  │ AudioSource │  │ SourceState │  │   SystemAudioState      │  │
 │  │    (Enum)   │  │   (Enum)    │  │     (DataClass)         │  │
 │  └─────────────┘  └─────────────┘  └─────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
@@ -95,53 +95,46 @@ Le système de plugins audio de Milo permet de gérer 5 sources audio différent
 
 ---
 
-## Interface AudioSourcePlugin
+## Interface AudioSourceProtocol
 
-**Fichier** : `backend/application/interfaces/audio_source.py`
+**Fichier** : `backend/core/audio_source.py`
 
-L'interface définit le contrat que tous les plugins doivent respecter :
+L'interface définit le contrat que toutes les sources doivent respecter :
 
 ```python
-class AudioSourcePlugin(ABC):
-    """Interface abstraite pour tous les plugins de source audio."""
+class AudioSourceProtocol(Protocol):
+    """Interface pour toutes les sources audio."""
 
-    @abstractmethod
     async def initialize(self) -> bool:
-        """Initialise le plugin (appelé une seule fois au démarrage)."""
+        """Initialise la source (appelé une seule fois au démarrage)."""
 
-    @abstractmethod
     async def start(self) -> bool:
-        """Démarre le plugin (appelé lors de la transition vers cette source)."""
+        """Démarre la source (appelé lors de la transition vers cette source)."""
 
-    @abstractmethod
     async def stop(self) -> bool:
-        """Arrête le plugin (appelé lors de la transition vers une autre source)."""
+        """Arrête la source (appelé lors de la transition vers une autre source)."""
 
-    @abstractmethod
     async def restart(self) -> bool:
-        """Redémarre le plugin."""
+        """Redémarre la source."""
 
-    @abstractmethod
     async def get_status(self) -> Dict[str, Any]:
-        """Retourne le statut complet du plugin."""
+        """Retourne le statut complet de la source."""
 
-    @abstractmethod
     async def handle_command(self, command: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Traite une commande spécifique au plugin."""
+        """Traite une commande spécifique à la source."""
 
-    @abstractmethod
-    def is_active_plugin(self) -> bool:
-        """Indique si ce plugin est la source audio active."""
+    def is_active_source(self) -> bool:
+        """Indique si cette source est la source audio active."""
 ```
 
-### États du plugin (PluginState)
+### États de la source (SourceState)
 
 ```python
-class PluginState(Enum):
-    STARTING = "starting"      # Plugin en cours de démarrage
-    READY = "ready"            # Plugin démarré, en attente de connexion
-    CONNECTED = "connected"    # Plugin connecté et opérationnel
-    ERROR = "error"            # Plugin en erreur
+class SourceState(Enum):
+    STARTING = "starting"      # Source en cours de démarrage
+    READY = "ready"            # Source démarrée, en attente de connexion
+    CONNECTED = "connected"    # Source connectée et opérationnelle
+    ERROR = "error"            # Source en erreur
 ```
 
 ### Sources audio (AudioSource)
@@ -158,11 +151,11 @@ class AudioSource(Enum):
 
 ---
 
-## Classe de base UnifiedAudioPlugin
+## Classe de base UnifiedAudioSource
 
-**Fichier** : `backend/infrastructure/plugins/base.py`
+**Fichier** : `backend/core/audio_source.py`
 
-La classe de base fournit l'implémentation commune pour tous les plugins :
+La classe de base fournit l'implémentation commune pour toutes les sources :
 
 ### Responsabilités
 
@@ -175,7 +168,7 @@ La classe de base fournit l'implémentation commune pour tous les plugins :
 ### Structure
 
 ```python
-class UnifiedAudioPlugin(AudioSourcePlugin):
+class UnifiedAudioSource(AudioSourceProtocol):
     def __init__(self, source: AudioSource, config: Dict, state_machine):
         self.source = source
         self.config = config
@@ -183,15 +176,15 @@ class UnifiedAudioPlugin(AudioSourcePlugin):
         self.service_name = config.get("service_name", "")
         self._systemd = SystemdServiceManager()
         self._metadata: Dict[str, Any] = {}
-        self.current_state = PluginState.READY
+        self.current_state = SourceState.READY
         self._initialized = False
 
-    async def _update_state(self, new_state: PluginState, metadata: Dict = None):
+    async def _update_state(self, new_state: SourceState, metadata: Dict = None):
         """Met à jour l'état et notifie la state machine."""
         self.current_state = new_state
         if metadata:
             self._metadata.update(metadata)
-        await self.state_machine.update_plugin_state(
+        await self.state_machine.update_source_state(
             self.source, new_state, self._metadata
         )
 
@@ -201,8 +194,8 @@ class UnifiedAudioPlugin(AudioSourcePlugin):
     async def _stop_service(self) -> bool:
         """Arrête le service systemd associé."""
 
-    def is_active_plugin(self) -> bool:
-        """Vérifie si ce plugin est la source active."""
+    def is_active_source(self) -> bool:
+        """Vérifie si cette source est la source active."""
         return self.state_machine.system_state.active_source == self.source
 ```
 
@@ -241,7 +234,7 @@ class UnifiedAudioPlugin(AudioSourcePlugin):
 
 La state machine est le **coeur du système audio** :
 
-1. **Enregistre les plugins** via `register_plugin()`
+1. **Enregistre les sources** via `register_source()`
 2. **Gère les transitions** entre sources audio
 3. **Buffer les mises à jour** pendant les transitions
 4. **Broadcast les événements** via WebSocket
@@ -255,7 +248,7 @@ async def transition_to_source(self, target_source: AudioSource) -> bool:
         # 1. Marquer comme en transition
         self.system_state.transitioning = True
         self.system_state.active_source = target_source
-        self.system_state.plugin_state = PluginState.STARTING
+        self.system_state.source_state = SourceState.STARTING
 
         # 2. Broadcast transition_start
         await self._broadcast_event("system", "transition_start", {...})
@@ -282,16 +275,16 @@ Pendant une transition, les mises à jour d'état sont stockées dans une queue 
 
 ```python
 # File d'attente avec protection mémoire (max 50 éléments)
-_buffered_updates: deque[Tuple[AudioSource, PluginState, Dict]] = deque(maxlen=50)
+_buffered_updates: deque[Tuple[AudioSource, SourceState, Dict]] = deque(maxlen=50)
 
-async def update_plugin_state(self, source, new_state, metadata):
+async def update_source_state(self, source, new_state, metadata):
     if is_transitioning:
         # Bufferiser au lieu d'ignorer
         self._buffered_updates.append((source, new_state, metadata))
         return
 
     # Appliquer directement sinon
-    await self._apply_plugin_state_update(source, new_state, metadata)
+    await self._apply_source_state_update(source, new_state, metadata)
 ```
 
 ### Broadcast WebSocket
@@ -299,7 +292,7 @@ async def update_plugin_state(self, source, new_state, metadata):
 ```python
 async def _broadcast_event(self, category: str, event_type: str, data: Dict):
     event_data = {
-        "category": category,      # "plugin", "system", "routing"
+        "category": category,      # "source", "system", "routing"
         "type": event_type,        # "state_changed", "transition_start", etc.
         "source": data.get("source", category),
         "data": {..., "full_state": current_state},
@@ -310,13 +303,13 @@ async def _broadcast_event(self, category: str, event_type: str, data: Dict):
 
 ---
 
-## Les 5 plugins implémentés
+## Les 5 sources implémentées
 
-### Spotify Plugin
+### Spotify Source
 
 **Fichiers** :
-- `backend/infrastructure/plugins/spotify/plugin.py`
-- `backend/presentation/api/routes/spotify.py`
+- `backend/sources/spotify/source.py`
+- `backend/sources/spotify/routes.py`
 
 **Service externe** : go-librespot (Spotify Connect)
 
@@ -334,7 +327,7 @@ async def _broadcast_event(self, category: str, event_type: str, data: Dict):
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    SpotifyPlugin                             │
+│                    SpotifySource                             │
 │  ┌───────────────────┐  ┌────────────────────────────────┐  │
 │  │ LibrespotMonitor  │  │     Metadata Extraction        │  │
 │  │  (WebSocket)      │  │  - Track info from events      │  │
@@ -354,7 +347,7 @@ async def _broadcast_event(self, category: str, event_type: str, data: Dict):
 **Flux de données** :
 
 ```
-Spotify App → go-librespot → WebSocket Event → SpotifyPlugin
+Spotify App → go-librespot → WebSocket Event → SpotifySource
                                                     │
                                           ┌────────┴────────┐
                                           ▼                 ▼
@@ -368,14 +361,13 @@ Spotify App → go-librespot → WebSocket Event → SpotifyPlugin
 
 ---
 
-### Bluetooth Plugin
+### Bluetooth Source
 
 **Fichiers** :
-- `backend/infrastructure/plugins/bluetooth/plugin.py`
-- `backend/infrastructure/plugins/bluetooth/agent.py`
-- `backend/infrastructure/plugins/bluetooth/bluealsa_monitor.py`
-- `backend/infrastructure/plugins/bluetooth/bluealsa_playback.py`
-- `backend/presentation/api/routes/bluetooth.py`
+- `backend/sources/bluetooth/source.py`
+- `backend/sources/bluetooth/agent.py`
+- `backend/sources/bluetooth/monitor.py`
+- `backend/sources/bluetooth/routes.py`
 
 **Service externe** : BlueALSA (Bluetooth A2DP sink)
 
@@ -392,7 +384,7 @@ Spotify App → go-librespot → WebSocket Event → SpotifyPlugin
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    BluetoothPlugin                               │
+│                    BluetoothSource                               │
 │  ┌────────────────┐  ┌─────────────────┐  ┌──────────────────┐  │
 │  │ BluetoothAgent │  │ BluealMonitor   │  │ BluealPlayback   │  │
 │  │  (D-Bus Agent) │  │ (D-Bus Monitor) │  │ (Audio Routing)  │  │
@@ -426,11 +418,11 @@ class BluetoothState(Enum):
 
 ---
 
-### Mac Plugin
+### Mac Source
 
 **Fichiers** :
-- `backend/infrastructure/plugins/mac/plugin.py`
-- `backend/presentation/api/routes/mac.py`
+- `backend/sources/mac/source.py`
+- `backend/sources/mac/routes.py`
 
 **Service externe** : ROC Toolkit (streaming audio réseau)
 
@@ -447,7 +439,7 @@ class BluetoothState(Enum):
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      MacPlugin                               │
+│                      MacSource                               │
 │  ┌───────────────────┐  ┌─────────────────────────────────┐ │
 │  │ Service Control   │  │     Connection Tracking         │ │
 │  │ - systemd start   │  │  - Connected client name       │ │
@@ -478,16 +470,15 @@ class BluetoothState(Enum):
 
 ---
 
-### Radio Plugin
+### Radio Source
 
 **Fichiers** :
-- `backend/infrastructure/plugins/radio/plugin.py`
-- `backend/infrastructure/plugins/radio/mpv_controller.py`
-- `backend/infrastructure/plugins/radio/station_manager.py`
-- `backend/infrastructure/plugins/radio/radio_browser_api.py`
-- `backend/infrastructure/plugins/radio/image_manager.py`
-- `backend/infrastructure/plugins/radio/genres.py`
-- `backend/presentation/api/routes/radio.py`
+- `backend/sources/radio/source.py`
+- `backend/shared/mpv_controller.py`
+- `backend/sources/radio/data.py`
+- `backend/sources/radio/browser_api.py`
+- `backend/sources/radio/genres.py`
+- `backend/sources/radio/routes.py`
 
 **Service externe** : mpv (lecteur média)
 
@@ -505,7 +496,7 @@ class BluetoothState(Enum):
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                         RadioPlugin                                  │
+│                         RadioSource                                  │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────┐  │
 │  │  MpvController  │  │ StationManager  │  │ RadioBrowserAPI     │  │
 │  │  - IPC Socket   │  │ - Favorites     │  │ - Search stations   │  │
@@ -588,12 +579,12 @@ class StationManager:
 
 ---
 
-### Podcast Plugin
+### Podcast Source
 
 **Fichiers** :
-- `backend/infrastructure/plugins/podcast/plugin.py`
-- `backend/infrastructure/plugins/podcast/taddy_api.py`
-- `backend/presentation/api/routes/podcast.py`
+- `backend/sources/podcast/source.py`
+- `backend/sources/podcast/taddy_api.py`
+- `backend/sources/podcast/routes.py`
 
 **Services externes** : mpv + Taddy API (GraphQL)
 
@@ -611,7 +602,7 @@ class StationManager:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                         PodcastPlugin                                │
+│                         PodcastSource                                │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────┐  │
 │  │  MpvController  │  │ PodcastDataSvc  │  │     TaddyAPI        │  │
 │  │  - Playback     │  │ - Subscriptions │  │ - Search            │  │
@@ -706,7 +697,7 @@ class StationManager:
            └─────────────────┘                                        │
                      │                                                ▼
                      ▼                                    ┌─────────────────────┐
-           ┌─────────────────┐                            │  SpotifyPlugin      │
+           ┌─────────────────┐                            │  SpotifySource      │
            │  WebSocket      │                            │   .start()          │
            │  Manager        │                            └─────────────────────┘
            └─────────────────┘                                        │
@@ -730,7 +721,7 @@ class StationManager:
                                               │
                                               ▼
                                     ┌─────────────────┐
-                                    │ SpotifyPlugin   │
+                                    │ SpotifySource   │
                                     │ ._update_state( │
                                     │   CONNECTED,    │
                                     │   {track:...})  │
@@ -739,14 +730,14 @@ class StationManager:
                                               ▼
                                     ┌─────────────────┐
                                     │  state_machine  │
-                                    │ .update_plugin_ │
+                                    │ .update_source_ │
                                     │  state()        │
                                     └─────────────────┘
                                               │
                                               ▼
                                     ┌─────────────────┐
                                     │ _broadcast_event│
-                                    │ ("plugin",      │
+                                    │ ("source",      │
                                     │  "state_changed"│
                                     │  {metadata:...})│
                                     └─────────────────┘
@@ -775,17 +766,17 @@ def initialize_services():
     ...
 
     # ÉTAPE 2: Résoudre les dépendances circulaires
-    routing_service.set_plugin_callback(lambda src: state_machine.get_plugin(src))
+    routing_service.set_source_callback(lambda src: state_machine.get_source(src))
     routing_service.set_state_machine(state_machine)
     state_machine.routing_service = routing_service
     ...
 
-    # ÉTAPE 3: Enregistrer les plugins (AVANT init async)
-    state_machine.register_plugin(AudioSource.SPOTIFY, container.spotify_plugin())
-    state_machine.register_plugin(AudioSource.BLUETOOTH, container.bluetooth_plugin())
-    state_machine.register_plugin(AudioSource.MAC, container.mac_plugin())
-    state_machine.register_plugin(AudioSource.RADIO, container.radio_plugin())
-    state_machine.register_plugin(AudioSource.PODCAST, container.podcast_plugin())
+    # ÉTAPE 3: Enregistrer les sources (AVANT init async)
+    state_machine.register_source(AudioSource.SPOTIFY, spotify_source)
+    state_machine.register_source(AudioSource.BLUETOOTH, bluetooth_source)
+    state_machine.register_source(AudioSource.MAC, mac_source)
+    state_machine.register_source(AudioSource.RADIO, radio_source)
+    state_machine.register_source(AudioSource.PODCAST, podcast_source)
 
     # ÉTAPE 4: Initialisation async parallèle
     async def init_async():
@@ -796,17 +787,16 @@ def initialize_services():
         )
 ```
 
-### Configuration des plugins
+### Configuration des sources
 
 ```python
-# Chaque plugin reçoit sa configuration via providers.Dict
-spotify_plugin = providers.Singleton(
-    SpotifyPlugin,
-    config=providers.Dict({
+# Chaque source reçoit sa configuration via le constructeur
+spotify_source = SpotifySource(
+    config={
         "config_path": "/var/lib/milo/go-librespot/config.yml",
         "service_name": "milo-spotify.service"
-    }),
-    state_machine=audio_state_machine,
+    },
+    state_machine=state_machine,
     settings_service=settings_service
 )
 ```
@@ -827,7 +817,7 @@ spotify_plugin = providers.Singleton(
 
 | Méthode | Endpoint | Description |
 |---------|----------|-------------|
-| GET | `/api/spotify/status` | Statut du plugin Spotify |
+| GET | `/api/spotify/status` | Statut de la source Spotify |
 | POST | `/api/spotify/restart` | Redémarrer le service |
 | GET | `/api/spotify/logs` | Logs du service |
 
@@ -884,15 +874,15 @@ spotify_plugin = providers.Singleton(
 ### 1. Pattern Observer (Event Broadcasting)
 
 ```python
-# Plugin notifie la state machine
-await self.state_machine.update_plugin_state(
+# Source notifie la state machine
+await self.state_machine.update_source_state(
     source=self.source,
-    new_state=PluginState.CONNECTED,
+    new_state=SourceState.CONNECTED,
     metadata={"track": "..."}
 )
 
 # State machine broadcast aux clients WebSocket
-await self._broadcast_event("plugin", "state_changed", {...})
+await self._broadcast_event("source", "state_changed", {...})
 ```
 
 ### 2. Pattern Template Method
@@ -900,9 +890,9 @@ await self._broadcast_event("plugin", "state_changed", {...})
 La classe de base définit le squelette, les sous-classes implémentent les détails :
 
 ```python
-class UnifiedAudioPlugin:
+class UnifiedAudioSource:
     async def start(self) -> bool:
-        await self._update_state(PluginState.STARTING)
+        await self._update_state(SourceState.STARTING)
         success = await self._start_service()  # Template
         if success:
             await self._on_service_started()   # Hook pour sous-classe
@@ -929,10 +919,10 @@ class UnifiedAudioStateMachine:
 ```python
 async def _stop_source(self, source: AudioSource):
     if source != AudioSource.NONE:
-        plugin = self.plugins.get(source)
-        if plugin:
+        source_instance = self.sources.get(source)
+        if source_instance:
             try:
-                await plugin.stop()
+                await source_instance.stop()
             except Exception as e:
                 self.logger.error(f"Error stopping {source.value}: {e}")
                 # Continue quand même - ne pas bloquer
@@ -956,22 +946,22 @@ async def transition_to_source(self, target_source):
 
 | Composant | Chemin |
 |-----------|--------|
-| **Interface** | `backend/application/interfaces/audio_source.py` |
-| **Base class** | `backend/infrastructure/plugins/base.py` |
-| **State Machine** | `backend/infrastructure/state/state_machine.py` |
-| **Domain** | `backend/domain/audio_state.py` |
-| **Container** | `backend/config/container.py` |
-| **Spotify Plugin** | `backend/infrastructure/plugins/spotify/plugin.py` |
-| **Bluetooth Plugin** | `backend/infrastructure/plugins/bluetooth/plugin.py` |
-| **Mac Plugin** | `backend/infrastructure/plugins/mac/plugin.py` |
-| **Radio Plugin** | `backend/infrastructure/plugins/radio/plugin.py` |
-| **Podcast Plugin** | `backend/infrastructure/plugins/podcast/plugin.py` |
-| **Routes Audio** | `backend/presentation/api/routes/audio.py` |
-| **Routes Spotify** | `backend/presentation/api/routes/spotify.py` |
-| **Routes Bluetooth** | `backend/presentation/api/routes/bluetooth.py` |
-| **Routes Mac** | `backend/presentation/api/routes/mac.py` |
-| **Routes Radio** | `backend/presentation/api/routes/radio.py` |
-| **Routes Podcast** | `backend/presentation/api/routes/podcast.py` |
+| **Interface** | `backend/core/audio_source.py` |
+| **Base class** | `backend/core/audio_source.py` |
+| **State Machine** | `backend/core/state.py` |
+| **Domain** | `backend/core/models/audio_state.py` |
+| **Service Registry** | `backend/dependencies.py` |
+| **Spotify Source** | `backend/sources/spotify/source.py` |
+| **Bluetooth Source** | `backend/sources/bluetooth/source.py` |
+| **Mac Source** | `backend/sources/mac/source.py` |
+| **Radio Source** | `backend/sources/radio/source.py` |
+| **Podcast Source** | `backend/sources/podcast/source.py` |
+| **Routes Audio** | `backend/api/audio.py` |
+| **Routes Spotify** | `backend/sources/spotify/routes.py` |
+| **Routes Bluetooth** | `backend/sources/bluetooth/routes.py` |
+| **Routes Mac** | `backend/sources/mac/routes.py` |
+| **Routes Radio** | `backend/sources/radio/routes.py` |
+| **Routes Podcast** | `backend/sources/podcast/routes.py` |
 
 ---
 

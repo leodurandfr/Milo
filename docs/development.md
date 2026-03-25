@@ -54,15 +54,15 @@ The Vite frontend automatically proxies requests to the backend (see `frontend/v
 ```
 backend/
 ├── domain/                    # Business models
-│   └── audio_state.py        # AudioSource, PluginState, SystemAudioState
+│   └── audio_state.py        # AudioSource, SourceState, SystemAudioState
 ├── application/
-│   └── interfaces/           # Plugin contracts
-│       └── audio_source_plugin.py
+│   └── interfaces/           # Source contracts
+│       └── audio_source.py
 ├── infrastructure/
-│   ├── plugins/              # Audio source implementations
-│   │   ├── librespot_plugin.py
-│   │   ├── bluetooth_plugin.py
-│   │   └── roc_plugin.py
+│   ├── sources/              # Audio source implementations
+│   │   ├── spotify_source.py
+│   │   ├── bluetooth_source.py
+│   │   └── mac_source.py
 │   ├── services/             # Business services
 │   │   ├── settings_service.py
 │   │   ├── volume_service.py
@@ -143,7 +143,7 @@ frontend/src/
 
 ```javascript
 {
-  "category": "plugin",          // plugin, system, routing, equalizer
+  "category": "source",          // source, system, routing, equalizer
   "type": "state_changed",       // event type
   "source": "librespot",         // AudioSource
   "data": {
@@ -168,14 +168,14 @@ class AudioSource(str, Enum):
     MY_SOURCE = "my_source"  # ← Add here
 ```
 
-### 2. Create the plugin
+### 2. Create the source
 
-`backend/infrastructure/plugins/my_source_plugin.py`:
+`backend/sources/my_source/source.py`:
 ```python
-from backend.application.interfaces.audio_source_plugin import AudioSourcePlugin
-from backend.domain.audio_state import AudioSource, PluginState
+from backend.core.audio_source import UnifiedAudioSource
+from backend.core.models.audio_state import AudioSource, SourceState
 
-class MySourcePlugin(AudioSourcePlugin):
+class MySource(UnifiedAudioSource):
     def __init__(self, state_machine):
         self.state_machine = state_machine
         self.source = AudioSource.MY_SOURCE
@@ -188,17 +188,17 @@ class MySourcePlugin(AudioSourcePlugin):
     async def start(self):
         """Start the service (systemctl start, etc.)"""
         # Notify state change
-        await self.state_machine.update_plugin_state(
+        await self.state_machine.update_source_state(
             self.source,
-            PluginState.READY
+            SourceState.READY
         )
         return True
 
     async def stop(self):
         """Stop the service"""
-        await self.state_machine.update_plugin_state(
+        await self.state_machine.update_source_state(
             self.source,
-            PluginState.INACTIVE
+            SourceState.INACTIVE
         )
         return True
 
@@ -219,26 +219,19 @@ class MySourcePlugin(AudioSourcePlugin):
 
 ### 3. Register in container
 
-`backend/config/container.py`:
+`backend/dependencies.py`:
 ```python
-from backend.infrastructure.plugins.my_source_plugin import MySourcePlugin
+from backend.sources.my_source.source import MySource
 
-class Container:
-    # ... existing code ...
+# In _create_service():
+my_source = MySource(state_machine=state_machine)
 
-    my_source_plugin = providers.Singleton(
-        MySourcePlugin,
-        state_machine=audio_state_machine
-    )
-
-    def initialize_services(self):
-        # ... existing code ...
-
-        # Register plugin BEFORE async init
-        state_machine.register_plugin(
-            AudioSource.MY_SOURCE,
-            self.my_source_plugin()
-        )
+# In initialize_services():
+# Register source BEFORE async init
+state_machine.register_source(
+    AudioSource.MY_SOURCE,
+    my_source
+)
 ```
 
 ### 4. Add ALSA devices
@@ -279,13 +272,13 @@ Note: CamillaDSP is always in the audio path for volume control. DSP effects are
 ```python
 from fastapi import APIRouter
 
-def setup_my_source_routes(get_plugin):
+def setup_my_source_routes(get_source):
     router = APIRouter(prefix="/my_source", tags=["my_source"])
 
     @router.post("/play")
     async def play():
-        plugin = get_plugin()
-        result = await plugin.handle_command("play", {})
+        source = get_source()
+        result = await source.handle_command("play", {})
         return {"status": "success", "data": result}
 
     return router
@@ -293,10 +286,10 @@ def setup_my_source_routes(get_plugin):
 
 Register in `backend/main.py`:
 ```python
-from backend.presentation.api.routes.my_source import setup_my_source_routes
+from backend.sources.my_source.routes import setup_my_source_routes
 
 my_source_router = setup_my_source_routes(
-    lambda: state_machine.plugins.get(AudioSource.MY_SOURCE)
+    lambda: state_machine.sources.get(AudioSource.MY_SOURCE)
 )
 app.include_router(my_source_router)
 ```
@@ -334,12 +327,12 @@ async function play() {
 
 Add to `MainView.vue` or main layout.
 
-### Reference implementation: Radio plugin
+### Reference implementation: Radio source
 
-The Radio plugin (`backend/infrastructure/plugins/radio/`) is a complete, production-ready reference implementation that demonstrates advanced plugin architecture:
+The Radio source (`backend/sources/radio/`) is a complete, production-ready reference implementation that demonstrates advanced source architecture:
 
 **Multi-component architecture:**
-- `plugin.py` - Main plugin class (AudioSourcePlugin implementation)
+- `source.py` - Main source class (AudioSourceProtocol implementation)
 - `mpv_controller.py` - IPC communication with mpv media player
 - `radio_browser_api.py` - External API integration with caching (60min TTL)
 - `station_manager.py` - Favorites, custom stations, broken stations management
@@ -358,7 +351,7 @@ The Radio plugin (`backend/infrastructure/plugins/radio/`) is a complete, produc
 **Frontend components:** RadioSource.vue, AddRadioStation.vue, ChangeRadioStationImage.vue, RadioSettings.vue
 **Store:** radioStore.js (Pinia) with full state management
 
-This is an excellent reference for building a complex audio source plugin with external dependencies, data persistence, and rich UI interactions.
+This is an excellent reference for building a complex audio source with external dependencies, data persistence, and rich UI interactions.
 
 ## Testing
 
@@ -374,22 +367,22 @@ python -m pytest -k "test_name"  # Specific test
 
 **Writing a test:**
 
-`backend/tests/test_my_plugin.py`:
+`backend/tests/test_my_source.py`:
 ```python
 import pytest
-from backend.infrastructure.plugins.my_source_plugin import MySourcePlugin
+from backend.sources.my_source.source import MySource
 
 @pytest.mark.asyncio
-async def test_plugin_initialization():
+async def test_source_initialization():
     # Mock state machine
     class MockStateMachine:
-        async def update_plugin_state(self, source, state):
+        async def update_source_state(self, source, state):
             pass
 
-    plugin = MySourcePlugin(MockStateMachine())
-    await plugin.initialize()
+    source = MySource(MockStateMachine())
+    await source.initialize()
 
-    assert plugin.source == AudioSource.MY_SOURCE
+    assert source.source == AudioSource.MY_SOURCE
 ```
 
 ### Frontend (Vitest)
@@ -439,8 +432,8 @@ class MyService:
 Transitions are protected by `_transition_lock`. During a transition, state updates are **buffered** and replayed after.
 
 ```python
-# ✅ Good: uses update_plugin_state
-await state_machine.update_plugin_state(source, state)
+# ✅ Good: uses update_source_state
+await state_machine.update_source_state(source, state)
 
 # ❌ Bad: directly modifies state
 state_machine._state.active_source = source
@@ -636,11 +629,11 @@ git push origin feature/my-feature
 ⚠️ **CRITICAL**: Service initialization order in `container.py` matters!
 
 1. Create service instances
-2. **Register plugins** in state machine
+2. **Register sources** in state machine
 3. Resolve circular dependencies (setters)
 4. **Run** `container.initialize_services()`
 5. Wait for `await container._init_task`
-6. Initialize plugins
+6. Initialize sources
 
 See detailed comments in `backend/config/container.py`.
 
@@ -650,7 +643,7 @@ Always use `state_machine._broadcast_event()` to propagate changes:
 
 ```python
 await self.state_machine._broadcast_event(
-    category="plugin",
+    category="source",
     type="state_changed",
     source=self.source.value,
     data={

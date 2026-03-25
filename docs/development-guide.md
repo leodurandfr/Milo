@@ -93,7 +93,7 @@ milo/
 │   ├── main.py           # Entry point
 │   ├── dependencies.py   # Service Registry (lazy singletons)
 │   ├── core/             # Core infrastructure (state, events, services)
-│   ├── features/         # Audio source plugins (spotify, bluetooth, etc.)
+│   ├── sources/          # Audio source implementations (spotify, bluetooth, etc.)
 │   ├── api/              # REST API routes
 │   ├── ws/               # WebSocket server
 │   ├── hardware/         # Hardware controllers
@@ -200,7 +200,7 @@ Vite proxy configuration in `vite.config.js`:
 
 ## Adding New Features
 
-### New Audio Source Plugin
+### New Audio Source
 
 1. Create enum in `backend/core/models/audio_state.py`:
    ```python

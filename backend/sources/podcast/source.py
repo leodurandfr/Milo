@@ -1,4 +1,4 @@
-# backend/features/podcast/source.py
+# backend/sources/podcast/source.py
 """
 Podcast audio source using MPV.
 
@@ -15,12 +15,12 @@ Features:
 import asyncio
 from typing import Dict, Any, Optional
 
-from backend.core.models.audio_state import PluginState
-from backend.features.podcast.data import PodcastDataService
+from backend.core.models.audio_state import SourceState
+from backend.sources.podcast.data import PodcastDataService
 from backend.shared.decorators import handle_errors
 from backend.shared.mpv import MpvController
 from backend.shared.mpv_audio_source import MpvAudioSource
-from backend.features.podcast.taddy_api import TaddyAPI
+from backend.sources.podcast.taddy_api import TaddyAPI
 
 
 class PodcastSource(MpvAudioSource):
@@ -377,7 +377,7 @@ class PodcastSource(MpvAudioSource):
                 "ready": True
             }
 
-            self.set_state(PluginState.WAITING, self._metadata)
+            self.set_state(SourceState.WAITING, self._metadata)
 
             return self.success_response("Playback stopped")
 
@@ -550,7 +550,7 @@ class PodcastSource(MpvAudioSource):
             self._duration = 0
 
             self.set_state(
-                PluginState.WAITING,
+                SourceState.WAITING,
                 {"episode_ended": True}
             )
 
@@ -582,7 +582,7 @@ class PodcastSource(MpvAudioSource):
     # === Public API ===
 
     async def reload_credentials(self, user_id: str, api_key: str) -> bool:
-        """Hot-reload Taddy API credentials without restarting the plugin."""
+        """Hot-reload Taddy API credentials without restarting the source."""
         self._taddy_api.user_id = user_id
         self._taddy_api.api_key = api_key
         # Close existing session so _ensure_session() recreates it with new headers

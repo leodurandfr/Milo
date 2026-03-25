@@ -43,7 +43,7 @@
 
 | Document | Description | Audience |
 |----------|-------------|----------|
-| [Deep Dive: Plugin Audio](deep-dive-plugin-audio.md) | Architecture complète des 5 plugins audio (Spotify, Bluetooth, Mac, Radio, Podcast), interface, state machine | Backend developers |
+| [Deep Dive: Source Audio](deep-dive-source-audio.md) | Architecture complète des 5 sources audio (Spotify, Bluetooth, Mac, Radio, Podcast), interface, state machine | Backend developers |
 | [Deep Dive: Volume, DSP & Multiroom](deep-dive-volume-dsp-multiroom.md) | Système de volume unifié, CamillaDSP, Snapcast multiroom | Backend/Audio |
 
 ### Existing Documentation
@@ -82,7 +82,7 @@ A multiroom audio system for Raspberry Pi supporting:
             │                           │                           │
             ▼                           ▼                           ▼
      ┌─────────────┐            ┌─────────────┐            ┌─────────────┐
-     │ CamillaDSP  │            │  Snapcast   │            │   Plugins   │
+     │ CamillaDSP  │            │  Snapcast   │            │   Sources   │
      │   (DSP)     │            │ (Multiroom) │            │ (5 sources) │
      └─────────────┘            └─────────────┘            └─────────────┘
 ```
@@ -103,8 +103,8 @@ A multiroom audio system for Raspberry Pi supporting:
 ### State Machine
 The `AudioStateMachine` (in `core/state.py`) is the single source of truth for audio state. Broadcasts state changes via WebSocket.
 
-### Plugin System
-Audio sources implement `AudioSourceProtocol` interface (in `core/audio_source.py`). Each plugin is in `features/` and manages its own systemd service.
+### Source System
+Audio sources implement `AudioSourceProtocol` interface (in `core/audio_source.py`). Each source is in `sources/` and manages its own systemd service.
 
 ### WebSocket Sync
 All state changes broadcast via WebSocket. Frontend reacts, never polls.
@@ -179,4 +179,4 @@ Centralized registry of all multiroom clients and zones for coordinated control.
 7. `data-models-backend.md` - Domain models
 8. `source-tree-analysis.md` - Directory structure
 9. `deep-dive-volume-dsp-multiroom.md` - Deep dive volume/DSP/multiroom
-10. `deep-dive-plugin-audio.md` - Deep dive plugin audio architecture
+10. `deep-dive-source-audio.md` - Deep dive source audio architecture

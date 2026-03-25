@@ -36,9 +36,9 @@ Milō is built around a client-server architecture with real-time synchronizatio
 ### Backend: Python + FastAPI
 
 **Layered architecture:**
-- **Domain**: Data models (audio state, sources, plugins)
-- **Application**: Plugin interfaces (contract to respect)
-- **Infrastructure**: Concrete implementations (audio plugins, services)
+- **Domain**: Data models (audio state, sources)
+- **Application**: Source interfaces (contract to respect)
+- **Infrastructure**: Concrete implementations (audio sources, services)
 - **Presentation**: REST API + WebSocket
 
 **Key components:**
@@ -323,7 +323,7 @@ Backend State Change → WebSocketManager → All connected clients
 
 ```json
 {
-  "category": "plugin",
+  "category": "source",
   "type": "state_changed",
   "source": "librespot",
   "data": {
@@ -363,7 +363,7 @@ milo-snapclient-multiroom # Local snapcast client
 ```
 
 **Dependencies:**
-- All plugins `BindsTo=milo-backend` (stop if backend stops)
+- All sources `BindsTo=milo-backend` (stop if backend stops)
 - Automatic restart on error
 
 ## Security
@@ -406,7 +406,7 @@ Allowed origins only:
 
 ### Adding an audio source
 
-1. Create plugin implementing `AudioSourcePlugin`
+1. Create source implementing `AudioSourceProtocol`
 2. Register in `container.py`
 3. Add ALSA devices in `/etc/asound.conf`
 4. Create Vue component for UI
