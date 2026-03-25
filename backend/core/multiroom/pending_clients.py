@@ -70,6 +70,7 @@ class PendingClientsService:
         ip: str,
         hardware_configured: bool,
         audio_id: str,
+        volume_control: bool = True,
     ) -> Dict[str, Any]:
         """
         Register or update a pending client.
@@ -85,6 +86,7 @@ class PendingClientsService:
                 existing["ip"] = ip
                 existing["hardware_configured"] = hardware_configured
                 existing["audio_id"] = audio_id
+                existing["volume_control"] = volume_control
                 existing["registered_at"] = time.time()
                 client = existing
             else:
@@ -93,6 +95,7 @@ class PendingClientsService:
                     "ip": ip,
                     "hardware_configured": hardware_configured,
                     "audio_id": audio_id,
+                    "volume_control": volume_control,
                     "name": None,
                     "speaker_type": "bookshelf",
                     "registered_at": time.time(),

@@ -1,6 +1,11 @@
 <!-- frontend/src/components/settings/categories/VolumeSettings.vue -->
 <template>
-  <SettingsContainer>
+  <!-- DAC mode: volume managed by external amplifier -->
+  <div v-if="!unifiedStore.volumeState.volume_control" class="dac-notice">
+    <span class="text-mono">{{ t('volumeSettings.externalAmplifier') }}</span>
+  </div>
+
+  <SettingsContainer v-else>
     <!-- Volume controls -->
     <SettingsSection :title="t('volumeSettings.controls')">
       <SettingItem :label="t('volumeSettings.rotaryStep')">
@@ -179,6 +184,15 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.dac-notice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-06) var(--space-04);
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+
 .bt-remote-status {
   color: var(--color-text-secondary);
   margin-bottom: var(--space-04);

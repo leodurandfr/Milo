@@ -246,7 +246,8 @@ const displayClients = computed(() => {
             equalizerMuted: equalizerStore.getClientEqualizerMute(c.mac_id),
             speakerType: equalizerStore.getClientSpeakerType(c.mac_id),
             online: c.online,
-            is_local: c.is_local
+            is_local: c.is_local,
+            volume_control: c.volume_control ?? true
           }));
 
           // Use arithmetic average of all clients in zone
@@ -259,6 +260,7 @@ const displayClients = computed(() => {
             volumeLoading: zoneVolume === null,
             zoneClientIds: zone.client_ids,
             isZone: true,
+            all_external_volume: zone.all_external_volume || false,
             zoneClientDetails
           };
         }

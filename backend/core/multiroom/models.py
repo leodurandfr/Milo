@@ -359,6 +359,7 @@ class Client:
     mute: bool = False
     speaker_type: SpeakerType = DEFAULT_SPEAKER_TYPE
     crossover_frequency: Optional[int] = None  # None = use speaker_type default
+    volume_control: bool = True  # False = DAC card, external amp manages volume
 
     def to_dict(self, include_runtime: bool = True) -> Dict[str, Any]:
         """
@@ -381,7 +382,8 @@ class Client:
             "volume_db": self.volume_db,
             "mute": self.mute,
             "speaker_type": self.speaker_type,
-            "crossover_frequency": self.crossover_frequency
+            "crossover_frequency": self.crossover_frequency,
+            "volume_control": self.volume_control
         }
         if include_runtime:
             result["online"] = self.online
@@ -401,7 +403,8 @@ class Client:
             volume_db=data.get("volume_db", DEFAULT_VOLUME_DB),
             mute=data.get("mute", False),
             speaker_type=data.get("speaker_type", DEFAULT_SPEAKER_TYPE),
-            crossover_frequency=data.get("crossover_frequency")
+            crossover_frequency=data.get("crossover_frequency"),
+            volume_control=data.get("volume_control", True)
         )
 
     @property
