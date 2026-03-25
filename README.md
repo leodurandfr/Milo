@@ -1,22 +1,22 @@
 <picture>
-  <img style="pointer-events:none" src="https://leodurand.com/_autres/cover-milo-github@2x.png" />
+  <img src="https://leodurand.com/_autres/cover-milo-github@2x.png" />
 </picture>
 
 # Milō
 
 > ⚠ Currently in work in progress — Available soon
 
-### Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, AirPlay 2, Bluetooth, CD playback, Internet Radio, Podcasts, and Mac streaming.
+### Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, Internet Radio, Bluetooth, AirPlay 2, Podcasts, CD playback, and Mac streaming.
 
 <!-- TODO: Add screenshot or GIF of the interface -->
 <!-- ![Milō Interface](docs/assets/screenshot.png) -->
 
 ## Audio Sources
 
-<table width="100%">
+<table>
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/spotify.png" width="48"></td>
-    <td><b>Spotify</b><br>Spotify Connect receiver — control playback directly</td>
+    <td><b>Spotify</b><br>Spotify Connect receiver — see what's playing with artwork, and control playback directly</td>
   </tr>
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/radio.png" width="48"></td>
@@ -46,14 +46,14 @@
 
 ## Features
 
-<table width="100%">
+<table>
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/multiroom.png" width="48"></td>
     <td><b>Multiroom Audio</b><br>Synchronized playback across speakers with zone management and per-speaker volume</td>
   </tr>
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/equalizer.png" width="48"></td>
-    <td><b>Parametric EQ</b><br>10-band equalizer with presets, compressor, and loudness compensation (CamillaDSP)</td>
+    <td><b>Equalizer</b><br>10-band parametric EQ with presets, compressor, and loudness compensation (CamillaDSP)</td>
   </tr>
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/settings.png" width="48"></td>
@@ -71,7 +71,7 @@
 
 ## Hardware
 
-<table width="100%">
+<table>
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/board.png" width="48"></td>
     <td><b>Board</b><br>Raspberry Pi 4 or 5 (64-bit)</td>
@@ -122,7 +122,7 @@ Flash the same image on additional Raspberry Pis. On first boot, the device dete
 <details>
 <summary>Install from Raspberry Pi OS Lite instead of using the pre-built image</summary>
 
-Flash **Raspberry Pi OS (64-bit) Lite** (Debian Trixie) with Raspberry Pi Imager. In "Edit Settings", set hostname to `milo` and username to `milo`.
+Flash **Raspberry Pi OS (64-bit) Lite** (Debian Trixie) with Raspberry Pi Imager. In "Edit Settings", set hostname and username to `milo`.
 
 ```bash
 wget https://raw.githubusercontent.com/leodurandfr/Milo/main/install.sh
@@ -151,9 +151,9 @@ Uninstall:
 
 Control Milō from your other devices:
 
-<table width="100%">
+<table>
   <tr>
-    <td width="120"><b>macOS</b></td>
+    <td><b>macOS</b></td>
     <td>Menu Bar app + audio output</td>
     <td><a href="https://github.com/leodurandfr/Milo-Mac">Milō Mac</a></td>
   </tr>
@@ -171,9 +171,9 @@ Control Milō from your other devices:
 
 ## Built With
 
-<table width="100%">
+<table>
   <tr>
-    <td width="120"><b>Backend</b></td>
+    <td><b>Backend</b></td>
     <td>Python, FastAPI, asyncio</td>
   </tr>
   <tr>
