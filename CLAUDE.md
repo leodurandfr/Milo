@@ -93,12 +93,12 @@ milo/
 
 ## Architecture Overview
 
-### Backend: Feature-Based Architecture
+### Backend: Source-Based Architecture
 
 ```
 backend/
 ├── core/                      # Core infrastructure
-│   ├── models/               # Domain models (AudioSource, PluginState, SystemAudioState, Volume)
+│   ├── models/               # Domain models (AudioSource, SourceState, SystemAudioState, Volume)
 │   ├── state.py              # AudioStateMachine (single source of truth)
 │   ├── audio_source.py       # AudioSourceProtocol interface
 │   ├── settings.py           # SettingsService
@@ -107,7 +107,7 @@ backend/
 │   ├── dsp/                  # CamillaDSP service + proxy + sync
 │   ├── multiroom/            # Snapcast + routing + crossover
 │   └── updates/              # Update + version services
-├── features/                  # Audio source implementations
+├── sources/                   # Audio source implementations
 │   ├── spotify/              # SpotifySource + routes
 │   ├── airplay/              # AirPlaySource + metadata_reader + routes
 │   ├── mac/                  # MacSource + routes
@@ -126,7 +126,7 @@ backend/
 
 **Key architectural principles:**
 - **Single Source of Truth**: `AudioStateMachine` manages all audio state
-- **Feature-Based**: Each audio source is a self-contained feature module
+- **Source-Based**: Each audio source is a self-contained source module
 - **Service Registry**: Simple dict-based DI with lazy singleton creation
 - **Async-first**: asyncio everywhere for non-blocking I/O
 - **WebSocket broadcasting**: State changes broadcast via `state_machine.broadcast_event()`
@@ -185,16 +185,16 @@ The order in `backend/dependencies.py::initialize_services()` is **CRITICAL** du
 
 1. **Retrieve instances** (triggers lazy creation via `get_service()`)
 2. **Resolve circular dependencies** via setters:
-   - `routing_service.set_plugin_callback()` → allows access to state_machine plugins
+   - `routing_service.set_source_callback()` → allows access to state_machine sources
    - `routing_service.set_snapcast_websocket_service()` → enables lifecycle control
    - `routing_service.set_state_machine()` → enables event broadcasting
    - `state_machine.routing_service = routing_service` → circular reference completion
-3. **Register plugins** in state_machine (BEFORE async init)
+3. **Register sources** in state_machine (BEFORE async init)
 4. **Parallel async initialization** via `asyncio.gather()`
 
 **Do NOT modify this order without understanding the circular dependencies documented in dependencies.py:227-348**
 
-### 2. Audio Plugin Architecture
+### 2. Audio Source Architecture
 
 All audio sources must implement `AudioSourceProtocol` interface:
 
@@ -209,19 +209,19 @@ class AudioSourceProtocol(Protocol):
 
 **Base class available**: `UnifiedAudioSource` in `backend/core/audio_source.py` provides common functionality (state management, systemd control, logging).
 
-**Uniform plugin structure** — Every plugin in `backend/features/{source}/` must follow:
+**Uniform source structure** — Every source in `backend/sources/{source}/` must follow:
 - `__init__.py` — Docstring + `__all__` exporting `Source`, `router`, `setup_{source}_routes`
 - `source.py` — Constructor takes `config`, `state_machine`, `settings_service`, `systemd_manager`
 - `routes.py` — `logger = logging.getLogger(__name__)` at module level; `logger.error()` before every `raise HTTPException` in except blocks; use `run_source_command()` for playback routes
 
 **Reference implementations**:
-- **Radio plugin** (`backend/features/radio/`) - Demonstrates multi-component architecture, external API integration, file uploads, and complex data persistence
-- **Podcast plugin** (`backend/features/podcast/`) - Demonstrates external API integration (Taddy API), playback progress tracking with resume functionality, subscription management, and advanced playback controls (speed, seek)
-- **AirPlay plugin** (`backend/features/airplay/`) - Demonstrates metadata pipe parsing, binary artwork handling, and external process integration (shairport-sync)
+- **Radio source** (`backend/sources/radio/`) - Demonstrates multi-component architecture, external API integration, file uploads, and complex data persistence
+- **Podcast source** (`backend/sources/podcast/`) - Demonstrates external API integration (Taddy API), playback progress tracking with resume functionality, subscription management, and advanced playback controls (speed, seek)
+- **AirPlay source** (`backend/sources/airplay/`) - Demonstrates metadata pipe parsing, binary artwork handling, and external process integration (shairport-sync)
 
-#### Podcast Plugin Architecture
+#### Podcast Source Architecture
 
-The Podcast plugin demonstrates several advanced patterns:
+The Podcast source demonstrates several advanced patterns:
 
 **External API Integration (Taddy GraphQL API)**:
 - `TaddyAPI` class (`taddy_api.py`) handles all GraphQL queries to Taddy API
@@ -230,7 +230,7 @@ The Podcast plugin demonstrates several advanced patterns:
 - Genre mapping to iTunes RSS feed IDs for charts
 
 **Audio Playback**:
-- Reuses `MpvController` from Radio plugin for consistency
+- Reuses `MpvController` from Radio source for consistency
 - Systemd service: `milo-podcast.service` (separate instance of mpv)
 - IPC socket: `/run/milo/podcast-ipc.sock`
 - Playback states: `INACTIVE` (stopped) → `READY` (service running, idle) → `CONNECTED` (episode playing)
@@ -265,7 +265,7 @@ The Podcast plugin demonstrates several advanced patterns:
 - `SkeletonPodcastCard.vue`, `SkeletonPodcastDetails.vue` - Loading skeletons for podcasts
 - `SkeletonEpisodeCard.vue`, `SkeletonEpisodeDetails.vue` - Loading skeletons for episodes
 
-**API Routes** (`backend/features/podcast/routes.py`):
+**API Routes** (`backend/sources/podcast/routes.py`):
 - Search podcasts by query
 - Get trending podcasts by genre/language
 - Get podcast details and episodes
@@ -283,15 +283,15 @@ The Podcast plugin demonstrates several advanced patterns:
 - Execute program updates (local and satellite devices)
 - Satellite device update coordination (for multi-room setups)
 
-**Key Differences from Radio Plugin**:
+**Key Differences from Radio Source**:
 - External API dependency (Taddy) vs. local station management (Radio)
 - Progress tracking with resume vs. stateless playback
 - Speed control support (not available in Radio)
 - More complex frontend with multiple views and navigation
 
-#### Radio Plugin Architecture
+#### Radio Source Architecture
 
-The Radio plugin (`backend/features/radio/`) manages internet radio playback with local station management.
+The Radio source (`backend/sources/radio/`) manages internet radio playback with local station management.
 
 **Frontend Components** (`frontend/src/components/radio/`):
 - `RadioSource.vue` - Main radio interface with station display
@@ -299,15 +299,15 @@ The Radio plugin (`backend/features/radio/`) manages internet radio playback wit
 - `SearchView.vue` - Station search interface (RadioBrowser API)
 - `SkeletonStationCard.vue` - Loading skeleton for stations
 
-#### Spotify Plugin Architecture
+#### Spotify Source Architecture
 
-The Spotify plugin (`backend/features/spotify/`) integrates with go-librespot for Spotify Connect functionality.
+The Spotify source (`backend/sources/spotify/`) integrates with go-librespot for Spotify Connect functionality.
 
 **Frontend**: `SpotifySource.vue` is a thin wrapper around the shared `AudioPlayerFull.vue` component with playback controls enabled.
 
-#### AirPlay Plugin Architecture
+#### AirPlay Source Architecture
 
-The AirPlay plugin (`backend/features/airplay/`) provides AirPlay 2 support via shairport-sync + NQPTP.
+The AirPlay source (`backend/sources/airplay/`) provides AirPlay 2 support via shairport-sync + NQPTP.
 
 **Metadata Pipe**: `MetadataReader` reads the shairport-sync named pipe (`/tmp/shairport-sync-metadata`) for:
 - Track metadata (`core` items: title, artist, album, genre)
@@ -315,7 +315,7 @@ The AirPlay plugin (`backend/features/airplay/`) provides AirPlay 2 support via 
 - Play state (`ssnc` items: `pbeg`/`pend` for play/stop)
 - Client name (`snam` code: X-Apple-Client-Name, e.g. "iPhone de Léo")
 
-**Key differences from other plugins**:
+**Key differences from other sources**:
 - No remote playback control (AirPlay 2 doesn't support it) — `showControls=false`
 - Metadata comes from a named pipe, not an API or IPC socket
 - Artwork is binary data read directly from the pipe
@@ -335,7 +335,7 @@ The AirPlay plugin (`backend/features/airplay/`) provides AirPlay 2 support via 
 
 ```python
 # ✅ Correct
-await state_machine.update_plugin_state(source, PluginState.READY, metadata)
+await state_machine.update_source_state(source, SourceState.READY, metadata)
 
 # ❌ Wrong - bypasses locks and broadcasting
 state_machine._state.active_source = source
@@ -349,15 +349,16 @@ All state changes must be broadcast via `state_machine.broadcast_event()`:
 
 ```python
 await self.state_machine.broadcast_event(
-    category="plugin",           # plugin, system, routing, equalizer, settings, multiroom, programs
+    category="source",           # source, system, routing, equalizer, settings, multiroom, programs
     type="state_changed",
-    source=self.source.value,
-    data={"metadata": {...}}
+    data={"source": self.source.value, "metadata": {...}}
 )
 ```
 
+**Wire format**: `{ category, type, origin, data, timestamp }`. The `origin` field is read from `data["source"]` (falls back to `category`). Callers using category `"source"` **must** provide `"source"` in the data dict.
+
 **Event category conventions:**
-- `plugin` — All audio source feature events (state changes, metadata). Never use source-specific categories.
+- `source` — All audio source feature events (state changes, metadata). Never use source-specific categories.
 - `settings` — Settings changes. Always via `state_machine.broadcast_event()`, never `ws_manager.broadcast_dict()`.
 - `routing` — Multiroom routing transitions (`multiroom_enabling`, `multiroom_disabling`, `multiroom_ready`)
 - `equalizer` — EQ filter/preset/compressor/loudness changes and `enabled_changed`
@@ -414,7 +415,7 @@ These are auto-generated in `/var/lib/milo/routing.env` based on settings.json.
 - `run_source_command(source, cmd, data, context)` — Standard wrapper for `source.command()` with success check + HTTP 400/500 error handling. All feature playback routes should use this.
 - `api_error_handler(context, log)` — Async context manager for the common `try/except HTTPException/Exception` pattern.
 
-**Pydantic models**: All models use `snake_case` field names. Shared models live in `backend/api/models.py` (e.g., `ClientUpdateRequest`). Feature-specific models live in `backend/features/{source}/models.py`.
+**Pydantic models**: All models use `snake_case` field names. Shared models live in `backend/api/models.py` (e.g., `ClientUpdateRequest`). Source-specific models live in `backend/sources/{source}/models.py`.
 
 ### 8. Frontend Conventions
 
@@ -430,25 +431,25 @@ These are auto-generated in `/var/lib/milo/routing.env` based on settings.json.
 
 ## Adding New Features
 
-### Adding a New Audio Source Plugin
+### Adding a New Audio Source
 
 1. **Define enum** in `backend/core/models/audio_state.py::AudioSource`
-2. **Create feature module** in `backend/features/{source}/` with:
+2. **Create source module** in `backend/sources/{source}/` with:
    - `source.py` - Extending `UnifiedAudioSource`, constructor takes `(config, state_machine, settings_service, systemd_manager)`
    - `routes.py` - FastAPI routes with `logger = logging.getLogger(__name__)`, `router` with `responses={404: ...}`, playback routes using `run_source_command()`
    - `models.py` - Pydantic models with `snake_case` fields (if needed)
    - `__init__.py` - Docstring + `__all__` exporting `Source`, `router`, `setup_{source}_routes`
 3. **Register in dependencies** (`backend/dependencies.py::_create_service()`)
 4. **Add ALSA devices** in `/etc/asound.conf` with 2 variants (direct via CamillaDSP, multiroom via Snapcast)
-5. **Register plugin** in `backend/dependencies.py::initialize_services()`
+5. **Register source** in `backend/dependencies.py::initialize_services()`
 6. **Register routes** in `backend/main.py`
 7. **Create Vue component** in `frontend/src/components/{source}/`
 8. **Update stores** if needed in `frontend/src/stores/` (use `apiCall()` for API actions, handle WS events in store)
 
 **Reference implementations**:
-- **Radio plugin** (`backend/features/radio/`) - Local station management, file uploads, custom stations with image storage
-- **Podcast plugin** (`backend/features/podcast/`) - External API integration (Taddy), playback progress tracking with resume, speed control, complex multi-view frontend with navigation
-- **AirPlay plugin** (`backend/features/airplay/`) - Metadata pipe parsing, binary artwork, external process integration (shairport-sync)
+- **Radio source** (`backend/sources/radio/`) - Local station management, file uploads, custom stations with image storage
+- **Podcast source** (`backend/sources/podcast/`) - External API integration (Taddy), playback progress tracking with resume, speed control, complex multi-view frontend with navigation
+- **AirPlay source** (`backend/sources/airplay/`) - Metadata pipe parsing, binary artwork, external process integration (shairport-sync)
 
 ### Adding a New Service
 
@@ -510,7 +511,7 @@ All components managed by systemd:
 - `milo-disable-wifi-power-management` - WiFi power management optimization
 - `milo-readiness` - System readiness check
 
-**All plugins `BindsTo=milo-backend`** - they stop if backend stops.
+**All sources `BindsTo=milo-backend`** - they stop if backend stops.
 
 ## Debugging Tips
 
@@ -527,10 +528,10 @@ All components managed by systemd:
 ## Common Pitfalls
 
 1. **Don't modify initialization order** in dependencies.py without understanding circular dependencies
-2. **Don't bypass state_machine** - always use `update_plugin_state()` and `broadcast_event()`
+2. **Don't bypass state_machine** - always use `update_source_state()` and `broadcast_event()`
 3. **Don't bypass SettingsService** - direct JSON file edits won't persist correctly
 4. **Don't use blocking I/O** - always async/await for file, network, subprocess operations
-5. **Don't skip plugin registration** - register in `initialize_services()` BEFORE `init_async()`
+5. **Don't skip source registration** - register in `initialize_services()` BEFORE `init_async()`
 6. **Don't hardcode ALSA devices** - use environment variable pattern for multiroom/equalizer switching
 7. **Don't use `ws_manager.broadcast_dict()` directly** - use `state_machine.broadcast_event()` for all events
 8. **Don't use camelCase in Pydantic models** - all fields must be `snake_case`

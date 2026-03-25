@@ -1,16 +1,16 @@
 <!-- AudioSourceStatus.vue -->
 <template>
-  <div class="plugin-status">
-    <div class="plugin-status-content">
-      <div class="plugin-status-inner">
+  <div class="source-status">
+    <div class="source-status-content">
+      <div class="source-status-inner">
         <!-- Device info section -->
         <div class="device-info">
           <div class="device-info-content">
             <div class="device-info-inner">
-              <!-- Plugin icon -->
-              <div class="plugin-icon">
-                <LoadingSpinner v-if="pluginState === 'starting' || pluginState === 'loading_disc'" :size="26" variant="background" />
-                <AppIcon v-else :name="pluginType" :size="32" />
+              <!-- Source icon -->
+              <div class="source-icon">
+                <LoadingSpinner v-if="sourceState === 'starting' || sourceState === 'loading_disc'" :size="26" variant="background" />
+                <AppIcon v-else :name="sourceType" :size="32" />
               </div>
 
               <!-- Text status -->
@@ -57,12 +57,12 @@ const { t } = useI18n();
 
 // Props
 const props = defineProps({
-  pluginType: {
+  sourceType: {
     type: String,
     required: true,
     validator: (value) => ['spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'airplay', 'cd', 'none'].includes(value)
   },
-  pluginState: {
+  sourceState: {
     type: String,
     required: true
   },
@@ -82,13 +82,13 @@ const emit = defineEmits(['disconnect']);
 // === COMPUTED FOR DISPLAYED CONTENT ===
 const displayedStatusLines = computed(() => {
   // CD: disc inserted, loading album (spinner shown via loading_disc state)
-  if (props.pluginState === 'loading_disc') {
+  if (props.sourceState === 'loading_disc') {
     return [t('audioSources.cd'), t('status.loadingAlbum')];
   }
 
   // Starting state
-  if (props.pluginState === 'starting') {
-    switch (props.pluginType) {
+  if (props.sourceState === 'starting') {
+    switch (props.sourceType) {
       case 'bluetooth':
         return [t('status.loadingOfMasculine'), t('audioSources.bluetooth')];
       case 'mac':
@@ -109,8 +109,8 @@ const displayedStatusLines = computed(() => {
   }
 
   // Ready state: waiting messages
-  if (props.pluginState === 'waiting') {
-    switch (props.pluginType) {
+  if (props.sourceState === 'waiting') {
+    switch (props.sourceType) {
       case 'bluetooth':
         return [t('audioSources.bluetooth'), t('status.ready')];
       case 'mac':
@@ -131,10 +131,10 @@ const displayedStatusLines = computed(() => {
   }
 
   // Connected state: messages with device name
-  if (props.pluginState === 'active' && props.deviceName) {
+  if (props.sourceState === 'active' && props.deviceName) {
     const formattedDeviceNames = formatDeviceNames(props.deviceName);
 
-    switch (props.pluginType) {
+    switch (props.sourceType) {
       case 'bluetooth':
         return [t('status.connectedTo'), formattedDeviceNames];
       case 'mac':
@@ -150,28 +150,28 @@ const displayedStatusLines = computed(() => {
 });
 
 const displayedShowDisconnectButton = computed(() => {
-  if (props.pluginState === 'starting') {
+  if (props.sourceState === 'starting') {
     return false;
   }
-  return props.pluginType === 'bluetooth' && props.pluginState === 'active';
+  return props.sourceType === 'bluetooth' && props.sourceState === 'active';
 });
 
 // Classes for status lines
 function getDisplayedStatusLine1Class() {
-  if (props.pluginState === 'starting') {
+  if (props.sourceState === 'starting') {
     return 'starting-state';
   }
-  if (props.pluginState === 'active') {
+  if (props.sourceState === 'active') {
     return 'active-state';
   }
   return '';
 }
 
 function getDisplayedStatusLine2Class() {
-  if (props.pluginState === 'starting') {
+  if (props.sourceState === 'starting') {
     return 'starting-state';
   }
-  if (props.pluginState === 'active') {
+  if (props.sourceState === 'active') {
     return 'active-state';
   }
   return 'secondary-state';
@@ -185,7 +185,7 @@ function handleDisconnect() {
 
 <style scoped>
 /* === COMPONENT STYLES === */
-.plugin-status {
+.source-status {
   background: var(--color-background-neutral);
   border-radius: var(--radius-07);
   box-shadow: var(--shadow-02);
@@ -194,7 +194,7 @@ function handleDisconnect() {
   margin: auto;
 }
 
-.plugin-status-content {
+.source-status-content {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -202,7 +202,7 @@ function handleDisconnect() {
   height: 100%;
 }
 
-.plugin-status-inner {
+.source-status-inner {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -242,8 +242,8 @@ function handleDisconnect() {
   width: 100%;
 }
 
-/* Plugin icon */
-.plugin-icon {
+/* Source icon */
+.source-icon {
   position: relative;
   flex-shrink: 0;
   display: flex;
@@ -357,7 +357,7 @@ function handleDisconnect() {
 
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
-  .plugin-status {
+  .source-status {
     width: 100%;
     max-width: 348px;
   }

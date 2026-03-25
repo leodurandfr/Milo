@@ -58,7 +58,7 @@ export function useScreensaver() {
   const shouldMonitorInactivity = computed(() => {
     if (!settingsStore.screenScreensaver.screensaver_enabled) return false;
     const source = unifiedStore.systemState.active_source;
-    const state = unifiedStore.systemState.plugin_state;
+    const state = unifiedStore.systemState.source_state;
     return ['radio', 'podcast', 'bluetooth', 'mac'].includes(source) && state === 'active';
   });
 
@@ -166,7 +166,7 @@ export function useScreensaver() {
       const metadata = unifiedStore.systemState.metadata || {};
       return {
         mode: 'simple',
-        pluginType: 'bluetooth',
+        sourceType: 'bluetooth',
         title: t('status.connectedTo'),
         subtitle: formatDeviceNames(metadata.device_name),
       };
@@ -176,7 +176,7 @@ export function useScreensaver() {
       const metadata = unifiedStore.systemState.metadata || {};
       return {
         mode: 'simple',
-        pluginType: 'mac',
+        sourceType: 'mac',
         title: t('status.audioReceivedFrom'),
         subtitle: formatDeviceNames(metadata.client_names || metadata.client_name),
       };

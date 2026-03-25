@@ -31,7 +31,7 @@ class TestSettingsRoutes:
         sm.system_state.active_source.value = "none"
         sm.transition_to_source = AsyncMock(return_value=True)
         sm.get_current_state = AsyncMock(return_value={"active_source": "none"})
-        sm.get_plugin = Mock(return_value=None)
+        sm.get_source = Mock(return_value=None)
         sm.update_multiroom_state = AsyncMock()
         sm.update_equalizer_state = AsyncMock()
         sm.broadcast_event = AsyncMock()
@@ -47,7 +47,7 @@ class TestSettingsRoutes:
         controller.screen_on = True
         controller.timeout_seconds = 10
         controller.last_activity_time = 0
-        controller.current_plugin_state = "PLAYING"
+        controller.current_source_state = "PLAYING"
         controller._update_screen_commands = Mock()
         controller._screen_cmd = AsyncMock()
         controller.on_touch_detected = AsyncMock()

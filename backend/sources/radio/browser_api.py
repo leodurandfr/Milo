@@ -7,7 +7,7 @@ import logging
 import re
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
-from backend.features.radio.genres import extract_valid_genre
+from backend.sources.radio.genres import extract_valid_genre
 from backend.shared.decorators import handle_errors
 from backend.shared.network import is_network_error, NetworkUnavailableError
 

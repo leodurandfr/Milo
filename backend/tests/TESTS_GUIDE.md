@@ -166,7 +166,7 @@ async def test_mon_nouveau_test(self, state_machine):
 
     # Assert (vérification)
     assert result is True
-    assert state_machine.system_state.plugin_state == PluginState.CONNECTED
+    assert state_machine.system_state.source_state == SourceState.CONNECTED
 ```
 
 ### Débugger un test qui échoue

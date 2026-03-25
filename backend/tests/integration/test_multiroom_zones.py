@@ -58,7 +58,7 @@ def mock_state_machine(websocket_collector: WebSocketEventCollector):
         await websocket_collector.broadcast_dict({
             "category": category,
             "type": event_type,
-            "source": "registry",
+            "origin": "registry",
             "data": data,
             "timestamp": asyncio.get_running_loop().time()
         })

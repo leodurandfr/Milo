@@ -21,11 +21,11 @@ from backend.api.routing import create_routing_router
 from backend.core.multiroom.routes import create_snapcast_router
 from backend.api.equalizer import create_equalizer_router
 from backend.api.volume import create_volume_router
-from backend.features.bluetooth.routes import setup_bluetooth_routes
-from backend.features.radio.routes import setup_radio_routes
-from backend.features.podcast.routes import setup_podcast_routes
-from backend.features.airplay.routes import setup_airplay_routes
-from backend.features.cd.routes import setup_cd_routes
+from backend.sources.bluetooth.routes import setup_bluetooth_routes
+from backend.sources.radio.routes import setup_radio_routes
+from backend.sources.podcast.routes import setup_podcast_routes
+from backend.sources.airplay.routes import setup_airplay_routes
+from backend.sources.cd.routes import setup_cd_routes
 from backend.api.settings import create_settings_router
 from backend.api.system import create_system_router
 from backend.api.programs import create_programs_router
@@ -96,7 +96,7 @@ async def lifespan(app: FastAPI):
         # Enable WebSocket broadcasting for backend errors/warnings
         _ws_log_handler.set_state_machine(state_machine)
 
-        # Plugins are initialized on-demand when activated (state.py:_start_source)
+        # Sources are initialized on-demand when activated (state.py:_start_source)
         # Radio is pre-initialized in init_async() for API access
 
         # Load inactivity timeout from settings (0 = disabled, default 7200s = 2h)
@@ -121,7 +121,8 @@ async def lifespan(app: FastAPI):
         await camilladsp_service.cleanup()
         await snapcast_websocket_service.cleanup()
         await volume_service.cleanup()
-        rotary_controller.cleanup()
+        if rotary_controller:
+            rotary_controller.cleanup()
         screen_controller.cleanup()
         bt_remote_controller.cleanup()
         logger.info("Cleanup completed")
@@ -173,27 +174,27 @@ volume_router = create_volume_router(volume_service, client_registry_service, se
 app.include_router(volume_router)
 
 bluetooth_router = setup_bluetooth_routes(
-    lambda: state_machine.plugins.get(AudioSource.BLUETOOTH)
+    lambda: state_machine.sources.get(AudioSource.BLUETOOTH)
 )
 app.include_router(bluetooth_router, prefix="/api")
 
 radio_router = setup_radio_routes(
-    lambda: state_machine.plugins.get(AudioSource.RADIO)
+    lambda: state_machine.sources.get(AudioSource.RADIO)
 )
 app.include_router(radio_router, prefix="/api")
 
 podcast_router = setup_podcast_routes(
-    lambda: state_machine.plugins.get(AudioSource.PODCAST)
+    lambda: state_machine.sources.get(AudioSource.PODCAST)
 )
 app.include_router(podcast_router, prefix="/api")
 
 airplay_router = setup_airplay_routes(
-    lambda: state_machine.plugins.get(AudioSource.AIRPLAY)
+    lambda: state_machine.sources.get(AudioSource.AIRPLAY)
 )
 app.include_router(airplay_router, prefix="/api")
 
 cd_router = setup_cd_routes(
-    lambda: state_machine.plugins.get(AudioSource.CD)
+    lambda: state_machine.sources.get(AudioSource.CD)
 )
 app.include_router(cd_router, prefix="/api")
 

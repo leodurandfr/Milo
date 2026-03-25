@@ -15,10 +15,10 @@ import asyncio
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 import os
 
-from backend.features.spotify.source import SpotifySource
-from backend.features.spotify.websocket import LibrespotWebSocket
+from backend.sources.spotify.source import SpotifySource
+from backend.sources.spotify.websocket import LibrespotWebSocket
 from backend.core.audio_source import BaseAudioSource
-from backend.core.models.audio_state import PluginState
+from backend.core.models.audio_state import SourceState
 
 
 @pytest.fixture
@@ -357,7 +357,7 @@ class TestConnectionState:
         spotify_source._device_connected = False
         spotify_source._update_connection_state()
 
-        assert spotify_source.state == PluginState.WAITING
+        assert spotify_source.state == SourceState.WAITING
 
     def test_update_state_with_device(self, spotify_source):
         """Test state is ACTIVE with device."""
@@ -366,7 +366,7 @@ class TestConnectionState:
         spotify_source._metadata = {"title": "Test"}
         spotify_source._update_connection_state()
 
-        assert spotify_source.state == PluginState.ACTIVE
+        assert spotify_source.state == SourceState.ACTIVE
 
 
 class TestLibrespotWebSocket:

@@ -7,8 +7,8 @@ remain stable during the feature-based architecture refactoring.
 
 Contracts being tested:
 - Connection handshake and initial state (AC1)
-- Event format: {category, type, source, data, timestamp} (AC2)
-- Event categories: system, plugin, volume, registry, etc. (AC3)
+- Event format: {category, type, origin, data, timestamp} (AC2)
+- Event categories: system, source, volume, registry, etc. (AC3)
 - Broadcast triggers on state changes (AC4)
 - Reconnection behavior (AC5)
 """
@@ -23,7 +23,7 @@ from fastapi import WebSocket
 from starlette.websockets import WebSocketState
 
 from backend.ws import WebSocketManager, WebSocketServer
-from backend.core.models.audio_state import AudioSource, PluginState, SystemAudioState
+from backend.core.models.audio_state import AudioSource, SourceState, SystemAudioState
 
 from .conftest import WebSocketEventCollector
 
@@ -124,7 +124,7 @@ def mock_state_machine_for_ws(mock_volume_service):
     # Basic state
     sm.system_state = SystemAudioState(
         active_source=AudioSource.NONE,
-        plugin_state=PluginState.WAITING,
+        source_state=SourceState.WAITING,
         transitioning=False,
         metadata={},
         error=None,
@@ -136,7 +136,7 @@ def mock_state_machine_for_ws(mock_volume_service):
     sm.refresh_active_metadata = AsyncMock()
     sm.get_current_state = AsyncMock(return_value={
         "active_source": "none",
-        "plugin_state": "waiting",
+        "source_state": "waiting",
         "transitioning": False,
         "metadata": {},
         "error": None,
@@ -255,7 +255,7 @@ class TestWebSocketConnection:
 
         full_state = event["data"]["full_state"]
         assert "active_source" in full_state
-        assert "plugin_state" in full_state
+        assert "source_state" in full_state
         assert "transitioning" in full_state
 
     @pytest.mark.asyncio
@@ -268,7 +268,7 @@ class TestWebSocketConnection:
         Test initial_state has all required fields.
 
         Validates:
-        - category, type, source, data, timestamp present
+        - category, type, origin, data, timestamp present
         """
         mock_websocket.queue_message({"type": "ready"})
 
@@ -286,7 +286,7 @@ class TestWebSocketConnection:
         event = initial_events[0]
         assert event["category"] == "system"
         assert event["type"] == "initial_state"
-        assert event["source"] == "system"
+        assert event["origin"] == "system"
         assert "data" in event
         assert "timestamp" in event
 
@@ -329,7 +329,7 @@ class TestEventFormat:
     """Tests for AC2: Event format validation."""
 
     @pytest.mark.asyncio
-    async def test_event_has_category_type_source_data(
+    async def test_event_has_category_type_origin_data(
         self,
         websocket_manager: WebSocketManager,
         mock_websocket: MockWebSocket,
@@ -338,7 +338,7 @@ class TestEventFormat:
         Test all events have required fields.
 
         Validates:
-        - category, type, source, data present in every event
+        - category, type, origin, data present in every event
         """
         await websocket_manager.connect(mock_websocket)
 
@@ -346,7 +346,7 @@ class TestEventFormat:
         test_event = {
             "category": "test",
             "type": "test_event",
-            "source": "test",
+            "origin": "test",
             "data": {"key": "value"},
             "timestamp": time.time()
         }
@@ -357,7 +357,7 @@ class TestEventFormat:
 
         assert "category" in event
         assert "type" in event
-        assert "source" in event
+        assert "origin" in event
         assert "data" in event
 
     @pytest.mark.asyncio
@@ -377,7 +377,7 @@ class TestEventFormat:
         test_event = {
             "category": "test",
             "type": "test_event",
-            "source": "test",
+            "origin": "test",
             "data": {},
             "timestamp": time.time()
         }
@@ -388,16 +388,16 @@ class TestEventFormat:
         assert isinstance(event["timestamp"], (int, float))
 
     @pytest.mark.asyncio
-    async def test_event_source_matches_origin(
+    async def test_event_origin_matches_source(
         self,
         websocket_manager: WebSocketManager,
         mock_websocket: MockWebSocket,
     ):
         """
-        Test event source field is correctly set.
+        Test event origin field is correctly set.
 
         Validates:
-        - source reflects the originating service
+        - origin reflects the originating service
         """
         await websocket_manager.connect(mock_websocket)
 
@@ -405,24 +405,24 @@ class TestEventFormat:
         system_event = {
             "category": "system",
             "type": "state_changed",
-            "source": "system",
+            "origin": "system",
             "data": {},
             "timestamp": time.time()
         }
         await websocket_manager.broadcast_dict(system_event)
 
-        # Test plugin event
-        plugin_event = {
-            "category": "plugin",
+        # Test source event
+        source_event = {
+            "category": "source",
             "type": "state_changed",
-            "source": "radio",
+            "origin": "radio",
             "data": {},
             "timestamp": time.time()
         }
-        await websocket_manager.broadcast_dict(plugin_event)
+        await websocket_manager.broadcast_dict(source_event)
 
-        assert mock_websocket.received_messages[0]["source"] == "system"
-        assert mock_websocket.received_messages[1]["source"] == "radio"
+        assert mock_websocket.received_messages[0]["origin"] == "system"
+        assert mock_websocket.received_messages[1]["origin"] == "radio"
 
     @pytest.mark.asyncio
     async def test_broadcast_to_multiple_clients(
@@ -446,7 +446,7 @@ class TestEventFormat:
         test_event = {
             "category": "system",
             "type": "test",
-            "source": "system",
+            "origin": "system",
             "data": {"message": "hello"},
             "timestamp": time.time()
         }
@@ -483,11 +483,11 @@ class TestEventCategories:
         await websocket_manager.connect(mock_websocket)
 
         system_events = [
-            {"category": "system", "type": "initial_state", "source": "system", "data": {}, "timestamp": time.time()},
-            {"category": "system", "type": "state_changed", "source": "system", "data": {}, "timestamp": time.time()},
-            {"category": "system", "type": "transition_start", "source": "system", "data": {"to_source": "radio"}, "timestamp": time.time()},
-            {"category": "system", "type": "transition_complete", "source": "system", "data": {"active_source": "radio"}, "timestamp": time.time()},
-            {"category": "system", "type": "error", "source": "system", "data": {"error": "test error"}, "timestamp": time.time()},
+            {"category": "system", "type": "initial_state", "origin": "system", "data": {}, "timestamp": time.time()},
+            {"category": "system", "type": "state_changed", "origin": "system", "data": {}, "timestamp": time.time()},
+            {"category": "system", "type": "transition_start", "origin": "system", "data": {"to_source": "radio"}, "timestamp": time.time()},
+            {"category": "system", "type": "transition_complete", "origin": "system", "data": {"active_source": "radio"}, "timestamp": time.time()},
+            {"category": "system", "type": "error", "origin": "system", "data": {"error": "test error"}, "timestamp": time.time()},
         ]
 
         for event in system_events:
@@ -499,33 +499,33 @@ class TestEventCategories:
             assert event["type"] == system_events[i]["type"]
 
     @pytest.mark.asyncio
-    async def test_plugin_category_events(
+    async def test_source_category_events(
         self,
         websocket_manager: WebSocketManager,
         mock_websocket: MockWebSocket,
     ):
         """
-        Test plugin category event types.
+        Test source category event types.
 
         Validates:
-        - plugin category with type: state_changed
+        - source category with type: state_changed
         """
         await websocket_manager.connect(mock_websocket)
 
-        plugin_event = {
-            "category": "plugin",
+        source_event = {
+            "category": "source",
             "type": "state_changed",
-            "source": "spotify",
+            "origin": "spotify",
             "data": {"state": "connected", "metadata": {"track": "Test Song"}},
             "timestamp": time.time()
         }
-        await websocket_manager.broadcast_dict(plugin_event)
+        await websocket_manager.broadcast_dict(source_event)
 
         assert len(mock_websocket.received_messages) == 1
         event = mock_websocket.received_messages[0]
-        assert event["category"] == "plugin"
+        assert event["category"] == "source"
         assert event["type"] == "state_changed"
-        assert event["source"] == "spotify"
+        assert event["origin"] == "spotify"
 
     @pytest.mark.asyncio
     async def test_volume_category_events(
@@ -544,7 +544,7 @@ class TestEventCategories:
         volume_event = {
             "category": "volume",
             "type": "volume_changed",
-            "source": "volume",
+            "origin": "volume",
             "data": {
                 "show_bar": True,
                 "state": {"global_volume_db": -25.0, "global_mute": False}
@@ -573,13 +573,13 @@ class TestEventCategories:
         await websocket_manager.connect(mock_websocket)
 
         registry_events = [
-            {"category": "registry", "type": "zone_created", "source": "registry",
+            {"category": "registry", "type": "zone_created", "origin": "registry",
              "data": {"zone_id": "living_room", "zone": {"id": "living_room", "name": "Living Room"}},
              "timestamp": time.time()},
-            {"category": "registry", "type": "zone_deleted", "source": "registry",
+            {"category": "registry", "type": "zone_deleted", "origin": "registry",
              "data": {"zone_id": "living_room"},
              "timestamp": time.time()},
-            {"category": "registry", "type": "client_registered", "source": "registry",
+            {"category": "registry", "type": "client_registered", "origin": "registry",
              "data": {"camilladsp_id": "local", "client": {"name": "Local"}},
              "timestamp": time.time()},
         ]
@@ -607,13 +607,13 @@ class TestEventCategories:
         await websocket_manager.connect(mock_websocket)
 
         equalizer_events = [
-            {"category": "equalizer", "type": "filter_added", "source": "equalizer",
+            {"category": "equalizer", "type": "filter_added", "origin": "equalizer",
              "data": {"filter_id": 1, "type": "peak"},
              "timestamp": time.time()},
-            {"category": "equalizer", "type": "mute_changed", "source": "equalizer",
+            {"category": "equalizer", "type": "mute_changed", "origin": "equalizer",
              "data": {"mute": True},
              "timestamp": time.time()},
-            {"category": "equalizer", "type": "enabled_changed", "source": "equalizer",
+            {"category": "equalizer", "type": "enabled_changed", "origin": "equalizer",
              "data": {"enabled": False},
              "timestamp": time.time()},
         ]
@@ -654,7 +654,7 @@ class TestBroadcastTriggers:
         start_event = {
             "category": "system",
             "type": "transition_start",
-            "source": "system",
+            "origin": "system",
             "data": {"to_source": "radio", "from_source": "none"},
             "timestamp": time.time()
         }
@@ -664,7 +664,7 @@ class TestBroadcastTriggers:
         complete_event = {
             "category": "system",
             "type": "transition_complete",
-            "source": "system",
+            "origin": "system",
             "data": {"active_source": "radio"},
             "timestamp": time.time()
         }
@@ -695,7 +695,7 @@ class TestBroadcastTriggers:
         volume_event = {
             "category": "volume",
             "type": "volume_changed",
-            "source": "volume",
+            "origin": "volume",
             "data": {
                 "show_bar": True,
                 "step_mobile_db": 3.0,
@@ -731,7 +731,7 @@ class TestBroadcastTriggers:
         zone_event = {
             "category": "registry",
             "type": "zone_created",
-            "source": "registry",
+            "origin": "registry",
             "data": {
                 "zone_id": "living_room",
                 "zone": {
@@ -763,9 +763,9 @@ class TestBroadcastTriggers:
         await websocket_manager.connect(mock_websocket)
 
         events = [
-            {"category": "system", "type": "event_1", "source": "test", "data": {"seq": 1}, "timestamp": time.time()},
-            {"category": "system", "type": "event_2", "source": "test", "data": {"seq": 2}, "timestamp": time.time()},
-            {"category": "system", "type": "event_3", "source": "test", "data": {"seq": 3}, "timestamp": time.time()},
+            {"category": "system", "type": "event_1", "origin": "test", "data": {"seq": 1}, "timestamp": time.time()},
+            {"category": "system", "type": "event_2", "origin": "test", "data": {"seq": 2}, "timestamp": time.time()},
+            {"category": "system", "type": "event_3", "origin": "test", "data": {"seq": 3}, "timestamp": time.time()},
         ]
 
         for event in events:
@@ -864,7 +864,7 @@ class TestReconnection:
         # Simulate state change while "disconnected"
         mock_state_machine_for_ws.get_current_state = AsyncMock(return_value={
             "active_source": "radio",
-            "plugin_state": "connected",
+            "source_state": "connected",
             "transitioning": False,
             "metadata": {"station": "Test FM"},
             "error": None,
@@ -888,7 +888,7 @@ class TestReconnection:
         # Should reflect new state
         initial_state_2 = client2.get_events_by_type("initial_state")[0]
         assert initial_state_2["data"]["full_state"]["active_source"] == "radio"
-        assert initial_state_2["data"]["full_state"]["plugin_state"] == "connected"
+        assert initial_state_2["data"]["full_state"]["source_state"] == "connected"
 
     @pytest.mark.asyncio
     async def test_multiple_clients_receive_broadcasts(
@@ -912,7 +912,7 @@ class TestReconnection:
         test_event = {
             "category": "system",
             "type": "broadcast_test",
-            "source": "test",
+            "origin": "test",
             "data": {"message": "hello all"},
             "timestamp": time.time()
         }
@@ -965,7 +965,7 @@ class TestWebSocketManager:
         await websocket_manager.broadcast_dict({
             "category": "test",
             "type": "test",
-            "source": "test",
+            "origin": "test",
             "data": {},
             "timestamp": time.time()
         })
@@ -983,7 +983,7 @@ class TestWebSocketManager:
         await websocket_manager.broadcast_dict({
             "category": "test",
             "type": "test",
-            "source": "test",
+            "origin": "test",
             "data": {},
             "timestamp": time.time()
         })
@@ -1050,7 +1050,7 @@ class TestMultiroomEventFormat:
         client_event = {
             "category": "multiroom",
             "type": "client_state_changed",
-            "source": "multiroom",
+            "origin": "multiroom",
             "data": {
                 "mac_id": "dc:a6:32:7e:d3:43",
                 "client": {
@@ -1106,7 +1106,7 @@ class TestMultiroomEventFormat:
         zone_event = {
             "category": "multiroom",
             "type": "zone_changed",
-            "source": "multiroom",
+            "origin": "multiroom",
             "data": {
                 "zone_id": "uuid-living-room",
                 "zone": {
@@ -1167,7 +1167,7 @@ class TestMultiroomEventFormat:
         equalizer_event = {
             "category": "multiroom",
             "type": "equalizer_changed",
-            "source": "multiroom",
+            "origin": "multiroom",
             "data": {
                 "target_type": "zone",
                 "target_id": "uuid-living-room",
@@ -1216,7 +1216,7 @@ class TestMultiroomEventFormat:
         crossover_event = {
             "category": "multiroom",
             "type": "crossover_changed",
-            "source": "multiroom",
+            "origin": "multiroom",
             "data": {
                 "zone_id": "uuid-living-room",
                 "crossover_enabled": True,
@@ -1257,7 +1257,7 @@ class TestMultiroomEventFormat:
         legacy_event = {
             "category": "registry",
             "type": "CLIENT_UPDATED",
-            "source": "registry",
+            "origin": "registry",
             "data": {
                 "mac_id": "dc:a6:32:7e:d3:43",
                 "client": {"name": "Test Client"}
@@ -1288,7 +1288,7 @@ class TestMultiroomEventFormat:
         event = {
             "category": "multiroom",
             "type": "client_state_changed",
-            "source": "multiroom",
+            "origin": "multiroom",
             "data": {"mac_id": "test"},
             "timestamp": time.time()
         }

@@ -1,6 +1,6 @@
 # backend/core/audio_source.py
 """
-BaseAudioSource - base class for all audio source plugins.
+BaseAudioSource - base class for all audio sources.
 
 Standard Status Format:
     {
@@ -15,7 +15,7 @@ from abc import ABC, abstractmethod
 import asyncio
 import logging
 
-from backend.core.models.audio_state import AudioSource, PluginState
+from backend.core.models.audio_state import AudioSource, SourceState
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +83,7 @@ class BaseAudioSource(ABC):
         self.service_name = service_name
         self.state_machine = state_machine
 
-        self._state = PluginState.WAITING
+        self._state = SourceState.WAITING
         self._metadata: Dict[str, Any] = {}
         self._is_playing = False
         self._error: Optional[str] = None
@@ -101,7 +101,7 @@ class BaseAudioSource(ABC):
         self._monitor_task: Optional[asyncio.Task] = None
 
     @property
-    def state(self) -> PluginState:
+    def state(self) -> SourceState:
         """Current state of the source."""
         return self._state
 
@@ -130,7 +130,7 @@ class BaseAudioSource(ABC):
             True if start successful
         """
         self._logger.info(f"Starting {self.source_id}")
-        self._state = PluginState.STARTING
+        self._state = SourceState.STARTING
         self._error = None
 
         try:
@@ -138,19 +138,19 @@ class BaseAudioSource(ABC):
 
             if success:
                 # State should be set by _do_start (WAITING or ACTIVE)
-                if self._state == PluginState.STARTING:
-                    self._state = PluginState.WAITING
+                if self._state == SourceState.STARTING:
+                    self._state = SourceState.WAITING
 
                 self._logger.info(f"{self.source_id} started successfully")
             else:
-                self._state = PluginState.ERROR
+                self._state = SourceState.ERROR
                 self._error = "Start failed"
 
             return success
 
         except Exception as e:
             self._logger.error(f"Error starting {self.source_id}: {e}")
-            self._state = PluginState.ERROR
+            self._state = SourceState.ERROR
             self._error = str(e)
             return False
 
@@ -170,7 +170,7 @@ class BaseAudioSource(ABC):
             success = await self._do_stop()
 
             if success:
-                self._state = PluginState.WAITING
+                self._state = SourceState.WAITING
                 self._metadata = {}
                 self._error = None
 
@@ -207,7 +207,7 @@ class BaseAudioSource(ABC):
 
         except Exception as e:
             self._logger.error(f"Error restarting {self.source_id}: {e}")
-            self._state = PluginState.ERROR
+            self._state = SourceState.ERROR
             self._error = str(e)
             return False
 
@@ -550,14 +550,14 @@ class BaseAudioSource(ABC):
         self._initialized = True
         return True
 
-    def set_state(self, state: PluginState, metadata: Optional[Dict[str, Any]] = None) -> None:
+    def set_state(self, state: SourceState, metadata: Optional[Dict[str, Any]] = None) -> None:
         """
         Set state and optionally update metadata.
 
         Syncs with state_machine if available (active sources only).
 
         Args:
-            state: New state (PluginState enum)
+            state: New state (SourceState enum)
             metadata: Optional metadata to merge
         """
         self._state = state
@@ -568,7 +568,7 @@ class BaseAudioSource(ABC):
             try:
                 loop = asyncio.get_running_loop()
                 loop.create_task(
-                    self.state_machine.update_plugin_state(
+                    self.state_machine.update_source_state(
                         self.source, state, metadata
                     )
                 )
@@ -583,7 +583,7 @@ class BaseAudioSource(ABC):
     ) -> None:
         """Set state to ACTIVE or WAITING based on connection status."""
         self.set_state(
-            PluginState.ACTIVE if is_connected else PluginState.WAITING,
+            SourceState.ACTIVE if is_connected else SourceState.WAITING,
             active_meta if is_connected else waiting_meta
         )
 
@@ -604,7 +604,7 @@ class BaseAudioSource(ABC):
             loop = asyncio.get_running_loop()
             loop.create_task(
                 self.state_machine.broadcast_event(
-                    "plugin",
+                    "source",
                     "position_update",
                     {
                         "source": self.source.value,
@@ -631,11 +631,11 @@ class BaseAudioSource(ABC):
             loop = asyncio.get_running_loop()
             loop.create_task(
                 self.state_machine.broadcast_event(
-                    "plugin",
+                    "source",
                     "state_changed",
                     {
                         "source": self.source.value,
-                        "new_state": PluginState.ERROR.value,
+                        "new_state": SourceState.ERROR.value,
                         "metadata": {"error": error_message}
                     }
                 )
@@ -657,7 +657,7 @@ class BaseAudioSource(ABC):
             loop = asyncio.get_running_loop()
             loop.create_task(
                 self.state_machine.broadcast_event(
-                    "plugin",
+                    "source",
                     "error_cleared",
                     {"source": self.source.value}
                 )

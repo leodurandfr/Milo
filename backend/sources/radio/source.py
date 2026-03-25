@@ -1,4 +1,4 @@
-# backend/features/radio/source.py
+# backend/sources/radio/source.py
 """
 Radio audio source using MPV.
 
@@ -18,13 +18,13 @@ import json
 from typing import Dict, Any, Optional
 from urllib.parse import urlparse
 
-from backend.core.models.audio_state import PluginState
-from backend.features.radio.data import StationDataService
-from backend.features.radio.shazam import ShazamRecognitionService
+from backend.core.models.audio_state import SourceState
+from backend.sources.radio.data import StationDataService
+from backend.sources.radio.shazam import ShazamRecognitionService
 from backend.shared.decorators import handle_errors
 from backend.shared.mpv import MpvController
 from backend.shared.mpv_audio_source import MpvAudioSource
-from backend.features.radio.browser_api import RadioBrowserAPI
+from backend.sources.radio.browser_api import RadioBrowserAPI
 
 
 class RadioSource(MpvAudioSource):
@@ -302,7 +302,7 @@ class RadioSource(MpvAudioSource):
             self._last_station = self._current_station
             self._current_station = None
             self._metadata = {"is_playing": False, "is_buffering": False, "ready": True}
-            self.set_state(PluginState.WAITING, self._metadata)
+            self.set_state(SourceState.WAITING, self._metadata)
 
             return self.success_response("Playback stopped")
 

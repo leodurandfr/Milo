@@ -19,12 +19,12 @@ class AudioSource(Enum):
     CD = "cd"
 
 
-class PluginState(Enum):
-    """Possible operational states for a plugin."""
-    STARTING = "starting"      # Plugin starting or restarting
-    WAITING = "waiting"        # Plugin started, waiting for connection
-    ACTIVE = "active"          # Plugin active and operational
-    ERROR = "error"            # Plugin in error state
+class SourceState(Enum):
+    """Possible operational states for an audio source."""
+    STARTING = "starting"      # Source starting or restarting
+    WAITING = "waiting"        # Source started, waiting for connection
+    ACTIVE = "active"          # Source active and operational
+    ERROR = "error"            # Source in error state
 
 
 @dataclass
@@ -32,13 +32,13 @@ class SystemAudioState:
     """
     Complete audio system state combining:
     - Active source
-    - Operational state of the active plugin
+    - Operational state of the active source
     - Associated metadata
     - Audio routing state (multiroom_enabled flag)
     - equalizer effects state (equalizer, compressor, loudness enabled)
     """
     active_source: AudioSource = AudioSource.NONE
-    plugin_state: PluginState = PluginState.WAITING
+    source_state: SourceState = SourceState.WAITING
     transitioning: bool = False
     metadata: Dict[str, Any] = None
     error: Optional[str] = None
@@ -53,7 +53,7 @@ class SystemAudioState:
         """Convert state to dictionary for serialization."""
         return {
             "active_source": self.active_source.value,
-            "plugin_state": self.plugin_state.value,
+            "source_state": self.source_state.value,
             "transitioning": self.transitioning,
             "metadata": self.metadata,
             "error": self.error,

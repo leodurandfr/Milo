@@ -1,4 +1,4 @@
-# backend/features/airplay/routes.py
+# backend/sources/airplay/routes.py
 """
 FastAPI routes for AirPlay 2 audio source.
 
@@ -15,7 +15,7 @@ from typing import Dict, Any
 
 from backend.api.route_helpers import run_source_command
 from backend.api.source_dependency import make_source_dependency
-from backend.features.airplay.source import AirPlaySource
+from backend.sources.airplay.source import AirPlaySource
 
 logger = logging.getLogger(__name__)
 

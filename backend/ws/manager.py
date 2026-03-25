@@ -119,7 +119,7 @@ class WebSocketServer:
             await websocket.send_text(json.dumps({
                 "category": "volume",
                 "type": "volume_changed",
-                "source": "volume",
+                "origin": "volume",
                 "data": {
                     "show_bar": False,
                     "state": volume_state.to_dict(),
@@ -171,7 +171,7 @@ class WebSocketServer:
                 await websocket.send_text(json.dumps({
                     "category": "system",
                     "type": "initial_state",
-                    "source": "system",
+                    "origin": "system",
                     "data": {
                         "full_state": current_state,
                         "setup_completed": setup_completed,

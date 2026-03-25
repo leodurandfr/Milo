@@ -21,7 +21,7 @@
     <AudioScreensaver
       :is-visible="isScreensaverVisible"
       :mode="screensaverData.mode || 'media'"
-      :plugin-type="screensaverData.pluginType"
+      :source-type="screensaverData.sourceType"
       :artwork="screensaverData.artwork"
       :title="screensaverData.title"
       :subtitle="screensaverData.subtitle"
@@ -59,7 +59,7 @@ const { isScreensaverVisible, screensaverData, closeScreensaver } = useScreensav
 const lastVisiblePosition = ref('center');
 
 const logoVisible = computed(() => {
-  const { active_source, plugin_state, metadata, transitioning } = unifiedStore.systemState;
+  const { active_source, source_state, metadata, transitioning } = unifiedStore.systemState;
 
   // Visible during transition
   if (transitioning) {
@@ -67,7 +67,7 @@ const logoVisible = computed(() => {
   }
 
   // Hidden: Spotify/AirPlay connected with track info
-  if ((active_source === 'spotify' || active_source === 'airplay') && plugin_state === 'active' && metadata?.title) {
+  if ((active_source === 'spotify' || active_source === 'airplay') && source_state === 'active' && metadata?.title) {
     return false;
   }
 

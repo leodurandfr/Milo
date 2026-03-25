@@ -59,7 +59,11 @@ def _const(name: str):
 
 def _create_rotary_controller():
     """Create RotaryVolumeController with GPIO pins from hardware.json."""
-    clk, dt, sw = get_service("hardware_service").get_rotary_pins()
+    hardware_service = get_service("hardware_service")
+    if not hardware_service.get_volume_control():
+        logging.getLogger(__name__).info("DAC mode: rotary encoder disabled (volume managed externally)")
+        return None
+    clk, dt, sw = hardware_service.get_rotary_pins()
     return _import("backend.hardware", "RotaryVolumeController")(
         volume_service=get_service("volume_service"),
         clk_pin=clk, dt_pin=dt, sw_pin=sw
@@ -156,13 +160,13 @@ def _create_service(name: str) -> Any:
         ),
 
         # Audio sources
-        "spotify_source": lambda: _import("backend.features.spotify", "SpotifySource")(
+        "spotify_source": lambda: _import("backend.sources.spotify", "SpotifySource")(
             config={"config_path": "/var/lib/milo/go-librespot/config.yml"},
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service"),
             systemd_manager=get_service("systemd_manager")
         ),
-        "mac_source": lambda: _import("backend.features.mac", "MacSource")(
+        "mac_source": lambda: _import("backend.sources.mac", "MacSource")(
             config={
                 "rtp_port": _const("MAC_RTP_PORT"),
                 "rs8m_port": _const("MAC_RS8M_PORT"),
@@ -173,7 +177,7 @@ def _create_service(name: str) -> Any:
             settings_service=get_service("settings_service"),
             systemd_manager=get_service("systemd_manager")
         ),
-        "bluetooth_source": lambda: _import("backend.features.bluetooth", "BluetoothSource")(
+        "bluetooth_source": lambda: _import("backend.sources.bluetooth", "BluetoothSource")(
             config={
                 "daemon_options": "--keep-alive=5",
                 "bluetooth_service": "bluetooth.service",
@@ -184,25 +188,25 @@ def _create_service(name: str) -> Any:
             settings_service=get_service("settings_service"),
             systemd_manager=get_service("systemd_manager")
         ),
-        "radio_source": lambda: _import("backend.features.radio", "RadioSource")(
+        "radio_source": lambda: _import("backend.sources.radio", "RadioSource")(
             config={"mpv_socket": "/run/milo/radio-ipc.sock"},
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service"),
             systemd_manager=get_service("systemd_manager")
         ),
-        "podcast_source": lambda: _import("backend.features.podcast", "PodcastSource")(
+        "podcast_source": lambda: _import("backend.sources.podcast", "PodcastSource")(
             config={"mpv_socket": "/run/milo/podcast-ipc.sock"},
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service"),
             systemd_manager=get_service("systemd_manager")
         ),
-        "airplay_source": lambda: _import("backend.features.airplay", "AirPlaySource")(
+        "airplay_source": lambda: _import("backend.sources.airplay", "AirPlaySource")(
             config={"metadata_pipe": "/tmp/shairport-sync-metadata"},
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service"),
             systemd_manager=get_service("systemd_manager")
         ),
-        "cd_source": lambda: _import("backend.features.cd", "CdSource")(
+        "cd_source": lambda: _import("backend.sources.cd", "CdSource")(
             config={"mpv_socket": "/run/milo/cd-ipc.sock"},
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service"),
@@ -241,7 +245,7 @@ def initialize_services() -> None:
     INITIALIZATION ORDER:
     1. Retrieve instances (triggers lazy creation)
     2. Resolve circular dependencies via setters
-    3. Register plugins in state machine
+    3. Register sources in state machine
     4. Start parallel async initialization
     """
     from backend.core.models.audio_state import AudioSource
@@ -271,8 +275,8 @@ def initialize_services() -> None:
     # STEP 2: Resolve circular dependencies (CRITICAL ORDER)
     # =========================================================================
 
-    # 2.1 - routing_service → state_machine.get_plugin()
-    routing_service.set_plugin_callback(lambda source: state_machine.get_plugin(source))
+    # 2.1 - routing_service → state_machine.get_source()
+    routing_service.set_source_callback(lambda source: state_machine.get_source(source))
 
     # 2.2 - routing_service ↔ snapcast_websocket_service
     routing_service.set_snapcast_websocket_service(snapcast_websocket_service)
@@ -351,13 +355,13 @@ def initialize_services() -> None:
     # =========================================================================
     # STEP 3: Register sources (MUST be done BEFORE init_async)
     # =========================================================================
-    state_machine.register_plugin(AudioSource.SPOTIFY, get_service("spotify_source"))
-    state_machine.register_plugin(AudioSource.BLUETOOTH, get_service("bluetooth_source"))
-    state_machine.register_plugin(AudioSource.MAC, get_service("mac_source"))
-    state_machine.register_plugin(AudioSource.RADIO, get_service("radio_source"))
-    state_machine.register_plugin(AudioSource.PODCAST, get_service("podcast_source"))
-    state_machine.register_plugin(AudioSource.AIRPLAY, get_service("airplay_source"))
-    state_machine.register_plugin(AudioSource.CD, get_service("cd_source"))
+    state_machine.register_source(AudioSource.SPOTIFY, get_service("spotify_source"))
+    state_machine.register_source(AudioSource.BLUETOOTH, get_service("bluetooth_source"))
+    state_machine.register_source(AudioSource.MAC, get_service("mac_source"))
+    state_machine.register_source(AudioSource.RADIO, get_service("radio_source"))
+    state_machine.register_source(AudioSource.PODCAST, get_service("podcast_source"))
+    state_machine.register_source(AudioSource.AIRPLAY, get_service("airplay_source"))
+    state_machine.register_source(AudioSource.CD, get_service("cd_source"))
 
     # =========================================================================
     # STEP 4: Parallel async initialization
@@ -374,7 +378,7 @@ def initialize_services() -> None:
             ("client_registry_service", client_registry_service.initialize()),
             ("routing_service", routing_service.initialize()),
             ("volume_service", volume_service.initialize()),
-            ("rotary_controller", rotary_controller.initialize()),
+            *([("rotary_controller", rotary_controller.initialize())] if rotary_controller else []),
             ("screen_controller", screen_controller.initialize()),
             ("bt_remote_controller", bt_remote_controller.initialize()),
             ("snapcast_websocket_service", snapcast_websocket_service.initialize()),

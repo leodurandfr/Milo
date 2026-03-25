@@ -1,4 +1,4 @@
-# backend/features/radio/routes.py
+# backend/sources/radio/routes.py
 """
 FastAPI routes for Radio audio source.
 
@@ -21,8 +21,8 @@ from backend.api.route_helpers import run_source_command
 from fastapi.responses import FileResponse, Response
 
 from backend.api.source_dependency import make_source_dependency
-from backend.features.radio.source import RadioSource
-from backend.features.radio.models import (
+from backend.sources.radio.source import RadioSource
+from backend.sources.radio.models import (
     PlayStationRequest,
     FavoriteRequest,
 )

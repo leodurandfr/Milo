@@ -1,4 +1,4 @@
-# backend/features/airplay/source.py
+# backend/sources/airplay/source.py
 """
 AirPlay 2 audio source using shairport-sync.
 
@@ -13,7 +13,7 @@ import os
 from typing import Dict, Any, Optional, Tuple
 
 from backend.core.audio_source import BaseAudioSource
-from backend.features.airplay.metadata_reader import MetadataReader
+from backend.sources.airplay.metadata_reader import MetadataReader
 from backend.shared.decorators import handle_errors
 
 # Sample rate for RTP frame to millisecond conversion

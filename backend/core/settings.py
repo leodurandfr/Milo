@@ -278,19 +278,19 @@ class SettingsService:
             # Preserve multiroom section as-is (no strict validation)
             validated['multiroom'] = multiroom_input
 
-        # Plugins (optional hardware feature plugins)
-        plugins_input = settings.get('plugins', {})
-        if plugins_input:
-            validated_plugins = {}
-            bt_remote_input = plugins_input.get('bt_remote', {})
+        # Hardware (optional hardware feature settings)
+        hardware_input = settings.get('hardware', {})
+        if hardware_input:
+            validated_hardware = {}
+            bt_remote_input = hardware_input.get('bt_remote', {})
             if bt_remote_input:
-                validated_plugins['bt_remote'] = {
+                validated_hardware['bt_remote'] = {
                     'enabled': bool(bt_remote_input.get('enabled', False)),
                     'device_name_filter': str(bt_remote_input.get('device_name_filter', 'ANTICATER'))[:64],
                     'key_map': bt_remote_input.get('key_map', {}) if isinstance(bt_remote_input.get('key_map'), dict) else {}
                 }
-            if validated_plugins:
-                validated['plugins'] = validated_plugins
+            if validated_hardware:
+                validated['hardware'] = validated_hardware
 
         return validated
     

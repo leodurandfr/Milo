@@ -15,16 +15,15 @@ import { logger } from '@/services/logger';
  * volume:
  *   - volume_changed → App.vue (global), Dock.vue
  *
- * plugin:
- *   - state_changed, metadata → App.vue → unifiedAudioStore, podcastStore
+ * source:
+ *   - state_changed, metadata → App.vue → unifiedAudioStore, podcastStore, cdStore
+ *   - position_update → App.vue → unifiedAudioStore, podcastStore
+ *   - error_cleared → App.vue (dismiss notification)
+ *   - favorite_added, favorite_removed, favorite_modified (origin=radio) → App.vue → radioStore
  *
  * settings:
  *   - All settings.* events → App.vue → settingsStore (centralized)
  *   - Components watch store refs for local config sync
- *
- * plugin:
- *   - state_changed, error_cleared, metadata → App.vue → unifiedAudioStore
- *   - favorite_added, favorite_removed, favorite_modified (source=radio) → RadioSource.vue → radioStore
  *
  * multiroom: (Standardized format per architecture spec, Story 6.1/6.2)
  *   - client_state_changed → multiroomStore (client online/offline, volume, mute, speaker_type)

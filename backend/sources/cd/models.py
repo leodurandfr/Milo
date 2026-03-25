@@ -1,4 +1,4 @@
-# backend/features/cd/models.py
+# backend/sources/cd/models.py
 """
 Pydantic models for the CD audio source.
 """

@@ -44,7 +44,7 @@ pytest -m asyncio
 
 - `mock_ws_manager` : Mock du WebSocketManager
 - `mock_routing_service` : Mock du routing service
-- `mock_plugin` : Mock d'un plugin audio
+- `mock_source` : Mock d'une source audio
 - `mock_settings_service` : Mock du SettingsService
 
 ## Ajout de nouveaux tests

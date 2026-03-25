@@ -7,7 +7,7 @@ import asyncio
 import os
 import time
 from typing import Dict, Any, Callable, Optional, Literal
-from backend.core.models.audio_state import AudioSource, PluginState
+from backend.core.models.audio_state import AudioSource, SourceState
 from backend.core.systemd import SystemdServiceManager
 from backend.shared.decorators import handle_errors
 
@@ -178,10 +178,10 @@ class AudioRoutingService:
     and equalizer_effects_enabled. This eliminates desynchronization risks.
     """
 
-    def __init__(self, get_plugin_callback: Optional[Callable] = None, settings_service=None, systemd_manager=None):
+    def __init__(self, get_source_callback: Optional[Callable] = None, settings_service=None, systemd_manager=None):
         self.logger = logging.getLogger(__name__)
         self.service_manager = systemd_manager
-        self.get_plugin = get_plugin_callback
+        self.get_source = get_source_callback
         self.settings_service = settings_service
         self._initial_detection_done = False
 
@@ -218,10 +218,10 @@ class AudioRoutingService:
         """Set VolumeService dependency."""
         self.volume_service = service
 
-    def set_plugin_callback(self, callback: Callable) -> None:
-        """Set callback to access audio source plugins."""
-        if not self.get_plugin:
-            self.get_plugin = callback
+    def set_source_callback(self, callback: Callable) -> None:
+        """Set callback to access audio source instances."""
+        if not self.get_source:
+            self.get_source = callback
 
     # === Helper methods ===
 
@@ -582,30 +582,30 @@ class AudioRoutingService:
             return False
 
         try:
-            plugin = None
+            source_instance = None
 
-            if active_source and self.get_plugin:
-                plugin = self.get_plugin(active_source)
+            if active_source and self.get_source:
+                source_instance = self.get_source(active_source)
 
-            # Acquire transition lock to prevent concurrent plugin lifecycle
+            # Acquire transition lock to prevent concurrent source lifecycle
             # operations with transition_to_source(). Lock order is always:
             # _routing_lock (held by caller) -> _transition_lock (acquired here)
             async with self.state_machine._transition_lock:
 
                 # Step 1: Notify STARTING state to show loading UI
-                if plugin:
-                    await self.state_machine.update_plugin_state(
+                if source_instance:
+                    await self.state_machine.update_source_state(
                         source=active_source,
-                        new_state=PluginState.STARTING,
+                        new_state=SourceState.STARTING,
                         metadata={"reason": "routing_change"}
                     )
 
-                # Step 2: Stop plugin FIRST to release ALSA device before routing change
-                # This is critical: in direct mode, the plugin holds camilladsp device
+                # Step 2: Stop source FIRST to release ALSA device before routing change
+                # This is critical: in direct mode, the source holds camilladsp device
                 # which snapclient needs in multiroom mode
-                if plugin:
-                    self.logger.info(f"Stopping plugin {active_source.value} to release ALSA device")
-                    await plugin.stop()
+                if source_instance:
+                    self.logger.info(f"Stopping source {active_source.value} to release ALSA device")
+                    await source_instance.stop()
                     await asyncio.sleep(0.5)  # Wait for ALSA to release
 
                 # Step 3: Start/stop Snapcast services based on target mode
@@ -613,21 +613,21 @@ class AudioRoutingService:
                     self.logger.info("Starting snapcast services")
                     snapcast_success = await self._start_snapcast()
                     if not snapcast_success:
-                        # Try to restart plugin even if Snapcast failed
-                        if plugin:
-                            self.logger.info(f"Snapcast failed, restarting plugin {active_source.value}")
-                            await plugin.start()
+                        # Try to restart source even if Snapcast failed
+                        if source_instance:
+                            self.logger.info(f"Snapcast failed, restarting source {active_source.value}")
+                            await source_instance.start()
                         return False
                 else:
                     await self._stop_snapcast()
 
-                # Step 4: Restart plugin with new routing
-                if plugin:
+                # Step 4: Restart source with new routing
+                if source_instance:
                     mode_label = "multiroom" if target_mode == "multiroom" else "direct"
-                    self.logger.info(f"Starting plugin {active_source.value} for {mode_label} mode")
-                    start_success = await plugin.start()
+                    self.logger.info(f"Starting source {active_source.value} for {mode_label} mode")
+                    start_success = await source_instance.start()
                     if not start_success:
-                        self.logger.error(f"Plugin {active_source.value} start failed after {mode_label} transition")
+                        self.logger.error(f"Source {active_source.value} start failed after {mode_label} transition")
                         return False
 
             return True

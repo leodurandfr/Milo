@@ -1,4 +1,4 @@
-# backend/features/podcast/routes.py
+# backend/sources/podcast/routes.py
 """
 FastAPI routes for Podcast feature.
 
@@ -17,15 +17,15 @@ from typing import Dict, Any
 import logging
 
 from backend.api.source_dependency import make_source_dependency
-from backend.features.podcast.models import (
+from backend.sources.podcast.models import (
     PlayEpisodeRequest,
     SeekRequest,
     SpeedRequest,
     SubscribeRequest,
     SettingsRequest
 )
-from backend.features.podcast.source import PodcastSource
-from backend.features.podcast.taddy_api import (
+from backend.sources.podcast.source import PodcastSource
+from backend.sources.podcast.taddy_api import (
     map_milo_language_to_taddy,
     map_milo_language_to_itunes_country,
     map_milo_language_to_taddy_country,
