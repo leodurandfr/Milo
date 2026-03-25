@@ -587,6 +587,36 @@ class BaseAudioSource(ABC):
             active_meta if is_connected else waiting_meta
         )
 
+    def broadcast_position_update(self, position: int, duration: int) -> None:
+        """Broadcast a lightweight position update without full_state.
+
+        Used during steady playback where the frontend interpolates
+        locally and only needs periodic drift correction.
+
+        Args:
+            position: Current position in milliseconds.
+            duration: Total duration in milliseconds.
+        """
+        if not self.state_machine:
+            return
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(
+                self.state_machine.broadcast_event(
+                    "plugin",
+                    "position_update",
+                    {
+                        "source": self.source.value,
+                        "position": position,
+                        "duration": duration,
+                    },
+                    include_full_state=False,
+                )
+            )
+        except RuntimeError:
+            pass
+
     def broadcast_error(self, error_message: str) -> None:
         """
         Broadcast an error to the UI notification banner.

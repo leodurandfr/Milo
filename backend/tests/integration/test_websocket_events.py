@@ -22,8 +22,7 @@ from typing import List, Dict, Any
 from fastapi import WebSocket
 from starlette.websockets import WebSocketState
 
-from backend.ws import WebSocketServer
-from backend.ws.manager import WebSocketManager
+from backend.ws import WebSocketManager, WebSocketServer
 from backend.core.models.audio_state import AudioSource, PluginState, SystemAudioState
 
 from .conftest import WebSocketEventCollector

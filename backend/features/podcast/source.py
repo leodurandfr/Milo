@@ -521,10 +521,12 @@ class PodcastSource(MpvAudioSource):
         if duration is not None:
             self._duration = int(duration)
 
-        # Broadcast position updates during playback
-        if self._is_playing and position_changed:
-            self._metadata = self._build_playback_metadata()
-            self._update_connection_state()
+        # Only broadcast position periodically (not every tick).
+        # Frontend interpolates position locally via useSourceProgress.
+        if self._is_playing and self._position_sync_due():
+            self.broadcast_position_update(
+                self._position * 1000, self._duration * 1000
+            )
 
         # Detect stuck at position 0 with pause=True
         if self._is_playing and position == 0.0 and pause_state is True:

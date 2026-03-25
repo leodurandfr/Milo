@@ -415,20 +415,21 @@ class AudioStateMachine:
         self,
         category: str,
         event_type: str,
-        data: Dict[str, Any]
+        data: Dict[str, Any],
+        include_full_state: bool = True,
     ) -> None:
         """
         Broadcast event to all connected WebSocket clients.
 
-        Plugin/system events include full_state for unifiedAudioStore.
-        Other categories (volume, equalizer, multiroom, settings) send
-        only their specific data.
+        Plugin/system events include full_state for unifiedAudioStore
+        unless include_full_state=False (used for lightweight position updates).
+        Other categories send only their specific data.
         """
         if not self.ws_manager:
             return
 
         event_payload = dict(data)
-        if category in self._FULL_STATE_CATEGORIES:
+        if include_full_state and category in self._FULL_STATE_CATEGORIES:
             event_payload["full_state"] = self.system_state.to_dict()
 
         await self.ws_manager.broadcast_dict({

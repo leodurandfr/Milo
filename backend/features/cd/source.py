@@ -584,18 +584,21 @@ class CdSource(MpvAudioSource):
             return
 
         # Buffering detection via mpv's seeking property
+        state_changed = False
         if seeking and not self._is_buffering:
             self._is_buffering = True
             self._update_connection_state()
             return
         if not seeking and self._is_buffering:
             self._is_buffering = False
+            state_changed = True
 
         # Track auto-advance (mpv crossed a chapter boundary naturally)
         new_track = int(chapter) + 1
         if new_track != self._current_track and 1 <= new_track <= len(self._tracks):
             self._current_track = new_track
             self._track_duration = self._tracks[new_track - 1].duration
+            state_changed = True
 
         # Position within track
         if self._current_track:
@@ -605,7 +608,15 @@ class CdSource(MpvAudioSource):
                     0, float(time_pos) - self._chapter_offsets[chapter_idx]
                 )
 
-        self._update_connection_state()
+        # Full broadcast on state changes (track advance, buffering transitions).
+        # Position-only: lightweight sync every POSITION_SYNC_INTERVAL ticks.
+        if state_changed:
+            self._update_connection_state()
+        elif self._position_sync_due():
+            self.broadcast_position_update(
+                int(self._track_position * 1000),
+                int(self._track_duration * 1000),
+            )
 
     async def _on_mpv_disconnect(self) -> None:
         self._reset_playback_state()

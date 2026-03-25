@@ -172,6 +172,16 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     }
   }
 
+  function updatePosition(event) {
+    const { source, position, duration } = event.data || {};
+    // Ignore stale events from a previous source during transitions
+    if (source !== systemState.value.active_source) return;
+    if (systemState.value.metadata) {
+      if (position !== undefined) systemState.value.metadata.position = position;
+      if (duration !== undefined) systemState.value.metadata.duration = duration;
+    }
+  }
+
   function handleVolumeEvent(event) {
     const { show_bar, step_mobile_db, state } = event.data || {};
 
@@ -223,6 +233,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     sendCommand,
     setMultiroomEnabled,
     updateState,
+    updatePosition,
     adjustVolume,
     startVolumeInterpolation,
     stopVolumeInterpolation,

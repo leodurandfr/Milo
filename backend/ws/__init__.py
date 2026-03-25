@@ -2,13 +2,11 @@
 """
 WebSocket module for Milo.
 
-This module provides:
-- WebSocketManager: Connection management and broadcasting
-- WebSocketServer: WebSocket endpoint handler
+Provides WebSocketManager (connection management + broadcasting)
+and WebSocketServer (endpoint handler with handshake + heartbeat).
 """
 
-from backend.ws.manager import WebSocketManager
-from backend.ws.server import WebSocketServer
+from backend.ws.manager import WebSocketManager, WebSocketServer
 
 __all__ = [
     "WebSocketManager",

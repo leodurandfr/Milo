@@ -396,6 +396,10 @@ onMounted(async () => {
         currentError.value = { title: `${capitalize(source)} Error`, detail: error };
       }
     }),
+    on('plugin', 'position_update', (event) => {
+      unifiedStore.updatePosition(event);
+      podcastStore.handlePositionUpdate(event);
+    }),
     on('plugin', 'error_cleared', () => {
       // Auto-dismiss error notification when the error condition is resolved
       currentError.value = null;
