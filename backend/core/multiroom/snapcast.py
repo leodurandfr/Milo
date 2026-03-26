@@ -8,7 +8,7 @@ notifications are handled separately by SnapcastWebSocketService.
 import asyncio
 import logging
 import time
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from pathlib import Path
 
 import aiohttp

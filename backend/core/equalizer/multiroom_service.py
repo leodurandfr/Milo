@@ -21,13 +21,11 @@ Architecture:
 """
 import asyncio
 import logging
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from backend.core.multiroom.models import (
     EqualizerSettings,
     EqFilter,
-    CompressorSettings,
-    LoudnessSettings,
     FilterType,
 )
 

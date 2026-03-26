@@ -12,7 +12,7 @@ Architecture:
 """
 import asyncio
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict
 
 from backend.shared.decorators import handle_errors
 from backend.core.volume.state import VolumeStateStore

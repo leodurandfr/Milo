@@ -8,7 +8,6 @@ in a multiroom setup, including:
 - Request proxying (GET, PUT, POST) with proper error handling
 - Multiroom mode validation before sending requests
 """
-import asyncio
 import ipaddress
 import logging
 from typing import Optional, Dict, Any

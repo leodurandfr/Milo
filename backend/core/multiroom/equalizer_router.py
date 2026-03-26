@@ -11,7 +11,7 @@ Architecture:
 - Else → proxy_service to remote client
 """
 import logging
-from typing import Any, Dict, Optional, Callable, Awaitable
+from typing import Any, Dict, Callable, Awaitable
 
 logger = logging.getLogger(__name__)
 

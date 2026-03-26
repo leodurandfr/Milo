@@ -8,7 +8,7 @@ import os
 import time
 from typing import Dict, Any, Callable, Optional, Literal
 from backend.core.models.audio_state import AudioSource, SourceState
-from backend.core.systemd import SystemdServiceManager
+from backend.core.systemd import SystemdServiceManager  # noqa: F401 (patched in tests)
 from backend.shared.decorators import handle_errors
 
 
