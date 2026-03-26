@@ -76,6 +76,7 @@ class RadioSource(MpvAudioSource):
         self._last_station: Optional[Dict[str, Any]] = None
         self._preroll_skip: int = 0
         self._preroll_cache: Dict[str, int] = {}  # hostname → skip seconds
+        self._buffering_ticks: int = 0
 
         # Schedule async initialization
         self._init_task: Optional[asyncio.Task] = None
@@ -215,6 +216,7 @@ class RadioSource(MpvAudioSource):
             # Update state: buffering in progress (broadcast immediately for responsive UI)
             self._current_station = station
             self._is_buffering = True
+            self._buffering_ticks = 0
             self._metadata = self._build_playback_metadata()
             self._update_connection_state()
 
@@ -487,6 +489,21 @@ class RadioSource(MpvAudioSource):
             # Stopped playing
             self._metadata = self._build_playback_metadata()
             self._update_connection_state()
+
+        elif self._is_buffering and not self._is_playing:
+            # Give mpv time to start loading before checking for failure.
+            # idle-active is briefly True between loadfile and actual stream load.
+            self._buffering_ticks += 1
+            if self._buffering_ticks >= 5:
+                idle = await self._mpv.get_property("idle-active")
+                if idle:
+                    station_name = self._current_station.get('name', 'Unknown') if self._current_station else 'Unknown'
+                    self._logger.warning(f"Stream load failed for {station_name} (mpv returned to idle)")
+                    self._is_buffering = False
+                    self._current_station = None
+                    self._metadata = {}
+                    self.broadcast_error(f"Unable to load stream: {station_name}")
+                    self._update_connection_state()
 
     # === Public API ===
 
