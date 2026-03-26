@@ -62,7 +62,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useSourceProgress } from '@/composables/useSourceProgress';
 import { useI18n } from '@/services/i18n';
@@ -120,22 +120,23 @@ const lastValidMetadata = ref({
   album_art_url: ''
 });
 
-const persistentMetadata = computed(() => {
-  const currentMetadata = unifiedStore.systemState.metadata || {};
+// Cache last valid metadata so the UI doesn't blank out during brief gaps
+watch(
+  () => unifiedStore.systemState.metadata,
+  (currentMetadata) => {
+    const meta = currentMetadata || {};
+    if (meta.title && meta.artist) {
+      lastValidMetadata.value = {
+        title: meta.title,
+        artist: meta.artist,
+        album_art_url: meta.album_art_url || ''
+      };
+    }
+  },
+  { immediate: true }
+);
 
-  // If we currently have valid metadata, use and save it
-  if (currentMetadata.title && currentMetadata.artist) {
-    lastValidMetadata.value = {
-      title: currentMetadata.title,
-      artist: currentMetadata.artist,
-      album_art_url: currentMetadata.album_art_url || ''
-    };
-    return lastValidMetadata.value;
-  }
-
-  // Otherwise, use the last saved valid metadata
-  return lastValidMetadata.value;
-});
+const persistentMetadata = computed(() => lastValidMetadata.value);
 
 // Real-time playback state (not persisted)
 const isPlaying = computed(() => unifiedStore.systemState.metadata?.is_playing || false);

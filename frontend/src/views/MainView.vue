@@ -34,7 +34,7 @@
 </template>
 
 <script setup>
-import { computed, ref, onUnmounted, defineAsyncComponent } from 'vue';
+import { computed, ref, watch, onUnmounted, defineAsyncComponent } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useScreensaver } from '@/composables/useScreensaver';
 
@@ -79,24 +79,24 @@ const logoVisible = computed(() => {
   return true;
 });
 
-const logoPosition = computed(() => {
-  const { active_source, transitioning } = unifiedStore.systemState;
+// Update cached position only when logo is visible or transitioning
+watch(
+  () => ({
+    active_source: unifiedStore.systemState.active_source,
+    transitioning: unifiedStore.systemState.transitioning,
+    visible: logoVisible.value
+  }),
+  ({ active_source, transitioning, visible }) => {
+    if (transitioning) {
+      lastVisiblePosition.value = 'top';
+    } else if (visible) {
+      lastVisiblePosition.value = active_source === 'none' ? 'center' : 'top';
+    }
+  },
+  { immediate: true }
+);
 
-  // During transition, always top
-  if (transitioning) {
-    lastVisiblePosition.value = 'top';
-    return 'top';
-  }
-
-  const newPosition = active_source === 'none' ? 'center' : 'top';
-
-  // Only update position when visible
-  if (logoVisible.value) {
-    lastVisiblePosition.value = newPosition;
-  }
-
-  return lastVisiblePosition.value;
-});
+const logoPosition = computed(() => lastVisiblePosition.value);
 
 /* =========================
    Settings access (secret tap)
