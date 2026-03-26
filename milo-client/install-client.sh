@@ -224,6 +224,7 @@ install_camilladsp() {
 
     local temp_dir
     temp_dir=$(mktemp -d)
+    register_temp_dir "$temp_dir"
     cd "$temp_dir"
 
     # Download CamillaDSP binary for ARM64
@@ -273,6 +274,7 @@ install_snapclient() {
 
     local temp_dir
     temp_dir=$(mktemp -d)
+    register_temp_dir "$temp_dir"
     cd "$temp_dir"
 
     log_info "Downloading Snapclient v0.35.0 for $DEBIAN_VERSION..."

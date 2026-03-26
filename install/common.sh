@@ -28,6 +28,20 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# --- Temp directory cleanup on exit/signal ---
+_TEMP_DIRS=()
+
+register_temp_dir() {
+    _TEMP_DIRS+=("$1")
+}
+
+_cleanup_temp_dirs() {
+    for dir in "${_TEMP_DIRS[@]}"; do
+        [[ -d "$dir" ]] && rm -rf "$dir" 2>/dev/null || true
+    done
+}
+trap _cleanup_temp_dirs EXIT
+
 # --- Journald configuration ---
 configure_journald() {
     log_info "Configuring journald limits..."
