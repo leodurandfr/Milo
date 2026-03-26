@@ -127,7 +127,8 @@ discover_milo_principal() {
 
 setup_hostname() {
     local new_hostname="milo-client"
-    local current_hostname=$(hostname)
+    local current_hostname
+    current_hostname=$(hostname)
 
     if [ "$current_hostname" != "$new_hostname" ]; then
         log_info "Configuring hostname '$new_hostname'..."
@@ -221,7 +222,8 @@ create_milo_client_user() {
 install_camilladsp() {
     log_info "Installing CamillaDSP..."
 
-    local temp_dir=$(mktemp -d)
+    local temp_dir
+    temp_dir=$(mktemp -d)
     cd "$temp_dir"
 
     # Download CamillaDSP binary for ARM64
@@ -269,7 +271,8 @@ install_snapclient() {
     # Method 1: Try GitHub .deb packages first (to get latest version)
     log_info "Attempting installation from GitHub (latest version)..."
 
-    local temp_dir=$(mktemp -d)
+    local temp_dir
+    temp_dir=$(mktemp -d)
     cd "$temp_dir"
 
     log_info "Downloading Snapclient v0.35.0 for $DEBIAN_VERSION..."
@@ -652,7 +655,8 @@ uninstall_milo_client() {
     fi
 
     # 10. Restore default hostname
-    local current_hostname=$(hostname)
+    local current_hostname
+    current_hostname=$(hostname)
     if [[ "$current_hostname" == "milo-client" || "$current_hostname" == milo-client-* ]]; then
         log_info "Restoring default hostname..."
         echo "raspberrypi" | sudo tee /etc/hostname > /dev/null

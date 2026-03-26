@@ -20,7 +20,8 @@ fi
 install_nqptp() {
     log_info "Installing NQPTP (AirPlay 2 timing daemon)..."
 
-    local temp_dir=$(mktemp -d)
+    local temp_dir
+    temp_dir=$(mktemp -d)
     cd "$temp_dir"
 
     git clone https://github.com/mikebrady/nqptp.git
@@ -50,7 +51,8 @@ install_shairport_sync() {
         libavcodec-dev libavformat-dev uuid-dev libgcrypt20-dev xxd \
         libglib2.0-dev
 
-    local temp_dir=$(mktemp -d)
+    local temp_dir
+    temp_dir=$(mktemp -d)
     cd "$temp_dir"
 
     git clone https://github.com/mikebrady/shairport-sync.git

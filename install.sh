@@ -65,7 +65,8 @@ check_system() {
 }
 
 setup_hostname() {
-    local current_hostname=$(hostname)
+    local current_hostname
+    current_hostname=$(hostname)
 
     if [ "$current_hostname" != "$REQUIRED_HOSTNAME" ]; then
         log_info "Configuring hostname '$REQUIRED_HOSTNAME'..."
@@ -184,7 +185,8 @@ install_go_librespot() {
     
     sudo apt-get install -y libogg-dev libvorbis-dev libasound2-dev
     
-    local temp_dir=$(mktemp -d)
+    local temp_dir
+    temp_dir=$(mktemp -d)
     cd "$temp_dir"
     
     wget https://github.com/devgianlu/go-librespot/releases/download/v0.6.1/go-librespot_linux_arm64.tar.gz
@@ -228,7 +230,8 @@ install_roc_toolkit() {
       libspeexdsp-dev libunwind-dev libsox-dev libsndfile1-dev libssl-dev libasound2-dev \
       libtool intltool autoconf automake make cmake avahi-utils libpulse-dev
     
-    local temp_dir=$(mktemp -d)
+    local temp_dir
+    temp_dir=$(mktemp -d)
     cd "$temp_dir"
     
     git clone https://github.com/roc-streaming/roc-toolkit.git
@@ -262,7 +265,8 @@ install_bluez_alsa() {
       automake \
       libtool
 
-    local temp_dir=$(mktemp -d)
+    local temp_dir
+    temp_dir=$(mktemp -d)
     cd "$temp_dir"
 
     git clone https://github.com/arkq/bluez-alsa.git
@@ -326,7 +330,8 @@ install_snapcast() {
     # Method 1: Try GitHub .deb packages first (to get latest version)
     log_info "Attempting installation from GitHub (latest version)..."
 
-    local temp_dir=$(mktemp -d)
+    local temp_dir
+    temp_dir=$(mktemp -d)
     cd "$temp_dir"
 
     # Download with detected Debian version
@@ -500,7 +505,8 @@ create_systemd_services() {
     # Copy all .service files from system/ to /etc/systemd/system/
     for service_file in "$MILO_APP_DIR/system"/*.service; do
         if [[ -f "$service_file" ]]; then
-            local service_name=$(basename "$service_file")
+            local service_name
+            service_name=$(basename "$service_file")
             sudo cp "$service_file" /etc/systemd/system/
             log_success "Installed $service_name"
         fi
@@ -526,7 +532,8 @@ configure_alsa_loopback() {
 install_camilladsp() {
     log_info "Installing CamillaDSP..."
 
-    local temp_dir=$(mktemp -d)
+    local temp_dir
+    temp_dir=$(mktemp -d)
     cd "$temp_dir"
 
     # Download CamillaDSP binary for ARM64
@@ -867,7 +874,8 @@ configure_cmdline() {
     sudo cp "$cmdline_file" "${cmdline_file}.milo-backup" 2>/dev/null || true
 
     # Clean current cmdline (remove parameters we will set)
-    local current_cmdline=$(cat "$cmdline_file")
+    local current_cmdline
+    current_cmdline=$(cat "$cmdline_file")
     current_cmdline=$(echo "$current_cmdline" | sed -E '
         s/console=serial[0-9],[0-9]+//g
         s/console=tty[0-9]//g
@@ -927,7 +935,8 @@ configure_plymouth_splash() {
     if [[ -d "$MILO_APP_DIR/rootfs/usr/share/plymouth/themes/milo" ]]; then
         for theme_file in "$MILO_APP_DIR/rootfs/usr/share/plymouth/themes/milo"/*; do
             if [[ -f "$theme_file" ]]; then
-                local filename=$(basename "$theme_file")
+                local filename
+                filename=$(basename "$theme_file")
                 sudo cp "$theme_file" /usr/share/plymouth/themes/milo/
                 log_success "Installed Plymouth: $filename"
             fi
@@ -1020,7 +1029,8 @@ install_screen_brightness_control() {
     # Waveshare 8" DSI brightness control
     log_info "Installing brightness control for Waveshare 8\" DSI..."
 
-    local temp_dir=$(mktemp -d)
+    local temp_dir
+    temp_dir=$(mktemp -d)
     cd "$temp_dir"
 
     wget https://files.waveshare.com/wiki/common/Brightness.zip
@@ -1077,7 +1087,8 @@ enable_services() {
    # Configure graphical.target as default target
    # Necessary for milo-kiosk.service to start (WantedBy=graphical.target)
    # On Raspberry Pi OS Lite, the system boots to multi-user.target by default
-   local current_target=$(systemctl get-default)
+   local current_target
+   current_target=$(systemctl get-default)
    if [[ "$current_target" != "graphical.target" ]]; then
        log_info "Configuring system to boot to graphical.target (required for milo-kiosk)..."
        sudo systemctl set-default graphical.target
