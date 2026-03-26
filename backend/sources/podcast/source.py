@@ -511,12 +511,10 @@ class PodcastSource(MpvAudioSource):
         duration = await self._mpv.get_property("duration")
         pause_state = await self._mpv.get_property("pause")
 
-        position_changed = False
         if position is not None:
             new_position = int(position)
             if new_position != self._position:
                 self._position = new_position
-                position_changed = True
 
         if duration is not None:
             self._duration = int(duration)
@@ -591,11 +589,6 @@ class PodcastSource(MpvAudioSource):
         self._taddy_api.clear_cache()
         self._logger.info("Taddy API credentials reloaded")
         return True
-
-    @property
-    def mpv(self) -> Optional[MpvController]:
-        """Get MPV controller."""
-        return self._mpv
 
     @property
     def podcast_data(self) -> Optional[PodcastDataService]:
