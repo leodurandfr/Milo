@@ -74,8 +74,7 @@ class RadioSource(MpvAudioSource):
         self._metadata: Dict[str, Any] = {}
         self._current_station: Optional[Dict[str, Any]] = None
         self._last_station: Optional[Dict[str, Any]] = None
-        self._preroll_skip: int = 0
-        self._preroll_cache: Dict[str, int] = {}  # hostname → skip seconds
+        self._preroll_cache: Dict[str, int] = {}  # hostname → preroll skip seconds (for Shazam)
         self._buffering_ticks: int = 0
 
         # Schedule async initialization
@@ -220,10 +219,7 @@ class RadioSource(MpvAudioSource):
             self._metadata = self._build_playback_metadata()
             self._update_connection_state()
 
-            # Detect pre-roll ads (cached per hostname, instant on repeated plays)
-            self._preroll_skip = await self._detect_preroll(primary_url)
-
-            # Try to play with fallback mechanism (skip pre-roll if detected)
+            # Try to play with fallback mechanism
             working_url = await self._try_play_with_fallback(station)
 
             if not working_url:
@@ -239,9 +235,10 @@ class RadioSource(MpvAudioSource):
                 self._current_station = station
                 self._metadata = self._build_playback_metadata()
 
-            # Start Shazam recognition if enabled
+            # Start Shazam recognition if enabled (detect pre-roll for Shazam capture)
             if self._shazam and await self._shazam.is_enabled():
-                await self._shazam.start(working_url, preroll_skip=self._preroll_skip)
+                preroll = await self._detect_preroll(working_url)
+                await self._shazam.start(working_url, preroll_skip=preroll)
 
             return self.success_response(f"Loading {station_name}", station=station)
 
@@ -284,8 +281,8 @@ class RadioSource(MpvAudioSource):
         return None
 
     async def _try_single_url(self, url: str) -> bool:
-        """Try to play a single URL in mpv, skipping pre-roll if detected."""
-        success = await self._mpv.load_stream(url, start_offset=self._preroll_skip)
+        """Try to play a single URL in mpv."""
+        success = await self._mpv.load_stream(url)
         if not success:
             self._logger.debug(f"mpv load_stream failed for: {url[:80]}")
         return success
@@ -437,7 +434,8 @@ class RadioSource(MpvAudioSource):
             if self._current_station and self._is_playing:
                 stream_url = self._current_station.get('url')
                 if stream_url:
-                    await self._shazam.start(stream_url, preroll_skip=self._preroll_skip)
+                    preroll = await self._detect_preroll(stream_url)
+                    await self._shazam.start(stream_url, preroll_skip=preroll)
         else:
             # Stop recognition loop and clear track info
             await self._shazam.stop()
