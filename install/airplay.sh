@@ -22,6 +22,7 @@ install_nqptp() {
 
     local temp_dir
     temp_dir=$(mktemp -d)
+    register_temp_dir "$temp_dir"
     cd "$temp_dir"
 
     git clone https://github.com/mikebrady/nqptp.git
@@ -53,6 +54,7 @@ install_shairport_sync() {
 
     local temp_dir
     temp_dir=$(mktemp -d)
+    register_temp_dir "$temp_dir"
     cd "$temp_dir"
 
     git clone https://github.com/mikebrady/shairport-sync.git

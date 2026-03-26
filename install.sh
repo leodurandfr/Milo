@@ -184,11 +184,12 @@ install_go_librespot() {
     log_info "Installing go-librespot..."
     
     sudo apt-get install -y libogg-dev libvorbis-dev libasound2-dev
-    
+
     local temp_dir
     temp_dir=$(mktemp -d)
+    register_temp_dir "$temp_dir"
     cd "$temp_dir"
-    
+
     wget https://github.com/devgianlu/go-librespot/releases/download/v0.6.1/go-librespot_linux_arm64.tar.gz
     tar -xvzf go-librespot_linux_arm64.tar.gz
     sudo cp go-librespot /usr/local/bin/
@@ -229,11 +230,12 @@ install_roc_toolkit() {
     sudo apt install -y g++ pkg-config scons ragel gengetopt libuv1-dev \
       libspeexdsp-dev libunwind-dev libsox-dev libsndfile1-dev libssl-dev libasound2-dev \
       libtool intltool autoconf automake make cmake avahi-utils libpulse-dev
-    
+
     local temp_dir
     temp_dir=$(mktemp -d)
+    register_temp_dir "$temp_dir"
     cd "$temp_dir"
-    
+
     git clone https://github.com/roc-streaming/roc-toolkit.git
     cd roc-toolkit
     scons -Q --build-3rdparty=openfec
@@ -267,6 +269,7 @@ install_bluez_alsa() {
 
     local temp_dir
     temp_dir=$(mktemp -d)
+    register_temp_dir "$temp_dir"
     cd "$temp_dir"
 
     git clone https://github.com/arkq/bluez-alsa.git
@@ -332,6 +335,7 @@ install_snapcast() {
 
     local temp_dir
     temp_dir=$(mktemp -d)
+    register_temp_dir "$temp_dir"
     cd "$temp_dir"
 
     # Download with detected Debian version
@@ -534,6 +538,7 @@ install_camilladsp() {
 
     local temp_dir
     temp_dir=$(mktemp -d)
+    register_temp_dir "$temp_dir"
     cd "$temp_dir"
 
     # Download CamillaDSP binary for ARM64
@@ -1031,6 +1036,7 @@ install_screen_brightness_control() {
 
     local temp_dir
     temp_dir=$(mktemp -d)
+    register_temp_dir "$temp_dir"
     cd "$temp_dir"
 
     wget https://files.waveshare.com/wiki/common/Brightness.zip
