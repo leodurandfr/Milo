@@ -194,7 +194,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
         volumeState.value.mode = result.data.mode;
         volumeState.value.global_volume_db = result.data.global_volume_db;
         volumeState.value.global_mute = result.data.global_mute;
-        volumeState.value.volume_control = result.data.volume_control ?? true;
+        volumeState.value.volume_control = result.data.volume_control;
         volumeState.value.clients = result.data.clients;
         volumeState.value.zones = result.data.zones;
       }

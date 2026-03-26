@@ -58,7 +58,7 @@ def mock_registry_service():
     )
 
     # Return updated client with new values
-    def mock_update_client(mac_id, name=None, speaker_type=None):
+    def mock_update_client(mac_id, name=None, speaker_type=None, volume_control=None):
         if mac_id != "dc:a6:32:7e:d3:43":
             return None
         updated = Client(
@@ -131,7 +131,8 @@ class TestPatchClient:
         mock_registry_service.update_client.assert_called_once_with(
             "dc:a6:32:7e:d3:43",
             name="Kitchen Speaker",
-            speaker_type=None
+            speaker_type=None,
+            volume_control=None
         )
 
     def test_patch_client_speaker_type_success(self, client, mock_registry_service):
@@ -149,7 +150,8 @@ class TestPatchClient:
         mock_registry_service.update_client.assert_called_once_with(
             "dc:a6:32:7e:d3:43",
             name=None,
-            speaker_type="subwoofer"
+            speaker_type="subwoofer",
+            volume_control=None
         )
 
     def test_patch_client_both_fields(self, client, mock_registry_service):
@@ -163,7 +165,8 @@ class TestPatchClient:
         mock_registry_service.update_client.assert_called_once_with(
             "dc:a6:32:7e:d3:43",
             name="Bedroom",
-            speaker_type="satellite"
+            speaker_type="satellite",
+            volume_control=None
         )
 
     def test_patch_client_not_found(self, client, mock_registry_service):
@@ -504,7 +507,7 @@ def mock_zone_registry_service():
     service.delete_zone = AsyncMock(side_effect=mock_delete_zone)
 
     # Client update (needed by router)
-    def mock_update_client(mac_id, name=None, speaker_type=None):
+    def mock_update_client(mac_id, name=None, speaker_type=None, volume_control=None):
         client = service._clients.get(mac_id)
         if not client:
             return None
@@ -883,7 +886,7 @@ def mock_membership_registry_service():
     service.remove_client_from_zone = AsyncMock(side_effect=mock_remove_client_from_zone)
 
     # Client update (needed by router)
-    def mock_update_client(mac_id, name=None, speaker_type=None):
+    def mock_update_client(mac_id, name=None, speaker_type=None, volume_control=None):
         client = service._clients.get(mac_id)
         if not client:
             return None

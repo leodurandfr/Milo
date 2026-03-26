@@ -617,6 +617,13 @@ class VolumeStateStore:
 
     # ========== Zone Operations ==========
 
+    def _has_volume_control(self, mac_id: str) -> bool:
+        """Check if a client has volume control (not a DAC with external amp)."""
+        if not self._registry:
+            return True
+        client = self._registry.get_client(mac_id)
+        return client.volume_control if client else True
+
     async def apply_zone_delta(self, zone_id: str, delta_db: float) -> Dict[str, float]:
         """
         Calculate volume updates for all clients in a zone.
@@ -641,12 +648,12 @@ class VolumeStateStore:
             zone = self._zones[zone_id]
             updates = {}
 
-            # Apply delta to each available client (including muted ones)
+            # Apply delta to each available client with volume control (skip DAC clients)
             for client_id in zone.client_ids:
                 if client_id in self._clients:
                     client = self._clients[client_id]
 
-                    if client.available:
+                    if client.available and self._has_volume_control(client_id):
                         new_volume = self._clamp_db(client.volume_db + delta_db)
                         updates[client_id] = new_volume
 
@@ -693,7 +700,7 @@ class VolumeStateStore:
         for client_id in zone.client_ids:
             if client_id in self._clients:
                 client = self._clients[client_id]
-                if client.available:
+                if client.available and self._has_volume_control(client_id):
                     volumes.append(client.volume_db)
 
         if volumes:
@@ -763,11 +770,11 @@ class VolumeStateStore:
                 else:
                     global_volume = self._local_volume_db
             else:
-                # Multiroom: average of all available clients
+                # Multiroom: average of all available clients with volume control (exclude DAC)
                 all_volumes = [
                     client.volume_db
-                    for client in self._clients.values()
-                    if client.available
+                    for mac_id, client in self._clients.items()
+                    if client.available and self._has_volume_control(mac_id)
                 ]
                 global_volume = sum(all_volumes) / len(all_volumes) if all_volumes else DEFAULT_VOLUME_DB
 
@@ -785,21 +792,22 @@ class VolumeStateStore:
             )
 
     def _zone_all_muted(self, zone_id: str) -> bool:
-        """Check if all available clients in a zone are muted."""
+        """Check if all available clients with volume control in a zone are muted."""
         if zone_id not in self._zones:
             return False
 
         zone = self._zones[zone_id]
-        available_clients = [
+        controllable_clients = [
             self._clients[cid]
             for cid in zone.client_ids
             if cid in self._clients and self._clients[cid].available
+            and self._has_volume_control(cid)
         ]
 
-        if not available_clients:
+        if not controllable_clients:
             return False
 
-        return all(client.mute for client in available_clients)
+        return all(client.mute for client in controllable_clients)
 
     # ========== Utilities ==========
 

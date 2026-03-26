@@ -202,12 +202,29 @@ class HardwareService:
         )
 
     def get_volume_control(self) -> bool:
-        """Returns False if the audio card is a DAC (external amp manages volume)."""
+        """Returns False if audio card is a DAC with external amp managing volume.
+
+        Reads explicit 'volume_control' from hardware.json if set by user,
+        otherwise auto-detects from audio card category.
+        """
+        config = self._ensure_cache()
+        explicit = config.get('audio', {}).get('volume_control')
+        if explicit is not None:
+            return explicit
+        # Auto-detect from card category
         from backend.hardware.registry import is_dac_card
         audio_id = self.get_audio_id()
         if not audio_id or audio_id == "none":
             return True
         return not is_dac_card(audio_id)
+
+    async def set_volume_control(self, enabled: bool) -> None:
+        """Persist volume_control override in hardware.json without reboot."""
+        config = self._ensure_cache()
+        if 'audio' not in config:
+            config['audio'] = {}
+        config['audio']['volume_control'] = enabled
+        await self.save_config(config)
 
     def get_full_config(self) -> Dict:
         """Returns the complete normalized hardware config."""

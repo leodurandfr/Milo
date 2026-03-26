@@ -1089,6 +1089,7 @@ def create_settings_router(
             screen = SCREENS[payload.screen.type]
 
             # Build the full config to write to hardware.json
+            from backend.hardware.registry import is_dac_card
             audio_config = {"id": payload.audio.id}
             if card["overlay"]:
                 audio_config.update({
@@ -1096,6 +1097,9 @@ def create_settings_router(
                     "alsa_control": card["alsa_control"],
                     "overlay": card["overlay"],
                 })
+            # Persist volume_control: explicit override or auto-detect from card category
+            volume_control = payload.audio.volume_control if payload.audio.volume_control is not None else not is_dac_card(payload.audio.id)
+            audio_config["volume_control"] = volume_control
 
             config = {
                 "audio": audio_config,

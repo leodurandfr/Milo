@@ -119,6 +119,7 @@ class PendingClientsService:
         name: Optional[str] = None,
         speaker_type: Optional[str] = None,
         audio_id: Optional[str] = None,
+        volume_control: Optional[bool] = None,
     ) -> Optional[Dict[str, Any]]:
         """Partial update of a pending client. Returns None if not found."""
         async with self._lock:
@@ -132,6 +133,8 @@ class PendingClientsService:
                 client["speaker_type"] = speaker_type
             if audio_id is not None:
                 client["audio_id"] = audio_id
+            if volume_control is not None:
+                client["volume_control"] = volume_control
 
             client_snapshot = dict(client)
             await self._persist()

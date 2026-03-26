@@ -94,6 +94,11 @@ class VolumeSettingsPatchRequest(BaseModel):
     restore_last_volume: Optional[bool] = Field(None, description="Whether to restore last volume on startup")
 
 
+class VolumeControlRequest(BaseModel):
+    """Toggle local device volume control (DAC mode)."""
+    volume_control: bool
+
+
 class VolumeStepsRequest(BaseModel):
     """Mobile volume steps request (in dB)"""
     step_mobile_db: float = Field(..., ge=1, le=6, description="Mobile volume step in dB")
@@ -375,6 +380,7 @@ class RadioSettingsRequest(BaseModel):
 class HardwareAudioRequest(BaseModel):
     """Audio card selection"""
     id: str = Field(..., min_length=1, max_length=50)
+    volume_control: Optional[bool] = None  # Override DAC auto-detection (None = derive from card category)
 
     @field_validator('id')
     @classmethod
@@ -435,9 +441,10 @@ from backend.core.multiroom.models import SPEAKER_TYPES
 
 
 class ClientUpdateRequest(BaseModel):
-    """Request to update client properties (name and/or speaker_type)."""
+    """Request to update client properties (name, speaker_type, volume_control)."""
     name: Optional[str] = None
     speaker_type: Optional[Literal['satellite', 'bookshelf', 'tower', 'subwoofer']] = None
+    volume_control: Optional[bool] = None  # True = Milo manages volume, False = external amp
 
     @field_validator('speaker_type')
     @classmethod
@@ -495,6 +502,7 @@ def _validate_configurable_audio_id(v: str) -> str:
 class ConfigureClientAudioRequest(BaseModel):
     """Request to change audio card on a registered milo-client and reboot it."""
     audio_id: str = Field(..., min_length=1)
+    volume_control: Optional[bool] = None  # Override auto-detection (None = derive from card category)
 
     @field_validator('audio_id')
     @classmethod
@@ -507,6 +515,7 @@ class ConfigurePendingClientRequest(BaseModel):
     name: Optional[str] = None
     speaker_type: Optional[Literal['satellite', 'bookshelf', 'tower', 'subwoofer']] = Field(default='bookshelf')
     audio_id: str = Field(..., min_length=1)
+    volume_control: Optional[bool] = None  # Override auto-detection (None = derive from card category)
 
     @field_validator('speaker_type')
     @classmethod
