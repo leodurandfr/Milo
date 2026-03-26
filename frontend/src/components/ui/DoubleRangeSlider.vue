@@ -9,6 +9,7 @@
     
     <!-- Minimum thumb -->
     <div
+      ref="thumbRef"
       class="range-thumb thumb-min"
       :class="{ dragging: isDraggingMin }"
       :style="{ left: minPosition }"
@@ -57,37 +58,37 @@ const emit = defineEmits(['update:modelValue', 'input', 'change', 'drag-start', 
 const isDraggingMin = ref(false);
 const isDraggingMax = ref(false);
 const track = ref(null);
+const thumbRef = ref(null);
 const trackWidth = ref(0);
+const thumbAxisSize = ref(54);
 
 let resizeObserver = null;
 
 // Pixel positions (clean)
 const minPosition = computed(() => {
   const percentage = (props.modelValue.min - props.min) / (props.max - props.min);
-  return `calc(31px + ${percentage} * (100% - 62px))`;
+  const size = thumbAxisSize.value;
+  return `calc(${size / 2}px + ${percentage} * (100% - ${size}px))`;
 });
 
 const maxPosition = computed(() => {
   const percentage = (props.modelValue.max - props.min) / (props.max - props.min);
-  return `calc(31px + ${percentage} * (100% - 62px))`;
+  const size = thumbAxisSize.value;
+  return `calc(${size / 2}px + ${percentage} * (100% - ${size}px))`;
 });
 
 // Percentages for the gradient - dynamic calculation based on actual width
 const minPercentageForGradient = computed(() => {
   const rawPercentage = ((props.modelValue.min - props.min) / (props.max - props.min)) * 100;
-  // Thumb width is 62px
-  const thumbWidth = 62;
-  const containerWidth = trackWidth.value || 400; // Fallback to reasonable default
-  const thumbAdjustment = (thumbWidth / containerWidth) * 100;
+  const containerWidth = trackWidth.value || 400;
+  const thumbAdjustment = (thumbAxisSize.value / containerWidth) * 100;
   return rawPercentage * (100 - thumbAdjustment) / 100 + thumbAdjustment / 2;
 });
 
 const maxPercentageForGradient = computed(() => {
   const rawPercentage = ((props.modelValue.max - props.min) / (props.max - props.min)) * 100;
-  // Thumb width is 62px
-  const thumbWidth = 62;
-  const containerWidth = trackWidth.value || 400; // Fallback to reasonable default
-  const thumbAdjustment = (thumbWidth / containerWidth) * 100;
+  const containerWidth = trackWidth.value || 400;
+  const thumbAdjustment = (thumbAxisSize.value / containerWidth) * 100;
   return rawPercentage * (100 - thumbAdjustment) / 100 + thumbAdjustment / 2;
 });
 
@@ -145,13 +146,15 @@ function startDrag(event, type) {
   const clickX = event.clientX;
   
   // Current center position of the thumb with the new calculation
-  const currentPercentage = type === 'min' 
+  const currentPercentage = type === 'min'
     ? (props.modelValue.min - props.min) / (props.max - props.min)
     : (props.modelValue.max - props.min) / (props.max - props.min);
-    
-  // Thumb center position: 31px + percentage * (usable width)
-  const usableWidth = rect.width - 62; // width - thumb width
-  const thumbCenterX = rect.left + 31 + (currentPercentage * usableWidth);
+
+  // Thumb center position: half + percentage * (usable width)
+  const size = thumbAxisSize.value;
+  const half = size / 2;
+  const usableWidth = rect.width - size;
+  const thumbCenterX = rect.left + half + (currentPercentage * usableWidth);
   
   // Offset = difference between where we click and the thumb center
   thumbOffset = clickX - thumbCenterX;
@@ -174,10 +177,11 @@ function handleDrag(event) {
   
   const rect = track.value.getBoundingClientRect();
   const correctedX = event.clientX - thumbOffset;
-  
-  // Calculate position in the usable area (31px to width-31px)
-  const usableWidth = rect.width - 62; // width - thumb width  
-  const positionInUsableArea = correctedX - rect.left - 31; // position - start of usable area
+
+  const size = thumbAxisSize.value;
+  const half = size / 2;
+  const usableWidth = rect.width - size;
+  const positionInUsableArea = correctedX - rect.left - half;
   const percentage = clamp(positionInUsableArea / usableWidth, 0, 1);
   const value = props.min + (percentage * (props.max - props.min));
   
@@ -207,19 +211,21 @@ function stopDrag() {
   document.removeEventListener('pointercancel', stopDrag);
 }
 
+function updateSizes() {
+  if (track.value) {
+    trackWidth.value = track.value.getBoundingClientRect().width;
+  }
+  if (thumbRef.value) {
+    thumbAxisSize.value = thumbRef.value.getBoundingClientRect().width;
+  }
+}
+
 onMounted(() => {
   updateValues(props.modelValue.min, props.modelValue.max, false);
-
-  // Watch for size changes
-  if (track.value) {
-    // Initial width
-    updateTrackWidth();
-
-    resizeObserver = new ResizeObserver(() => {
-      updateTrackWidth();
-    });
-    resizeObserver.observe(track.value);
-  }
+  updateSizes();
+  resizeObserver = new ResizeObserver(updateSizes);
+  if (track.value) resizeObserver.observe(track.value);
+  if (thumbRef.value) resizeObserver.observe(thumbRef.value);
 });
 
 onUnmounted(() => {
@@ -231,13 +237,6 @@ onUnmounted(() => {
     resizeObserver.disconnect();
   }
 });
-
-function updateTrackWidth() {
-  if (track.value) {
-    const rect = track.value.getBoundingClientRect();
-    trackWidth.value = rect.width;
-  }
-}
 </script>
 
 <style scoped>
@@ -248,14 +247,14 @@ function updateTrackWidth() {
   align-items: center;
   justify-content: center;
   width: 100%;
-  height: 40px;
+  height: 36px;
 }
 
 /* Track with gradient identical to RangeSlider */
 .range-track {
   width: 100%;
-  height: 40px;
-  border-radius: 20px;
+  height: 36px;
+  border-radius: var(--radius-full);
   background: linear-gradient(to right,
     var(--color-background) 0%,
     var(--color-background) var(--progress-min),
@@ -270,9 +269,9 @@ function updateTrackWidth() {
 .range-thumb {
   position: absolute;
   top: 0;
-  width: 62px;
-  height: 40px;
-  border-radius: 20px;
+  height: 100%;
+  aspect-ratio: 1.6;
+  border-radius: var(--radius-full);
   background: #FFFFFF;
   border: 2px solid var(--color-text-secondary);
   cursor: pointer;
@@ -319,5 +318,18 @@ function updateTrackWidth() {
 
 .slider-value-max.dragging {
   color: var(--color-brand);
+}
+
+/* Responsive */
+@media (max-aspect-ratio: 4/3) {
+  .double-range-slider {
+    height: 30px;
+  }
+
+  .range-track {
+    height: 30px;
+    border-radius: 15px;
+  }
+
 }
 </style>
