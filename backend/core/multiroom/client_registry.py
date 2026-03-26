@@ -709,68 +709,6 @@ class ClientRegistryService:
         self.logger.info(f"Client {mac_id} removed from zone {zone_id}")
         return True
 
-    async def set_zone_clients(self, zone_id: str, client_ids: List[str]) -> Optional[Zone]:
-        """
-        Set the complete client list for a zone.
-
-        Replaces all zone members in one operation. Handles equalizer transitions:
-        - Clients leaving zone keep zone equalizer as standalone
-        - Clients joining zone have standalone equalizer cleared
-
-        Args:
-            zone_id: The zone ID to update
-            client_ids: Complete list of client mac_ids for the zone
-
-        Returns:
-            Updated zone or None if zone not found
-
-        Raises:
-            ValueError: If fewer than 2 clients or any client not found
-        """
-        async with self._lock:
-            zone = self._zones.get(zone_id)
-            if not zone:
-                return None
-
-            # Validate minimum clients
-            if len(client_ids) < 2:
-                raise ValueError("Zone requires at least 2 clients")
-
-            # Validate all clients exist
-            for mac_id in client_ids:
-                if mac_id not in self._clients:
-                    raise ValueError(f"Client {mac_id} not found")
-
-            # Determine clients leaving and joining
-            old_client_ids = set(zone.client_ids)
-            new_client_ids = set(client_ids)
-            leaving = old_client_ids - new_client_ids
-            joining = new_client_ids - old_client_ids
-
-            # Handle clients leaving zone - keep equalizer as standalone
-            self._make_clients_standalone(leaving, zone)
-
-            # Handle clients joining zone - equalizer replaced by zone's
-            for mac_id in joining:
-                if mac_id in self._clients:
-                    self._clients[mac_id].zone_id = zone_id
-                    self._standalone_equalizer.pop(mac_id, None)
-
-            # Update zone
-            zone.client_ids = client_ids
-            zone_dict = self.zone_to_enriched_dict(zone)
-
-        await self._persist_state()
-
-        # Emit event
-        await self._emit_event(RegistryEventType.ZONE_UPDATED, {
-            "zone_id": zone_id,
-            "zone": zone_dict
-        })
-
-        self.logger.info(f"Zone {zone_id} clients updated: {client_ids}")
-        return zone
-
     # === ZONE QUERIES ===
 
     def get_zone(self, zone_id: str) -> Optional[Zone]:
@@ -982,10 +920,6 @@ class ClientRegistryService:
 
         return sum(online_volumes) / len(online_volumes)
 
-    def get_zone_ids(self) -> List[str]:
-        """Get list of all zone IDs."""
-        return list(self._zones.keys())
-
     def zone_to_enriched_dict(self, zone: Zone) -> Dict[str, Any]:
         """
         Convert zone to dict with computed fields for API responses.
@@ -1089,29 +1023,6 @@ class ClientRegistryService:
                 "equalizer_settings": settings.to_dict()
             })
 
-    def get_client_equalizer_settings(self, mac_id: str) -> Optional[EqualizerSettings]:
-        """
-        Get equalizer settings for a client (from zone or standalone).
-
-        Args:
-            mac_id: The client's mac_id
-
-        Returns:
-            Equalizer settings or None if not found
-        """
-        client = self._clients.get(mac_id)
-        if not client:
-            return None
-
-        # If in zone, return zone's equalizer
-        if client.zone_id:
-            zone = self._zones.get(client.zone_id)
-            if zone:
-                return zone.equalizer_settings
-
-        # Otherwise return standalone equalizer
-        return self._standalone_equalizer.get(mac_id)
-
     async def set_zone_equalizer(self, zone_id: str, settings: EqualizerSettings, broadcast: bool = True) -> bool:
         """
         Set equalizer settings for a zone.
@@ -1153,24 +1064,11 @@ class ClientRegistryService:
             standalone_equalizer=self._standalone_equalizer.copy()
         )
 
-    def get_state_dict(self) -> Dict[str, Any]:
-        """Get complete registry state as dictionary."""
-        return {
-            "clients": {k: v.to_dict() for k, v in self._clients.items()},
-            "zones": {k: v.to_dict() for k, v in self._zones.items()},
-            "standalone_equalizer": {k: v.to_dict() for k, v in self._standalone_equalizer.items()}
-        }
-
     # === EVENT SYSTEM ===
 
     def subscribe(self, callback: Callable[[str, Dict], Awaitable[None]]) -> None:
         """Subscribe to registry events."""
         self._subscribers.append(callback)
-
-    def unsubscribe(self, callback: Callable) -> None:
-        """Unsubscribe from registry events."""
-        if callback in self._subscribers:
-            self._subscribers.remove(callback)
 
     @staticmethod
     def _map_event_type(event_type: str) -> str:
