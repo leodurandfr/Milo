@@ -63,6 +63,10 @@ class CrossoverService:
         # Pending settings queue for offline clients
         self._pending_settings: Dict[str, Dict[str, Any]] = {}
 
+        # Background retry tasks keyed by client_id — one per client at most.
+        # Tracked for deduplication and clean cancellation on shutdown.
+        self._retry_tasks: Dict[str, asyncio.Task] = {}
+
     def set_state_machine(self, state_machine) -> None:
         """Set reference to UnifiedAudioStateMachine for event broadcasting."""
         self.state_machine = state_machine
@@ -96,6 +100,11 @@ class CrossoverService:
 
                 # Recalculate crossover for zones containing this client
                 await self._recalculate_zones_for_client(mac_id)
+
+                # If recalculation queued settings (CamillaDSP not fully ready,
+                # e.g. after audio card change), schedule a delayed retry
+                if self.has_pending_settings(mac_id):
+                    self._create_retry_task(mac_id, self._delayed_retry_pending(mac_id))
 
         elif event_type == RegistryEventType.CLIENT_DISCONNECTED:
             mac_id = data.get("mac_id")
@@ -509,13 +518,22 @@ class CrossoverService:
                         )
                         return True
                     else:
-                        self.logger.warning(
-                            f"Failed to set {filter_name} on client {identifier}: HTTP {response.status}"
+                        # Expected when CamillaDSP is not ready (e.g. after reboot).
+                        # Queue as pending so the next reconnect retries.
+                        self.logger.debug(
+                            f"Client {identifier} rejected {filter_name} "
+                            f"(HTTP {response.status}), queued as pending"
                         )
+                        await self.queue_pending_settings(identifier, filter_name, {
+                            "enabled": enabled,
+                            "frequency": frequency
+                        })
                         return False
 
         except aiohttp.ClientError:
-            self.logger.warning(f"Cannot reach client {identifier} for {filter_name} update: {url}")
+            self.logger.debug(
+                f"Cannot reach client {identifier} for {filter_name} update, queued as pending"
+            )
             await self.queue_pending_settings(identifier, filter_name, {
                 "enabled": enabled,
                 "frequency": frequency
@@ -717,9 +735,55 @@ class CrossoverService:
             del self._pending_settings[client_id]
             self.logger.info(f"Cleared pending settings for client {client_id}")
 
+    # === Retry Tasks ===
+
+    def _create_retry_task(self, client_id: str, coro) -> asyncio.Task:
+        """Create a background retry task, cancelling any existing one for this client."""
+        existing = self._retry_tasks.get(client_id)
+        if existing and not existing.done():
+            existing.cancel()
+        task = asyncio.create_task(coro)
+        self._retry_tasks[client_id] = task
+        return task
+
+    @handle_errors(default=None, level='debug')
+    async def _delayed_retry_pending(
+        self, client_id: str, max_retries: int = 3, retry_delay: float = 5.0
+    ) -> None:
+        """Retry pending crossover settings after a delay.
+
+        Called when zone recalculation at CLIENT_CONNECTED time fails
+        (e.g. CamillaDSP not ready after audio card change). The failed
+        settings are already re-queued as pending by _proxy_filter_to_client.
+        """
+        for attempt in range(max_retries):
+            await asyncio.sleep(retry_delay)
+
+            if not self.has_pending_settings(client_id):
+                return  # Applied by another path (e.g. new CLIENT_CONNECTED)
+
+            self.logger.info(
+                f"Retrying pending crossover settings for {client_id} "
+                f"(attempt {attempt + 1}/{max_retries})"
+            )
+            await self.apply_pending_settings(client_id)
+
+        if self.has_pending_settings(client_id):
+            self.logger.warning(
+                f"Pending crossover settings for {client_id} still not applied "
+                f"after {max_retries} retries"
+            )
+
     # === Cleanup ===
 
     async def cleanup(self) -> None:
         """Clean up resources."""
+        # Cancel pending retry tasks
+        for task in self._retry_tasks.values():
+            task.cancel()
+        if self._retry_tasks:
+            await asyncio.gather(*self._retry_tasks.values(), return_exceptions=True)
+            self._retry_tasks.clear()
+
         self._pending_settings.clear()
         self.logger.info("CrossoverService cleanup complete")
