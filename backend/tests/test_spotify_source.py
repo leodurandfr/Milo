@@ -11,9 +11,7 @@ Tests cover:
 - Auto-disconnect timer
 """
 import pytest
-import asyncio
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
-import os
 
 from backend.sources.spotify.source import SpotifySource
 from backend.sources.spotify.websocket import LibrespotWebSocket

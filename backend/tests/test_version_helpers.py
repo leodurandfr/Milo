@@ -2,7 +2,6 @@
 """
 Tests for version helper utilities (compare_versions, extract_base_tag).
 """
-import pytest
 
 from backend.core.updates.helpers import compare_versions, extract_base_tag
 

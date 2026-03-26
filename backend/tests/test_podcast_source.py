@@ -10,7 +10,6 @@ Tests cover:
 - Data service operations
 """
 import pytest
-import asyncio
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
 from backend.sources.podcast.source import PodcastSource

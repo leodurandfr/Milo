@@ -10,7 +10,7 @@ Tests cover:
 """
 import pytest
 import asyncio
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from unittest.mock import Mock, AsyncMock, patch
 
 from backend.sources.mac.source import MacSource, _parse_ip_from_line, _normalize_ip
 from backend.core.audio_source import BaseAudioSource

@@ -9,7 +9,7 @@ Tests cover:
 """
 import pytest
 import asyncio
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import Mock, AsyncMock
 
 from backend.core.state import AudioStateMachine
 from backend.core.models.audio_state import AudioSource, SourceState

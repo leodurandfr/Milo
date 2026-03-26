@@ -4,9 +4,9 @@ Unit tests for AudioStateMachine
 """
 import pytest
 import asyncio
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import AsyncMock
 from backend.core.state import AudioStateMachine
-from backend.core.models.audio_state import AudioSource, SourceState, SystemAudioState
+from backend.core.models.audio_state import AudioSource, SourceState
 
 
 class TestAudioStateMachine:

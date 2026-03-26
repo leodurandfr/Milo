@@ -15,8 +15,6 @@ Contracts being tested:
 import pytest
 import asyncio
 import json
-import tempfile
-from pathlib import Path
 from unittest.mock import Mock, AsyncMock, patch
 from datetime import datetime, timezone
 

@@ -11,19 +11,12 @@ Tests:
 - E2E WebSocket event broadcasting on crossover state change (Story 5.5 AC#4)
 """
 import pytest
-import asyncio
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 from backend.core.multiroom.models import (
-    Client,
-    Zone,
-    EqualizerSettings,
     RegistryEventType,
-    DEFAULT_SPEAKER_TYPE,
-    DEFAULT_CROSSOVER_FREQUENCIES,
 )
-from backend.config.constants import DEFAULT_VOLUME_DB
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.crossover import CrossoverService
 
@@ -495,7 +488,7 @@ class TestAutomaticCrossoverE2E:
         # Subwoofer starts OFFLINE
 
         # 2. Create zone (minimum 2 clients)
-        zone = await registry.create_zone(generate_zone_id(), "Living Room", ["local", "sub-1"])
+        await registry.create_zone(generate_zone_id(), "Living Room", ["local", "sub-1"])
 
         # 3. Reset mock to track only activation calls
         mock_camilladsp_service.reset_mock()
@@ -847,7 +840,7 @@ class TestFilterApplicationE2E:
         await registry.update_speaker_type("sub-1", "subwoofer")
         await registry.set_client_online("sub-1", True)
 
-        zone = await registry.create_zone(generate_zone_id(), "Reconnect Test", ["local", "sub-1"])
+        await registry.create_zone(generate_zone_id(), "Reconnect Test", ["local", "sub-1"])
 
         mock_camilladsp_service.reset_mock()
 
@@ -882,7 +875,6 @@ class TestFilterApplicationE2E:
         await crossover.apply_zone_crossover(zone.id)
 
         # Record crossover state
-        crossover_enabled_before = True  # We just applied it
 
         # Simulate Equalizer bypass (this would be called on DspService, not CrossoverService)
         # The key point is that CrossoverService crossover methods are independent

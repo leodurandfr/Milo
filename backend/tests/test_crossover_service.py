@@ -18,13 +18,9 @@ import aiohttp
 from backend.core.multiroom.models import (
     Client,
     Zone,
-    EqualizerSettings,
-    SpeakerType,
     RegistryEventType,
-    DEFAULT_SPEAKER_TYPE,
     DEFAULT_CROSSOVER_FREQUENCIES,
 )
-from backend.config.constants import DEFAULT_VOLUME_DB
 from backend.core.multiroom.crossover import CrossoverService
 from backend.core.equalizer.client_proxy import is_ip_address
 

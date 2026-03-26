@@ -12,14 +12,11 @@ These tests verify the complete filter update flow:
 API → CamillaDSP → WebSocket → Frontend state update
 """
 import pytest
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
-import asyncio
+from unittest.mock import Mock, AsyncMock, patch
 
 from backend.core.equalizer import (
     CamillaDSPService,
     CamillaDspState,
-    FilterType,
-    get_builtin_presets,
     get_preset_by_id,
     DEFAULT_CUSTOM_GAINS,
     BUILTIN_PRESETS,
@@ -84,7 +81,7 @@ class TestAC1FilterParameterUpdate:
         }
 
         with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock) as mock_get:
-            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock) as mock_set:
+            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
                 mock_get.return_value = mock_config
 
                 # Update filter

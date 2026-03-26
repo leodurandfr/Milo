@@ -10,11 +10,9 @@ Story 5.2: IN_ZONE Reconnection Sync
 """
 import asyncio
 import pytest
-from unittest.mock import Mock, AsyncMock, MagicMock, patch
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Any
+from unittest.mock import AsyncMock, MagicMock
 
-from backend.core.volume.state import VolumeState, DEFAULT_VOLUME_DB
+from backend.core.volume.state import DEFAULT_VOLUME_DB
 from backend.core.models.volume import VolumeConfig
 from backend.core.multiroom.models import ReconnectionContext
 
@@ -541,7 +539,6 @@ class TestReconnectionContextDetectionIntegration:
         3. Context should be IN_ZONE_OTHERS_ONLINE (FR7)
         """
         from backend.core.multiroom.client_registry import ClientRegistryService
-        from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         # Setup registry with zone
         registry = ClientRegistryService(
@@ -1053,7 +1050,7 @@ class TestInZoneReconnectionSyncIntegration:
             "host": {"name": "milo-client-01", "ip": "192.168.1.1", "mac": "client-1"}
         }
 
-        sync_status = await ws_service._sync_existing_client_volume("snapcast-client-123", client_data)
+        await ws_service._sync_existing_client_volume("snapcast-client-123", client_data)
 
         # Verify broadcast was called
         volume_service._broadcast_volume_state.assert_called()

@@ -8,7 +8,6 @@ Tests cover:
 - EqualizerSettingsSyncService
 - Presets
 """
-import asyncio
 import pytest
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 import json

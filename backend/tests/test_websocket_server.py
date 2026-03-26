@@ -5,7 +5,7 @@ Unit tests for the WebSocket server and manager
 import pytest
 import asyncio
 import json
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from unittest.mock import Mock, AsyncMock, patch
 from backend.ws.manager import WebSocketManager, WebSocketServer
 
 

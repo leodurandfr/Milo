@@ -16,7 +16,7 @@ These tests verify:
 - Error handling for zone not found, client errors, etc.
 """
 import pytest
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from unittest.mock import Mock, AsyncMock
 from fastapi import HTTPException
 
 from backend.api.equalizer import create_equalizer_router
@@ -442,7 +442,7 @@ class TestAC6ClientProxyRoutes:
         # Configure equalizer_router_service to handle the call
         mock_equalizer_router_service.update_filter = AsyncMock(return_value={"status": "success"})
 
-        result = await route_fn("milo-client-01", "eq_band_00", mock_request)
+        await route_fn("milo-client-01", "eq_band_00", mock_request)
 
         # Verify equalizer_router_service was called
         mock_equalizer_router_service.update_filter.assert_called()
@@ -474,7 +474,7 @@ class TestAC6ClientProxyRoutes:
         mock_request = AsyncMock()
         mock_request.json = AsyncMock(return_value={"enabled": True})
 
-        result = await route_fn("milo-client-01", mock_request)
+        await route_fn("milo-client-01", mock_request)
 
         # Verify equalizer_router_service was called
         mock_equalizer_router_service.set_compressor.assert_called()

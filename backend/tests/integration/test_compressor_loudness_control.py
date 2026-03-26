@@ -15,7 +15,6 @@ API → CamillaDSP → WebSocket → Frontend state update
 """
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
-import asyncio
 
 from backend.core.equalizer import (
     CamillaDSPService,
@@ -439,7 +438,6 @@ class TestAC5ZonePropagation:
     async def test_compressor_proxy_route_callable(self, camilladsp_service_with_preset):
         """Compressor proxy route should forward settings to remote clients"""
         # Import the router to verify route exists
-        from backend.api.equalizer import create_equalizer_router
 
         # Verify the route pattern exists by checking router creation doesn't fail
         # and the service can handle compressor updates that would be proxied
@@ -571,7 +569,6 @@ class TestAPICompressorValidation:
 
     def test_compressor_request_all_optional(self):
         """All compressor fields should be optional for partial updates"""
-        from pydantic import ValidationError
 
         # Empty request should be valid
         req = EqualizerCompressorRequest()

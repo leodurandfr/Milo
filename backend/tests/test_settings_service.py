@@ -6,7 +6,7 @@ import pytest
 import json
 import os
 import tempfile
-from unittest.mock import Mock, patch, mock_open, AsyncMock
+from unittest.mock import patch
 from backend.core.settings import SettingsService
 
 
@@ -301,7 +301,7 @@ class TestSettingsService:
         assert result is True
 
         # Check that path has been created
-        saved_value = await service.get_setting('volume.new_setting')
+        await service.get_setting('volume.new_setting')
         # Note: Validation may remove unknown keys, so we just check that save succeeded
         # This test mainly verifies that path creation doesn't raise an exception
         assert result is True

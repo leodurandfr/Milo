@@ -14,8 +14,7 @@ These tests verify the complete flow:
 API → routing_service → CamillaDSPService → WebSocket → Frontend state update
 """
 import pytest
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
-import asyncio
+from unittest.mock import Mock, AsyncMock, patch
 
 from backend.core.equalizer import (
     CamillaDSPService,
@@ -335,7 +334,6 @@ class TestAC3ZonePropagation:
     async def test_remote_client_enabled_proxies_to_client(self):
         """PUT /api/equalizer/client/{hostname}/enabled should proxy to remote client"""
         from backend.api.equalizer import create_equalizer_router
-        from fastapi.testclient import TestClient
         from fastapi import FastAPI
 
         # Create mocks

@@ -4,8 +4,7 @@ Unit tests for AudioRoutingService
 """
 import asyncio
 import pytest
-import os
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from unittest.mock import Mock, AsyncMock, patch
 from backend.core.multiroom import AudioRoutingService
 from backend.core.models.audio_state import AudioSource
 

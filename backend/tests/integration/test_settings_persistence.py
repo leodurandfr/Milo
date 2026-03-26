@@ -15,15 +15,12 @@ Contracts being tested:
 import pytest
 import asyncio
 import json
-import os
 import tempfile
 from pathlib import Path
 from unittest.mock import Mock, AsyncMock
-from typing import Dict, Any, List
 
 from backend.core.settings import SettingsService
 
-from .conftest import WebSocketEventCollector
 
 
 # ==============================================================================

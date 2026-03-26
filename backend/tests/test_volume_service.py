@@ -3,7 +3,7 @@
 Unit tests for VolumeService - Tests for dB-based volume management
 """
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import Mock, AsyncMock
 from backend.core.volume import VolumeService
 from backend.core.models.volume import VolumeConfig
 

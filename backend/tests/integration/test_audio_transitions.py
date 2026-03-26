@@ -14,7 +14,6 @@ Contract being tested:
 """
 import pytest
 import asyncio
-from unittest.mock import AsyncMock
 
 from backend.core.models.audio_state import AudioSource, SourceState
 from backend.core.state import AudioStateMachine
@@ -290,7 +289,7 @@ class TestDirectTransition:
         call_order = []
 
         original_radio_stop = mock_sources[AudioSource.RADIO].stop
-        original_spotify_start = mock_sources[AudioSource.SPOTIFY].start
+        mock_sources[AudioSource.SPOTIFY].start
 
         async def tracked_radio_stop():
             call_order.append("radio_stop")
@@ -429,7 +428,7 @@ class TestErrorHandling:
         task1 = asyncio.create_task(sm.transition_to_source(AudioSource.RADIO))
         task2 = asyncio.create_task(sm.transition_to_source(AudioSource.SPOTIFY))
 
-        results = await asyncio.gather(task1, task2)
+        await asyncio.gather(task1, task2)
 
         # Both should complete (one waits for the other)
         # Final state should be one of the two sources
@@ -494,7 +493,7 @@ class TestUpdateBuffering:
 
         # Update should have been replayed
         state_events = websocket_collector.get_events_by_type("state_changed")
-        buffered_events = [
+        [
             e for e in state_events
             if e.get("data", {}).get("metadata", {}).get("buffered")
         ]
