@@ -7,7 +7,7 @@
  * @param {string|null|undefined} name - Raw device hostname or display name
  * @returns {string} Cleaned name, or empty string if falsy
  */
-export function cleanDeviceName(name) {
+function cleanDeviceName(name) {
   if (!name) return '';
   return name.replace(/\.local$/, '').replace(/-/g, ' ');
 }
