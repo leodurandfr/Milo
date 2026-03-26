@@ -382,14 +382,14 @@ install_milo_client_application() {
     log_info "Configuring Python environment for Milo Client..."
 
     sudo -u "$MILO_CLIENT_USER" python3 -m venv "$MILO_CLIENT_VENV_DIR"
-    sudo -u "$MILO_CLIENT_USER" bash -c "source $MILO_CLIENT_VENV_DIR/bin/activate && pip install --upgrade pip"
+    sudo -u "$MILO_CLIENT_USER" bash -c 'source "$1/bin/activate" && pip install --upgrade pip' -- "$MILO_CLIENT_VENV_DIR"
 
     # Install packages from piwheels (faster for ARM)
-    sudo -u "$MILO_CLIENT_USER" bash -c "source $MILO_CLIENT_VENV_DIR/bin/activate && pip install -r $MILO_CLIENT_APP_DIR/requirements.txt"
+    sudo -u "$MILO_CLIENT_USER" bash -c 'source "$1/bin/activate" && pip install -r "$2/requirements.txt"' -- "$MILO_CLIENT_VENV_DIR" "$MILO_CLIENT_APP_DIR"
 
     # Install camilladsp from GitHub (not available on PyPI/piwheels)
     log_info "Installing camilladsp from GitHub..."
-    sudo -u "$MILO_CLIENT_USER" bash -c "source $MILO_CLIENT_VENV_DIR/bin/activate && pip install git+https://github.com/HEnquist/pycamilladsp.git"
+    sudo -u "$MILO_CLIENT_USER" bash -c 'source "$1/bin/activate" && pip install git+https://github.com/HEnquist/pycamilladsp.git' -- "$MILO_CLIENT_VENV_DIR"
 
     log_success "Milo Client application installed"
 }

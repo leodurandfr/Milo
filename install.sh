@@ -147,8 +147,8 @@ install_milo_application() {
     
     log_info "Configuring Python environment..."
     sudo -u "$MILO_USER" python3 -m venv venv
-    sudo -u "$MILO_USER" bash -c "source venv/bin/activate && pip install --upgrade pip"
-    sudo -u "$MILO_USER" bash -c "source venv/bin/activate && pip install -r requirements.txt"
+    sudo -u "$MILO_USER" bash -c 'source venv/bin/activate && pip install --upgrade pip'
+    sudo -u "$MILO_USER" bash -c 'source venv/bin/activate && pip install -r requirements.txt'
     
     log_info "Building frontend..."
     cd frontend
