@@ -2,7 +2,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
-import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
 
 // Maximum progress entries to cache (prevents unbounded memory growth)

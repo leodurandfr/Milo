@@ -170,7 +170,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * Volume/mute data lives in volumeState, not here.
    */
   function stripRuntimeFields(client) {
-    const { volume_db, mute, ...metadata } = client;
+    const { volume_db: _, mute: __, ...metadata } = client;
     return metadata;
   }
 
