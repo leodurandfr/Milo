@@ -422,11 +422,9 @@
     "genres": {
       "news": "News",
       "comedy": "Comedy",
-      "trueCrime": "True Crime",
       "sports": "Sports",
       "education": "Education",
       "business": "Business",
-      "health": "Health & Fitness",
       "arts": "Arts",
       "fiction": "Fiction",
       "government": "Government",
