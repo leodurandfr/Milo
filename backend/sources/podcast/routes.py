@@ -213,7 +213,7 @@ async def search_mixed(
 
         # Parse lists
         genre_list = [g.strip() for g in genres.split(",")] if genres else None
-        language_list = [l.strip() for l in languages.split(",")] if languages else None
+        language_list = [lang.strip() for lang in languages.split(",")] if languages else None
         country_list = [c.strip() for c in countries.split(",")] if countries else None
 
         # Note: Do NOT use published_after filter - it breaks podcast search relevance
