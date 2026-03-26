@@ -22,21 +22,15 @@ class RadioBrowserAPI:
 
     BASE_URL = "https://all.api.radio-browser.info/json"
 
-    MAX_FAVICON_CACHE = 500
-
-    def __init__(self, cache_duration_minutes: int = 60, station_manager=None):
+    def __init__(self, station_manager=None):
         self.logger = logging.getLogger(__name__)
         self.session: Optional[aiohttp.ClientSession] = None
-        self.cache_duration = timedelta(minutes=cache_duration_minutes)
         self.station_manager = station_manager
 
         # Cache for the list of available countries (valid 24h)
         self._countries_cache: List[Dict[str, Any]] = []
         self._countries_cache_timestamp: Optional[datetime] = None
         self._countries_cache_duration = timedelta(hours=24)
-
-        # Cache for favicon quality evaluations (url -> (quality_score, file_size, timestamp))
-        self._favicon_quality_cache: Dict[str, tuple[int, int, datetime]] = {}
 
     async def _ensure_session(self) -> None:
         """Creates aiohttp session if needed"""
@@ -52,43 +46,6 @@ class RadioBrowserAPI:
         if self.session and not self.session.closed:
             await self.session.close()
             self.session = None
-
-    def _set_favicon_cache(self, url: str, score: int, size: int) -> None:
-        """Store favicon quality in cache, evicting oldest entry if over limit."""
-        self._favicon_quality_cache[url] = (score, size, datetime.now())
-        if len(self._favicon_quality_cache) > self.MAX_FAVICON_CACHE:
-            oldest = min(self._favicon_quality_cache, key=lambda k: self._favicon_quality_cache[k][2])
-            del self._favicon_quality_cache[oldest]
-
-    async def _fetch_stations_by_country(self, country_code: str) -> List[Dict[str, Any]]:
-        """
-        Gets all stations from a country via the API
-
-        Args:
-            country_code: ISO country code (e.g.: "FR", "GB")
-
-        Returns:
-            List of stations
-        """
-        await self._ensure_session()
-
-        try:
-            url = f"{self.BASE_URL}/stations/bycountrycodeexact/{country_code}"
-            async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                if resp.status != 200:
-                    self.logger.info(f"API error for {country_code}: {resp.status}")
-                    return []
-
-                stations = await resp.json()
-                self.logger.debug(f"Fetched {len(stations)} stations from {country_code}")
-                return stations
-
-        except asyncio.TimeoutError:
-            self.logger.error(f"Timeout fetching stations for {country_code}")
-            return []
-        except Exception as e:
-            self.logger.error(f"Error fetching stations for {country_code}: {e}")
-            return []
 
     async def _fetch_stations_by_query(self, query: str) -> List[Dict[str, Any]]:
         """
@@ -311,103 +268,6 @@ class RadioBrowserAPI:
 
         return quality
 
-    async def _evaluate_favicon_with_head(self, favicon_url: str) -> tuple[int, int]:
-        """
-        Evaluates the quality of a favicon via HTTP HEAD request (lightweight, without downloading the image)
-
-        Checks:
-        - Availability (status 200)
-        - Valid MIME type (image/*)
-        - File size (Content-Length)
-
-        Args:
-            favicon_url: Favicon URL to evaluate
-
-        Returns:
-            (quality_score, file_size_bytes)
-            - quality_score = -1 if error/404/not an image
-            - quality_score = file_size + bonus according to Content-Type
-            - file_size = size in bytes (0 if not available)
-        """
-        if not favicon_url:
-            return (-1, 0)
-
-        # Check cache first
-        if favicon_url in self._favicon_quality_cache:
-            cached_score, cached_size, cached_time = self._favicon_quality_cache[favicon_url]
-            # Cache valid for the duration of station cache
-            if datetime.now() - cached_time < self.cache_duration:
-                return (cached_score, cached_size)
-
-        # First check URL quality (fast filter)
-        url_quality = self._get_favicon_quality(favicon_url)
-        if url_quality < 10:
-            # Problematic URL, don't make request
-            self._set_favicon_cache(favicon_url, -1, 0)
-            return (-1, 0)
-
-        await self._ensure_session()
-
-        try:
-            # HEAD request only (no download)
-            async with self.session.head(
-                favicon_url,
-                timeout=aiohttp.ClientTimeout(total=3),
-                allow_redirects=True
-            ) as resp:
-                # Check status code
-                if resp.status != 200:
-                    self.logger.debug(f"Favicon HEAD failed (HTTP {resp.status}): {favicon_url}")
-                    self._set_favicon_cache(favicon_url, -1, 0)
-                    return (-1, 0)
-
-                # Check Content-Type
-                content_type = resp.headers.get('Content-Type', '').lower()
-                if not content_type.startswith('image/'):
-                    self.logger.debug(f"Favicon not an image (Content-Type: {content_type}): {favicon_url}")
-                    self._set_favicon_cache(favicon_url, -1, 0)
-                    return (-1, 0)
-
-                # Get the size
-                file_size = 0
-                content_length = resp.headers.get('Content-Length')
-                if content_length:
-                    try:
-                        file_size = int(content_length)
-                    except ValueError:
-                        file_size = 0
-
-                # Calculate quality score based on size + MIME type
-                quality_score = file_size
-
-                # Bonus according to MIME type (high to surpass ICO even without Content-Length)
-                if 'svg' in content_type:
-                    quality_score += 100000  # SVG = vector, excellent quality
-                elif 'png' in content_type or 'webp' in content_type:
-                    quality_score += 50000  # PNG/WEBP = good quality (priority over ICO)
-                elif 'jpeg' in content_type or 'jpg' in content_type:
-                    quality_score += 20000   # JPEG = medium quality
-                # else: image/x-icon or other = no bonus (file_size only)
-
-                # Cache
-                self._set_favicon_cache(favicon_url, quality_score, file_size)
-
-                self.logger.debug(
-                    f"✅ Favicon evaluated: {favicon_url[:50]}... "
-                    f"(score={quality_score}, size={file_size}, type={content_type})"
-                )
-
-                return (quality_score, file_size)
-
-        except asyncio.TimeoutError:
-            self.logger.debug(f"Favicon HEAD timeout: {favicon_url}")
-            self._set_favicon_cache(favicon_url, -1, 0)
-            return (-1, 0)
-        except Exception as e:
-            self.logger.debug(f"Favicon HEAD error for {favicon_url}: {e}")
-            self._set_favicon_cache(favicon_url, -1, 0)
-            return (-1, 0)
-
     @handle_errors(default=[])
     async def find_alternative_urls(self, station_name: str, exclude_url: str = "") -> List[Dict[str, Any]]:
         """
@@ -482,32 +342,6 @@ class RadioBrowserAPI:
             'score': station.get('votes', 0) + station.get('clickcount', 0)
         }
 
-    def _compare_station_quality(self, station1: Dict[str, Any], station2: Dict[str, Any]) -> int:
-        """
-        Compares quality of two stations for deduplication
-
-        Args:
-            station1: First station
-            station2: Second station
-
-        Returns:
-            > 0 if station1 better, < 0 if station2 better, 0 if equal
-        """
-        # Compare popularity (score = votes + clicks)
-        score1 = station1.get('score', 0)
-        score2 = station2.get('score', 0)
-
-        if score1 > score2 * 1.2:  # 20% significant difference
-            return 1
-        elif score2 > score1 * 1.2:
-            return -1
-
-        # If similar scores, compare bitrate
-        bitrate1 = station1.get('bitrate', 0)
-        bitrate2 = station2.get('bitrate', 0)
-
-        return bitrate1 - bitrate2
-
     async def _deduplicate_stations(self, stations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Deduplicates station list by name (case-insensitive)
@@ -576,7 +410,7 @@ class RadioBrowserAPI:
                 # Concise log for debug (only if duplicates merged)
                 if len(versions) > 1:
                     self.logger.debug(
-                        f"🔀 Merged {len(versions)} versions of '{versions[0]['name']}' "
+                        f"Merged {len(versions)} versions of '{versions[0]['name']}' "
                         f"(score={best_audio.get('score', 0)}, bitrate={best_audio.get('bitrate', 0)}, "
                         f"favicon_quality={best_favicon_quality})"
                     )
@@ -672,15 +506,6 @@ class RadioBrowserAPI:
                 # Deduplicate (preserves original order)
                 deduplicated_stations = await self._deduplicate_stations(valid_stations)
 
-                # Debug: Log favicons after deduplication
-                for station in deduplicated_stations:
-                    if 'meuh' in station.get('name', '').lower():
-                        self.logger.debug(
-                            f"🔍 After deduplication: {station.get('name')} → "
-                            f"favicon={'✅' if station.get('favicon') else '❌'} "
-                            f"({station.get('favicon')[:50] if station.get('favicon') else 'empty'})"
-                        )
-
                 self.logger.info(
                     f"[{description}] {len(stations)} raw → "
                     f"{len(valid_stations)} valid → "
@@ -732,7 +557,7 @@ class RadioBrowserAPI:
             filters_desc.append(f"genre='{genre}'")
 
         search_desc = ", ".join(filters_desc) if filters_desc else "no filters (top stations)"
-        self.logger.info(f"🔍 Search: {search_desc}")
+        self.logger.info(f"Search: {search_desc}")
 
         # Special case: no filters → top stations
         try:
@@ -786,7 +611,7 @@ class RadioBrowserAPI:
             # Append custom stations at end
             if filtered_custom:
                 all_stations = all_stations + filtered_custom
-                self.logger.info(f"✅ Added {len(filtered_custom)} manually-added custom station(s)")
+                self.logger.info(f"Added {len(filtered_custom)} manually-added custom station(s)")
 
         # Total before limit
         total = len(all_stations)
@@ -794,7 +619,7 @@ class RadioBrowserAPI:
         # Limit results
         limited_results = all_stations[:limit]
 
-        self.logger.info(f"📊 Final: {total} stations (returning {len(limited_results)})")
+        self.logger.info(f"Final: {total} stations (returning {len(limited_results)})")
 
         return {
             "stations": limited_results,
@@ -917,189 +742,6 @@ class RadioBrowserAPI:
                 self.logger.debug(f"Incremented click count for station {station_id}")
             return success
 
-    async def _fetch_stations_by_country_name(self, country_name: str) -> List[Dict[str, Any]]:
-        """
-        Gets all stations from a country via the API (by country name)
-
-        Args:
-            country_name: Country name (e.g.: "France", "Japan")
-
-        Returns:
-            List of normalized and filtered stations
-        """
-        await self._ensure_session()
-
-        try:
-            # Use the search endpoint with country filter
-            url = f"{self.BASE_URL}/stations/search"
-            params = {"country": country_name, "limit": 10000}  # High limit to get all stations
-
-            async with self.session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                if resp.status != 200:
-                    self.logger.info(f"API error for country {country_name}: {resp.status}")
-                    return []
-
-                stations = await resp.json()
-                self.logger.debug(f"Fetched {len(stations)} stations from {country_name}")
-
-                # Filter and normalize
-                valid_stations = []
-                for station in stations:
-                    if self._is_valid_station(station):
-                        normalized = self._normalize_station(station)
-                        valid_stations.append(normalized)
-
-                # Deduplicate (preserves original order)
-                deduplicated_stations = await self._deduplicate_stations(valid_stations)
-
-                self.logger.info(f"Deduplicated {len(stations)} → {len(deduplicated_stations)} stations for {country_name}")
-
-                return deduplicated_stations
-
-        except asyncio.TimeoutError:
-            self.logger.error(f"Timeout fetching stations for {country_name}")
-            return []
-        except Exception as e:
-            self.logger.error(f"Error fetching stations for {country_name}: {e}")
-            return []
-
-    async def _fetch_stations_by_genre(self, genre: str) -> List[Dict[str, Any]]:
-        """
-        Gets all stations from a genre via the API
-
-        Args:
-            genre: Music genre (e.g.: "pop", "rock", "jazz")
-
-        Returns:
-            List of normalized and filtered stations
-        """
-        await self._ensure_session()
-
-        try:
-            url = f"{self.BASE_URL}/stations/search"
-            params = {"tag": genre, "limit": 10000}
-
-            async with self.session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                if resp.status != 200:
-                    self.logger.info(f"API error for genre {genre}: {resp.status}")
-                    return []
-
-                stations = await resp.json()
-                self.logger.debug(f"Fetched {len(stations)} stations for genre {genre}")
-
-                # Filter and normalize
-                valid_stations = []
-                for station in stations:
-                    if self._is_valid_station(station):
-                        normalized = self._normalize_station(station)
-                        valid_stations.append(normalized)
-
-                # Deduplicate (preserves original order)
-                deduplicated_stations = await self._deduplicate_stations(valid_stations)
-
-                self.logger.info(f"Deduplicated {len(stations)} → {len(deduplicated_stations)} stations for genre {genre}")
-
-                return deduplicated_stations
-
-        except asyncio.TimeoutError:
-            self.logger.error(f"Timeout fetching stations for genre {genre}")
-            return []
-        except Exception as e:
-            self.logger.error(f"Error fetching stations for genre {genre}: {e}")
-            return []
-
-    async def _fetch_stations_by_country_and_genre(self, country_name: str, genre: str) -> List[Dict[str, Any]]:
-        """
-        Gets stations from a country AND genre via API
-
-        Args:
-            country_name: Country name (e.g. "France", "Japan")
-            genre: Music genre (e.g. "pop", "rock")
-
-        Returns:
-            List of normalized and filtered stations
-        """
-        await self._ensure_session()
-
-        try:
-            url = f"{self.BASE_URL}/stations/search"
-            params = {"country": country_name, "tag": genre, "limit": 10000}
-
-            async with self.session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                if resp.status != 200:
-                    self.logger.info(f"API error for {country_name} + {genre}: {resp.status}")
-                    return []
-
-                stations = await resp.json()
-                self.logger.debug(f"Fetched {len(stations)} stations from {country_name} with genre {genre}")
-
-                # Filter and normalize
-                valid_stations = []
-                for station in stations:
-                    if self._is_valid_station(station):
-                        normalized = self._normalize_station(station)
-                        valid_stations.append(normalized)
-
-                # Deduplicate (preserves original order)
-                deduplicated_stations = await self._deduplicate_stations(valid_stations)
-
-                self.logger.info(f"Deduplicated {len(stations)} → {len(deduplicated_stations)} stations for {country_name} + {genre}")
-
-                return deduplicated_stations
-
-        except asyncio.TimeoutError:
-            self.logger.error(f"Timeout fetching stations for {country_name} + {genre}")
-            return []
-        except Exception as e:
-            self.logger.error(f"Error fetching stations for {country_name} + {genre}: {e}")
-            return []
-
-    async def _fetch_stations_by_query_and_genre(self, query: str, genre: str) -> List[Dict[str, Any]]:
-        """
-        Gets stations matching a search query AND genre via API
-
-        Args:
-            query: Search term (station name)
-            genre: Music genre (e.g. "pop", "rock")
-
-        Returns:
-            List of normalized and filtered stations
-        """
-        await self._ensure_session()
-
-        try:
-            url = f"{self.BASE_URL}/stations/search"
-            params = {"name": query, "tag": genre, "limit": 10000}
-
-            async with self.session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                if resp.status != 200:
-                    self.logger.info(f"API error for query '{query}' + genre {genre}: {resp.status}")
-                    return []
-
-                stations = await resp.json()
-                self.logger.debug(f"Fetched {len(stations)} stations for query '{query}' with genre {genre}")
-
-                # Filter and normalize
-                valid_stations = []
-                for station in stations:
-                    if self._is_valid_station(station):
-                        normalized = self._normalize_station(station)
-                        valid_stations.append(normalized)
-
-                # Deduplicate (preserves original order)
-                deduplicated_stations = await self._deduplicate_stations(valid_stations)
-
-                self.logger.info(f"Deduplicated {len(stations)} → {len(deduplicated_stations)} stations for query '{query}' + genre {genre}")
-
-                return deduplicated_stations
-
-        except asyncio.TimeoutError:
-            self.logger.error(f"Timeout fetching stations for query '{query}' + genre {genre}")
-            return []
-        except Exception as e:
-            self.logger.error(f"Error fetching stations for query '{query}' + genre {genre}: {e}")
-            return []
-
     async def get_available_countries(self) -> List[Dict[str, Any]]:
         """
         Gets list of all available countries from Radio Browser API
@@ -1152,7 +794,7 @@ class RadioBrowserAPI:
                     self._countries_cache = sorted_countries
                     self._countries_cache_timestamp = datetime.now()
 
-                    self.logger.info(f"✅ Fetched and cached {len(sorted_countries)} countries from Radio Browser API")
+                    self.logger.info(f"Fetched and cached {len(sorted_countries)} countries from Radio Browser API")
                     return sorted_countries
 
             except asyncio.TimeoutError:
@@ -1174,5 +816,5 @@ class RadioBrowserAPI:
             return self._countries_cache
 
         # No cache, return empty list
-        self.logger.error("❌ API unreachable and no cache available, returning empty list")
+        self.logger.error("API unreachable and no cache available, returning empty list")
         return []

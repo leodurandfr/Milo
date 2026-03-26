@@ -62,7 +62,6 @@ class RadioSource(MpvAudioSource):
 
         # RadioBrowser API (initialized immediately for API access)
         self._radio_api = RadioBrowserAPI(
-            cache_duration_minutes=60,
             station_manager=self._station_data
         )
         self._station_data.radio_api = self._radio_api
@@ -76,9 +75,6 @@ class RadioSource(MpvAudioSource):
         self._last_station: Optional[Dict[str, Any]] = None
         self._preroll_cache: Dict[str, int] = {}  # hostname → preroll skip seconds (for Shazam)
         self._buffering_ticks: int = 0
-
-        # Schedule async initialization
-        self._init_task: Optional[asyncio.Task] = None
 
     @handle_errors(default=False)
     async def initialize(self) -> bool:
