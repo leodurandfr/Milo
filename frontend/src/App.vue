@@ -414,11 +414,6 @@ onMounted(async () => {
       const message = event.data?.message || 'Backend error';
       currentError.value = { title: `${t('notification.backendErrorTitle')} · ${level === 'WARNING' ? 'Warning' : 'Error'}`, detail: message, source: 'backend' };
     }),
-    on('source', 'metadata', (event) => {
-      unifiedStore.updateState(event);
-      podcastStore.handleSourceEvent(event);
-      cdStore.handleSourceEvent(event);
-    }),
     on('system', 'cd_drive_status', (event) => {
       cdStore.handleSystemEvent(event);
     }),

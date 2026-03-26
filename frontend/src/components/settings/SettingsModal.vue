@@ -264,7 +264,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['close']);
+defineEmits(['close']);
 
 const { t } = useI18n();
 const settingsStore = useSettingsStore();
