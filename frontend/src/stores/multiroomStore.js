@@ -572,11 +572,13 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * @param {string} audioId - Audio card ID from hardware registry
    * @returns {Promise<Object>} Response with status
    */
-  async function configureClientAudio(macId, audioId) {
+  async function configureClientAudio(macId, audioId, volumeControl = null) {
     return apiCall('store', 'Error configuring client audio', async () => {
+      const body = { audio_id: audioId };
+      if (volumeControl !== null) body.volume_control = volumeControl;
       const response = await axios.put(
         `/api/multiroom/clients/${encodeURIComponent(macId)}/audio`,
-        { audio_id: audioId },
+        body,
       );
       return response.data;
     }, { rethrow: true });

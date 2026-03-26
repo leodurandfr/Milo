@@ -674,6 +674,11 @@ class VolumeService:
             await self._hardware_service.set_volume_control(enabled)
         self._volume_control = enabled
         self._state_store.set_volume_control(enabled)
+        # Sync to registry so zone all_external_volume and WS events stay accurate
+        if self._client_registry and self._state_store.local_mac_id:
+            await self._client_registry.update_client(
+                self._state_store.local_mac_id, volume_control=enabled
+            )
         self.logger.info(f"Local volume_control set to {enabled}")
         await self._broadcast_volume_state(show_bar=False)
 

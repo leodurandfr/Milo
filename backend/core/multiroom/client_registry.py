@@ -101,7 +101,7 @@ class ClientRegistryService:
         ip: str,
         host: str = "",
         speaker_type: SpeakerType = DEFAULT_SPEAKER_TYPE,
-        volume_control: bool = True
+        volume_control: Optional[bool] = None
     ) -> Client:
         """
         Register a new client or update existing one.
@@ -112,7 +112,8 @@ class ClientRegistryService:
             ip: IP address (127.0.0.1 for local client)
             host: Hostname from Snapcast
             speaker_type: Speaker type for crossover (default: bookshelf)
-            volume_control: True if Milo manages volume, False for DAC (external amp)
+            volume_control: True if Milo manages volume, False for DAC (external amp).
+                None preserves existing value for known clients, defaults to True for new ones.
 
         Returns:
             The registered or updated client
@@ -126,7 +127,8 @@ class ClientRegistryService:
                     existing.name = name
                 existing.ip = ip
                 existing.host = host
-                existing.volume_control = volume_control
+                if volume_control is not None:
+                    existing.volume_control = volume_control
                 client = existing
                 event_type = RegistryEventType.CLIENT_UPDATED
             else:
@@ -141,7 +143,7 @@ class ClientRegistryService:
                     volume_db=DEFAULT_VOLUME_DB,
                     mute=False,
                     speaker_type=speaker_type,
-                    volume_control=volume_control
+                    volume_control=volume_control if volume_control is not None else True
                 )
                 self._clients[mac_id] = client
                 event_type = RegistryEventType.CLIENT_CONNECTED
@@ -255,7 +257,8 @@ class ClientRegistryService:
         self,
         mac_id: str,
         name: Optional[str] = None,
-        speaker_type: Optional[SpeakerType] = None
+        speaker_type: Optional[SpeakerType] = None,
+        volume_control: Optional[bool] = None
     ) -> Optional[Client]:
         """
         Update client properties.
@@ -264,6 +267,7 @@ class ClientRegistryService:
             mac_id: The client's mac_id
             name: New display name (optional)
             speaker_type: New speaker type (optional)
+            volume_control: True if Milo manages volume, False for DAC (optional)
 
         Returns:
             Updated client or None if not found
@@ -277,17 +281,20 @@ class ClientRegistryService:
                 return None
 
             speaker_type_changed = speaker_type is not None and speaker_type != client.speaker_type
+            volume_control_changed = volume_control is not None and volume_control != client.volume_control
 
             if name is not None:
                 client.name = name
             if speaker_type is not None:
                 client.speaker_type = speaker_type
+            if volume_control is not None:
+                client.volume_control = volume_control
 
             client_dict = client.to_dict()
 
-            # If speaker type changed and client is in a zone, prepare zone update
-            # (zone's crossover_frequency depends on speaker types)
-            if speaker_type_changed and client.zone_id:
+            # If speaker type or volume_control changed and client is in a zone, re-broadcast zone
+            # (zone's all_external_volume and crossover_frequency depend on client properties)
+            if (speaker_type_changed or volume_control_changed) and client.zone_id:
                 zone = self._zones.get(client.zone_id)
                 if zone:
                     zone_to_update = (client.zone_id, self.zone_to_enriched_dict(zone))
@@ -298,7 +305,7 @@ class ClientRegistryService:
             "client": client_dict
         })
 
-        # Emit zone update if speaker type changed (for crossover_frequency recalculation)
+        # Emit zone update if properties affecting zone state changed
         if zone_to_update:
             await self._emit_event(RegistryEventType.ZONE_UPDATED, {
                 "zone_id": zone_to_update[0],

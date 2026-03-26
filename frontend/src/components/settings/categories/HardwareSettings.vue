@@ -12,6 +12,17 @@
           @change="onAudioChange"
         />
       </div>
+
+      <!-- External amplifier toggle (DAC cards only) -->
+      <ListItemButton
+        v-if="isDacCard"
+        :title="t('multiroom.externalVolume')"
+        :subtitle="t('volumeSettings.externalAmplifier')"
+        variant="background"
+        action="toggle"
+        :model-value="!config.volume_control"
+        @click="toggleVolumeControl"
+      />
     </SettingsSection>
 
     <!-- Screen -->
@@ -67,6 +78,7 @@ import { logger } from '@/services/logger';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
+import ListItemButton from '@/components/ui/ListItemButton.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
 import Button from '@/components/ui/Button.vue';
 
@@ -83,6 +95,7 @@ const gpioPinOptions = Array.from({ length: 40 }, (_, i) => ({
 // sw_pin is kept internally for the backend payload but not shown in the UI
 const config = ref({
   audio_id: '',
+  volume_control: true,
   screen_type: 'none',
   clk_pin: 22,
   dt_pin: 27,
@@ -111,10 +124,18 @@ const isDirty = computed(() => {
   );
 });
 
+// Check if the selected audio card is a DAC
+const isDacCard = computed(() => {
+  if (!config.value.audio_id) return false;
+  const card = audioCardOptions.value.find(c => c.value === config.value.audio_id);
+  return card?.category === 'dac';
+});
+
 function syncFromData(data) {
   const current = data.current;
   const snapshot = {
     audio_id: current.audio?.id || '',
+    volume_control: current.audio?.volume_control !== false,
     screen_type: current.screen?.type || 'none',
     clk_pin: current.rotary_encoder?.clk_pin ?? 22,
     dt_pin: current.rotary_encoder?.dt_pin ?? 27,
@@ -144,6 +165,22 @@ function handleApply() {
 function onAudioChange(value) {
   config.value.audio_id = value;
   confirmReboot.value = false;
+  // Default volume_control based on card category (user can override via toggle)
+  const card = audioCardOptions.value.find(c => c.value === value);
+  config.value.volume_control = card?.category !== 'dac';
+}
+
+async function toggleVolumeControl() {
+  config.value.volume_control = !config.value.volume_control;
+  // If no pending hardware change, save immediately via API
+  if (!isDirty.value) {
+    try {
+      await axios.patch('/api/volume/volume-control', { volume_control: config.value.volume_control });
+    } catch (error) {
+      logger.error('hardware', 'Error saving volume control', error);
+      config.value.volume_control = !config.value.volume_control; // Revert on failure
+    }
+  }
 }
 
 function onScreenChange(value) {
@@ -162,7 +199,7 @@ async function applyAndReboot() {
 
   try {
     const payload = {
-      audio: { id: config.value.audio_id },
+      audio: { id: config.value.audio_id, volume_control: config.value.volume_control },
       screen: { type: config.value.screen_type },
       rotary_encoder: {
         clk_pin: config.value.clk_pin,

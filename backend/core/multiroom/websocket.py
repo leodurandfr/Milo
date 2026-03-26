@@ -565,6 +565,8 @@ class SnapcastWebSocketService:
                     kwargs["speaker_type"] = reg_speaker_type
                 if pending:
                     kwargs["volume_control"] = pending.get("volume_control", True)
+                # When no pending entry, volume_control is not passed — register_client
+                # preserves existing value for known clients (e.g. DAC mode)
                 await self.registry.register_client(mac_id, reg_name, client_ip, **kwargs)
 
             self.logger.info(f"[{time.time():.3f}] CLIENT_CONNECT: Calling volume sync for {client_id}")

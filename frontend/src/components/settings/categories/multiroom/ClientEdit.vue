@@ -46,6 +46,17 @@
             @change="selectAudioCard"
           />
         </div>
+        <!-- External amplifier toggle (DAC cards only) -->
+        <ListItemButton
+          v-if="isDacCard"
+          :title="t('multiroom.externalVolume')"
+          :subtitle="t('volumeSettings.externalAmplifier')"
+          variant="background"
+          action="toggle"
+          :model-value="!volumeControl"
+          @click="toggleVolumeControl"
+        />
+
         <p v-if="audioError" class="audio-error text-mono">{{ audioError }}</p>
       </SettingsSection>
 
@@ -155,6 +166,7 @@ const { loadHardwareConfig } = useHardwareConfig();
 const clientName = ref('');
 const originalClientName = ref('');
 const selectedSpeakerType = ref('bookshelf');
+const volumeControl = ref(true);
 const deleting = ref(false);
 const crossoverFrequency = ref(80);
 
@@ -180,6 +192,13 @@ const REBOOT_TIMEOUT_MS = 120000;
 const audioCardOptions = computed(() =>
   audioCards.value.filter(card => card.value !== 'none')
 );
+
+// Check if the selected audio card is a DAC (show volume control toggle)
+const isDacCard = computed(() => {
+  if (!selectedAudioId.value) return false;
+  const card = audioCards.value.find(c => c.value === selectedAudioId.value);
+  return card?.category === 'dac';
+});
 
 // Dirty check for audio card change
 const isAudioDirty = computed(() =>
@@ -270,6 +289,22 @@ function selectAudioCard(audioId) {
   selectedAudioId.value = audioId;
   confirmReboot.value = false;
   audioError.value = '';
+  // Default volume_control based on card category (user can override via toggle)
+  const card = audioCards.value.find(c => c.value === audioId);
+  volumeControl.value = card?.category !== 'dac';
+}
+
+async function toggleVolumeControl() {
+  volumeControl.value = !volumeControl.value;
+  // If no pending audio card change, save immediately via PATCH
+  if (!isAudioDirty.value) {
+    try {
+      await multiroomClientStore.updateClient(props.macId, { volume_control: volumeControl.value });
+    } catch (error) {
+      logger.error('multiroom', 'Error saving volume control', error);
+      volumeControl.value = !volumeControl.value; // Revert on failure
+    }
+  }
 }
 
 function handleApply() {
@@ -286,7 +321,7 @@ async function applyAudioChange() {
   isApplying.value = true;
   audioError.value = '';
   try {
-    await multiroomClientStore.configureClientAudio(props.macId, selectedAudioId.value);
+    await multiroomClientStore.configureClientAudio(props.macId, selectedAudioId.value, volumeControl.value);
     isRebooting.value = true;
     rebootTimeoutId = setTimeout(() => {
       rebootTimedOut.value = true;
@@ -359,6 +394,7 @@ onMounted(async () => {
     clientName.value = client.value.name || client.value.host;
     originalClientName.value = clientName.value;
     selectedSpeakerType.value = client.value.speaker_type || equalizerStore.getClientSpeakerType(props.macId);
+    volumeControl.value = client.value.volume_control !== false;
 
     // Load audio card options and current card for remote clients
     if (!client.value.is_local && client.value.online) {

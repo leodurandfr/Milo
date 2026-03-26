@@ -87,15 +87,15 @@ function getZoneAverageVolume(zone) {
   if (zoneData && typeof zoneData.average_volume_db === 'number') {
     return zoneData.average_volume_db;
   }
-  // Fallback: calculate from individual clients (only online clients)
+  // Fallback: calculate from individual clients (only online clients with volume control)
   if (!zone?.client_ids?.length) return -60;
-  // Filter to only connected clients
-  const onlineClientIds = zone.client_ids.filter(macId =>
-    snapcastStore.clients.some(c => c.mac_id === macId && c.online)
+  // Filter to only connected clients that have volume control (exclude DAC clients)
+  const controllableClientIds = zone.client_ids.filter(macId =>
+    snapcastStore.clients.some(c => c.mac_id === macId && c.online && c.volume_control !== false)
   );
-  if (onlineClientIds.length === 0) return -60;
+  if (controllableClientIds.length === 0) return -60;
 
-  const volumes = onlineClientIds.map(macId => equalizerStore.getClientEqualizerVolume(macId));
+  const volumes = controllableClientIds.map(macId => equalizerStore.getClientEqualizerVolume(macId));
   return volumes.reduce((sum, v) => sum + v, 0) / volumes.length;
 }
 
@@ -120,9 +120,9 @@ const zoneSliderState = ref({});
 function getZoneSliderState(zone) {
   const zoneId = zone.id || zone.client_ids.join('-');
   if (!zoneSliderState.value[zoneId]) {
-    // Filter to only online clients (matching getZoneAverageVolume pattern)
+    // Filter to only online clients with volume control (exclude DAC clients)
     const onlineClientIds = zone.client_ids.filter(macId =>
-      snapcastStore.clients.some(c => c.mac_id === macId && c.online)
+      snapcastStore.clients.some(c => c.mac_id === macId && c.online && c.volume_control !== false)
     );
 
     // Handle edge case: no online clients
@@ -247,7 +247,7 @@ const displayClients = computed(() => {
             speakerType: equalizerStore.getClientSpeakerType(c.mac_id),
             online: c.online,
             is_local: c.is_local,
-            volume_control: c.volume_control ?? true
+            volume_control: c.volume_control
           }));
 
           // Use arithmetic average of all clients in zone

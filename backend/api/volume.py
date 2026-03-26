@@ -10,6 +10,7 @@ from backend.api.models import (
     ClientVolumeRequest,
     ClientMuteRequest,
     VolumeSettingsPatchRequest,
+    VolumeControlRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -430,5 +431,12 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
                 "startup_volume_db": volume_service.volume_config.startup_volume_db,
                 "restore_last_volume": volume_service.volume_config.restore_last_volume
             }
+
+    @router.patch("/volume-control")
+    async def set_volume_control(request: VolumeControlRequest):
+        """Toggle local device volume_control (DAC mode) at runtime."""
+        async with api_error_handler("Error setting volume control", logger):
+            await volume_service.set_local_volume_control(request.volume_control)
+            return {"status": "success", "volume_control": request.volume_control}
 
     return router
