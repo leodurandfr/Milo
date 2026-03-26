@@ -20,11 +20,20 @@ export function useSourceProgress(source) {
   });
 
   // Synchronization with store metadata
-  watch(() => unifiedStore.systemState.metadata?.position, (newPosition) => {
-    if (newPosition !== undefined && !isApiSyncing) {
-      localPosition.value = newPosition;
-    }
-  }, { immediate: true });
+  // Watch both position AND duration so that track changes (where position
+  // stays 0 but duration changes) still reset localPosition correctly.
+  watch(
+    [
+      () => unifiedStore.systemState.metadata?.position,
+      () => unifiedStore.systemState.metadata?.duration,
+    ],
+    ([newPosition]) => {
+      if (newPosition !== undefined && !isApiSyncing) {
+        localPosition.value = newPosition;
+      }
+    },
+    { immediate: true }
+  );
 
   // Local animation while playing
   watch(() => unifiedStore.systemState.metadata?.is_playing, (isPlaying) => {
