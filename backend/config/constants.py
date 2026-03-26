@@ -44,7 +44,6 @@ CLIENT_API_PORT = 8001          # Milo-client API port (equalizer, health, etc.)
 # =============================================================================
 # TIMEOUTS (in seconds)
 # =============================================================================
-CLIENT_REQUEST_TIMEOUT = 2.0    # Timeout for requests to milo-client
 HEALTH_CHECK_TIMEOUT = 2.0      # Timeout for health checks
 
 # =============================================================================
