@@ -509,7 +509,7 @@ class CrossoverService:
                         )
                         return True
                     else:
-                        self.logger.error(
+                        self.logger.warning(
                             f"Failed to set {filter_name} on client {identifier}: HTTP {response.status}"
                         )
                         return False
@@ -587,7 +587,7 @@ class CrossoverService:
             )
             if not result:
                 success = False
-                self.logger.warning(f"Failed to apply pending crossover to {client_id}")
+                self.logger.debug(f"Failed to apply pending crossover to {client_id} (zone recalculation will re-apply)")
 
         if "lowpass" in pending:
             lowpass = pending["lowpass"]
@@ -598,7 +598,7 @@ class CrossoverService:
             )
             if not result:
                 success = False
-                self.logger.warning(f"Failed to apply pending lowpass to {client_id}")
+                self.logger.debug(f"Failed to apply pending lowpass to {client_id} (zone recalculation will re-apply)")
 
         if "volume" in pending:
             volume_db = pending["volume"].get("volume_db")

@@ -66,7 +66,7 @@ async def _send_audio_config_and_reboot(mac_id: str, client_ip: str, audio_id: s
         raise HTTPException(status_code=502, detail=f"Cannot reach client at {client_ip}")
 
 
-def create_multiroom_router(registry_service, multiroom_equalizer_service=None, pending_clients_service=None):
+def create_multiroom_router(registry_service, multiroom_equalizer_service=None, pending_clients_service=None, crossover_service=None):
     """
     Creates multiroom router with dependency injection.
 
@@ -164,7 +164,8 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
             updated_client = await registry_service.update_client(
                 mac_id,
                 name=request.name,
-                speaker_type=request.speaker_type
+                speaker_type=request.speaker_type,
+                volume_control=request.volume_control
             )
 
             return {"status": "success", "client": _client_with_online(updated_client)}
@@ -229,10 +230,20 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
             from backend.hardware.registry import AUDIO_CARDS, is_dac_card
             card_info = AUDIO_CARDS.get(request.audio_id, {})
             overlay = card_info.get("overlay", "")
-            volume_control = not is_dac_card(request.audio_id)
+            # Use explicit value from request, or auto-detect from card category
+            volume_control = request.volume_control if request.volume_control is not None else not is_dac_card(request.audio_id)
 
             await _send_audio_config_and_reboot(mac_id, client.ip, request.audio_id, overlay, volume_control)
-            logger.info(f"Client {mac_id} audio changed to {request.audio_id}, rebooting")
+
+            # Clear stale pending crossover/EQ settings after hardware confirmed —
+            # the new audio card means a fresh CamillaDSP config, so old
+            # pending filters would fail (HTTP 400) and are no longer relevant.
+            if crossover_service:
+                crossover_service.clear_pending_settings(mac_id)
+
+            # Update volume_control in registry after hardware confirmed the new config
+            await registry_service.update_client(mac_id, volume_control=volume_control)
+            logger.info(f"Client {mac_id} audio changed to {request.audio_id} (volume_control={volume_control}), rebooting")
             return {"status": "success", "message": f"Client {mac_id} audio changed, rebooting"}
 
     # === ZONE ENDPOINTS ===
@@ -514,7 +525,12 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
                 )
 
             # Hardware already configured → snapclient will handle reconnection
+            # Still sync volume_control from client's audio card to keep registry accurate
             if request.hardware_configured:
+                existing = registry_service.get_client(request.mac_id)
+                if existing and existing.volume_control != request.volume_control:
+                    await registry_service.update_client(request.mac_id, volume_control=request.volume_control)
+                    logger.info(f"Client {request.mac_id} volume_control updated to {request.volume_control}")
                 logger.info(f"Client {request.mac_id} registered with hardware configured, skipping pending")
                 return {"status": "success", "message": "Hardware configured, snapclient will reconnect"}
 
@@ -570,20 +586,23 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
 
             client_ip = client["ip"]
 
-            # 1. Update pending storage
+            # 1. Resolve overlay and volume_control from audio card
+            from backend.hardware.registry import AUDIO_CARDS, is_dac_card
+            card_info = AUDIO_CARDS.get(request.audio_id, {})
+            overlay = card_info.get("overlay", "")
+            # Use explicit value from request, or auto-detect from card category
+            volume_control = request.volume_control if request.volume_control is not None else not is_dac_card(request.audio_id)
+
+            # 2. Update pending storage (including volume_control)
             await pending_clients_service.update_client(
                 mac_id,
                 name=request.name,
                 speaker_type=request.speaker_type,
                 audio_id=request.audio_id,
+                volume_control=volume_control,
             )
 
-            # 2. Resolve overlay and send config + reboot to client
-            from backend.hardware.registry import AUDIO_CARDS, is_dac_card
-            card_info = AUDIO_CARDS.get(request.audio_id, {})
-            overlay = card_info.get("overlay", "")
-            volume_control = not is_dac_card(request.audio_id)
-
+            # 3. Send config + reboot to client
             await _send_audio_config_and_reboot(mac_id, client_ip, request.audio_id, overlay, volume_control)
             logger.info(f"Pending client {mac_id} configured with audio={request.audio_id}, rebooting")
             return {"status": "success", "message": f"Client {mac_id} configured and rebooting"}
