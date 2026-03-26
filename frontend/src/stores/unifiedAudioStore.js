@@ -1,6 +1,6 @@
 // frontend/src/stores/unifiedAudioStore.js - Cleaned version without UI states
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
+import { ref } from 'vue';
 import axios from 'axios';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';

@@ -253,13 +253,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   // Note: fetchLinkedGroups, fetchClientTypes, and fetchAvailableTargets removed
   // linkedGroups and clientTypes now delegate to multiroomStore
 
-  async function fetchZoneCrossover(zoneId) {
-    return apiCall('store', 'Error fetching zone crossover', async () => {
-      const response = await axios.get(`/api/equalizer/links/${zoneId}/crossover`);
-      return response.data || { frequency: 80, enabled: false, has_subwoofer: false };
-    }, { fallback: { frequency: 80, enabled: false, has_subwoofer: false } });
-  }
-
   async function fetchEnabledState() {
     return apiCall('store', 'Error fetching equalizer enabled state', async () => {
       const response = await axios.get('/api/equalizer/enabled');
@@ -343,15 +336,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
    */
   function macToUrlFormat(macId) {
     return macId.replace(/:/g, '');
-  }
-
-  /**
-   * Check if a string is a MAC address (contains colons).
-   * @param {string} id - Client identifier
-   * @returns {boolean} True if id looks like a MAC address
-   */
-  function isMacAddress(id) {
-    return id && id.includes(':');
   }
 
   /**
@@ -581,7 +565,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     filtersLoaded.value = false;
 
     await apiCall('store', 'Error loading equalizer data', async () => {
-      const [statusData, filtersData, presetsData] = await Promise.all([
+      const [statusData, filtersData] = await Promise.all([
         fetchStatus(signal),
         fetchFilters(signal),
         fetchPresets()
@@ -996,15 +980,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   }
 
   // === LINKED CLIENTS MANAGEMENT ===
-
-  async function linkClients(clientIds, sourceClient = null, zoneName = null) {
-    return apiCall('store', 'Error linking clients', async () => {
-      // Delegate to multiroomStore - single source of truth for zones
-      const response = await registryStore.createZone(zoneName || '', clientIds);
-      // Response includes zone data if successful
-      return !!response.zone;
-    });
-  }
 
   async function unlinkClient(clientId) {
     return apiCall('store', 'Error unlinking client', async () => {
@@ -1492,7 +1467,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     selectTarget,
 
     // Linked Clients Management
-    linkClients,
     unlinkClient,
     clearAllLinks,
     deleteZone,
