@@ -335,10 +335,6 @@ class AirPlaySource(BaseAudioSource):
 
     # === Public API ===
 
-    @property
-    def device_connected(self) -> bool:
-        return self._device_connected
-
     def get_artwork(self) -> Optional[Tuple[bytes, str]]:
         """Return current artwork as (data, mime_type), or None."""
         if self._artwork_data and self._artwork_mime:

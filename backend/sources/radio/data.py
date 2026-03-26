@@ -702,7 +702,7 @@ class StationDataService:
                         del cached['id']
                     self._favorites_cache[station_id] = cached
 
-            success = await self._save()
+            await self._save()
 
             return {"success": True}
 

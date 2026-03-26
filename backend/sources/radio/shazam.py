@@ -80,10 +80,6 @@ class ShazamRecognitionService:
         """
         return self._current_track
 
-    def clear_track(self) -> None:
-        """Clear the current track without stopping the recognition loop."""
-        self._current_track = None
-
     async def start(self, stream_url: str, preroll_skip: int = 0) -> None:
         """
         Start periodic recognition for the given stream URL.

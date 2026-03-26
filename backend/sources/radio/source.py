@@ -502,11 +502,6 @@ class RadioSource(MpvAudioSource):
     # === Public API ===
 
     @property
-    def mpv(self) -> Optional[MpvController]:
-        """Get MPV controller."""
-        return self._mpv
-
-    @property
     def station_data(self) -> Optional[StationDataService]:
         """Get station data service."""
         return self._station_data
@@ -515,11 +510,6 @@ class RadioSource(MpvAudioSource):
     def radio_api(self) -> Optional[RadioBrowserAPI]:
         """Get RadioBrowser API client."""
         return self._radio_api
-
-    @property
-    def current_station(self) -> Optional[Dict[str, Any]]:
-        """Get current station."""
-        return self._current_station
 
     @property
     def is_buffering(self) -> bool:

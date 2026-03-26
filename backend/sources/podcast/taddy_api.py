@@ -155,7 +155,6 @@ class TaddyAPI:
         self._series_cache: Dict[str, tuple[datetime, Any]] = {}
         self._episode_cache: Dict[str, tuple[datetime, Any]] = {}
         self._discovery_cache: Dict[str, tuple[datetime, Any]] = {}
-        self._itunes_lookup_cache: Dict[str, tuple[datetime, Optional[str]]] = {}  # {podcast_name: (timestamp, uuid)}
 
     async def _ensure_session(self) -> None:
         """Creates aiohttp session if needed"""
@@ -774,95 +773,6 @@ class TaddyAPI:
         self._set_cache(self._episode_cache, uuid, normalized)
         return normalized
 
-    async def get_multiple_podcast_series(
-        self,
-        uuids: List[str]
-    ) -> List[Dict[str, Any]]:
-        """
-        Get multiple podcast series in batch (max 25)
-        """
-        if not uuids:
-            return []
-
-        # Taddy limit is 25
-        uuids = uuids[:25]
-        uuids_str = ', '.join([f'"{u}"' for u in uuids])
-
-        query = f"""
-        {{
-            getMultiplePodcastSeries(uuids: [{uuids_str}]) {{
-                uuid
-                name
-                imageUrl
-                totalEpisodesCount
-                childrenHash
-                genres
-                language
-                seriesType
-                isCompleted
-                itunesInfo {{
-                uuid
-                    baseArtworkUrlOf(size: 600)
-                    publisherName
-                }}
-            }}
-        }}
-        """
-
-        data = await self._make_graphql_request(query)
-        if not data or "getMultiplePodcastSeries" not in data:
-            return []
-
-        results = []
-        for series in data["getMultiplePodcastSeries"]:
-            if series:
-                results.append(self._normalize_podcast_series(series))
-
-        return results
-
-    async def get_multiple_episodes(
-        self,
-        uuids: List[str]
-    ) -> List[Dict[str, Any]]:
-        """
-        Get multiple episodes in batch (max 25)
-        """
-        if not uuids:
-            return []
-
-        uuids = uuids[:25]
-        uuids_str = ', '.join([f'"{u}"' for u in uuids])
-
-        query = f"""
-        {{
-            getMultiplePodcastEpisodes(uuids: [{uuids_str}]) {{
-                uuid
-                name
-                duration
-                audioUrl
-                imageUrl
-                datePublished
-                episodeType
-                podcastSeries {{
-                    uuid
-                    name
-                    imageUrl
-                }}
-            }}
-        }}
-        """
-
-        data = await self._make_graphql_request(query)
-        if not data or "getMultiplePodcastEpisodes" not in data:
-            return []
-
-        results = []
-        for episode in data["getMultiplePodcastEpisodes"]:
-            if episode:
-                results.append(self._normalize_episode(episode))
-
-        return results
-
     async def get_latest_episodes(
         self,
         podcast_uuids: List[str],
@@ -951,25 +861,6 @@ class TaddyAPI:
         self._episode_cache.clear()
         self._discovery_cache.clear()
         self.logger.info("Cache cleared")
-
-    def clean_expired_cache(self) -> int:
-        """Remove expired entries from all caches"""
-        now = datetime.now()
-        removed = 0
-
-        for cache in [self._search_cache, self._series_cache, self._episode_cache, self._discovery_cache]:
-            expired_keys = [
-                key for key, (cached_time, _) in cache.items()
-                if now - cached_time >= self.cache_duration
-            ]
-            for key in expired_keys:
-                del cache[key]
-                removed += 1
-
-        if removed > 0:
-            self.logger.debug(f"Removed {removed} expired cache entries")
-
-        return removed
 
     # ========== NORMALIZATION ==========
 

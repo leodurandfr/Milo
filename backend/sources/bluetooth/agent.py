@@ -124,7 +124,7 @@ class BluetoothAgent(ServiceInterface):
         return 0
 
     @method()
-    def DisplayPasskey(self, device: 'o', passkey: 'u', entered: 'q') -> None:
+    def DisplayPasskey(self, device: 'o', passkey: 'u', _entered: 'q') -> None:
         """Display passkey (no-op for headless)."""
         self._logger.debug(f"Display passkey {passkey} for {device}")
 

@@ -518,21 +518,6 @@ class SpotifySource(BaseAudioSource):
 
     # === Public API ===
 
-    @property
-    def api_url(self) -> Optional[str]:
-        """Get API URL."""
-        return self._api_url
-
-    @property
-    def device_connected(self) -> bool:
-        """Check if device is connected."""
-        return self._device_connected
-
-    @property
-    def has_active_session(self) -> bool:
-        """Check if HTTP session is active."""
-        return self._session is not None
-
     async def set_auto_disconnect_config(
         self,
         enabled: bool,
