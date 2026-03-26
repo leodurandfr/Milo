@@ -2,7 +2,7 @@
 Description=Milo AirPlay 2 receiver (shairport-sync)
 After=network-online.target sound.target milo-backend.service milo-camilladsp.service nqptp.service
 Wants=network-online.target
-Requires=nqptp.service
+Requires=nqptp.service sound.target
 BindsTo=milo-backend.service
 
 [Service]
