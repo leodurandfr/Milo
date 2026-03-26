@@ -259,7 +259,3 @@ class HardwareService:
             error_msg = stderr.decode().strip() if stderr else "unknown error"
             self.logger.error(f"milo-apply-hardware failed (rc={proc.returncode}): {error_msg}")
             raise RuntimeError(f"Hardware apply failed: {error_msg}")
-
-    def reload(self):
-        """Forces hardware configuration reload."""
-        self._cache = None

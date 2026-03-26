@@ -19,7 +19,6 @@ from fastapi import HTTPException
 from backend.config.constants import (
     CLIENT_API_PORT,
     HEALTH_CHECK_TIMEOUT,
-    CLIENT_REQUEST_TIMEOUT,
 )
 
 
