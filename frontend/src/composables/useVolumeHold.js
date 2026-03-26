@@ -1,4 +1,4 @@
-import { ref, onUnmounted } from 'vue';
+import { onUnmounted } from 'vue';
 
 /**
  * Hold-to-repeat composable for discrete volume buttons.

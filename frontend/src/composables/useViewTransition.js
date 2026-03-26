@@ -249,7 +249,6 @@ export function useViewTransition({
       requestAnimationFrame(() => {
         const scrollEl = unref(scrollElRef);
         const enteringHeight = el.offsetHeight;
-        const enteringBCR = el.getBoundingClientRect().height;
         let delta = enteringHeight - savedLeavingHeight;
         let usedOverflowPath = false;
 

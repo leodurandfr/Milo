@@ -156,7 +156,6 @@ export function useAnimatedHeight(contentRef, options = {}) {
         if (contentRef.value) {
           const el = contentRef.value;
           const offsetH = el.offsetHeight;
-          const bcrH = el.getBoundingClientRect().height;
           const extra = getExtraHeight ? getExtraHeight() : 0;
           let actualHeight = offsetH + extra;
           if (maxAvailable < Infinity) {
