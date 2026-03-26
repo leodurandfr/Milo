@@ -2,6 +2,7 @@
 Description=Milo Mac Audio Receiver (ROC)
 Documentation=https://roc-streaming.org/
 After=network.target sound.target milo-backend.service milo-camilladsp.service
+Requires=sound.target
 BindsTo=milo-backend.service
 
 [Service]
