@@ -11,7 +11,7 @@ Tests cover:
 - Event broadcasting
 """
 import pytest
-from unittest.mock import Mock, AsyncMock, MagicMock
+from unittest.mock import Mock, AsyncMock
 
 from backend.core.equalizer import MultiroomEqualizerService
 from backend.core.multiroom.models import (

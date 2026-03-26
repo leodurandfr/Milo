@@ -12,7 +12,6 @@ Tests:
 import pytest
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
 
 from backend.core.multiroom.models import (
     Client,
@@ -21,7 +20,6 @@ from backend.core.multiroom.models import (
     RegistryState,
     RegistryEventType,
     ReconnectionContext,
-    SpeakerType,
     SPEAKER_TYPES,
     DEFAULT_SPEAKER_TYPE,
     DEFAULT_CROSSOVER_FREQUENCIES,
@@ -35,8 +33,6 @@ from backend.core.models.volume import VolumeConfig
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.snapcast import (
     SnapcastService,
-    get_online_clients,
-    get_online_client_ids,
 )
 from backend.core.multiroom.crossover import CrossoverService
 from backend.core.equalizer.client_proxy import is_ip_address
@@ -877,7 +873,7 @@ class TestZoneAverageVolume:
         await registry.set_client_online("client-3", True)
 
         # Create zone with all 3 clients
-        zone = await registry.create_zone(
+        await registry.create_zone(
             zone_id="zone-1",
             name="Test Zone",
             client_ids=["client-1", "client-2", "client-3"]
@@ -2898,7 +2894,7 @@ class TestSyncZoneDspToClient:
         ws_service._crossover_service = mock_state_machine.crossover_service
 
         # Execute sync
-        result = await ws_service._sync_zone_equalizer_to_client("test-client", mock_zone_with_equalizer)
+        await ws_service._sync_zone_equalizer_to_client("test-client", mock_zone_with_equalizer)
 
         # Verify proxy was called for each filter
         proxy = mock_state_machine.equalizer_client_proxy_service
@@ -3125,7 +3121,7 @@ class TestSyncStandaloneDspToClient:
         ws_service._crossover_service = mock_state_machine.crossover_service
         ws_service._camilladsp_service = mock_state_machine.camilladsp_service
 
-        result = await ws_service._sync_standalone_equalizer_to_client("test-client")
+        await ws_service._sync_standalone_equalizer_to_client("test-client")
 
         # Verify proxy was called for each setting type
         proxy = mock_state_machine.equalizer_client_proxy_service
@@ -3164,7 +3160,7 @@ class TestSyncStandaloneDspToClient:
         ws_service._crossover_service = mock_state_machine.crossover_service
         ws_service._camilladsp_service = mock_state_machine.camilladsp_service
 
-        result = await ws_service._sync_standalone_equalizer_to_client("local")
+        await ws_service._sync_standalone_equalizer_to_client("local")
 
         # Verify camilladsp_service was used (not proxy)
         camilladsp_service = mock_state_machine.camilladsp_service

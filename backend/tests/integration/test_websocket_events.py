@@ -16,16 +16,14 @@ import pytest
 import asyncio
 import json
 import time
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import Mock, AsyncMock
 from typing import List, Dict, Any
 
-from fastapi import WebSocket
 from starlette.websockets import WebSocketState
 
 from backend.ws import WebSocketManager, WebSocketServer
 from backend.core.models.audio_state import AudioSource, SourceState, SystemAudioState
 
-from .conftest import WebSocketEventCollector
 
 
 # ==============================================================================

@@ -11,14 +11,12 @@ AC Coverage:
 - AC5: Event timing (NFR2 < 100ms)
 """
 import pytest
-import asyncio
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.websocket import SnapcastWebSocketService
 from backend.core.multiroom.models import (
-    RegistryEventType,
     DEFAULT_SPEAKER_TYPE,
 )
 from backend.config.constants import DEFAULT_VOLUME_DB

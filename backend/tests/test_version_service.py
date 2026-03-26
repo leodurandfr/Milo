@@ -6,7 +6,7 @@ import asyncio
 import time
 
 import pytest
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
+from unittest.mock import AsyncMock, patch, MagicMock
 
 from backend.core.updates.version import VersionService
 

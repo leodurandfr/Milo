@@ -3,11 +3,9 @@
 Tests for UpdateService — update orchestration, backup/restore, service management.
 """
 import asyncio
-import os
-from pathlib import Path
 
 import pytest
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
+from unittest.mock import AsyncMock, patch
 
 from backend.core.updates.update import UpdateService
 
@@ -78,7 +76,7 @@ class TestUpdateProgram:
 
         with patch.object(update_service, "_get_program_full_status", return_value=status):
             with patch.object(update_service, "_update_multiroom", return_value=expected_result) as mock_update:
-                result = await update_service.update_program("multiroom")
+                await update_service.update_program("multiroom")
 
         mock_update.assert_called_once()
 
@@ -89,7 +87,7 @@ class TestUpdateProgram:
 
         with patch.object(update_service, "_get_program_full_status", return_value=status):
             with patch.object(update_service, "_update_shairport_sync", return_value=expected_result) as mock_update:
-                result = await update_service.update_program("shairport-sync")
+                await update_service.update_program("shairport-sync")
 
         mock_update.assert_called_once()
 
@@ -100,7 +98,7 @@ class TestUpdateProgram:
 
         with patch.object(update_service, "_get_program_full_status", return_value=status):
             with patch.object(update_service, "_update_milo_app", return_value=expected_result) as mock_update:
-                result = await update_service.update_program("milo")
+                await update_service.update_program("milo")
 
         mock_update.assert_called_once()
 

@@ -6,7 +6,7 @@ Tests the migrated VolumeService, VolumeStateStore,
 and EqualizerController in the new core/volume/ location.
 """
 import pytest
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from unittest.mock import Mock, AsyncMock
 import asyncio
 
 from backend.core.volume import (
@@ -569,7 +569,6 @@ class TestZoneReconnectionVolume:
         mock_state_store.get_zone_target_volume.return_value = None  # No cached target
 
         # Simulate volume service method logic
-        client_id = "client-02"
         client_zone_id = "zone-1"
 
         # Determine target volume (mimics sync_existing_client_from_snapcast logic)
@@ -608,7 +607,6 @@ class TestZoneReconnectionVolume:
         mock_state_store.get_zone_target_volume.return_value = None
 
         # Simulate volume service method logic
-        client_id = "client-02"
         client_zone_id = "zone-1"
 
         target = mock_state_store.get_zone_target_volume(client_zone_id)

@@ -8,7 +8,7 @@ Tests cover:
 - GET /api/volume/client/{client_id} - Get client volume state
 """
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from backend.api.models import ClientVolumeRequest, ClientMuteRequest

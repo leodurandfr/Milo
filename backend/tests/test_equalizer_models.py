@@ -9,7 +9,6 @@ Tests cover:
 - EqualizerSettings model with typed sub-models
 - Backward compatibility with existing settings.json format
 """
-import pytest
 from backend.core.multiroom.models import (
     EqFilter,
     CompressorSettings,

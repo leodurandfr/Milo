@@ -12,8 +12,7 @@ from unittest.mock import Mock, AsyncMock
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.volume.state import VolumeStateStore
 from backend.core.models.volume import VolumeConfig
-from backend.core.multiroom.models import Client, Zone, EqualizerSettings, RegistryEventType
-from backend.core.models.volume_state import VolumeState
+from backend.core.multiroom.models import EqualizerSettings
 
 from .conftest import WebSocketEventCollector
 

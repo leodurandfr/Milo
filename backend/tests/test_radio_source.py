@@ -10,8 +10,7 @@ Tests cover:
 - Station data operations
 """
 import pytest
-import asyncio
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from unittest.mock import Mock, AsyncMock, patch
 
 from backend.sources.radio.source import RadioSource
 from backend.sources.radio.data import StationDataService, ImageManager

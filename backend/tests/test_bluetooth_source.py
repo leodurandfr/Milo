@@ -10,8 +10,7 @@ Tests cover:
 - BlueALSA monitor integration
 """
 import pytest
-import asyncio
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from unittest.mock import Mock, AsyncMock, patch
 
 from backend.sources.bluetooth.source import BluetoothSource
 from backend.sources.bluetooth.agent import BluetoothAgent
