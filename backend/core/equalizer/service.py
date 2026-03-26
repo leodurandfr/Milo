@@ -49,7 +49,6 @@ class CamillaDSPService:
     DEFAULT_PORT = 1234
     RECONNECT_DELAY = 5.0
     MAX_RECONNECT_DELAY = 30.0
-    COMMAND_TIMEOUT = 5.0
 
     def __init__(self, settings_service=None, host: str = None, port: int = None):
         self.logger = logging.getLogger(__name__)
@@ -75,8 +74,6 @@ class CamillaDSPService:
         # to prevent concurrent access to the non-thread-safe CamillaClient)
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="camilladsp")
 
-        # Current configuration cache
-        self._current_config: Dict[str, Any] = {}
         self._filters: List[Dict[str, Any]] = []
         self._loop = None  # Cached event loop
 
@@ -855,10 +852,6 @@ class CamillaDSPService:
         if not self.settings_service:
             return None
         return await self.settings_service.get_setting("equalizer.active_preset")
-
-    async def clear_active_preset(self) -> None:
-        if self.settings_service:
-            await self.settings_service.set_setting("equalizer.active_preset", None)
 
     # === Effects Bypass/Restore (for equalizer toggle) ===
 
