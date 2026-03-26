@@ -34,7 +34,7 @@ import MessageContent from '@/components/ui/MessageContent.vue'
 const { t } = useI18n()
 const radioStore = useRadioStore()
 
-const props = defineProps({
+defineProps({
   /**
    * Currently active/playing station
    */
