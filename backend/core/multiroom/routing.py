@@ -197,7 +197,7 @@ class AudioRoutingService:
         # Services snapcast
         self.snapserver_service = "milo-snapserver-multiroom.service"
         self.snapclient_service = "milo-snapclient-multiroom.service"
-    
+
     def set_snapcast_websocket_service(self, service) -> None:
         """Set SnapcastWebSocketService dependency."""
         self.snapcast_websocket_service = service
@@ -274,12 +274,12 @@ class AudioRoutingService:
         if not self.state_machine:
             return False
         return self.state_machine.system_state.equalizer_effects_enabled
-    
+
     async def initialize(self) -> None:
         """Initializes service state"""
         if not self._initial_detection_done:
             await self._detect_initial_state()
-    
+
     async def _detect_initial_state(self):
         """Initializes and detects initial state"""
         try:
@@ -497,7 +497,7 @@ class AudioRoutingService:
         # Persist setting
         if self.settings_service:
             await self.settings_service.set_setting('routing.multiroom_enabled', enabled)
-    
+
     async def set_equalizer_effects_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
         """
         Enables/disables equalizer effects (not the service itself).
@@ -546,11 +546,11 @@ class AudioRoutingService:
         if success and self.state_machine:
             await self.state_machine.update_equalizer_effects_state(enabled)
         return success
-    
+
     async def _update_systemd_environment(self) -> None:
         """Updates ALSA environment variables via static routing.env file."""
         RoutingEnvironment.update(self.multiroom_enabled)
-    
+
     async def _transition_to_multiroom(self, active_source: AudioSource = None) -> bool:
         """Transition to multiroom mode."""
         return await self._transition("multiroom", active_source)
@@ -635,7 +635,7 @@ class AudioRoutingService:
         except Exception as e:
             self.logger.error(f"Error in {target_mode} transition: {e}")
             return False
-    
+
     @handle_errors(default=False)
     async def _start_snapcast(self) -> bool:
         """Starts snapcast services and waits for snapserver readiness"""
@@ -658,13 +658,13 @@ class AudioRoutingService:
 
         success = await self.service_manager.start(self.snapclient_service)
         return success
-    
+
     @handle_errors(default=None)
     async def _stop_snapcast(self) -> None:
         """Stops snapcast services"""
         await self.service_manager.stop(self.snapclient_service)
         await self.service_manager.stop(self.snapserver_service)
-    
+
     def get_state(self) -> Dict[str, bool]:
         """
         Gets current routing state from single source of truth
@@ -675,13 +675,13 @@ class AudioRoutingService:
             "multiroom_enabled": self.multiroom_enabled,
             "equalizer_effects_enabled": self.equalizer_effects_enabled
         }
-    
+
     async def get_snapcast_status(self) -> Dict[str, Any]:
         """Gets snapcast services status"""
         try:
             server_active = await self.service_manager.is_active(self.snapserver_service)
             client_active = await self.service_manager.is_active(self.snapclient_service)
-            
+
             return {
                 "server_active": server_active,
                 "client_active": client_active,

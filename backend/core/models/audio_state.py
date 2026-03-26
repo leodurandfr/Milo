@@ -44,11 +44,11 @@ class SystemAudioState:
     error: Optional[str] = None
     multiroom_enabled: bool = False
     equalizer_effects_enabled: bool = False
-    
+
     def __post_init__(self):
         if self.metadata is None:
             self.metadata = {}
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert state to dictionary for serialization."""
         return {
@@ -60,4 +60,4 @@ class SystemAudioState:
             "multiroom_enabled": self.multiroom_enabled,
             "equalizer_effects_enabled": self.equalizer_effects_enabled
         }
-    
+

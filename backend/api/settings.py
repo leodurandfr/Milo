@@ -44,7 +44,7 @@ def create_settings_router(
     """Settings router with proper app deactivation"""
     router = APIRouter()
     settings = settings_service
-    
+
     async def _handle_setting_update(
         payload: Dict[str, Any],
         validator: Callable[[Any], bool],
@@ -89,7 +89,7 @@ def create_settings_router(
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
-    
+
     def _get_services_for_source(source: str) -> list:
         """Return the list of systemd services for an audio source"""
         services_map = {
@@ -101,7 +101,7 @@ def create_settings_router(
             'airplay': ['milo-airplay.service']
         }
         return services_map.get(source, [])
-    
+
     # Bulk settings (all categories in one response)
     @router.get("/bulk")
     async def get_bulk_settings():
@@ -173,7 +173,7 @@ def create_settings_router(
             event_type="language_changed",
             event_data={"language": payload.language}
         )
-    
+
     # Volume limits (in dB)
     @router.get("/volume-limits")
     async def get_volume_limits():
@@ -202,7 +202,7 @@ def create_settings_router(
             event_data={"limits": {"min_db": payload.min_db, "max_db": payload.max_db}},
             reload_callback=volume_service.reload_volume_limits
         )
-    
+
     # Volume startup (in dB)
     @router.get("/volume-startup")
     async def get_volume_startup():
@@ -302,7 +302,7 @@ def create_settings_router(
             "status": "success",
             "config": {"enabled_apps": enabled_apps}
         }
-    
+
     @router.put("/dock-apps")
     async def set_dock_apps(payload: DockAppsRequest):
         """
@@ -314,15 +314,15 @@ def create_settings_router(
         try:
             enabled_apps = payload.enabled_apps
             # Validation done by Pydantic
-            
+
             # Load previous config
             old_settings = await settings.load_settings()
             old_enabled_apps = old_settings.get("dock", {}).get("enabled_apps", [])
-            
+
             # Detect changes
             disabled_apps = set(old_enabled_apps) - set(enabled_apps)
             enabled_apps_new = set(enabled_apps) - set(old_enabled_apps)
-            
+
             if not disabled_apps and not enabled_apps_new:
                 # No change, just save
                 success = await settings.set_setting("dock.enabled_apps", enabled_apps)
@@ -334,15 +334,15 @@ def create_settings_router(
                     return {"status": "success", "config": {"enabled_apps": enabled_apps}}
                 else:
                     raise HTTPException(status_code=500, detail="Failed to save settings")
-            
+
             # Operations log for debugging
             operations_log = []
-            
+
             try:
                 # === HANDLE DISABLES ===
                 for app in disabled_apps:
                     logger.info(f"Processing disable for app: {app}")
-                    
+
                     # === AUDIO SOURCES ===
                     if app in AUDIO_SOURCE_APPS:
                         current_source = state_machine.system_state.active_source.value
@@ -363,7 +363,7 @@ def create_settings_router(
                                 success = await systemd_manager.stop(service)
                                 if not success:
                                     raise ValueError(f"Failed to stop service {service}")
-                    
+
                     # === MULTIROOM ===
                     elif app == 'multiroom':
                         # 1. Get the active source to restart the source
@@ -398,7 +398,7 @@ def create_settings_router(
                         operations_log.append("Broadcasting multiroom state update")
                         logger.info("Broadcasting multiroom state update to frontend")
                         await state_machine.update_multiroom_state(False)
-                    
+
                     # === EQUALIZER ===
                     elif app == 'equalizer':
                         # Get the active source to restart the source
@@ -417,12 +417,12 @@ def create_settings_router(
                 # === HANDLE ENABLES ===
                 for app in enabled_apps_new:
                     logger.info(f"Processing enable for app: {app}")
-                    
+
                     # === AUDIO SOURCES: DO NOTHING ===
                     if app in AUDIO_SOURCE_APPS:
                         operations_log.append(f"App {app} enabled (no service start needed)")
                         logger.info(f"App {app} enabled in dock (services will start on source change)")
-                    
+
                     # === MULTIROOM ===
                     elif app == 'multiroom':
                         # 1. Get the active source to restart the source
@@ -457,7 +457,7 @@ def create_settings_router(
                         operations_log.append("Broadcasting multiroom state update")
                         logger.info("Broadcasting multiroom state update to frontend")
                         await state_machine.update_multiroom_state(True)
-                    
+
                     # === EQUALIZER ===
                     elif app == 'equalizer':
                         # Get the active source to restart the source
@@ -472,31 +472,31 @@ def create_settings_router(
                         operations_log.append("Enabling equalizer effects")
                         logger.info(f"Enabling equalizer effects for active source: {active_source.value if active_source else 'none'}")
                         await routing_service.set_equalizer_effects_enabled(True, active_source)
-                
+
                 # All operations succeeded → save settings
                 operations_log.append("Saving new settings")
                 logger.info("All operations successful, saving settings")
                 success = await settings.set_setting("dock.enabled_apps", enabled_apps)
                 if not success:
                     raise ValueError("Failed to save settings")
-                
+
                 # WebSocket broadcast
                 await state_machine.broadcast_event("settings", "dock_apps_changed", {
                     "source": "settings",
                     "config": {"enabled_apps": enabled_apps},
                 })
-                
+
                 return {
                     "status": "success",
                     "config": {"enabled_apps": enabled_apps},
                     "operations": operations_log
                 }
-                
+
             except Exception as e:
                 # ROLLBACK: any error = full cancellation
                 logger.error(f"Error during dock-apps update: {e}")
                 logger.error(f"Operations completed before error: {operations_log}")
-                
+
                 raise HTTPException(
                     status_code=500,
                     detail={
@@ -504,13 +504,13 @@ def create_settings_router(
                         "operations_log": operations_log
                     }
                 )
-        
+
         except HTTPException:
             raise
         except Exception as e:
             logger.error(f"Unexpected error in dock-apps update: {e}")
             raise HTTPException(status_code=500, detail=str(e))
-    
+
     # Spotify
     @router.get("/spotify-disconnect")
     async def get_spotify_disconnect():
@@ -519,7 +519,7 @@ def create_settings_router(
             "status": "success",
             "config": {"auto_disconnect_delay": spotify.get("auto_disconnect_delay", 120.0)}
         }
-    
+
     @router.put("/spotify-disconnect")
     async def set_spotify_disconnect(payload: SpotifyDisconnectRequest):
         delay = payload.auto_disconnect_delay
@@ -678,7 +678,7 @@ def create_settings_router(
         timeout_seconds = screen.get("timeout_seconds", 120)
 
         timeout_enabled = timeout_seconds != 0
-        
+
         return {
             "status": "success",
             "config": {
@@ -686,7 +686,7 @@ def create_settings_router(
                 "screen_timeout_seconds": timeout_seconds
             }
         }
-    
+
     @router.put("/screen-timeout")
     async def set_screen_timeout(payload: ScreenTimeoutRequest):
         return await _handle_setting_update(
@@ -697,7 +697,7 @@ def create_settings_router(
             event_data={"config": {"screen_timeout_enabled": payload.screen_timeout_enabled, "screen_timeout_seconds": payload.screen_timeout_seconds}},
             reload_callback=screen_controller.reload_timeout_config
         )
-    
+
     # Screen brightness
     @router.get("/screen-brightness")
     async def get_screen_brightness():
@@ -706,7 +706,7 @@ def create_settings_router(
             "status": "success",
             "config": {"brightness_on": screen.get("brightness_on", 5)}
         }
-    
+
     @router.put("/screen-brightness")
     async def set_screen_brightness(payload: ScreenBrightnessRequest):
         return await _handle_setting_update(
@@ -717,7 +717,7 @@ def create_settings_router(
             event_data={"config": {"brightness_on": payload.brightness_on}},
             reload_callback=screen_controller.reload_timeout_config
         )
-    
+
     @router.post("/screen-brightness/apply")
     async def apply_brightness_instantly(payload: ScreenBrightnessRequest):
         """Instant brightness application + restart timeout"""
@@ -843,13 +843,13 @@ def create_settings_router(
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            
+
             throttle_process = asyncio.create_subprocess_shell(
                 "vcgencmd get_throttled",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            
+
             temp_proc, throttle_proc = await asyncio.gather(temp_process, throttle_process)
             try:
                 temp_stdout, _ = await asyncio.wait_for(temp_proc.communicate(), 5.0)
@@ -863,9 +863,9 @@ def create_settings_router(
                 throttle_proc.kill()
                 logger.error("Timeout reading throttle status (vcgencmd get_throttled)")
                 throttle_stdout, _ = b"", b""
-            
+
             result = {"status": "success"}
-            
+
             # Parse temperature
             if temp_proc.returncode == 0:
                 temp_output = temp_stdout.decode().strip()
@@ -877,19 +877,19 @@ def create_settings_router(
                     result["temperature"] = None
             else:
                 result["temperature"] = None
-            
+
             # Parse throttling
             throttle_status = {"code": "0x0", "current": [], "past": [], "severity": "ok"}
-            
+
             if throttle_proc.returncode == 0:
                 throttle_output = throttle_stdout.decode().strip()
                 if throttle_output.startswith("throttled="):
                     throttle_code = throttle_output.replace("throttled=", "").strip()
                     throttle_status["code"] = throttle_code
-                    
+
                     try:
                         throttle_value = int(throttle_code, 16)
-                        
+
                         if throttle_value & 0x1:
                             throttle_status["current"].append("Sous-tension")
                         if throttle_value & 0x2:
@@ -898,7 +898,7 @@ def create_settings_router(
                             throttle_status["current"].append("Fréquence réduite (alimentation)")
                         if throttle_value & 0x8:
                             throttle_status["current"].append("Fréquence réduite (température)")
-                        
+
                         if throttle_value & 0x80000:
                             throttle_status["past"].append("Sous-tension détectée")
                         if throttle_value & 0x100000:
@@ -907,17 +907,17 @@ def create_settings_router(
                             throttle_status["past"].append("Fréquence réduite (alimentation)")
                         if throttle_value & 0x400000:
                             throttle_status["past"].append("Fréquence réduite (température)")
-                        
+
                         if throttle_status["current"]:
                             throttle_status["severity"] = "critical"
                         elif throttle_status["past"]:
                             throttle_status["severity"] = "warning"
                         else:
                             throttle_status["severity"] = "ok"
-                            
+
                     except ValueError:
                         pass
-            
+
             result["throttling"] = throttle_status
             return result
 
