@@ -31,9 +31,6 @@ class EqualizerSettingsSyncService:
     but resolves to IP addresses for proxy calls via client_registry.
     """
 
-    # Equalizer setting categories that can be synced
-    SYNC_CATEGORIES = ['compressor', 'loudness', 'filters', 'volume']
-
     # Default equalizer settings for standalone clients (flat EQ, effects off)
     DEFAULT_EQUALIZER_SETTINGS = {
         "filters": {},
@@ -145,62 +142,6 @@ class EqualizerSettingsSyncService:
         await self.save_settings(settings)
         self.logger.info(f"Saved {category} settings for client {hostname}")
 
-    async def cleanup_duplicate_clients(
-        self,
-        active_clients: List[Dict[str, Any]]
-    ) -> int:
-        """
-        Remove duplicate/stale client entries from client_equalizer.json.
-
-        When clients connect via different interfaces (eth0/wlan0), they may create
-        duplicate entries with different identifiers. This method consolidates them
-        using the current active client list as the source of truth.
-
-        Args:
-            active_clients: List of currently active clients from snapcast_service
-
-        Returns:
-            Number of entries removed
-        """
-        settings = await self.load_settings()
-        if not settings:
-            return 0
-
-        # Build set of valid identifiers from active clients
-        valid_ids = set()
-        for client in active_clients:
-            camilladsp_id = client.get("camilladsp_id")
-            if camilladsp_id:
-                valid_ids.add(camilladsp_id)
-            # Also consider hostname as valid
-            host = client.get("host")
-            if host and host.startswith("milo-client"):
-                valid_ids.add(host)
-
-        # Find and remove stale entries
-        stale_keys = []
-        for key in settings.keys():
-            # Keep local client always (check via registry)
-            if self._registry.is_local_client(key):
-                continue
-            # Keep if it matches a valid identifier
-            if key in valid_ids:
-                continue
-            # Check if this looks like an IP address that might be stale
-            if is_ip_address(key) and key not in valid_ids:
-                stale_keys.append(key)
-
-        # Remove stale entries
-        if stale_keys:
-            for key in stale_keys:
-                del settings[key]
-            await self.save_settings(settings)
-            self.logger.info(
-                f"Cleaned up {len(stale_keys)} stale client entries: {stale_keys}"
-            )
-
-        return len(stale_keys)
-
     # =========================================================================
     # Settings Synchronization
     # =========================================================================
@@ -294,92 +235,6 @@ class EqualizerSettingsSyncService:
                 await self.update_client_settings(target, category, data)
         return True
 
-    async def sync_settings(
-        self,
-        source_client: str,
-        target_clients: List[str]
-    ) -> Dict[str, Any]:
-        """
-        Sync equalizer settings from source client to target clients.
-
-        Gets compressor, loudness, filters and volume from source
-        and pushes to all targets.
-
-        Args:
-            source_client: MAC address of source client
-            target_clients: List of target MAC addresses
-
-        Returns:
-            Dictionary with 'synced' list and 'errors' list
-        """
-        synced = []
-        errors = []
-
-        # Get settings from source client
-        try:
-            source_settings = await self._get_source_settings(source_client)
-        except Exception as e:
-            self.logger.error(f"Error getting settings from source {source_client}: {e}")
-            return {"synced": [], "errors": [f"Failed to get source settings: {e}"]}
-
-        # Push settings to each target client
-        for target in target_clients:
-            if target == source_client:
-                continue
-
-            # Skip remote clients without IP (local clients are always reachable)
-            if not self._registry.is_local_client(target) and not self._registry.get_client_ip(target):
-                continue
-
-            target_synced = []
-
-            # Sync compressor and loudness
-            for category in ('compressor', 'loudness'):
-                if source_settings.get(category):
-                    if await self._push_setting_to_target(target, category, source_settings[category]):
-                        target_synced.append(category)
-                    else:
-                        errors.append(f"{target}/{category}")
-
-            # Sync filters
-            for flt in source_settings.get('filters', []):
-                filter_id = flt.get('id')
-                if not filter_id:
-                    continue
-                filter_data = {
-                    'freq': flt.get('freq'),
-                    'gain': flt.get('gain'),
-                    'q': flt.get('q'),
-                    'filter_type': flt.get('type')
-                }
-                if await self._push_setting_to_target(target, "filter", filter_data, filter_id=filter_id):
-                    target_synced.append(f"filter:{filter_id}")
-                else:
-                    errors.append(f"{target}/filter:{filter_id}")
-
-            # Sync volume/mute
-            vol = source_settings.get('volume', {})
-            if vol.get('main') is not None:
-                if await self._push_setting_to_target(target, 'volume', {"volume": vol['main']}):
-                    target_synced.append("volume")
-                else:
-                    errors.append(f"{target}/volume")
-
-            if vol.get('mute') is not None:
-                if await self._push_setting_to_target(target, 'mute', {"muted": vol['mute']}):
-                    target_synced.append("mute")
-                else:
-                    errors.append(f"{target}/mute")
-
-            if target_synced:
-                synced.append({"target": target, "settings": target_synced})
-
-        self.logger.info(f"Synced equalizer settings from {source_client} to {len(synced)} targets")
-        if errors:
-            self.logger.warning(f"Sync errors: {errors}")
-
-        return {"synced": synced, "errors": errors if errors else None}
-
     # =========================================================================
     # Standalone Client Equalizer Settings (Story 5.2)
     # =========================================================================
@@ -426,40 +281,4 @@ class EqualizerSettingsSyncService:
         await self.save_settings(all_settings)
         self.logger.info(f"Saved standalone equalizer settings for {client_id}")
 
-    async def apply_standalone_settings_to_client(
-        self,
-        client_id: str,
-        equalizer_settings: Dict[str, Any]
-    ) -> bool:
-        """
-        Apply equalizer settings to a standalone client.
-
-        Args:
-            client_id: The client identifier (mac_id or 'local')
-            equalizer_settings: Dictionary with filters, compressor, loudness
-
-        Returns:
-            True if successful, False otherwise
-        """
-        success = True
-
-        # Apply filters
-        filters = equalizer_settings.get("filters", {})
-        for filter_id, filter_data in filters.items():
-            if not await self._push_setting_to_target(client_id, "filter", filter_data, filter_id=filter_id):
-                success = False
-
-        # Apply compressor
-        compressor = equalizer_settings.get("compressor")
-        if compressor:
-            if not await self._push_setting_to_target(client_id, "compressor", compressor):
-                success = False
-
-        # Apply loudness
-        loudness = equalizer_settings.get("loudness")
-        if loudness:
-            if not await self._push_setting_to_target(client_id, "loudness", loudness):
-                success = False
-
-        return success
 
