@@ -360,7 +360,12 @@ class SnapcastWebSocketService:
 
                     # Register/update client in registry
                     if self.registry:
-                        await self.registry.register_client(mac_id, client_name, ip, host=hostname)
+                        kwargs = {"host": hostname}
+                        is_local = (ip == "127.0.0.1")
+                        if is_local and self._volume_service:
+                            # Sync hardware volume_control to registry (e.g. DAC mode read at boot)
+                            kwargs["volume_control"] = self._volume_service._volume_control
+                        await self.registry.register_client(mac_id, client_name, ip, **kwargs)
                         await self.registry.set_client_online(mac_id, True)
 
                     if is_new_client:
@@ -565,8 +570,11 @@ class SnapcastWebSocketService:
                     kwargs["speaker_type"] = reg_speaker_type
                 if pending:
                     kwargs["volume_control"] = pending.get("volume_control", True)
-                # When no pending entry, volume_control is not passed — register_client
-                # preserves existing value for known clients (e.g. DAC mode)
+                elif is_local and self._volume_service:
+                    # Sync hardware volume_control to registry (e.g. DAC mode read at boot)
+                    kwargs["volume_control"] = self._volume_service._volume_control
+                # When no pending entry and not local, volume_control is not passed —
+                # register_client preserves existing value for known clients
                 await self.registry.register_client(mac_id, reg_name, client_ip, **kwargs)
 
             self.logger.info(f"[{time.time():.3f}] CLIENT_CONNECT: Calling volume sync for {client_id}")
