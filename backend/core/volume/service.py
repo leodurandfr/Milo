@@ -633,36 +633,49 @@ class VolumeService:
     # SERVICE INITIALIZATION
     # ============================================================================
 
-    @handle_errors(default=False)
     async def initialize(self) -> bool:
         """
         Initialize volume service.
 
         Sets ALSA to 100% passthrough and initializes CamillaDSP volume.
         """
-        await self._load_volume_config()
+        try:
+            await self._load_volume_config()
 
-        # Read volume control flag from hardware (DAC mode detection)
+            # Read volume control flag from hardware (DAC mode detection)
+            if self._hardware_service:
+                self._volume_control = self._hardware_service.get_volume_control()
+            self._state_store.set_volume_control(self._volume_control)
+            if not self._volume_control:
+                self.logger.info("DAC mode: volume managed by external amplifier")
+
+            # Initialize VolumeStateStore (loads zones, persisted state)
+            await self._state_store.initialize()
+            self.logger.info("VolumeStateStore initialized")
+
+            # Apply persisted volume to CamillaDSP (safe startup at -50dB, then restore)
+            await self._apply_startup_volume()
+
+            # Set ALSA to 100% passthrough - permanent (volume is via CamillaDSP)
+            await self._set_alsa_passthrough()
+            self.logger.info("ALSA set to 100% passthrough mode")
+
+            # Start initial broadcast task (waits for Snapcast WebSocket in multiroom mode)
+            asyncio.create_task(self._startup_broadcast_after_websocket_ready())
+            return True
+        except Exception as e:
+            self.logger.error(f"Volume service initialization failed: {e}")
+            self._availability_ready.set()
+            return False
+
+    async def set_local_volume_control(self, enabled: bool) -> None:
+        """Update local device's volume_control at runtime (persists + broadcasts)."""
         if self._hardware_service:
-            self._volume_control = self._hardware_service.get_volume_control()
-        self._state_store.set_volume_control(self._volume_control)
-        if not self._volume_control:
-            self.logger.info("DAC mode: volume managed by external amplifier")
-
-        # Initialize VolumeStateStore (loads zones, persisted state)
-        await self._state_store.initialize()
-        self.logger.info("VolumeStateStore initialized")
-
-        # Apply persisted volume to CamillaDSP (safe startup at -50dB, then restore)
-        await self._apply_startup_volume()
-
-        # Set ALSA to 100% passthrough - permanent (volume is via CamillaDSP)
-        await self._set_alsa_passthrough()
-        self.logger.info("ALSA set to 100% passthrough mode")
-
-        # Start initial broadcast task (waits for Snapcast WebSocket in multiroom mode)
-        asyncio.create_task(self._startup_broadcast_after_websocket_ready())
-        return True
+            await self._hardware_service.set_volume_control(enabled)
+        self._volume_control = enabled
+        self._state_store.set_volume_control(enabled)
+        self.logger.info(f"Local volume_control set to {enabled}")
+        await self._broadcast_volume_state(show_bar=False)
 
     @handle_errors(default=None)
     async def reapply_current_volume(self) -> None:
@@ -727,22 +740,27 @@ class VolumeService:
 
     @handle_errors(default=None)
     async def _startup_broadcast_after_websocket_ready(self):
-        """Wait for Snapcast WebSocket and broadcast initial volume state."""
+        """Wait for Snapcast WebSocket and broadcast initial volume state.
+
+        Availability is signaled immediately so frontend WebSocket connections
+        receive local volume state without waiting for Snapcast sync.
+        Multiroom client data is broadcast when Snapcast becomes ready.
+        """
+        # Signal availability immediately — local volume state is ready
+        self._availability_ready.set()
+
         multiroom_enabled = await self.settings_service.get_setting("routing.multiroom_enabled") or False
 
         if multiroom_enabled and self._snapcast_websocket_service:
             ws_ready = await self._snapcast_websocket_service.wait_for_ready(timeout=30.0)
             if ws_ready:
-                self.logger.info("WebSocket ready, syncing clients")
+                self.logger.info("Snapcast WebSocket ready, syncing clients")
                 await self.initialize_client_availability()
-                self._availability_ready.set()
                 await self.push_volume_to_all_clients()
             else:
                 self.logger.warning("Snapcast WebSocket not ready after timeout")
-                self._availability_ready.set()
         else:
             await asyncio.sleep(0.5)
-            self._availability_ready.set()
 
         await self._broadcast_volume_state(show_bar=False)
 
