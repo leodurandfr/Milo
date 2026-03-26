@@ -37,10 +37,6 @@
     "multiroom": "Multiroom",
     "cd": "CD播放器",
     "cdSource": {
-      "insertDisc": "插入CD",
-      "noDisc": "无光盘",
-      "eject": "弹出",
-      "tracklist": "曲目列表",
       "unknownAlbum": "未知专辑",
       "unknownArtist": "未知艺术家",
       "trackN": "曲目 {n}",
@@ -324,9 +320,7 @@
     "connectFailed": "连接失败",
     "forget": "忘记",
     "refresh": "刷新",
-    "saved": "已保存",
     "ready": "就绪",
-    "connectedTo": "已连接到",
     "wifiNetworks": "WiFi 网络",
     "wifiCountry": "WiFi 国家",
     "selectCountry": "选择您的国家",
@@ -505,10 +499,6 @@
     "episodeCompleted": "剧集已完成",
     "today": "今天",
     "yesterday": "昨天",
-    "daysAgo": "{count}天前",
-    "weeksAgo": "{count}周前",
-    "monthsAgo": "{count}个月前",
-    "yearsAgo": "{count}年前",
     "unsubscribe": "取消订阅",
     "credentialsError": "需要 Taddy API 凭据",
     "credentialsErrorHint": "配置您的凭据以访问播客",
@@ -594,13 +584,6 @@
     "language": {
       "title": "选择您的语言"
     },
-    "mode": {
-      "title": "选择您的模式",
-      "server": "Milō OS",
-      "serverDescription": "包含音频源的操作系统，如：Spotify、Bluetooth、Radio…",
-      "client": "Milō Client",
-      "clientDescription": "自动连接到 Milō 操作系统的多房间接收器。"
-    },
     "audio": {
       "title": "选择您的声卡",
       "amplifiers": "功放",
@@ -614,7 +597,6 @@
     },
     "summary": {
       "title": "摘要",
-      "mode": "模式",
       "network": "网络",
       "language": "语言",
       "audioCard": "声卡",

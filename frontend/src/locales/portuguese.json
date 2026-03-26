@@ -37,10 +37,6 @@
     "multiroom": "Multiroom",
     "cd": "Leitor de CD",
     "cdSource": {
-      "insertDisc": "Insira um CD",
-      "noDisc": "Sem disco",
-      "eject": "Ejetar",
-      "tracklist": "Lista de faixas",
       "unknownAlbum": "Álbum desconhecido",
       "unknownArtist": "Artista desconhecido",
       "trackN": "Faixa {n}",
@@ -324,9 +320,7 @@
     "connectFailed": "Falha na conexão",
     "forget": "Esquecer",
     "refresh": "Atualizar",
-    "saved": "Salvo",
     "ready": "Pronto",
-    "connectedTo": "Conectado a",
     "wifiNetworks": "Redes WiFi",
     "wifiCountry": "País WiFi",
     "selectCountry": "Selecione seu país",
@@ -505,10 +499,6 @@
     "episodeCompleted": "Episódio concluído",
     "today": "Hoje",
     "yesterday": "Ontem",
-    "daysAgo": "Há {count} dias",
-    "weeksAgo": "Há {count} semanas",
-    "monthsAgo": "Há {count} meses",
-    "yearsAgo": "Há {count} anos",
     "unsubscribe": "Cancelar subscrição",
     "credentialsError": "Credenciais da API Taddy necessárias",
     "credentialsErrorHint": "Configure suas credenciais para acessar podcasts",
@@ -594,13 +584,6 @@
     "language": {
       "title": "Escolha o seu idioma"
     },
-    "mode": {
-      "title": "Escolha o seu modo",
-      "server": "Milō OS",
-      "serverDescription": "Sistema operacional com fontes de áudio como: Spotify, Bluetooth, Radio…",
-      "client": "Milō Client",
-      "clientDescription": "Receptor multiroom que se conecta automaticamente ao sistema operacional Milō."
-    },
     "audio": {
       "title": "Selecione a sua placa de áudio",
       "amplifiers": "Amplificadores",
@@ -614,7 +597,6 @@
     },
     "summary": {
       "title": "Resumo",
-      "mode": "Modo",
       "network": "Rede",
       "language": "Idioma",
       "audioCard": "Placa de áudio",

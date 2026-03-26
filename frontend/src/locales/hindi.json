@@ -37,10 +37,6 @@
     "multiroom": "Multiroom",
     "cd": "सीडी प्लेयर",
     "cdSource": {
-      "insertDisc": "एक सीडी डालें",
-      "noDisc": "कोई डिस्क नहीं",
-      "eject": "निकालें",
-      "tracklist": "ट्रैक सूची",
       "unknownAlbum": "अज्ञात एल्बम",
       "unknownArtist": "अज्ञात कलाकार",
       "trackN": "ट्रैक {n}",
@@ -324,9 +320,7 @@
     "connectFailed": "कनेक्शन विफल",
     "forget": "भूल जाएं",
     "refresh": "रीफ़्रेश",
-    "saved": "सहेजा गया",
     "ready": "तैयार",
-    "connectedTo": "से जुड़ा हुआ",
     "wifiNetworks": "WiFi नेटवर्क",
     "wifiCountry": "WiFi देश",
     "selectCountry": "अपना देश चुनें",
@@ -505,10 +499,6 @@
     "episodeCompleted": "एपिसोड पूर्ण",
     "today": "आज",
     "yesterday": "कल",
-    "daysAgo": "{count} दिन पहले",
-    "weeksAgo": "{count} सप्ताह पहले",
-    "monthsAgo": "{count} महीने पहले",
-    "yearsAgo": "{count} साल पहले",
     "unsubscribe": "सदस्यता रद्द करें",
     "credentialsError": "Taddy API क्रेडेंशियल आवश्यक",
     "credentialsErrorHint": "पॉडकास्ट एक्सेस करने के लिए अपने क्रेडेंशियल कॉन्फ़िगर करें",
@@ -594,13 +584,6 @@
     "language": {
       "title": "अपनी भाषा चुनें"
     },
-    "mode": {
-      "title": "अपना मोड चुनें",
-      "server": "Milō OS",
-      "serverDescription": "ऑडियो स्रोतों वाला ऑपरेटिंग सिस्टम जैसे : Spotify, Bluetooth, Radio…",
-      "client": "Milō Client",
-      "clientDescription": "मल्टीरूम रिसीवर जो स्वचालित रूप से Milō ऑपरेटिंग सिस्टम से जुड़ता है।"
-    },
     "audio": {
       "title": "अपना ऑडियो कार्ड चुनें",
       "amplifiers": "एम्पलीफायर",
@@ -614,7 +597,6 @@
     },
     "summary": {
       "title": "सारांश",
-      "mode": "मोड",
       "network": "नेटवर्क",
       "language": "भाषा",
       "audioCard": "ऑडियो कार्ड",
