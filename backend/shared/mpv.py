@@ -180,24 +180,18 @@ class MpvController:
         """
         return await self._send_command(command, *args)
 
-    async def load_stream(self, url: str, start_offset: int = 0) -> bool:
+    async def load_stream(self, url: str) -> bool:
         """
         Loads and plays a radio stream
 
         Args:
             url: Radio stream URL
-            start_offset: Seconds to skip at start (e.g. to bypass pre-roll ads)
 
         Returns:
             True if command sent successfully
         """
         self.logger.info(f"Loading stream: {url[:100]}...")
-        if start_offset > 0:
-            response = await self._send_command(
-                "loadfile", url, "replace", "-1", f"start=+{start_offset}"
-            )
-        else:
-            response = await self._send_command("loadfile", url, "replace")
+        response = await self._send_command("loadfile", url, "replace")
 
         # mpv can return transient errors (None, "property unavailable")
         # during initial stream loading. We accept these errors.
