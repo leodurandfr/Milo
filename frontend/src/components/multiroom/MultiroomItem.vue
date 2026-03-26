@@ -166,13 +166,18 @@
             {{ zoneClient.name }}
           </span>
 
+          <!-- Offline indicator (when offline) -->
+          <div v-if="!zoneClient.online" class="client-offline text-mono">
+            {{ t('multiroom.offline') }}
+          </div>
+
           <!-- External volume indicator (DAC client) -->
-          <div v-if="zoneClient.volume_control === false" class="client-external-volume text-mono">
+          <div v-else-if="zoneClient.volume_control === false" class="client-external-volume text-mono">
             {{ t('multiroom.externalVolume') }}
           </div>
 
           <!-- Client volume slider (when online) -->
-          <div v-else-if="zoneClient.online" class="client-volume">
+          <div v-else class="client-volume">
             <RangeSlider
               :model-value="getClientDisplayVolume(zoneClient.mac_id, zoneClient.equalizerVolume)"
               :min="sliderMin"
@@ -185,11 +190,6 @@
               @input="(v) => handleClientVolumeInput(zoneClient.mac_id, v)"
               @change="(v) => handleClientVolumeChange(zoneClient.mac_id, v)"
             />
-          </div>
-
-          <!-- Offline indicator (when offline) -->
-          <div v-else class="client-offline text-mono">
-            {{ t('multiroom.offline') }}
           </div>
 
           <!-- Client mute toggle (online) or offline placeholder -->
@@ -767,7 +767,7 @@ function handleClientMuteToggle(clientMacId, muted) {
 .client-offline {
   display: flex;
   align-items: center;
-  height: 40px;
+  height: 36px;
   background: var(--color-background-strong);
   border-radius: var(--radius-full);
   color: var(--color-text-secondary);
@@ -801,8 +801,8 @@ function handleClientMuteToggle(clientMacId, muted) {
 
 /* === TOGGLE OFFLINE PLACEHOLDER === */
 .toggle-offline-placeholder {
-  width: 70px;
-  height: 40px;
+  width: 60px;
+  height: 36px;
   background: var(--color-background-strong);
   border-radius: var(--radius-full);
 }
@@ -908,9 +908,13 @@ function handleClientMuteToggle(clientMacId, muted) {
     grid-row: 2;
   }
 
+  .client-offline {
+    height: 30px;
+  }
+
   .toggle-offline-placeholder {
-    width: 56px;
-    height: 32px;
+    width: 50px;
+    height: 30px;
   }
 }
 </style>
