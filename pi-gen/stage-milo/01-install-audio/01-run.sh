@@ -62,7 +62,6 @@ ldconfig
 cd /tmp && rm -rf bluez-alsa
 
 # Disable default bluez-alsa services (Milo manages its own)
-systemctl stop bluealsa-aplay.service bluealsa.service 2>/dev/null || true
 systemctl disable bluealsa-aplay.service bluealsa.service 2>/dev/null || true
 CHROOT
 
