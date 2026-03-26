@@ -72,7 +72,7 @@
         <!-- Offline indicator (standalone offline clients) -->
         <div
           v-if="!client.online && !isZone"
-          class="client-offline text-mono"
+          class="client-offline text-mono-small"
           :class="{ 'visible': !isLoading }"
         >
           {{ t('multiroom.offline') }}
@@ -81,7 +81,7 @@
         <!-- External volume indicator (DAC clients or all-DAC zones) -->
         <div
           v-else-if="isExternalVolume"
-          class="client-external-volume text-mono"
+          class="client-external-volume text-mono-small"
           :class="{ 'visible': !isLoading }"
         >
           {{ t('multiroom.externalVolume') }}
@@ -167,12 +167,12 @@
           </span>
 
           <!-- Offline indicator (when offline) -->
-          <div v-if="!zoneClient.online" class="client-offline text-mono">
+          <div v-if="!zoneClient.online" class="client-offline text-mono-small">
             {{ t('multiroom.offline') }}
           </div>
 
           <!-- External volume indicator (DAC client) -->
-          <div v-else-if="zoneClient.volume_control === false" class="client-external-volume text-mono">
+          <div v-else-if="zoneClient.volume_control === false" class="client-external-volume text-mono-small">
             {{ t('multiroom.externalVolume') }}
           </div>
 
@@ -778,10 +778,10 @@ function handleClientMuteToggle(clientMacId, muted) {
 .client-external-volume {
   display: flex;
   align-items: center;
-  height: 40px;
-  background: var(--color-background-contrast);
+  height: 36px;
+  background: var(--color-text-secondary);
   border-radius: var(--radius-full);
-  color: var(--color-text-light);
+  color: var(--color-text-contrast-50);
   padding-left: var(--space-04);
 }
 
