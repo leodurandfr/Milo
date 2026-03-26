@@ -16,7 +16,6 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 

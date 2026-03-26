@@ -132,18 +132,6 @@ const hasProgress = computed(() => {
   return progress && progress.position > 0
 })
 
-const progressPercent = computed(() => {
-  // If this is the current episode, use live data
-  if (isCurrentEpisode.value) {
-    if (!podcastStore.currentDuration) return 0
-    return (podcastStore.currentPosition / podcastStore.currentDuration) * 100
-  }
-  // Otherwise, use reactive progress cache (updated via WebSocket)
-  const progress = podcastStore.getEpisodeProgress(props.episode.uuid)
-  if (!progress || !progress.duration) return 0
-  return (progress.position / progress.duration) * 100
-})
-
 const timeRemaining = computed(() => {
   let remaining
 
