@@ -91,15 +91,6 @@ class SnapcastService:
         })
         return bool(result)
 
-    @handle_errors(default=False)
-    async def set_client_name(self, client_id: str, name: str) -> bool:
-        """Set a client's display name."""
-        result = await self._request("Client.SetName", {
-            "id": client_id,
-            "name": name.strip()
-        })
-        return bool(result)
-
     # === CLIENT QUERIES ===
 
     @handle_errors(default=[])
@@ -220,12 +211,6 @@ class SnapcastService:
                 deduplicated.append(group[0])
 
         return deduplicated
-
-    @handle_errors(default=[])
-    async def get_detailed_clients(self) -> List[Dict[str, Any]]:
-        """Get clients with detailed information for monitoring."""
-        status = await self._request("Server.GetStatus")
-        return self._parse_clients(status, include_offline=True, detailed=True)
 
     def _calculate_connection_quality(self, last_seen: Dict[str, Any]) -> str:
         """Calculate connection quality based on lastSeen."""

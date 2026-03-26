@@ -561,11 +561,6 @@ class CrossoverService:
             if self.state_machine:
                 await self.state_machine.broadcast_event("multiroom", "zone_changed", zone_data)
 
-    async def on_zone_changed(self, zone_id: str) -> None:
-        """Handle zone composition changes."""
-        self.logger.info(f"Zone {zone_id} changed, recalculating crossover...")
-        await self.apply_zone_crossover(zone_id)
-
     # === Event Broadcasting ===
 
     async def _broadcast_event(self, data: Dict[str, Any]) -> None:

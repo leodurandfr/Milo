@@ -690,34 +690,3 @@ class AudioRoutingService:
         except Exception as e:
             self.logger.error(f"Error getting snapcast status: {e}")
             return {"server_active": False, "client_active": False, "multiroom_available": False}
-    
-    async def get_available_services(self) -> Dict[str, bool]:
-        """Gets list of available services"""
-        services_status = {}
-        
-        services_to_check = [
-            "milo-spotify.service", "milo-mac.service", 
-            "milo-bluealsa-aplay.service", self.snapserver_service, self.snapclient_service
-        ]
-        
-        for service in services_to_check:
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    "systemctl", "list-unit-files", service,
-                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL
-                )
-                stdout, _ = await proc.communicate()
-                
-                exists = proc.returncode == 0 and service in stdout.decode()
-                is_active = False
-                
-                if exists:
-                    is_active = await self.service_manager.is_active(service)
-                
-                services_status[service] = {"exists": exists, "active": is_active}
-                
-            except Exception as e:
-                self.logger.error(f"Error checking service {service}: {e}")
-                services_status[service] = {"exists": False, "active": False, "error": str(e)}
-        
-        return services_status

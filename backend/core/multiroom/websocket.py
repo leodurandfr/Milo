@@ -607,8 +607,6 @@ class SnapcastWebSocketService:
     async def _handle_client_disconnect(self, params: Dict[str, Any]) -> None:
         """Handle client disconnected event."""
         client = params.get("client", {})
-        client_id = client.get("id")
-        client_name = client.get("config", {}).get("name")
 
         client_host = client.get("host", {}).get("name", "Unknown")
         client_ip = client.get("host", {}).get("ip", "").replace("::ffff:", "")
