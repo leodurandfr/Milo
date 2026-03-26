@@ -23,27 +23,8 @@ MILO_CLIENT_REPO_URL="https://github.com/leodurandfr/Milo.git"
 ARG_SERVER_IP=""
 MILO_PRINCIPAL_IP=""
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
-
-log_info() {
-    echo -e "${BLUE}[INFO]${NC} $1"
-}
-
-log_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
-}
-
-log_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
-}
-
-log_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
+# Shared helpers (colours, log functions, configure_journald)
+source "$(dirname "$0")/../install/common.sh"
 
 show_banner() {
     echo -e "${BLUE}"
@@ -222,14 +203,7 @@ suppress_pulseaudio() {
     log_success "PulseAudio/PipeWire removed"
 }
 
-configure_journald() {
-    log_info "Configuring journald limits..."
-
-    sudo sed -i 's/^#RuntimeMaxUse=$/RuntimeMaxUse=100M/' /etc/systemd/journald.conf
-    sudo sed -i 's/^#MaxRetentionSec=$/MaxRetentionSec=7d/' /etc/systemd/journald.conf
-
-    log_success "Journald configured (100MB max, 7 days retention)"
-}
+# configure_journald provided by install/common.sh
 
 create_milo_client_user() {
     if id "$MILO_CLIENT_USER" &>/dev/null; then
