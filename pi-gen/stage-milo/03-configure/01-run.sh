@@ -32,12 +32,9 @@ on_chroot << 'CHROOT'
 # milo-spotify, milo-mac, milo-radio, milo-airplay,
 # milo-snapserver-multiroom, milo-snapclient-multiroom
 
-# Default Snapcast/shairport-sync services conflict with Milo-managed ones
+# Default Snapcast services conflict with Milo-managed ones
 systemctl disable snapserver.service 2>/dev/null || true
 systemctl disable snapclient.service 2>/dev/null || true
-systemctl disable shairport-sync.service 2>/dev/null || true
-systemctl disable bluealsa-aplay.service 2>/dev/null || true
-systemctl disable bluealsa.service 2>/dev/null || true
 
 # milo-client services are not enabled by default (milo-first-boot auto-detects mode)
 systemctl disable milo-client.service 2>/dev/null || true

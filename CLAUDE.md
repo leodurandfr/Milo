@@ -80,8 +80,7 @@ milo/
 ├── rootfs/               # Files deployed to system (mirrors target filesystem)
 │   ├── etc/NetworkManager/dispatcher.d/   # Network event scripts
 │   ├── usr/local/bin/                     # System scripts (milo-wait-ready.sh)
-│   ├── usr/share/plymouth/themes/milo/    # Boot animation theme
-│   └── home/milo/                         # User config (.bash_profile, .config/)
+│   └── usr/share/plymouth/themes/milo/    # Boot animation theme
 ├── milo-client/          # Satellite client for multiroom
 └── docs/                 # Documentation
 ```

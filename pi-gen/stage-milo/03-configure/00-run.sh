@@ -2,8 +2,6 @@
 # Milo pi-gen stage: System configuration
 # Plymouth, boot params, fan control, udev, sudoers, kiosk, cursor theme
 
-MILO_APP_DIR="/home/milo/milo"
-
 # ── Plymouth boot splash ─────────────────────────────────────────────────────
 
 on_chroot << 'CHROOT'
@@ -147,20 +145,6 @@ if [ -f /home/milo/milo/milo-client/rootfs/etc/sudoers.d/milo-client ]; then
 fi
 CHROOT
 
-# ── Kiosk mode (Cage + Chromium) ──────────────────────────────────────────────
-
-on_chroot << 'CHROOT'
-# Cage launch script
-sudo -u milo mkdir -p /home/milo/.config
-cp /home/milo/milo/rootfs/home/milo/.config/milo-cage-start.sh /home/milo/.config/
-chmod +x /home/milo/.config/milo-cage-start.sh
-chown milo:milo /home/milo/.config/milo-cage-start.sh
-
-# .bash_profile for auto-launch on tty1
-cp /home/milo/milo/rootfs/home/milo/.bash_profile /home/milo/.bash_profile
-chown milo:milo /home/milo/.bash_profile
-CHROOT
-
 # ── Transparent cursor theme ─────────────────────────────────────────────────
 
 on_chroot << 'CHROOT'
@@ -210,7 +194,6 @@ CHROOT
 # ── Disable lightdm if present ───────────────────────────────────────────────
 
 on_chroot << 'CHROOT'
-systemctl stop lightdm.service 2>/dev/null || true
 systemctl disable lightdm.service 2>/dev/null || true
 systemctl mask lightdm.service 2>/dev/null || true
 apt-get remove -y lightdm 2>/dev/null || true

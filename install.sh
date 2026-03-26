@@ -17,7 +17,6 @@ MILO_DATA_DIR="/var/lib/milo"
 MILO_REPO="https://github.com/leodurandfr/Milo.git"
 MILO_BRANCH="main"
 REQUIRED_HOSTNAME="milo"
-REBOOT_REQUIRED=false
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -91,7 +90,6 @@ setup_hostname() {
         log_info "Configuring hostname '$REQUIRED_HOSTNAME'..."
         configure_hostname "$REQUIRED_HOSTNAME"
         log_success "Hostname configured"
-        REBOOT_REQUIRED=true
     else
         log_success "Hostname '$REQUIRED_HOSTNAME' already configured"
     fi
@@ -163,7 +161,6 @@ install_milo_application() {
         sudo rm -rf "$MILO_APP_DIR"
     fi
     
-    # sudo -u "$MILO_USER" git clone "$MILO_REPO" "$MILO_APP_DIR"
     sudo -u "$MILO_USER" git clone --branch "$MILO_BRANCH" --single-branch "$MILO_REPO" "$MILO_APP_DIR"
     cd "$MILO_APP_DIR"
     
@@ -283,8 +280,6 @@ install_bluez_alsa() {
       autotools-dev \
       automake \
       libtool
-
-    REBOOT_REQUIRED=true
 
     local temp_dir=$(mktemp -d)
     cd "$temp_dir"
@@ -831,29 +826,7 @@ configure_cage_kiosk() {
 
     # Chromium is already installed via install_avahi_nginx()
 
-    # Create .config directory if needed
-    sudo -u "$MILO_USER" mkdir -p "$MILO_HOME/.config"
-
-    # Copy Cage launch script from rootfs/
-    if [[ ! -f "$MILO_APP_DIR/rootfs/home/milo/.config/milo-cage-start.sh" ]]; then
-        log_error "File milo-cage-start.sh not found in $MILO_APP_DIR/rootfs/home/milo/.config/"
-        return 1
-    fi
-
-    sudo cp "$MILO_APP_DIR/rootfs/home/milo/.config/milo-cage-start.sh" "$MILO_HOME/.config/milo-cage-start.sh"
-    sudo chmod +x "$MILO_HOME/.config/milo-cage-start.sh"
-    sudo chown "$MILO_USER:$MILO_USER" "$MILO_HOME/.config/milo-cage-start.sh"
-
-    # Copy .bash_profile from rootfs/
-    if [[ ! -f "$MILO_APP_DIR/rootfs/home/milo/.bash_profile" ]]; then
-        log_error "File .bash_profile not found in $MILO_APP_DIR/rootfs/home/milo/"
-        return 1
-    fi
-
-    sudo cp "$MILO_APP_DIR/rootfs/home/milo/.bash_profile" "$MILO_HOME/.bash_profile"
-    sudo chown "$MILO_USER:$MILO_USER" "$MILO_HOME/.bash_profile"
-
-    log_success "Kiosk mode configured with Cage (scripts copied from rootfs/)"
+    log_success "Kiosk mode configured with Cage"
 }
 
 install_milo_cursor_theme() {
@@ -1010,7 +983,6 @@ configure_plymouth_splash() {
     sudo systemctl mask plymouth-quit.service plymouth-quit-wait.service
 
     log_success "Boot splash screen configured with Milo theme, Plymouth stays active until manual quit"
-    REBOOT_REQUIRED=true
 }
 
 disable_lightdm() {

@@ -1,9 +1,6 @@
 #!/bin/bash -e
 # Milo pi-gen stage: Deploy rootfs files, systemd services, and configurations
 
-MILO_APP_DIR="/home/milo/milo"
-MILO_DATA_DIR="/var/lib/milo"
-
 # ── Data directories ─────────────────────────────────────────────────────────
 
 on_chroot << 'CHROOT'
