@@ -4,6 +4,7 @@
     <div ref="track" class="range-track"></div>
 
     <div
+      ref="thumbRef"
       class="range-thumb"
       :class="{ dragging: isDragging }"
       :style="thumbStyle"
@@ -35,7 +36,9 @@ const emit = defineEmits(['update:modelValue', 'input', 'change', 'drag-start', 
 
 const isDragging = ref(false);
 const track = ref(null);
+const thumbRef = ref(null);
 const trackSize = ref({ width: 0, height: 0 });
+const thumbAxisSize = ref(54);
 
 // Local value during drag - prevents external updates (WebSocket echo) from causing jumps
 const localDragValue = ref(null);
@@ -59,26 +62,27 @@ function roundToStep(value) {
 // Thumb positioning via CSS calc (same formula as DoubleRangeSlider)
 const thumbStyle = computed(() => {
   const pct = (effectiveValue.value - props.min) / (props.max - props.min);
+  const size = thumbAxisSize.value;
+  const half = size / 2;
   if (props.orientation === 'horizontal') {
-    return { left: `calc(31px + ${pct} * (100% - 62px))` };
+    return { left: `calc(${half}px + ${pct} * (100% - ${size}px))` };
   } else {
-    return { bottom: `calc(31px + ${pct} * (100% - 62px))` };
+    return { bottom: `calc(${half}px + ${pct} * (100% - ${size}px))` };
   }
 });
 
 // Progress percentage for CSS gradient (accounts for thumb size)
 const percentage = computed(() => {
   const rawPercentage = ((effectiveValue.value - props.min) / (props.max - props.min)) * 100;
+  const size = thumbAxisSize.value;
 
   if (props.orientation === 'horizontal') {
-    const thumbWidth = 62;
     const containerWidth = trackSize.value.width || 400;
-    const thumbAdjustment = (thumbWidth / containerWidth) * 100;
+    const thumbAdjustment = (size / containerWidth) * 100;
     return rawPercentage * (100 - thumbAdjustment) / 100 + thumbAdjustment / 2;
   } else {
-    const thumbHeight = 62;
     const containerHeight = trackSize.value.height || 260;
-    const thumbAdjustment = (thumbHeight / containerHeight) * 100;
+    const thumbAdjustment = (size / containerHeight) * 100;
     return rawPercentage * (100 - thumbAdjustment) / 100 + thumbAdjustment / 2;
   }
 });
@@ -98,14 +102,16 @@ function startDrag(event) {
 
   const rect = track.value.getBoundingClientRect();
   const currentPct = (props.modelValue - props.min) / (props.max - props.min);
+  const size = thumbAxisSize.value;
+  const half = size / 2;
 
   if (props.orientation === 'horizontal') {
-    const usableWidth = rect.width - 62;
-    const thumbCenterX = rect.left + 31 + (currentPct * usableWidth);
+    const usableWidth = rect.width - size;
+    const thumbCenterX = rect.left + half + (currentPct * usableWidth);
     thumbOffset = event.clientX - thumbCenterX;
   } else {
-    const usableHeight = rect.height - 62;
-    const thumbCenterY = rect.bottom - 31 - (currentPct * usableHeight);
+    const usableHeight = rect.height - size;
+    const thumbCenterY = rect.bottom - half - (currentPct * usableHeight);
     thumbOffset = event.clientY - thumbCenterY;
   }
 
@@ -122,17 +128,19 @@ function handleDrag(event) {
   if (!track.value) return;
 
   const rect = track.value.getBoundingClientRect();
+  const size = thumbAxisSize.value;
+  const half = size / 2;
   let pct;
 
   if (props.orientation === 'horizontal') {
     const correctedX = event.clientX - thumbOffset;
-    const usableWidth = rect.width - 62;
-    const positionInUsableArea = correctedX - rect.left - 31;
+    const usableWidth = rect.width - size;
+    const positionInUsableArea = correctedX - rect.left - half;
     pct = clamp(positionInUsableArea / usableWidth, 0, 1);
   } else {
     const correctedY = event.clientY - thumbOffset;
-    const usableHeight = rect.height - 62;
-    const positionInUsableArea = rect.bottom - 31 - correctedY;
+    const usableHeight = rect.height - size;
+    const positionInUsableArea = rect.bottom - half - correctedY;
     pct = clamp(positionInUsableArea / usableHeight, 0, 1);
   }
 
@@ -157,21 +165,22 @@ function stopDrag() {
   document.removeEventListener('pointercancel', stopDrag);
 }
 
-function updateTrackSize() {
+function updateSizes() {
   if (track.value) {
     const rect = track.value.getBoundingClientRect();
     trackSize.value = { width: rect.width, height: rect.height };
   }
+  if (thumbRef.value) {
+    const rect = thumbRef.value.getBoundingClientRect();
+    thumbAxisSize.value = props.orientation === 'horizontal' ? rect.width : rect.height;
+  }
 }
 
 onMounted(() => {
-  if (track.value) {
-    updateTrackSize();
-    resizeObserver = new ResizeObserver(() => {
-      updateTrackSize();
-    });
-    resizeObserver.observe(track.value);
-  }
+  updateSizes();
+  resizeObserver = new ResizeObserver(updateSizes);
+  if (track.value) resizeObserver.observe(track.value);
+  if (thumbRef.value) resizeObserver.observe(thumbRef.value);
 });
 
 onUnmounted(() => {
@@ -220,24 +229,24 @@ onUnmounted(() => {
 
 .slider-container.horizontal {
   width: 100%;
-  height: 40px;
+  height: 36px;
 }
 
 .slider-container.vertical {
-  width: 40px;
+  width: 36px;
   flex: 1;
   flex-direction: column;
 }
 
 /* Track */
 .range-track {
-  border-radius: 20px;
+  border-radius: var(--radius-full);
   pointer-events: none;
 }
 
 .slider-container.horizontal .range-track {
   width: 100%;
-  height: 40px;
+  height: 36px;
   background: linear-gradient(to right,
       var(--slider-accent) 0%,
       var(--slider-accent) var(--progress),
@@ -246,7 +255,7 @@ onUnmounted(() => {
 }
 
 .slider-container.vertical .range-track {
-  width: 40px;
+  width: 36px;
   min-height: 260px;
   flex: 1;
   background: linear-gradient(to top,
@@ -259,7 +268,7 @@ onUnmounted(() => {
 /* Thumb */
 .range-thumb {
   position: absolute;
-  border-radius: 20px;
+  border-radius: var(--radius-full);
   background: var(--color-background-neutral);
   border: 2px solid var(--slider-accent);
   cursor: pointer;
@@ -269,15 +278,15 @@ onUnmounted(() => {
 
 .slider-container.horizontal .range-thumb {
   top: 0;
-  width: 62px;
-  height: 40px;
+  height: 100%;
+  aspect-ratio: 1.6;
   transform: translateX(-50%);
 }
 
 .slider-container.vertical .range-thumb {
   left: 0;
-  width: 40px;
-  height: 62px;
+  width: 100%;
+  aspect-ratio: 1 / 1.5;
   transform: translateY(50%);
 }
 
@@ -306,5 +315,25 @@ onUnmounted(() => {
 
 .slider-value.dragging {
   color: var(--color-brand);
+}
+
+/* Responsive */
+@media (max-aspect-ratio: 4/3) {
+  .slider-container.horizontal {
+    height: 30px;
+  }
+
+  .slider-container.horizontal .range-track {
+    height: 30px;
+  }
+
+  .slider-container.vertical {
+    width: 30px;
+  }
+
+  .slider-container.vertical .range-track {
+    width: 30px;
+  }
+
 }
 </style>
