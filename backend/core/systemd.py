@@ -9,18 +9,18 @@ from backend.shared.decorators import handle_errors
 
 class SystemdServiceManager:
     """Generic manager for systemd services."""
-    
+
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-    
+
     async def start(self, service: str) -> bool:
         """Starts a systemd service."""
         return await self._control_service(service, "start")
-    
+
     async def stop(self, service: str) -> bool:
         """Stops a systemd service."""
         return await self._control_service(service, "stop")
-    
+
     async def restart(self, service: str) -> bool:
         """Restarts a systemd service."""
         return await self._control_service(service, "restart")
@@ -32,7 +32,7 @@ class SystemdServiceManager:
     async def disable(self, service: str) -> bool:
         """Disables a systemd service from starting on boot."""
         return await self._unit_file_command(service, "disable")
-    
+
     @handle_errors(default=False)
     async def is_active(self, service: str) -> bool:
         """Checks if a service is active."""
@@ -48,30 +48,30 @@ class SystemdServiceManager:
             self.logger.error(f"Timeout checking is_active for {service}")
             return False
         return stdout.decode().strip() == "active"
-    
+
     async def get_status(self, service: str) -> Dict[str, Any]:
         """Retrieves detailed status of a service."""
         try:
             proc = await asyncio.create_subprocess_exec(
-                "systemctl", "show", service, 
+                "systemctl", "show", service,
                 "--property=ActiveState,SubState,ExecMainStatus",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
             stdout, stderr = await proc.communicate()
-            
+
             if proc.returncode != 0:
                 self.logger.error(f"Error retrieving status: {stderr.decode().strip()}")
                 return {"error": "Unable to retrieve status"}
-            
+
             lines = stdout.decode().strip().split('\n')
             status = {}
-            
+
             for line in lines:
                 if '=' in line:
                     key, value = line.split('=', 1)
                     status[key] = value
-            
+
             return {
                 "active": status.get("ActiveState") == "active",
                 "running": status.get("SubState") == "running",
@@ -82,7 +82,7 @@ class SystemdServiceManager:
         except Exception as e:
             self.logger.error(f"Error retrieving status: {e}")
             return {"error": str(e)}
-    
+
     async def _control_service(self, service: str, action: str) -> bool:
         """Controls a systemd service."""
         try:
@@ -94,14 +94,14 @@ class SystemdServiceManager:
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE
             )
-            
+
             _, stderr = await asyncio.wait_for(proc.communicate(), 10.0)
-            
+
             if proc.returncode != 0:
                 error_msg = stderr.decode().strip() if stderr else "No error details"
                 self.logger.error(f"Failed to {action} {service} (exit code {proc.returncode}): {error_msg}")
                 return False
-            
+
             # Wait for service to reach desired state
             expected_active = action != "stop"
             for i in range(5):
@@ -115,7 +115,7 @@ class SystemdServiceManager:
             expected_state = "active" if expected_active else "inactive"
             self.logger.error(f"Service {service} is {actual_state} but expected {expected_state} after {action}")
             return False
-            
+
         except asyncio.TimeoutError:
             proc.kill()
             self.logger.error(f"Timeout ({action} {service} took more than 10 seconds)")

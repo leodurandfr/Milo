@@ -20,7 +20,7 @@ class SettingsService:
         self.settings_file = str(SETTINGS_FILE)
         self._cache = None
         self._file_lock = asyncio.Lock()  # Native async lock instead of fcntl.flock
-        
+
         self.defaults = {
             "setup_completed": False,
             "language": "english",
@@ -64,7 +64,7 @@ class SettingsService:
                 "country": ""
             }
         }
-    
+
     async def load_settings(self) -> Dict[str, Any]:
         """Loads and validates settings with async lock"""
         try:
@@ -103,7 +103,7 @@ class SettingsService:
             self.logger.error(f"Error loading settings: {e}")
             self._cache = self.defaults.copy()
             return self._cache
-    
+
     async def save_settings(self, settings: Dict[str, Any]) -> bool:
         """Saves with async lock and atomic write"""
         try:
@@ -139,7 +139,7 @@ class SettingsService:
             except Exception as cleanup_error:
                 self.logger.warning(f"Failed to clean up temp file: {cleanup_error}")
             return False
-    
+
     def _validate_and_merge(self, settings: Dict[str, Any]) -> Dict[str, Any]:
         """Validation and merge with defaults - Support 0 = disabled"""
         validated = {}
@@ -149,7 +149,7 @@ class SettingsService:
 
         # Language
         validated['language'] = settings.get('language') if settings.get('language') in VALID_LANGUAGES else 'english'
-        
+
         # Volume (all values in dB, -80 to 0 range)
         vol_input = settings.get('volume', {})
         vol = {}
@@ -171,7 +171,7 @@ class SettingsService:
         vol['step_rotary_db'] = max(1.0, min(6.0, float(vol_input.get('step_rotary_db', 2.0))))
         vol['step_bt_remote_db'] = max(1.0, min(6.0, float(vol_input.get('step_bt_remote_db', 2.0))))
         validated['volume'] = vol
-        
+
         # Screen - MODIFIED: Accept 0 for timeout_seconds (disabled)
         screen_input = settings.get('screen', {})
         timeout_seconds_raw = int(screen_input.get('timeout_seconds', 120))
@@ -184,7 +184,7 @@ class SettingsService:
             'screensaver_delay_seconds': max(5, min(1800, int(screen_input.get('screensaver_delay_seconds', 120)))),
             'ui_scale': max(0.5, min(2.0, float(screen_input.get('ui_scale', 1.0))))
         }
-        
+
         # Spotify - MODIFIED: Accept 0 for auto_disconnect_delay (disabled)
         spotify_input = settings.get('spotify', {})
         disconnect_delay_raw = float(spotify_input.get('auto_disconnect_delay', 120.0))
@@ -223,7 +223,7 @@ class SettingsService:
         if not enabled_audio_sources:
             # Force at least spotify if no audio source
             filtered_apps = ['spotify'] + [app for app in filtered_apps if app in UTILITY_DOCK_APPS]
-        
+
         validated['dock'] = {
             'enabled_apps': filtered_apps if filtered_apps else self.defaults['dock']['enabled_apps'].copy()
         }
@@ -293,7 +293,7 @@ class SettingsService:
                 validated['hardware'] = validated_hardware
 
         return validated
-    
+
     def get_setting_sync(self, key_path: str) -> Any:
         """Gets a setting by path (SYNCHRONOUS - uses cache or blocking load)"""
         if not self._cache:
@@ -361,7 +361,7 @@ class SettingsService:
             self._cache = None
 
         return success
-    
+
     def get_volume_config(self) -> Dict[str, Any]:
         """Synchronous helper method (uses cache only)"""
         volume_settings = self._cache.get('volume', {}) if self._cache else {}

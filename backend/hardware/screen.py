@@ -51,7 +51,7 @@ class ScreenController:
         self.screen_on = True
         self.running = False
         self.current_source_state = "waiting"
-    
+
     def _detect_backlight_path(self):
         """Detect the sysfs backlight brightness path for DSI screens."""
         paths = list(Path('/sys/class/backlight').glob('*/brightness'))
@@ -104,7 +104,7 @@ class ScreenController:
             self.logger.warning(f"Unknown screen type '{self.screen_type}', brightness control disabled")
             self.screen_on_cmd = ""
             self.screen_off_cmd = ""
-    
+
     async def _load_config(self):
         """Loads complete config from settings - timeout_seconds = 0 for never"""
         try:
@@ -130,7 +130,7 @@ class ScreenController:
             self.timeout_seconds = 10
             self.brightness_on = 5
             self._update_screen_commands()
-    
+
     @handle_errors(default=False)
     async def reload_timeout_config(self) -> bool:
         """Reloads timeout/brightness config"""
@@ -139,7 +139,7 @@ class ScreenController:
         self.logger.debug(f"Screen config reloaded (new timeout: {self.timeout_seconds}s)")
         self.last_activity_time = monotonic()
         return True
-    
+
     @handle_errors(default=False)
     async def initialize(self) -> bool:
         """Initializes the controller"""
@@ -162,7 +162,7 @@ class ScreenController:
         # asyncio.create_task(self._monitor_touch_events())  # Disabled - detection via frontend
 
         return True
-    
+
     @handle_errors(default=None)
     async def _screen_cmd(self, cmd):
         """Executes a screen command"""
@@ -183,7 +183,7 @@ class ScreenController:
         # Determine if screen is on by comparing with screen_off_cmd
         # (if command is screen_off_cmd, screen is off, otherwise it's on)
         self.screen_on = (cmd != self.screen_off_cmd)
-    
+
     @handle_errors(default=None)
     async def _broadcast_sleep_state(self, sleeping: bool):
         """Broadcast screen sleep state change to frontend via WebSocket"""
@@ -215,7 +215,7 @@ class ScreenController:
             except Exception as e:
                 self.logger.error(f"Source state monitoring error: {e}")
                 await asyncio.sleep(5)
-    
+
     async def _monitor_timeout(self):
         """Monitors timeout - timeout_seconds = 0 for never"""
         while self.running:
@@ -258,7 +258,7 @@ class ScreenController:
             except Exception as e:
                 self.logger.error(f"Timeout monitoring error: {e}")
                 await asyncio.sleep(10)
-    
+
     async def on_touch_detected(self):
         """Public interface for external touch"""
         was_sleeping = not self.screen_on
@@ -266,7 +266,7 @@ class ScreenController:
         self.last_activity_time = monotonic()
         if was_sleeping:
             await self._broadcast_sleep_state(False)
-    
+
     def cleanup(self):
         """Cleans up resources"""
         self.running = False
