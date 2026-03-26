@@ -12,11 +12,9 @@ MILO_USER="${MILO_USER:-milo}"
 MILO_DATA_DIR="${MILO_DATA_DIR:-/var/lib/milo}"
 MILO_APP_DIR="${MILO_APP_DIR:-/home/$MILO_USER/milo}"
 
-# Use install.sh logging functions if available, otherwise define minimal versions
+# Use parent logging functions if available, otherwise load common helpers
 if ! type log_info &>/dev/null; then
-    log_info()    { echo "[INFO] $1"; }
-    log_success() { echo "[SUCCESS] $1"; }
-    log_error()   { echo "[ERROR] $1"; }
+    source "$(dirname "$0")/common.sh"
 fi
 
 install_nqptp() {
