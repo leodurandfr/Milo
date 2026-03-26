@@ -13,6 +13,7 @@ eggs/
 .eggs/
 lib/
 !rootfs/var/lib/
+!rootfs/usr/local/lib/
 lib64/
 parts/
 sdist/
