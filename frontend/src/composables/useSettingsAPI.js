@@ -1,5 +1,4 @@
 // frontend/src/composables/useSettingsAPI.js
-import { ref } from 'vue';
 import axios from 'axios';
 import { logger } from '@/services/logger';
 
