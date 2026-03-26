@@ -5,7 +5,6 @@ Multi-screen support: Waveshare 7" USB and Waveshare 8" DSI
 """
 import asyncio
 import logging
-import os
 from pathlib import Path
 from time import monotonic
 

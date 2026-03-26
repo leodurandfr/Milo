@@ -14,7 +14,7 @@ Integration with ClientRegistryService:
 """
 import asyncio
 import logging
-from typing import Dict, List, Any, Optional, TYPE_CHECKING
+from typing import Dict, Any, Optional, TYPE_CHECKING
 
 import aiohttp
 

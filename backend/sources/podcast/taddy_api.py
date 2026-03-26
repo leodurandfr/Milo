@@ -2,7 +2,6 @@
 Taddy API client for podcast search and retrieval
 Complete implementation with all GraphQL queries
 """
-import asyncio
 import aiohttp
 import logging
 from typing import List, Dict, Any, Optional

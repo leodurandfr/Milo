@@ -11,11 +11,10 @@ import json
 import logging
 import os
 import tempfile
-from pathlib import Path
 from typing import Optional, Dict, Tuple
 
 from backend.config.constants import HARDWARE_FILE
-from backend.hardware.registry import AUDIO_CARDS, SCREENS, DEFAULT_ROTARY_PINS
+from backend.hardware.registry import AUDIO_CARDS, DEFAULT_ROTARY_PINS
 from backend.shared.decorators import handle_errors
 
 

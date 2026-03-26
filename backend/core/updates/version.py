@@ -8,8 +8,7 @@ import aiohttp
 import logging
 import os
 import re
-from typing import Dict, Any, Optional, List
-from pathlib import Path
+from typing import Dict, Any, List
 
 from backend.core.updates.helpers import compare_versions
 

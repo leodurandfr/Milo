@@ -10,10 +10,9 @@ This service handles:
 import asyncio
 import json
 import logging
-from typing import Dict, List, Any, Optional, TYPE_CHECKING
+from typing import Dict, Any, Optional, TYPE_CHECKING
 
 from backend.config.constants import CLIENT_EQUALIZER_FILE
-from backend.core.equalizer.client_proxy import is_ip_address
 from backend.shared.decorators import handle_errors
 
 if TYPE_CHECKING:

@@ -12,7 +12,7 @@ Hooks:
     _on_monitor_tick(): Called each monitor cycle when mpv is connected
 """
 import asyncio
-from typing import Dict, Any, Optional
+from typing import Optional
 
 from backend.core.audio_source import BaseAudioSource
 from backend.shared.decorators import handle_errors
