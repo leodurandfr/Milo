@@ -317,23 +317,6 @@ class VolumeStateStore:
 
         self._schedule_persist()
 
-    def get_startup_volume(self, default_volume_db: float, restore_enabled: bool) -> float:
-        """
-        Determine startup volume (restored or default).
-
-        Args:
-            default_volume_db: Default startup volume in dB
-            restore_enabled: Whether volume restore is enabled
-
-        Returns:
-            Volume to use at startup in dB
-        """
-        if restore_enabled and self._local_volume_db != DEFAULT_VOLUME_DB:
-            # Use restored local volume if it was loaded from disk
-            self.logger.info(f"Using restored volume: {self._local_volume_db:.1f}dB")
-            return self._local_volume_db
-        return default_volume_db
-
     async def _load_zones(self) -> None:
         """Load zone configurations from registry."""
         self._zones.clear()
@@ -829,22 +812,3 @@ class VolumeStateStore:
             return self._volume_config.clamp(volume_db)
         # Fallback before config is set
         return max(MIN_VOLUME_DB, min(MAX_VOLUME_DB, volume_db))
-
-    async def get_volume_limits(self) -> Dict[str, float]:
-        """
-        Get volume limits from settings.
-
-        Returns:
-            Dict with min_db, max_db, step_mobile_db, step_button_db
-        """
-        min_db = await self.settings_service.get_setting("volume.limit_min_db") or MIN_VOLUME_DB
-        max_db = await self.settings_service.get_setting("volume.limit_max_db") or MAX_VOLUME_DB
-        step_mobile_db = await self.settings_service.get_setting("volume.step_mobile_db") or 3.0
-        step_button_db = await self.settings_service.get_setting("volume.step_button_db") or 5.0
-
-        return {
-            "min_db": min_db,
-            "max_db": max_db,
-            "step_mobile_db": step_mobile_db,
-            "step_button_db": step_button_db
-        }
