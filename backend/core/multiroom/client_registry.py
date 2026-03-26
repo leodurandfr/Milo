@@ -1249,7 +1249,8 @@ class ClientRegistryService:
                     "ip": client.ip,
                     "zone_id": client.zone_id,
                     "speaker_type": client.speaker_type,
-                    "crossover_frequency": client.crossover_frequency
+                    "crossover_frequency": client.crossover_frequency,
+                    "volume_control": client.volume_control
                     # Note: online, volume_db, mute are runtime state, not persisted
                 }
             await self._settings_service.set_setting("multiroom.clients", clients_data)
