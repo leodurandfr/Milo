@@ -34,7 +34,7 @@ done
 # Deploy avahi override if present
 if [ -f "$MILO_DIR/system/avahi-daemon-override.conf" ]; then
     mkdir -p /etc/systemd/system/avahi-daemon.service.d/
-    cp "$MILO_DIR/system/avahi-daemon-override.conf" /etc/systemd/system/avahi-daemon.service.d/override.conf
+    cp "$MILO_DIR/system/avahi-daemon-override.conf" /etc/systemd/system/avahi-daemon.service.d/milo-override.conf
     echo "  Installed avahi-daemon override"
 fi
 
@@ -45,7 +45,7 @@ echo "  systemctl daemon-reload done"
 echo "Deploying rootfs files..."
 cd "$MILO_DIR/rootfs"
 
-find . -type f | while read -r rel_path; do
+while read -r rel_path; do
     # Remove leading ./
     rel_path="${rel_path#./}"
 
@@ -78,6 +78,6 @@ find . -type f | while read -r rel_path; do
             chown milo-client:milo-client "$target"
             ;;
     esac
-done
+done < <(find . -type f)
 
 echo "Update deployment complete"
