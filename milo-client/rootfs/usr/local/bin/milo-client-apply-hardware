@@ -14,8 +14,9 @@
 
 set -euo pipefail
 
+source /usr/local/lib/milo/hardware-helpers.sh
+
 HARDWARE_FILE="/var/lib/milo-client/hardware.json"
-CONFIG_FILE="/boot/firmware/config.txt"
 NO_REBOOT=false
 
 # Parse arguments
@@ -26,76 +27,22 @@ for arg in "$@"; do
     esac
 done
 
-# Fallback for older Pi OS
-if [[ ! -f "$CONFIG_FILE" ]]; then
-    CONFIG_FILE="/boot/config.txt"
-fi
+resolve_config_file
 
 # =============================================================================
 # Validation
 # =============================================================================
 
-if [[ ! -f "$HARDWARE_FILE" ]]; then
-    echo "ERROR: $HARDWARE_FILE not found" >&2
-    exit 1
-fi
-
-if [[ ! -f "$CONFIG_FILE" ]]; then
-    echo "ERROR: $CONFIG_FILE not found" >&2
-    exit 1
-fi
-
-# Validate JSON
-if ! python3 -c "import json, sys; json.load(sys.stdin)" < "$HARDWARE_FILE" 2>/dev/null; then
-    echo "ERROR: $HARDWARE_FILE is not valid JSON" >&2
-    exit 1
-fi
-
-# =============================================================================
-# Parse hardware.json
-# =============================================================================
-
-read_json() {
-    python3 -c "
-import json, sys
-with open(sys.argv[1]) as f:
-    data = json.load(f)
-keys = sys.argv[2].split('.')
-val = data
-for k in keys:
-    val = val.get(k, '') if isinstance(val, dict) else ''
-print(val if val is not None else '')
-" "$HARDWARE_FILE" "$1"
-}
+validate_hardware_json
 
 AUDIO_OVERLAY=$(read_json "audio.overlay")
-
-# Validate audio overlay against allowlist
-VALID_OVERLAYS="hifiberry-dacplus-std hifiberry-amp4pro hifiberry-amp100 hifiberry-dac hifiberry-dacplushd hifiberry-dacplus"
-
-if [[ -n "$AUDIO_OVERLAY" ]]; then
-    if ! echo "$VALID_OVERLAYS" | grep -qw "$AUDIO_OVERLAY"; then
-        echo "ERROR: Unknown audio overlay '$AUDIO_OVERLAY'" >&2
-        exit 1
-    fi
-fi
+validate_audio_overlay "$AUDIO_OVERLAY"
 
 # =============================================================================
 # Backup config.txt
 # =============================================================================
 
-cp "$CONFIG_FILE" "$CONFIG_FILE.backup.$(date +%Y%m%d_%H%M%S)"
-# Rotate backups: keep only the 3 most recent
-ls -1t "$CONFIG_FILE".backup.* 2>/dev/null | tail -n +4 | xargs -r rm -f
-
-# =============================================================================
-# Helper: remove managed block
-# =============================================================================
-
-remove_block() {
-    local tag="$1"
-    sed -i "/^# BEGIN $tag$/,/^# END $tag$/d" "$CONFIG_FILE"
-}
+backup_config
 
 # =============================================================================
 # Audio configuration
@@ -105,10 +52,7 @@ remove_block() {
 remove_block "MILO CLIENT AUDIO"
 
 # Always remove legacy (non-managed) entries from old installs
-for overlay in $VALID_OVERLAYS; do
-    sed -i "/^dtoverlay=$overlay$/d" "$CONFIG_FILE"
-done
-sed -i '/^# Milo Client - HiFiBerry Audio/d' "$CONFIG_FILE"
+remove_legacy_overlays "# Milo Client - HiFiBerry Audio"
 
 # Only modify built-in audio and write overlay when an audio card is configured
 if [[ -n "$AUDIO_OVERLAY" ]]; then
@@ -116,12 +60,7 @@ if [[ -n "$AUDIO_OVERLAY" ]]; then
     sed -i '/^dtparam=audio=on$/d' "$CONFIG_FILE"
 
     # Disable GPU audio on vc4 overlays
-    if grep -q "vc4-fkms-v3d" "$CONFIG_FILE"; then
-        sed -i 's/dtoverlay=vc4-fkms-v3d.*/dtoverlay=vc4-fkms-v3d,audio=off/' "$CONFIG_FILE"
-    fi
-    if grep -q "vc4-kms-v3d" "$CONFIG_FILE"; then
-        sed -i 's/dtoverlay=vc4-kms-v3d.*/dtoverlay=vc4-kms-v3d,noaudio/' "$CONFIG_FILE"
-    fi
+    disable_vc4_audio
 
     # Write new audio block
     cat >> "$CONFIG_FILE" << EOF
