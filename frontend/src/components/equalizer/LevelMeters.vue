@@ -23,7 +23,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { computed, onMounted, onUnmounted, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useSettingsStore } from '@/stores/settingsStore';

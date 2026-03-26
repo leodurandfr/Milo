@@ -265,16 +265,6 @@ function handleFileSelect(event) {
   reader.readAsDataURL(file);
 }
 
-function removeImage() {
-  selectedFile.value = null;
-  imagePreview.value = null;
-  currentImageUrl.value = '';
-  shouldRemoveImage.value = true;
-  if (fileInput.value) {
-    fileInput.value.value = '';
-  }
-}
-
 function handleRestoreClick() {
   const now = Date.now();
 
