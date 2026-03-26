@@ -51,10 +51,6 @@ class EqualizerController:
         """Set the client registry (for dependency injection after init)."""
         self._registry = registry
 
-    def set_router(self, router: "EqualizerRouter"):
-        """Set the equalizer router (for dependency injection after init)."""
-        self._router = router
-
     def _has_registry(self) -> bool:
         """Check if registry is available for client lookups."""
         return self._registry is not None
@@ -212,46 +208,3 @@ class EqualizerController:
 
         return success_map
 
-    # ========== Synchronization ==========
-
-    async def sync_all_from_hardware(self, hostnames: list) -> Dict[str, Optional[float]]:
-        """
-        Read current volumes from all specified clients.
-
-        Args:
-            hostnames: List of client hostnames
-
-        Returns:
-            Dict mapping hostname -> volume_db (or None if failed)
-        """
-        if not hostnames:
-            return {}
-
-        self.logger.info(f"Syncing volumes from {len(hostnames)} clients")
-
-        tasks = {
-            hostname: asyncio.create_task(self.read_current_volume(hostname))
-            for hostname in hostnames
-        }
-
-        results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-
-        volume_map = {}
-        for hostname, result in zip(tasks.keys(), results):
-            if isinstance(result, Exception):
-                self.logger.error(f"Exception reading {hostname}: {result}")
-                volume_map[hostname] = None
-            else:
-                volume_map[hostname] = result
-
-        successes = sum(1 for vol in volume_map.values() if vol is not None)
-        self.logger.info(f"Sync complete: {successes}/{len(hostnames)} succeeded")
-
-        return volume_map
-
-    # ========== Configuration ==========
-
-    def set_timeout(self, timeout: float) -> None:
-        """Set timeout for equalizer operations."""
-        self._timeout = timeout
-        self.logger.debug(f"Equalizer timeout set to {timeout}s")
