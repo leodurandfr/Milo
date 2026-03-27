@@ -269,6 +269,15 @@ const activeSourceIndex = computed(() => {
 
 const getDockItems = () => isDesktop() ? desktopDockItems.value : mobileDockItems.value;
 
+// Compute translateX offset corrected for CSS transform scale on #app
+const getIndicatorOffset = (targetItem) => {
+  if (!targetItem || !dock.value) return null;
+  const dockRect = dock.value.getBoundingClientRect();
+  const itemRect = targetItem.getBoundingClientRect();
+  const scale = dockRect.width / dock.value.offsetWidth || 1;
+  return (itemRect.left - dockRect.left + (itemRect.width / 2) - 2) / scale;
+};
+
 const updateActiveIndicator = () => {
   if (!isVisible.value || activeSourceIndex.value === -1) {
     indicatorStyle.value.opacity = '0';
@@ -278,11 +287,8 @@ const updateActiveIndicator = () => {
   nextTick(() => {
     const items = getDockItems();
     const targetItem = items[activeSourceIndex.value];
-    if (!targetItem || !dock.value) return;
-
-    const dockRect = dock.value.getBoundingClientRect();
-    const itemRect = targetItem.getBoundingClientRect();
-    const offsetX = itemRect.left - dockRect.left + (itemRect.width / 2) - 2;
+    const offsetX = getIndicatorOffset(targetItem);
+    if (offsetX === null) return;
 
     indicatorStyle.value = { opacity: '0', transform: `translateX(${offsetX}px)`, transition: 'none' };
 
@@ -300,10 +306,8 @@ const moveIndicatorTo = (index) => {
   nextTick(() => {
     const items = getDockItems();
     const targetItem = items[index];
-    if (!targetItem || !dock.value) return;
-    const dockRect = dock.value.getBoundingClientRect();
-    const itemRect = targetItem.getBoundingClientRect();
-    const offsetX = itemRect.left - dockRect.left + (itemRect.width / 2) - 2;
+    const offsetX = getIndicatorOffset(targetItem);
+    if (offsetX === null) return;
     indicatorStyle.value = {
       opacity: '1',
       transform: `translateX(${offsetX}px)`,
@@ -410,11 +414,24 @@ const handleToggleClick = (event) => {
 
 // === LIFECYCLE ===
 watch(() => unifiedStore.systemState.active_source, (newSource) => {
-  updateActiveIndicator();
   if (newSource === 'none') {
+    indicatorStyle.value.opacity = '0';
     clearTimeout(hideTimeout);
-  } else if (isVisible.value) {
+  } else if (isVisible.value && indicatorStyle.value.opacity === '1') {
+    // Indicator already visible — slide to new position
+    const newIndex = activeSourceIndex.value;
+    if (newIndex !== -1) {
+      moveIndicatorTo(newIndex);
+    } else {
+      indicatorStyle.value.opacity = '0';
+    }
     startHideTimer();
+  } else {
+    // Dock just appeared or indicator hidden — fade in at position
+    updateActiveIndicator();
+    if (isVisible.value) {
+      startHideTimer();
+    }
   }
 });
 
@@ -650,7 +667,7 @@ onUnmounted(() => {
   border-radius: var(--radius-full);
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--transition-slow), transform var(--transition-spring-slow);
+  transition: opacity var(--transition-normal), transform var(--transition-spring-light);
 }
 
 .dock-item:disabled {
