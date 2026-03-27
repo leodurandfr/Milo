@@ -854,14 +854,18 @@ class SnapcastWebSocketService:
             # this succeeds).
             eq = self._volume_service._equalizer_controller
             volume_ok = await eq.set_equalizer_volume(mac_id, target_volume_db, force=True)
-            if not volume_ok:
-                self.logger.warning(f"VOLUME_APPLY: Hardware failed for {mac_id}, state updated to {target_volume_db:.1f} dB")
-                return False
 
-            # Unmute DSP (CamillaDSP starts muted with -m flag)
+            # Always attempt unmute even if volume failed — a muted client with
+            # wrong volume is worse than an unmuted client with wrong volume.
+            # CamillaDSP starts muted with -m flag, so skipping unmute on volume
+            # failure would leave the client permanently silent.
             persisted_mute = self._volume_service._state_store.get_client_mute(mac_id)
             await eq.set_equalizer_mute(mac_id, persisted_mute, force=True)
             self.logger.info(f"[{time.time():.3f}] MUTE_APPLY: Set {mac_id} mute={persisted_mute}")
+
+            if not volume_ok:
+                self.logger.warning(f"VOLUME_APPLY: Hardware failed for {mac_id}, state updated to {target_volume_db:.1f} dB (unmute still applied)")
+                return False
 
             self.logger.info(
                 f"[{time.time():.3f}] VOLUME_APPLY: Set {mac_id} to {target_volume_db:.1f} dB"

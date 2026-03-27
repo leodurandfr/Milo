@@ -106,6 +106,7 @@ class EqualizerController:
         """
         try:
             if not self._router:
+                self.logger.warning(f"Cannot set volume for {mac_id}: router not configured")
                 return False
             result = await asyncio.wait_for(
                 self._router.set_volume(mac_id, volume_db, force=force),
@@ -127,13 +128,15 @@ class EqualizerController:
         """Set mute state for a client's equalizer via EqualizerRouter."""
         try:
             if not self._router:
+                self.logger.warning(f"Cannot set mute for {mac_id}: router not configured")
                 return False
             result = await asyncio.wait_for(
                 self._router.set_mute(mac_id, mute, force=force),
                 timeout=self._timeout
             )
             return self._is_success(result)
-        except Exception:
+        except Exception as e:
+            self.logger.warning(f"Failed to set mute for {mac_id}: {e}")
             return False
 
     async def read_current_volume(self, mac_id: str) -> Optional[float]:
@@ -169,6 +172,7 @@ class EqualizerController:
         self.logger.info(f"Applying parallel volume updates to {len(updates)} clients")
 
         if not self._has_registry():
+            self.logger.warning("Cannot apply parallel volumes: client registry not available")
             return {k: False for k in updates}
 
         # Check availability for all remote clients in parallel

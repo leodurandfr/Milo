@@ -133,17 +133,28 @@ class VolumeService:
         if updates is None:
             # Direct mode: apply to local CamillaDSP
             success = await self._camilladsp_service.set_volume(target_db)
+            if not success:
+                self.logger.warning(f"Direct mode: CamillaDSP set_volume({target_db:.1f}dB) failed — audio may be silent")
             return success
         if not updates:
             return True
         # Multiroom: fan-out to all clients, commit state only on success
         results = await self._equalizer_controller.apply_volumes_parallel(updates)
+        failed = []
         for hostname, volume in updates.items():
             if results.get(hostname, False):
                 await self._state_store.set_client_volume(hostname, volume)
-        if results and not any(results.values()):
-            self.logger.warning(f"All {len(results)} multiroom clients failed volume update")
-        return True  # Graceful degradation: clients will sync on reconnect
+            else:
+                failed.append(hostname)
+        if failed:
+            self.logger.warning(f"Multiroom volume update failed for {len(failed)}/{len(results)} clients: {failed}")
+        # Local client failure is critical — server audio may be silent
+        local_mac = self._state_store.local_mac_id
+        local_failed = local_mac and local_mac in updates and not results.get(local_mac, False)
+        if local_failed:
+            self.logger.error(f"LOCAL server volume update failed — server audio may be silent")
+            return False
+        return True  # Remote failures degrade gracefully: clients will sync on reconnect
 
     # ============================================================================
     # EXPOSED SUB-SERVICES
@@ -221,7 +232,8 @@ class VolumeService:
             if not self._routing_service:
                 return False
             return self._routing_service.get_state().get('multiroom_enabled', False)
-        except Exception:
+        except Exception as e:
+            self.logger.warning(f"Failed to check multiroom state: {e}")
             return False
 
     def _is_equalizer_available(self) -> bool:
@@ -417,7 +429,7 @@ class VolumeService:
         registry = self._client_registry
         clients = await self.snapcast_service.get_clients()
         for client in clients:
-            cid = client.get("camilladsp_id", "")
+            cid = client.get("mac_id", "")
             if not cid:
                 continue
             # Read equalizer volume (local client uses local CamillaDSP, others use proxy)
@@ -799,11 +811,11 @@ class VolumeService:
         """Initialize client availability from Snapcast on startup."""
         clients = await self.snapcast_service.get_clients()
         for client in clients:
-            camilladsp_id = client.get("camilladsp_id", "")
+            mac_id = client.get("mac_id", "")
             available = client.get("available", True)
-            if camilladsp_id:
-                await self._state_store.set_client_availability(camilladsp_id, available)
-                self.logger.debug(f"Initialized availability: {camilladsp_id} -> {available}")
+            if mac_id:
+                await self._state_store.set_client_availability(mac_id, available)
+                self.logger.debug(f"Initialized availability: {mac_id} -> {available}")
         self.logger.info(f"Initialized availability for {len(clients)} clients")
 
     async def _broadcast_volume_state(self, show_bar: bool = True) -> None:

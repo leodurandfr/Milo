@@ -116,7 +116,8 @@ class EqualizerClientProxyService:
                         # Check equalizer_ready flag (default True for backward compatibility)
                         return data.get("equalizer_ready", True)
                     return False
-        except Exception:
+        except Exception as e:
+            self.logger.debug(f"Health check failed for {hostname}: {e}")
             return False
 
     async def request(
