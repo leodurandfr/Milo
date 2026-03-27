@@ -18,6 +18,10 @@ export const useCdStore = defineStore('cd', () => {
     unifiedStore.systemState.active_source === 'cd'
       && !!unifiedStore.systemState.metadata?.is_playing
   );
+  const isBuffering = computed(() =>
+    unifiedStore.systemState.active_source === 'cd'
+      && !!unifiedStore.systemState.metadata?.is_buffering
+  );
 
   // === DRIVE STATE ===
   const driveConnected = ref(false);
@@ -61,7 +65,6 @@ export const useCdStore = defineStore('cd', () => {
 
       // Disc info
       if (metadata.disc_id !== undefined) {
-        showTracklist.value = false;
         discInfo.value = {
           disc_id: metadata.disc_id,
           album: metadata.album,
@@ -95,7 +98,6 @@ export const useCdStore = defineStore('cd', () => {
         discInfo.value = null;
         tracks.value = [];
         currentTrack.value = null;
-        showTracklist.value = false;
       }
     }
   }
@@ -106,6 +108,7 @@ export const useCdStore = defineStore('cd', () => {
     tracks,
     currentTrack,
     isPlaying,
+    isBuffering,
     driveConnected,
     discPresent,
     showTracklist,
