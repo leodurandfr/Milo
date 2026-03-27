@@ -59,6 +59,7 @@ def _create_rotary_controller():
     clk, dt, sw = hardware_service.get_rotary_pins()
     return _import("backend.hardware", "RotaryVolumeController")(
         volume_service=get_service("volume_service"),
+        state_machine=get_service("audio_state_machine"),
         clk_pin=clk, dt_pin=dt, sw_pin=sw
     )
 
