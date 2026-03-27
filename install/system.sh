@@ -202,6 +202,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     install_apply_hardware_script
     install_polkit_rules
     create_systemd_services
+    configure_journald
     configure_fan_control
     optimize_boot_performance
     save_hardware_config

@@ -127,6 +127,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     install_apply_hardware_script
     save_hardware_config
     create_systemd_services
+    configure_journald
     enable_services
     install_wrapper_scripts
     configure_sudoers
