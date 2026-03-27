@@ -204,21 +204,6 @@ async def get_countries(source: RadioSource = Depends(get_source)):
 
 # === Favorites Routes ===
 
-@router.get("/favorites")
-async def get_favorites(source: RadioSource = Depends(get_source)):
-    """
-    Get list of favorite stations with details.
-
-    Returns:
-        List of favorite stations
-    """
-    try:
-        return await source.station_data.get_favorites_with_metadata()
-    except Exception as e:
-        logger.error("Favorites error: %s", e)
-        raise HTTPException(status_code=500, detail=f"Favorites error: {str(e)}")
-
-
 @router.post("/favorites/add")
 async def add_favorite(
     request: FavoriteRequest,

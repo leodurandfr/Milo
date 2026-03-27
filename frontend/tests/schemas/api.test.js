@@ -3,47 +3,10 @@ import { describe, it, expect } from 'vitest';
 import {
   SystemStateSchema,
   VolumeStateSchema,
-  AudioSourceSchema,
-  SourceStateSchema,
-  RegisteredClientSchema,
-  MultiroomStateSchema,
-  RadioStationSchema,
-  validateSchema,
-  validateWithFallback
+  validateSchema
 } from '@/schemas/api';
 
 describe('API Schemas', () => {
-  describe('AudioSourceSchema', () => {
-    it('should accept valid sources', () => {
-      const validSources = ['none', 'spotify', 'bluetooth', 'mac', 'radio', 'podcast'];
-
-      validSources.forEach(source => {
-        expect(AudioSourceSchema.safeParse(source).success).toBe(true);
-      });
-    });
-
-    it('should reject invalid sources', () => {
-      expect(AudioSourceSchema.safeParse('invalid').success).toBe(false);
-      expect(AudioSourceSchema.safeParse(123).success).toBe(false);
-      expect(AudioSourceSchema.safeParse(null).success).toBe(false);
-    });
-  });
-
-  describe('SourceStateSchema', () => {
-    it('should accept valid states', () => {
-      const validStates = ['starting', 'waiting', 'active', 'error'];
-
-      validStates.forEach(state => {
-        expect(SourceStateSchema.safeParse(state).success).toBe(true);
-      });
-    });
-
-    it('should reject invalid states', () => {
-      expect(SourceStateSchema.safeParse('invalid').success).toBe(false);
-      expect(SourceStateSchema.safeParse('READY').success).toBe(false);
-    });
-  });
-
   describe('SystemStateSchema', () => {
     it('should validate complete system state', () => {
       const validState = {
@@ -141,163 +104,21 @@ describe('API Schemas', () => {
     });
   });
 
-  describe('RegisteredClientSchema', () => {
-    it('should validate registered client', () => {
-      const client = {
-        mac_id: 'dc:a6:32:7e:d3:43',
-        name: 'Living Room',
-        ip: '192.168.1.100',
-        online: true,
-        zone_id: null,
-        speaker_type: 'bookshelf'
-      };
-
-      const result = RegisteredClientSchema.safeParse(client);
-      expect(result.success).toBe(true);
-      expect(result.data.mac_id).toBe('dc:a6:32:7e:d3:43');
-    });
-
-    it('should provide defaults for optional fields', () => {
-      const minimalClient = {
-        mac_id: 'local',
-        name: 'Main',
-        ip: '127.0.0.1',
-        zone_id: null
-      };
-
-      const result = RegisteredClientSchema.safeParse(minimalClient);
-      expect(result.success).toBe(true);
-      expect(result.data.online).toBe(false);
-      expect(result.data.speaker_type).toBe('bookshelf');
-    });
-
-    it('should validate speaker_type enum', () => {
-      const validTypes = ['satellite', 'bookshelf', 'tower', 'subwoofer'];
-
-      validTypes.forEach(type => {
-        const client = {
-          mac_id: 'test',
-          name: 'Test',
-          ip: '127.0.0.1',
-          zone_id: null,
-          speaker_type: type
-        };
-        expect(RegisteredClientSchema.safeParse(client).success).toBe(true);
-      });
-
-      // Invalid type should fail
-      const invalidClient = {
-        mac_id: 'test',
-        name: 'Test',
-        ip: '127.0.0.1',
-        zone_id: null,
-        speaker_type: 'invalid_type'
-      };
-      expect(RegisteredClientSchema.safeParse(invalidClient).success).toBe(false);
-    });
-  });
-
-  describe('MultiroomStateSchema', () => {
-    it('should validate complete multiroom state', () => {
-      const state = {
-        clients: {
-          'dc:a6:32:7e:d3:43': {
-            mac_id: 'dc:a6:32:7e:d3:43',
-            name: 'Living Room',
-            ip: '192.168.1.100',
-            online: true,
-            zone_id: 'zone-1',
-            speaker_type: 'bookshelf'
-          },
-          'local': {
-            mac_id: 'local',
-            name: 'Main',
-            ip: '127.0.0.1',
-            online: true,
-            zone_id: 'zone-1',
-            speaker_type: 'tower'
-          }
-        },
-        zones: {
-          'zone-1': {
-            id: 'zone-1',
-            name: 'Living Room',
-            client_ids: ['local', 'dc:a6:32:7e:d3:43'],
-            online_client_count: 2,
-            has_subwoofer: false,
-            crossover_enabled: false
-          }
-        }
-      };
-
-      const result = MultiroomStateSchema.safeParse(state);
-      expect(result.success).toBe(true);
-      expect(Object.keys(result.data.clients)).toHaveLength(2);
-      expect(Object.keys(result.data.zones)).toHaveLength(1);
-    });
-
-    it('should accept empty multiroom state', () => {
-      const emptyState = {
-        clients: {},
-        zones: {}
-      };
-
-      const result = MultiroomStateSchema.safeParse(emptyState);
-      expect(result.success).toBe(true);
-    });
-  });
-
-  describe('RadioStationSchema', () => {
-    it('should validate radio station', () => {
-      const station = {
-        id: 'station123',
-        name: 'Jazz FM',
-        url: 'https://stream.example.com/jazz',
-        favicon: 'https://example.com/logo.png',
-        country: 'FR',
-        language: 'French',
-        bitrate: 128
-      };
-
-      const result = RadioStationSchema.safeParse(station);
-      expect(result.success).toBe(true);
-    });
-
-    it('should accept minimal station', () => {
-      const minimalStation = {
-        id: 's1',
-        name: 'Station',
-        url: 'https://stream.example.com'
-      };
-
-      const result = RadioStationSchema.safeParse(minimalStation);
-      expect(result.success).toBe(true);
-    });
-  });
-
   describe('validateSchema helper', () => {
     it('should return success result for valid data', () => {
-      const result = validateSchema(AudioSourceSchema, 'spotify', 'test');
+      const result = validateSchema(SystemStateSchema, {
+        active_source: 'spotify',
+        source_state: 'active',
+        transitioning: false,
+        multiroom_enabled: false
+      }, 'test');
       expect(result.success).toBe(true);
-      expect(result.data).toBe('spotify');
     });
 
     it('should return error result for invalid data', () => {
-      const result = validateSchema(AudioSourceSchema, 'invalid', 'test');
+      const result = validateSchema(SystemStateSchema, { active_source: 'invalid' }, 'test');
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
-    });
-  });
-
-  describe('validateWithFallback helper', () => {
-    it('should return validated data when valid', () => {
-      const result = validateWithFallback(AudioSourceSchema, 'spotify', 'none');
-      expect(result).toBe('spotify');
-    });
-
-    it('should return fallback when invalid', () => {
-      const result = validateWithFallback(AudioSourceSchema, 'invalid', 'none');
-      expect(result).toBe('none');
     });
   });
 });

@@ -285,10 +285,6 @@ class StationDataService:
         """Check if station is in favorites."""
         return station_id in self._favorites
 
-    def get_favorites(self) -> List[str]:
-        """Get list of favorite station IDs."""
-        return self._favorites.copy()
-
     async def get_station_metadata(self, station_id: str) -> Optional[Dict[str, Any]]:
         """
         Get station metadata with priority chain:

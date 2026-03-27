@@ -408,59 +408,6 @@ class VolumeService:
     # CLIENT VOLUME MANAGEMENT (VolumeStateStore architecture)
     # ============================================================================
 
-    async def sync_existing_client_from_snapcast(self, client_id: str) -> bool:
-        """Sync reconnected client: mute -> set volume -> unmute to prevent volume spike."""
-        if not self._is_multiroom_enabled():
-            return True
-        try:
-            # Wait for client equalizer to be ready
-            if not await self._equalizer_controller.wait_for_client_ready(client_id, max_wait=10.0):
-                self.logger.error(f"EQUALIZER_SYNC: Client {client_id} Equalizer not ready, skipping")
-                return False
-
-            # Mute CamillaDSP first to prevent volume spike
-            await self._equalizer_controller.set_equalizer_mute(client_id, True)
-            volume_state = await self._state_store.get_complete_state()
-
-            # Find client's zone (if any)
-            client_zone_id = next(
-                (zid for zid, zdata in volume_state.zones.items() if client_id in zdata.client_ids),
-                None
-            )
-
-            # Determine target volume
-            if client_zone_id:
-                target = self._state_store.get_zone_target_volume(client_zone_id)
-                expected_volume = target if target is not None else volume_state.zones[client_zone_id].average_volume_db
-                self.logger.info(f"Syncing {client_id} in zone '{client_zone_id}': {expected_volume:.1f}dB")
-            else:
-                expected_volume = self._state_store.get_client_volume(client_id)
-                if expected_volume is None:
-                    expected_volume = volume_state.global_volume_db
-                self.logger.info(f"Syncing {client_id} (no zone): {expected_volume:.1f}dB")
-
-            # Apply volume while muted
-            await self._equalizer_controller.set_equalizer_volume(client_id, expected_volume)
-
-            # Apply persisted mute state
-            await self._equalizer_controller.set_equalizer_mute(client_id, self._state_store.get_client_mute(client_id))
-
-            await self._state_store.register_client(client_id, volume_db=expected_volume, available=True)
-            await self._broadcast_volume_state(show_bar=False)
-            return True
-        except Exception as e:
-            self.logger.error(f"Error syncing client {client_id}: {e}")
-            try:
-                await self._equalizer_controller.set_equalizer_mute(client_id, False)
-            except Exception:
-                pass
-            return False
-
-    async def sync_client_volume_from_external(self, client_id: str, volume_db: float) -> None:
-        """Sync client volume from external change (e.g., MultiroomModal)."""
-        if self._is_multiroom_enabled():
-            await self.update_client_volume_db(client_id, volume_db, broadcast=True)
-
     @handle_errors(default=False)
     async def sync_all_clients_from_equalizer(self) -> bool:
         """Sync all client volumes from their equalizer state (called when multiroom is enabled)."""
@@ -846,24 +793,6 @@ class VolumeService:
             pass
         except Exception as e:
             self.logger.error(f"Background broadcast task failed: {e}", exc_info=True)
-
-    def update_client_availability(self, hostname: str, available: bool) -> None:
-        """
-        Update client availability from WebSocket event.
-
-        This is called when a client connects/disconnects or availability changes.
-        Triggers zone volume recalculation if availability actually changed.
-        """
-        # Update state store asynchronously
-        async def _update():
-            try:
-                await self._state_store.set_client_availability(hostname, available)
-                await self._broadcast_volume_state(show_bar=False)
-            except Exception as e:
-                self.logger.error(f"Error updating client availability: {e}")
-
-        task = asyncio.create_task(_update())
-        task.add_done_callback(self._handle_broadcast_task_error)
 
     @handle_errors(default=None, level='warning')
     async def initialize_client_availability(self) -> None:
