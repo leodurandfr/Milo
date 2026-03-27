@@ -3,7 +3,8 @@ Description=Milo Client API Service
 After=network.target
 
 [Service]
-Type=simple
+Type=notify
+TimeoutStartSec=30
 User=milo-client
 Group=audio
 WorkingDirectory=/home/milo-client/repo/milo-client/app

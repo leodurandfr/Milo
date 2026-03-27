@@ -5,6 +5,8 @@ Version: 2.0 - Feature-based architecture
 """
 import asyncio
 import logging
+import os
+import socket
 import time
 from contextlib import asynccontextmanager
 
@@ -25,6 +27,18 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+def _sd_notify_ready():
+    """Notify systemd that the service is ready (no external dependency)."""
+    addr = os.environ.get("NOTIFY_SOCKET")
+    if not addr:
+        return
+    if addr[0] == "@":
+        addr = "\0" + addr[1:]
+    with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as sock:
+        sock.sendto(b"READY=1", addr)
+    logger.info("sd_notify: READY=1 sent to systemd")
+
 
 # Create service instances
 equalizer_service = EqualizerService()
@@ -69,6 +83,11 @@ async def lifespan(app: FastAPI):
         logger.warning("CamillaDSP client library not available")
 
     logger.info("Milo Client API startup complete")
+
+    # Signal systemd that the service is ready (Type=notify).
+    # This unblocks milo-client-snapclient.service so snapclient only
+    # connects to snapserver AFTER our API is accepting requests.
+    _sd_notify_ready()
 
     # Register with main Milo (background task, retries until successful)
     registration_task = asyncio.create_task(register_with_main_milo())
