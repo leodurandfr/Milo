@@ -17,6 +17,7 @@ install_snapcast() {
     log_info "Installing Snapcast..."
 
     # Detect Debian version (bookworm, trixie, bullseye, etc.)
+    local DEBIAN_VERSION
     DEBIAN_VERSION=$(lsb_release -sc 2>/dev/null || grep VERSION_CODENAME /etc/os-release | cut -d= -f2)
 
     if [[ -z "$DEBIAN_VERSION" ]]; then
@@ -33,9 +34,9 @@ install_snapcast() {
     log_info "Attempting installation from GitHub (latest version)..."
 
     local temp_dir
-    temp_dir=$(mktemp -d)
+    temp_dir=$(mktemp -d) || { log_error "Failed to create temp directory"; return 1; }
     register_temp_dir "$temp_dir"
-    cd "$temp_dir"
+    pushd "$temp_dir" > /dev/null
 
     # Download with detected Debian version
     log_info "Downloading Snapcast v0.35.0 for $DEBIAN_VERSION..."
@@ -85,9 +86,8 @@ install_snapcast() {
         fi
     fi
 
-    # Cleanup temp directory
-    cd ~
-    rm -rf "$temp_dir"
+    # Restore working directory
+    popd > /dev/null
 
     # Method 2: Fall back to apt if GitHub method failed
     if [[ "$github_install_success" != "true" ]]; then

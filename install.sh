@@ -281,6 +281,9 @@ main() {
    install_screen_brightness_control
    save_hardware_config
 
+   # Cleanup non-interactive apt overrides (must happen after all apt calls)
+   sudo rm -f /etc/apt/apt.conf.d/local
+
    # Finalize
    enable_services
    finalize_installation

@@ -21,9 +21,9 @@ install_go_librespot() {
     sudo apt-get install -y libogg-dev libvorbis-dev libasound2-dev
 
     local temp_dir
-    temp_dir=$(mktemp -d)
+    temp_dir=$(mktemp -d) || { log_error "Failed to create temp directory"; return 1; }
     register_temp_dir "$temp_dir"
-    cd "$temp_dir"
+    pushd "$temp_dir" > /dev/null
 
     wget https://github.com/devgianlu/go-librespot/releases/download/v0.6.1/go-librespot_linux_arm64.tar.gz
     tar -xvzf go-librespot_linux_arm64.tar.gz
@@ -53,8 +53,7 @@ EOF
 
     sudo chown -R "$MILO_USER:audio" "$MILO_DATA_DIR/go-librespot"
 
-    cd ~
-    rm -rf "$temp_dir"
+    popd > /dev/null
 
     log_success "go-librespot installed"
 }

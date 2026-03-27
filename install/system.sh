@@ -18,6 +18,15 @@ if ! type log_info &>/dev/null; then
     source "$(dirname "$0")/common.sh"
 fi
 
+configure_journald() {
+    log_info "Configuring journald limits..."
+
+    sudo sed -i 's/^#\?RuntimeMaxUse=.*/RuntimeMaxUse=100M/' /etc/systemd/journald.conf
+    sudo sed -i 's/^#\?MaxRetentionSec=.*/MaxRetentionSec=7d/' /etc/systemd/journald.conf
+
+    log_success "Journald configured (100MB max, 7 days retention)"
+}
+
 install_udev_rules() {
     log_info "Installing udev rules..."
 

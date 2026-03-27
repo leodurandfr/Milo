@@ -325,6 +325,9 @@ main() {
     configure_avahi
     configure_network_priority
 
+    # Cleanup non-interactive apt overrides (must happen after all apt calls)
+    sudo rm -f /etc/apt/apt.conf.d/local
+
     # Finalize
     finalize_installation
 }

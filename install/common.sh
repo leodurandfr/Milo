@@ -2,7 +2,7 @@
 # Milo - Shared install helpers
 #
 # Sourced by install.sh and milo-client/install-client.sh to avoid
-# duplicating colour codes, log functions, and journald configuration.
+# duplicating colour codes, log functions, and temp directory cleanup.
 
 # --- Colour codes ---
 RED='\033[0;31m'
@@ -41,13 +41,3 @@ _cleanup_temp_dirs() {
     done
 }
 trap _cleanup_temp_dirs EXIT
-
-# --- Journald configuration ---
-configure_journald() {
-    log_info "Configuring journald limits..."
-
-    sudo sed -i 's/^#\?RuntimeMaxUse=.*/RuntimeMaxUse=100M/' /etc/systemd/journald.conf
-    sudo sed -i 's/^#\?MaxRetentionSec=.*/MaxRetentionSec=7d/' /etc/systemd/journald.conf
-
-    log_success "Journald configured (100MB max, 7 days retention)"
-}

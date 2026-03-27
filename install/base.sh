@@ -48,8 +48,6 @@ install_dependencies() {
     sudo npm install -g npm@latest
     hash -r
 
-    sudo rm -f /etc/apt/apt.conf.d/local
-
     log_success "Dependencies installed"
 }
 
@@ -143,5 +141,6 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     install_milo_application
     fix_nginx_permissions
     suppress_pulseaudio
+    sudo rm -f /etc/apt/apt.conf.d/local
     log_success "Base system setup complete"
 fi

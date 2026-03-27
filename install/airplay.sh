@@ -21,9 +21,9 @@ install_nqptp() {
     log_info "Installing NQPTP (AirPlay 2 timing daemon)..."
 
     local temp_dir
-    temp_dir=$(mktemp -d)
+    temp_dir=$(mktemp -d) || { log_error "Failed to create temp directory"; return 1; }
     register_temp_dir "$temp_dir"
-    cd "$temp_dir"
+    pushd "$temp_dir" > /dev/null
 
     git clone https://github.com/mikebrady/nqptp.git
     cd nqptp
@@ -35,8 +35,7 @@ install_nqptp() {
     sudo systemctl enable nqptp
     sudo systemctl start nqptp
 
-    cd ~
-    rm -rf "$temp_dir"
+    popd > /dev/null
 
     log_success "NQPTP installed"
 }
@@ -53,9 +52,9 @@ install_shairport_sync() {
         libglib2.0-dev
 
     local temp_dir
-    temp_dir=$(mktemp -d)
+    temp_dir=$(mktemp -d) || { log_error "Failed to create temp directory"; return 1; }
     register_temp_dir "$temp_dir"
-    cd "$temp_dir"
+    pushd "$temp_dir" > /dev/null
 
     git clone https://github.com/mikebrady/shairport-sync.git
     cd shairport-sync
@@ -71,8 +70,7 @@ install_shairport_sync() {
     make -j$(nproc)
     sudo make install
 
-    cd ~
-    rm -rf "$temp_dir"
+    popd > /dev/null
 
     log_success "shairport-sync installed"
 }
