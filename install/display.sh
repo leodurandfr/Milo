@@ -79,7 +79,7 @@ configure_boot_display() {
     log_info "Configuring boot display (no screen selected yet)..."
 
     # Use common boot config — screen-specific config applied later by milo-apply-hardware
-    source "$MILO_APP_DIR/install/boot-common.sh"
+    source "$(dirname "${BASH_SOURCE[0]}")/boot-common.sh"
 
     # Configure cmdline.txt
     configure_cmdline "$BOOT_PARAMS_COMMON $BOOT_PARAMS_SCREEN"
@@ -248,9 +248,9 @@ install_screen_brightness_control() {
     log_info "Installing brightness control for Waveshare 8\" DSI..."
 
     local temp_dir
-    temp_dir=$(mktemp -d)
+    temp_dir=$(mktemp -d) || { log_error "Failed to create temp directory"; return 1; }
     register_temp_dir "$temp_dir"
-    cd "$temp_dir"
+    pushd "$temp_dir" > /dev/null
 
     wget https://files.waveshare.com/wiki/common/Brightness.zip
     unzip Brightness.zip
@@ -258,8 +258,7 @@ install_screen_brightness_control() {
     sudo chmod +x install.sh
     ./install.sh
 
-    cd ~
-    rm -rf "$temp_dir"
+    popd > /dev/null
 
     # Create udev rule for backlight permissions
     log_info "Configuring backlight permissions (udev rule)..."

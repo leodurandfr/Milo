@@ -21,9 +21,9 @@ install_camilladsp() {
     log_info "Installing CamillaDSP..."
 
     local temp_dir
-    temp_dir=$(mktemp -d)
+    temp_dir=$(mktemp -d) || { log_error "Failed to create temp directory"; return 1; }
     register_temp_dir "$temp_dir"
-    cd "$temp_dir"
+    pushd "$temp_dir" > /dev/null
 
     # Download CamillaDSP binary for ARM64
     log_info "Downloading CamillaDSP v3.0.1..."
@@ -48,8 +48,7 @@ install_camilladsp() {
     # Verify installation
     /usr/local/bin/camilladsp --version
 
-    cd ~
-    rm -rf "$temp_dir"
+    popd > /dev/null
 
     log_success "CamillaDSP installed"
 }

@@ -45,8 +45,6 @@ install_dependencies() {
         avahi-daemon \
         avahi-utils
 
-    sudo rm -f /etc/apt/apt.conf.d/local
-
     log_success "Dependencies installed"
 }
 
@@ -173,9 +171,11 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     install_dependencies
     suppress_pulseaudio
     discover_milo_principal
+    export MILO_PRINCIPAL_IP
     setup_hostname
     create_milo_client_user
     clone_milo_client_repo
     install_milo_client_application
+    sudo rm -f /etc/apt/apt.conf.d/local
     log_success "Base system setup complete"
 fi

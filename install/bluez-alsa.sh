@@ -33,9 +33,9 @@ install_bluez_alsa() {
       libtool
 
     local temp_dir
-    temp_dir=$(mktemp -d)
+    temp_dir=$(mktemp -d) || { log_error "Failed to create temp directory"; return 1; }
     register_temp_dir "$temp_dir"
-    cd "$temp_dir"
+    pushd "$temp_dir" > /dev/null
 
     git clone https://github.com/arkq/bluez-alsa.git
     cd bluez-alsa
@@ -55,8 +55,7 @@ install_bluez_alsa() {
     sudo make install
     sudo ldconfig
 
-    cd ~
-    rm -rf "$temp_dir"
+    popd > /dev/null
 
     sudo systemctl stop bluealsa-aplay.service bluealsa.service || true
     sudo systemctl disable bluealsa-aplay.service bluealsa.service || true

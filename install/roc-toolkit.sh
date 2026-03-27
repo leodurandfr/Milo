@@ -20,9 +20,9 @@ install_roc_toolkit() {
       libtool intltool autoconf automake make cmake avahi-utils libpulse-dev
 
     local temp_dir
-    temp_dir=$(mktemp -d)
+    temp_dir=$(mktemp -d) || { log_error "Failed to create temp directory"; return 1; }
     register_temp_dir "$temp_dir"
-    cd "$temp_dir"
+    pushd "$temp_dir" > /dev/null
 
     git clone https://github.com/roc-streaming/roc-toolkit.git
     cd roc-toolkit
@@ -30,8 +30,7 @@ install_roc_toolkit() {
     sudo scons -Q --build-3rdparty=openfec install
     sudo ldconfig
 
-    cd ~
-    rm -rf "$temp_dir"
+    popd > /dev/null
 
     roc-recv --version
 

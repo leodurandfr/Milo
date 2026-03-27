@@ -17,6 +17,7 @@ install_snapclient() {
     log_info "Installing Snapclient..."
 
     # Detect Debian version
+    local DEBIAN_VERSION
     DEBIAN_VERSION=$(lsb_release -sc 2>/dev/null || grep VERSION_CODENAME /etc/os-release | cut -d= -f2)
 
     if [[ -z "$DEBIAN_VERSION" ]]; then
@@ -33,9 +34,9 @@ install_snapclient() {
     log_info "Attempting installation from GitHub (latest version)..."
 
     local temp_dir
-    temp_dir=$(mktemp -d)
+    temp_dir=$(mktemp -d) || { log_error "Failed to create temp directory"; return 1; }
     register_temp_dir "$temp_dir"
-    cd "$temp_dir"
+    pushd "$temp_dir" > /dev/null
 
     log_info "Downloading Snapclient v0.35.0 for $DEBIAN_VERSION..."
     if wget "https://github.com/snapcast/snapcast/releases/download/v0.35.0/snapclient_0.35.0-1_arm64_${DEBIAN_VERSION}.deb" 2>/dev/null; then
@@ -79,9 +80,8 @@ install_snapclient() {
         fi
     fi
 
-    # Cleanup temp directory
-    cd ~
-    rm -rf "$temp_dir"
+    # Restore working directory
+    popd > /dev/null
 
     # Method 2: Fall back to apt if GitHub method failed
     if [[ "$github_install_success" != "true" ]]; then
