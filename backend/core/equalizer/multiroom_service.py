@@ -213,7 +213,7 @@ class MultiroomEqualizerService:
         await self._registry._persist_zones()
         return True
 
-    async def _resolve_preset_gains(self, preset_id: str) -> list:
+    async def resolve_preset_gains(self, preset_id: str) -> list:
         """Resolve gain values for a preset ID (builtin or custom)."""
         from backend.core.equalizer.presets import get_preset_by_id, DEFAULT_CUSTOM_GAINS
 
@@ -252,7 +252,7 @@ class MultiroomEqualizerService:
         Raises:
             ValueError: If zone or preset not found
         """
-        gains = await self._resolve_preset_gains(preset_id)
+        gains = await self.resolve_preset_gains(preset_id)
 
         current = await self.get_zone_equalizer(zone_id)
         if not current:
@@ -271,7 +271,7 @@ class MultiroomEqualizerService:
         Raises:
             ValueError: If client not found, client is in a zone, or preset not found
         """
-        gains = await self._resolve_preset_gains(preset_id)
+        gains = await self.resolve_preset_gains(preset_id)
 
         current = await self.get_client_equalizer(mac_id)
         if not current:
@@ -987,37 +987,3 @@ class MultiroomEqualizerService:
 
         return success_count > 0
 
-    # =========================================================================
-    # Event Broadcasting
-    # =========================================================================
-
-    async def _broadcast_equalizer_event(
-        self,
-        target_type: str,
-        target_id: str,
-        settings: EqualizerSettings,
-    ) -> None:
-        """
-        Broadcast equalizer changed event via WebSocket.
-
-        Event format matches architecture spec:
-        {
-            "category": "multiroom",
-            "type": "equalizer_changed",
-            "data": {
-                "target_type": "zone" | "client",
-                "target_id": "uuid-..." | "mac-...",
-                "equalizer_settings": { ... }
-            }
-        }
-        """
-        if self._state_machine:
-            await self._state_machine.broadcast_event(
-                "multiroom",
-                "equalizer_changed",
-                {
-                    "target_type": target_type,
-                    "target_id": target_id,
-                    "equalizer_settings": settings.to_dict(),
-                },
-            )

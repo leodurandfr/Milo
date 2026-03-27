@@ -787,16 +787,24 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       if (zoneId) {
         const response = await axios.post(`/api/equalizer/zone/${zoneId}/preset`, { preset_id: presetId });
         if (response.data.status === 'success' || response.data.status === 'partial') {
-          activePreset.value = presetId;
-          isPresetEdited.value = false;
-          _snapshotPresetGains(presetId);
-          _applyPresetGains(presetId);
+          _applyResponseGains(presetId, response.data.gains);
           return true;
         }
         return false;
       }
 
-      // Standalone client: update directly
+      // Standalone client: multiroom or direct
+      const selectedId = selectedTarget.value;
+      if (selectedId && !isLocalClient(selectedId)) {
+        const response = await axios.post(`/api/equalizer/client/${selectedId}/preset`, { preset_id: presetId });
+        if (response.data.status === 'success') {
+          _applyResponseGains(presetId, response.data.gains);
+          return true;
+        }
+        return false;
+      }
+
+      // Local standalone: no gains in response, use local values
       const response = await axios.put(`/api/equalizer/preset/${presetId}`);
       if (response.data.status === 'success') {
         activePreset.value = presetId;
@@ -807,6 +815,19 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       }
       return false;
     });
+  }
+
+  /**
+   * Apply gains from API response. Updates customGains if needed before applying.
+   */
+  function _applyResponseGains(presetId, gains) {
+    if (presetId === 'custom' && gains) {
+      customGains.value = gains;
+    }
+    activePreset.value = presetId;
+    isPresetEdited.value = false;
+    _snapshotPresetGains(presetId);
+    _applyPresetGains(presetId);
   }
 
   /**

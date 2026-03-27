@@ -302,16 +302,19 @@ def create_equalizer_router(
 
         Applies the preset to all ONLINE zone members. OFFLINE clients will
         receive settings on reconnection via sync service.
+        Returns resolved gains so the frontend can apply them immediately.
         """
         async with api_error_handler(f"Error loading preset for zone {zone_id}", logger):
             try:
+                gains = await multiroom_equalizer_service.resolve_preset_gains(payload.preset_id)
                 success = await multiroom_equalizer_service.load_zone_preset(zone_id, payload.preset_id)
             except ValueError as e:
                 raise HTTPException(status_code=404, detail=str(e))
             return {
                 "status": "success" if success else "error",
                 "zone_id": zone_id,
-                "preset_id": payload.preset_id
+                "preset_id": payload.preset_id,
+                "gains": gains
             }
 
     @router.patch("/zone/{zone_id}/filter/{filter_id}")
@@ -442,16 +445,19 @@ def create_equalizer_router(
         Load a preset for a standalone client by MAC ID.
 
         Applies the preset to the client. For zone clients, use the zone preset endpoint.
+        Returns resolved gains so the frontend can apply them immediately.
         """
         async with api_error_handler(f"Error loading preset for client {mac_id}", logger):
             try:
+                gains = await multiroom_equalizer_service.resolve_preset_gains(payload.preset_id)
                 success = await multiroom_equalizer_service.load_client_preset(mac_id, payload.preset_id)
             except ValueError as e:
                 raise HTTPException(status_code=404, detail=str(e))
             return {
                 "status": "success" if success else "error",
                 "client_id": mac_id,
-                "preset_id": payload.preset_id
+                "preset_id": payload.preset_id,
+                "gains": gains
             }
 
     # === Mute Control ===
