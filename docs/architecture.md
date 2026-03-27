@@ -35,15 +35,15 @@ Milō is built around a client-server architecture with real-time synchronizatio
 
 ### Backend: Python + FastAPI
 
-**Layered architecture:**
-- **Domain**: Data models (audio state, sources)
-- **Application**: Source interfaces (contract to respect)
-- **Infrastructure**: Concrete implementations (audio sources, services)
-- **Presentation**: REST API + WebSocket
+**Source-based architecture:**
+- **Core**: Domain models, state machine, services (volume, DSP, multiroom, settings)
+- **Sources**: Self-contained audio source modules (spotify, airplay, radio, etc.)
+- **API**: REST endpoints + WebSocket server
+- **Hardware**: Hardware controllers (rotary encoder, screen)
 
 **Key components:**
-- `UnifiedAudioStateMachine`: Single source of truth for system state
-- `AudioRoutingService`: Manages routing between sources and outputs
+- `AudioStateMachine`: Single source of truth for system state
+- `AudioRoutingService`: Manages multiroom routing between sources and outputs
 - `SettingsService`: Centralized settings management (with SHA256 checksum)
 - `VolumeService`: Unified volume control across all ALSA devices
 
@@ -407,14 +407,14 @@ Allowed origins only:
 ### Adding an audio source
 
 1. Create source implementing `AudioSourceProtocol`
-2. Register in `container.py`
+2. Register in `dependencies.py`
 3. Add ALSA devices in `/etc/asound.conf`
 4. Create Vue component for UI
 
 ### Adding a feature
 
-1. Create service in `backend/infrastructure/services/`
-2. Add API route in `backend/presentation/api/routes/`
+1. Create service in `backend/core/`
+2. Add API route in `backend/api/`
 3. Create Vue component in `frontend/src/components/`
 4. Update Pinia store if needed
 

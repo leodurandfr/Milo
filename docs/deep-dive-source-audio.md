@@ -8,8 +8,8 @@
 1. [Vue d'ensemble](#vue-densemble)
 2. [Architecture en couches](#architecture-en-couches)
 3. [Interface AudioSourceProtocol](#interface-audiosourceprotocol)
-4. [Classe de base UnifiedAudioSource](#classe-de-base-unifiedaudiosource)
-5. [Machine d'état UnifiedAudioStateMachine](#machine-détat-unifiedaudiostatemachine)
+4. [Classe de base BaseAudioSource](#classe-de-base-unifiedaudiosource)
+5. [Machine d'état AudioStateMachine](#machine-détat-unifiedaudiostatemachine)
 6. [Les 5 sources implémentées](#les-5-sources-implémentées)
    - [Spotify Source](#spotify-source)
    - [Bluetooth Source](#bluetooth-source)
@@ -37,7 +37,7 @@ Le système de sources audio de Milo permet de gérer 5 sources audio différent
 
 ### Principes architecturaux
 
-1. **Single Source of Truth** : `UnifiedAudioStateMachine` gère tout l'état audio
+1. **Single Source of Truth** : `AudioStateMachine` gère tout l'état audio
 2. **Source Pattern** : Toutes les sources implémentent `AudioSourceProtocol`
 3. **Async-first** : Toutes les opérations I/O sont asynchrones
 4. **Dependency Injection** : via `dependency-injector`
@@ -70,7 +70,7 @@ Le système de sources audio de Milo permet de gérer 5 sources audio différent
 ┌─────────────────────────────────────────────────────────────────┐
 │                   INFRASTRUCTURE LAYER                           │
 │  ┌────────────────────────────────────────────────────────────┐ │
-│  │              UnifiedAudioStateMachine                       │ │
+│  │              AudioStateMachine                       │ │
 │  │  - transition_to_source() - update_source_state()          │ │
 │  │  - broadcast_event() - register_source()                   │ │
 │  └────────────────────────────────────────────────────────────┘ │
@@ -151,7 +151,7 @@ class AudioSource(Enum):
 
 ---
 
-## Classe de base UnifiedAudioSource
+## Classe de base BaseAudioSource
 
 **Fichier** : `backend/core/audio_source.py`
 
@@ -168,7 +168,7 @@ La classe de base fournit l'implémentation commune pour toutes les sources :
 ### Structure
 
 ```python
-class UnifiedAudioSource(AudioSourceProtocol):
+class BaseAudioSource(AudioSourceProtocol):
     def __init__(self, source: AudioSource, config: Dict, state_machine):
         self.source = source
         self.config = config
@@ -226,9 +226,9 @@ class UnifiedAudioSource(AudioSourceProtocol):
 
 ---
 
-## Machine d'état UnifiedAudioStateMachine
+## Machine d'état AudioStateMachine
 
-**Fichier** : `backend/infrastructure/state/state_machine.py`
+**Fichier** : `backend/core/state.py`
 
 ### Rôle central
 
@@ -251,7 +251,7 @@ async def transition_to_source(self, target_source: AudioSource) -> bool:
         self.system_state.source_state = SourceState.STARTING
 
         # 2. Broadcast transition_start
-        await self._broadcast_event("system", "transition_start", {...})
+        await self.broadcast_event("system", "transition_start", {...})
 
         # 3. Arrêter l'ancienne source
         await self._stop_source(old_source)
@@ -266,7 +266,7 @@ async def transition_to_source(self, target_source: AudioSource) -> bool:
         await self._replay_buffered_updates()
 
         # 7. Broadcast transition_complete
-        await self._broadcast_event("system", "transition_complete", {...})
+        await self.broadcast_event("system", "transition_complete", {...})
 ```
 
 ### Buffering des mises à jour
@@ -290,7 +290,7 @@ async def update_source_state(self, source, new_state, metadata):
 ### Broadcast WebSocket
 
 ```python
-async def _broadcast_event(self, category: str, event_type: str, data: Dict):
+async def broadcast_event(self, category: str, event_type: str, data: Dict):
     event_data = {
         "category": category,      # "source", "system", "routing"
         "type": event_type,        # "state_changed", "transition_start", etc.
@@ -691,7 +691,7 @@ class StationManager:
                      ┌──────────────────────────┼──────────────────────────┐
                      ▼                          ▼                          ▼
            ┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
-           │ _broadcast_event│      │  _stop_source   │      │ _start_new_     │
+           │ broadcast_event│      │  _stop_source   │      │ _start_new_     │
            │ ("transition_   │      │   (OLD_SOURCE)  │      │  source(SPOTIFY)│
            │  start")        │      └─────────────────┘      └─────────────────┘
            └─────────────────┘                                        │
@@ -736,7 +736,7 @@ class StationManager:
                                               │
                                               ▼
                                     ┌─────────────────┐
-                                    │ _broadcast_event│
+                                    │ broadcast_event│
                                     │ ("source",      │
                                     │  "state_changed"│
                                     │  {metadata:...})│
@@ -754,7 +754,7 @@ class StationManager:
 
 ## Injection de dépendances
 
-**Fichier** : `backend/config/container.py`
+**Fichier** : `backend/dependencies.py`
 
 ### Ordre d'initialisation (CRITIQUE)
 
@@ -882,7 +882,7 @@ await self.state_machine.update_source_state(
 )
 
 # State machine broadcast aux clients WebSocket
-await self._broadcast_event("source", "state_changed", {...})
+await self.broadcast_event("source", "state_changed", {...})
 ```
 
 ### 2. Pattern Template Method
@@ -890,7 +890,7 @@ await self._broadcast_event("source", "state_changed", {...})
 La classe de base définit le squelette, les sous-classes implémentent les détails :
 
 ```python
-class UnifiedAudioSource:
+class BaseAudioSource:
     async def start(self) -> bool:
         await self._update_state(SourceState.STARTING)
         success = await self._start_service()  # Template
@@ -902,7 +902,7 @@ class UnifiedAudioSource:
 ### 3. Protection par locks asynchrones
 
 ```python
-class UnifiedAudioStateMachine:
+class AudioStateMachine:
     def __init__(self):
         self._transition_lock = asyncio.Lock()  # Transitions atomiques
         self._state_lock = asyncio.Lock()        # Accès état protégé

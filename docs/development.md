@@ -53,38 +53,35 @@ The Vite frontend automatically proxies requests to the backend (see `frontend/v
 
 ```
 backend/
-├── domain/                    # Business models
-│   └── audio_state.py        # AudioSource, SourceState, SystemAudioState
-├── application/
-│   └── interfaces/           # Source contracts
-│       └── audio_source.py
-├── infrastructure/
-│   ├── sources/              # Audio source implementations
-│   │   ├── spotify_source.py
-│   │   ├── bluetooth_source.py
-│   │   └── mac_source.py
-│   ├── services/             # Business services
-│   │   ├── settings_service.py
-│   │   ├── volume_service.py
-│   │   ├── audio_routing_service.py
-│   │   └── snapcast_service.py
-│   ├── hardware/             # Hardware controllers
-│   │   ├── rotary_volume_controller.py
-│   │   └── screen_controller.py
-│   └── state/                # State machine
-│       └── unified_audio_state_machine.py
-├── presentation/
-│   ├── api/routes/           # REST endpoints
-│   └── websockets/           # WebSocket server
-├── config/
-│   └── container.py          # Dependency injection
-└── main.py                   # Entry point
+├── core/                      # Core infrastructure
+│   ├── models/               # Domain models (AudioSource, SourceState, SystemAudioState)
+│   ├── state.py              # AudioStateMachine (single source of truth)
+│   ├── audio_source.py       # BaseAudioSource abstract class
+│   ├── settings.py           # SettingsService
+│   ├── systemd.py            # SystemdServiceManager
+│   ├── volume/               # Volume service + handlers
+│   ├── dsp/                  # CamillaDSP service + proxy + sync
+│   └── multiroom/            # Snapcast + routing + crossover
+├── sources/                   # Audio source implementations
+│   ├── spotify/              # SpotifySource + routes
+│   ├── airplay/              # AirPlaySource + metadata_reader + routes
+│   ├── bluetooth/            # BluetoothSource + routes
+│   ├── mac/                  # MacSource + routes
+│   ├── radio/                # RadioSource + routes + browser_api
+│   └── podcast/              # PodcastSource + routes + taddy_api
+├── api/                       # REST API routes
+├── hardware/                  # Hardware controllers (rotary, screen)
+├── ws/                        # WebSocket server + manager
+├── shared/                    # Shared utilities (MpvController)
+├── config/constants.py        # Centralized constants
+├── dependencies.py            # Service Registry (lazy singletons)
+└── main.py                    # Entry point
 ```
 
 **Architectural principles:**
-- **Domain-Driven Design** (DDD): Clear separation domain/infra/presentation
-- **Dependency Injection**: via `dependency-injector`
-- **Single Source of Truth**: `UnifiedAudioStateMachine`
+- **Source-Based**: Each audio source is a self-contained module
+- **Service Registry**: Simple dict-based DI with lazy singleton creation
+- **Single Source of Truth**: `AudioStateMachine`
 - **Async-first**: asyncio everywhere for non-blocking I/O
 
 ### Frontend (Vue 3 + Vite)
@@ -128,7 +125,7 @@ frontend/src/
    ↓
 4. Service updates state machine
    ↓
-5. State machine calls _broadcast_event()
+5. State machine calls broadcast_event()
    ↓
 6. WebSocketManager sends to all clients
    ↓
@@ -158,7 +155,7 @@ frontend/src/
 
 ### 1. Define the enum
 
-`backend/domain/audio_state.py`:
+`backend/core/models/audio_state.py`:
 ```python
 class AudioSource(str, Enum):
     LIBRESPOT = "librespot"
@@ -172,10 +169,10 @@ class AudioSource(str, Enum):
 
 `backend/sources/my_source/source.py`:
 ```python
-from backend.core.audio_source import UnifiedAudioSource
+from backend.core.audio_source import BaseAudioSource
 from backend.core.models.audio_state import AudioSource, SourceState
 
-class MySource(UnifiedAudioSource):
+class MySource(BaseAudioSource):
     def __init__(self, state_machine):
         self.state_machine = state_machine
         self.source = AudioSource.MY_SOURCE
@@ -268,7 +265,7 @@ Note: CamillaDSP is always in the audio path for volume control. DSP effects are
 
 ### 5. Create API routes
 
-`backend/presentation/api/routes/my_source.py`:
+`backend/sources/my_source/routes.py`:
 ```python
 from fastapi import APIRouter
 
@@ -332,11 +329,12 @@ Add to `MainView.vue` or main layout.
 The Radio source (`backend/sources/radio/`) is a complete, production-ready reference implementation that demonstrates advanced source architecture:
 
 **Multi-component architecture:**
-- `source.py` - Main source class (AudioSourceProtocol implementation)
-- `mpv_controller.py` - IPC communication with mpv media player
-- `radio_browser_api.py` - External API integration with caching (60min TTL)
-- `station_manager.py` - Favorites, custom stations, broken stations management
-- `image_manager.py` - File upload handling (JPG, PNG, WEBP, GIF, up to 10MB)
+- `source.py` - Main source class (BaseAudioSource implementation)
+- `browser_api.py` - External API integration with caching (60min TTL)
+- `data.py` - Favorites, custom stations, data persistence
+- `genres.py` - Genre definitions and mapping
+- `shazam.py` - Song recognition integration
+- `models.py` - Pydantic models
 
 **Key features demonstrated:**
 - External API integration (Radio Browser API)
@@ -348,7 +346,7 @@ The Radio source (`backend/sources/radio/`) is a complete, production-ready refe
 - Frontend integration (search, filters, modals, screensaver)
 
 **API routes:** 25+ endpoints including search, favorites, custom stations, image uploads
-**Frontend components:** RadioSource.vue, AddRadioStation.vue, ChangeRadioStationImage.vue, RadioSettings.vue
+**Frontend components:** RadioSource.vue, FavoritesView.vue, SearchView.vue, StationCard.vue, SkeletonStationCard.vue
 **Store:** radioStore.js (Pinia) with full state management
 
 This is an excellent reference for building a complex audio source with external dependencies, data persistence, and rich UI interactions.
@@ -626,27 +624,25 @@ git push origin feature/my-feature
 
 ### Initialization order
 
-⚠️ **CRITICAL**: Service initialization order in `container.py` matters!
+⚠️ **CRITICAL**: Service initialization order in `dependencies.py` matters!
 
-1. Create service instances
-2. **Register sources** in state machine
-3. Resolve circular dependencies (setters)
-4. **Run** `container.initialize_services()`
-5. Wait for `await container._init_task`
-6. Initialize sources
+1. Retrieve service instances (triggers lazy creation via `get_service()`)
+2. Resolve circular dependencies via setters
+3. **Register sources** in state machine (BEFORE async init)
+4. **Parallel async initialization** via `asyncio.gather()`
 
-See detailed comments in `backend/config/container.py`.
+See detailed comments in `backend/dependencies.py`.
 
 ### WebSocket broadcasting
 
-Always use `state_machine._broadcast_event()` to propagate changes:
+Always use `state_machine.broadcast_event()` to propagate changes:
 
 ```python
-await self.state_machine._broadcast_event(
+await self.state_machine.broadcast_event(
     category="source",
     type="state_changed",
-    source=self.source.value,
     data={
+        "source": self.source.value,
         "metadata": metadata
     }
 )
