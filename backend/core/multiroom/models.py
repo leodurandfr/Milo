@@ -247,6 +247,7 @@ class EqualizerSettings:
         loudness: Loudness compensation settings
         active_preset: Currently active EQ preset ID ("flat", "custom", or preset name)
         mono: Sum L+R at -6dB to both outputs (True = mono, False = stereo passthrough)
+        custom_gains: Saved gains for the "custom" preset (persisted so they survive preset switches)
     """
     enabled: bool = True
     filters: List[EqFilter] = field(default_factory=list)
@@ -254,10 +255,11 @@ class EqualizerSettings:
     loudness: LoudnessSettings = field(default_factory=LoudnessSettings)
     active_preset: Optional[str] = "flat"
     mono: bool = False
+    custom_gains: Optional[List[float]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
-        return {
+        result = {
             "enabled": self.enabled,
             "filters": [f.to_dict() for f in self.filters],
             "compressor": self.compressor.to_dict(),
@@ -265,6 +267,9 @@ class EqualizerSettings:
             "active_preset": self.active_preset,
             "mono": self.mono
         }
+        if self.custom_gains is not None:
+            result["custom_gains"] = self.custom_gains
+        return result
 
     @classmethod
     def from_dict(cls, data: Optional[Dict[str, Any]]) -> 'EqualizerSettings':
@@ -298,7 +303,8 @@ class EqualizerSettings:
             compressor=compressor,
             loudness=loudness,
             active_preset=data.get("active_preset", "flat"),
-            mono=data.get("mono", False)
+            mono=data.get("mono", False),
+            custom_gains=data.get("custom_gains")
         )
 
     @classmethod

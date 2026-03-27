@@ -258,13 +258,9 @@ def create_equalizer_router(
         """Save current zone EQ gains as the custom preset and activate it."""
         async with api_error_handler(f"Error saving custom preset for zone {zone_id}", logger):
             try:
-                current = await multiroom_equalizer_service.get_equalizer("zone", zone_id)
+                await multiroom_equalizer_service.save_custom_preset("zone", zone_id)
             except ValueError as e:
                 raise HTTPException(status_code=404, detail=str(e))
-            if not current:
-                raise HTTPException(status_code=404, detail=f"Zone not found: {zone_id}")
-
-            await multiroom_equalizer_service.set_zone_active_preset(zone_id, "custom")
 
             return {"status": "success", "zone_id": zone_id, "preset_id": "custom"}
 
@@ -273,13 +269,9 @@ def create_equalizer_router(
         """Save current client EQ gains as the custom preset and activate it."""
         async with api_error_handler(f"Error saving custom preset for client {mac_id}", logger):
             try:
-                current = await multiroom_equalizer_service.get_equalizer("client", mac_id)
+                await multiroom_equalizer_service.save_custom_preset("client", mac_id)
             except ValueError as e:
                 raise HTTPException(status_code=404, detail=str(e))
-            if not current:
-                raise HTTPException(status_code=404, detail=f"Client not found: {mac_id}")
-
-            await multiroom_equalizer_service.set_client_active_preset(mac_id, "custom")
 
             return {"status": "success", "client_id": mac_id, "preset_id": "custom"}
 
@@ -306,7 +298,8 @@ def create_equalizer_router(
         """
         async with api_error_handler(f"Error loading preset for zone {zone_id}", logger):
             try:
-                gains = await multiroom_equalizer_service.resolve_preset_gains(payload.preset_id)
+                current = await multiroom_equalizer_service.get_zone_equalizer(zone_id)
+                gains = await multiroom_equalizer_service.resolve_preset_gains(payload.preset_id, current)
                 success = await multiroom_equalizer_service.load_zone_preset(zone_id, payload.preset_id)
             except ValueError as e:
                 raise HTTPException(status_code=404, detail=str(e))
@@ -449,7 +442,8 @@ def create_equalizer_router(
         """
         async with api_error_handler(f"Error loading preset for client {mac_id}", logger):
             try:
-                gains = await multiroom_equalizer_service.resolve_preset_gains(payload.preset_id)
+                current = await multiroom_equalizer_service.get_client_equalizer(mac_id)
+                gains = await multiroom_equalizer_service.resolve_preset_gains(payload.preset_id, current)
                 success = await multiroom_equalizer_service.load_client_preset(mac_id, payload.preset_id)
             except ValueError as e:
                 raise HTTPException(status_code=404, detail=str(e))
