@@ -1,4 +1,4 @@
-<!-- Shared speaker list item for multiroom settings -->
+<!-- Shared system list item for multiroom settings -->
 <template>
   <ListItemButton variant="background" icon-variant="standard" :action="action">
     <template #icon>
@@ -62,7 +62,7 @@ const speakerIcon = computed(() => {
 
 const speakerTypeLabel = computed(() => {
   const speakerType = equalizerStore.getClientSpeakerType(props.macId);
-  return t(`multiroom.speakerTypes.${speakerType}`);
+  return t(`multiroom.systemTypes.${speakerType}`);
 });
 </script>
 

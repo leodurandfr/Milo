@@ -16,9 +16,9 @@
     <MessageContent
       v-else-if="isOffline"
       icon="multiroom"
-      :title="t('multiroom.speakerOffline', { name: clientDisplayName })"
-      :subtitle="t('multiroom.speakerOfflineDescription', { ip: client?.ip || 'Unknown' })"
-      :cta-label="deleting ? t('common.deleting') : t('multiroom.deleteSpeaker')"
+      :title="t('multiroom.systemOffline', { name: clientDisplayName })"
+      :subtitle="t('multiroom.systemOfflineDescription', { ip: client?.ip || 'Unknown' })"
+      :cta-label="deleting ? t('common.deleting') : t('multiroom.deleteSystem')"
       cta-variant="important"
       :cta-click="handleDelete"
     />
@@ -26,7 +26,7 @@
     <!-- Online State - Settings -->
     <template v-else>
       <!-- Speaker Name Input -->
-      <SettingsSection :title="t(client?.is_local ? 'multiroom.speakerNameMain' : 'multiroom.speakerNameRemote')">
+      <SettingsSection :title="t(client?.is_local ? 'multiroom.systemNameMain' : 'multiroom.systemNameRemote')">
         <InputText v-model="clientName" :placeholder="client?.host" size="medium" :maxlength="16"
           @blur="saveClientName" />
       </SettingsSection>
@@ -61,7 +61,7 @@
       </SettingsSection>
 
       <!-- Speaker Type Selection -->
-      <SettingsSection :title="t('multiroom.speakerType')">
+      <SettingsSection :title="t('multiroom.systemType')">
         <div class="speaker-types">
           <ListItemButton v-for="type in speakerTypes" :key="type.value" :title="type.label" variant="background"
             action="radio" icon-variant="standard" :model-value="selectedSpeakerType === type.value"
@@ -100,7 +100,7 @@
       </SettingsSection>
 
       <!-- Client Info -->
-      <SettingsSection :title="t('multiroom.speakerInfo')">
+      <SettingsSection :title="t('multiroom.systemInfo')">
         <div class="info-grid">
           <div class="info-item">
             <span class="info-label text-mono">{{ t('clientDetails.hostname') }}</span>
@@ -272,10 +272,10 @@ const showCrossoverInfo = computed(() => {
 
 // Speaker type options
 const speakerTypes = computed(() => [
-  { value: 'satellite', label: t('multiroom.speakerTypes.satellite'), icon: 'speakerSatellite' },
-  { value: 'bookshelf', label: t('multiroom.speakerTypes.bookshelf'), icon: 'speakerShelf' },
-  { value: 'tower', label: t('multiroom.speakerTypes.tower'), icon: 'speakerColumn' },
-  { value: 'subwoofer', label: t('multiroom.speakerTypes.subwoofer'), icon: 'speakerSub' }
+  { value: 'satellite', label: t('multiroom.systemTypes.satellite'), icon: 'speakerSatellite' },
+  { value: 'bookshelf', label: t('multiroom.systemTypes.bookshelf'), icon: 'speakerShelf' },
+  { value: 'tower', label: t('multiroom.systemTypes.tower'), icon: 'speakerColumn' },
+  { value: 'subwoofer', label: t('multiroom.systemTypes.subwoofer'), icon: 'speakerSub' }
 ]);
 
 // Apply button label (two-step confirm)

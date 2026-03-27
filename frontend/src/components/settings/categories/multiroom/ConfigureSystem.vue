@@ -1,5 +1,5 @@
-<!-- frontend/src/components/settings/categories/multiroom/ConfigureSpeaker.vue -->
-<!-- Form for configuring a pending (unconfigured) speaker -->
+<!-- frontend/src/components/settings/categories/multiroom/ConfigureSystem.vue -->
+<!-- Form for configuring a pending (unconfigured) system -->
 <template>
   <div class="configure-speaker">
     <!-- Rebooting State -->
@@ -25,7 +25,7 @@
     <!-- Configuration Form -->
     <template v-else>
       <!-- Speaker Name -->
-      <SettingsSection :title="t('multiroom.speakerNameRemote')">
+      <SettingsSection :title="t('multiroom.systemNameRemote')">
         <InputText
           v-model="speakerName"
           :placeholder="t('multiroom.pending.namePlaceholder')"
@@ -50,7 +50,7 @@
       </SettingsSection>
 
       <!-- Speaker Type Selection -->
-      <SettingsSection :title="t('multiroom.speakerType')">
+      <SettingsSection :title="t('multiroom.systemType')">
         <div class="speaker-types">
           <ListItemButton
             v-for="type in speakerTypes"
@@ -70,7 +70,7 @@
       </SettingsSection>
 
       <!-- Speaker Info -->
-      <SettingsSection :title="t('multiroom.speakerInfo')">
+      <SettingsSection :title="t('multiroom.systemInfo')">
         <div class="info-item">
           <span class="info-label text-mono">{{ t('clientDetails.ipAddress') }}</span>
           <span class="info-value text-mono">{{ pendingClient?.ip || 'Unknown' }}</span>
@@ -140,10 +140,10 @@ const audioCardOptions = computed(() =>
 
 // Speaker type options (same as ClientEdit)
 const speakerTypes = computed(() => [
-  { value: 'satellite', label: t('multiroom.speakerTypes.satellite'), icon: 'speakerSatellite' },
-  { value: 'bookshelf', label: t('multiroom.speakerTypes.bookshelf'), icon: 'speakerShelf' },
-  { value: 'tower', label: t('multiroom.speakerTypes.tower'), icon: 'speakerColumn' },
-  { value: 'subwoofer', label: t('multiroom.speakerTypes.subwoofer'), icon: 'speakerSub' },
+  { value: 'satellite', label: t('multiroom.systemTypes.satellite'), icon: 'speakerSatellite' },
+  { value: 'bookshelf', label: t('multiroom.systemTypes.bookshelf'), icon: 'speakerShelf' },
+  { value: 'tower', label: t('multiroom.systemTypes.tower'), icon: 'speakerColumn' },
+  { value: 'subwoofer', label: t('multiroom.systemTypes.subwoofer'), icon: 'speakerSub' },
 ]);
 
 // Watch for the pending client being removed (means it appeared in Snapcast)
