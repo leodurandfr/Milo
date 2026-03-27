@@ -147,6 +147,9 @@
       "lowBoost": "Boost graves",
       "highBoost": "Boost aigus"
     },
+    "mono": {
+      "title": "Mono"
+    },
     "presets": {
       "custom": "Personnalisé",
       "edited": "Modifié",

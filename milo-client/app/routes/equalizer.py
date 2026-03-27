@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException
 from services.equalizer import EqualizerService
 from models import (
     FilterUpdate, FiltersBatchUpdate, CompressorUpdate, LoudnessUpdate,
-    DelayUpdate, VolumeUpdate, MuteUpdate,
+    MonoUpdate, DelayUpdate, VolumeUpdate, MuteUpdate,
     CrossoverUpdate, LowpassUpdate, EqualizerEnabledUpdate
 )
 
@@ -204,6 +204,28 @@ def create_equalizer_router(equalizer_service: EqualizerService) -> APIRouter:
             raise
         except Exception as e:
             logger.error(f"Error updating loudness: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    # === Mono ===
+
+    @router.get("/mono")
+    async def get_mono():
+        """Get mono mixing settings."""
+        return {"enabled": equalizer_service.mono}
+
+    @router.put("/mono")
+    async def update_mono(update: MonoUpdate):
+        """Update mono mixing settings."""
+        try:
+            success = await equalizer_service.set_mono(enabled=update.enabled)
+            if success:
+                return {"status": "success", "enabled": equalizer_service.mono}
+            else:
+                raise HTTPException(status_code=400, detail="Failed to update mono")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error updating mono: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     # === Delay ===

@@ -481,7 +481,7 @@ class ClientRegistryService:
                 id=zone_id,
                 name=name,
                 client_ids=client_ids.copy(),
-                equalizer_settings=equalizer_settings or EqualizerSettings.default()
+                equalizer_settings=equalizer_settings or EqualizerSettings.default_for_zone()
             )
             self._zones[zone_id] = zone
 

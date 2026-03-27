@@ -91,6 +91,7 @@ class CamillaDSPService:
             "high_boost": 5.0,
             "low_boost": 8.0
         }
+        self._mono: bool = False
         self._volume: Dict[str, Any] = {
             "main": 0.0,  # dB
             "mute": False
@@ -272,6 +273,11 @@ class CamillaDSPService:
                 self.logger.info("Reconnected: effects disabled, bypassing")
                 await self.bypass_effects()
 
+            # Mono is a spatial setting, not an effect — restore independently of bypass
+            saved_mono = await self.settings_service.get_setting("equalizer.mono") if self.settings_service else False
+            if saved_mono:
+                await self.set_mono(enabled=True, persist=False, broadcast=False)
+
         except Exception as e:
             self.logger.error(f"Error restoring state after reconnect: {e}")
 
@@ -329,6 +335,7 @@ class CamillaDSPService:
                 "filters": await self.get_filters(),
                 "compressor": self._compressor,
                 "loudness": self._loudness,
+                "mono": self._mono,
                 "volume": await self.get_volume(),
             }
 
@@ -723,6 +730,73 @@ class CamillaDSPService:
 
         return True
 
+    # === Mono Mixing ===
+
+    async def get_mono(self) -> bool:
+        return self._mono
+
+    async def set_mono(
+        self,
+        enabled: bool,
+        persist: bool = True,
+        broadcast: bool = True
+    ) -> bool:
+        """
+        Switch between stereo passthrough and mono summing in CamillaDSP.
+
+        Swaps the pipeline's Mixer step between "stereo" (passthrough) and
+        "mono" (L+R summed at -6dB to both outputs).
+
+        Args:
+            persist: Set to False during batch zone updates
+            broadcast: Set to False to suppress WebSocket event
+        """
+        if not self._connected:
+            self.logger.warning("Cannot set mono: not connected")
+            return False
+
+        self._mono = enabled
+        return await self._apply_mono_config(persist=persist, broadcast=broadcast)
+
+    @handle_errors(default=False)
+    async def _apply_mono_config(self, persist: bool, broadcast: bool) -> bool:
+        """Apply mono/stereo mixer configuration to CamillaDSP daemon."""
+        config = await self._get_config()
+        config.setdefault("mixers", {})
+
+        # Ensure mono mixer definition exists (backwards compat for old configs)
+        if "mono" not in config["mixers"]:
+            config["mixers"]["mono"] = {
+                "channels": {"in": 2, "out": 2},
+                "mapping": [
+                    {"dest": 0, "sources": [
+                        {"channel": 0, "gain": -6, "inverted": False},
+                        {"channel": 1, "gain": -6, "inverted": False}
+                    ]},
+                    {"dest": 1, "sources": [
+                        {"channel": 0, "gain": -6, "inverted": False},
+                        {"channel": 1, "gain": -6, "inverted": False}
+                    ]}
+                ]
+            }
+
+        # Swap the pipeline's Mixer step name
+        target_name = "mono" if self._mono else "stereo"
+        for step in config.get("pipeline", []):
+            if step.get("type") == "Mixer":
+                step["name"] = target_name
+                break
+
+        await self._set_config(config)
+
+        if broadcast:
+            await self._broadcast_event("mono_changed", {"enabled": self._mono})
+
+        if persist and self.settings_service:
+            await self.settings_service.set_setting("equalizer.mono", self._mono)
+
+        return True
+
     # === Crossover Filters ===
 
     @handle_errors(default=False)
@@ -965,6 +1039,12 @@ class CamillaDSPService:
             self._loudness.update(saved_loudness)
             self.logger.info("Loaded saved loudness settings")
 
+        # Load mono
+        saved_mono = await self.settings_service.get_setting("equalizer.mono")
+        if saved_mono is not None:
+            self._mono = saved_mono
+            self.logger.info(f"Loaded saved mono setting: {self._mono}")
+
     @handle_errors(default=None)
     async def _apply_saved_preset(self) -> None:
         """Apply saved preset on startup"""
@@ -985,6 +1065,7 @@ class CamillaDSPService:
         await self.settings_service.set_setting("equalizer.filters", self._filters)
         await self.settings_service.set_setting("equalizer.compressor", self._compressor)
         await self.settings_service.set_setting("equalizer.loudness", self._loudness)
+        await self.settings_service.set_setting("equalizer.mono", self._mono)
         return True
 
     @handle_errors(default=None)

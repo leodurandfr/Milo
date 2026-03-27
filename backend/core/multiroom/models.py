@@ -246,12 +246,14 @@ class EqualizerSettings:
         compressor: Compressor settings
         loudness: Loudness compensation settings
         active_preset: Currently active EQ preset ID ("flat", "custom", or preset name)
+        mono: Sum L+R at -6dB to both outputs (True = mono, False = stereo passthrough)
     """
     enabled: bool = True
     filters: List[EqFilter] = field(default_factory=list)
     compressor: CompressorSettings = field(default_factory=CompressorSettings)
     loudness: LoudnessSettings = field(default_factory=LoudnessSettings)
     active_preset: Optional[str] = "flat"
+    mono: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -260,7 +262,8 @@ class EqualizerSettings:
             "filters": [f.to_dict() for f in self.filters],
             "compressor": self.compressor.to_dict(),
             "loudness": self.loudness.to_dict(),
-            "active_preset": self.active_preset
+            "active_preset": self.active_preset,
+            "mono": self.mono
         }
 
     @classmethod
@@ -294,7 +297,8 @@ class EqualizerSettings:
             filters=filters,
             compressor=compressor,
             loudness=loudness,
-            active_preset=data.get("active_preset", "flat")
+            active_preset=data.get("active_preset", "flat"),
+            mono=data.get("mono", False)
         )
 
     @classmethod
@@ -326,8 +330,21 @@ class EqualizerSettings:
             filters=filters,
             compressor=CompressorSettings(),  # disabled by default
             loudness=LoudnessSettings(),      # disabled by default
-            active_preset="flat"              # flat preset by default
+            active_preset="flat",             # flat preset by default
+            mono=False                        # stereo by default
         )
+
+    @classmethod
+    def default_for_zone(cls) -> 'EqualizerSettings':
+        """
+        Create default equalizer settings for a new zone (mono enabled).
+
+        Zones default to mono=True because multiple speakers in the same
+        room benefit from mono summing for cleaner audio.
+        """
+        settings = cls.default()
+        settings.mono = True
+        return settings
 
 
 @dataclass

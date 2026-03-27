@@ -147,6 +147,9 @@
       "lowBoost": "Bass boost",
       "highBoost": "Treble boost"
     },
+    "mono": {
+      "title": "Mono"
+    },
     "presets": {
       "custom": "Custom",
       "edited": "Edited",

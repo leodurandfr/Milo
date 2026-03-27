@@ -71,6 +71,7 @@ class EqualizerService:
         self._volume = {"main": 0.0, "mute": True}  # Matches CamillaDSP startup state (-m flag)
         self._crossover = {"enabled": False, "frequency": 80.0, "q": 0.707}
         self._lowpass = {"enabled": False, "frequency": 80.0, "q": 0.707}
+        self._mono: bool = False
         self._equalizer_enabled = True
         self._saved_effects_state = None  # For bypass/restore
 
@@ -98,6 +99,11 @@ class EqualizerService:
     def loudness(self) -> Dict[str, Any]:
         """Returns loudness state."""
         return self._loudness
+
+    @property
+    def mono(self) -> bool:
+        """Returns mono state."""
+        return self._mono
 
     @property
     def delay(self) -> Dict[str, Any]:
@@ -222,6 +228,14 @@ class EqualizerService:
                     self.logger.info(
                         f"Loaded delay state from config: L={self._delay['left']:.1f}ms R={self._delay['right']:.1f}ms"
                     )
+
+            # Check for mono mixer (pipeline's Mixer step name)
+            for step in config.get("pipeline", []):
+                if step.get("type") == "Mixer":
+                    self._mono = step.get("name") == "mono"
+                    if self._mono:
+                        self.logger.info("Loaded mono state from config")
+                    break
 
         except Exception as e:
             self.logger.warning(f"Could not load state from config: {e}")
@@ -457,6 +471,46 @@ class EqualizerService:
             return True
         except Exception as e:
             self.logger.error(f"Error setting loudness: {e}")
+            return False
+
+    async def set_mono(self, enabled: bool) -> bool:
+        """Switch between stereo passthrough and mono summing in CamillaDSP."""
+        self._mono = enabled
+        try:
+            config = await self._get_config()
+            if not config:
+                return False
+
+            config.setdefault("mixers", {})
+
+            # Ensure mono mixer definition exists (backwards compat for old configs)
+            if "mono" not in config["mixers"]:
+                config["mixers"]["mono"] = {
+                    "channels": {"in": 2, "out": 2},
+                    "mapping": [
+                        {"dest": 0, "sources": [
+                            {"channel": 0, "gain": -6, "inverted": False},
+                            {"channel": 1, "gain": -6, "inverted": False}
+                        ]},
+                        {"dest": 1, "sources": [
+                            {"channel": 0, "gain": -6, "inverted": False},
+                            {"channel": 1, "gain": -6, "inverted": False}
+                        ]}
+                    ]
+                }
+
+            # Swap the pipeline's Mixer step name
+            target_name = "mono" if enabled else "stereo"
+            for step in config.get("pipeline", []):
+                if step.get("type") == "Mixer":
+                    step["name"] = target_name
+                    break
+
+            await self._apply_config(config)
+            self.logger.info(f"Mono {'enabled' if enabled else 'disabled'}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error setting mono: {e}")
             return False
 
     async def set_delay(self, left: float = None, right: float = None) -> bool:

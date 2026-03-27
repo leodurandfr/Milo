@@ -559,6 +559,7 @@ onMounted(async () => {
     on('equalizer', 'preset_loaded', (event) => equalizerStore.handlePresetLoaded(event)),
     on('equalizer', 'compressor_changed', (event) => equalizerStore.handleCompressorChanged(event)),
     on('equalizer', 'loudness_changed', (event) => equalizerStore.handleLoudnessChanged(event)),
+    on('equalizer', 'mono_changed', (event) => equalizerStore.handleMonoChanged(event)),
     on('equalizer', 'enabled_changed', (event) => equalizerStore.handleEnabledChanged(event)),
     on('equalizer', 'zone_enabled_changed', (event) => equalizerStore.handleZoneEnabledChanged(event)),
     onReconnect(() => {

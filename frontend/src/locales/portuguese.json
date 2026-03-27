@@ -147,6 +147,9 @@
       "lowBoost": "Reforço de graves",
       "highBoost": "Reforço de agudos"
     },
+    "mono": {
+      "title": "Mono"
+    },
     "presets": {
       "custom": "Personalizado",
       "edited": "Editado",

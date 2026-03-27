@@ -147,6 +147,9 @@
       "lowBoost": "लो बूस्ट",
       "highBoost": "हाई बूस्ट"
     },
+    "mono": {
+      "title": "मोनो"
+    },
     "presets": {
       "custom": "कस्टम",
       "edited": "संपादित",

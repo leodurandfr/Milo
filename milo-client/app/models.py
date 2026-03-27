@@ -31,6 +31,11 @@ class LoudnessUpdate(BaseModel):
     low_boost: Optional[float] = None
 
 
+class MonoUpdate(BaseModel):
+    """Model for mono mixing update request."""
+    enabled: bool
+
+
 class DelayUpdate(BaseModel):
     """Model for delay update request."""
     left: Optional[float] = None

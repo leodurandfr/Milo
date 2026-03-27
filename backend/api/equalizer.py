@@ -387,6 +387,29 @@ def create_equalizer_router(
                 raise HTTPException(status_code=404, detail=str(e))
             return {"status": "success" if success else "error", "zone_id": zone_id}
 
+    @router.patch("/zone/{zone_id}/mono")
+    async def update_zone_mono(zone_id: str, request: Request):
+        """
+        Set mono/stereo mixing for all clients in a zone.
+
+        Applies mono change to all ONLINE zone members. OFFLINE clients will
+        receive settings on reconnection via sync service.
+        """
+        async with api_error_handler(f"Error updating mono for zone {zone_id}", logger):
+            body = await request.json()
+            enabled = body.get("enabled")
+            if enabled is None:
+                raise HTTPException(status_code=400, detail="'enabled' field is required")
+            try:
+                success = await multiroom_equalizer_service.update_mono(
+                    target_type="zone",
+                    target_id=zone_id,
+                    enabled=enabled,
+                )
+            except ValueError as e:
+                raise HTTPException(status_code=404, detail=str(e))
+            return {"status": "success" if success else "error", "zone_id": zone_id, "mono": enabled}
+
     @router.patch("/zone/{zone_id}/enabled")
     async def update_zone_equalizer_enabled(zone_id: str, request: Request):
         """
@@ -654,6 +677,25 @@ def create_equalizer_router(
 
         return result
 
+    @router.get("/client/{hostname}/mono")
+    async def get_client_mono(hostname: str):
+        """Proxy mono GET to client"""
+        return await equalizer_router_service.get_mono(hostname)
+
+    @router.put("/client/{hostname}/mono")
+    async def update_client_mono(hostname: str, request: Request):
+        """Proxy mono update to client and persist settings"""
+        body = await request.json()
+        result = await equalizer_router_service.set_mono(hostname, body)
+
+        if result.get("status") == "success":
+            if equalizer_router_service.is_local_client(hostname):
+                mono = await camilladsp_service.get_mono()
+                return {"status": "success", "enabled": mono}
+            await _persist_remote(hostname, "mono", {"enabled": body.get("enabled", False)})
+
+        return result
+
     @router.put("/client/{hostname}/enabled")
     async def update_client_equalizer_enabled(hostname: str, request: Request):
         """Set equalizer effects enabled state for a specific client (local or remote).
@@ -704,6 +746,8 @@ def create_equalizer_router(
             await try_restore("compressor", "/equalizer/compressor", saved["compressor"])
         if "loudness" in saved:
             await try_restore("loudness", "/equalizer/loudness", saved["loudness"])
+        if "mono" in saved:
+            await try_restore("mono", "/equalizer/mono", saved["mono"])
         for fid, fdata in saved.get("filters", {}).items():
             # Transform saved filter data to match EqualizerFilterUpdateRequest schema:
             # - Remove 'id' (it's in the URL)
