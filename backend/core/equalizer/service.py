@@ -521,6 +521,7 @@ class CamillaDSPService:
     async def set_volume(self, volume: float) -> bool:
         """Set main volume in dB"""
         if not self._connected:
+            self.logger.warning(f"set_volume({volume:.1f}dB) rejected: CamillaDSP not connected")
             return False
         await self._run(lambda: self._client.volume.set_main_volume(volume))
         self._volume["main"] = volume
@@ -529,6 +530,7 @@ class CamillaDSPService:
     @handle_errors(default=False)
     async def set_mute(self, muted: bool) -> bool:
         if not self._connected:
+            self.logger.warning(f"set_mute({muted}) rejected: CamillaDSP not connected")
             return False
         await self._run(lambda: self._client.volume.set_main_mute(muted))
         self._volume["mute"] = muted
