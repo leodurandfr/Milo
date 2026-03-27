@@ -29,13 +29,6 @@ def get_service(name: str) -> Any:
     return _services[name]
 
 
-def reset_services() -> None:
-    """Reset all services - for testing only."""
-    global _init_task
-    _services.clear()
-    _init_task = None
-
-
 def get_init_task() -> Optional[asyncio.Task]:
     """Get the initialization task for awaiting in lifespan."""
     return _init_task

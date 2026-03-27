@@ -25,9 +25,9 @@ Grouped by file, sorted by estimated lines removable.
 
 | Line | Symbol | Tag |
 |------|--------|-----|
-| 411 | `sync_existing_client_from_snapcast()` | `[VERIFY]` |
-| 459 | `sync_client_volume_from_external()` | `[VERIFY]` |
-| 850 | `update_client_availability()` | `[VERIFY]` |
+| 411 | `sync_existing_client_from_snapcast()` | `[REMOVED]` -- confirmed dead, logic moved to websocket._sync_reconnecting_client_volume() |
+| 459 | `sync_client_volume_from_external()` | `[REMOVED]` -- confirmed dead, callers use update_client_volume_db() directly |
+| 850 | `update_client_availability()` | `[REMOVED]` -- confirmed dead, websocket uses registry.set_client_online() |
 
 #### `backend/core/volume/equalizer_controller.py` (~50 lines)
 
@@ -81,8 +81,8 @@ Grouped by file, sorted by estimated lines removable.
 
 | Line | Symbol | Tag |
 |------|--------|-----|
-| 28 | `enable()` | `[VERIFY]` -- may be used by install scripts or future features |
-| 32 | `disable()` | `[VERIFY]` -- same |
+| 28 | `enable()` | `[REMOVED]` -- confirmed dead, install scripts use systemctl directly |
+| 32 | `disable()` | `[REMOVED]` -- confirmed dead, install scripts use systemctl directly |
 | 127 | `set_hostname()` | `[REMOVE]` |
 
 #### `backend/sources/podcast/taddy_api.py` (~50 lines)
@@ -118,7 +118,7 @@ Grouped by file, sorted by estimated lines removable.
 
 | Line | Symbol | Tag |
 |------|--------|-----|
-| 288 | `get_favorites()` | `[VERIFY]` -- route `/api/radio/favorites` uses it, but frontend never calls that route |
+| 288 | `get_favorites()` | `[REMOVED]` -- confirmed dead, frontend uses `/stations?favorites_only=true` instead |
 
 #### `backend/sources/radio/shazam.py` (~5 lines)
 
@@ -142,7 +142,7 @@ Grouped by file, sorted by estimated lines removable.
 
 | Line | Symbol | Tag |
 |------|--------|-----|
-| 32 | `reset_services()` | `[VERIFY]` -- used by tests? |
+| 32 | `reset_services()` | `[REMOVED]` -- confirmed dead, no test or production usage |
 
 ### 1.2 Python -- Unused Constants & Variables
 
@@ -150,16 +150,16 @@ Grouped by file, sorted by estimated lines removable.
 
 | Line | Symbol | Tag |
 |------|--------|-----|
-| 19 | `LAST_VOLUME_FILE` | `[VERIFY]` -- may be referenced by shell scripts |
-| 20 | `RADIO_DATA_FILE` | `[VERIFY]` |
-| 21 | `PODCAST_DATA_FILE` | `[VERIFY]` |
-| 23 | `ROUTING_ENV_FILE` | `[VERIFY]` |
-| 29 | `RADIO_IMAGES_DIR` | `[VERIFY]` |
+| 19 | `LAST_VOLUME_FILE` | `[REMOVED]` -- confirmed dead, path hardcoded in volume/state.py |
+| 20 | `RADIO_DATA_FILE` | `[REMOVED]` -- confirmed dead, path hardcoded in radio/data.py |
+| 21 | `PODCAST_DATA_FILE` | `[REMOVED]` -- confirmed dead, path hardcoded in podcast/data.py |
+| 23 | `ROUTING_ENV_FILE` | `[REMOVED]` -- confirmed dead, path hardcoded in routing.py |
+| 29 | `RADIO_IMAGES_DIR` | `[REMOVED]` -- confirmed dead, path hardcoded in radio/data.py |
 | 47 | `CLIENT_REQUEST_TIMEOUT` | `[REMOVE]` -- also unused import in client_proxy.py |
-| 53 | `MAC_RTP_PORT` | `[VERIFY]` -- may be used by systemd env or shell |
-| 54 | `MAC_RS8M_PORT` | `[VERIFY]` |
-| 55 | `MAC_RTCP_PORT` | `[VERIFY]` |
-| 56 | `MAC_AUDIO_OUTPUT` | `[VERIFY]` |
+| 53 | `MAC_RTP_PORT` | `[RESOLVED]` -- alive via `_const()` dynamic access in dependencies.py |
+| 54 | `MAC_RS8M_PORT` | `[RESOLVED]` -- alive via `_const()` dynamic access in dependencies.py |
+| 55 | `MAC_RTCP_PORT` | `[RESOLVED]` -- alive via `_const()` dynamic access in dependencies.py |
+| 56 | `MAC_AUDIO_OUTPUT` | `[RESOLVED]` -- alive via `_const()` dynamic access in dependencies.py |
 
 #### Module-level constants
 
@@ -248,7 +248,7 @@ All auto-fixable with `ruff check --select F401 --fix`. Key files:
 
 `WebSocketMessageSchema`, `VolumeEventDataSchema`, `SourceEventDataSchema`, `ApiResponseSchema`, `HealthResponseSchema`, `EqualizerFilterSchema`, `EqualizerStatusSchema`, `EqualizerZoneResponseSchema`, `EqualizerCompressorSchema`, `EqualizerLoudnessSchema`, `EqualizerPresetsResponseSchema`, `MultiroomStateSchema`, `RadioStationSchema`, `PodcastEpisodeSchema`
 
-**Tag:** `[VERIFY]` -- check if schemas are used for runtime validation or just defined as documentation
+**Tag:** `[REMOVED]` -- confirmed dead, only SystemStateSchema/VolumeStateSchema/validateSchema are used in production; test updated to match
 
 #### Components (unused variables/imports)
 
@@ -281,16 +281,16 @@ All auto-fixable with `ruff check --select F401 --fix`. Key files:
 
 | Category | Type | Backend source | Tag |
 |----------|------|---------------|-----|
-| `wifi` | `connect_failed` | `core/wifi/service.py:203,215,225` | `[VERIFY]` -- frontend uses HTTP polling instead |
-| `wifi` | `connected` | `core/wifi/service.py:236` | `[VERIFY]` |
-| `wifi` | `network_forgotten` | `core/wifi/service.py:249` | `[VERIFY]` |
-| `equalizer` | `crossover_changed` | `core/equalizer/service.py:752` | `[VERIFY]` -- frontend handles `multiroom.crossover_changed` but not `equalizer.crossover_changed` |
+| `wifi` | `connect_failed` | `core/wifi/service.py:203,215,225` | `[RESOLVED]` -- no frontend handler, but emission is correct and harmless; frontend could add handler |
+| `wifi` | `connected` | `core/wifi/service.py:236` | `[RESOLVED]` -- same |
+| `wifi` | `network_forgotten` | `core/wifi/service.py:249` | `[RESOLVED]` -- same |
+| `equalizer` | `crossover_changed` | `core/equalizer/service.py:752` | `[RESOLVED]` -- no frontend handler; local crossover endpoints flagged for removal in §1.9 |
 
 ### 1.9 Dead API Endpoints (no frontend caller, no server-to-server use)
 
 | # | Method | Path | File:Line | Tag |
 |---|--------|------|-----------|-----|
-| 1 | GET | `/api/radio/favorites` | `radio/routes.py:207` | `[REMOVE]` -- frontend uses `/stations?favorites_only=true` |
+| 1 | GET | `/api/radio/favorites` | `radio/routes.py:207` | `[REMOVED]` -- frontend uses `/stations?favorites_only=true` |
 | 2 | PUT | `/api/radio/custom/update` | `radio/routes.py:460` | `[REMOVE]` |
 | 3 | PUT | `/api/radio/custom/{station_id}/image` | `radio/routes.py:536` | `[REMOVE]` |
 | 4 | POST | `/api/radio/custom/from-favorite` | `radio/routes.py:628` | `[REMOVE]` |
@@ -356,9 +356,9 @@ All auto-fixable with `ruff check --select F401 --fix`. Key files:
 | `network.connectedTo` | Not referenced in any template |
 | `network.saved` | Not referenced in any template |
 
-#### `status.audioReceivedFrom` -- used only in JS `[VERIFY]`
+#### `status.audioReceivedFrom` -- `[RESOLVED]`
 
-Used in `useScreensaver.js` composable, not in any `.vue` file. Technically alive -- verify before removing.
+Confirmed alive: used in `useScreensaver.js` composable (line 180) for the Mac source screensaver title.
 
 ### 2.2 Dead Rootfs Config Files
 
@@ -498,7 +498,7 @@ Single-word component names violate Vue style guide:
 
 All in `frontend/src/components/ui/`. Not a bug -- cosmetic convention issue.
 
-**Tag:** `[VERIFY]` -- decide if worth renaming (breaking change for all importers)
+**Tag:** `[STYLE DECISION]` -- not dead code; renaming is a convention choice with breaking import changes
 
 ### 4.5 ESLint `vue/no-side-effects-in-computed-properties` -- 3 Errors
 
@@ -526,8 +526,8 @@ Computed properties with side effects can cause infinite render loops. Should be
 
 | File | Line | Issue | Tag |
 |------|------|-------|-----|
-| `install.sh` | 1084 | Third-party `install.sh` from Waveshare `Brightness.zip` runs without checksum verification | `[VERIFY]` |
-| `pi-gen/.../03-configure/00-run.sh` | 192-199 | External `wget` from Waveshare with no checksum -- supply chain risk | `[VERIFY]` |
+| `install.sh` | 1084 | Third-party `install.sh` from Waveshare `Brightness.zip` runs without checksum verification | `[SECURITY]` -- supply chain risk, not dead code |
+| `pi-gen/.../03-configure/00-run.sh` | 192-199 | External `wget` from Waveshare with no checksum -- supply chain risk | `[SECURITY]` -- not dead code |
 | `milo-client-deploy-update` | 48 | Pipe subshell prevents `set -e` from catching copy failures | `[REFACTOR]` |
 | `milo-client-deploy-update` | 37 | Avahi override filename mismatch (`override.conf` vs `milo-override.conf`) | `[REFACTOR]` |
 | `milo-client/install-client.sh` | 411-418 | Variables in `bash -c` strings break if path contains spaces | `[REFACTOR]` |
@@ -560,7 +560,7 @@ ruff check backend/ --select W291,W292,W293 --fix
 
 Current limit is 88 chars. Consider adding `pyproject.toml` with `line-length = 120`.
 
-**Tag:** `[VERIFY]` -- team decision on line length policy
+**Tag:** `[STYLE DECISION]` -- team decision on line length policy
 
 ---
 
@@ -568,9 +568,12 @@ Current limit is 88 chars. Consider adding `pyproject.toml` with `line-length = 
 
 | Tag | Count | Description |
 |-----|-------|-------------|
-| `[REMOVE]` | ~85 | Safe to delete -- no references anywhere |
+| `[REMOVE]` | ~73 | Safe to delete -- no references anywhere |
+| `[REMOVED]` | ~16 | Verified dead and removed |
+| `[RESOLVED]` | ~8 | Verified alive (dynamic access, composable usage, harmless emission) |
 | `[REFACTOR]` | ~20 | Needs rewrite, consolidation, or pattern fix |
-| `[VERIFY]` | ~25 | Might be used dynamically, by shell scripts, or by external callers |
+| `[STYLE DECISION]` | ~2 | Team decision on naming/formatting conventions |
+| `[SECURITY]` | ~2 | Supply chain risk, not dead code |
 
 ### Recommended Execution Order
 

@@ -16,17 +16,12 @@ MILO_DATA_DIR = Path("/var/lib/milo")
 # =============================================================================
 SETTINGS_FILE = MILO_DATA_DIR / "settings.json"
 HARDWARE_FILE = MILO_DATA_DIR / "hardware.json"
-LAST_VOLUME_FILE = MILO_DATA_DIR / "last_volume.json"
-RADIO_DATA_FILE = MILO_DATA_DIR / "radio_data.json"
-PODCAST_DATA_FILE = MILO_DATA_DIR / "podcast_data.json"
 CLIENT_EQUALIZER_FILE = MILO_DATA_DIR / "client_equalizer.json"
-ROUTING_ENV_FILE = MILO_DATA_DIR / "routing.env"
 ERROR_LOG_FILE = MILO_DATA_DIR / "errors.log"
 
 # =============================================================================
 # DIRECTORIES (derived from MILO_DATA_DIR)
 # =============================================================================
-RADIO_IMAGES_DIR = MILO_DATA_DIR / "radio_images"
 CD_DATA_FILE = MILO_DATA_DIR / "cd_data.json"
 CD_COVERS_DIR = MILO_DATA_DIR / "cd_covers"
 CD_DEVICE = "/dev/sr0"

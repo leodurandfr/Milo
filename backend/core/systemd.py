@@ -25,14 +25,6 @@ class SystemdServiceManager:
         """Restarts a systemd service."""
         return await self._control_service(service, "restart")
 
-    async def enable(self, service: str) -> bool:
-        """Enables a systemd service to start on boot."""
-        return await self._unit_file_command(service, "enable")
-
-    async def disable(self, service: str) -> bool:
-        """Disables a systemd service from starting on boot."""
-        return await self._unit_file_command(service, "disable")
-
     @handle_errors(default=False)
     async def is_active(self, service: str) -> bool:
         """Checks if a service is active."""
