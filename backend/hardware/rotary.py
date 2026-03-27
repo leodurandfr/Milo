@@ -3,8 +3,7 @@
 KY-040 Rotary Encoder Controller for Volume - dB Volume API Version
 
 Uses event-triggered processing: detent detection immediately triggers
-volume adjustment via an accumulator + on-demand processor task,
-mirroring the BT remote pattern for minimal latency.
+volume adjustment via VolumeAccumulator for minimal latency.
 """
 import lgpio
 import asyncio
@@ -13,13 +12,16 @@ from typing import Optional
 from time import monotonic
 
 from backend.hardware.playback_dispatch import PlaybackDispatcher
+from backend.hardware.volume_accumulator import VolumeAccumulator
+
+logger = logging.getLogger(__name__)
 
 
 class RotaryVolumeController:
     """KY-040 rotary encoder controller - dB volume API (-80 to 0 dB)"""
 
     DEBOUNCE_TIME = 0.005  # 5ms debounce (KY-040 bounce is 1-3ms)
-    BATCH_INTERVAL = 0.02  # 20ms between volume batches during sustained rotation
+    BUTTON_DEBOUNCE_TIME = 0.02  # 20ms debounce for pushbutton
 
     def __init__(self, volume_service, state_machine, clk_pin=22, dt_pin=27, sw_pin=23):
         self.volume_service = volume_service
@@ -29,24 +31,22 @@ class RotaryVolumeController:
         self.chip_handle: Optional[int] = None
         self.last_clk = 0
         self.running = False
-        self.logger = logging.getLogger(__name__)
 
-        # Accumulator + on-demand processor (same pattern as BT remote)
-        self._rotation_accumulator = 0
-        self._processor_running = False
-        self._processor_task: Optional[asyncio.Task] = None
+        # Volume accumulator (shared with BT remote)
+        self._volume = VolumeAccumulator(volume_service)
 
         # Playback dispatch (multi-click → play/pause, next, prev)
         self._dispatcher = PlaybackDispatcher(state_machine)
 
         # Timing
         self._last_adjustment_time = 0
-        self._last_button_press = 0
+        self._last_button_state = 1  # HIGH at rest (pull-up)
+        self._last_button_time = 0.0
 
     async def initialize(self) -> bool:
         """Initialize the rotary controller."""
         try:
-            self.logger.info(f"Initializing rotary controller (CLK={self.CLK}, DT={self.DT}, SW={self.SW})")
+            logger.info("Initializing rotary controller (CLK=%d, DT=%d, SW=%d)", self.CLK, self.DT, self.SW)
             self.chip_handle = lgpio.gpiochip_open(0)
 
             for pin in [self.CLK, self.DT, self.SW]:
@@ -57,17 +57,17 @@ class RotaryVolumeController:
 
             asyncio.create_task(self._monitor_loop())
 
-            self.logger.info("Rotary controller initialized successfully")
+            logger.info("Rotary controller initialized successfully")
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to initialize rotary controller: {e}")
-            self.cleanup()
+            logger.error("Failed to initialize rotary controller: %s", e)
+            await self.cleanup()
             return False
 
     async def _monitor_loop(self):
         """GPIO polling loop — detects edges and button presses."""
-        self.logger.info("Starting rotary monitoring loop")
+        logger.info("Starting rotary monitoring loop")
 
         while self.running:
             try:
@@ -75,7 +75,7 @@ class RotaryVolumeController:
                 await self._check_button()
                 await asyncio.sleep(0.001)  # 1ms polling
             except Exception as e:
-                self.logger.error(f"Error in monitoring loop: {e}")
+                logger.error("Error in monitoring loop: %s", e)
                 await asyncio.sleep(1)
 
     def _check_rotation(self):
@@ -87,65 +87,31 @@ class RotaryVolumeController:
 
             if current_time - self._last_adjustment_time >= self.DEBOUNCE_TIME:
                 dt_state = lgpio.gpio_read(self.chip_handle, self.DT)
+                step = self.volume_service.volume_config.step_rotary_db
 
-                if dt_state != clk_state:
-                    self._rotation_accumulator += 1
-                else:
-                    self._rotation_accumulator -= 1
+                self._volume.accumulate(step if dt_state != clk_state else -step)
 
                 self._last_adjustment_time = current_time
 
-                # Trigger processing immediately if no processor is running
-                if not self._processor_running:
-                    self._processor_task = asyncio.create_task(self._process_volume())
-
             self.last_clk = clk_state
 
-    async def _process_volume(self):
-        """Drain accumulated rotations into volume adjustments."""
-        self._processor_running = True
-        try:
-            while self._rotation_accumulator != 0:
-                volume_step = self.volume_service.volume_config.step_rotary_db
-                volume_delta = self._rotation_accumulator * volume_step
-                self._rotation_accumulator = 0
-
-                try:
-                    await self.volume_service.adjust_volume_db(volume_delta)
-                except Exception as e:
-                    self.logger.error(f"Error adjusting volume: {e}")
-
-                await asyncio.sleep(self.BATCH_INTERVAL)
-        finally:
-            # Re-check: if an edge arrived between the while-check and here,
-            # spawn a new processor to avoid silently dropping it.
-            if self._rotation_accumulator != 0:
-                self._processor_running = False
-                self._processor_task = asyncio.create_task(self._process_volume())
-                return
-            self._processor_running = False
-
     async def _check_button(self):
-        """Detect SW button press and dispatch to multi-click handler."""
-        if lgpio.gpio_read(self.chip_handle, self.SW) == 0:
-            current_time = monotonic()
-
-            if current_time - self._last_button_press >= 0.05:
-                self._last_button_press = current_time
+        """Detect SW button press (falling edge + debounce) and dispatch to multi-click handler."""
+        sw_state = lgpio.gpio_read(self.chip_handle, self.SW)
+        if sw_state == 0 and self._last_button_state == 1:
+            now = monotonic()
+            if now - self._last_button_time >= self.BUTTON_DEBOUNCE_TIME:
+                self._last_button_time = now
                 await self._dispatcher.on_click()
+        self._last_button_state = sw_state
 
-    def cleanup(self):
+    async def cleanup(self):
         """Clean up GPIO resources."""
-        self.logger.info("Cleaning up rotary controller")
+        logger.info("Cleaning up rotary controller")
         self.running = False
 
         self._dispatcher.cancel()
-
-        if self._processor_task and not self._processor_task.done():
-            self._processor_task.cancel()
-        self._processor_task = None
-        self._rotation_accumulator = 0
-        self._processor_running = False
+        await self._volume.cleanup()
 
         if self.chip_handle is not None:
             try:
@@ -155,8 +121,8 @@ class RotaryVolumeController:
                     except Exception:
                         pass
                 lgpio.gpiochip_close(self.chip_handle)
-                self.logger.info("GPIO resources cleaned up")
+                logger.info("GPIO resources cleaned up")
             except Exception as e:
-                self.logger.error(f"Error during GPIO cleanup: {e}")
+                logger.error("Error during GPIO cleanup: %s", e)
             finally:
                 self.chip_handle = None
