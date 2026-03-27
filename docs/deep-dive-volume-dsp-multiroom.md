@@ -92,7 +92,7 @@ Milo implements a sophisticated volume and DSP control system with multiroom cap
 
 ## Domain Models
 
-### VolumeState (`backend/domain/volume_state.py`)
+### VolumeState (`backend/core/volume/state.py`)
 
 ```python
 @dataclass
@@ -112,7 +112,7 @@ class ClientVolume:
     available: bool       # Connection status
 ```
 
-### RegisteredClient (`backend/domain/client_registry.py`)
+### RegisteredClient (`backend/core/multiroom/client_registry.py`)
 
 ```python
 @dataclass
@@ -143,7 +143,7 @@ class Zone:
 
 ### 1. ClientRegistryService (SSOT)
 
-**Location:** `backend/infrastructure/services/client_registry_service.py`
+**Location:** `backend/core/multiroom/client_registry.py`
 
 **Purpose:** Central registry for all multiroom clients and zones. This is the **Single Source of Truth** for:
 - Client list with complete metadata
@@ -181,7 +181,7 @@ class RegistryEventType:
 
 ### 2. VolumeService
 
-**Location:** `backend/infrastructure/services/volume/volume_service.py`
+**Location:** `backend/core/volume/service.py`
 
 **Purpose:** Orchestrates all volume operations across direct and multiroom modes.
 
@@ -208,7 +208,7 @@ User Slider → API → VolumeService → CamillaDSPService (local)
 
 ### 3. CamillaDSPService
 
-**Location:** `backend/infrastructure/services/dsp/camilladsp_service.py`
+**Location:** `backend/core/dsp/service.py`
 
 **Purpose:** WebSocket client to CamillaDSP daemon. Manages all DSP processing.
 
@@ -247,7 +247,7 @@ class DspState(Enum):
 
 ### 4. CrossoverService
 
-**Location:** `backend/infrastructure/services/dsp/crossover_service.py`
+**Location:** `backend/core/multiroom/crossover.py`
 
 **Purpose:** Manages speaker types and automatic crossover filter application for subwoofer integration.
 
@@ -299,7 +299,7 @@ def set_registry(self, registry: ClientRegistryService):
 - **Snapclient:** Receives audio from server
 - **Groups:** Logical groupings for zone playback
 
-**SnapcastWebSocketService** (`backend/infrastructure/services/snapcast_websocket_service.py`):
+**SnapcastWebSocketService** (`backend/core/multiroom/websocket.py`):
 - WebSocket connection to `ws://localhost:1780/jsonrpc`
 - Handles client connect/disconnect events
 - Volume passthrough: Snapcast volume always 100%, real volume via CamillaDSP

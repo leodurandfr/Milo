@@ -33,7 +33,7 @@
 ## Architectural Principles
 
 ### 1. Single Source of Truth
-`UnifiedAudioStateMachine` is THE authoritative source for all audio state. Never modify state directly - always use state machine methods.
+`AudioStateMachine` is THE authoritative source for all audio state. Never modify state directly - always use state machine methods.
 
 ### 2. Source Architecture
 All audio sources implement the `AudioSourceProtocol` interface, enabling consistent behavior and easy addition of new sources.
@@ -172,7 +172,7 @@ Component Re-render
 
 ### DO:
 - Always use `state_machine.update_source_state()` for state changes
-- Always use `state_machine._broadcast_event()` for notifications
+- Always use `state_machine.broadcast_event()` for notifications
 - Always use `settings_service.set_setting()` for persistence
 - Always use async/await for I/O operations
 - Always register sources in `dependencies.py` before `initialize_services()`

@@ -133,7 +133,7 @@ python -m pytest backend/tests/ -v
 python -m pytest backend/tests/test_state_machine.py
 
 # Run specific test
-python -m pytest backend/tests/test_state_machine.py::TestUnifiedAudioStateMachine::test_initialization
+python -m pytest backend/tests/test_state_machine.py::TestAudioStateMachine::test_initialization
 
 # Coverage report
 python -m pytest backend/tests/ --cov=backend --cov-report=term-missing
@@ -211,7 +211,7 @@ Vite proxy configuration in `vite.config.js`:
 2. Create feature module in `backend/features/new_source/`:
    ```python
    # source.py
-   class NewSourceSource(UnifiedAudioSource):
+   class NewSourceSource(BaseAudioSource):
        async def initialize(self) -> bool: ...
        async def start(self) -> bool: ...
        async def stop(self) -> bool: ...

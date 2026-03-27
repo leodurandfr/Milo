@@ -41,7 +41,7 @@ CrossoverService.set_client_speaker_type()
 
 ### 1.3 Services Requiring Migration
 
-#### CrossoverService (`backend/infrastructure/services/dsp/crossover_service.py`)
+#### CrossoverService (`backend/core/multiroom/crossover.py`)
 
 **Current**: Reads zones from `dsp.linked_groups` settings in multiple methods:
 - `get_zone_crossover()` - line 312
@@ -52,13 +52,13 @@ CrossoverService.set_client_speaker_type()
 
 **Target**: Use `ClientRegistryService` exclusively for zone data.
 
-#### VolumeStateStore (`backend/infrastructure/services/volume/volume_state.py`)
+#### VolumeStateStore (`backend/core/volume/state.py`)
 
 **Current**: `_load_zones()` reads from `dsp.linked_groups` (line 276)
 
 **Target**: Get zones from `ClientRegistryService` (already has `set_registry()` method).
 
-#### DSP Routes (`backend/presentation/api/routes/dsp.py`)
+#### DSP Routes (`backend/api/dsp.py`)
 
 **Current**: `/api/dsp/links/*` endpoints manage zones via `dsp.linked_groups`
 
@@ -115,7 +115,7 @@ Zone/Client Change → ClientRegistryService
 ### 2.3 Zone Model (Already in Domain)
 
 ```python
-# backend/domain/client_registry.py - Zone dataclass
+# backend/core/multiroom/client_registry.py - Zone dataclass
 @dataclass
 class Zone:
     id: str
@@ -134,7 +134,7 @@ This model already exists and has all needed fields.
 ### Phase 1: CrossoverService Migration (Critical - Fixes Bug)
 
 **Files to modify**:
-- `backend/infrastructure/services/dsp/crossover_service.py`
+- `backend/core/multiroom/crossover.py`
 
 **Changes**:
 
@@ -168,7 +168,7 @@ zone = self._registry.get_zone(zone_id)
 ### Phase 2: VolumeStateStore Migration
 
 **Files to modify**:
-- `backend/infrastructure/services/volume/volume_state.py`
+- `backend/core/volume/state.py`
 
 **Changes**:
 
@@ -195,8 +195,8 @@ async def _load_zones(self) -> None:
 ### Phase 3: API Route Consolidation
 
 **Files to modify**:
-- `backend/presentation/api/routes/dsp.py` - Deprecate `/api/dsp/links/*`
-- `backend/presentation/api/routes/registry.py` - Ensure complete zone API
+- `backend/api/dsp.py` - Deprecate `/api/dsp/links/*`
+- `backend/core/multiroom/routes.py` - Ensure complete zone API
 
 **Options**:
 
@@ -370,10 +370,10 @@ sudo journalctl -u milo-backend -f | grep -i crossover
 
 | File | Phase | Changes |
 |------|-------|---------|
-| `backend/infrastructure/services/dsp/crossover_service.py` | 1 | Replace settings reads with registry |
-| `backend/infrastructure/services/volume/volume_state.py` | 2 | Replace `_load_zones()` with registry |
-| `backend/presentation/api/routes/dsp.py` | 3 | Deprecate `/links/*` routes |
-| `backend/infrastructure/services/client_registry_service.py` | 4 | Add migration code |
+| `backend/core/multiroom/crossover.py` | 1 | Replace settings reads with registry |
+| `backend/core/volume/state.py` | 2 | Replace `_load_zones()` with registry |
+| `backend/api/dsp.py` | 3 | Deprecate `/links/*` routes |
+| `backend/core/multiroom/client_registry.py` | 4 | Add migration code |
 | `backend/tests/test_crossover_service.py` | 5 | Update mocks |
 | `backend/tests/test_volume_service.py` | 5 | Update mocks |
 

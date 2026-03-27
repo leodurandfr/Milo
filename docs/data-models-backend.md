@@ -153,7 +153,7 @@ All settings modifications go through `SettingsService`:
 
 ## State Machine
 
-### UnifiedAudioStateMachine (`infrastructure/state/state_machine.py`)
+### AudioStateMachine (`core/state.py`)
 
 Central state manager handling:
 - Audio source transitions
@@ -163,7 +163,7 @@ Central state manager handling:
 
 **Key methods:**
 - `update_source_state(source, state, metadata)` - Update source state
-- `_broadcast_event(category, type, source, data)` - Broadcast state changes
+- `broadcast_event(category, type, data)` - Broadcast state changes
 - `transition_lock` - Protects state transitions
 
 ---

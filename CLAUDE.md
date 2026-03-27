@@ -206,7 +206,7 @@ class AudioSourceProtocol(Protocol):
     async def handle_command(self, command: str, data: Dict) -> Dict[str, Any]
 ```
 
-**Base class available**: `UnifiedAudioSource` in `backend/core/audio_source.py` provides common functionality (state management, systemd control, logging).
+**Base class available**: `BaseAudioSource` in `backend/core/audio_source.py` provides common functionality (state management, systemd control, logging).
 
 **Uniform source structure** — Every source in `backend/sources/{source}/` must follow:
 - `__init__.py` — Docstring + `__all__` exporting `Source`, `router`, `setup_{source}_routes`
@@ -434,7 +434,7 @@ These are auto-generated in `/var/lib/milo/routing.env` based on settings.json.
 
 1. **Define enum** in `backend/core/models/audio_state.py::AudioSource`
 2. **Create source module** in `backend/sources/{source}/` with:
-   - `source.py` - Extending `UnifiedAudioSource`, constructor takes `(config, state_machine, settings_service, systemd_manager)`
+   - `source.py` - Extending `BaseAudioSource`, constructor takes `(config, state_machine, settings_service, systemd_manager)`
    - `routes.py` - FastAPI routes with `logger = logging.getLogger(__name__)`, `router` with `responses={404: ...}`, playback routes using `run_source_command()`
    - `models.py` - Pydantic models with `snake_case` fields (if needed)
    - `__init__.py` - Docstring + `__all__` exporting `Source`, `router`, `setup_{source}_routes`
