@@ -56,6 +56,8 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     high_boost: 5
   });
 
+  const mono = ref(false);
+
   // Multi-client equalizer support
   // selectedTarget is the MAC address of the target client (e.g., "dc:a6:32:7e:d3:43")
   // Initialized to null - will be auto-selected to local client when registry loads
@@ -599,6 +601,9 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       if (statusData?.loudness) {
         loudness.value = { ...loudness.value, ...statusData.loudness };
       }
+      if (statusData?.mono !== undefined) {
+        mono.value = statusData.mono;
+      }
 
       // When in a zone, the zone registry is the source of truth for equalizer settings.
       // The local CamillaDSP cache may be stale (zone operations use persist=False).
@@ -614,6 +619,9 @@ export const useEqualizerStore = defineStore('equalizer', () => {
           }
           if (zoneEq.compressor) {
             compressor.value = { ...compressor.value, ...zoneEq.compressor };
+          }
+          if (zoneEq.mono !== undefined) {
+            mono.value = zoneEq.mono;
           }
           // Zone is source of truth for active preset
           if (zoneEq.active_preset) {
@@ -873,47 +881,65 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   // === ADVANCED FEATURES ===
 
   async function updateCompressor(settings) {
-    return apiCall('store', 'Error updating compressor', async () => {
+    // Optimistic update: apply immediately for responsive UI
+    const previous = { ...compressor.value };
+    Object.assign(compressor.value, settings);
+
+    const result = await apiCall('store', 'Error updating compressor', async () => {
       // If target is in a zone, use zone endpoint (backend handles propagation)
       const zoneId = getSelectedZoneId();
       if (zoneId) {
         const response = await axios.patch(`/api/equalizer/zone/${zoneId}/compressor`, settings);
-        if (response.data.status === 'success' || response.data.status === 'partial') {
-          Object.assign(compressor.value, settings);
-          return true;
-        }
-        return false;
+        return response.data.status === 'success' || response.data.status === 'partial';
       }
 
       // Standalone client: update directly
       const response = await axios.put(`${getApiBase()}/compressor`, settings);
-      if (response.data.status === 'success') {
-        Object.assign(compressor.value, settings);
-        return true;
-      }
-      return false;
+      return response.data.status === 'success';
     });
+
+    if (!result) Object.assign(compressor.value, previous);
+    return result;
   }
 
   async function updateLoudness(settings) {
-    return apiCall('store', 'Error updating loudness', async () => {
+    // Optimistic update: apply immediately for responsive UI
+    const previous = { ...loudness.value };
+    Object.assign(loudness.value, settings);
+
+    const result = await apiCall('store', 'Error updating loudness', async () => {
       // If target is in a zone, use zone endpoint (backend handles propagation)
       const zoneId = getSelectedZoneId();
       if (zoneId) {
         const response = await axios.patch(`/api/equalizer/zone/${zoneId}/loudness`, settings);
-        if (response.data.status === 'success' || response.data.status === 'partial') {
-          Object.assign(loudness.value, settings);
-          return true;
-        }
-        return false;
+        return response.data.status === 'success' || response.data.status === 'partial';
       }
 
       // Standalone client: update directly
       const response = await axios.put(`${getApiBase()}/loudness`, settings);
-      if (response.data.status === 'success') {
-        Object.assign(loudness.value, settings);
-        return true;
+      return response.data.status === 'success';
+    });
+
+    if (!result) Object.assign(loudness.value, previous);
+    return result;
+  }
+
+  async function updateMono(enabled) {
+    return apiCall('store', 'Error updating mono', async () => {
+      const previous = mono.value;
+      mono.value = enabled;
+
+      const zoneId = getSelectedZoneId();
+      if (zoneId) {
+        const response = await axios.patch(`/api/equalizer/zone/${zoneId}/mono`, { enabled });
+        if (response.data.status === 'success' || response.data.status === 'partial') return true;
+        mono.value = previous;
+        return false;
       }
+
+      const response = await axios.put(`${getApiBase()}/mono`, { enabled });
+      if (response.data.status === 'success') return true;
+      mono.value = previous;
       return false;
     });
   }
@@ -1252,6 +1278,10 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       Object.assign(loudness.value, equalizer_settings.loudness);
     }
 
+    if (equalizer_settings.mono !== undefined) {
+      mono.value = equalizer_settings.mono;
+    }
+
     // Update active preset if it actually changed (avoid resetting edit state on echo)
     if (equalizer_settings.active_preset !== undefined && equalizer_settings.active_preset !== activePreset.value) {
       activePreset.value = equalizer_settings.active_preset;
@@ -1318,6 +1348,12 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     Object.assign(loudness.value, event.data);
   }
 
+  function handleMonoChanged(event) {
+    if (event.data?.enabled !== undefined) {
+      mono.value = event.data.enabled;
+    }
+  }
+
   // Note: handleClientNameChanged removed - availableTargets is now a computed
   // property that automatically updates when multiroomStore changes
 
@@ -1338,6 +1374,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     }
     loudness.value = { enabled: false, low_boost: 5, high_boost: 5 };
     compressor.value = { enabled: false, threshold: -20, ratio: 4, attack: 10, release: 100, makeup_gain: 0 };
+    mono.value = false;
     activePreset.value = 'flat';
     isPresetEdited.value = false;
     originalPresetGains.value = null;
@@ -1437,6 +1474,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     // Advanced Equalizer State
     compressor,
     loudness,
+    mono,
 
     // Multi-client support
     selectedTarget,
@@ -1505,6 +1543,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     // Advanced Features
     updateCompressor,
     updateLoudness,
+    updateMono,
     updateEqualizerMute,
 
     // Client equalizer volume/mute (reads from unified store)
@@ -1529,6 +1568,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     updateLevels,
     handleCompressorChanged,
     handleLoudnessChanged,
+    handleMonoChanged,
     handleEnabledChanged,
     handleZoneEnabledChanged
   };

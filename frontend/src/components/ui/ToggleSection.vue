@@ -76,7 +76,7 @@ function handleToggle(newEnabled) {
     el.offsetHeight;
     el.style.transition = '';
 
-    requestHeightDelta(after - before);
+    requestHeightDelta(after - before, 200); // must match --transition-fast
   }
   emit('change', newEnabled);
 }
@@ -102,9 +102,9 @@ function handleToggle(newEnabled) {
   opacity: 0;
   margin-top: calc(-1 * var(--space-04));
   transition:
-    grid-template-rows var(--transition-normal),
-    opacity var(--transition-normal),
-    margin-top var(--transition-normal);
+    grid-template-rows var(--transition-fast),
+    opacity var(--transition-fast),
+    margin-top var(--transition-fast);
 }
 
 .toggle-section-expand.is-open {
