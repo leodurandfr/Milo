@@ -147,6 +147,9 @@
       "lowBoost": "Bassverstärkung",
       "highBoost": "Höhenverstärkung"
     },
+    "mono": {
+      "title": "Mono"
+    },
     "presets": {
       "custom": "Benutzerdefiniert",
       "edited": "Bearbeitet",

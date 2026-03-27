@@ -147,6 +147,9 @@
       "lowBoost": "Potenziamento bassi",
       "highBoost": "Potenziamento alti"
     },
+    "mono": {
+      "title": "Mono"
+    },
     "presets": {
       "custom": "Personalizzato",
       "edited": "Modificato",

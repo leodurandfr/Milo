@@ -119,6 +119,10 @@
             </div>
           </ToggleSection>
 
+          <!-- Section 5: Mono -->
+          <ToggleSection :title="t('equalizer.mono.title')" :enabled="equalizerStore.mono"
+            @change="handleMonoToggle" />
+
           <!-- Level Meters -->
           <LevelMeters :client-ids="selectedClientIds" />
         </div>
@@ -280,6 +284,11 @@ async function handleCompressorToggle(enabled) {
 
 async function handleCompressorChange(field, value) {
   await equalizerStore.updateCompressor({ [field]: value, enabled: equalizerStore.compressor.enabled });
+}
+
+// === MONO ===
+async function handleMonoToggle(enabled) {
+  await equalizerStore.updateMono(enabled);
 }
 
 // === LIFECYCLE ===

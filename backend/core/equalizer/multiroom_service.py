@@ -144,7 +144,7 @@ class MultiroomEqualizerService:
             if not zone:
                 raise ValueError(f"Zone not found: {zone_id}")
 
-            # Update zone equalizer settings via registry's public method (handles persistence)
+            # Update zone equalizer settings via registry's public method (handles persistence + broadcast)
             await self._registry.set_zone_equalizer(zone_id, settings)
 
             self.logger.info(f"Zone {zone_id} Equalizer settings updated")
@@ -162,15 +162,6 @@ class MultiroomEqualizerService:
             self.logger.info(
                 f"Zone {zone_id}: Applied equalizer to {success_count}/{len(online_clients)} online clients"
             )
-        else:
-            self.logger.debug(f"Zone {zone_id}: No online clients to apply equalizer")
-
-        # Broadcast WebSocket event
-        await self._broadcast_equalizer_event(
-            target_type="zone",
-            target_id=zone_id,
-            settings=settings,
-        )
 
         return True
 
@@ -329,20 +320,13 @@ class MultiroomEqualizerService:
                 "Use apply_zone_equalizer() instead."
             )
 
-        # Update standalone equalizer via registry
+        # Update standalone equalizer via registry (handles persistence + broadcast)
         await self._registry.set_standalone_equalizer(mac_id, settings)
 
         # Apply to CamillaDSP
         success = await self._apply_to_camilladsp(mac_id, settings)
 
         self.logger.info(f"Client {mac_id} Equalizer settings updated (applied: {success})")
-
-        # Broadcast WebSocket event
-        await self._broadcast_equalizer_event(
-            target_type="client",
-            target_id=mac_id,
-            settings=settings,
-        )
 
         return True
 
@@ -529,6 +513,13 @@ class MultiroomEqualizerService:
                 broadcast=False,  # Don't broadcast (zone broadcasts complete state)
             )
 
+            # Apply mono (suppress broadcast - zone broadcasts complete state)
+            await self._camilladsp_service.set_mono(
+                enabled=settings.mono,
+                persist=False,
+                broadcast=False,
+            )
+
             self.logger.debug("Equalizer settings applied to local")
             return True
 
@@ -596,6 +587,12 @@ class MultiroomEqualizerService:
                     "high_boost": loud.high_boost,
                     "low_boost": loud.low_boost
                 }
+            )
+
+            # Apply mono
+            await self._proxy_service.request(
+                client_ip, "PUT", "/equalizer/mono",
+                {"enabled": settings.mono}
             )
 
             self.logger.debug(f"Equalizer settings applied to remote client {mac_id}")
@@ -858,6 +855,39 @@ class MultiroomEqualizerService:
                 },
             },
             broadcast_settings={"loudness": loud.to_dict()},
+        )
+
+    async def update_mono(
+        self,
+        target_type: str,
+        target_id: str,
+        enabled: bool,
+    ) -> bool:
+        """
+        Update mono setting using targeted routing (no filter reapplication).
+
+        Only touches the CamillaDSP mixer on clients, leaving EQ filters,
+        compressor, and loudness untouched.
+
+        Args:
+            target_type: "zone" or "client"
+            target_id: Zone ID or client MAC ID
+            enabled: True for mono, False for stereo
+
+        Returns:
+            True if successful
+        """
+        current = await self.get_equalizer(target_type, target_id)
+        if not current:
+            raise ValueError(f"{target_type} not found: {target_id}")
+
+        current.mono = enabled
+
+        return await self._apply_partial_update(
+            target_type, target_id, current,
+            router_method="set_mono",
+            router_kwargs={"settings": {"enabled": enabled}},
+            broadcast_settings={"mono": enabled},
         )
 
     async def update_equalizer_enabled(

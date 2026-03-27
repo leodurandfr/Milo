@@ -147,6 +147,9 @@
       "lowBoost": "低频增强",
       "highBoost": "高频增强"
     },
+    "mono": {
+      "title": "单声道"
+    },
     "presets": {
       "custom": "自定义",
       "edited": "已编辑",
