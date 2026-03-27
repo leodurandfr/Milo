@@ -186,38 +186,20 @@ class MultiroomEqualizerService:
             return zone.equalizer_settings
         return None
 
-    async def set_zone_active_preset(self, zone_id: str, preset_id: str) -> bool:
+    async def resolve_preset_gains(self, preset_id: str, settings: EqualizerSettings = None) -> list:
         """
-        Update only the active_preset for a zone without re-applying filters.
+        Resolve gain values for a preset ID (builtin or custom).
 
-        Args:
-            zone_id: The zone ID
-            preset_id: The new active preset ID
-
-        Returns:
-            True if successful
-
-        Raises:
-            ValueError: If zone not found
+        For 'custom' preset, reads from settings.custom_gains (zone/client-specific)
+        with fallback to global CamillaDSP custom gains.
         """
-        if not self._registry:
-            return False
-
-        # Mutation under registry lock to avoid race conditions
-        async with self._registry._lock:
-            zone = self._registry._zones.get(zone_id)
-            if not zone:
-                raise ValueError(f"Zone not found: {zone_id}")
-            zone.equalizer_settings.active_preset = preset_id
-
-        await self._registry._persist_zones()
-        return True
-
-    async def resolve_preset_gains(self, preset_id: str) -> list:
-        """Resolve gain values for a preset ID (builtin or custom)."""
         from backend.core.equalizer.presets import get_preset_by_id, DEFAULT_CUSTOM_GAINS
 
         if preset_id == "custom":
+            # Per-zone/client custom gains (stored in EqualizerSettings)
+            if settings and settings.custom_gains:
+                return settings.custom_gains
+            # Fallback to global custom gains (local standalone)
             if self._camilladsp_service and hasattr(self._camilladsp_service, 'get_custom_gains'):
                 return await self._camilladsp_service.get_custom_gains()
             return DEFAULT_CUSTOM_GAINS
@@ -226,6 +208,24 @@ class MultiroomEqualizerService:
         if not preset:
             raise ValueError(f"Preset not found: {preset_id}")
         return preset["gains"]
+
+    async def save_custom_preset(self, target_type: str, target_id: str) -> None:
+        """
+        Save current filter gains as the custom preset for a zone or client.
+
+        Persists gains into custom_gains field and sets active_preset to 'custom'.
+        """
+        current = await self.get_equalizer(target_type, target_id)
+        if not current:
+            raise ValueError(f"{target_type.capitalize()} not found: {target_id}")
+
+        current.custom_gains = [f.gain for f in current.filters[:10]]
+        current.active_preset = "custom"
+
+        if target_type == "zone":
+            await self._registry.set_zone_equalizer(target_id, current)
+        else:
+            await self._registry.set_standalone_equalizer(target_id, current)
 
     def _build_preset_filters(self, gains: list) -> list:
         """Build EqFilter objects from gain values using standard frequencies."""
@@ -252,12 +252,11 @@ class MultiroomEqualizerService:
         Raises:
             ValueError: If zone or preset not found
         """
-        gains = await self.resolve_preset_gains(preset_id)
-
         current = await self.get_zone_equalizer(zone_id)
         if not current:
             raise ValueError(f"Zone not found: {zone_id}")
 
+        gains = await self.resolve_preset_gains(preset_id, current)
         current.filters = self._build_preset_filters(gains)
         current.active_preset = preset_id
         return await self.apply_zone_equalizer(zone_id, current)
@@ -271,8 +270,6 @@ class MultiroomEqualizerService:
         Raises:
             ValueError: If client not found, client is in a zone, or preset not found
         """
-        gains = await self.resolve_preset_gains(preset_id)
-
         current = await self.get_client_equalizer(mac_id)
         if not current:
             if self._registry:
@@ -281,6 +278,7 @@ class MultiroomEqualizerService:
                     raise ValueError(f"Client {mac_id} is in a zone. Use load_zone_preset() instead.")
             raise ValueError(f"Client not found: {mac_id}")
 
+        gains = await self.resolve_preset_gains(preset_id, current)
         current.filters = self._build_preset_filters(gains)
         current.active_preset = preset_id
         return await self.apply_client_equalizer(mac_id, current)
@@ -347,38 +345,6 @@ class MultiroomEqualizerService:
             return None
 
         return self._registry.get_standalone_equalizer(mac_id)
-
-    async def set_client_active_preset(self, mac_id: str, preset_id: str) -> bool:
-        """
-        Update only the active_preset for a standalone client without re-applying filters.
-
-        Args:
-            mac_id: The client's MAC ID
-            preset_id: The new active preset ID
-
-        Returns:
-            True if successful
-
-        Raises:
-            ValueError: If client not found or not standalone
-        """
-        if not self._registry:
-            return False
-
-        # Mutation under registry lock to avoid race conditions
-        async with self._registry._lock:
-            client = self._registry._clients.get(mac_id)
-            if not client:
-                raise ValueError(f"Client not found: {mac_id}")
-            if client.zone_id:
-                raise ValueError(f"Client {mac_id} is in zone, use zone preset instead")
-            settings = self._registry._standalone_equalizer.get(mac_id)
-            if not settings:
-                raise ValueError(f"No standalone equalizer for client: {mac_id}")
-            settings.active_preset = preset_id
-
-        await self._registry._persist_standalone_equalizer()
-        return True
 
     # =========================================================================
     # Target-Agnostic Equalizer Methods (AC2, AC3)
