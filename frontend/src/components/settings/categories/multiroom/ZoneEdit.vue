@@ -17,7 +17,7 @@
     <SettingsSection :title="t('equalizer.zones.selectClients')">
       <p class="text-mono zone-hint">{{ t('equalizer.zones.minimumClients') }}</p>
       <div class="clients-list">
-        <SpeakerListItem
+        <SystemListItem
           v-for="target in availableTargets"
           :key="target.id"
           :name="target.name"
@@ -64,7 +64,7 @@ import { useI18n } from '@/services/i18n';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import Button from '@/components/ui/Button.vue';
 import InputText from '@/components/ui/InputText.vue';
-import SpeakerListItem from '@/components/settings/categories/multiroom/SpeakerListItem.vue';
+import SystemListItem from '@/components/settings/categories/multiroom/SystemListItem.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 
 const props = defineProps({

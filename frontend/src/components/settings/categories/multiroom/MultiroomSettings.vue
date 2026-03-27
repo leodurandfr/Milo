@@ -19,7 +19,7 @@
                 icon-variant="standard"
                 :action="multiroomClientStore.isClientConfiguring(client.mac_id) ? 'none' : 'caret'"
                 :disabled="multiroomClientStore.isClientConfiguring(client.mac_id)"
-                @click="handleConfigureSpeaker(client.mac_id)"
+                @click="handleConfigureSystem(client.mac_id)"
               >
                 <template #icon>
                   <div class="pending-icon">
@@ -44,7 +44,7 @@
           <!-- Zones & Speakers Section -->
           <SettingsSection>
             <template #header>
-              <SectionHeader :title="t('multiroom.zonesAndSpeakers')">
+              <SectionHeader :title="t('multiroom.zonesAndSystems')">
                 <template #actions>
                   <Button v-if="ungroupedClients.length >= 2" variant="brand" size="small" @click="handleCreateZone">
                     {{ t('equalizer.zones.createZone') }}
@@ -54,11 +54,11 @@
             </template>
 
             <div v-if="snapcastStore.isLoading" class="loading-state">
-              <p class="text-mono">{{ t('multiroom.loadingSpeakers') }}</p>
+              <p class="text-mono">{{ t('multiroom.loadingSystems') }}</p>
             </div>
 
             <div v-else-if="sortedMultiroomClients.length === 0" class="no-clients-state">
-              <p class="text-mono">{{ t('multiroom.noSpeakers') }}</p>
+              <p class="text-mono">{{ t('multiroom.noSystems') }}</p>
             </div>
 
             <div v-else class="speakers-list">
@@ -80,7 +80,7 @@
                 </button>
                 <!-- Zone clients -->
                 <div class="zone-clients">
-                  <SpeakerListItem v-for="client in zone.clients" :key="client.id"
+                  <SystemListItem v-for="client in zone.clients" :key="client.id"
                     :name="client.name" :mac-id="client.mac_id" :online="client.online"
                     @click="handleEditClient(client.mac_id)" />
                 </div>
@@ -88,10 +88,10 @@
 
               <!-- Individual speakers section -->
               <template v-if="ungroupedClients.length > 0">
-                <h3 v-if="zones.length > 0" class="heading-3 section-subtitle">{{ t('multiroom.individualSpeakers') }}
+                <h3 v-if="zones.length > 0" class="heading-3 section-subtitle">{{ t('multiroom.individualSystems') }}
                 </h3>
                 <div class="ungrouped-clients">
-                  <SpeakerListItem v-for="client in ungroupedClients" :key="client.id"
+                  <SystemListItem v-for="client in ungroupedClients" :key="client.id"
                     :name="client.name" :mac-id="client.mac_id" :online="client.online"
                     @click="handleEditClient(client.mac_id)" />
                 </div>
@@ -147,7 +147,7 @@ import Button from '@/components/ui/Button.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
-import SpeakerListItem from '@/components/settings/categories/multiroom/SpeakerListItem.vue';
+import SystemListItem from '@/components/settings/categories/multiroom/SystemListItem.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
@@ -155,7 +155,7 @@ import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SectionHeader from '@/components/settings/SectionHeader.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 
-const emit = defineEmits(['edit-zone', 'create-zone', 'edit-client', 'configure-speaker']);
+const emit = defineEmits(['edit-zone', 'create-zone', 'edit-client', 'configure-system']);
 
 const { t } = useI18n();
 const snapcastStore = useSnapcastStore();
@@ -229,9 +229,9 @@ const ungroupedClients = computed(() => {
 const pendingClientsList = computed(() => multiroomClientStore.pendingClientList);
 
 // Navigation handlers - emit to parent (SettingsModal)
-function handleConfigureSpeaker(macId) {
+function handleConfigureSystem(macId) {
   if (multiroomClientStore.isClientConfiguring(macId)) return;
-  emit('configure-speaker', macId);
+  emit('configure-system', macId);
 }
 
 function handleEditZone(groupId) {
