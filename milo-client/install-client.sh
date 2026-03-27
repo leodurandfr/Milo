@@ -23,8 +23,18 @@ MILO_CLIENT_REPO_URL="https://github.com/leodurandfr/Milo.git"
 ARG_SERVER_IP=""
 MILO_PRINCIPAL_IP=""
 
-# Shared helpers (colours, log functions, configure_journald)
-source "$(dirname "$0")/../install/common.sh"
+# --- Source all install modules ---
+SCRIPT_DIR="$(dirname "$0")"
+
+source "$SCRIPT_DIR/../install/common.sh"
+source "$SCRIPT_DIR/install/base.sh"
+source "$SCRIPT_DIR/install/snapclient.sh"
+source "$SCRIPT_DIR/install/camilladsp.sh"
+source "$SCRIPT_DIR/install/alsa.sh"
+source "$SCRIPT_DIR/install/network.sh"
+source "$SCRIPT_DIR/install/system.sh"
+
+# --- Orchestrator functions ---
 
 show_banner() {
     echo -e "${BLUE}"
@@ -98,446 +108,6 @@ check_system() {
     fi
 
     log_success "Compatible system detected"
-}
-
-discover_milo_principal() {
-    # Use --server if provided (static IP for environments without mDNS)
-    if [[ -n "$ARG_SERVER_IP" ]]; then
-        MILO_PRINCIPAL_IP="$ARG_SERVER_IP"
-        log_success "Main Milo server: $MILO_PRINCIPAL_IP (from --server)"
-        return 0
-    fi
-
-    log_info "Searching for main Milo on the network..."
-
-    # Verify milo.local is reachable, but store the hostname instead of the
-    # resolved IP so the client stays connected after network interface changes
-    # (e.g. main Milo switching from Ethernet to WiFi).
-    local resolved_ip
-    if resolved_ip=$(getent hosts milo.local 2>/dev/null | awk '{print $1}' | head -1) && [[ -n "$resolved_ip" ]]; then
-        MILO_PRINCIPAL_IP="milo.local"
-        log_success "Main Milo found at: $resolved_ip (milo.local)"
-        return 0
-    fi
-
-    log_error "Unable to find main Milo on the network."
-    log_error "Make sure the main Milo is running, or use --server <ip> to specify its IP address."
-    exit 1
-}
-
-setup_hostname() {
-    local new_hostname="milo-client"
-    local current_hostname
-    current_hostname=$(hostname)
-
-    if [ "$current_hostname" != "$new_hostname" ]; then
-        log_info "Configuring hostname '$new_hostname'..."
-        echo "$new_hostname" | sudo tee /etc/hostname > /dev/null
-        sudo sed -i "s/127.0.1.1.*/127.0.1.1\t$new_hostname/" /etc/hosts
-        sudo hostnamectl set-hostname "$new_hostname"
-        log_success "Hostname configured"
-    else
-        log_success "Hostname '$new_hostname' already configured"
-    fi
-}
-
-save_hardware_config() {
-    log_info "Saving hardware configuration..."
-
-    sudo mkdir -p "$MILO_CLIENT_DATA_DIR"
-
-    sudo tee "$MILO_CLIENT_DATA_DIR/hardware.json" > /dev/null << 'EOF'
-{
-  "audio": {
-    "id": "none"
-  }
-}
-EOF
-
-    sudo chown "$MILO_CLIENT_USER:audio" "$MILO_CLIENT_DATA_DIR/hardware.json"
-    log_success "Hardware config saved"
-}
-
-install_apply_hardware_script() {
-    log_info "Installing hardware apply script..."
-
-    sudo cp "$MILO_CLIENT_ROOTFS_DIR/usr/local/bin/milo-client-apply-hardware" /usr/local/bin/
-    sudo chmod +x /usr/local/bin/milo-client-apply-hardware
-    sudo chown root:root /usr/local/bin/milo-client-apply-hardware
-
-    log_success "Hardware apply script installed"
-}
-
-install_dependencies() {
-    log_info "Updating system..."
-
-    export DEBIAN_FRONTEND=noninteractive
-    export DEBCONF_NONINTERACTIVE_SEEN=true
-
-    echo 'Dpkg::Options {
-       "--force-confdef";
-       "--force-confnew";
-    }' | sudo tee /etc/apt/apt.conf.d/local >/dev/null
-
-    sudo apt update
-    sudo apt upgrade -y
-
-    log_info "Installing minimal dependencies..."
-    sudo apt install -y \
-        git \
-        python3-pip \
-        python3-venv \
-        python3-dev \
-        libasound2-dev \
-        avahi-daemon \
-        avahi-utils
-
-    sudo rm -f /etc/apt/apt.conf.d/local
-
-    log_success "Dependencies installed"
-}
-
-suppress_pulseaudio() {
-    log_info "Removing PulseAudio/PipeWire..."
-    sudo apt remove -y pulseaudio pipewire || true
-    sudo apt autoremove -y
-    log_success "PulseAudio/PipeWire removed"
-}
-
-# configure_journald provided by install/common.sh
-
-create_milo_client_user() {
-    if id "$MILO_CLIENT_USER" &>/dev/null; then
-        log_info "User '$MILO_CLIENT_USER' already exists"
-    else
-        log_info "Creating user '$MILO_CLIENT_USER'..."
-        sudo useradd -m -s /bin/bash -G audio,sudo "$MILO_CLIENT_USER"
-        log_success "User '$MILO_CLIENT_USER' created"
-    fi
-
-    sudo mkdir -p "$MILO_CLIENT_DATA_DIR"
-    sudo chown -R "$MILO_CLIENT_USER:audio" "$MILO_CLIENT_DATA_DIR"
-}
-
-install_camilladsp() {
-    log_info "Installing CamillaDSP..."
-
-    local temp_dir
-    temp_dir=$(mktemp -d)
-    register_temp_dir "$temp_dir"
-    cd "$temp_dir"
-
-    # Download CamillaDSP binary for ARM64
-    log_info "Downloading CamillaDSP v3.0.1..."
-    wget -q https://github.com/HEnquist/camilladsp/releases/download/v3.0.1/camilladsp-linux-aarch64.tar.gz
-
-    tar -xzf camilladsp-linux-aarch64.tar.gz
-
-    sudo cp camilladsp /usr/local/bin/
-    sudo chmod +x /usr/local/bin/camilladsp
-
-    # Create CamillaDSP directories
-    sudo mkdir -p "$MILO_CLIENT_DATA_DIR/camilladsp"
-    sudo mkdir -p "$MILO_CLIENT_DATA_DIR/camilladsp/configs"
-    sudo mkdir -p "$MILO_CLIENT_DATA_DIR/camilladsp/coeffs"
-
-    # Copy default CamillaDSP configuration from repo
-    sudo cp "$MILO_CLIENT_REPO_DIR/milo-client/configs/camilladsp/config.yml" "$MILO_CLIENT_DATA_DIR/camilladsp/config.yml"
-
-    sudo chown -R "$MILO_CLIENT_USER:$MILO_CLIENT_USER" "$MILO_CLIENT_DATA_DIR/camilladsp"
-
-    # Cleanup
-    cd ~
-    rm -rf "$temp_dir"
-
-    log_success "CamillaDSP installed"
-}
-
-install_snapclient() {
-    log_info "Installing Snapclient..."
-
-    # Detect Debian version
-    DEBIAN_VERSION=$(lsb_release -sc 2>/dev/null || grep VERSION_CODENAME /etc/os-release | cut -d= -f2)
-
-    if [[ -z "$DEBIAN_VERSION" ]]; then
-        log_warning "Unable to detect Debian version, using bookworm as default"
-        DEBIAN_VERSION="bookworm"
-    else
-        log_info "Detected Debian version: $DEBIAN_VERSION"
-    fi
-
-    # Track installation success
-    local github_install_success=false
-
-    # Method 1: Try GitHub .deb packages first (to get latest version)
-    log_info "Attempting installation from GitHub (latest version)..."
-
-    local temp_dir
-    temp_dir=$(mktemp -d)
-    register_temp_dir "$temp_dir"
-    cd "$temp_dir"
-
-    log_info "Downloading Snapclient v0.35.0 for $DEBIAN_VERSION..."
-    if wget "https://github.com/snapcast/snapcast/releases/download/v0.35.0/snapclient_0.35.0-1_arm64_${DEBIAN_VERSION}.deb" 2>/dev/null; then
-
-        log_info "Installing dependencies..."
-        sudo apt install -y libavahi-client3 libavahi-common3 libflac12t64 || sudo apt install -y libflac12 || true
-
-        if sudo apt install -y "./snapclient_0.35.0-1_arm64_${DEBIAN_VERSION}.deb"; then
-            log_success "Snapclient installed from GitHub packages"
-            github_install_success=true
-        else
-            log_warning "Failed to install .deb package, trying with dependency fix..."
-            sudo apt --fix-broken install -y || true
-            if sudo dpkg -i "snapclient_0.35.0-1_arm64_${DEBIAN_VERSION}.deb" 2>/dev/null; then
-                sudo apt --fix-broken install -y
-                log_success "Snapclient installed from GitHub after fixing dependencies"
-                github_install_success=true
-            fi
-        fi
-    else
-        # Try bookworm fallback for download
-        log_warning "Package for $DEBIAN_VERSION not available, trying with bookworm..."
-        DEBIAN_VERSION="bookworm"
-
-        if wget "https://github.com/snapcast/snapcast/releases/download/v0.35.0/snapclient_0.35.0-1_arm64_bookworm.deb" 2>/dev/null; then
-
-            log_info "Installing dependencies..."
-            sudo apt install -y libavahi-client3 libavahi-common3 libflac12t64 || sudo apt install -y libflac12 || true
-
-            if sudo apt install -y "./snapclient_0.35.0-1_arm64_bookworm.deb"; then
-                log_success "Snapclient installed from GitHub packages (bookworm fallback)"
-                github_install_success=true
-            else
-                sudo apt --fix-broken install -y || true
-                if sudo dpkg -i "snapclient_0.35.0-1_arm64_bookworm.deb" 2>/dev/null; then
-                    sudo apt --fix-broken install -y
-                    log_success "Snapclient installed from GitHub after fixing dependencies"
-                    github_install_success=true
-                fi
-            fi
-        fi
-    fi
-
-    # Cleanup temp directory
-    cd ~
-    rm -rf "$temp_dir"
-
-    # Method 2: Fall back to apt if GitHub method failed
-    if [[ "$github_install_success" != "true" ]]; then
-        log_warning "GitHub installation failed, falling back to Debian repositories..."
-        if sudo apt install -y snapclient; then
-            log_success "Snapclient installed from Debian repositories"
-        else
-            log_error "Unable to install Snapclient from any source"
-            return 1
-        fi
-    fi
-
-    snapclient --version
-
-    sudo systemctl stop snapclient.service || true
-    sudo systemctl disable snapclient.service || true
-
-    log_success "Snapclient installed and configured"
-}
-
-clone_milo_client_repo() {
-    log_info "Cloning Milo repository (sparse checkout)..."
-
-    # If repo already exists, update it instead of cloning
-    if [[ -d "$MILO_CLIENT_REPO_DIR/.git" ]]; then
-        log_info "Repository already exists, updating..."
-        sudo -u "$MILO_CLIENT_USER" git -C "$MILO_CLIENT_REPO_DIR" fetch --depth 1 origin main
-        sudo -u "$MILO_CLIENT_USER" git -C "$MILO_CLIENT_REPO_DIR" reset --hard origin/main
-        log_success "Repository updated"
-    elif [[ -d "$MILO_CLIENT_REPO_DIR" ]]; then
-        # Directory exists but not a git repo - remove and clone fresh
-        log_warning "Removing incomplete repository directory..."
-        sudo rm -rf "$MILO_CLIENT_REPO_DIR"
-        sudo -u "$MILO_CLIENT_USER" git clone --no-checkout --depth 1 "$MILO_CLIENT_REPO_URL" "$MILO_CLIENT_REPO_DIR"
-        sudo -u "$MILO_CLIENT_USER" git -C "$MILO_CLIENT_REPO_DIR" sparse-checkout init --cone
-        sudo -u "$MILO_CLIENT_USER" git -C "$MILO_CLIENT_REPO_DIR" sparse-checkout set milo-client
-        sudo -u "$MILO_CLIENT_USER" git -C "$MILO_CLIENT_REPO_DIR" checkout
-        log_success "Repository cloned (sparse checkout: milo-client/)"
-    else
-        # Fresh clone
-        sudo -u "$MILO_CLIENT_USER" git clone --no-checkout --depth 1 "$MILO_CLIENT_REPO_URL" "$MILO_CLIENT_REPO_DIR"
-        sudo -u "$MILO_CLIENT_USER" git -C "$MILO_CLIENT_REPO_DIR" sparse-checkout init --cone
-        sudo -u "$MILO_CLIENT_USER" git -C "$MILO_CLIENT_REPO_DIR" sparse-checkout set milo-client
-        sudo -u "$MILO_CLIENT_USER" git -C "$MILO_CLIENT_REPO_DIR" checkout
-        log_success "Repository cloned (sparse checkout: milo-client/)"
-    fi
-
-    # Unshallow and fetch tags so git describe can resolve the version
-    # (shallow --depth 1 clone cannot trace back to tags)
-    if ! sudo -u "$MILO_CLIENT_USER" git -C "$MILO_CLIENT_REPO_DIR" fetch --unshallow --tags origin 2>/dev/null; then
-        log_warning "Could not fetch full tag history — version will show as a commit hash"
-    fi
-
-    # Write initial app version (same format as deploy_update writes)
-    local app_version
-    app_version=$(sudo -u "$MILO_CLIENT_USER" git -C "$MILO_CLIENT_REPO_DIR" describe --tags --always 2>/dev/null || echo "unknown")
-    sudo tee "$MILO_CLIENT_DATA_DIR/app-version" > /dev/null <<< "$app_version"
-    sudo chown "$MILO_CLIENT_USER:audio" "$MILO_CLIENT_DATA_DIR/app-version"
-    log_success "App version recorded: $app_version"
-}
-
-install_milo_client_application() {
-    log_info "Configuring Python environment for Milo Client..."
-
-    sudo -u "$MILO_CLIENT_USER" python3 -m venv "$MILO_CLIENT_VENV_DIR"
-    sudo -u "$MILO_CLIENT_USER" bash -c 'source "$1/bin/activate" && pip install --upgrade pip' -- "$MILO_CLIENT_VENV_DIR"
-
-    # Install packages from piwheels (faster for ARM)
-    sudo -u "$MILO_CLIENT_USER" bash -c 'source "$1/bin/activate" && pip install -r "$2/requirements.txt"' -- "$MILO_CLIENT_VENV_DIR" "$MILO_CLIENT_APP_DIR"
-
-    # Install camilladsp from GitHub (not available on PyPI/piwheels)
-    log_info "Installing camilladsp from GitHub..."
-    sudo -u "$MILO_CLIENT_USER" bash -c 'source "$1/bin/activate" && pip install git+https://github.com/HEnquist/pycamilladsp.git' -- "$MILO_CLIENT_VENV_DIR"
-
-    log_success "Milo Client application installed"
-}
-
-configure_alsa_loopback() {
-    log_info "Configuring ALSA loopback module for CamillaDSP..."
-
-    # Ensure snd-aloop module loads at boot with subdevices for CamillaDSP
-    if ! grep -q "snd-aloop" /etc/modules 2>/dev/null; then
-        echo "snd-aloop" | sudo tee -a /etc/modules
-    fi
-
-    # Copy loopback module configuration from repo
-    sudo cp "$MILO_CLIENT_ROOTFS_DIR/etc/modprobe.d/milo-client-loopback.conf" /etc/modprobe.d/
-
-    # Load module immediately if not loaded (may fail if audio hardware not yet initialized - will load after reboot)
-    if ! lsmod | grep -q "snd_aloop"; then
-        sudo modprobe snd-aloop pcm_substreams=2 || true
-    fi
-
-    log_success "ALSA loopback configured"
-}
-
-configure_alsa() {
-    log_info "Configuring ALSA..."
-
-    # Copy ALSA configuration from repo
-    sudo cp "$MILO_CLIENT_ROOTFS_DIR/etc/asound.conf" /etc/asound.conf
-
-    log_success "ALSA configuration complete"
-}
-
-create_systemd_services() {
-    log_info "Installing systemd services..."
-
-    # Copy all service files from repo
-    sudo cp "$MILO_CLIENT_SYSTEM_DIR/milo-client.service" /etc/systemd/system/
-    log_success "Installed milo-client.service"
-
-    sudo cp "$MILO_CLIENT_SYSTEM_DIR/milo-client-snapclient.service" /etc/systemd/system/
-    log_success "Installed milo-client-snapclient.service"
-
-    sudo cp "$MILO_CLIENT_SYSTEM_DIR/milo-client-camilladsp.service" /etc/systemd/system/
-    log_success "Installed milo-client-camilladsp.service"
-
-    # Create environment file with dynamic values
-    sudo tee "$MILO_CLIENT_DATA_DIR/env" > /dev/null << EOF
-MILO_PRINCIPAL_IP=$MILO_PRINCIPAL_IP
-MILO_CLIENT_DSP_ENABLED=false
-EOF
-    sudo chown "$MILO_CLIENT_USER:audio" "$MILO_CLIENT_DATA_DIR/env"
-
-    sudo systemctl daemon-reload
-
-    log_success "Systemd services installed"
-}
-
-enable_services() {
-    log_info "Enabling services..."
-
-    sudo systemctl daemon-reload
-    sudo systemctl enable milo-client.service
-    sudo systemctl enable milo-client-snapclient.service
-    sudo systemctl enable milo-client-camilladsp.service
-
-    log_success "Services enabled"
-}
-
-install_wrapper_scripts() {
-    log_info "Installing secure wrapper scripts..."
-
-    # Snapclient install wrapper
-    sudo cp "$MILO_CLIENT_ROOTFS_DIR/usr/local/bin/milo-client-install-snapclient" /usr/local/bin/
-    sudo chmod 755 /usr/local/bin/milo-client-install-snapclient
-    sudo chown root:root /usr/local/bin/milo-client-install-snapclient
-
-    # Deploy update wrapper
-    sudo cp "$MILO_CLIENT_ROOTFS_DIR/usr/local/bin/milo-client-deploy-update" /usr/local/bin/
-    sudo chmod 755 /usr/local/bin/milo-client-deploy-update
-    sudo chown root:root /usr/local/bin/milo-client-deploy-update
-
-    log_success "Wrapper scripts installed"
-}
-
-configure_sudoers() {
-    log_info "Configuring sudo permissions for milo-client..."
-
-    # Copy sudoers file from repo
-    sudo cp "$MILO_CLIENT_ROOTFS_DIR/etc/sudoers.d/milo-client" /etc/sudoers.d/
-    sudo chmod 0440 /etc/sudoers.d/milo-client
-
-    log_success "Sudo permissions configured"
-}
-
-configure_avahi() {
-    log_info "Configuring Avahi (mDNS)..."
-
-    # Determine active interface (eth0 preferred, wlan0 as fallback)
-    local active_iface="eth0"
-    if ! ip addr show eth0 2>/dev/null | grep -q 'inet '; then
-        if ip addr show wlan0 2>/dev/null | grep -q 'inet '; then
-            active_iface="wlan0"
-            log_info "eth0 not available, using wlan0 for mDNS"
-        fi
-    fi
-
-    # Copy and process Avahi config template
-    sudo cp "$MILO_CLIENT_ROOTFS_DIR/etc/avahi/avahi-daemon.conf.template" /etc/avahi/avahi-daemon.conf
-    sudo sed -i "s/__ALLOW_IFACE__/$active_iface/" /etc/avahi/avahi-daemon.conf
-
-    # Install systemd override to reset Avahi config to eth0 on every boot
-    # Prevents stale wlan0 config from causing mDNS conflicts
-    log_info "Installing Avahi boot reset override..."
-    sudo mkdir -p /etc/systemd/system/avahi-daemon.service.d
-    sudo cp "$MILO_CLIENT_SYSTEM_DIR/avahi-daemon-override.conf" \
-        /etc/systemd/system/avahi-daemon.service.d/milo-override.conf
-    sudo systemctl daemon-reload
-
-    sudo systemctl enable avahi-daemon
-    sudo systemctl restart avahi-daemon
-
-    log_success "Avahi configured"
-}
-
-configure_network_priority() {
-    log_info "Configuring network priority (ethernet over wifi)..."
-
-    # Install unified NetworkManager dispatcher for WiFi/Ethernet priority and Avahi
-    sudo cp "$MILO_CLIENT_ROOTFS_DIR/etc/NetworkManager/dispatcher.d/90-milo-network" /etc/NetworkManager/dispatcher.d/
-    sudo chmod 755 /etc/NetworkManager/dispatcher.d/90-milo-network
-
-    # Remove legacy dispatchers from older installations
-    sudo rm -f /etc/NetworkManager/dispatcher.d/98-wifi-eth0-priority
-    sudo rm -f /etc/NetworkManager/dispatcher.d/99-avahi-interface
-
-    # If currently connected via both ethernet and wifi, disconnect wifi now
-    if ip addr show eth0 2>/dev/null | grep -q "inet " && \
-       nmcli device status | grep -q "^wlan0.*connected"; then
-        log_info "Disconnecting WiFi (ethernet is available)..."
-        nmcli device disconnect wlan0 || true
-    fi
-
-    log_success "Network priority configured"
 }
 
 finalize_installation() {
@@ -699,7 +269,7 @@ uninstall_milo_client() {
     fi
 }
 
-# === MAIN FUNCTION ===
+# --- Main installation sequence ---
 
 main() {
     # Check if uninstall mode (scan all args)
@@ -725,30 +295,37 @@ main() {
     log_info "Starting Milo Client installation"
     echo ""
 
+    # Base system setup
     install_dependencies
     suppress_pulseaudio
     discover_milo_principal
     configure_journald
     setup_hostname
 
+    # User and application
     create_milo_client_user
     clone_milo_client_repo
     install_snapclient
     install_camilladsp
     install_milo_client_application
 
+    # Audio routing
     configure_alsa_loopback
     configure_alsa
+
+    # System configuration
     install_apply_hardware_script
     save_hardware_config
-
     create_systemd_services
     enable_services
     install_wrapper_scripts
     configure_sudoers
+
+    # Network
     configure_avahi
     configure_network_priority
 
+    # Finalize
     finalize_installation
 }
 

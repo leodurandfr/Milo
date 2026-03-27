@@ -71,22 +71,40 @@ milo/
 ├── backend/              # FastAPI backend (Python)
 ├── frontend/             # Vue 3 frontend
 ├── system/               # Systemd service files (.service)
-├── install.sh            # Main installation script
-├── install/              # Installation helper scripts (run only during install)
-│   ├── airplay.sh
-│   ├── boot-common.sh
-│   ├── screen-waveshare-7-usb.sh
-│   └── screen-waveshare-8-dsi.sh
+├── install.sh            # Main installation orchestrator (sources install/*.sh)
+├── install/              # Modular installation scripts (one per component/domain)
+│   ├── common.sh         # Shared helpers (log functions, temp dir cleanup)
+│   ├── base.sh           # Base system (dependencies, hostname, user, app clone)
+│   ├── go-librespot.sh   # Spotify Connect (go-librespot binary)
+│   ├── roc-toolkit.sh    # Mac streaming (roc-toolkit from source)
+│   ├── bluez-alsa.sh     # Bluetooth audio (bluez-alsa from source)
+│   ├── airplay.sh        # AirPlay 2 (nqptp + shairport-sync from source)
+│   ├── snapcast.sh       # Multiroom (Snapcast .deb + snapserver config)
+│   ├── camilladsp.sh     # DSP audio processing (CamillaDSP binary)
+│   ├── alsa.sh           # ALSA loopback + routing configuration
+│   ├── network.sh        # Avahi (mDNS) + Nginx + Chromium
+│   ├── display.sh        # Kiosk (Cage/seatd), Plymouth, cursors, brightness
+│   ├── system.sh         # Udev, polkit, sudoers, systemd services, fan, boot
+│   ├── boot-common.sh    # Shared boot parameters
+│   ├── screen-waveshare-7-usb.sh   # Screen-specific boot config
+│   └── screen-waveshare-8-dsi.sh   # Screen-specific boot config
 ├── rootfs/               # Files deployed to system (mirrors target filesystem)
 │   ├── etc/NetworkManager/dispatcher.d/   # Network event scripts
 │   ├── usr/local/bin/                     # System scripts (milo-wait-ready.sh)
 │   └── usr/share/plymouth/themes/milo/    # Boot animation theme
 ├── milo-client/          # Satellite client for multiroom
+│   ├── install-client.sh # Client installation orchestrator
+│   ├── install/          # Client-specific install modules
+│   ├── app/              # Client Python application
+│   ├── configs/          # Client configurations (CamillaDSP)
+│   ├── rootfs/           # Client system files
+│   └── system/           # Client systemd services
 └── docs/                 # Documentation
 ```
 
 **Directory conventions:**
-- `install/` - Scripts executed only during `install.sh` (screen/boot configuration)
+- `install/` - Modular install scripts, each standalone or sourced by `install.sh`
+- `milo-client/install/` - Client-specific install modules (same pattern, different paths)
 - `rootfs/` - Files copied to the system at install time, run at boot/runtime
 - `system/` - Systemd unit files
 
