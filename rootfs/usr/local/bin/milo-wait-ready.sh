@@ -85,17 +85,25 @@ main() {
     log_info "Starting Milo readiness check..."
     log_info "Maximum wait time: ${MAX_WAIT}s"
 
+    local all_ready=true
+
     # Wait for backend
     if ! wait_for_service "$BACKEND_URL" "Backend API"; then
         log_warning "Backend not ready, but continuing anyway..."
+        all_ready=false
     fi
 
     # Wait for frontend (nginx)
     if ! wait_for_service "$FRONTEND_URL" "Frontend (Nginx)"; then
         log_warning "Frontend not ready, but continuing anyway..."
+        all_ready=false
     fi
 
-    log_success "All services are ready!"
+    if $all_ready; then
+        log_success "All services are ready!"
+    else
+        log_warning "Some services timed out — proceeding with Plymouth quit."
+    fi
 
     # Quit Plymouth immediately - frontend has its own boot screen
     # No delay needed since the frontend loader handles the transition
