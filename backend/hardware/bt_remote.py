@@ -10,7 +10,7 @@ Features:
 - Automatic detection of BT HID devices via evdev
 - Automatic Bluetooth discovery and pairing of matching devices
 - Configurable key mapping (keycodes to actions)
-- Multi-click detection on click action (1=play/pause, 2=next, 3=prev)
+- Multi-click playback dispatch via PlaybackDispatcher (1=play/pause, 2=next, 3=prev)
 - Volume control via VolumeService
 - Playback control via state_machine sources
 """
@@ -19,7 +19,7 @@ import logging
 import re
 from typing import Dict, Optional, Set
 
-from backend.core.models.audio_state import AudioSource
+from backend.hardware.playback_dispatch import PlaybackDispatcher
 
 try:
     import evdev
@@ -43,7 +43,6 @@ DEFAULT_KEY_MAP = {
     "113": "click",         # KEY_MUTE -> multi-click detection
 }
 DEFAULT_DEVICE_FILTER = "ANTICATER"
-MULTI_CLICK_WINDOW = 0.4   # 400ms window for multi-click grouping
 SCAN_INTERVAL = 5.0         # Seconds between evdev device scans
 DISCOVERY_INTERVAL = 60.0   # Seconds between BT reconnect/discovery cycles
 DISCOVERY_DURATION = 5      # Seconds to run BT scan
@@ -84,9 +83,8 @@ class BtRemoteController:
         self._volume_processor_running = False
         self._volume_processor_task: Optional[asyncio.Task] = None
 
-        # Multi-click state
-        self._click_count = 0
-        self._click_timer: Optional[asyncio.TimerHandle] = None
+        # Playback dispatch (multi-click → play/pause, next, prev)
+        self._dispatcher = PlaybackDispatcher(state_machine)
 
         # Locks
         self._config_lock = asyncio.Lock()
@@ -120,9 +118,7 @@ class BtRemoteController:
         """Stop all scanning and monitoring."""
         self.running = False
 
-        if self._click_timer:
-            self._click_timer.cancel()
-            self._click_timer = None
+        self._dispatcher.cancel()
 
         if self._volume_processor_task and not self._volume_processor_task.done():
             self._volume_processor_task.cancel()
@@ -659,7 +655,7 @@ class BtRemoteController:
                 logger.debug("BT HID key: code=%d -> action=%s", event.code, action)
 
                 if action == "click":
-                    await self._on_click_event()
+                    await self._dispatcher.on_click()
                 else:
                     await self._dispatch_action(action)
 
@@ -691,60 +687,17 @@ class BtRemoteController:
                 await self._broadcast_status()
 
     # ========================================================================
-    # MULTI-CLICK DETECTION
-    # ========================================================================
-
-    async def _on_click_event(self):
-        """Handle a click event — accumulate clicks within the multi-click window."""
-        self._click_count += 1
-
-        if self._click_timer:
-            self._click_timer.cancel()
-
-        loop = asyncio.get_running_loop()
-        self._click_timer = loop.call_later(
-            MULTI_CLICK_WINDOW,
-            lambda: asyncio.ensure_future(self._resolve_clicks())
-        )
-
-    async def _resolve_clicks(self):
-        """Resolve accumulated clicks after the multi-click window expires."""
-        count = self._click_count
-        self._click_count = 0
-        self._click_timer = None
-
-        if not self.running:
-            return
-
-        if count == 1:
-            await self._dispatch_action("play_pause")
-        elif count == 2:
-            await self._dispatch_action("next_track")
-        elif count >= 3:
-            await self._dispatch_action("previous_track")
-
-    # ========================================================================
     # ACTION DISPATCH
     # ========================================================================
 
     async def _dispatch_action(self, action: str):
-        """Dispatch an action to the appropriate service."""
+        """Dispatch a non-click action (volume only)."""
         try:
             if action in ("volume_up", "volume_down"):
                 step = self.volume_service.volume_config.step_bt_remote_db
                 self._volume_accumulator += step if action == "volume_up" else -step
                 if not self._volume_processor_running:
                     self._volume_processor_task = asyncio.create_task(self._process_volume())
-
-            elif action == "play_pause":
-                await self._dispatch_play_pause()
-
-            elif action == "next_track":
-                await self._dispatch_track_command("next")
-
-            elif action == "previous_track":
-                await self._dispatch_track_command("prev")
-
             else:
                 logger.debug("Unknown BT remote action: %s", action)
 
@@ -772,38 +725,3 @@ class BtRemoteController:
                 return
             self._volume_processor_running = False
 
-    async def _dispatch_play_pause(self):
-        """Dispatch play/pause to the active audio source."""
-        active_source = self.state_machine.system_state.active_source
-        source_instance = self.state_machine.get_source(active_source)
-        if not source_instance:
-            return
-
-        try:
-            if active_source == AudioSource.SPOTIFY:
-                await source_instance.command("playpause", {})
-            elif active_source == AudioSource.RADIO:
-                if source_instance.is_playing:
-                    await source_instance.command("stop_playback", {})
-                else:
-                    await source_instance.command("resume_playback", {})
-            elif active_source == AudioSource.PODCAST:
-                if source_instance.is_playing:
-                    await source_instance.command("pause", {})
-                else:
-                    await source_instance.command("resume", {})
-        except Exception as e:
-            logger.error("Error dispatching play/pause to %s: %s", active_source.value, e)
-
-    async def _dispatch_track_command(self, cmd: str):
-        """Dispatch next/prev track command (Spotify only)."""
-        active_source = self.state_machine.system_state.active_source
-        if active_source != AudioSource.SPOTIFY:
-            return
-
-        source_instance = self.state_machine.get_source(active_source)
-        if source_instance:
-            try:
-                await source_instance.command(cmd, {})
-            except Exception as e:
-                logger.error("Error dispatching %s to spotify: %s", cmd, e)

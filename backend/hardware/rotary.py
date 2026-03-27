@@ -12,6 +12,8 @@ import logging
 from typing import Optional
 from time import monotonic
 
+from backend.hardware.playback_dispatch import PlaybackDispatcher
+
 
 class RotaryVolumeController:
     """KY-040 rotary encoder controller - dB volume API (-80 to 0 dB)"""
@@ -19,7 +21,7 @@ class RotaryVolumeController:
     DEBOUNCE_TIME = 0.005  # 5ms debounce (KY-040 bounce is 1-3ms)
     BATCH_INTERVAL = 0.02  # 20ms between volume batches during sustained rotation
 
-    def __init__(self, volume_service, clk_pin=22, dt_pin=27, sw_pin=23):
+    def __init__(self, volume_service, state_machine, clk_pin=22, dt_pin=27, sw_pin=23):
         self.volume_service = volume_service
         self.CLK = clk_pin
         self.DT = dt_pin
@@ -33,6 +35,9 @@ class RotaryVolumeController:
         self._rotation_accumulator = 0
         self._processor_running = False
         self._processor_task: Optional[asyncio.Task] = None
+
+        # Playback dispatch (multi-click → play/pause, next, prev)
+        self._dispatcher = PlaybackDispatcher(state_machine)
 
         # Timing
         self._last_adjustment_time = 0
@@ -121,19 +126,20 @@ class RotaryVolumeController:
             self._processor_running = False
 
     async def _check_button(self):
-        """Detect SW button press."""
+        """Detect SW button press and dispatch to multi-click handler."""
         if lgpio.gpio_read(self.chip_handle, self.SW) == 0:
             current_time = monotonic()
 
-            if current_time - self._last_button_press >= self.DEBOUNCE_TIME:
-                self.logger.debug("Button pressed - could implement mute/unmute")
+            if current_time - self._last_button_press >= 0.05:
                 self._last_button_press = current_time
-                await asyncio.sleep(0.2)  # Avoid bouncing
+                await self._dispatcher.on_click()
 
     def cleanup(self):
         """Clean up GPIO resources."""
         self.logger.info("Cleaning up rotary controller")
         self.running = False
+
+        self._dispatcher.cancel()
 
         if self._processor_task and not self._processor_task.done():
             self._processor_task.cancel()
