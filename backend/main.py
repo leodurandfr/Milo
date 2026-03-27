@@ -170,7 +170,7 @@ equalizer_router = create_equalizer_router(
 )
 app.include_router(equalizer_router)
 
-volume_router = create_volume_router(volume_service, client_registry_service, settings_service)
+volume_router = create_volume_router(volume_service, client_registry_service)
 app.include_router(volume_router)
 
 bluetooth_router = setup_bluetooth_routes(

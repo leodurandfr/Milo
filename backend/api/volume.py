@@ -9,14 +9,13 @@ from backend.api.models import (
     VolumeAdjustRequest,
     ClientVolumeRequest,
     ClientMuteRequest,
-    VolumeSettingsPatchRequest,
     VolumeControlRequest,
 )
 
 logger = logging.getLogger(__name__)
 
 
-def create_volume_router(volume_service, client_registry_service=None, settings_service=None):
+def create_volume_router(volume_service, client_registry_service=None):
     """Creates volume router with dependency injection"""
     router = APIRouter(prefix="/api/volume", tags=["volume"])
 
@@ -157,50 +156,9 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
                 "offline_clients": offline_clients
             }
 
-    @router.get("/zone/{zone_id}")
-    async def get_zone_info(zone_id: str):
-        """
-        Get current zone information.
-
-        Returns zone details including average volume, clients, mute status.
-        """
-        async with api_error_handler("Error getting zone info"):
-            volume_state = await volume_service.get_volume_state()
-            zone = volume_state.zones.get(zone_id)
-
-            if not zone:
-                raise HTTPException(status_code=404, detail=f"Zone {zone_id} not found")
-
-            return {"status": "success", "data": zone.to_dict()}
-
     # ============================================================================
     # CLIENT VOLUME OPERATIONS
     # ============================================================================
-
-    def _validate_client_exists(client_id: str) -> dict:
-        """
-        Validate that a client exists in the registry.
-
-        Args:
-            client_id: Client equalizer ID (mac_id, e.g., "local" or "dc:a6:32:7e:d3:43")
-
-        Returns:
-            Client data dict if found
-
-        Raises:
-            HTTPException: 404 if client not found
-        """
-        if client_registry_service is None:
-            # No registry service - allow all client IDs (fallback mode)
-            return {"camilladsp_id": client_id}
-
-        client = client_registry_service.get_client_by_camilladsp_id(client_id)
-        if not client:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Client '{client_id}' not found in registry"
-            )
-        return client
 
     def _validate_volume_limits(volume_db: float) -> float:
         """
@@ -224,92 +182,6 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
                 detail=f"Volume {volume_db} dB is out of configured range [{min_db}, {max_db}] dB"
             )
         return volume_db
-
-    @router.patch("/client/{client_id}")
-    async def set_client_volume(client_id: str, request: ClientVolumeRequest):
-        """
-        Set volume for a specific client.
-
-        Args:
-            client_id: Client equalizer ID (mac_id, e.g., "local" or "dc:a6:32:7e:d3:43")
-            request: Volume in dB (-80 to 0)
-
-        Returns:
-            Success status with new volume
-
-        Notes:
-            - For online clients: Volume is applied immediately to CamillaDSP
-            - For offline clients: Volume is persisted and applied when client reconnects
-            - A WebSocket event `volume_changed` is broadcast after the update
-        """
-        async with api_error_handler("Error setting client volume", logger):
-            client = _validate_client_exists(client_id)
-            _validate_volume_limits(request.volume_db)
-
-            if client.get("status") == "OFFLINE":
-                logger.info(f"Setting volume for offline client {client_id}: will be applied on reconnection")
-
-            await volume_service.update_client_volume_db(client_id, request.volume_db)
-
-            return {
-                "status": "success",
-                "client_id": client_id,
-                "volume_db": request.volume_db
-            }
-
-    @router.patch("/client/{client_id}/mute")
-    async def set_client_mute(client_id: str, request: ClientMuteRequest):
-        """
-        Set mute state for a specific client.
-
-        Args:
-            client_id: Client equalizer ID (mac_id, e.g., "local" or "dc:a6:32:7e:d3:43")
-            request: Mute state (true/false)
-
-        Returns:
-            Success status with new mute state
-
-        Notes:
-            - For online clients: Mute is applied immediately to CamillaDSP
-            - For offline clients: Mute is persisted and applied when client reconnects
-            - A WebSocket event `volume_changed` is broadcast after the update
-        """
-        async with api_error_handler("Error setting client mute", logger):
-            _validate_client_exists(client_id)
-
-            await volume_service.set_client_mute(client_id, request.mute)
-
-            return {
-                "status": "success",
-                "client_id": client_id,
-                "mute": request.mute
-            }
-
-    @router.get("/client/{client_id}")
-    async def get_client_volume(client_id: str):
-        """
-        Get volume state for a specific client.
-
-        Args:
-            client_id: Client equalizer ID (mac_id, e.g., "local" or "dc:a6:32:7e:d3:43")
-
-        Returns:
-            Client volume state including volume_db, mute, and online status
-        """
-        async with api_error_handler("Error getting client volume", logger):
-            client = _validate_client_exists(client_id)
-
-            volume_data = await volume_service.get_client_volume(client_id)
-
-            online = client.get("status") == "ONLINE" if client_registry_service else True
-
-            return {
-                "status": "success",
-                "client_id": client_id,
-                "volume_db": volume_data.get("main", -60.0),
-                "mute": volume_data.get("mute", False),
-                "online": online
-            }
 
     # ============================================================================
     # MAC ADDRESS BASED CLIENT ENDPOINTS (Story 3.4 - AC1, AC3)
@@ -375,61 +247,6 @@ def create_volume_router(volume_service, client_registry_service=None, settings_
                 "status": "success",
                 "mac_id": mac_id,
                 "mute": request.mute
-            }
-
-    # ============================================================================
-    # VOLUME SETTINGS ENDPOINTS (Story 3.4 - AC4, AC5)
-    # ============================================================================
-
-    @router.get("/settings")
-    async def get_volume_settings():
-        """
-        Get volume startup settings.
-
-        Returns:
-            Current startup_volume_db and restore_last_volume values
-        """
-        async with api_error_handler("Error getting volume settings", logger):
-            return {
-                "status": "success",
-                "startup_volume_db": volume_service.volume_config.startup_volume_db,
-                "restore_last_volume": volume_service.volume_config.restore_last_volume
-            }
-
-    @router.patch("/settings")
-    async def update_volume_settings(request: VolumeSettingsPatchRequest):
-        """
-        Update volume startup settings.
-
-        Args:
-            request: Partial update with startup_volume_db and/or restore_last_volume
-
-        Returns:
-            Success status with updated values
-
-        Notes:
-            - Settings are persisted via SettingsService
-            - VolumeService config is reloaded after change
-        """
-        async with api_error_handler("Error updating volume settings", logger):
-            if settings_service is None:
-                raise HTTPException(
-                    status_code=500,
-                    detail="Settings service not available"
-                )
-
-            if request.startup_volume_db is not None:
-                await settings_service.set_setting('volume.startup_volume_db', request.startup_volume_db)
-
-            if request.restore_last_volume is not None:
-                await settings_service.set_setting('volume.restore_last_volume', request.restore_last_volume)
-
-            await volume_service.reload_startup_config()
-
-            return {
-                "status": "success",
-                "startup_volume_db": volume_service.volume_config.startup_volume_db,
-                "restore_last_volume": volume_service.volume_config.restore_last_volume
             }
 
     @router.patch("/volume-control")

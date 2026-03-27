@@ -28,7 +28,7 @@ from fastapi import APIRouter, HTTPException, Request
 from backend.api.route_helpers import api_error_handler
 from backend.api.models import (
     ZoneCreate, ZoneUpdate, ZoneAddClient, ClientUpdateRequest,
-    RegisterClientRequest, UpdatePendingClientRequest, ConfigurePendingClientRequest,
+    RegisterClientRequest, ConfigurePendingClientRequest,
     ConfigureClientAudioRequest,
 )
 from backend.config.constants import CLIENT_API_PORT
@@ -554,20 +554,6 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
         """Get all pending (not yet configured) clients."""
         async with api_error_handler("Error getting pending clients", logger):
             return {"clients": pending_clients_service.get_all_clients()}
-
-    @router.patch("/pending-clients/{mac_id}")
-    async def update_pending_client(mac_id: str, request: UpdatePendingClientRequest):
-        """Update a pending client's metadata (name, speaker_type, audio_id)."""
-        async with api_error_handler(f"Error updating pending client {mac_id}", logger):
-            client = await pending_clients_service.update_client(
-                mac_id,
-                name=request.name,
-                speaker_type=request.speaker_type,
-                audio_id=request.audio_id,
-            )
-            if not client:
-                raise HTTPException(status_code=404, detail=f"Pending client '{mac_id}' not found")
-            return {"status": "success", "client": client}
 
     @router.post("/pending-clients/{mac_id}/configure")
     async def configure_pending_client(mac_id: str, request: ConfigurePendingClientRequest):

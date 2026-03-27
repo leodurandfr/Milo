@@ -16,7 +16,6 @@ from backend.api.models import (
     EqualizerCompressorRequest,
     EqualizerLoudnessRequest,
     ZoneCrossoverRequest,
-    CrossoverFilterRequest,
     EqualizerPresetRequest
 )
 
@@ -58,12 +57,6 @@ def create_equalizer_router(
             if client.is_local:
                 return client.mac_id
         return None
-
-    def _require_volume_service():
-        """Return volume_service or raise HTTP 500 if unavailable."""
-        if volume_service:
-            return volume_service
-        raise HTTPException(status_code=500, detail="Volume service not available")
 
     async def _persist_remote(hostname: str, category: str, data: dict):
         """Persist equalizer setting for a remote client via sync_service."""
@@ -117,15 +110,6 @@ def create_equalizer_router(
                 "state": "disconnected",
                 "error": str(e)
             }
-
-    @router.get("/levels")
-    async def get_equalizer_levels():
-        """Get real-time audio levels (peak/RMS)"""
-        try:
-            levels = await camilladsp_service.get_levels()
-            return levels
-        except Exception as e:
-            return {"available": False, "error": str(e)}
 
     @router.get("/levels/zone/{client_ids}")
     async def get_zone_levels(client_ids: str):
@@ -530,15 +514,6 @@ def create_equalizer_router(
     # === Speaker Type / Crossover Management ===
     # Note: Zone CRUD moved to /api/multiroom/zones, speaker-type to /api/multiroom/clients
 
-    @router.get("/client/{client_id}/type")
-    async def get_client_type(client_id: str):
-        """Get client speaker type"""
-        try:
-            return {"client_id": client_id, **await crossover_service.get_client_type(client_id)}
-        except Exception as e:
-            logger.error(f"Error getting client type: {e}")
-            return {"client_id": client_id, "speaker_type": "bookshelf"}
-
     # Note: PUT /client/{client_id}/speaker-type moved to PATCH /api/multiroom/clients/{mac_id}
 
     @router.put("/client/{client_id}/crossover-frequency")
@@ -554,15 +529,6 @@ def create_equalizer_router(
             ct = await cs.get_client_type(client_id)
             return {"status": "success", "client_id": client_id, "speaker_type": ct.get("speaker_type"),
                     "crossover_frequency": ct.get("crossover_frequency")}
-
-    @router.get("/client-types")
-    async def get_all_client_types():
-        """Get all client type configurations"""
-        try:
-            return {"client_types": await crossover_service.get_all_client_types()}
-        except Exception as e:
-            logger.error(f"Error getting client types: {e}")
-            return {"client_types": {}}
 
     @router.get("/links/{zone_id}/crossover")
     async def get_zone_crossover(zone_id: str):
@@ -598,32 +564,6 @@ def create_equalizer_router(
             if not await crossover_service.apply_zone_crossover(zone_id):
                 raise HTTPException(status_code=500, detail="Failed to apply crossover")
             return {"status": "success", "message": f"Crossover applied to zone {zone_id}"}
-
-    @router.get("/crossover")
-    async def get_local_crossover():
-        """Get local crossover filter settings"""
-        try:
-            crossover = await camilladsp_service.get_crossover_filter()
-            return crossover
-        except Exception as e:
-            logger.error(f"Error getting local crossover: {e}")
-            return {"enabled": False, "frequency": 80, "q": 0.707}
-
-    @router.put("/crossover")
-    async def set_local_crossover(payload: CrossoverFilterRequest):
-        """Set local crossover filter (direct control)"""
-        async with api_error_handler("Error setting local crossover", logger):
-            success = await camilladsp_service.set_crossover_filter(
-                enabled=payload.enabled,
-                frequency=payload.frequency,
-                q=payload.q
-            )
-
-            if success:
-                crossover = await camilladsp_service.get_crossover_filter()
-                return {"status": "success", **crossover}
-
-            raise HTTPException(status_code=500, detail="Failed to update crossover")
 
     # === Client Equalizer Proxy Routes ===
 
@@ -714,11 +654,6 @@ def create_equalizer_router(
 
         return result
 
-    @router.get("/client/{hostname}/enabled")
-    async def get_client_equalizer_enabled(hostname: str):
-        """Get equalizer effects enabled state for a specific client"""
-        return await equalizer_router_service.get_equalizer_enabled(hostname, routing_service)
-
     @router.put("/client/{hostname}/enabled")
     async def update_client_equalizer_enabled(hostname: str, request: Request):
         """Set equalizer effects enabled state for a specific client (local or remote).
@@ -735,67 +670,7 @@ def create_equalizer_router(
 
         return result
 
-    @router.get("/client/{hostname}/volume")
-    async def get_client_volume(hostname: str):
-        """Get volume for a specific client (consistent with multiroom model)."""
-        # Prefer volume_service as source of truth
-        if volume_service:
-            return await volume_service.get_client_volume(hostname)
-        # Fallback to EqualizerRouter
-        return await equalizer_router_service.get_volume(hostname)
-
-    @router.put("/client/{hostname}/volume")
-    async def update_client_volume(hostname: str, request: Request):
-        """Set volume for a specific client (local or remote)."""
-        body = await request.json()
-        volume_db = body.get("volume")
-
-        if equalizer_router_service.is_local_client(hostname):
-            vs = _require_volume_service()
-            await vs.update_client_volume_db(hostname, volume_db, broadcast=True)
-            return {"status": "success", "main": volume_db}
-
-        # Remote client via EqualizerRouter
-        result = await equalizer_router_service.set_volume(hostname, volume_db)
-
-        if result.get("status") == "success":
-            await _persist_remote(hostname, "volume", {k: v for k, v in result.items() if k != "status"})
-            actual = result.get("main", result.get("volume", volume_db))
-            if actual is not None and volume_service:
-                await volume_service.update_client_volume_db(hostname, actual)
-                if actual != volume_db:
-                    logger.info(f"Client {hostname} volume clamped: {volume_db} -> {actual} dB")
-        return result
-
-    @router.put("/client/{hostname}/mute")
-    async def update_client_mute(hostname: str, request: Request):
-        """Set mute for a specific client (local or remote)."""
-        body = await request.json()
-        muted = body.get("muted")
-
-        if equalizer_router_service.is_local_client(hostname):
-            vs = _require_volume_service()
-            if not await camilladsp_service.set_mute(muted):
-                raise HTTPException(status_code=500, detail="Failed to set local mute")
-            await vs.set_client_mute(hostname, muted, broadcast=True)
-            return {"status": "success", "mute": muted}
-
-        # Remote client via EqualizerRouter
-        result = await equalizer_router_service.set_mute(hostname, muted)
-
-        if result.get("status") == "success" and volume_service:
-            await volume_service.set_client_mute(hostname, muted, broadcast=True)
-        return result
-
     # === Client Settings Persistence ===
-
-    @router.get("/client/{hostname}/saved-settings")
-    async def get_client_saved_settings(hostname: str):
-        """Get Milo's saved equalizer settings for a client"""
-        if not sync_service:
-            return {"hostname": hostname, "settings": {}}
-        settings = await sync_service.get_client_settings(hostname)
-        return {"hostname": hostname, "settings": settings}
 
     @router.post("/client/{hostname}/restore")
     async def restore_client_settings(hostname: str):
