@@ -122,9 +122,9 @@ async def lifespan(app: FastAPI):
         await snapcast_websocket_service.cleanup()
         await volume_service.cleanup()
         if rotary_controller:
-            rotary_controller.cleanup()
+            await rotary_controller.cleanup()
         screen_controller.cleanup()
-        bt_remote_controller.cleanup()
+        await bt_remote_controller.cleanup()
         logger.info("Cleanup completed")
     except Exception as e:
         logger.error(f"Cleanup error: {e}")

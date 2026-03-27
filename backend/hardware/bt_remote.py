@@ -17,9 +17,10 @@ Features:
 import asyncio
 import logging
 import re
-from typing import Dict, Optional, Set
+from typing import Dict, Optional, Set, Union
 
 from backend.hardware.playback_dispatch import PlaybackDispatcher
+from backend.hardware.volume_accumulator import VolumeAccumulator
 
 try:
     import evdev
@@ -78,10 +79,8 @@ class BtRemoteController:
         self._scan_task: Optional[asyncio.Task] = None
         self._discovery_task: Optional[asyncio.Task] = None
 
-        # Volume accumulator (batch rapid events like rotary encoder)
-        self._volume_accumulator = 0.0
-        self._volume_processor_running = False
-        self._volume_processor_task: Optional[asyncio.Task] = None
+        # Volume accumulator (shared with rotary encoder)
+        self._volume = VolumeAccumulator(volume_service)
 
         # Playback dispatch (multi-click → play/pause, next, prev)
         self._dispatcher = PlaybackDispatcher(state_machine)
@@ -114,17 +113,12 @@ class BtRemoteController:
         self._scan_task = asyncio.create_task(self._periodic_scan())
         self._discovery_task = asyncio.create_task(self._periodic_discovery())
 
-    def _stop_scanning(self):
+    async def _stop_scanning(self):
         """Stop all scanning and monitoring."""
         self.running = False
 
         self._dispatcher.cancel()
-
-        if self._volume_processor_task and not self._volume_processor_task.done():
-            self._volume_processor_task.cancel()
-        self._volume_processor_task = None
-        self._volume_accumulator = 0.0
-        self._volume_processor_running = False
+        await self._volume.cleanup()
 
         for task_ref in (self._scan_task, self._discovery_task):
             if task_ref and not task_ref.done():
@@ -139,9 +133,9 @@ class BtRemoteController:
         self._monitored_paths.clear()
         self._device_info.clear()
 
-    def cleanup(self):
+    async def cleanup(self):
         """Clean up resources."""
-        self._stop_scanning()
+        await self._stop_scanning()
         logger.info("BT remote controller cleaned up")
 
     # ========================================================================
@@ -183,7 +177,7 @@ class BtRemoteController:
                 self._start_scanning()
             elif not self.enabled and self.running:
                 await self._disconnect_matching_devices()
-                self._stop_scanning()
+                await self._stop_scanning()
 
         await self.state_machine.broadcast_event(
             "settings", "bt_remote_config_changed",
@@ -314,7 +308,7 @@ class BtRemoteController:
         stdin_cmds: Optional[str] = None,
         capture_stdout: bool = False,
         timeout: int = 10,
-    ) -> "str | bool":
+    ) -> Union[str, bool]:
         """Execute a bluetoothctl command. Returns stdout (str) or success (bool)."""
         proc = await asyncio.create_subprocess_exec(
             "bluetoothctl", *args,
@@ -695,33 +689,10 @@ class BtRemoteController:
         try:
             if action in ("volume_up", "volume_down"):
                 step = self.volume_service.volume_config.step_bt_remote_db
-                self._volume_accumulator += step if action == "volume_up" else -step
-                if not self._volume_processor_running:
-                    self._volume_processor_task = asyncio.create_task(self._process_volume())
+                self._volume.accumulate(step if action == "volume_up" else -step)
             else:
                 logger.debug("Unknown BT remote action: %s", action)
 
         except Exception as e:
             logger.error("Error dispatching BT remote action '%s': %s", action, e)
-
-    async def _process_volume(self):
-        """Batch-process accumulated volume changes (mirrors rotary encoder pattern)."""
-        self._volume_processor_running = True
-        try:
-            while self._volume_accumulator != 0.0:
-                delta = self._volume_accumulator
-                self._volume_accumulator = 0.0
-                try:
-                    await self.volume_service.adjust_volume_db(delta)
-                except Exception as e:
-                    logger.error("Error adjusting volume: %s", e)
-                await asyncio.sleep(0.02)  # 20ms batch window
-        finally:
-            # Re-check: if an event arrived between the while-check and here,
-            # spawn a new processor to avoid silently dropping it.
-            if self._volume_accumulator != 0.0:
-                self._volume_processor_running = False
-                self._volume_processor_task = asyncio.create_task(self._process_volume())
-                return
-            self._volume_processor_running = False
 
