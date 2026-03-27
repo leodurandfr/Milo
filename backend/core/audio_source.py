@@ -593,12 +593,23 @@ class BaseAudioSource(ABC):
         Used during steady playback where the frontend interpolates
         locally and only needs periodic drift correction.
 
+        Also keeps system_state.metadata in sync so that initial_state
+        sent on new WebSocket connections contains the live position.
+
         Args:
             position: Current position in milliseconds.
             duration: Total duration in milliseconds.
         """
         if not self.state_machine:
             return
+
+        # Keep system_state.metadata in sync for initial_state on reconnect.
+        # Guard: only update if this source is still active (avoids stale
+        # writes from a source whose monitor hasn't stopped yet).
+        sm = self.state_machine.system_state
+        if sm.metadata is not None and sm.active_source == self.source:
+            sm.metadata["position"] = position
+            sm.metadata["duration"] = duration
 
         try:
             loop = asyncio.get_running_loop()
