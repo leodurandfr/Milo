@@ -20,7 +20,7 @@
           <TrackCard v-for="track in cdStore.tracks" :key="track.number" :track="track"
             :isCurrent="track.number === cdStore.currentTrack"
             :isPlaying="track.number === cdStore.currentTrack && cdStore.isPlaying"
-            :isBuffering="track.number === cdStore.currentTrack && cdStore.isBuffering" @play="cdStore.playTrack($event)" />
+            @play="cdStore.playTrack($event)" />
         </div>
       </div>
     </template>

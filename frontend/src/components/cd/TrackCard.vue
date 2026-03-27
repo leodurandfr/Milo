@@ -5,10 +5,9 @@
     :class="{ 'track-card--current': isCurrent }"
     @click="$emit('play', track.number)"
   >
-    <!-- Track number, buffering spinner, or playing indicator -->
+    <!-- Track number or playing indicator -->
     <div class="track-number text-mono">
-      <LoadingSpinner v-if="isCurrent && isBuffering" :size="22" />
-      <div v-else-if="isCurrent && isPlaying" class="playing-indicator">
+      <div v-if="isCurrent && isPlaying" class="playing-indicator">
         <span class="bar"></span>
         <span class="bar"></span>
         <span class="bar"></span>
@@ -26,7 +25,6 @@
 
 <script setup>
 import { useI18n } from '@/services/i18n';
-import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 
 const { t } = useI18n();
 
@@ -40,10 +38,6 @@ defineProps({
     default: false
   },
   isPlaying: {
-    type: Boolean,
-    default: false
-  },
-  isBuffering: {
     type: Boolean,
     default: false
   }

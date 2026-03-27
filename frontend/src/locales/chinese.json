@@ -198,7 +198,8 @@
     "unknownTitle": "未知标题",
     "unknownArtist": "未知艺术家",
     "readyToPlay": "准备播放",
-    "loadingAlbum": "正在加载专辑"
+    "loadingAlbum": "正在加载专辑",
+    "ejecting": "正在弹出光盘"
   },
   "volumeSettings": {
     "externalAmplifier": "音量由外置功放管理",

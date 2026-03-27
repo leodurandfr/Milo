@@ -38,7 +38,7 @@
                     :interactive="true" @seek="seekTo" />
                 </div>
                 <div class="controls-wrapper">
-                  <PlaybackControls :isPlaying="isPlaying" :isBuffering="isBuffering"
+                  <PlaybackControls :isPlaying="isPlaying"
                     @play-pause="togglePlayPause" @previous="previousTrack" @next="nextTrack" />
                 </div>
               </template>
@@ -140,7 +140,7 @@ const persistentMetadata = computed(() => lastValidMetadata.value);
 
 // Real-time playback state (not persisted)
 const isPlaying = computed(() => unifiedStore.systemState.metadata?.is_playing || false);
-const isBuffering = computed(() => unifiedStore.systemState.metadata?.is_buffering || false);
+
 
 // Client/device name (for source bar when controls are hidden)
 const clientName = computed(() => unifiedStore.systemState.metadata?.client_name || '');

@@ -143,6 +143,11 @@ const currentSourceType = computed(() => activeSource.value);
 
 const rawSourceState = computed(() => {
   if (transitioning.value) return 'starting';
+  // CD: ejecting disc
+  if (activeSource.value === 'cd' && sourceState.value === 'waiting' &&
+      metadata.value?.ejecting) {
+    return 'ejecting';
+  }
   // CD: disc present but cache still loading (WAITING state, not yet ACTIVE)
   if (activeSource.value === 'cd' && sourceState.value === 'waiting' &&
       metadata.value?.disc_present && !metadata.value?.cache_ready) {

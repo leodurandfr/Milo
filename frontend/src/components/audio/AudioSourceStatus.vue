@@ -9,7 +9,7 @@
             <div class="device-info-inner">
               <!-- Source icon -->
               <div class="source-icon">
-                <LoadingSpinner v-if="sourceState === 'starting' || sourceState === 'loading_disc'" :size="26" variant="background" />
+                <LoadingSpinner v-if="sourceState === 'starting' || sourceState === 'loading_disc' || sourceState === 'ejecting'" :size="26" variant="background" />
                 <AppIcon v-else :name="sourceType" :size="32" />
               </div>
 
@@ -81,6 +81,10 @@ const emit = defineEmits(['disconnect']);
 
 // === COMPUTED FOR DISPLAYED CONTENT ===
 const displayedStatusLines = computed(() => {
+  // CD: ejecting disc
+  if (props.sourceState === 'ejecting') {
+    return [t('audioSources.cd'), t('status.ejecting')];
+  }
   // CD: disc inserted, loading album (spinner shown via loading_disc state)
   if (props.sourceState === 'loading_disc') {
     return [t('audioSources.cd'), t('status.loadingAlbum')];

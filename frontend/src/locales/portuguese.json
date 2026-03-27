@@ -198,7 +198,8 @@
     "unknownTitle": "Título desconhecido",
     "unknownArtist": "Artista desconhecido",
     "readyToPlay": "Pronto para reproduzir",
-    "loadingAlbum": "Carregando álbum"
+    "loadingAlbum": "Carregando álbum",
+    "ejecting": "Ejetando disco"
   },
   "volumeSettings": {
     "externalAmplifier": "Volume gerido por amplificador externo",

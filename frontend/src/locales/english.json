@@ -192,6 +192,7 @@
     "readyToStream": "Ready to stream",
     "readyToPlay": "Ready to play",
     "loadingAlbum": "Loading album",
+    "ejecting": "Ejecting disc",
     "waiting": "Waiting...",
     "connectedToMac": "Connected to",
     "audioReceivedFrom": "Audio received from",

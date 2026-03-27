@@ -1,23 +1,23 @@
 # backend/sources/cd/source.py
 """
-CD audio source using mpv with cache-based architecture.
+CD audio source using direct ioctl sector reading + FIFO.
 
 Architecture:
-- Disc watcher (1s poll) detects disc → broadcasts presence immediately, then reads TOC
-- User activates CD from dock → _do_start() reads metadata + loads cdda:// stream
-- Disc inserted while source active → parallelized: mpv pre-start + TOC read + metadata lookup
-- cdda:// loaded muted + playing → cache fills silently in background
-- Cache readiness: _wait_for_cache_ready() polls chapter offsets at 200ms intervals
-- Monitor tick detects cache readiness for _do_start path (no blocking during state transition)
-- Track navigation via set_property("chapter", N) → instant from cache (~30ms)
-- Play = unmute + seek to chapter → instant (data already cached)
+- Disc watcher (500ms poll) detects disc -> broadcasts presence, then reads TOC
+- TOC read via libdiscid provides sector offsets for each track (instant, no mpv)
+- Playback: ioctl reader thread reads sectors from /dev/sr0, writes PCM to FIFO
+- mpv reads FIFO with --demuxer=rawaudio (44100Hz, s16le, stereo)
+- Track navigation: stop reader, restart at target LBA, re-loadfile on mpv (~0.5s gap)
+- Auto-advance: reader plays through track boundaries, monitor detects via LBA position
+- Seek: same restart mechanism as track change
 
 Concurrency:
 - self._mpv_lock protects mpv creation/connection (shared by _do_start and _pre_start_service)
-- _cancel_task() ensures proper cleanup when aborting parallel tasks
+- Reader thread is stopped via stop_event + FIFO unblock before restart
+- Position tracking uses mpv time-pos mapped to disc LBA for accuracy
 
 Key rules:
-- NEVER call load_stream() except in _load_disc_stream()
+- NEVER start reader without corresponding mpv loadfile (FIFO deadlock)
 - NEVER set is_playing=True except in command handlers
 """
 import asyncio
@@ -26,8 +26,9 @@ from typing import Any, Dict, List, Optional
 
 from backend.config.constants import CD_DEVICE
 from backend.core.models.audio_state import AudioSource, SourceState
-from backend.sources.cd.data import CdDataService
+from backend.sources.cd.data import CDS_DISC_OK, CDS_DRIVE_NOT_READY, CdDataService
 from backend.sources.cd.models import DiscInfo, TrackInfo
+from backend.sources.cd.reader import CD_FIFO_PATH, SECTORS_PER_SECOND, CdIoctlReader
 from backend.shared.decorators import handle_errors
 from backend.shared.mpv import MpvController
 from backend.shared.mpv_audio_source import MpvAudioSource
@@ -56,6 +57,9 @@ class CdSource(MpvAudioSource):
         # Data service (persists across start/stop)
         self._data_service = CdDataService()
 
+        # Ioctl reader (persists across start/stop, thread is started/stopped per playback)
+        self._reader = CdIoctlReader(device=CD_DEVICE)
+
         # Lock protecting self._mpv creation/connection (shared by _do_start and _pre_start_service)
         self._mpv_lock = asyncio.Lock()
 
@@ -67,8 +71,13 @@ class CdSource(MpvAudioSource):
         self._current_disc: Optional[DiscInfo] = None
         self._tracks: List[TrackInfo] = []
         self._drive_connected = False
-        self._disc_present = False
+        self._disc_present = False  # True as soon as disc detected (spinning up)
+        self._disc_ready = False  # True when drive reports CDS_DISC_OK (TOC readable)
         self._last_disc_id: Optional[str] = None
+
+        # Sector offsets from libdiscid (persists across start/stop)
+        self._sector_offsets: List[int] = []  # LBA start of each track
+        self._disc_end_lba: int = 0  # total sectors (leadout)
 
         # Playback state (reset on stop)
         self._current_track: Optional[int] = None  # 1-based
@@ -76,10 +85,8 @@ class CdSource(MpvAudioSource):
         self._track_duration: float = 0
         self._album_finished = False
         self._is_paused = False
-        self._chapter_offsets: List[float] = []
-        self._stream_loaded = False
-        self._cache_ready = False  # True when chapter offsets loaded = CD fully ready
-        self._auto_play_on_ready = False  # True only when disc inserted while source active
+        self._ejecting = False
+        self._play_start_lba: int = 0  # LBA where current FIFO session started
 
     def _reset_playback_state(self) -> None:
         """Reset CD-specific playback fields (called by _do_restart)."""
@@ -89,19 +96,12 @@ class CdSource(MpvAudioSource):
         self._track_duration = 0
         self._album_finished = False
         self._is_paused = False
-        self._chapter_offsets = []
-        self._stream_loaded = False
-        self._cache_ready = False
-        self._auto_play_on_ready = False
+        self._ejecting = False
+        self._play_start_lba = 0
 
     # =========================================================================
     # LIFECYCLE
     # =========================================================================
-
-    async def _after_restart_restore(self) -> None:
-        """Reload CD stream after restart so cache refills and monitor can proceed."""
-        if self._disc_present and self._current_disc:
-            await self._load_disc_stream()
 
     @handle_errors(default=False)
     async def initialize(self) -> bool:
@@ -112,12 +112,13 @@ class CdSource(MpvAudioSource):
         return await super().initialize()
 
     async def _do_start(self) -> bool:
-        """Start mpv service, connect IPC, load disc if present.
+        """Start mpv service, connect IPC.
         If _pre_start_service already ran, reuses the existing connection.
-        Returns quickly — cache readiness is detected by monitor tick."""
+        Metadata lookup runs in the background so the frontend can show
+        'Chargement de l'album' during the load."""
         try:
             async with self._mpv_lock:
-                if self._mpv and self._mpv.is_connected and self._stream_loaded:
+                if self._mpv and self._mpv.is_connected:
                     self._logger.info("Reusing pre-started mpv connection")
                 else:
                     if not await self._start_service_and_wait():
@@ -127,23 +128,14 @@ class CdSource(MpvAudioSource):
                         self._logger.error("Failed to connect to mpv IPC")
                         return False
 
-                    if self._disc_present:
-                        # Disc already in drive: user must press play (no auto-play)
-                        self._auto_play_on_ready = False
-                        # Metadata lookup if not already done (disc inserted while inactive)
-                        if not self._current_disc and self._last_disc_id:
-                            result = await self._data_service.read_disc()
-                            if result:
-                                disc_id, toc_string, toc_tracks = result
-                                disc_info = await self._data_service.lookup_metadata(
-                                    disc_id, toc_string, toc_tracks
-                                )
-                                self._current_disc = disc_info
-                                self._tracks = disc_info.tracks
-                        await self._load_disc_stream()
-
             self._start_monitor()
             self._update_connection_state()
+
+            # Metadata lookup in background if disc present but no metadata yet.
+            # Runs AFTER _do_start returns so the transition completes first
+            # and the frontend can show "Chargement de l'album".
+            if self._disc_present and not self._current_disc and self._last_disc_id:
+                asyncio.create_task(self._load_disc_metadata())
 
             return True
 
@@ -152,21 +144,33 @@ class CdSource(MpvAudioSource):
             await self._cleanup()
             return False
 
-    async def _load_disc_stream(self) -> bool:
-        """Load cdda:// into mpv muted + playing. CD spins up, cache fills."""
-        success = await self._mpv.load_stream(f"cdda://{CD_DEVICE}")
-        if not success:
-            self._logger.error("Failed to load CD stream")
-            return False
+    async def _load_disc_metadata(self) -> None:
+        """Background metadata lookup when activating CD with a disc already present."""
+        try:
+            result = await self._data_service.read_disc()
+            if not result:
+                return
 
-        # Mute + play: CD reads at full speed, cache fills, no audio output
-        await self._mpv.set_property("mute", True)
-        await self._mpv.set_property("pause", False)
-        self._stream_loaded = True
-        self._cache_ready = False
+            disc_id, toc_string, toc_tracks, disc_end_lba = result
+            self._sector_offsets = [t["offset"] for t in toc_tracks]
+            self._disc_end_lba = disc_end_lba
 
-        self._logger.info("CD stream loaded (muted+playing), cache filling")
-        return True
+            disc_info = await self._data_service.lookup_metadata(
+                disc_id, toc_string, toc_tracks
+            )
+            self._current_disc = disc_info
+            self._tracks = disc_info.tracks
+            self._update_connection_state()
+
+        except Exception as e:
+            self._logger.error(f"Background metadata lookup failed: {e}")
+
+    async def _before_restart_save(self) -> None:
+        """Stop reader before restart."""
+        await asyncio.to_thread(self._reader.stop)
+
+    async def _after_restart_restore(self) -> None:
+        """After restart, don't auto-resume — user must press play."""
 
     @handle_errors(default=False)
     async def _do_stop(self) -> bool:
@@ -176,15 +180,56 @@ class CdSource(MpvAudioSource):
         return await self._stop_service()
 
     async def _cleanup(self) -> None:
-        """Clean up mpv resources. Does NOT stop disc watcher or clear disc info."""
+        """Clean up reader + mpv resources. Does NOT stop disc watcher or clear disc info."""
         self._stop_monitor()
+        await asyncio.to_thread(self._reader.stop)
         if self._mpv:
             await self._mpv.disconnect()
             self._mpv = None
         self._is_playing = False
         self._is_paused = False
         self._is_buffering = False
-        self._stream_loaded = False
+
+    # =========================================================================
+    # READER + MPV ORCHESTRATION
+    # =========================================================================
+
+    async def _start_reader_and_mpv(self, start_lba: int) -> bool:
+        """Start ioctl reader at given LBA and connect mpv to the FIFO.
+
+        Sequence: reader opens CD + creates FIFO + blocks on write-open,
+        then mpv opens FIFO for reading -> both sides connect.
+        """
+        self._reader.start(start_lba, self._disc_end_lba)
+
+        if not self._reader.wait_ready(timeout=5.0):
+            self._logger.error("Reader not ready within timeout")
+            await asyncio.to_thread(self._reader.stop)
+            return False
+
+        success = await self._mpv.load_stream(CD_FIFO_PATH)
+        if not success:
+            self._logger.error("mpv failed to open FIFO")
+            await asyncio.to_thread(self._reader.stop)
+            return False
+
+        # Ensure mpv is not paused (could be leftover from previous pause command)
+        await self._mpv.set_property("pause", False)
+
+        self._play_start_lba = start_lba
+        self._logger.info(f"Reader + mpv started at LBA {start_lba}")
+        return True
+
+    async def _stop_reader_and_mpv(self) -> None:
+        """Stop reader and mpv playback. mpv stop closes FIFO read end -> reader exits."""
+        if self._mpv:
+            await self._mpv.stop()  # Closes FIFO read end -> BrokenPipeError in reader
+        await asyncio.to_thread(self._reader.stop)
+
+    async def _restart_reader_and_mpv(self, start_lba: int) -> bool:
+        """Restart reader at a new LBA position and reconnect mpv."""
+        await self._stop_reader_and_mpv()
+        return await self._start_reader_and_mpv(start_lba)
 
     # =========================================================================
     # DISC WATCHER (runs permanently, independent of source lifecycle)
@@ -202,7 +247,13 @@ class CdSource(MpvAudioSource):
                 self._logger.error(f"Disc watcher error: {e}")
 
     async def _check_drive_and_disc(self) -> None:
-        """Check drive connection and disc insertion status."""
+        """Check drive connection and disc status (two-phase detection).
+
+        Phase 1: CDS_DRIVE_NOT_READY — disc detected, spinning up.
+                 Immediately broadcast presence so frontend shows "Chargement de l'album".
+        Phase 2: CDS_DISC_OK — disc ready, TOC readable.
+                 Read TOC, metadata lookup, auto-play.
+        """
         was_connected = self._drive_connected
         self._drive_connected = await asyncio.to_thread(
             self._data_service.check_drive_present
@@ -226,57 +277,40 @@ class CdSource(MpvAudioSource):
         if not self._drive_connected:
             return
 
-        was_present = self._disc_present
-        self._disc_present = await asyncio.to_thread(
-            self._data_service.check_disc_present
-        )
+        status = await asyncio.to_thread(self._data_service.check_disc_status)
+        disc_detected = status in (CDS_DRIVE_NOT_READY, CDS_DISC_OK)
+        disc_ready = status == CDS_DISC_OK
 
-        if self._disc_present and not was_present:
-            if not self._watcher_first_check_done:
-                self._watcher_first_check_done = True
-                await self._handle_disc_detected_at_boot()
-            else:
-                await self._handle_disc_inserted()
-        elif not self._disc_present and was_present:
-            await self._handle_disc_removed()
-        elif not self._watcher_first_check_done:
+        if not self._watcher_first_check_done:
             self._watcher_first_check_done = True
 
-    async def _handle_disc_detected_at_boot(self) -> None:
-        """Disc already present at boot: broadcast immediately, then read TOC."""
-        self._logger.info("Disc already present at boot")
-        self._disc_present = True
+        # Phase 1: disc newly detected (spinning up or already ready)
+        if disc_detected and not self._disc_present:
+            self._disc_present = True
+            await self._handle_disc_detected()
 
-        # Broadcast immediately so frontend knows a disc is present
-        await self.state_machine.broadcast_event(
-            "system", "cd_drive_status", {
-                "source": "cd",
-                "drive_connected": self._drive_connected,
-                "disc_present": True,
-            }
-        )
+        # Phase 2: disc became ready (TOC readable)
+        if disc_ready and not self._disc_ready:
+            self._disc_ready = True
+            await self._handle_disc_ready()
 
-        result = await self._data_service.read_disc()
-        if not result:
-            self._logger.warning("Failed to read disc TOC at boot")
-            return
+        # Disc removed
+        if not disc_detected and self._disc_present:
+            await self._handle_disc_removed()
 
-        disc_id, toc_string, toc_tracks = result
-        self._last_disc_id = disc_id
+    async def _handle_disc_detected(self) -> None:
+        """Phase 1: disc detected (spinning up or already ready).
 
-        self._logger.info(f"Boot disc detected: {disc_id}, {len(toc_tracks)} tracks")
-
-    async def _handle_disc_inserted(self) -> None:
-        """New disc inserted: broadcast immediately, then read TOC and metadata in parallel.
-        Does NOT auto-activate CD source — user must select it from the dock."""
-        self._disc_present = True
+        Broadcasts presence immediately so the frontend can show
+        'Chargement de l'album' while the drive spins up.
+        """
+        self._logger.info("Disc detected (spinning up)")
 
         is_active = (
             self.state_machine
             and self.state_machine.system_state.active_source == AudioSource.CD
         )
 
-        # Broadcast disc presence AND set WAITING state so frontend shows "Loading CD"
         await self.state_machine.broadcast_event(
             "system", "cd_drive_status", {
                 "source": "cd",
@@ -284,6 +318,8 @@ class CdSource(MpvAudioSource):
                 "disc_present": True,
             }
         )
+
+        # Show "Chargement de l'album" immediately
         if is_active:
             self.set_state(SourceState.WAITING, {
                 "disc_present": True, "cache_ready": False,
@@ -292,31 +328,45 @@ class CdSource(MpvAudioSource):
                 "album_finished": False,
             })
 
+    async def _handle_disc_ready(self) -> None:
+        """Phase 2: disc ready (CDS_DISC_OK). Read TOC, lookup metadata, auto-play."""
+        self._logger.info("Disc ready, reading TOC")
+
+        is_active = (
+            self.state_machine
+            and self.state_machine.system_state.active_source == AudioSource.CD
+        )
+
         # Start mpv service early (in parallel with TOC read) if CD is active
         pre_start_task = None
         if is_active:
-            self._auto_play_on_ready = True
             pre_start_task = asyncio.create_task(self._pre_start_service())
 
-        # Read TOC (blocking I/O in thread, ~3-5s while disc spins up)
+        # Read TOC (blocking I/O in thread)
         result = await self._data_service.read_disc()
         if not result:
             self._logger.warning("Failed to read disc TOC")
             await self._cancel_task(pre_start_task)
             return
 
-        disc_id, toc_string, toc_tracks = result
+        disc_id, toc_string, toc_tracks, disc_end_lba = result
+        self._sector_offsets = [t["offset"] for t in toc_tracks]
+        self._disc_end_lba = disc_end_lba
 
         # Same disc re-inserted: reuse cached metadata, skip MusicBrainz lookup
         if disc_id == self._last_disc_id and self._current_disc:
             self._logger.info(f"Same disc re-detected: {disc_id}")
-            await self._cancel_task(pre_start_task)
+            if is_active and pre_start_task:
+                await pre_start_task
+                await self._auto_play_track_1()
+            else:
+                await self._cancel_task(pre_start_task)
             return
 
         self._last_disc_id = disc_id
         self._logger.info(f"New disc: {disc_id}, {len(toc_tracks)} tracks")
 
-        # Metadata lookup (network) in parallel with mpv stream loading
+        # Metadata lookup (network) in parallel with mpv service start
         metadata_coro = self._data_service.lookup_metadata(
             disc_id, toc_string, toc_tracks
         )
@@ -328,21 +378,22 @@ class CdSource(MpvAudioSource):
         self._current_disc = disc_info
         self._tracks = disc_info.tracks
 
-        if is_active and self._auto_play_on_ready and self._stream_loaded:
-            # Metadata + stream ready → play track 1 immediately (no chapter wait)
-            await self._play_track_1_immediate()
-            # Poll chapter offsets in background (for track navigation/seek)
-            asyncio.create_task(self._wait_for_cache_ready())
-        elif is_active:
+        # Re-check active state after awaits (user could have switched source)
+        still_active = (
+            self.state_machine
+            and self.state_machine.system_state.active_source == AudioSource.CD
+        )
+        if still_active and self._mpv and self._mpv.is_connected:
+            await self._auto_play_track_1()
+        elif still_active:
             self.set_state(SourceState.WAITING, self._build_metadata())
 
     async def _pre_start_service(self) -> None:
-        """Start milo-cd service and load cdda:// stream.
-        Does NOT wait for chapter offsets — returns as soon as the stream is loaded."""
+        """Start milo-cd service and connect IPC (no stream loading)."""
         try:
             async with self._mpv_lock:
-                if self._mpv and self._mpv.is_connected and self._stream_loaded:
-                    return  # Already pre-started
+                if self._mpv and self._mpv.is_connected:
+                    return
 
                 if not await self._start_service_and_wait():
                     self._logger.warning("Pre-start: service failed")
@@ -352,8 +403,6 @@ class CdSource(MpvAudioSource):
                 if not await self._mpv.connect():
                     self._logger.warning("Pre-start: mpv connect failed")
                     return
-
-                await self._load_disc_stream()
 
         except Exception as e:
             self._logger.warning(f"Pre-start failed: {e}")
@@ -368,31 +417,23 @@ class CdSource(MpvAudioSource):
             except asyncio.CancelledError:
                 pass
 
-    async def _play_track_1_immediate(self) -> None:
-        """Unmute and play track 1 without waiting for chapter offsets.
-        Track 1 always starts at position 0, so no chapter seek is needed.
-        Waits until mpv is actually producing audio before setting ACTIVE."""
-        if not self._mpv:
+    async def _auto_play_track_1(self) -> None:
+        """Auto-play track 1 after disc insertion while source is active."""
+        if not self._mpv or not self._sector_offsets or not self._tracks:
             return
 
-        await self._mpv.set_property("mute", False)
-        await self._mpv.resume()
-
-        # Wait for mpv to actually start decoding audio (time-pos becomes available)
-        for _ in range(100):  # 100 × 200ms = 20s max
-            time_pos = await self._mpv.get_property("time-pos")
-            if time_pos is not None:
-                break
-            await asyncio.sleep(0.2)
+        if not await self._start_reader_and_mpv(self._sector_offsets[0]):
+            self._logger.error("Auto-play: failed to start reader")
+            return
 
         self._current_track = 1
         self._track_position = 0
-        self._track_duration = self._tracks[0].duration if self._tracks else 0
+        self._track_duration = self._tracks[0].duration
         self._is_playing = True
         self._is_paused = False
-        self._auto_play_on_ready = False
+        self._album_finished = False
         self._update_connection_state()
-        self._logger.info("Playing track 1 (chapters loading in background)")
+        self._logger.info("Auto-playing track 1")
 
     async def _handle_disc_removed(self) -> None:
         """Disc removal: stop playback if active, clear disc state."""
@@ -403,12 +444,8 @@ class CdSource(MpvAudioSource):
             and self.state_machine.system_state.active_source == AudioSource.CD
         )
 
-        # Stop playback only if CD is the active source with mpv running
-        if is_active and self._is_playing and self._mpv:
-            try:
-                await self._mpv.set_property("mute", True)
-            except Exception as e:
-                self._logger.error(f"Error muting on disc removal: {e}")
+        if is_active and (self._is_playing or self._is_paused):
+            await self._stop_reader_and_mpv()
 
         self._reset_playback_state()
         # Clear disc-level state (not covered by _reset_playback_state)
@@ -416,6 +453,9 @@ class CdSource(MpvAudioSource):
         self._tracks = []
         self._last_disc_id = None
         self._disc_present = False
+        self._disc_ready = False
+        self._sector_offsets = []
+        self._disc_end_lba = 0
 
         if is_active:
             self._update_connection_state()
@@ -458,7 +498,7 @@ class CdSource(MpvAudioSource):
         return self.error_response(f"Unknown command: {cmd}")
 
     async def _handle_play_track(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Play a specific track. Unmutes + seeks to chapter (instant from cache)."""
+        """Play a specific track by starting ioctl reader at the track's LBA."""
         if not self._mpv:
             return self.error_response("CD not active")
 
@@ -467,35 +507,22 @@ class CdSource(MpvAudioSource):
             return self.error_response("track_number required")
         if not self._tracks or track_number < 1 or track_number > len(self._tracks):
             return self.error_response(f"Invalid track number: {track_number}")
-
-        if not self._cache_ready:
-            return self.error_response("CD still loading, please wait")
-
-        # Reload stream only if album finished
-        if self._album_finished or not self._stream_loaded:
-            if not await self._load_disc_stream():
-                return self.error_response("Failed to load CD")
-            # Wait for chapter offsets after reload
-            await self._read_chapter_offsets()
-            if self._chapter_offsets:
-                await self._recalc_track_durations()
+        if not self._sector_offsets:
+            return self.error_response("Disc not ready")
 
         try:
+            start_lba = self._sector_offsets[track_number - 1]
+
+            if not await self._restart_reader_and_mpv(start_lba):
+                return self.error_response("Failed to start playback")
+
             self._current_track = track_number
             self._track_position = 0
             self._track_duration = self._tracks[track_number - 1].duration
             self._is_playing = True
             self._is_paused = False
+            self._is_buffering = True  # Until mpv produces audio
             self._album_finished = False
-
-            await self._mpv.set_property("chapter", track_number - 1)
-            await self._mpv.set_property("mute", False)
-            await self._mpv.resume()
-
-            # Check if mpv is still seeking (uncached track = physical CD seek)
-            await asyncio.sleep(0.15)
-            seeking = await self._mpv.get_property("seeking")
-            self._is_buffering = bool(seeking)
 
             self._update_connection_state()
             self.broadcast_error_cleared()
@@ -524,7 +551,7 @@ class CdSource(MpvAudioSource):
             if self._album_finished:
                 return await self._handle_play_track({"track_number": 1})
 
-            # Resume from pause — keep current position
+            # Resume from pause — reader unblocks when mpv reads again
             if self._is_paused:
                 await self._mpv.resume()
                 self._is_playing = True
@@ -532,7 +559,7 @@ class CdSource(MpvAudioSource):
                 self._update_connection_state()
                 return self.success_response("Resumed")
 
-            # First play or resume from stop → go through play_track
+            # First play or resume from stop -> go through play_track
             if not self._is_playing:
                 track = self._current_track or 1
                 return await self._handle_play_track({"track_number": track})
@@ -557,31 +584,43 @@ class CdSource(MpvAudioSource):
         return await self._handle_play_track({"track_number": target})
 
     async def _handle_seek(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        # Support both position (seconds) and position_ms (milliseconds, from useSourceProgress)
+        """Seek within current track: restart reader at target LBA."""
         position = data.get("position")
         if position is None and data.get("position_ms") is not None:
             position = data["position_ms"] / 1000
         if position is None:
             return self.error_response("position required")
+
+        if not self._current_track or not self._sector_offsets:
+            return self.error_response("No track playing")
+
         try:
-            position = int(position)
-            if self._chapter_offsets and self._current_track:
-                chapter_idx = self._current_track - 1
-                if chapter_idx < len(self._chapter_offsets):
-                    absolute_pos = self._chapter_offsets[chapter_idx] + position
-                    await self._mpv.seek(absolute_pos)
-                    self._track_position = position
-                    self._update_connection_state()
-                    return self.success_response(f"Seeked to {position}s")
-            return self.error_response("Chapter offsets not available")
+            position = max(0, int(position))
+            track_start = self._sector_offsets[self._current_track - 1]
+            target_lba = track_start + position * SECTORS_PER_SECOND
+
+            # Clamp to track boundaries
+            if self._current_track < len(self._sector_offsets):
+                track_end = self._sector_offsets[self._current_track]
+            else:
+                track_end = self._disc_end_lba
+            target_lba = min(target_lba, track_end - 1)
+
+            if not await self._restart_reader_and_mpv(target_lba):
+                return self.error_response("Seek failed")
+
+            self._track_position = position
+            self._is_buffering = True
+            self._update_connection_state()
+            return self.success_response(f"Seeked to {position}s")
+
         except Exception as e:
             return self.error_response(str(e))
 
     async def _handle_stop_playback(self) -> Dict[str, Any]:
-        """Stop playback by muting. Keeps stream playing to preserve cache."""
+        """Stop playback: stop reader and mpv."""
         try:
-            if self._mpv:
-                await self._mpv.set_property("mute", True)
+            await self._stop_reader_and_mpv()
             self._is_playing = False
             self._is_paused = False
             self._current_track = None
@@ -594,10 +633,15 @@ class CdSource(MpvAudioSource):
 
     async def _handle_eject(self) -> Dict[str, Any]:
         try:
-            if self._is_playing and self._mpv:
-                await self._mpv.pause()
-                self._is_playing = False
-                self._is_paused = False
+            if self._is_playing or self._is_paused:
+                await self._stop_reader_and_mpv()
+
+            # Immediately clear disc state and show "ejecting" in the UI
+            self._reset_playback_state()
+            self._current_disc = None
+            self._tracks = []
+            self._ejecting = True
+            self._update_connection_state()
 
             proc = await asyncio.create_subprocess_exec(
                 "eject", CD_DEVICE,
@@ -608,10 +652,12 @@ class CdSource(MpvAudioSource):
             if proc.returncode != 0:
                 stderr = (await proc.stderr.read()).decode().strip()
                 self._logger.error(f"Eject failed (rc={proc.returncode}): {stderr}")
+                self._ejecting = False
                 return self.error_response(f"Eject failed: {stderr}")
             return self.success_response("Disc ejected")
         except Exception as e:
             self._logger.error(f"Eject error: {e}")
+            self._ejecting = False
             return self.error_response(str(e))
 
     # =========================================================================
@@ -619,95 +665,54 @@ class CdSource(MpvAudioSource):
     # =========================================================================
 
     async def _on_monitor_tick(self) -> None:
-        """Track position, detect album end, and promote cache readiness.
-
-        Cache readiness detection:
-        - When _do_start loads a stream, _wait_for_cache_ready is NOT called
-          (to avoid blocking the state machine transition lock).
-        - Instead, the monitor tick detects chapter offsets becoming available.
-        - When _handle_disc_inserted pre-starts the service, _wait_for_cache_ready
-          polls aggressively (200ms). The monitor tick is a safety net only if the
-          fast poll times out (slow drive / degraded media).
-        """
-        if not self._stream_loaded:
-            return
-
-        # Detect cache readiness: chapter offsets appear once mpv finishes reading the TOC
-        if not self._cache_ready and self._current_disc:
-            await self._read_chapter_offsets(retries=1, interval=0.2)
-            if self._chapter_offsets:
-                await self._recalc_track_durations()
-                self._cache_ready = True
-                if self._auto_play_on_ready and self._tracks:
-                    self._logger.info(
-                        f"CD ready: {len(self._chapter_offsets)} chapters, "
-                        f"auto-playing track 1"
-                    )
-                    self._auto_play_on_ready = False
-                    await self._handle_play_track({"track_number": 1})
-                else:
-                    self._logger.info(
-                        f"CD ready: {len(self._chapter_offsets)} chapters"
-                    )
-                    self._update_connection_state()
-                # Don't return — fall through to position tracking if playing
-
-        # Track position during playback
+        """Track position via mpv time-pos mapped to disc LBA, detect auto-advance and album end."""
         if not self._is_playing:
             return
 
-        chapter = await self._mpv.get_property("chapter")
         time_pos = await self._mpv.get_property("time-pos")
-        seeking = await self._mpv.get_property("seeking")
 
-        # Album end: time-pos becomes None when mpv finishes the disc
-        if (
-            time_pos is None
-            and self._current_track
-            and self._current_track >= len(self._tracks)
-        ):
-            self._logger.info("Album finished")
-            self._album_finished = True
-            self._is_playing = False
-            self._is_paused = False
-            self._track_position = self._track_duration
-            self._update_connection_state()
-            return
-
+        # Album/track end: reader finished or mpv reached EOF
         if time_pos is None:
+            if not self._reader.is_running:
+                if self._current_track and self._current_track >= len(self._tracks):
+                    self._logger.info("Album finished")
+                    self._album_finished = True
+                    self._is_playing = False
+                    self._is_paused = False
+                    self._track_position = self._track_duration
+                    self._update_connection_state()
+                    return
+                # Reader stopped mid-album (error or EOF on non-last track)
+                # Try auto-advancing if possible
+                if self._current_track and self._current_track < len(self._tracks):
+                    next_track = self._current_track + 1
+                    self._logger.info(f"Auto-advancing to track {next_track}")
+                    await self._handle_play_track({"track_number": next_track})
+                return
             return
 
-        # Buffering detection via mpv's seeking property
+        # Buffering -> playing transition
         state_changed = False
-        if seeking and not self._is_buffering:
-            self._is_buffering = True
-            self._update_connection_state()
-            return
-        if not seeking and self._is_buffering:
+        if self._is_buffering:
             self._is_buffering = False
             state_changed = True
 
-        # Track auto-advance (mpv crossed a chapter boundary naturally)
-        if chapter is not None:
-            new_track = int(chapter) + 1
-            if new_track != self._current_track and 1 <= new_track <= len(self._tracks):
-                self._current_track = new_track
-                self._track_duration = self._tracks[new_track - 1].duration
-                state_changed = True
+        # Calculate current disc LBA from mpv's perspective
+        current_audio_lba = self._play_start_lba + int(float(time_pos) * SECTORS_PER_SECOND)
 
-        # Position within track
-        if self._current_track and self._chapter_offsets:
-            chapter_idx = self._current_track - 1
-            if chapter_idx < len(self._chapter_offsets):
-                self._track_position = max(
-                    0, float(time_pos) - self._chapter_offsets[chapter_idx]
-                )
-        elif self._current_track == 1:
-            # Before chapters are loaded, time-pos equals track 1 position
-            self._track_position = float(time_pos)
+        # Track auto-advance (reader plays through track boundaries)
+        new_track = self._lba_to_track(current_audio_lba)
+        if new_track and new_track != self._current_track and new_track <= len(self._tracks):
+            self._current_track = new_track
+            self._track_duration = self._tracks[new_track - 1].duration
+            state_changed = True
 
-        # Full broadcast on state changes (track advance, buffering transitions).
-        # Position-only: lightweight sync every POSITION_SYNC_INTERVAL ticks.
+        # Position within current track
+        if self._current_track:
+            self._track_position = max(
+                0, self._lba_to_track_position(current_audio_lba, self._current_track)
+            )
+
         if state_changed:
             self._update_connection_state()
         elif self._position_sync_due():
@@ -717,52 +722,25 @@ class CdSource(MpvAudioSource):
             )
 
     async def _on_mpv_disconnect(self) -> None:
+        await asyncio.to_thread(self._reader.stop)
         self._reset_playback_state()
 
     # =========================================================================
     # HELPERS
     # =========================================================================
 
-    async def _read_chapter_offsets(self, retries: int = 5, interval: float = 0.5) -> None:
-        """Read chapter start times from mpv for position calculations."""
-        for attempt in range(retries):
-            chapter_list = await self._mpv.get_property("chapter-list")
-            if chapter_list and isinstance(chapter_list, list) and len(chapter_list) > 0:
-                self._chapter_offsets = [
-                    ch.get("time", 0) for ch in chapter_list
-                ]
-                return
-            if attempt < retries - 1:
-                await asyncio.sleep(interval)
+    def _lba_to_track(self, lba: int) -> Optional[int]:
+        """Find which track (1-based) an LBA falls in."""
+        for i in range(len(self._sector_offsets) - 1, -1, -1):
+            if lba >= self._sector_offsets[i]:
+                return i + 1
+        return None
 
-    async def _wait_for_cache_ready(self) -> None:
-        """Aggressively poll for chapter offsets after stream load (200ms interval).
-        Called once after _load_disc_stream() to detect readiness as fast as possible,
-        instead of waiting for the 1s monitor tick."""
-        if not self._mpv or not self._stream_loaded:
-            return
-        # Poll aggressively: 100 attempts × 200ms = 20s max wait
-        await self._read_chapter_offsets(retries=100, interval=0.2)
-        if self._chapter_offsets:
-            await self._recalc_track_durations()
-            self._cache_ready = True
-            self._logger.info(
-                f"Cache ready: {len(self._chapter_offsets)} chapters"
-            )
-
-    async def _recalc_track_durations(self) -> None:
-        """Recalculate track durations from chapter offsets for accurate progress."""
-        if not self._chapter_offsets or not self._tracks:
-            return
-        offsets = self._chapter_offsets
-        for i, track in enumerate(self._tracks):
-            if i + 1 < len(offsets):
-                track.duration = round(offsets[i + 1] - offsets[i])
-        # Last track: use total disc duration from mpv
-        if self._mpv and len(self._tracks) == len(offsets):
-            total = await self._mpv.get_property("duration")
-            if total is not None and total > offsets[-1]:
-                self._tracks[-1].duration = round(total - offsets[-1])
+    def _lba_to_track_position(self, lba: int, track: int) -> float:
+        """Calculate position (seconds) within a track from an LBA."""
+        if track < 1 or track > len(self._sector_offsets):
+            return 0
+        return (lba - self._sector_offsets[track - 1]) / SECTORS_PER_SECOND
 
     def _build_metadata(self) -> Dict[str, Any]:
         metadata: Dict[str, Any] = {
@@ -771,11 +749,11 @@ class CdSource(MpvAudioSource):
             "is_playing": self._is_playing,
             "is_buffering": self._is_buffering,
             "album_finished": self._album_finished,
-            "cache_ready": self._cache_ready,
+            "ejecting": self._ejecting,
+            "cache_ready": bool(self._sector_offsets),
         }
 
         if self._current_disc:
-            # Default to track 1 when no track is playing
             first_track = self._tracks[0] if self._tracks else None
             metadata.update({
                 "disc_id": self._current_disc.disc_id,
@@ -799,7 +777,6 @@ class CdSource(MpvAudioSource):
                     "title": self._tracks[track_idx].title,
                     "track_position": int(self._track_position),
                     "track_duration": int(self._track_duration),
-                    # Millisecond values for AudioPlayerFull / useSourceProgress
                     "position": int(self._track_position * 1000),
                     "duration": int(self._track_duration * 1000),
                 })
@@ -809,15 +786,15 @@ class CdSource(MpvAudioSource):
     def _update_connection_state(self) -> None:
         has_disc = bool(self._current_disc)
         metadata = self._build_metadata()
-        self._set_active_or_waiting(
-            has_disc,
-            metadata,
-            {"is_playing": False, "is_buffering": False, "ready": True,
-             "drive_connected": self._drive_connected, "disc_present": self._disc_present},
-        )
+        self._set_active_or_waiting(has_disc, metadata, metadata)
 
     async def _get_status(self) -> Dict[str, Any]:
         return self._build_metadata()
+
+    async def _refresh_metadata(self) -> bool:
+        """Refresh metadata so WebSocket initial_state contains live position."""
+        self._metadata = self._build_metadata()
+        return True
 
     # =========================================================================
     # PUBLIC API (for routes)
