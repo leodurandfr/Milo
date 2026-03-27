@@ -32,7 +32,9 @@ logger = logging.getLogger(__name__)
 
 # ioctl constants for CD drive status
 CDROM_DRIVE_STATUS = 0x5326
-CDS_DISC_OK = 4
+CDS_NO_DISC = 1
+CDS_DRIVE_NOT_READY = 3  # Disc spinning up (detected but not yet readable)
+CDS_DISC_OK = 4  # Disc ready (TOC readable)
 
 
 class CdDataService:
@@ -72,29 +74,33 @@ class CdDataService:
         """Check if a CD drive is connected at /dev/sr0."""
         return os.path.exists(CD_DEVICE)
 
-    def check_disc_present(self) -> bool:
-        """Check if a disc is inserted via ioctl CDROM_DRIVE_STATUS."""
+    def check_disc_status(self) -> int:
+        """Return raw CDROM_DRIVE_STATUS ioctl value.
+
+        Returns CDS_DISC_OK (4) when ready, CDS_DRIVE_NOT_READY (3) when
+        spinning up, CDS_NO_DISC (1) when empty, or -1 on error.
+        """
         try:
             fd = os.open(CD_DEVICE, os.O_RDONLY | os.O_NONBLOCK)
             try:
-                status = fcntl.ioctl(fd, CDROM_DRIVE_STATUS)
-                return status == CDS_DISC_OK
+                return fcntl.ioctl(fd, CDROM_DRIVE_STATUS)
             finally:
                 os.close(fd)
         except OSError:
-            return False
+            return -1
 
     # =========================================================================
     # DISC TOC READING
     # =========================================================================
 
-    async def read_disc(self) -> Optional[Tuple[str, str, List[Dict[str, Any]]]]:
+    async def read_disc(self) -> Optional[Tuple[str, str, List[Dict[str, Any]], int]]:
         """
         Read the disc TOC via libdiscid.
 
         Returns:
-            (disc_id, toc_string, tracks) where tracks is a list of
-            {"number": int, "duration": int} dicts, or None if read fails.
+            (disc_id, toc_string, tracks, disc_end_lba) where tracks is a list of
+            {"number": int, "duration": int, "offset": int} dicts and disc_end_lba
+            is the total sector count (leadout), or None if read fails.
         """
         try:
             result = await asyncio.to_thread(self._read_disc_sync)
@@ -103,8 +109,14 @@ class CdDataService:
             self._logger.error(f"Failed to read disc: {e}")
             return None
 
-    def _read_disc_sync(self) -> Optional[Tuple[str, str, List[Dict[str, Any]]]]:
-        """Synchronous disc read (runs in thread)."""
+    def _read_disc_sync(self) -> Optional[Tuple[str, str, List[Dict[str, Any]], int]]:
+        """Synchronous disc read (runs in thread).
+
+        Returns:
+            (disc_id, toc_string, tracks, disc_end_lba) where each track dict
+            includes 'number', 'duration', and 'offset' (start sector LBA).
+            disc_end_lba is the total sector count (leadout).
+        """
         try:
             import discid
             disc = discid.read(CD_DEVICE)
@@ -114,13 +126,13 @@ class CdDataService:
 
         tracks = []
         for i, track in enumerate(disc.tracks):
-            duration = track.seconds
             tracks.append({
                 "number": i + 1,
-                "duration": duration,
+                "duration": track.seconds,
+                "offset": track.offset,
             })
 
-        return disc.id, disc.toc_string, tracks
+        return disc.id, disc.toc_string, tracks, disc.length
 
     # =========================================================================
     # MUSICBRAINZ METADATA LOOKUP

@@ -1,5 +1,5 @@
 [Unit]
-Description=Milo CD Player (mpv)
+Description=Milo CD Player (mpv rawaudio via FIFO)
 Documentation=https://mpv.io/manual/stable/
 After=sound.target milo-backend.service milo-camilladsp.service
 # Depends on ALSA environment configured by Milo
@@ -22,16 +22,17 @@ EnvironmentFile=/var/lib/milo/routing.env
 ExecStartPre=/bin/sh -c 'echo "ALSA routing: MILO_MODE=${MILO_MODE}"'
 
 # Launch mpv in daemon mode with IPC socket for CD playback
-# Cache: 800MB holds a full 74-min CD in RAM for instant track changes
+# Audio is fed as raw PCM via FIFO from the ioctl reader thread
 ExecStart=/usr/bin/mpv \
     --no-video \
     --audio-device=alsa/milo_cd \
     --input-ipc-server=/run/milo/cd-ipc.sock \
     --idle=yes \
-    --cdda-cdtext=yes \
-    --cache=yes \
-    --demuxer-max-bytes=800MiB \
-    --demuxer-seekable-cache=yes \
+    --demuxer=rawaudio \
+    --demuxer-rawaudio-rate=44100 \
+    --demuxer-rawaudio-channels=stereo \
+    --demuxer-rawaudio-format=s16le \
+    --no-cache \
     --msg-level=all=info \
     --no-config \
     --no-terminal \
@@ -41,9 +42,9 @@ ExecStart=/usr/bin/mpv \
 Restart=on-failure
 RestartSec=5s
 
-# Resource limits
+# Resource limits (no 800MB cache — mpv just decodes raw PCM from FIFO)
 CPUQuota=50%
-MemoryMax=1G
+MemoryMax=256M
 
 # Security hardening
 NoNewPrivileges=true

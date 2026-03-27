@@ -4,8 +4,7 @@
       <SvgIcon name="previous" responsive class="icon-secondary" />
     </div>
     <div v-press @click="onPlayPause" class="control-button play-pause">
-      <LoadingSpinner v-if="isBuffering" :size="48" class="icon-buffering" />
-      <SvgIcon v-else :name="isPlaying ? 'pause' : 'play'" responsive class="icon-primary" />
+      <SvgIcon :name="isPlaying ? 'pause' : 'play'" responsive class="icon-primary" />
     </div>
     <div v-press @click="onNext" class="control-button next">
       <SvgIcon name="next" responsive class="icon-secondary" />
@@ -15,14 +14,9 @@
 
 <script setup>
 import SvgIcon from '@/components/ui/SvgIcon.vue';
-import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 
 defineProps({
   isPlaying: {
-    type: Boolean,
-    default: false
-  },
-  isBuffering: {
     type: Boolean,
     default: false
   }
@@ -72,10 +66,6 @@ const onNext = () => emit('next');
 .icon-secondary {
   color: var(--color-text-light);
   pointer-events: none;
-}
-
-.icon-buffering {
-  color: var(--color-text-secondary);
 }
 
 .control-button :deep(.svg-responsive) {

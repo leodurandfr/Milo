@@ -198,7 +198,8 @@
     "unknownTitle": "अज्ञात शीर्षक",
     "unknownArtist": "अज्ञात कलाकार",
     "readyToPlay": "चलाने के लिए तैयार",
-    "loadingAlbum": "एल्बम लोड हो रहा है"
+    "loadingAlbum": "एल्बम लोड हो रहा है",
+    "ejecting": "डिस्क निकाली जा रही है"
   },
   "volumeSettings": {
     "externalAmplifier": "वॉल्यूम बाहरी एम्पलीफायर द्वारा प्रबंधित",

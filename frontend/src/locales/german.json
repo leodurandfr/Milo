@@ -198,7 +198,8 @@
     "unknownTitle": "Unbekannter Titel",
     "unknownArtist": "Unbekannter Künstler",
     "readyToPlay": "Bereit zur Wiedergabe",
-    "loadingAlbum": "Album wird geladen"
+    "loadingAlbum": "Album wird geladen",
+    "ejecting": "CD wird ausgeworfen"
   },
   "volumeSettings": {
     "externalAmplifier": "Lautstärke wird vom externen Verstärker gesteuert",
