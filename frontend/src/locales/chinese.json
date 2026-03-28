@@ -10,7 +10,7 @@
     "commandFailed": "命令失败"
   },
   "settings": {
-    "title": "Milō 配置",
+    "title": "Milō 设置",
     "languages": "语言",
     "dock": "Dock",
     "volume": "音量",
@@ -117,8 +117,8 @@
     "externalVolume": "外置功放"
   },
   "equalizer": {
-    "title": "Equalizer",
-    "effects_disabled": "Equalizer 效果已禁用",
+    "title": "均衡器",
+    "effects_disabled": "均衡器效果已关闭",
     "selectPreset": "预设",
     "zones": {
       "zoneName": "区域名称",
@@ -210,7 +210,7 @@
     "minMax": "最小和最大音量",
     "startup": "启动音量",
     "fixedVolume": "固定音量",
-    "restoreLast": "恢复最后",
+    "restoreLast": "恢复上次音量",
     "fixedStartup": "固定启动音量",
     "btRemote": {
       "title": "蓝牙控制器",
@@ -225,12 +225,12 @@
     "brightness": "亮度",
     "brightnessIntensity": "亮度强度",
     "autoSleep": "屏幕休眠",
-    "sleepDelay": "应用程序不活动时，关闭屏幕：",
+    "sleepDelay": "应用无操作时，在以下时间后关闭屏幕：",
     "screensaver": "屏幕保护程序",
-    "screensaverSourceNote": "仅适用于收音机、播客、蓝牙和 macOS",
+    "screensaverSourceNote": "仅适用于广播、播客、蓝牙和 macOS",
     "uiScale": "显示",
     "uiScaleLevel": "界面缩放",
-    "screensaverDelay": "启动屏幕保护程序："
+    "screensaverDelay": "在以下时间后启动屏幕保护程序："
   },
   "hardwareSettings": {
     "audioCard": "声卡",
@@ -245,12 +245,12 @@
   },
   "spotifySettings": {
     "autoDisconnect": "自动断开",
-    "disconnectDelay": "音乐暂停后断开延迟时间:"
+    "disconnectDelay": "音乐暂停后，在以下时间后自动断开："
   },
   "macSettings": {
     "latency": "延迟",
     "targetLatency": "目标延迟",
-    "latencyProfile": "延迟配置",
+    "latencyProfile": "延迟模式",
     "frameLength": "帧大小",
     "profiles": {
       "responsive": "快速响应",
@@ -297,7 +297,7 @@
     "notAvailable": "不可用",
     "update": "更新",
     "updating": "更新中...",
-    "errorDetectingSatellites": "检测卫星时出错",
+    "errorDetectingSatellites": "检测 Milō Client 时出错",
     "upToDate": "已是最新"
   },
   "info": {
@@ -305,7 +305,7 @@
     "ipAddress": "Milō IP",
     "cpu": "CPU",
     "ram": "RAM",
-    "designedBy": "Milō 应用由此开发"
+    "designedBy": "Milō 应用设计者"
   },
   "network": {
     "ethernet": "以太网",
@@ -347,15 +347,15 @@
   "time": {
     "10sec": "10 秒",
     "30sec": "30 秒",
-    "2min": "2分",
-    "5min": "5分",
+    "2min": "2 分钟",
+    "5min": "5 分钟",
     "10min": "10 分钟",
-    "15min": "15分",
-    "30min": "30分",
-    "1h": "1小时",
-    "2h": "2 h",
-    "4h": "4 h",
-    "12h": "12 h"
+    "15min": "15 分钟",
+    "30min": "30 分钟",
+    "1h": "1 小时",
+    "2h": "2 小时",
+    "4h": "4 小时",
+    "12h": "12 小时"
   },
   "common": {
     "settings": "设置",
@@ -412,16 +412,16 @@
     "podcasts": "播客",
     "subscriptions": "订阅",
     "search": "搜索",
-    "queue": "队列",
+    "queue": "播放队列",
     "podcastDetails": "播客详情",
-    "episodeDetails": "剧集详情",
-    "top30": "前30名",
+    "episodeDetails": "单集详情",
+    "top30": "热门 30",
     "nowPlaying": "正在播放",
-    "noEpisode": "没有剧集",
-    "newEpisodesFromSubscriptions": "订阅的新剧集",
+    "noEpisode": "没有单集",
+    "newEpisodesFromSubscriptions": "订阅播客的新单集",
     "topPodcasts": "热门播客",
     "browseByGenre": "按类型浏览",
-    "topEpisodes": "热门剧集",
+    "topEpisodes": "热门单集",
     "genres": {
       "news": "新闻",
       "comedy": "喜剧",
@@ -429,7 +429,7 @@
       "education": "教育",
       "business": "商业",
       "arts": "艺术",
-      "fiction": "小说",
+      "fiction": "虚构类",
       "government": "政府",
       "health_and_fitness": "健康与健身",
       "history": "历史",
@@ -445,10 +445,10 @@
     },
     "searchPlaceholder": "搜索",
     "podcastsTitle": "播客",
-    "recentEpisodesTitle": "最近两周的剧集",
+    "recentEpisodesTitle": "最近两周的单集",
     "noResultsFor": "没有找到\"{query}\"的结果",
     "noResults": "没有找到结果",
-    "searchPrompt": "搜索播客或剧集",
+    "searchPrompt": "搜索播客或单集",
     "duration": {
       "label": "时长",
       "short": "短 (< 15分钟)",
@@ -478,9 +478,9 @@
       "all": "类型"
     },
     "loadMorePodcasts": "加载更多播客",
-    "loadMoreEpisodes": "加载更多剧集",
-    "newEpisodes": "新剧集",
-    "noNewEpisodes": "没有新剧集",
+    "loadMoreEpisodes": "加载更多单集",
+    "newEpisodes": "新单集",
+    "noNewEpisodes": "没有新单集",
     "myPodcasts": "我的播客",
     "noSubscriptions": "没有订阅",
     "noSubscriptionsHint": "搜索播客并订阅以在此处找到它们",
@@ -489,15 +489,15 @@
     "noInternetHint": "请检查您的网络连接并重试",
     "retry": "重试",
     "loading": "加载中...",
-    "noEpisodesInQueue": "队列中没有剧集",
-    "noEpisodesInQueueHint": "开始收听剧集，它们将显示在这里",
-    "episodesCount2": "剧集",
+    "noEpisodesInQueue": "队列中没有单集",
+    "noEpisodesInQueueHint": "开始收听单集，它们将显示在这里",
+    "episodesCount2": "单集",
     "subscribed": "已订阅",
     "subscribe": "订阅",
     "description": "描述",
-    "episodesTitle": "剧集",
+    "episodesTitle": "单集",
     "remaining": "剩余",
-    "episodeCompleted": "剧集已完成",
+    "episodeCompleted": "单集已完成",
     "today": "今天",
     "yesterday": "昨天",
     "unsubscribe": "取消订阅",
@@ -597,7 +597,7 @@
       "none": "无屏幕"
     },
     "summary": {
-      "title": "摘要",
+      "title": "配置总览",
       "network": "网络",
       "language": "语言",
       "audioCard": "声卡",
@@ -606,7 +606,7 @@
       "confirmReboot": "确认重启",
       "rebooting": "正在重启...",
       "rebootingDescription": "请等待系统重启。",
-      "accessHint": "重启后，连接到 {ssid} 并在浏览器中打开 milo.local 以访问 Milō。"
+      "accessHint": "重启后，连接到网络 {ssid} 并在浏览器中打开 milo.local 以访问 Milō。"
     }
   }
 }

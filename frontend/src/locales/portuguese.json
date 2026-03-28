@@ -1,7 +1,7 @@
 {
   "app": {
     "connectionUnavailable": "Conexão indisponível",
-    "connecting": "Conectando..."
+    "connecting": "A conectar..."
   },
   "notification": {
     "connectionLostTitle": "Conexão perdida",
@@ -23,8 +23,8 @@
     "confirmRestart": "Confirmar reinício",
     "shutdown": "Desligar",
     "confirmShutdown": "Confirmar desligamento",
-    "restartInProgress": "Reiniciando...",
-    "shutdownInProgress": "Desligando..."
+    "restartInProgress": "A reiniciar...",
+    "shutdownInProgress": "A desligar..."
   },
   "audioSources": {
     "title": "Fontes de áudio",
@@ -46,8 +46,8 @@
       "favoritesTitle": "Rádios favoritas",
       "discoverTitle": "Descobrir rádios",
       "searchPlaceholder": "Pesquisar",
-      "loadingCountries": "Carregando países...",
-      "loadingStations": "Carregando estações...",
+      "loadingCountries": "A carregar países...",
+      "loadingStations": "A carregar estações...",
       "noInternet": "Sem conexão com a internet",
       "noInternetHint": "Verifique sua conexão de rede e tente novamente",
       "connectionError": "Erro de conexão",
@@ -63,7 +63,7 @@
   },
   "multiroom": {
     "disabled": "O multiroom não está ativado",
-    "starting": "A iniciar Multiroom",
+    "starting": "A iniciar o Multiroom",
     "zonesAndSystems": "Sistemas de áudio",
     "individualSystems": "Sistemas individuais",
     "loadingSystems": "A carregar sistemas...",
@@ -118,7 +118,7 @@
   },
   "equalizer": {
     "title": "Equalizador",
-    "effects_disabled": "Os efeitos equalizer estão desativados",
+    "effects_disabled": "Os efeitos do equalizador estão desativados",
     "selectPreset": "Preset",
     "zones": {
       "zoneName": "Nome da zona",
@@ -139,7 +139,7 @@
       "threshold": "Limiar",
       "ratio": "Rácio",
       "attack": "Ataque",
-      "release": "Libertação",
+      "release": "Release",
       "makeup": "Ganho de compensação"
     },
     "loudness": {
@@ -153,7 +153,7 @@
     "presets": {
       "custom": "Personalizado",
       "edited": "Editado",
-      "save": "Salvar",
+      "save": "Guardar",
       "acoustic": "Acústica",
       "bass_boost": "Amplificador de graves",
       "bass_reducer": "Redutor de graves",
@@ -180,32 +180,32 @@
     "meters": {
       "title": "Níveis de saída de áudio"
     },
-    "connecting": "Conectando...",
+    "connecting": "A conectar...",
     "syncError": "Erro de sincronização"
   },
   "status": {
-    "loading": "Iniciando...",
-    "loadingOf": "Iniciando",
-    "loadingOfMasculine": "Iniciando",
-    "loadingOfFeminine": "Iniciando",
+    "loading": "A iniciar...",
+    "loadingOf": "A iniciar",
+    "loadingOfMasculine": "A iniciar",
+    "loadingOfFeminine": "A iniciar",
     "ready": "Pronto para conectar",
     "readyToStream": "Pronto para transmitir",
-    "waiting": "Aguardando...",
+    "waiting": "A aguardar...",
     "connectedToMac": "Conectado a",
     "audioReceivedFrom": "Áudio recebido de",
     "disconnect": "Desconectar",
-    "disconnecting": "Desconectando...",
+    "disconnecting": "A desconectar...",
     "unknownTitle": "Título desconhecido",
     "unknownArtist": "Artista desconhecido",
     "readyToPlay": "Pronto para reproduzir",
-    "loadingAlbum": "Carregando álbum",
-    "ejecting": "Ejetando..."
+    "loadingAlbum": "A carregar o álbum",
+    "ejecting": "A ejetar..."
   },
   "volumeSettings": {
-    "externalAmplifier": "Volume gerido por amplificador externo",
+    "externalAmplifier": "Volume gerido pelo amplificador externo",
     "controls": "Controles de volume",
     "rotaryStep": "Variação de volume por rotação",
-    "mobileStep": "Variação de volume no celular",
+    "mobileStep": "Variação de volume no dispositivo móvel",
     "limits": "Limites de volume",
     "minMax": "Volume mínimo e máximo",
     "startup": "Volume de inicialização",
@@ -217,35 +217,35 @@
       "connected": "Conectado",
       "notConnected": "Não conectado",
       "discover": "Procurar",
-      "discovering": "Procurando...",
+      "discovering": "A procurar...",
       "batteryLow": "Bateria fraca"
     }
   },
   "screenSettings": {
     "brightness": "Brilho",
     "brightnessIntensity": "Intensidade do brilho",
-    "autoSleep": "Suspensão de tela",
-    "sleepDelay": "Quando o aplicativo estiver inativo, desligar a tela após:",
-    "screensaver": "Proteção de tela",
+    "autoSleep": "Suspensão do ecrã",
+    "sleepDelay": "Quando a aplicação estiver inativa, desligar o ecrã após:",
+    "screensaver": "Protetor de ecrã",
     "screensaverSourceNote": "Apenas em Rádio, Podcasts, Bluetooth e macOS",
     "uiScale": "Exibição",
     "uiScaleLevel": "Escala da interface",
-    "screensaverDelay": "Iniciar a proteção de tela após:"
+    "screensaverDelay": "Iniciar o protetor de ecrã após:"
   },
   "hardwareSettings": {
     "audioCard": "Placa de áudio",
     "audioCardModel": "Modelo",
-    "screen": "Tela",
+    "screen": "Ecrã",
     "screenModel": "Modelo",
     "rotaryEncoder": "Codificador rotativo",
     "rotaryEncoderDescription": "Selecione os pinos GPIO conectados ao seu codificador rotativo.",
     "applyAndReboot": "Aplicar e reiniciar",
     "confirmReboot": "Confirmar reinício",
-    "rebooting": "Reiniciando..."
+    "rebooting": "A reiniciar..."
   },
   "spotifySettings": {
     "autoDisconnect": "Desconexão automática",
-    "disconnectDelay": "Atraso de desconexão após a música estar pausada por:"
+    "disconnectDelay": "Desconectar após a música estar em pausa durante:"
   },
   "macSettings": {
     "latency": "Latência",
@@ -273,7 +273,7 @@
     "apiUsage": "Uso da Taddy API",
     "requestsPerMonth": "requisições",
     "resetsMonthly": "Limites da API são redefinidos mensualmente",
-    "resetsOn": "Limites da API reiniciam em {day} de {month}"
+    "resetsOn": "Limites da API reiniciam a {day} de {month}"
   },
   "multiroomSettings": {
     "presets": "Presets",
@@ -296,7 +296,7 @@
     "retry": "Tentar novamente",
     "notAvailable": "Não disponível",
     "update": "Atualizar",
-    "updating": "Atualizando...",
+    "updating": "A atualizar...",
     "errorDetectingSatellites": "Erro ao detectar satélites",
     "upToDate": "Atualizado"
   },
@@ -305,7 +305,7 @@
     "ipAddress": "IP do Milō",
     "cpu": "CPU",
     "ram": "RAM",
-    "designedBy": "Aplicativo Milō criado por"
+    "designedBy": "Aplicação Milō concebida por"
   },
   "network": {
     "ethernet": "Ethernet",
@@ -319,7 +319,7 @@
     "noNetworks": "Nenhuma rede detectada",
     "password": "Senha",
     "connect": "Conectar",
-    "connecting": "Conectando...",
+    "connecting": "A conectar...",
     "connectFailed": "Falha na conexão",
     "forget": "Esquecer",
     "refresh": "Atualizar",
@@ -327,9 +327,9 @@
     "wifiNetworks": "Redes WiFi",
     "wifiCountry": "País WiFi",
     "selectCountry": "Selecione seu país",
-    "save": "Salvar",
-    "saving": "Salvando...",
-    "saveFailed": "Falha ao salvar a rede"
+    "save": "Guardar",
+    "saving": "A guardar...",
+    "saveFailed": "Falha ao guardar a rede"
   },
   "applications": {
     "features": "Funcionalidades"
@@ -606,7 +606,7 @@
       "confirmReboot": "Confirmar reinício",
       "rebooting": "A reiniciar...",
       "rebootingDescription": "Aguarde enquanto o sistema reinicia.",
-      "accessHint": "Após reiniciar, conecte-se a {ssid} e abra milo.local no seu navegador para acessar o Milō."
+      "accessHint": "Após o reinício, ligue-se à rede {ssid} e abra milo.local no seu navegador para aceder ao Milō."
     }
   }
 }

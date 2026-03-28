@@ -10,7 +10,7 @@
     "commandFailed": "कमांड विफल"
   },
   "settings": {
-    "title": "Milō कॉन्फ़िगरेशन",
+    "title": "Milō सेटिंग्स",
     "languages": "भाषाएं",
     "dock": "Dock",
     "volume": "वॉल्यूम",
@@ -86,7 +86,7 @@
       "lowpassActive": "लो-पास सक्रिय",
       "disablePhysicalCrossover": "सबवूफ़र का फ़िज़िकल क्रॉसओवर बंद करें या इसे अधिकतम फ़्रीक्वेंसी पर सेट करें।",
       "highpassActive": "हाई-पास सक्रिय",
-      "highpassDescription": "{freq} Hz से नीचे की बेस सबवूफ़र को रीडायरेक्ट की गई।",
+      "highpassDescription": "{freq} Hz से नीचे की बेस सबवूफ़र पर भेजी जाती हैं।",
       "crossoverFrequency": "क्रॉसओवर फ़्रीक्वेंसी",
       "badgeActive": "क्रॉसओवर सक्रिय",
       "badgeInactive": "क्रॉसओवर निष्क्रिय",
@@ -117,8 +117,8 @@
     "externalVolume": "बाहरी एम्पलीफायर"
   },
   "equalizer": {
-    "title": "Equalizer",
-    "effects_disabled": "Equalizer इफ़ेक्ट्स अक्षम हैं",
+    "title": "इक्वलाइज़र",
+    "effects_disabled": "इक्वलाइज़र इफ़ेक्ट्स अक्षम हैं",
     "selectPreset": "प्रीसेट",
     "zones": {
       "zoneName": "ज़ोन का नाम",
@@ -210,7 +210,7 @@
     "minMax": "न्यूनतम और अधिकतम वॉल्यूम",
     "startup": "स्टार्टअप वॉल्यूम",
     "fixedVolume": "निश्चित वॉल्यूम",
-    "restoreLast": "अंतिम बहाल करें",
+    "restoreLast": "पिछला वॉल्यूम रखें",
     "fixedStartup": "निश्चित स्टार्टअप वॉल्यूम",
     "btRemote": {
       "title": "ब्लूटूथ नियंत्रक",
@@ -230,7 +230,7 @@
     "screensaverSourceNote": "केवल रेडियो, पॉडकास्ट, ब्लूटूथ और macOS पर",
     "uiScale": "प्रदर्शन",
     "uiScaleLevel": "इंटरफ़ेस स्केल",
-    "screensaverDelay": "स्क्रीनसेवर शुरू करें, इसके बाद:"
+    "screensaverDelay": "इतने समय बाद स्क्रीनसेवर शुरू करें:"
   },
   "hardwareSettings": {
     "audioCard": "ऑडियो कार्ड",
@@ -245,7 +245,7 @@
   },
   "spotifySettings": {
     "autoDisconnect": "ऑटो डिस्कनेक्ट",
-    "disconnectDelay": "संगीत रुकने के बाद डिस्कनेक्ट देरी:"
+    "disconnectDelay": "संगीत रुकने के बाद इतने समय में डिस्कनेक्ट करें:"
   },
   "macSettings": {
     "latency": "विलंबता",
@@ -305,7 +305,7 @@
     "ipAddress": "Milō आईपी",
     "cpu": "CPU",
     "ram": "RAM",
-    "designedBy": "Milō ऐप द्वारा निर्मित"
+    "designedBy": "Milō ऐप की डिज़ाइन:"
   },
   "network": {
     "ethernet": "ईथरनेट",
@@ -349,13 +349,13 @@
     "30sec": "30 सेकंड",
     "2min": "2 मिन",
     "5min": "5 मिन",
-    "10min": "10 मिनट",
+    "10min": "10 मिन",
     "15min": "15 मिन",
     "30min": "30 मिन",
     "1h": "1 घंटा",
-    "2h": "2 h",
-    "4h": "4 h",
-    "12h": "12 h"
+    "2h": "2 घंटे",
+    "4h": "4 घंटे",
+    "12h": "12 घंटे"
   },
   "common": {
     "settings": "सेटिंग्स",
@@ -363,7 +363,7 @@
     "save": "सहेजें",
     "saving": "सहेजा जा रहा है...",
     "confirm": "पुष्टि करें",
-    "restore": "पुनर्स्थापित",
+    "restore": "पुनर्स्थापित करें",
     "delete": "हटाएं",
     "deleting": "हटाया जा रहा है..."
   },
@@ -387,7 +387,7 @@
       "bitratePlaceholder": "उदाहरण: 128, 192, 320",
       "add": "जोड़ें",
       "adding": "जोड़ा जा रहा है...",
-      "confirmDelete": "पुष्टि करना।",
+      "confirmDelete": "पुष्टि करें",
       "loading": "लोड हो रहा है...",
       "invalidImageFormat": "असमर्थित छवि प्रारूप। JPG, PNG, WEBP या GIF का उपयोग करें।",
       "imageTooLarge": "छवि बहुत बड़ी है। अधिकतम 5MB।",
@@ -395,7 +395,7 @@
       "editFailed": "स्टेशन संपादित करने में विफल",
       "addFailed": "स्टेशन जोड़ने में विफल",
       "errorOccurred": "एक त्रुटि हुई",
-      "addStationTitle": "एक स्टेशन जोड़ें",
+      "addStationTitle": "स्टेशन जोड़ें",
       "editStationTitle": "स्टेशन संपादित करें"
     }
   },
@@ -483,7 +483,7 @@
     "noNewEpisodes": "कोई नया एपिसोड नहीं",
     "myPodcasts": "मेरे पॉडकास्ट",
     "noSubscriptions": "कोई सदस्यता नहीं",
-    "noSubscriptionsHint": "पॉडकास्ट खोजें और उन्हें यहां खोजने के लिए सदस्यता लें",
+    "noSubscriptionsHint": "पॉडकास्ट खोजें और उन्हें यहां पाने के लिए सदस्यता लें",
     "noPodcastsInGenre": "इस श्रेणी में कोई पॉडकास्ट नहीं मिला",
     "noInternet": "इंटरनेट कनेक्शन नहीं है",
     "noInternetHint": "अपना नेटवर्क कनेक्शन जांचें और पुनः प्रयास करें",
@@ -504,7 +504,7 @@
     "credentialsError": "Taddy API क्रेडेंशियल आवश्यक",
     "credentialsErrorHint": "पॉडकास्ट एक्सेस करने के लिए अपने क्रेडेंशियल कॉन्फ़िगर करें",
     "configureButton": "कॉन्फ़िगर करें",
-    "rateLimitError": "API सीमा पूरी हुई",
+    "rateLimitError": "API सीमा पहुंच गई",
     "rateLimitErrorHint": "आपने Taddy API की 500 अनुरोधों की सीमा पूरी कर ली है। सीमा आपके पहले उपयोग की तारीख से हर महीने स्वचालित रूप से रीसेट हो जाती है।"
   },
   "countries": {
@@ -606,7 +606,7 @@
       "confirmReboot": "रीबूट की पुष्टि करें",
       "rebooting": "रीबूट हो रहा है...",
       "rebootingDescription": "कृपया सिस्टम के पुनः आरंभ होने तक प्रतीक्षा करें।",
-      "accessHint": "पुनरारंभ के बाद, {ssid} से कनेक्ट करें और Milō तक पहुँचने के लिए अपने ब्राउज़र में milo.local खोलें।"
+      "accessHint": "पुनरारंभ के बाद, नेटवर्क {ssid} से कनेक्ट करें और Milō तक पहुंचने के लिए अपने ब्राउज़र में milo.local खोलें।"
     }
   }
 }

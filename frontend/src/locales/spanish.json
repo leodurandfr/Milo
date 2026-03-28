@@ -118,7 +118,7 @@
   },
   "equalizer": {
     "title": "Ecualizador",
-    "effects_disabled": "Los efectos equalizer están desactivados",
+    "effects_disabled": "Los efectos del ecualizador están desactivados",
     "selectPreset": "Preset",
     "zones": {
       "zoneName": "Nombre de la zona",
@@ -238,14 +238,14 @@
     "screen": "Pantalla",
     "screenModel": "Modelo",
     "rotaryEncoder": "Codificador rotativo",
-    "rotaryEncoderDescription": "Seleccione los pines GPIO conectados a su codificador rotativo.",
+    "rotaryEncoderDescription": "Selecciona los pines GPIO conectados a tu codificador rotativo.",
     "applyAndReboot": "Aplicar y reiniciar",
     "confirmReboot": "Confirmar reinicio",
     "rebooting": "Reiniciando..."
   },
   "spotifySettings": {
     "autoDisconnect": "Desconexión automática",
-    "disconnectDelay": "Retraso de desconexión después de que la música esté en pausa durante:"
+    "disconnectDelay": "Desconectar tras pausar la música durante:"
   },
   "macSettings": {
     "latency": "Latencia",
@@ -263,11 +263,11 @@
   },
   "podcastSettings": {
     "taddyCredentials": "Credenciales API de Taddy",
-    "credentialsDescription": "Configure sus credenciales de Taddy API para acceder al contenido de podcasts. Obtenga sus credenciales en https://taddy.org/signup/developers",
+    "credentialsDescription": "Configura tus credenciales de Taddy API para acceder al contenido de podcasts. Obtén tus credenciales en https://taddy.org/signup/developers",
     "userId": "User ID",
-    "userIdPlaceholder": "Ingrese su User ID de Taddy",
+    "userIdPlaceholder": "Ingresa tu User ID de Taddy",
     "apiKey": "API Key",
-    "apiKeyPlaceholder": "Ingrese su API Key de Taddy",
+    "apiKeyPlaceholder": "Ingresa tu API Key de Taddy",
     "validateButton": "Probar conexión",
     "invalidCredentials": "Sus credenciales de Taddy API no son válidas",
     "apiUsage": "Uso de Taddy API",
@@ -276,7 +276,7 @@
     "resetsOn": "Límites de API se reinician el {day} de {month}"
   },
   "multiroomSettings": {
-    "presets": "Presets",
+    "presets": "Preajustes",
     "lanLowLatency": "LAN",
     "balanced": "Equilibrado",
     "optimalQuality": "Calidad óptima",
@@ -305,7 +305,7 @@
     "ipAddress": "IP de Milō",
     "cpu": "CPU",
     "ram": "RAM",
-    "designedBy": "Aplicación Milō creada por"
+    "designedBy": "Aplicación Milō diseñada por"
   },
   "network": {
     "ethernet": "Ethernet",
@@ -326,7 +326,7 @@
     "ready": "Listo",
     "wifiNetworks": "Redes WiFi",
     "wifiCountry": "País WiFi",
-    "selectCountry": "Seleccione su país",
+    "selectCountry": "Selecciona tu país",
     "save": "Guardar",
     "saving": "Guardando...",
     "saveFailed": "Error al guardar la red"
@@ -389,7 +389,7 @@
       "adding": "Añadiendo...",
       "confirmDelete": "Confirmar",
       "loading": "Cargando...",
-      "invalidImageFormat": "Formato de imagen no compatible. Use JPG, PNG, WEBP o GIF.",
+      "invalidImageFormat": "Formato de imagen no compatible. Usa JPG, PNG, WEBP o GIF.",
       "imageTooLarge": "Imagen demasiado grande. Máximo 5MB.",
       "noStationToEdit": "Ninguna estación para editar",
       "editFailed": "Error al editar la estación",
@@ -419,9 +419,9 @@
     "nowPlaying": "Reproduciendo",
     "noEpisode": "Sin episodio",
     "newEpisodesFromSubscriptions": "Nuevos episodios de suscripciones",
-    "topPodcasts": "Ranking de podcasts",
+    "topPodcasts": "Top Podcasts",
     "browseByGenre": "Explorar por género",
-    "topEpisodes": "Ranking de episodios",
+    "topEpisodes": "Top Episodios",
     "genres": {
       "news": "Noticias",
       "comedy": "Comedia",
@@ -500,9 +500,9 @@
     "episodeCompleted": "Episodio completado",
     "today": "Hoy",
     "yesterday": "Ayer",
-    "unsubscribe": "Desuscribirse",
+    "unsubscribe": "Cancelar suscripción",
     "credentialsError": "Credenciales de API Taddy requeridas",
-    "credentialsErrorHint": "Configure sus credenciales para acceder a los podcasts",
+    "credentialsErrorHint": "Configura tus credenciales para acceder a los podcasts",
     "configureButton": "Configurar",
     "rateLimitError": "Límite de API alcanzado",
     "rateLimitErrorHint": "Has alcanzado el límite de 500 solicitudes de la API Taddy. El límite se restablece automáticamente cada mes desde la fecha de tu primer uso."
@@ -575,12 +575,12 @@
     "back": "Volver",
     "continue": "Continuar",
     "welcome": {
-      "title": "Bienvenido a Milō",
-      "subtitle": "Configuremos tu sistema de audio!",
+      "title": "Te damos la bienvenida a Milō",
+      "subtitle": "¡Configuremos tu sistema de audio!",
       "getStarted": "Comenzar"
     },
     "wifi": {
-      "title": "Configure la red"
+      "title": "Configura la red"
     },
     "language": {
       "title": "Elige tu idioma"
