@@ -58,6 +58,14 @@
             @change="v => onPinChange('dt_pin', v)"
           />
         </SettingItem>
+        <SettingItem label="SW">
+          <Dropdown
+            :model-value="config.sw_pin"
+            :options="gpioPinOptions"
+            :disabled="isRebooting"
+            @change="v => onPinChange('sw_pin', v)"
+          />
+        </SettingItem>
       </div>
     </SettingsSection>
 
@@ -92,7 +100,6 @@ const gpioPinOptions = Array.from({ length: 40 }, (_, i) => ({
 }));
 
 // Local config for instant UI responsiveness
-// sw_pin is kept internally for the backend payload but not shown in the UI
 const config = ref({
   audio_id: '',
   volume_control: true,
@@ -120,7 +127,8 @@ const isDirty = computed(() => {
     config.value.audio_id !== savedConfig.value.audio_id ||
     config.value.screen_type !== savedConfig.value.screen_type ||
     config.value.clk_pin !== savedConfig.value.clk_pin ||
-    config.value.dt_pin !== savedConfig.value.dt_pin
+    config.value.dt_pin !== savedConfig.value.dt_pin ||
+    config.value.sw_pin !== savedConfig.value.sw_pin
   );
 });
 
@@ -270,7 +278,7 @@ onMounted(async () => {
 
 .encoder-pins {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: var(--space-03);
 }
 
