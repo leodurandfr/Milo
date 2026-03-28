@@ -636,7 +636,7 @@ onMounted(async () => {
   gap: var(--space-01);
   opacity: 0;
   transform: translateY(-100%);
-  transition: opacity var(--transition-fast), transform var(--transition-fast);
+  transition: opacity var(--transition-medium), transform var(--transition-medium);
 }
 
 .power-menu-region--open .power-menu-items {
