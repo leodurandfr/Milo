@@ -7,6 +7,7 @@ import os
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import asyncio
 import logging
 from logging.handlers import RotatingFileHandler
 from contextlib import asynccontextmanager
@@ -93,11 +94,18 @@ async def lifespan(app: FastAPI):
             await init_task
         logger.info("Services initialization completed")
 
+        # Stop source services left running by systemd (BindsTo restarts them
+        # after a backend restart, but the state machine starts at source=NONE)
+        lingering = [
+            s.service_name for s in state_machine.sources.values()
+            if s and s.service_name and await systemd_manager.is_active(s.service_name)
+        ]
+        if lingering:
+            logger.info("Stopping lingering source services: %s", lingering)
+            await asyncio.gather(*[systemd_manager.stop(svc) for svc in lingering])
+
         # Enable WebSocket broadcasting for backend errors/warnings
         _ws_log_handler.set_state_machine(state_machine)
-
-        # Sources are initialized on-demand when activated (state.py:_start_source)
-        # Radio is pre-initialized in init_async() for API access
 
         # Load inactivity timeout from settings (0 = disabled, default 7200s = 2h)
         audio_settings = await settings_service.get_setting('audio') or {}
