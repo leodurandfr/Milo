@@ -6,7 +6,7 @@
   }">
     <!-- Content container with fixed height -->
     <div class="header-content">
-      <Transition name="header-fade">
+      <Transition name="header-fade" mode="out-in">
         <div v-if="showBack" :key="'back-' + title + '-' + subtitle" class="back-navigation-header">
           <IconButton icon="caretLeft" :variant="variant === 'contrast' ? 'on-dark' : 'background-strong'" @click="handleBack" />
           <h2 v-if="!subtitle" class="heading-1">{{ title }}</h2>
