@@ -62,13 +62,13 @@
     }
   },
   "multiroom": {
-    "disabled": "Multiroom non è abilitato",
+    "disabled": "Il multiroom è disattivato",
     "starting": "Avvio Multiroom",
     "zonesAndSystems": "Sistemi audio",
     "individualSystems": "Sistemi individuali",
     "loadingSystems": "Caricamento sistemi...",
     "noSystems": "Nessun sistema connesso",
-    "restarting": "Riavvio multiroom...",
+    "restarting": "Riavvio multiroom in corso...",
     "error": "Errore durante l'attivazione del multiroom",
     "editSystem": "Modifica sistema audio",
     "systemNameMain": "Nome del sistema principale",
@@ -118,7 +118,7 @@
   },
   "equalizer": {
     "title": "Equalizzatore",
-    "effects_disabled": "Gli effetti equalizer sono disabilitati",
+    "effects_disabled": "Gli effetti dell'equalizzatore sono disattivati",
     "selectPreset": "Preset",
     "zones": {
       "zoneName": "Nome della zona",
@@ -202,16 +202,16 @@
     "ejecting": "Espulsione in corso..."
   },
   "volumeSettings": {
-    "externalAmplifier": "Volume gestito da amplificatore esterno",
-    "controls": "Controlli volume",
+    "externalAmplifier": "Volume gestito dall'amplificatore esterno",
+    "controls": "Controlli del volume",
     "rotaryStep": "Variazione del volume per rotazione",
     "mobileStep": "Variazione del volume su mobile",
-    "limits": "Limiti volume",
+    "limits": "Limiti del volume",
     "minMax": "Volume minimo e massimo",
     "startup": "Volume all'avvio",
     "fixedVolume": "Volume fisso",
     "restoreLast": "Ripristina ultimo",
-    "fixedStartup": "Volume di avvio fisso",
+    "fixedStartup": "Volume fisso all'avvio",
     "btRemote": {
       "title": "Controller Bluetooth",
       "connected": "Connesso",
@@ -223,7 +223,7 @@
   },
   "screenSettings": {
     "brightness": "Luminosità",
-    "brightnessIntensity": "Intensità luminosità",
+    "brightnessIntensity": "Intensità della luminosità",
     "autoSleep": "Sospensione schermo",
     "sleepDelay": "In caso di inattività dell'app, spegnere lo schermo dopo:",
     "screensaver": "Salvaschermo",
@@ -245,7 +245,7 @@
   },
   "spotifySettings": {
     "autoDisconnect": "Disconnessione automatica",
-    "disconnectDelay": "Ritardo disconnessione dopo la pausa della musica per:"
+    "disconnectDelay": "Disconnessione dopo che la musica è in pausa da:"
   },
   "macSettings": {
     "latency": "Latenza",
@@ -273,7 +273,7 @@
     "apiUsage": "Utilizzo Taddy API",
     "requestsPerMonth": "richieste",
     "resetsMonthly": "I limiti API vengono reimpostati mensilmente",
-    "resetsOn": "Limiti API resettati il {day} {month}"
+    "resetsOn": "Limiti API reimpostati il {day} {month}"
   },
   "multiroomSettings": {
     "presets": "Preset",
@@ -292,12 +292,12 @@
     "programsTitle": "Programmi Milō",
     "satelliteProgramsTitle": "Milō Clients",
     "satelliteSectionTitle": "Programmi Milō Client",
-    "error": "Errore caricamento aggiornamenti",
+    "error": "Errore durante il caricamento degli aggiornamenti",
     "retry": "Riprova",
     "notAvailable": "Non disponibile",
     "update": "Aggiorna",
     "updating": "Aggiornamento...",
-    "errorDetectingSatellites": "Errore rilevamento satelliti",
+    "errorDetectingSatellites": "Errore durante il rilevamento dei satelliti",
     "upToDate": "Aggiornato"
   },
   "info": {
@@ -305,7 +305,7 @@
     "ipAddress": "IP Milō",
     "cpu": "CPU",
     "ram": "RAM",
-    "designedBy": "App Milō creata da"
+    "designedBy": "App Milō progettata da"
   },
   "network": {
     "ethernet": "Ethernet",
@@ -508,7 +508,7 @@
     "rateLimitErrorHint": "Hai raggiunto il limite di 500 richieste API Taddy. Il limite si ripristina automaticamente ogni mese dalla data del tuo primo utilizzo."
   },
   "countries": {
-    "usa": "USA",
+    "usa": "Stati Uniti",
     "germany": "Germania",
     "russia": "Russia",
     "france": "Francia",
@@ -525,7 +525,7 @@
     "india": "India",
     "poland": "Polonia",
     "argentina": "Argentina",
-    "uae": "EAU",
+    "uae": "Emirati Arabi Uniti",
     "philippines": "Filippine",
     "switzerland": "Svizzera",
     "colombia": "Colombia",
@@ -580,7 +580,7 @@
       "getStarted": "Inizia"
     },
     "wifi": {
-      "title": "Configurate la rete"
+      "title": "Configura la rete"
     },
     "language": {
       "title": "Scegli la tua lingua"

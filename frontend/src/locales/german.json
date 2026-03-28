@@ -49,12 +49,12 @@
       "loadingCountries": "Länder werden geladen...",
       "loadingStations": "Sender werden geladen...",
       "noInternet": "Keine Internetverbindung",
-      "noInternetHint": "Überprüfen Sie Ihre Netzwerkverbindung und versuchen Sie es erneut",
+      "noInternetHint": "Überprüfe deine Netzwerkverbindung und versuche es erneut",
       "connectionError": "Verbindungsfehler",
       "cannotLoadStations": "Sender können nicht geladen werden",
       "retry": "Wiederholen",
       "noStationsFound": "Keine Sender gefunden",
-      "minCharactersRequired": "Geben Sie mindestens 3 Zeichen ein, um zu suchen",
+      "minCharactersRequired": "Gib mindestens 3 Zeichen ein, um zu suchen",
       "noFavorites": "Keine Lieblings-Radios",
       "playRadio": "Anhören",
       "stopRadio": "Stoppen",
@@ -160,14 +160,14 @@
       "classical": "Klassik",
       "dance": "Dance",
       "deep": "Tief",
-      "electronic": "Elektronisch",
+      "electronic": "Elektro",
       "flat": "Flach",
       "hip_hop": "Hip-Hop",
       "jazz": "Jazz",
       "latin": "Latino",
       "loudness": "Lautstärke",
       "lounge": "Lounge",
-      "piano": "Klavier",
+      "piano": "Piano",
       "pop": "Pop",
       "rnb": "RnB",
       "rock": "Rock",
@@ -238,14 +238,14 @@
     "screen": "Bildschirm",
     "screenModel": "Modell",
     "rotaryEncoder": "Drehregler",
-    "rotaryEncoderDescription": "Wählen Sie die GPIO-Pins Ihres Drehreglers aus.",
+    "rotaryEncoderDescription": "Wähle die GPIO-Pins deines Drehreglers aus.",
     "applyAndReboot": "Anwenden und neu starten",
     "confirmReboot": "Neustart bestätigen",
-    "rebooting": "Neustart..."
+    "rebooting": "Neustart läuft..."
   },
   "spotifySettings": {
     "autoDisconnect": "Automatische Trennung",
-    "disconnectDelay": "Trennungsverzögerung nach Pause der Musik für:"
+    "disconnectDelay": "Automatisch trennen, wenn die Musik pausiert seit:"
   },
   "macSettings": {
     "latency": "Latenz",
@@ -257,17 +257,17 @@
       "gradual": "Allmählich",
       "intact": "Intakt"
     },
-    "apply": "Anwenden und neustarten",
+    "apply": "Anwenden & neu starten",
     "restarting": "Wird neu gestartet...",
     "warning": "Eine niedrige Latenz kann bei instabilen Netzwerken zu Audioaussetzern führen."
   },
   "podcastSettings": {
     "taddyCredentials": "Taddy API-Anmeldedaten",
-    "credentialsDescription": "Konfigurieren Sie Ihre Taddy API-Anmeldedaten, um auf Podcast-Inhalte zuzugreifen. Holen Sie sich Ihre Anmeldedaten auf https://taddy.org/signup/developers",
+    "credentialsDescription": "Konfiguriere deine Taddy API-Anmeldedaten, um auf Podcast-Inhalte zuzugreifen. Hole dir deine Anmeldedaten auf https://taddy.org/signup/developers",
     "userId": "User ID",
-    "userIdPlaceholder": "Geben Sie Ihre Taddy User ID ein",
+    "userIdPlaceholder": "Gib deine Taddy User ID ein",
     "apiKey": "API Key",
-    "apiKeyPlaceholder": "Geben Sie Ihren Taddy API Key ein",
+    "apiKeyPlaceholder": "Gib deinen Taddy API Key ein",
     "validateButton": "Verbindung testen",
     "invalidCredentials": "Ihre Taddy API-Anmeldedaten sind ungültig",
     "apiUsage": "Taddy API-Nutzung",
@@ -305,7 +305,7 @@
     "ipAddress": "Milō-IP",
     "cpu": "CPU",
     "ram": "RAM",
-    "designedBy": "Milō App entwickelt von"
+    "designedBy": "Milō App entworfen von"
   },
   "network": {
     "ethernet": "Ethernet",
@@ -326,7 +326,7 @@
     "ready": "Bereit",
     "wifiNetworks": "WLAN-Netzwerke",
     "wifiCountry": "WLAN-Land",
-    "selectCountry": "Wählen Sie Ihr Land",
+    "selectCountry": "Wähle dein Land",
     "save": "Speichern",
     "saving": "Speichern...",
     "saveFailed": "Netzwerk konnte nicht gespeichert werden"
@@ -352,7 +352,7 @@
     "10min": "10 Min",
     "15min": "15 Min",
     "30min": "30 Min",
-    "1h": "1 Std",
+    "1h": "1 h",
     "2h": "2 h",
     "4h": "4 h",
     "12h": "12 h"
@@ -389,7 +389,7 @@
       "adding": "Wird hinzugefügt...",
       "confirmDelete": "Bestätigen",
       "loading": "Wird geladen...",
-      "invalidImageFormat": "Nicht unterstütztes Bildformat. Verwenden Sie JPG, PNG, WEBP oder GIF.",
+      "invalidImageFormat": "Nicht unterstütztes Bildformat. Verwende JPG, PNG, WEBP oder GIF.",
       "imageTooLarge": "Bild zu groß. Maximum 5MB.",
       "noStationToEdit": "Kein Sender zum Bearbeiten",
       "editFailed": "Sender konnte nicht bearbeitet werden",
@@ -406,7 +406,7 @@
     "addedStationsTitle": "Hinzugefügte Sender",
     "addStation": "Sender hinzufügen",
     "trackRecognition": "Titelidentifikation",
-    "trackRecognitionDescription": "Laufende Titel über Shazam identifizieren"
+    "trackRecognitionDescription": "Aktuell gespielte Titel über Shazam erkennen"
   },
   "podcasts": {
     "podcasts": "Podcasts",
@@ -483,14 +483,14 @@
     "noNewEpisodes": "Keine neuen Episoden",
     "myPodcasts": "Meine Podcasts",
     "noSubscriptions": "Keine Abonnements",
-    "noSubscriptionsHint": "Suchen Sie nach Podcasts und abonnieren Sie sie, um sie hier zu finden",
+    "noSubscriptionsHint": "Suche nach Podcasts und abonniere sie, um sie hier zu finden",
     "noPodcastsInGenre": "Keine Podcasts in dieser Kategorie gefunden",
     "noInternet": "Keine Internetverbindung",
-    "noInternetHint": "Überprüfen Sie Ihre Netzwerkverbindung und versuchen Sie es erneut",
+    "noInternetHint": "Überprüfe deine Netzwerkverbindung und versuche es erneut",
     "retry": "Erneut versuchen",
     "loading": "Wird geladen...",
     "noEpisodesInQueue": "Keine Episoden in der Warteschlange",
-    "noEpisodesInQueueHint": "Beginnen Sie mit dem Hören von Episoden und sie werden hier angezeigt",
+    "noEpisodesInQueueHint": "Beginne Episoden anzuhören und sie werden hier angezeigt",
     "episodesCount2": "Episoden",
     "subscribed": "Abonniert",
     "subscribe": "Abonnieren",
@@ -502,10 +502,10 @@
     "yesterday": "Gestern",
     "unsubscribe": "Abbestellen",
     "credentialsError": "Taddy API-Anmeldedaten erforderlich",
-    "credentialsErrorHint": "Konfigurieren Sie Ihre Anmeldedaten, um auf Podcasts zuzugreifen",
+    "credentialsErrorHint": "Konfiguriere deine Anmeldedaten, um auf Podcasts zuzugreifen",
     "configureButton": "Konfigurieren",
     "rateLimitError": "API-Limit erreicht",
-    "rateLimitErrorHint": "Sie haben das Taddy API-Limit von 500 Anfragen erreicht. Das Limit wird jeden Monat ab dem Datum Ihrer ersten Nutzung automatisch zurückgesetzt."
+    "rateLimitErrorHint": "Du hast das Taddy API-Limit von 500 Anfragen erreicht. Das Limit wird jeden Monat ab dem Datum deiner ersten Nutzung automatisch zurückgesetzt."
   },
   "countries": {
     "usa": "USA",
@@ -576,24 +576,24 @@
     "continue": "Weiter",
     "welcome": {
       "title": "Willkommen bei Milō",
-      "subtitle": "Lassen Sie uns Ihr Audiosystem konfigurieren!",
+      "subtitle": "Lass uns dein Audiosystem einrichten!",
       "getStarted": "Los geht's"
     },
     "wifi": {
       "title": "Netzwerk einrichten"
     },
     "language": {
-      "title": "Wählen Sie Ihre Sprache"
+      "title": "Wähle deine Sprache"
     },
     "audio": {
-      "title": "Wählen Sie Ihre Audiokarte",
+      "title": "Wähle deine Audiokarte",
       "amplifiers": "Verstärker",
       "dacs": "DACs (externer Verstärker)",
       "none": "Keine Audiokarte",
       "other": "Sonstige"
     },
     "screen": {
-      "title": "Wählen Sie Ihren Bildschirm",
+      "title": "Wähle deinen Bildschirm",
       "none": "Kein Bildschirm"
     },
     "summary": {
@@ -605,8 +605,8 @@
       "applyAndReboot": "Anwenden und neu starten",
       "confirmReboot": "Neustart bestätigen",
       "rebooting": "Neustart...",
-      "rebootingDescription": "Bitte warten Sie, während das System neu startet.",
-      "accessHint": "Verbinde dich nach dem Neustart mit {ssid} und öffne milo.local in deinem Browser, um auf Milō zuzugreifen."
+      "rebootingDescription": "Bitte warte, während das System neu startet.",
+      "accessHint": "Verbinde dich nach dem Neustart mit dem Netzwerk {ssid} und öffne milo.local in deinem Browser, um auf Milō zuzugreifen."
     }
   }
 }

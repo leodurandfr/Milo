@@ -204,8 +204,8 @@
   "volumeSettings": {
     "externalAmplifier": "Volume managed by external amplifier",
     "controls": "Volume controls",
-    "rotaryStep": "Volume variation per rotation",
-    "mobileStep": "Volume variation on mobile",
+    "rotaryStep": "Volume step per rotation",
+    "mobileStep": "Volume step on mobile",
     "limits": "Volume limits",
     "minMax": "Minimum and maximum volume",
     "startup": "Startup volume",
@@ -245,7 +245,7 @@
   },
   "spotifySettings": {
     "autoDisconnect": "Auto disconnect",
-    "disconnectDelay": "Disconnect delay after music is paused for:"
+    "disconnectDelay": "Disconnect after music has been paused for:"
   },
   "macSettings": {
     "latency": "Latency",
@@ -305,7 +305,7 @@
     "ipAddress": "Milō IP",
     "cpu": "CPU",
     "ram": "RAM",
-    "designedBy": "Milō app built by"
+    "designedBy": "Milō app designed by"
   },
   "network": {
     "ethernet": "Ethernet",
@@ -406,7 +406,7 @@
     "addedStationsTitle": "Added stations",
     "addStation": "Add station",
     "trackRecognition": "Track recognition",
-    "trackRecognitionDescription": "Identify playing songs using Shazam"
+    "trackRecognitionDescription": "Identify currently playing songs using Shazam"
   },
   "podcasts": {
     "podcasts": "Podcasts",
@@ -604,7 +604,7 @@
       "screen": "Screen",
       "applyAndReboot": "Apply & Reboot",
       "confirmReboot": "Confirm reboot",
-      "accessHint": "After restart, connect to {ssid} and open milo.local in your browser to access Milō.",
+      "accessHint": "After restart, connect to the {ssid} network and open milo.local in your browser to access Milō.",
       "rebooting": "Rebooting...",
       "rebootingDescription": "Please wait while the system restarts."
     }

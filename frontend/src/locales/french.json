@@ -489,7 +489,7 @@
     "noInternetHint": "Vérifiez votre connexion réseau et réessayez",
     "retry": "Réessayer",
     "loading": "Chargement...",
-    "noEpisodesInQueue": "Aucun épisode en cours",
+    "noEpisodesInQueue": "Aucun épisode dans la file d'attente",
     "noEpisodesInQueueHint": "Commencez à écouter des épisodes et ils apparaîtront ici",
     "episodesCount2": "épisodes",
     "subscribed": "Abonné",
