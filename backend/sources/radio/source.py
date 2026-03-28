@@ -278,6 +278,9 @@ class RadioSource(MpvAudioSource):
 
     async def _try_single_url(self, url: str) -> bool:
         """Try to play a single URL in mpv."""
+        if not self._mpv:
+            self._logger.error("MPV not connected, cannot load stream")
+            return False
         success = await self._mpv.load_stream(url)
         if not success:
             self._logger.debug(f"mpv load_stream failed for: {url[:80]}")

@@ -74,7 +74,8 @@ def handle_errors(
                     return await fn(*args, **kwargs)
                 except Exception as e:
                     logger = _get_logger(fn, args[0] if args else None)
-                    getattr(logger, level)(f"Error in {method_name}: {e}")
+                    msg = str(e) or type(e).__name__
+                    getattr(logger, level)(f"Error in {method_name}: {msg}")
                     if has_default:
                         return copy.copy(default) if needs_copy else default
                     raise
@@ -86,7 +87,8 @@ def handle_errors(
                     return fn(*args, **kwargs)
                 except Exception as e:
                     logger = _get_logger(fn, args[0] if args else None)
-                    getattr(logger, level)(f"Error in {method_name}: {e}")
+                    msg = str(e) or type(e).__name__
+                    getattr(logger, level)(f"Error in {method_name}: {msg}")
                     if has_default:
                         return copy.copy(default) if needs_copy else default
                     raise
