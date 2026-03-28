@@ -4,8 +4,6 @@ Description=Milo First Boot — Auto-detect server or client mode
 # but before avahi-daemon to avoid hostname conflicts
 After=NetworkManager.service
 Before=avahi-daemon.socket avahi-daemon.service milo-backend.service milo-readiness.service
-# Only run if mode has not been configured yet
-ConditionPathExists=!/var/lib/milo/.mode-configured
 
 [Service]
 Type=oneshot

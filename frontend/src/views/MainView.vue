@@ -34,7 +34,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch, onUnmounted, defineAsyncComponent } from 'vue';
+import { computed, ref, watch, inject, onUnmounted, defineAsyncComponent } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useScreensaver } from '@/composables/useScreensaver';
 
@@ -54,6 +54,12 @@ const unifiedStore = useUnifiedAudioStore();
 
 // === Audio Screensaver ===
 const { isScreensaverVisible, screensaverData, closeScreensaver } = useScreensaver();
+
+// Dismiss screensaver when App.vue signals (e.g., new pending client detected)
+const dismissScreensaverSignal = inject('dismissScreensaver', ref(0));
+watch(dismissScreensaverSignal, () => {
+  if (isScreensaverVisible.value) closeScreensaver();
+});
 
 // === LOGO STATE ===
 const lastVisiblePosition = ref('center');

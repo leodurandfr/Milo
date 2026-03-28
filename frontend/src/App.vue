@@ -357,6 +357,9 @@ function registerDockControl(showFn) {
   showDockFn = showFn;
 }
 
+// Signal to dismiss screensaver from App.vue (incremented to trigger watch in MainView)
+const dismissScreensaverSignal = ref(0);
+
 // Provide for child components
 provide('openEqualizer', () => isEqualizerOpen.value = true);
 provide('openMultiroom', () => isMultiroomOpen.value = true);
@@ -367,6 +370,7 @@ provide('closeModals', () => {
   closeSettings();
 });
 provide('registerDockControl', registerDockControl);
+provide('dismissScreensaver', dismissScreensaverSignal);
 
 const cleanupFunctions = [];
 
@@ -447,6 +451,13 @@ onMounted(async () => {
         !multiroomStore.pendingClients.has(event.data?.client?.mac_id);
       multiroomStore.handleMultiroomEvent(event);
       if (isNew && !isSettingsOpen.value) {
+        // Wake screen if sleeping
+        if (settingsStore.isScreenSleeping) {
+          axios.post('/api/settings/screen-activity').catch(() => {});
+          settingsStore.updateScreenSleeping(false);
+        }
+        // Dismiss screensaver
+        dismissScreensaverSignal.value++;
         openSettings('multiroom');
       }
     }),
