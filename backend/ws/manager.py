@@ -45,6 +45,8 @@ class WebSocketManager:
         """Broadcast event to all connections in parallel with timeout.
 
         Connections that fail or timeout are closed and removed.
+        Slow/idle clients (background tabs, sleeping devices) are expected
+        and handled silently — logged at DEBUG to avoid noise.
         """
         if not self.active_connections:
             return
@@ -58,9 +60,9 @@ class WebSocketManager:
                 )
                 return connection, None
             except asyncio.TimeoutError:
-                logger.warning("Timeout sending to client (>1s)")
+                logger.debug("Slow client, closing connection")
             except Exception as e:
-                logger.warning(f"Failed to send to client: {e}")
+                logger.debug(f"Send to client failed: {e}")
             # Close dead connection so the client detects disconnect immediately
             try:
                 await connection.close()
