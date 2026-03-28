@@ -115,6 +115,7 @@
     /* === TRANSITIONS === */
     --transition-ultra-fast: 150ms var(--easeOutCubic);
     --transition-fast: 200ms var(--easeOutCubic);
+    --transition-medium: 300ms var(--easeOutCubic);
     --transition-normal: 400ms var(--easeOutCubic);
     --transition-slow: 600ms var(--easeOutCubic);
 
