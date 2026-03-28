@@ -77,7 +77,9 @@
           ref="scrollSentinel"
           class="scroll-sentinel"
         >
-          <span class="loading-more">{{ t('audioSources.radioSource.loadingMore') }}</span>
+          <Button variant="background-strong" disabled loading loading-label>
+            {{ t('audioSources.radioSource.loadingStations') }}
+          </Button>
         </div>
       </div>
     </div>
@@ -92,6 +94,7 @@ import { useInfiniteScroll } from '@/composables/useInfiniteScroll'
 import { useI18n } from '@/services/i18n'
 import StationCard from './StationCard.vue'
 import InputText from '@/components/ui/InputText.vue'
+import Button from '@/components/ui/Button.vue'
 import Dropdown from '@/components/ui/Dropdown.vue'
 import MessageContent from '@/components/ui/MessageContent.vue'
 
@@ -288,10 +291,6 @@ const { sentinelRef: scrollSentinel } = useInfiniteScroll({
   align-items: center;
   padding: var(--space-04);
   color: var(--color-text-tertiary);
-}
-
-.loading-more {
-  font-size: var(--text-sm);
 }
 
 /* Mobile */
