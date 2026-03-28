@@ -4,7 +4,7 @@
     <LazyImage
       ref="lazyImg"
       :src="getFaviconUrl(station.favicon)"
-      :fallback="placeholderImg"
+      :fallback="generateStationAvatar(station.name)"
       :alt="station.name"
       :class="['station-image', { playing: isPlaying, loading: isLoading }]"
     >
@@ -32,7 +32,7 @@
   }]" @click="$emit('click')">
     <LazyImage
       :src="getFaviconUrl(station.favicon)"
-      :fallback="placeholderImg"
+      :fallback="generateStationAvatar(station.name)"
       :alt="station.name"
       class="station-logo"
     >
@@ -63,7 +63,7 @@ import { getTranslatedCountryName } from '@/constants/countries';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
 import SkeletonStationCard from './SkeletonStationCard.vue';
-import placeholderImg from '@/assets/radio/station-placeholder.png';
+import { generateStationAvatar } from '@/utils/stationAvatar';
 
 const { t } = useI18n();
 

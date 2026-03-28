@@ -4,12 +4,13 @@
       <div v-show="visible" class="audio-player" :class="playerClasses" :style="playerStyle">
       <!-- Background image - heavily zoomed and blurred -->
       <div class="player-art-background">
-        <img v-if="artwork" :src="artwork" alt="" class="background-image" />
+        <img v-if="validArtwork" :src="validArtwork" alt="" class="background-image" />
+        <img v-else-if="placeholderArtwork" :src="placeholderArtwork" alt="" class="background-image" />
       </div>
 
       <div class="player-content">
-        <!-- Artwork -->
-        <img v-if="artwork" :src="artwork" :alt="title" class="player-artwork" />
+        <!-- Artwork: falls back to placeholderArtwork on load error (e.g. proxy 204) -->
+        <img v-if="validArtwork" :src="validArtwork" :alt="title" class="player-artwork" @load="handleArtworkLoad" @error="artworkError = true" />
         <img v-else :src="placeholderArtwork" :alt="title" class="player-artwork placeholder" />
 
         <!-- Info section with slot for flexible content -->
@@ -40,7 +41,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import episodePlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
 import { useIsMobile } from '@/composables/useIsMobile'
@@ -124,6 +125,18 @@ const props = defineProps({
 })
 
 defineEmits(['toggle-play', 'after-hide'])
+
+// Artwork validation — falls back to placeholderArtwork on error or tiny image (e.g. 1x1 tracking pixel)
+const MIN_IMAGE_SIZE = 8
+const artworkError = ref(false)
+watch(() => props.artwork, () => { artworkError.value = false })
+const validArtwork = computed(() => props.artwork && !artworkError.value ? props.artwork : null)
+
+function handleArtworkLoad(e) {
+  if (e.target.naturalWidth < MIN_IMAGE_SIZE || e.target.naturalHeight < MIN_IMAGE_SIZE) {
+    artworkError.value = true
+  }
+}
 
 // Computed classes for styling based on source
 const playerClasses = computed(() => ({

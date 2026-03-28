@@ -9,6 +9,7 @@ import { usePodcastStore } from '@/stores/podcastStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useI18n } from '@/services/i18n';
 import { formatDeviceNames } from '@/utils/deviceName';
+import { generateStationAvatar } from '@/utils/stationAvatar';
 
 /** Minimum ms between activity event processing. */
 const ACTIVITY_THROTTLE_MS = 500;
@@ -122,13 +123,15 @@ export function useScreensaver() {
       const station = radioStore.currentStation;
       const track = radioStore.trackInfo;
 
+      const stationArt = stationArtworkUrl(station) || generateStationAvatar(station?.name);
+
       if (track) {
         return {
           mode: 'media',
-          artwork: track.artwork || stationArtworkUrl(station),
+          artwork: track.artwork || stationArt,
           title: track.title,
           subtitle: track.artist || null,
-          stationFavicon: stationArtworkUrl(station),
+          stationFavicon: stationArt,
           stationName: station?.name || null,
         };
       }
@@ -141,7 +144,7 @@ export function useScreensaver() {
 
       return {
         mode: 'media',
-        artwork: stationArtworkUrl(station),
+        artwork: stationArt,
         title: station?.name || 'Unknown station',
         subtitle: metaParts.length > 0 ? metaParts.join(' \u2022 ') : 'Live',
         stationFavicon: null,

@@ -11,7 +11,6 @@ Provides REST API endpoints for:
 - Images: Serve station artwork
 """
 import asyncio
-import base64
 import logging
 from typing import Dict, Any, Optional
 
@@ -25,11 +24,6 @@ from backend.sources.radio.source import RadioSource
 from backend.sources.radio.models import (
     PlayStationRequest,
     FavoriteRequest,
-)
-
-# Transparent 1x1 PNG used as a fallback for favicons
-TRANSPARENT_PNG = base64.b64decode(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
 )
 
 logger = logging.getLogger(__name__)
@@ -535,17 +529,22 @@ async def get_favicon_proxy(url: str = Query(..., description="Favicon URL to pr
     Proxy for radio station favicons.
 
     Solves CORS issues and handles HTTP→HTTPS redirects.
-    Returns a 1x1 transparent image on error.
+    Returns 204 No Content when the favicon is unavailable or too small.
 
     Args:
         url: Original favicon URL
 
     Returns:
-        Favicon image with CORS headers, or transparent PNG if unavailable
+        Favicon image with CORS headers, or 204 if unavailable
     """
+    cors_headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET",
+    }
+
     try:
         if not url.startswith(('http://', 'https://')):
-            return _return_transparent_png()
+            return Response(status_code=204, headers=cors_headers)
 
         async with aiohttp.ClientSession() as session:
             async with session.get(
@@ -555,12 +554,13 @@ async def get_favicon_proxy(url: str = Query(..., description="Favicon URL to pr
                 headers={'User-Agent': 'Milo/1.0'}
             ) as resp:
                 if resp.status != 200:
-                    return _return_transparent_png()
+                    return Response(status_code=204, headers=cors_headers)
 
                 content = await resp.read()
 
-                if not content or len(content) == 0:
-                    return _return_transparent_png()
+                # Reject empty or tiny content (tracking pixels, broken icons)
+                if not content or len(content) < 100:
+                    return Response(status_code=204, headers=cors_headers)
 
                 content_type = resp.headers.get('Content-Type', 'image/x-icon')
 
@@ -569,27 +569,9 @@ async def get_favicon_proxy(url: str = Query(..., description="Favicon URL to pr
                     media_type=content_type,
                     headers={
                         "Cache-Control": "public, max-age=86400",
-                        "Access-Control-Allow-Origin": "*",
-                        "Access-Control-Allow-Methods": "GET"
+                        **cors_headers,
                     }
                 )
 
-    except asyncio.TimeoutError:
-        return _return_transparent_png()
-    except aiohttp.ClientError:
-        return _return_transparent_png()
-    except Exception:
-        return _return_transparent_png()
-
-
-def _return_transparent_png() -> Response:
-    """Return a 1x1 transparent PNG image."""
-    return Response(
-        content=TRANSPARENT_PNG,
-        media_type="image/png",
-        headers={
-            "Cache-Control": "public, max-age=3600",
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET"
-        }
-    )
+    except (asyncio.TimeoutError, aiohttp.ClientError, Exception):
+        return Response(status_code=204, headers=cors_headers)

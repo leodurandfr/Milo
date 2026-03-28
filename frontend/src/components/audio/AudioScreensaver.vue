@@ -19,7 +19,8 @@
         <div class="album-art-section stagger-1">
           <div class="album-art-container">
             <div class="album-art">
-              <img v-if="displayArtwork" :src="displayArtwork" :alt="title" />
+              <img v-if="displayArtwork" :src="displayArtwork" :alt="title"
+                @load="handleArtworkLoad" @error="artworkError = true" />
             </div>
           </div>
         </div>
@@ -53,7 +54,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
-import stationPlaceholder from '@/assets/radio/station-placeholder-dark.jpg';
+import { generateStationAvatar } from '@/utils/stationAvatar';
 
 const props = defineProps({
   isVisible: {
@@ -99,7 +100,21 @@ const emit = defineEmits(['close']);
 
 const isClosing = ref(false);
 
-const displayArtwork = computed(() => props.artwork || stationPlaceholder);
+// Artwork validation — falls back to generated avatar on error or tiny image
+const MIN_IMAGE_SIZE = 8;
+const artworkError = ref(false);
+watch(() => props.artwork, () => { artworkError.value = false; });
+
+function handleArtworkLoad(e) {
+  if (e.target.naturalWidth < MIN_IMAGE_SIZE || e.target.naturalHeight < MIN_IMAGE_SIZE) {
+    artworkError.value = true;
+  }
+}
+
+const displayArtwork = computed(() => {
+  if (props.artwork && !artworkError.value) return props.artwork;
+  return generateStationAvatar(props.stationName || props.title) || null;
+});
 const showBottomBar = computed(() => !!props.stationName);
 
 function handleClose() {
