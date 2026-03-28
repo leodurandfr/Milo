@@ -44,7 +44,14 @@ const imgRef = ref(null)
 const imageLoaded = ref(false)
 const imageError = ref(false)
 
+const MIN_IMAGE_SIZE = 8
+
 function handleImageLoad() {
+  const img = imgRef.value
+  if (img && (img.naturalWidth < MIN_IMAGE_SIZE || img.naturalHeight < MIN_IMAGE_SIZE)) {
+    imageError.value = true
+    return
+  }
   imageLoaded.value = true
 }
 
@@ -54,7 +61,8 @@ function handleImageError() {
 
 // Handle browser-cached images that complete before Vue mounts
 onMounted(() => {
-  if (imgRef.value?.complete && imgRef.value?.naturalHeight !== 0) {
+  const img = imgRef.value
+  if (img?.complete && img.naturalHeight >= MIN_IMAGE_SIZE && img.naturalWidth >= MIN_IMAGE_SIZE) {
     imageLoaded.value = true
   }
 })

@@ -21,7 +21,7 @@
           <div class="favicon-preview">
             <img v-if="imagePreview" :src="imagePreview" alt="Aperçu" class="favicon-img" />
             <img v-else-if="currentImageUrl" :src="currentImageUrl" alt="Image actuelle" class="favicon-img" />
-            <img v-else :src="placeholderImg" alt="Station sans image" class="favicon-img" />
+            <img v-else :src="generateStationAvatar(formData.name || 'Radio')" alt="Station sans image" class="favicon-img" />
           </div>
         </div>
 
@@ -100,7 +100,7 @@ import { countryOptions as createCountryOptions } from '@/constants/countries';
 import Button from '@/components/ui/Button.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
 import InputText from '@/components/ui/InputText.vue';
-import placeholderImg from '@/assets/radio/station-placeholder.png';
+import { generateStationAvatar } from '@/utils/stationAvatar';
 import axios from 'axios';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 

@@ -28,7 +28,7 @@
     <!-- Player slot: AudioPlayer component -->
     <template #player="{ playerWidth, isMobile }">
       <AudioPlayer v-if="radioStore.currentStation" :visible="shouldShowNowPlayingLayout" source="radio"
-        :artwork="playerArtwork" :placeholder-artwork="placeholderImg" :title="playerTitle"
+        :artwork="playerArtwork" :placeholder-artwork="generateStationAvatar(radioStore.currentStation?.name)" :title="playerTitle"
         :subtitle="playerSubtitle" :is-playing="isCurrentlyPlaying" :is-loading="isBuffering" :width="playerWidth">
         <!-- Track info: 3-line layout when Shazam recognized a track -->
         <template v-if="radioStore.trackInfo" #info>
@@ -77,7 +77,7 @@ import AudioPlayer from '@/components/audio/AudioPlayer.vue'
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue'
 import FavoritesView from './FavoritesView.vue'
 import SearchView from './SearchView.vue'
-import placeholderImg from '@/assets/radio/station-placeholder.png'
+import { generateStationAvatar } from '@/utils/stationAvatar'
 
 const radioStore = useRadioStore()
 const unifiedStore = useUnifiedAudioStore()
@@ -99,10 +99,11 @@ const bufferingStationId = computed(() => {
   return unifiedStore.systemState.metadata.station_id || null
 })
 
-// Station artwork URL
+// Station artwork URL — falls back to generated avatar when no favicon
 const stationArtwork = computed(() => {
-  const favicon = radioStore.currentStation?.favicon
-  if (!favicon) return null
+  const station = radioStore.currentStation
+  const favicon = station?.favicon
+  if (!favicon) return generateStationAvatar(station?.name)
 
   // Local image already hosted by the backend
   if (favicon.startsWith('/api/radio/images/')) {
