@@ -419,7 +419,7 @@
 }
 
 .fade-slide-leave-active {
-    transition: all 150ms var(--easeInCubic);
+    transition: all var(--transition-fast-leave);
 }
 
 .fade-slide-enter-from {

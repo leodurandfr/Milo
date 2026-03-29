@@ -6,7 +6,7 @@
   }">
     <!-- Content container with fixed height -->
     <div class="header-content">
-      <Transition name="header-fade" mode="out-in">
+      <Transition name="header-fade">
         <div v-if="showBack" :key="'back-' + title + '-' + subtitle" class="back-navigation-header">
           <IconButton icon="caretLeft" :variant="variant === 'contrast' ? 'on-dark' : 'background-strong'" @click="handleBack" />
           <h2 v-if="!subtitle" class="heading-1">{{ title }}</h2>
@@ -203,6 +203,7 @@ function handleBack() {
 
 .header-fade-enter-active {
   transition: opacity var(--transition-in-out);
+  transition-delay: 100ms;
   transform: translate3d(0, 0, 0);
   -webkit-backface-visibility: hidden;
 }
@@ -222,6 +223,7 @@ function handleBack() {
 
 .actions-fade-enter-active {
   transition: opacity var(--transition-in-out);
+  transition-delay: 100ms;
   transform: translate3d(0, 0, 0);
   -webkit-backface-visibility: hidden;
 }
