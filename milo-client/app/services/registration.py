@@ -3,7 +3,8 @@ Boot-time registration with main Milo.
 
 On startup, the client registers itself with the main Milo server
 so it appears as a pending speaker available for configuration.
-Retries periodically until successful.
+Sends a heartbeat every HEARTBEAT_INTERVAL seconds so the server
+can detect when this client goes offline.
 """
 import asyncio
 import json
@@ -17,7 +18,8 @@ logger = logging.getLogger(__name__)
 HARDWARE_FILE = "/var/lib/milo-client/hardware.json"
 MILO_PRINCIPAL_PORT = 8000
 REGISTER_ENDPOINT = "/api/multiroom/register-client"
-RETRY_INTERVAL = 30  # seconds
+RETRY_INTERVAL = 30  # seconds (before first successful registration)
+HEARTBEAT_INTERVAL = 15  # seconds (after successful registration)
 
 
 def _get_mac_address() -> str:
@@ -70,15 +72,18 @@ def _read_hardware_config() -> dict:
 
 async def register_with_main_milo() -> None:
     """
-    Register this client with the main Milo server.
+    Register this client with the main Milo server, then heartbeat.
 
-    Retries every RETRY_INTERVAL seconds until successful.
-    Runs as a background task during the application lifespan.
+    Phase 1: Retry every RETRY_INTERVAL until the first successful registration.
+    Phase 2: Send the same POST every HEARTBEAT_INTERVAL to keep the
+             server's pending-client entry alive. If the client is powered
+             off, the server will notice the missing heartbeats and remove it.
     """
     # Small delay to let the network settle after boot
     await asyncio.sleep(5)
 
     loop = asyncio.get_running_loop()
+    registered = False
 
     while True:
         try:
@@ -105,11 +110,12 @@ async def register_with_main_milo() -> None:
             ) as session:
                 async with session.post(url, json=payload) as resp:
                     if resp.status == 200:
-                        logger.info(
-                            f"Registered with main Milo at {milo_ip} "
-                            f"(mac={mac_id}, ip={local_ip}, audio={hw_config['audio_id']})"
-                        )
-                        return
+                        if not registered:
+                            logger.info(
+                                f"Registered with main Milo at {milo_ip} "
+                                f"(mac={mac_id}, ip={local_ip}, audio={hw_config['audio_id']})"
+                            )
+                            registered = True
                     else:
                         body = await resp.text()
                         logger.warning(
@@ -117,7 +123,10 @@ async def register_with_main_milo() -> None:
                         )
 
         except Exception as e:
-            logger.warning(f"Registration attempt failed: {e}")
+            if registered:
+                logger.debug(f"Heartbeat failed: {e}")
+            else:
+                logger.warning(f"Registration attempt failed: {e}")
 
-        logger.info(f"Retrying registration in {RETRY_INTERVAL}s...")
-        await asyncio.sleep(RETRY_INTERVAL)
+        interval = HEARTBEAT_INTERVAL if registered else RETRY_INTERVAL
+        await asyncio.sleep(interval)

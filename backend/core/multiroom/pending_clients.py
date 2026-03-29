@@ -9,6 +9,8 @@ They stay in pending storage until:
 2. Client reboots with audio configured
 3. Snapclient connects → SnapcastWebSocketService transfers pending
    data to ClientRegistryService → entry removed from pending
+4. Heartbeat expires → client stops sending registration POSTs;
+   background task removes the entry after STALE_TIMEOUT seconds
 
 Persistence: /var/lib/milo/pending_clients.json
 """
@@ -27,26 +29,32 @@ logger = logging.getLogger(__name__)
 
 PENDING_CLIENTS_FILE = MILO_DATA_DIR / "pending_clients.json"
 
+# Clients that haven't sent a heartbeat within this window are considered offline
+STALE_TIMEOUT = 45  # seconds
+CLEANUP_INTERVAL = 15  # seconds
+
 
 class PendingClientsService:
     """
     Manages pending client registrations before they appear in Snapcast.
 
     Thread-safe via asyncio.Lock. All mutations persist to disk
-    and broadcast a WebSocket event.
+    and broadcast a WebSocket event. A background task removes
+    clients that stop sending heartbeats (powered off / disconnected).
     """
 
     def __init__(self):
         self._clients: Dict[str, Dict[str, Any]] = {}
         self._lock = asyncio.Lock()
         self._state_machine = None
+        self._cleanup_task: Optional[asyncio.Task] = None
 
     def set_state_machine(self, state_machine) -> None:
         """Set state machine for event broadcasting."""
         self._state_machine = state_machine
 
     async def initialize(self) -> bool:
-        """Load persisted pending clients from disk."""
+        """Load persisted pending clients from disk and start cleanup task."""
         try:
             if os.path.exists(PENDING_CLIENTS_FILE):
                 async with aiofiles.open(PENDING_CLIENTS_FILE, "r") as f:
@@ -56,11 +64,24 @@ class PendingClientsService:
             else:
                 self._clients = {}
                 logger.info("No pending clients file, starting fresh")
-            return True
         except Exception as e:
             logger.error(f"Failed to load pending clients: {e}")
             self._clients = {}
-            return True
+
+        # Remove stale entries left over from a previous run
+        await self._purge_stale()
+
+        self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+        return True
+
+    async def shutdown(self) -> None:
+        """Cancel the background cleanup task."""
+        if self._cleanup_task:
+            self._cleanup_task.cancel()
+            try:
+                await self._cleanup_task
+            except asyncio.CancelledError:
+                pass
 
     # === CRUD ===
 
@@ -184,6 +205,38 @@ class PendingClientsService:
             os.replace(tmp_path, str(PENDING_CLIENTS_FILE))
         except Exception as e:
             logger.error(f"Failed to persist pending clients: {e}")
+
+    # === HEARTBEAT CLEANUP ===
+
+    async def _cleanup_loop(self) -> None:
+        """Periodically remove clients that stopped sending heartbeats."""
+        while True:
+            await asyncio.sleep(CLEANUP_INTERVAL)
+            await self._purge_stale()
+
+    async def _purge_stale(self) -> None:
+        """Remove clients whose last heartbeat is older than STALE_TIMEOUT seconds."""
+        now = time.time()
+        stale_ids = []
+
+        async with self._lock:
+            for mac_id, client in self._clients.items():
+                if now - client.get("registered_at", 0) > STALE_TIMEOUT:
+                    stale_ids.append(mac_id)
+
+            if not stale_ids:
+                return
+
+            for mac_id in stale_ids:
+                del self._clients[mac_id]
+            await self._persist()
+
+        for mac_id in stale_ids:
+            logger.info(f"Pending client expired (no heartbeat): {mac_id}")
+            await self._broadcast("pending_client_changed", {
+                "action": "removed",
+                "mac_id": mac_id,
+            })
 
     # === BROADCASTING ===
 
