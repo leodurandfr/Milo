@@ -32,6 +32,7 @@ ExecStart=/usr/bin/mpv \
     --demuxer-rawaudio-rate=44100 \
     --demuxer-rawaudio-channels=stereo \
     --demuxer-rawaudio-format=s16le \
+    --af=loudnorm=I=-14:TP=-1:LRA=11 \
     --no-cache \
     --msg-level=all=info \
     --no-config \
