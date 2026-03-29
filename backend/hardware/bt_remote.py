@@ -30,7 +30,8 @@ except ImportError:
 
 try:
     from dbus_next.aio import MessageBus
-    from dbus_next.constants import BusType
+    from dbus_next.constants import BusType, MessageType
+    from dbus_next import Message
     DBUS_AVAILABLE = True
 except ImportError:
     DBUS_AVAILABLE = False
@@ -44,11 +45,21 @@ DEFAULT_KEY_MAP = {
     "113": "click",         # KEY_MUTE -> multi-click detection
 }
 DEFAULT_DEVICE_FILTER = "ANTICATER"
-SCAN_INTERVAL = 5.0         # Seconds between evdev device scans
+SCAN_INTERVAL = 30.0        # Fallback interval — D-Bus listener handles instant reconnect
 DISCOVERY_INTERVAL = 60.0   # Seconds between BT reconnect/discovery cycles
 DISCOVERY_DURATION = 5      # Seconds to run BT scan
+DBUS_RECONNECT_DELAY = 5.0  # Seconds before reconnecting a dropped D-Bus listener
+DBUS_EVDEV_SETTLE = 1.0     # Seconds to wait for evdev nodes after BLE reconnect signal
 
 _MAC_PATTERN = re.compile(r'^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$')
+
+# D-Bus match rule: only PropertiesChanged signals from BlueZ Device1 interfaces
+_DBUS_MATCH_RULE = (
+    "type='signal',"
+    "interface='org.freedesktop.DBus.Properties',"
+    "member='PropertiesChanged',"
+    "arg0='org.bluez.Device1'"
+)
 
 
 class BtRemoteController:
@@ -78,6 +89,8 @@ class BtRemoteController:
         self._device_info: Dict[str, dict] = {}  # path -> {name, address}
         self._scan_task: Optional[asyncio.Task] = None
         self._discovery_task: Optional[asyncio.Task] = None
+        self._dbus_listener_task: Optional[asyncio.Task] = None
+        self._dbus_reconnect_queue: asyncio.Queue = asyncio.Queue(maxsize=1)
 
         # Volume accumulator (shared with rotary encoder)
         self._volume = VolumeAccumulator(volume_service)
@@ -108,23 +121,33 @@ class BtRemoteController:
         return True
 
     def _start_scanning(self):
-        """Start evdev scan and BT discovery loops."""
+        """Start evdev scan, BT discovery, and D-Bus reconnect listener."""
         self.running = True
         self._scan_task = asyncio.create_task(self._periodic_scan())
         self._discovery_task = asyncio.create_task(self._periodic_discovery())
+        if DBUS_AVAILABLE:
+            self._dbus_listener_task = asyncio.create_task(self._run_dbus_listener())
 
     async def _stop_scanning(self):
-        """Stop all scanning and monitoring."""
+        """Stop all scanning, monitoring, and D-Bus listener."""
         self.running = False
 
         self._dispatcher.cancel()
         await self._volume.cleanup()
 
-        for task_ref in (self._scan_task, self._discovery_task):
+        for task_ref in (self._scan_task, self._discovery_task, self._dbus_listener_task):
             if task_ref and not task_ref.done():
                 task_ref.cancel()
         self._scan_task = None
         self._discovery_task = None
+        self._dbus_listener_task = None
+
+        # Drain pending reconnect events
+        while not self._dbus_reconnect_queue.empty():
+            try:
+                self._dbus_reconnect_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
 
         for task in self._monitor_tasks.values():
             if not task.done():
@@ -252,6 +275,103 @@ class BtRemoteController:
                     bus.disconnect()
                 except Exception:
                     pass
+
+    # ========================================================================
+    # D-BUS RECONNECT LISTENER
+    # ========================================================================
+
+    async def _run_dbus_listener(self):
+        """Maintain a persistent D-Bus connection to detect BLE reconnections instantly.
+
+        Listens for PropertiesChanged signals on org.bluez.Device1 interfaces.
+        When a device's Connected property becomes True, triggers an immediate
+        evdev scan (after a short settle delay for kernel node creation).
+        Auto-reconnects if the D-Bus connection drops.
+        """
+        while self.running:
+            try:
+                await self._connect_dbus_listener()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.warning("D-Bus listener error: %s — reconnecting in %.0fs", e, DBUS_RECONNECT_DELAY)
+                await asyncio.sleep(DBUS_RECONNECT_DELAY)
+
+    async def _connect_dbus_listener(self):
+        """Run a single D-Bus listener session until the bus disconnects."""
+        bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+        try:
+            # Register match rule for BlueZ device property changes
+            reply = await bus.call(Message(
+                destination="org.freedesktop.DBus",
+                path="/org/freedesktop/DBus",
+                interface="org.freedesktop.DBus",
+                member="AddMatch",
+                signature="s",
+                body=[_DBUS_MATCH_RULE],
+            ))
+            if reply.message_type == MessageType.ERROR:
+                raise RuntimeError(f"D-Bus AddMatch failed: {reply.body}")
+
+            bus.add_message_handler(self._on_dbus_message)
+            logger.info("D-Bus PropertiesChanged listener active")
+
+            disconnect_task = asyncio.create_task(bus.wait_for_disconnect())
+            get_task = None
+            try:
+                while self.running:
+                    get_task = asyncio.create_task(self._dbus_reconnect_queue.get())
+                    done, _ = await asyncio.wait(
+                        {disconnect_task, get_task},
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if disconnect_task in done:
+                        get_task.cancel()
+                        return  # Bus dropped — outer loop will reconnect
+                    # Reconnect event received — scan for new evdev nodes
+                    get_task.result()
+                    await asyncio.sleep(DBUS_EVDEV_SETTLE)
+                    if self.running:
+                        await self._scan_devices()
+            finally:
+                disconnect_task.cancel()
+                if get_task and not get_task.done():
+                    get_task.cancel()
+        finally:
+            try:
+                bus.disconnect()
+            except Exception:
+                pass
+
+    def _on_dbus_message(self, msg):
+        """Handle incoming D-Bus messages (synchronous callback).
+
+        Filters for PropertiesChanged signals where Connected becomes True
+        on BlueZ device objects, then enqueues a reconnect event.
+        """
+        if msg.message_type != MessageType.SIGNAL:
+            return
+        if msg.member != "PropertiesChanged":
+            return
+        if not msg.path or not msg.path.startswith("/org/bluez/hci0/dev_"):
+            return
+
+        body = msg.body
+        if not body or len(body) < 2:
+            return
+        if body[0] != "org.bluez.Device1":
+            return
+
+        changed_props = body[1]
+        connected_variant = changed_props.get("Connected")
+        if connected_variant is None or not connected_variant.value:
+            return
+
+        logger.debug("D-Bus: BLE device connected at %s", msg.path)
+        try:
+            self._dbus_reconnect_queue.put_nowait(msg.path)
+        except asyncio.QueueFull:
+            pass  # Already have a pending reconnect event
 
     # ========================================================================
     # BLUETOOTHCTL HELPERS
