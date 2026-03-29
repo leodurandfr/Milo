@@ -5,11 +5,13 @@
 # If milo.local already exists on the network → configure as client.
 # Otherwise → continue normal boot (wizard will appear for server setup).
 #
+# Skips entirely once setup_completed is true in settings.json
+# (set by the wizard for server mode, or by configure_client below).
+#
 # Must be run as root (systemd service).
 
 set -euo pipefail
 
-SENTINEL="/var/lib/milo/.mode-configured"
 MILO_DATA_DIR="/var/lib/milo"
 MILO_APP_DIR="/home/milo/milo"
 
@@ -19,10 +21,8 @@ MILO_CLIENT_DATA_DIR="/var/lib/milo-client"
 
 log() { echo "[milo-first-boot] $1"; }
 
-# Already configured — nothing to do (unless setup was never completed)
-if [[ -f "$SENTINEL" ]]; then
-    # If setup was completed (wizard finished or client configured), mode is locked
-    if python3 -c "
+# Setup already completed (wizard finished or client configured) — nothing to do
+if python3 -c "
 import json, sys
 try:
     d = json.load(open('${MILO_DATA_DIR}/settings.json'))
@@ -30,14 +30,7 @@ try:
 except Exception:
     sys.exit(1)
 " 2>/dev/null; then
-        exit 0
-    fi
-
-    # Setup never completed — allow re-detection
-    # (handles: first boot without ethernet, now ethernet is plugged in)
-    log "Setup not completed — re-running mode detection"
-    rm -f "$SENTINEL"
-    REDETECTION=true
+    exit 0
 fi
 
 # =============================================================================
@@ -183,7 +176,7 @@ EOF
     done
     log "Client services enabled"
 
-    # 9. Write settings.json with setup_completed so wizard doesn't appear
+    # 9. Write settings.json with setup_completed so detection doesn't re-run
     cat > "$MILO_DATA_DIR/settings.json" << 'EOF'
 {
   "setup_completed": true,
@@ -193,7 +186,6 @@ EOF
     chown milo:milo "$MILO_DATA_DIR/settings.json"
 
     log "Client configuration complete — rebooting"
-    touch "$SENTINEL"
     /sbin/reboot
 }
 
@@ -201,28 +193,19 @@ EOF
 # Main
 # =============================================================================
 
-# On re-detection, wait up to 15s for the ethernet carrier to appear
-# (the driver may not have detected it yet). On true first boot, check
-# instantly — no cable means hotspot/wizard mode, no reason to delay.
-CARRIER_WAIT=0
-if [[ "${REDETECTION:-}" == "true" ]]; then
-    CARRIER_WAIT=15
-fi
+log "Setup not completed — detecting mode..."
 
-log "First boot detected — checking for ethernet..."
-
-if ! has_ethernet_carrier "$CARRIER_WAIT"; then
+# Wait up to 15s for ethernet carrier (driver may not have detected it yet)
+if ! has_ethernet_carrier 15; then
     log "No ethernet cable — server mode (wizard will appear)"
-    touch "$SENTINEL"
     exit 0
 fi
 
-# Ethernet cable present → could be server or client, need to check
+# Ethernet cable present — could be server or client, need to check
 log "Ethernet detected — waiting for IP then probing for existing Milo..."
 
 if ! wait_for_ethernet_ip; then
     log "No IP obtained — server mode (wizard will appear)"
-    touch "$SENTINEL"
     exit 0
 fi
 
@@ -234,6 +217,5 @@ if /usr/bin/python3 /usr/local/bin/milo-mdns-probe milo 10; then
     configure_client
 else
     log "No existing Milo found — server mode (wizard will appear)"
-    touch "$SENTINEL"
     exit 0
 fi
