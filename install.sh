@@ -26,6 +26,7 @@ source "$INSTALL_DIR/base.sh"
 source "$INSTALL_DIR/go-librespot.sh"
 source "$INSTALL_DIR/roc-toolkit.sh"
 source "$INSTALL_DIR/bluez-alsa.sh"
+source "$INSTALL_DIR/bluez-le.sh"
 source "$INSTALL_DIR/airplay.sh"
 source "$INSTALL_DIR/snapcast.sh"
 source "$INSTALL_DIR/camilladsp.sh"
@@ -241,6 +242,7 @@ main() {
    install_go_librespot
    install_roc_toolkit
    install_bluez_alsa
+   configure_bluez_le
    install_nqptp
    install_shairport_sync
    configure_shairport_sync
