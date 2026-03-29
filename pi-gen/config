@@ -1,6 +1,6 @@
 IMG_NAME="milo"
 RELEASE="trixie"
-TARGET_HOSTNAME="milo"
+TARGET_HOSTNAME="milo-setup"
 FIRST_USER_NAME="milo"
 FIRST_USER_PASS="milo"
 ENABLE_SSH=1

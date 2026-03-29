@@ -118,6 +118,25 @@ if ! grep -q "usb_max_current_enable=1" "$CONFIG_FILE"; then
 fi
 
 # =============================================================================
+# Hostname — ensure server identity before first real boot
+# =============================================================================
+
+# The pi-gen image ships with a neutral hostname ("milo-setup") to avoid
+# mDNS conflicts with an existing server on the network. Now that the
+# setup wizard has completed, claim the definitive server hostname.
+current_hostname=$(hostname)
+if [ "$current_hostname" != "milo" ]; then
+    echo "Setting hostname to milo (was: $current_hostname)..."
+    hostnamectl set-hostname milo
+    echo "milo" > /etc/hostname
+    if grep -q "127.0.1.1" /etc/hosts; then
+        sed -i "s/127.0.1.1.*/127.0.1.1\tmilo/" /etc/hosts
+    else
+        echo -e "127.0.1.1\tmilo" >> /etc/hosts
+    fi
+fi
+
+# =============================================================================
 # Reboot
 # =============================================================================
 

@@ -83,7 +83,7 @@ The image is a universal image supporting both **Milo** (server) and **Milo Clie
 ### Image Configuration
 
 - **User**: `milo` (no password, SSH enabled)
-- **Hostname**: `milo`
+- **Hostname**: `milo-setup` (becomes `milo` after server wizard, or `milo-client` after auto-detection)
 - **Locale**: `en_US.UTF-8`
 - **Timezone**: `Europe/Paris`
 - **Architecture**: ARM64 (Raspberry Pi 4/5)
