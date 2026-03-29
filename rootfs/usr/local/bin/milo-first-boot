@@ -37,6 +37,7 @@ except Exception:
     # (handles: first boot without ethernet, now ethernet is plugged in)
     log "Setup not completed — re-running mode detection"
     rm -f "$SENTINEL"
+    REDETECTION=true
 fi
 
 # =============================================================================
@@ -44,13 +45,26 @@ fi
 # =============================================================================
 
 has_ethernet_carrier() {
-    # Quick check: is an ethernet cable physically plugged in?
-    for iface in /sys/class/net/eth* /sys/class/net/end*; do
-        if [[ -f "$iface/carrier" ]] && [[ "$(cat "$iface/carrier" 2>/dev/null)" == "1" ]]; then
-            return 0
+    # Check if an ethernet cable is physically plugged in.
+    # On cold boot the carrier can take 10+ seconds to appear after
+    # NetworkManager starts, so we poll for up to max_wait seconds.
+    local max_wait=${1:-0}
+    local waited=0
+
+    while true; do
+        for iface in /sys/class/net/eth* /sys/class/net/end*; do
+            if [[ -f "$iface/carrier" ]] && [[ "$(cat "$iface/carrier" 2>/dev/null)" == "1" ]]; then
+                return 0
+            fi
+        done
+
+        if (( waited >= max_wait )); then
+            return 1
         fi
+
+        sleep 1
+        waited=$((waited + 1))
     done
-    return 1
 }
 
 wait_for_ethernet_ip() {
@@ -187,10 +201,17 @@ EOF
 # Main
 # =============================================================================
 
+# On re-detection, wait up to 15s for the ethernet carrier to appear
+# (the driver may not have detected it yet). On true first boot, check
+# instantly — no cable means hotspot/wizard mode, no reason to delay.
+CARRIER_WAIT=0
+if [[ "${REDETECTION:-}" == "true" ]]; then
+    CARRIER_WAIT=15
+fi
+
 log "First boot detected — checking for ethernet..."
 
-# No ethernet cable → server mode, exit immediately (no delay for hotspot)
-if ! has_ethernet_carrier; then
+if ! has_ethernet_carrier "$CARRIER_WAIT"; then
     log "No ethernet cable — server mode (wizard will appear)"
     touch "$SENTINEL"
     exit 0
