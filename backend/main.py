@@ -128,6 +128,7 @@ async def lifespan(app: FastAPI):
         state_machine.cleanup()
         await camilladsp_service.cleanup()
         await snapcast_websocket_service.cleanup()
+        await get_service("pending_clients_service").shutdown()
         await volume_service.cleanup()
         if rotary_controller:
             await rotary_controller.cleanup()
