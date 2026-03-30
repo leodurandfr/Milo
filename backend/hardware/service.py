@@ -254,7 +254,8 @@ class HardwareService:
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await proc.communicate()
-        if proc.returncode != 0:
+        # Negative returncode means killed by signal (e.g. system reboot) — not an error
+        if proc.returncode is not None and proc.returncode > 0:
             error_msg = stderr.decode().strip() if stderr else "unknown error"
             self.logger.error(f"milo-apply-hardware failed (rc={proc.returncode}): {error_msg}")
             raise RuntimeError(f"Hardware apply failed: {error_msg}")

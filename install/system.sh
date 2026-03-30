@@ -62,6 +62,11 @@ install_readiness_script() {
 install_apply_hardware_script() {
     log_info "Installing system scripts..."
 
+    # Shared hardware helpers library
+    sudo mkdir -p /usr/local/lib/milo
+    sudo cp "$MILO_APP_DIR/rootfs/usr/local/lib/milo/hardware-helpers.sh" /usr/local/lib/milo/
+    sudo chmod +x /usr/local/lib/milo/hardware-helpers.sh
+
     sudo cp "$MILO_APP_DIR/rootfs/usr/local/bin/milo-apply-hardware" /usr/local/bin/milo-apply-hardware
     sudo chmod +x /usr/local/bin/milo-apply-hardware
 

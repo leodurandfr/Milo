@@ -302,6 +302,11 @@ on_chroot << 'CHROOT'
 cp /home/milo/milo/rootfs/usr/local/bin/milo-wait-ready.sh /usr/local/bin/
 chmod +x /usr/local/bin/milo-wait-ready.sh
 
+# Shared hardware helpers library (used by both server and client apply scripts)
+mkdir -p /usr/local/lib/milo
+cp /home/milo/milo/rootfs/usr/local/lib/milo/hardware-helpers.sh /usr/local/lib/milo/
+chmod +x /usr/local/lib/milo/hardware-helpers.sh
+
 # Hardware apply script
 cp /home/milo/milo/rootfs/usr/local/bin/milo-apply-hardware /usr/local/bin/
 chmod +x /usr/local/bin/milo-apply-hardware
