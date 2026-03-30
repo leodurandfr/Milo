@@ -124,8 +124,9 @@ def create_hardware_router() -> APIRouter:
             # If the process is still running after 2s, it's proceeding to reboot
             try:
                 await asyncio.wait_for(proc.wait(), timeout=2)
-                # Process exited within 2s — check if it failed before reaching reboot
-                if proc.returncode != 0:
+                # Process exited within 2s — check if it failed before reaching reboot.
+                # Negative returncode means killed by signal (e.g. system reboot) — not an error.
+                if proc.returncode is not None and proc.returncode > 0:
                     stderr = await proc.stderr.read()
                     error_msg = stderr.decode().strip() or f"Exit code {proc.returncode}"
                     logger.error(f"Apply-hardware script failed: {error_msg}")
