@@ -150,7 +150,19 @@ EOF
     fi
     log "CamillaDSP config deployed"
 
-    # 7. Disable server-only services
+    # 7. Deploy client ALSA configuration (replace server asound.conf)
+    if [[ -f "$MILO_APP_DIR/milo-client/rootfs/etc/asound.conf" ]]; then
+        cp "$MILO_APP_DIR/milo-client/rootfs/etc/asound.conf" /etc/asound.conf
+        log "Client ALSA config deployed"
+    fi
+
+    # Deploy client loopback module options (2 substreams instead of server's 8)
+    if [[ -f "$MILO_APP_DIR/milo-client/rootfs/etc/modprobe.d/milo-client-loopback.conf" ]]; then
+        cp "$MILO_APP_DIR/milo-client/rootfs/etc/modprobe.d/milo-client-loopback.conf" /etc/modprobe.d/
+        log "Client loopback config deployed"
+    fi
+
+    # 8. Disable server-only services
     local server_services=(
         milo-backend
         milo-kiosk
@@ -165,7 +177,7 @@ EOF
     done
     log "Server services disabled"
 
-    # 8. Enable client services
+    # 9. Enable client services
     local client_services=(
         milo-client
         milo-client-snapclient
@@ -176,7 +188,7 @@ EOF
     done
     log "Client services enabled"
 
-    # 9. Write settings.json with setup_completed so detection doesn't re-run
+    # 10. Write settings.json with setup_completed so detection doesn't re-run
     cat > "$MILO_DATA_DIR/settings.json" << 'EOF'
 {
   "setup_completed": true,
