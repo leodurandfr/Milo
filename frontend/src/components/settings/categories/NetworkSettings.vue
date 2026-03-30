@@ -21,7 +21,7 @@
           <div class="connection-card">
             <div class="connection-card__name">
               <WifiSignal :signal="wifiCardSignal" :size="24" />
-              <span class="heading-3">{{ wifiDisplaySsid }}</span>
+              <span class="heading-3 connection-card__ssid">{{ wifiDisplaySsid }}</span>
             </div>
             <span class="connection-badge text-mono-small" :class="wifiBadgeClass">
               {{ wifiBadgeLabel }}
@@ -419,6 +419,12 @@ onUnmounted(() => {
   align-items: center;
   gap: var(--space-03);
   min-width: 0;
+}
+
+.connection-card__ssid {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .connection-badge {

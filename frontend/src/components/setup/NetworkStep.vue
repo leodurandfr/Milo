@@ -31,7 +31,7 @@
         <!-- WiFi row (always visible) -->
         <div class="connection-row connection-row--wifi">
           <WifiSignal :signal="wifiCardSignal" :size="24" />
-          <span class="text-body">{{ wifiDisplaySsid || t('network.wifi') }}</span>
+          <span class="text-body connection-row__ssid">{{ wifiDisplaySsid || t('network.wifi') }}</span>
           <span class="connection-badge text-mono-small" :class="wifiBadgeClass">
             {{ wifiBadgeLabel }}
           </span>
@@ -288,6 +288,13 @@ onMounted(async () => {
 .connection-section .skeleton-icon {
   --shimmer-base: var(--color-background);
   --shimmer-highlight: var(--color-background-medium-16);
+}
+
+.connection-row__ssid {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .connection-badge {
