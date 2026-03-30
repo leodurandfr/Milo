@@ -18,15 +18,6 @@ if ! type log_info &>/dev/null; then
     source "$(dirname "$0")/common.sh"
 fi
 
-configure_journald() {
-    log_info "Configuring journald limits..."
-
-    sudo sed -i 's/^#\?RuntimeMaxUse=.*/RuntimeMaxUse=100M/' /etc/systemd/journald.conf
-    sudo sed -i 's/^#\?MaxRetentionSec=.*/MaxRetentionSec=7d/' /etc/systemd/journald.conf
-
-    log_success "Journald configured (100MB max, 7 days retention)"
-}
-
 install_udev_rules() {
     log_info "Installing udev rules..."
 
@@ -200,6 +191,51 @@ EOF
     log_success "Default hardware configuration saved (configure via setup wizard)"
 }
 
+enable_services() {
+    log_info "Enabling automatic service startup..."
+
+    sudo systemctl daemon-reload
+
+    # Configure graphical.target as default target
+    # Necessary for milo-kiosk.service to start (WantedBy=graphical.target)
+    # On Raspberry Pi OS Lite, the system boots to multi-user.target by default
+    local current_target
+    current_target=$(systemctl get-default)
+    if [[ "$current_target" != "graphical.target" ]]; then
+        log_info "Configuring system to boot to graphical.target (required for milo-kiosk)..."
+        sudo systemctl set-default graphical.target
+        log_success "Default target configured: graphical.target"
+    else
+        log_info "Default target already configured: graphical.target"
+    fi
+
+    # Services that should be enabled at boot
+    sudo systemctl enable milo-backend.service
+    sudo systemctl enable milo-readiness.service
+    sudo systemctl enable milo-kiosk.service
+    sudo systemctl enable milo-bluealsa.service
+    sudo systemctl enable milo-bluealsa-aplay.service
+    sudo systemctl enable milo-disable-wifi-power-management.service
+    sudo systemctl enable milo-camilladsp.service
+    sudo systemctl enable avahi-daemon
+    sudo systemctl enable nginx
+
+    # Note: milo-frontend.service is no longer used (nginx serves /dist directly)
+    # Note: getty@tty1 is masked (milo-kiosk.service takes control of tty1)
+
+    # Note: The following services are managed dynamically by the Milo backend:
+    # - milo-spotify.service
+    # - milo-mac.service
+    # - milo-radio.service
+    # - milo-airplay.service
+    # - milo-cd.service
+    # - milo-snapserver-multiroom.service
+    # - milo-snapclient-multiroom.service
+    # These services should NOT be "enabled" at boot
+
+    log_success "Automatic startup configured"
+}
+
 # Run all steps if executed standalone
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     install_udev_rules
@@ -211,5 +247,6 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     configure_fan_control
     optimize_boot_performance
     save_hardware_config
+    enable_services
     log_success "System configuration complete"
 fi

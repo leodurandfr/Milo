@@ -20,15 +20,6 @@ if ! type log_info &>/dev/null; then
     source "$(dirname "$0")/../../install/common.sh"
 fi
 
-configure_journald() {
-    log_info "Configuring journald limits..."
-
-    sudo sed -i 's/^#\?RuntimeMaxUse=.*/RuntimeMaxUse=100M/' /etc/systemd/journald.conf
-    sudo sed -i 's/^#\?MaxRetentionSec=.*/MaxRetentionSec=7d/' /etc/systemd/journald.conf
-
-    log_success "Journald configured (100MB max, 7 days retention)"
-}
-
 install_apply_hardware_script() {
     log_info "Installing hardware apply script..."
 
@@ -127,7 +118,6 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     install_apply_hardware_script
     save_hardware_config
     create_systemd_services
-    configure_journald
     enable_services
     install_wrapper_scripts
     configure_sudoers

@@ -21,15 +21,13 @@ fi
 configure_alsa_loopback() {
     log_info "Configuring ALSA loopback module for CamillaDSP..."
 
-    # Ensure snd-aloop module loads at boot with subdevices for CamillaDSP
-    if ! grep -q "snd-aloop" /etc/modules 2>/dev/null; then
-        echo "snd-aloop" | sudo tee -a /etc/modules
-    fi
+    # Use modules-load.d for automatic loading at boot (idempotent, modern approach)
+    echo "snd-aloop" | sudo tee /etc/modules-load.d/snd-aloop.conf > /dev/null
 
-    # Copy loopback module configuration from repo
+    # Copy loopback module options from repo (index=2, pcm_substreams=2)
     sudo cp "$MILO_CLIENT_ROOTFS_DIR/etc/modprobe.d/milo-client-loopback.conf" /etc/modprobe.d/
 
-    # Load module immediately if not loaded (may fail if audio hardware not yet initialized - will load after reboot)
+    # Load module immediately if not loaded (may fail if audio hardware not yet initialized)
     if ! lsmod | grep -q "snd_aloop"; then
         sudo modprobe snd-aloop pcm_substreams=2 || true
     fi
