@@ -151,7 +151,7 @@
           v-for="(zoneClient, index) in zoneClientDetails"
           :key="zoneClient.mac_id"
           class="client-row"
-          :style="{ '--row-delay': `${100 + index * 80}ms` }"
+          :style="{ '--row-delay': `${60 + index * 90}ms` }"
         >
           <!-- Speaker icon -->
           <div class="client-icon" :class="{ 'muted': zoneClient.equalizerMuted, 'offline': !zoneClient.online }">
@@ -682,7 +682,7 @@ function handleClientMuteToggle(clientMacId, muted) {
 .expanded-wrapper {
   height: 0;
   overflow: hidden;
-  transition: height var(--transition-normal);
+  transition: height var(--transition-fast);
 }
 
 .expanded-clients {
@@ -695,13 +695,13 @@ function handleClientMuteToggle(clientMacId, muted) {
   /* Hidden by default, visible when expanded */
   opacity: 0;
   visibility: hidden;
-  transition: opacity 250ms ease, visibility 0ms linear 250ms;
+  transition: opacity var(--transition-fast), visibility 0ms linear 200ms;
 }
 
 .expanded-clients.is-visible {
   opacity: 1;
   visibility: visible;
-  transition: opacity 300ms ease, visibility 0ms linear 0ms;
+  transition: opacity var(--transition-fast), visibility 0ms linear 0ms;
 }
 
 /* Individual client row in expanded zone */
@@ -811,7 +811,7 @@ function handleClientMuteToggle(clientMacId, muted) {
 /* backwards: opacity 0 during delay. CSS opacity: 1 takes over after animation for proper fade-out transition */
 .expanded-clients.is-visible .client-row {
   opacity: 1;
-  animation: fadeInRow 300ms ease backwards;
+  animation: fadeInRow var(--transition-normal) backwards;
   animation-delay: var(--row-delay, 0ms);
 }
 
