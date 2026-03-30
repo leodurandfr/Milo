@@ -51,13 +51,6 @@ install_dependencies() {
     log_success "Dependencies installed"
 }
 
-configure_hostname() {
-    local new_hostname="$1"
-    echo "$new_hostname" | sudo tee /etc/hostname > /dev/null
-    sudo sed -i "s/127.0.1.1.*/127.0.1.1\t$new_hostname/" /etc/hosts
-    sudo hostnamectl set-hostname "$new_hostname"
-}
-
 setup_hostname() {
     local current_hostname
     current_hostname=$(hostname)
@@ -116,21 +109,15 @@ install_milo_application() {
 fix_nginx_permissions() {
     log_info "Configuring permissions for nginx..."
 
-    sudo chmod 755 /home/milo
-    sudo chmod 755 /home/milo/milo
-    sudo chmod 755 /home/milo/milo/frontend
-    sudo chmod -R 755 /home/milo/milo/frontend/dist
+    local milo_home="/home/$MILO_USER"
+    sudo chmod 755 "$milo_home"
+    sudo chmod 755 "$MILO_APP_DIR"
+    sudo chmod 755 "$MILO_APP_DIR/frontend"
+    sudo chmod -R 755 "$MILO_APP_DIR/frontend/dist"
 
-    sudo chown -R "$MILO_USER:$MILO_USER" /home/milo/milo/frontend/dist
+    sudo chown -R "$MILO_USER:$MILO_USER" "$MILO_APP_DIR/frontend/dist"
 
     log_success "Nginx permissions configured"
-}
-
-suppress_pulseaudio() {
-    log_info "Removing PulseAudio/PipeWire..."
-    sudo apt remove -y pulseaudio pipewire || true
-    sudo apt autoremove -y
-    log_success "PulseAudio/PipeWire removed"
 }
 
 # Run all steps if executed standalone

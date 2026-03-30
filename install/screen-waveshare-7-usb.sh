@@ -1,13 +1,13 @@
 #!/bin/bash
-# Configuration boot pour Waveshare 7" USB (HDMI)
-# Utilisé par install.sh pour configurer cmdline.txt et config.txt
+# Boot configuration for Waveshare 7" USB (HDMI)
+# Sourced by milo-apply-hardware to configure cmdline.txt and config.txt
 
 source "$(dirname "${BASH_SOURCE[0]}")/boot-common.sh"
 
-# Paramètres cmdline.txt spécifiques HDMI
+# HDMI-specific cmdline.txt parameters
 BOOT_PARAMS_SCREEN=""
 
-# Paramètres config.txt spécifiques HDMI
+# HDMI-specific config.txt parameters
 CONFIG_PARAMS_SCREEN="hdmi_force_hotplug=1
 hdmi_blanking=1
 hdmi_group=2

@@ -48,13 +48,6 @@ install_dependencies() {
     log_success "Dependencies installed"
 }
 
-suppress_pulseaudio() {
-    log_info "Removing PulseAudio/PipeWire..."
-    sudo apt remove -y pulseaudio pipewire || true
-    sudo apt autoremove -y
-    log_success "PulseAudio/PipeWire removed"
-}
-
 discover_milo_principal() {
     # Use --server if provided (static IP for environments without mDNS)
     if [[ -n "${ARG_SERVER_IP:-}" ]]; then
@@ -87,9 +80,7 @@ setup_hostname() {
 
     if [ "$current_hostname" != "$new_hostname" ]; then
         log_info "Configuring hostname '$new_hostname'..."
-        echo "$new_hostname" | sudo tee /etc/hostname > /dev/null
-        sudo sed -i "s/127.0.1.1.*/127.0.1.1\t$new_hostname/" /etc/hosts
-        sudo hostnamectl set-hostname "$new_hostname"
+        configure_hostname "$new_hostname"
         log_success "Hostname configured"
     else
         log_success "Hostname '$new_hostname' already configured"
