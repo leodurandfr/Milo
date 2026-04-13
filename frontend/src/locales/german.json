@@ -277,9 +277,9 @@
   },
   "multiroomSettings": {
     "presets": "Voreinstellungen",
-    "lanLowLatency": "LAN",
-    "balanced": "Ausgewogen",
-    "optimalQuality": "Optimale Qualität",
+    "lan": "LAN",
+    "wifiStable": "WiFi stabil",
+    "wifiWeak": "WiFi schwach",
     "advanced": "Erweiterte Einstellungen",
     "globalBuffer": "Globaler Puffer (ms)",
     "snapclientBuffer": "Player-Puffer (ms)",

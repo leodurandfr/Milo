@@ -97,7 +97,7 @@ def create_snapclient_router(snapclient_service: SnapclientService) -> APIRouter
 
         Idempotent: skips restart if values are already current.
         """
-        buffer_time = max(20, min(200, payload.buffer_time))
+        buffer_time = max(60, min(300, payload.buffer_time))
         fragments = max(2, min(8, payload.fragments))
 
         try:
