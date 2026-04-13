@@ -84,6 +84,15 @@ class VersionService:
                 },
                 "repo": "roc-streaming/roc-toolkit",
                 "version_regex": r"roc-recv (\d+\.\d+\.\d+)"
+            },
+            "camilladsp": {
+                "name": "CamillaDSP",
+                "description": "updates.audioProcessor",
+                "commands": {
+                    "main": ["/usr/local/bin/camilladsp", "--version"]
+                },
+                "repo": "HEnquist/camilladsp",
+                "version_regex": r"(\d+\.\d+\.\d+)"
             }
         }
 

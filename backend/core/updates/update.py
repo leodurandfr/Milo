@@ -54,6 +54,11 @@ class UpdateService(VersionService):
                 ],
                 "components": ["snapserver", "snapclient"],
                 "backup_path": "/var/lib/milo/backups/multiroom"
+            },
+            "camilladsp": {
+                "binary_path": "/usr/local/bin/camilladsp",
+                "service_name": "milo-camilladsp.service",
+                "backup_path": "/var/lib/milo/backups/camilladsp"
             }
         }
 
@@ -80,6 +85,8 @@ class UpdateService(VersionService):
                 return await self._update_multiroom(status, progress_callback)
             elif program_key == "shairport-sync":
                 return await self._update_shairport_sync(status, progress_callback)
+            elif program_key == "camilladsp":
+                return await self._update_camilladsp(status, progress_callback)
             else:
                 return {"success": False, "error": f"Update handler not implemented for {program_key}"}
 
@@ -943,6 +950,200 @@ class UpdateService(VersionService):
 
         except Exception as e:
             self.update_logger.error(f"shairport-sync rollback failed: {e}")
+            return False
+
+    # === CAMILLADSP (binary download) ===
+
+    async def _update_camilladsp(self, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
+        """Updates CamillaDSP binary from GitHub release.
+
+        CamillaDSP is an always-on service (volume control, DSP), so the service
+        must always be stopped before replacing the binary ("Text file busy").
+        """
+        config = self.update_config["camilladsp"]
+        latest_version = status["latest"]["version"]
+        service_stopped = False
+
+        try:
+            if progress_callback:
+                await progress_callback("updates.progress.creatingBackup", 10)
+
+            # 1. Backup binary
+            backup_result = await self._backup_camilladsp(config)
+            if not backup_result["success"]:
+                return backup_result
+
+            if progress_callback:
+                await progress_callback("updates.progress.downloadingCamillaDSP", 20)
+
+            # 2. Download new version
+            download_result = await self._download_camilladsp(latest_version)
+            if not download_result["success"]:
+                return download_result
+
+            if progress_callback:
+                await progress_callback("updates.progress.stoppingService", 60)
+
+            # 3. Always stop service — binary cannot be replaced while in use
+            await self._stop_service(config["service_name"])
+            service_stopped = True
+            await asyncio.sleep(0.5)
+
+            if progress_callback:
+                await progress_callback("updates.progress.installingVersion", 70)
+
+            # 4. Install new binary
+            success, output = await self._run_deploy(
+                "install-binary", download_result["binary_path"], config["binary_path"]
+            )
+            if not success:
+                await self._cleanup_temp_files(download_result.get("temp_dir"))
+                await self._rollback_camilladsp(config)
+                return {"success": False, "error": f"Failed to install binary: {output}"}
+
+            if progress_callback:
+                await progress_callback("updates.progress.startingService", 90)
+
+            # 5. Restart service
+            start_result = await self._start_service(config["service_name"])
+            if not start_result:
+                await self._cleanup_temp_files(download_result.get("temp_dir"))
+                await self._rollback_camilladsp(config)
+                return {"success": False, "error": "Failed to start CamillaDSP after update"}
+
+            if progress_callback:
+                await progress_callback("updates.progress.verifyingUpdate", 95)
+
+            # 6. Verify update
+            verify_result = await self._verify_camilladsp_update(config)
+            if not verify_result["success"]:
+                await self._cleanup_temp_files(download_result.get("temp_dir"))
+                await self._rollback_camilladsp(config)
+                return verify_result
+
+            if progress_callback:
+                await progress_callback("updates.progress.completed", 100)
+
+            # 7. Cleanup
+            await self._cleanup_temp_files(download_result.get("temp_dir"))
+
+            return {
+                "success": True,
+                "message": f"CamillaDSP updated to {latest_version}",
+                "old_version": status["installed"]["versions"].get("main"),
+                "new_version": latest_version
+            }
+
+        except Exception as e:
+            if "download_result" in locals():
+                await self._cleanup_temp_files(download_result.get("temp_dir"))
+            if service_stopped:
+                await self._rollback_camilladsp(config)
+            self.update_logger.error(f"CamillaDSP update failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def _backup_camilladsp(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Backs up CamillaDSP binary"""
+        try:
+            backup_dir = Path(config["backup_path"])
+            backup_dir.mkdir(parents=True, exist_ok=True)
+
+            shutil.copy2(config["binary_path"], backup_dir / "camilladsp.backup")
+
+            return {"success": True, "backup_dir": str(backup_dir)}
+        except Exception as e:
+            return {"success": False, "error": f"Backup failed: {e}"}
+
+    async def _download_camilladsp(self, version: str) -> Dict[str, Any]:
+        """Downloads CamillaDSP binary from GitHub"""
+        temp_dir = tempfile.mkdtemp(dir="/tmp")
+        try:
+            url = f"https://github.com/HEnquist/camilladsp/releases/download/v{version}/camilladsp-linux-aarch64.tar.gz"
+
+            timeout = aiohttp.ClientTimeout(total=300)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        shutil.rmtree(temp_dir, ignore_errors=True)
+                        return {"success": False, "error": f"Download failed: HTTP {response.status}"}
+
+                    archive_path = Path(temp_dir) / "camilladsp.tar.gz"
+                    async with aiofiles.open(archive_path, 'wb') as f:
+                        async for chunk in response.content.iter_chunked(8192):
+                            await f.write(chunk)
+
+            # Extract archive
+            extract_dir = Path(temp_dir) / "extracted"
+            extract_dir.mkdir()
+
+            proc = await asyncio.create_subprocess_exec(
+                "tar", "-xzf", str(archive_path), "-C", str(extract_dir),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            await proc.communicate()
+
+            if proc.returncode != 0:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                return {"success": False, "error": "Failed to extract archive"}
+
+            binary_path = extract_dir / "camilladsp"
+            if not binary_path.exists():
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                return {"success": False, "error": "Binary not found in archive"}
+
+            return {
+                "success": True,
+                "binary_path": str(binary_path),
+                "temp_dir": temp_dir
+            }
+        except Exception as e:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return {"success": False, "error": str(e)}
+
+    async def _verify_camilladsp_update(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Verifies CamillaDSP was updated successfully"""
+        try:
+            if not Path(config["binary_path"]).exists():
+                return {"success": False, "error": "CamillaDSP binary not found after update"}
+
+            is_active = await self._is_service_active(config["service_name"])
+            if not is_active:
+                return {"success": False, "error": "CamillaDSP service not running after update"}
+
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": f"Verification failed: {e}"}
+
+    async def _rollback_camilladsp(self, config: Dict[str, Any]) -> bool:
+        """Rollback CamillaDSP binary and restart the service"""
+        try:
+            binary_backup = Path(config["backup_path"]) / "camilladsp.backup"
+            if not binary_backup.exists():
+                self.update_logger.error("No backup found for rollback")
+                return False
+
+            await self._stop_service(config["service_name"])
+            await asyncio.sleep(0.5)
+
+            tmp_backup = Path(tempfile.mktemp(prefix="milo-rollback-", dir="/tmp"))
+            shutil.copy2(binary_backup, tmp_backup)
+            try:
+                success, output = await self._run_deploy(
+                    "install-binary", str(tmp_backup), config["binary_path"]
+                )
+                if not success:
+                    self.update_logger.error(f"Rollback install failed: {output}")
+                    return False
+            finally:
+                tmp_backup.unlink(missing_ok=True)
+
+            await self._start_service(config["service_name"])
+
+            self.update_logger.info("CamillaDSP rollback completed, service restarted")
+            return True
+        except Exception as e:
+            self.update_logger.error(f"CamillaDSP rollback failed: {e}")
             return False
 
     # === UTILITY METHODS ===

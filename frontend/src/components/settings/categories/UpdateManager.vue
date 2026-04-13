@@ -35,7 +35,7 @@
                   <span class="program-version text-mono">
                     milo {{ getLocalInstalledVersion(localPrograms.milo) || t('updates.notAvailable') }}
                     <template
-                      v-if="localPrograms.milo.update_available && !isLocalUpdating('milo') && !isLocalUpdateCompleted('milo')">
+                      v-if="localPrograms.milo.update_available && !isLocalUpdateCompleted('milo')">
                       <span class="version-new">> {{ getLocalLatestVersion(localPrograms.milo) }}</span>
                     </template>
                   </span>
@@ -81,7 +81,7 @@
                     <span class="program-version text-mono">
                       {{ getVersionLabel(key) }} {{ getLocalInstalledVersion(program) || t('updates.notAvailable') }}
                       <template
-                        v-if="program.update_available && !isLocalUpdating(key) && !isLocalUpdateCompleted(key)">
+                        v-if="program.update_available && !isLocalUpdateCompleted(key)">
                         <span class="version-new">> {{ getLocalLatestVersion(program) }}</span>
                       </template>
                     </span>
@@ -153,7 +153,7 @@
                     <span class="program-version text-mono">
                       milo-client {{ formatGitVersion(satelliteByMacId[client.mac_id].app_version) || t('updates.notAvailable') }}
                       <template
-                        v-if="satelliteByMacId[client.mac_id].app_update_available && !isSatelliteAppUpdating(client.mac_id) && !isSatelliteAppUpdateCompleted(client.mac_id)">
+                        v-if="satelliteByMacId[client.mac_id].app_update_available && !isSatelliteAppUpdateCompleted(client.mac_id)">
                         <span class="version-new">> {{ formatGitVersion(satelliteByMacId[client.mac_id].server_version) }}</span>
                       </template>
                     </span>
@@ -180,7 +180,7 @@
                     <span class="program-version text-mono">
                       snapclient {{ satelliteByMacId[client.mac_id].snapclient_version || t('updates.notAvailable') }}
                       <template
-                        v-if="satelliteByMacId[client.mac_id].update_available && !isSatelliteUpdating(client.mac_id) && !isSatelliteUpdateCompleted(client.mac_id)">
+                        v-if="satelliteByMacId[client.mac_id].update_available && !isSatelliteUpdateCompleted(client.mac_id)">
                         <span class="version-new">> {{ satelliteByMacId[client.mac_id].latest_version }}</span>
                       </template>
                     </span>
@@ -227,7 +227,8 @@ function getProgramIcon(programKey) {
     'multiroom': 'multiroom',
     'bluez-alsa': 'bluetooth',
     'roc-toolkit': 'mac',
-    'shairport-sync': 'airplay'
+    'shairport-sync': 'airplay',
+    'camilladsp': 'equalizer'
   };
   return iconMap[programKey] || 'settings';
 }
@@ -238,7 +239,8 @@ function getProgramDisplayName(program, key) {
     'multiroom': t('audioSources.multiroom'),
     'bluez-alsa': t('audioSources.bluetooth'),
     'roc-toolkit': t('audioSources.macOS'),
-    'shairport-sync': t('audioSources.airplay')
+    'shairport-sync': t('audioSources.airplay'),
+    'camilladsp': t('equalizer.title')
   };
   return nameOverrides[key] || program.name;
 }
@@ -246,7 +248,8 @@ function getProgramDisplayName(program, key) {
 function getVersionLabel(key) {
   const labelOverrides = {
     'multiroom': 'snapcast',
-    'shairport-sync': 'shairport-sync'
+    'shairport-sync': 'shairport-sync',
+    'camilladsp': 'camilladsp'
   };
   return labelOverrides[key] || key;
 }
@@ -306,7 +309,7 @@ const satelliteCompletedUpdates = ref(new Set());
 const satelliteAppUpdateStates = ref({});
 const satelliteAppCompletedUpdates = ref(new Set());
 
-const supportedLocalUpdates = ['milo', 'go-librespot', 'shairport-sync', 'multiroom'];
+const supportedLocalUpdates = ['milo', 'go-librespot', 'shairport-sync', 'multiroom', 'camilladsp'];
 
 // Debug: toggle via console with window.__miloDebugUpdating(true/false)
 const debugForceUpdating = ref(false);
@@ -328,8 +331,9 @@ function isProgramEnabled(programKey) {
   return settingsStore.dockApps[dockKey] !== false;
 }
 
+// +1 for CamillaDSP which is always visible (not dock-gated)
 const enabledProgramCount = computed(() =>
-  Object.keys(programToDockApp).filter(isProgramEnabled).length
+  Object.keys(programToDockApp).filter(isProgramEnabled).length + 1
 );
 
 // === LOCAL PROGRAMS ===
