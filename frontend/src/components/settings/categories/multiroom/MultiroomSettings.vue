@@ -109,17 +109,17 @@
             <h2 class="heading-2">{{ t('multiroomSettings.advanced') }}</h2>
 
             <SettingItem :label="t('multiroomSettings.globalBuffer')">
-              <RangeSlider v-model="snapcastStore.serverConfig.buffer" :min="100" :max="2000" :step="50"
+              <RangeSlider v-model="snapcastStore.serverConfig.buffer" :min="200" :max="3000" :step="100"
                 value-unit="ms" :disabled="snapcastStore.isApplyingServerConfig" />
             </SettingItem>
 
             <SettingItem :label="t('multiroomSettings.chunkSize')">
-              <RangeSlider v-model="snapcastStore.serverConfig.chunk_ms" :min="10" :max="100" :step="5"
+              <RangeSlider v-model="snapcastStore.serverConfig.chunk_ms" :min="15" :max="50" :step="5"
                 value-unit="ms" :disabled="snapcastStore.isApplyingServerConfig" />
             </SettingItem>
 
             <SettingItem :label="t('multiroomSettings.snapclientBuffer')">
-              <RangeSlider v-model="snapcastStore.serverConfig.snapclient_buffer_time" :min="20" :max="200" :step="10"
+              <RangeSlider v-model="snapcastStore.serverConfig.snapclient_buffer_time" :min="60" :max="300" :step="10"
                 value-unit="ms" :disabled="snapcastStore.isApplyingServerConfig" />
             </SettingItem>
 
@@ -249,18 +249,18 @@ function handleEditClient(macId) {
 const audioPresets = computed(() => [
   {
     id: 'lan',
-    name: t('multiroomSettings.lanLowLatency'),
-    config: { buffer: 200, codec: 'pcm', chunk_ms: 20, snapclient_buffer_time: 40 }
+    name: t('multiroomSettings.lan'),
+    config: { buffer: 300, codec: 'flac', chunk_ms: 20, snapclient_buffer_time: 80 }
   },
   {
-    id: 'balanced',
-    name: t('multiroomSettings.balanced'),
-    config: { buffer: 500, codec: 'opus', chunk_ms: 20, snapclient_buffer_time: 80 }
+    id: 'wifi_stable',
+    name: t('multiroomSettings.wifiStable'),
+    config: { buffer: 700, codec: 'flac', chunk_ms: 20, snapclient_buffer_time: 120 }
   },
   {
-    id: 'quality',
-    name: t('multiroomSettings.optimalQuality'),
-    config: { buffer: 1000, codec: 'flac', chunk_ms: 20, snapclient_buffer_time: 100 }
+    id: 'wifi_weak',
+    name: t('multiroomSettings.wifiWeak'),
+    config: { buffer: 1500, codec: 'opus', chunk_ms: 20, snapclient_buffer_time: 200 }
   }
 ]);
 

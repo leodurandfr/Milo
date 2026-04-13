@@ -95,9 +95,9 @@ tee /etc/snapserver.conf > /dev/null << 'EOF'
 [stream]
 default_source = Multiroom
 
-buffer = 250
+buffer = 300
 codec = flac
-chunk_ms = 15
+chunk_ms = 20
 sampleformat = 48000:32:2
 
 source = meta:///Bluetooth/ROC/Spotify/Radio/Podcast/AirPlay?name=Multiroom
