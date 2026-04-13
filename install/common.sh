@@ -236,7 +236,7 @@ install_camilladsp_binary() {
     local user="$1"
     local data_dir="$2"
     local config_source="$3"
-    local version="3.0.1"
+    local version="4.1.3"
 
     log_info "Installing CamillaDSP..."
 

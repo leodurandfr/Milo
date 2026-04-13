@@ -35,7 +35,7 @@ class TestVersionServiceInit:
         assert version_service_with_token.github_token == "ghp_testtoken123"
 
     def test_programs_configured(self, version_service):
-        expected_keys = {"milo", "go-librespot", "shairport-sync", "multiroom", "bluez-alsa", "roc-toolkit"}
+        expected_keys = {"milo", "go-librespot", "shairport-sync", "multiroom", "bluez-alsa", "roc-toolkit", "camilladsp"}
         assert set(version_service.programs.keys()) == expected_keys
 
     def test_cache_initialized_empty(self, version_service):
@@ -458,7 +458,7 @@ class TestGetProgramList:
 
     def test_returns_all_programs(self, version_service):
         program_list = version_service.get_program_list()
-        assert len(program_list) == 6
+        assert len(program_list) == 7
 
     def test_each_entry_has_required_fields(self, version_service):
         program_list = version_service.get_program_list()

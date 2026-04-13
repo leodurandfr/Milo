@@ -13,12 +13,12 @@ devices:
     type: Alsa
     channels: 2
     device: "plughw:Loopback,1,5"
-    format: S32LE
+    format: S32_LE
   playback:
     type: Alsa
     channels: 2
     device: "hw:sndrpihifiberry,0"
-    format: S32LE
+    format: S32_LE
 
 mixers:
   stereo:
