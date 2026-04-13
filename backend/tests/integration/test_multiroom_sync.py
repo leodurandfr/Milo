@@ -766,8 +766,11 @@ class TestApplyTargetVolumeToClient:
         assert result is False
         # State store was still updated (UI correctness)
         ws._volume_service._state_store.set_client_volume.assert_called_with("client-a", -25.0)
-        # Mute was NOT applied (hardware failed before mute step)
-        ws._volume_service._equalizer_controller.set_equalizer_mute.assert_not_called()
+        # Mute is still applied even on hardware volume failure — CamillaDSP
+        # starts muted, so skipping unmute would leave the client silent.
+        ws._volume_service._equalizer_controller.set_equalizer_mute.assert_called_once_with(
+            "client-a", False, force=True
+        )
 
     @pytest.mark.asyncio
     async def test_no_volume_service_returns_false(self, mock_settings_service, mock_state_machine):

@@ -60,6 +60,9 @@ def mock_equalizer_router_service():
 def mock_multiroom_equalizer_service():
     """Create mock multiroom Equalizer service for zone and client operations"""
     service = Mock()
+    service.get_zone_equalizer = AsyncMock(return_value=Mock())
+    service.get_client_equalizer = AsyncMock(return_value=Mock())
+    service.resolve_preset_gains = AsyncMock(return_value=[0.0] * 10)
     service.load_zone_preset = AsyncMock(return_value=True)
     service.load_client_preset = AsyncMock(return_value=True)
     service.update_filter = AsyncMock(return_value=True)
@@ -342,7 +345,7 @@ class TestAC3ZonePropagation:
         from fastapi import HTTPException
 
         # Configure multiroom_equalizer_service to raise ValueError for unknown zone
-        mock_multiroom_equalizer_service.load_zone_preset = AsyncMock(
+        mock_multiroom_equalizer_service.get_zone_equalizer = AsyncMock(
             side_effect=ValueError("Zone not found: nonexistent_zone")
         )
 
@@ -408,7 +411,7 @@ class TestAC3ClientPresetEndpoint:
         from fastapi import HTTPException
 
         # Configure multiroom_equalizer_service to raise ValueError for unknown client
-        mock_multiroom_equalizer_service.load_client_preset = AsyncMock(
+        mock_multiroom_equalizer_service.get_client_equalizer = AsyncMock(
             side_effect=ValueError("Client not found: unknown:mac:address")
         )
 
@@ -440,7 +443,7 @@ class TestAC3ClientPresetEndpoint:
         from fastapi import HTTPException
 
         # Configure multiroom_equalizer_service to raise ValueError for zone client
-        mock_multiroom_equalizer_service.load_client_preset = AsyncMock(
+        mock_multiroom_equalizer_service.get_client_equalizer = AsyncMock(
             side_effect=ValueError("Client aa:bb:cc:dd:ee:ff is in a zone. Use load_zone_preset() instead.")
         )
 
