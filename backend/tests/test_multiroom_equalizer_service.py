@@ -52,6 +52,7 @@ def mock_camilladsp_service():
     camilladsp_mock.set_filter = AsyncMock(return_value=True)
     camilladsp_mock.set_compressor = AsyncMock(return_value=True)
     camilladsp_mock.set_loudness = AsyncMock(return_value=True)
+    camilladsp_mock.set_mono = AsyncMock(return_value=True)
     camilladsp_mock.settings_service = None  # Prevent Mock auto-creation for await
     return camilladsp_mock
 
@@ -221,12 +222,12 @@ class TestZoneEqualizerMethods:
         # Verify
         assert result is True
         mock_registry.set_zone_equalizer.assert_called_once_with("zone-123", sample_equalizer_settings)
-        mock_state_machine.broadcast_event.assert_called_once()
 
         # Verify Equalizer was applied to local client
         assert mock_camilladsp_service.set_filter.call_count == 2  # 2 filters
         mock_camilladsp_service.set_compressor.assert_called_once()
         mock_camilladsp_service.set_loudness.assert_called_once()
+        mock_camilladsp_service.set_mono.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_apply_zone_equalizer_zone_not_found(
@@ -303,7 +304,6 @@ class TestStandaloneClientEqualizerMethods:
 
         assert result is True
         mock_registry.set_standalone_equalizer.assert_called_once_with("local", sample_equalizer_settings)
-        mock_state_machine.broadcast_event.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_apply_client_equalizer_client_not_found(
@@ -440,6 +440,7 @@ class TestCamillaDspApplication:
         assert mock_camilladsp_service.set_filter.call_count == 2
         mock_camilladsp_service.set_compressor.assert_called_once()
         mock_camilladsp_service.set_loudness.assert_called_once()
+        mock_camilladsp_service.set_mono.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_apply_to_camilladsp_disconnected(
@@ -638,41 +639,27 @@ class TestEventBroadcasting:
         self, multiroom_equalizer_service, mock_registry, mock_state_machine,
         sample_zone, sample_equalizer_settings
     ):
-        """Should broadcast equalizer_changed event for zone"""
+        """apply_zone_equalizer no longer broadcasts directly — broadcasting
+        is handled by the registry's set_zone_equalizer and partial update methods."""
         mock_registry.get_zone.return_value = sample_zone
         mock_registry.get_online_zone_clients.return_value = []
 
         await multiroom_equalizer_service.apply_zone_equalizer("zone-123", sample_equalizer_settings)
 
-        mock_state_machine.broadcast_event.assert_called_once_with(
-            "multiroom",
-            "equalizer_changed",
-            {
-                "target_type": "zone",
-                "target_id": "zone-123",
-                "equalizer_settings": sample_equalizer_settings.to_dict(),
-            },
-        )
+        mock_state_machine.broadcast_event.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_broadcast_client_equalizer_event(
         self, multiroom_equalizer_service, mock_registry, mock_state_machine,
         sample_client, sample_equalizer_settings
     ):
-        """Should broadcast equalizer_changed event for client"""
+        """apply_client_equalizer no longer broadcasts directly — broadcasting
+        is handled by the registry's set_standalone_equalizer and partial update methods."""
         mock_registry.get_client.return_value = sample_client
 
         await multiroom_equalizer_service.apply_client_equalizer("local", sample_equalizer_settings)
 
-        mock_state_machine.broadcast_event.assert_called_once_with(
-            "multiroom",
-            "equalizer_changed",
-            {
-                "target_type": "client",
-                "target_id": "local",
-                "equalizer_settings": sample_equalizer_settings.to_dict(),
-            },
-        )
+        mock_state_machine.broadcast_event.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_no_broadcast_without_state_machine(

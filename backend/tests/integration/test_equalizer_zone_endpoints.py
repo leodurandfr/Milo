@@ -93,6 +93,8 @@ def mock_equalizer_router_service():
 def mock_multiroom_equalizer_service():
     """Create mock multiroom Equalizer service for zone operations"""
     service = Mock()
+    service.get_zone_equalizer = AsyncMock(return_value=Mock())
+    service.resolve_preset_gains = AsyncMock(return_value=[0.0] * 10)
     service.load_zone_preset = AsyncMock(return_value=True)
     service.update_filter = AsyncMock(return_value=True)
     service.update_compressor = AsyncMock(return_value=True)
