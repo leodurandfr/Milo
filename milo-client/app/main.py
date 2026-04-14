@@ -13,8 +13,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 import uvicorn
 
-from services import EqualizerService, SnapclientService, AppUpdateService
-from routes import create_health_router, create_snapclient_router, create_equalizer_router, create_app_update_router, create_hardware_router
+from services import EqualizerService, SnapclientService, AppUpdateService, CamillaDSPUpdateService
+from routes import create_health_router, create_snapclient_router, create_equalizer_router, create_app_update_router, create_hardware_router, create_camilladsp_update_router
 from routes.health import get_hostname
 from services.registration import register_with_main_milo
 
@@ -44,6 +44,7 @@ def _sd_notify_ready():
 equalizer_service = EqualizerService()
 snapclient_service = SnapclientService()
 app_update_service = AppUpdateService()
+camilladsp_update_service = CamillaDSPUpdateService()
 
 
 @asynccontextmanager
@@ -107,10 +108,11 @@ app = FastAPI(
 )
 
 # Register routers
-app.include_router(create_health_router(equalizer_service, snapclient_service, app_update_service))
+app.include_router(create_health_router(equalizer_service, snapclient_service, app_update_service, camilladsp_update_service))
 app.include_router(create_snapclient_router(snapclient_service))
 app.include_router(create_equalizer_router(equalizer_service))
 app.include_router(create_app_update_router(app_update_service))
+app.include_router(create_camilladsp_update_router(camilladsp_update_service))
 app.include_router(create_hardware_router())
 
 

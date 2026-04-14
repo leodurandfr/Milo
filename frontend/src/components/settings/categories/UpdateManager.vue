@@ -142,6 +142,12 @@
                   <div class="skeleton-text shimmer skeleton-version"></div>
                   <div class="skeleton-button shimmer"></div>
                 </div>
+                <div class="program-item-skeleton">
+                  <div class="skeleton-icon shimmer"></div>
+                  <div class="skeleton-text shimmer skeleton-name"></div>
+                  <div class="skeleton-text shimmer skeleton-version"></div>
+                  <div class="skeleton-button shimmer"></div>
+                </div>
               </div>
 
               <div v-else key="content" class="programs-list">
@@ -193,6 +199,33 @@
                     @click="startSatelliteUpdate(client.mac_id)"
                     :disabled="debugForceUpdating || isAnyUpdateInProgress()">
                     {{ (isSatelliteUpdating(client.mac_id) || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
+                  </Button>
+                  <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
+                    {{ t('updates.upToDate') }}
+                  </Button>
+                </div>
+
+                <!-- CamillaDSP row -->
+                <div class="program-item">
+                  <div class="program-info">
+                    <AppIcon name="equalizer" :size="48" class="program-icon" />
+                    <span class="program-name heading-4">{{ t('equalizer.title') }}</span>
+                    <span class="program-version text-mono">
+                      camilladsp {{ satelliteByMacId[client.mac_id].camilladsp_version || t('updates.notAvailable') }}
+                      <template
+                        v-if="satelliteByMacId[client.mac_id].camilladsp_update_available && !isSatelliteCamillaUpdateCompleted(client.mac_id)">
+                        <span class="version-new">> {{ satelliteByMacId[client.mac_id].camilladsp_latest_version }}</span>
+                      </template>
+                    </span>
+                  </div>
+
+                  <Button
+                    v-if="isSatelliteCamillaUpdating(client.mac_id) || debugForceUpdating || (satelliteByMacId[client.mac_id].camilladsp_update_available && satelliteByMacId[client.mac_id].online && !isSatelliteCamillaUpdateCompleted(client.mac_id))"
+                    size="small" variant="brand" class="program-button"
+                    :loading="isSatelliteCamillaUpdating(client.mac_id) || debugForceUpdating"
+                    @click="startSatelliteCamillaUpdate(client.mac_id)"
+                    :disabled="debugForceUpdating || isAnyUpdateInProgress()">
+                    {{ (isSatelliteCamillaUpdating(client.mac_id) || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
                   </Button>
                   <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
                     {{ t('updates.upToDate') }}
@@ -295,7 +328,7 @@ const anticipatedSatellites = computed(() =>
   multiroomStore.clientList.filter(c => {
     if (c.is_local) return false;
     if (c.online) return true;
-    return isSatelliteUpdating(c.mac_id) || isSatelliteAppUpdating(c.mac_id);
+    return isSatelliteUpdating(c.mac_id) || isSatelliteAppUpdating(c.mac_id) || isSatelliteCamillaUpdating(c.mac_id);
   })
 );
 
@@ -308,6 +341,9 @@ const satelliteCompletedUpdates = ref(new Set());
 
 const satelliteAppUpdateStates = ref({});
 const satelliteAppCompletedUpdates = ref(new Set());
+
+const satelliteCamillaUpdateStates = ref({});
+const satelliteCamillaCompletedUpdates = ref(new Set());
 
 const supportedLocalUpdates = ['milo', 'go-librespot', 'shairport-sync', 'multiroom', 'camilladsp'];
 
@@ -473,10 +509,39 @@ async function startSatelliteAppUpdate(macId) {
   }
 }
 
+// === SATELLITE CAMILLADSP UPDATES ===
+
+function isSatelliteCamillaUpdating(macId) {
+  return satelliteCamillaUpdateStates.value[macId]?.updating || false;
+}
+
+function isSatelliteCamillaUpdateCompleted(macId) {
+  return satelliteCamillaCompletedUpdates.value.has(macId);
+}
+
+async function startSatelliteCamillaUpdate(macId) {
+  if (isSatelliteCamillaUpdating(macId)) return;
+
+  try {
+    satelliteCamillaUpdateStates.value[macId] = { updating: true };
+
+    const response = await axios.post(`/api/programs/satellites/${macId}/update-camilladsp`);
+
+    if (response.data.status !== 'success') {
+      throw new Error(response.data.message || 'Failed to start CamillaDSP update');
+    }
+
+  } catch (error) {
+    console.error(`Error starting CamillaDSP update for satellite ${macId}:`, error);
+    delete satelliteCamillaUpdateStates.value[macId];
+  }
+}
+
 function isAnyUpdateInProgress() {
   return Object.values(localUpdateStates.value).some(state => state.updating) ||
     Object.values(satelliteUpdateStates.value).some(state => state.updating) ||
-    Object.values(satelliteAppUpdateStates.value).some(state => state.updating);
+    Object.values(satelliteAppUpdateStates.value).some(state => state.updating) ||
+    Object.values(satelliteCamillaUpdateStates.value).some(state => state.updating);
 }
 
 // === WEBSOCKET HANDLERS ===
@@ -532,6 +597,24 @@ const wsListeners = {
 
       if (success) {
         satelliteAppCompletedUpdates.value.add(mac_id);
+        loadSatellites();
+      }
+    }
+  },
+  'satellite_camilladsp_update_progress': (msg) => {
+    const { mac_id, status } = msg.data;
+    if (mac_id && satelliteCamillaUpdateStates.value[mac_id]) {
+      satelliteCamillaUpdateStates.value[mac_id].updating = status === 'updating';
+    }
+  },
+  'satellite_camilladsp_update_complete': (msg) => {
+    const { mac_id, success } = msg.data;
+
+    if (mac_id) {
+      delete satelliteCamillaUpdateStates.value[mac_id];
+
+      if (success) {
+        satelliteCamillaCompletedUpdates.value.add(mac_id);
         loadSatellites();
       }
     }

@@ -123,12 +123,15 @@ def create_programs_router(update_service, satellite_update_service, state_machi
             snapclient_task = update_service.get_latest_github_version("multiroom")
             milo_task = update_service.get_installed_version("milo")
 
-            satellites, snapclient_github, milo_installed = await asyncio.gather(
-                satellites_task, snapclient_task, milo_task
+            camilladsp_task = update_service.get_latest_github_version("camilladsp")
+
+            satellites, snapclient_github, milo_installed, camilladsp_github = await asyncio.gather(
+                satellites_task, snapclient_task, milo_task, camilladsp_task
             )
 
             latest_version = snapclient_github.get("version") if snapclient_github.get("status") == "success" else None
             server_version = milo_installed.get("raw_version")
+            camilladsp_latest = camilladsp_github.get("version") if camilladsp_github.get("status") == "success" else None
 
             for satellite in satellites:
                 satellite["latest_version"] = latest_version
@@ -141,6 +144,12 @@ def create_programs_router(update_service, satellite_update_service, state_machi
                 satellite["app_update_available"] = compare_versions(
                     extract_base_tag(satellite.get("app_version")),
                     extract_base_tag(server_version)
+                )
+                # CamillaDSP update
+                satellite["camilladsp_latest_version"] = camilladsp_latest
+                satellite["camilladsp_update_available"] = compare_versions(
+                    satellite.get("camilladsp_version"),
+                    camilladsp_latest
                 )
 
             return {
@@ -229,23 +238,51 @@ def create_programs_router(update_service, satellite_update_service, state_machi
             "message": f"App update started for satellite {mac_id}"
         }
 
-    @router.get("/satellites/{mac_id}/update-status")
-    async def get_satellite_update_status(mac_id: str):
-        """Retrieve the update status of a satellite"""
-        satellite_key = f"satellite_{mac_id}"
+    @router.post("/satellites/{mac_id}/update-camilladsp")
+    async def update_satellite_camilladsp(mac_id: str, background_tasks: BackgroundTasks):
+        """Launch a satellite CamillaDSP update in the background"""
+
+        satellite_key = f"satellite_camilladsp_{mac_id}"
 
         if satellite_key in active_updates:
             return {
-                "status": "success",
-                "updating": True,
-                **active_updates[satellite_key]
+                "status": "error",
+                "message": f"CamillaDSP update already in progress for {mac_id}"
             }
-        else:
-            return {
-                "status": "success",
-                "updating": False,
-                "message": "No update in progress"
-            }
+
+        do_update = _create_background_update(
+            update_key=satellite_key,
+            update_fn=lambda cb: satellite_service.update_satellite_camilladsp(mac_id, cb),
+            progress_event_type="satellite_camilladsp_update_progress",
+            complete_event_type="satellite_camilladsp_update_complete",
+            ws_source="satellite_update",
+            identifier_data={"mac_id": mac_id},
+            default_success_msg="CamillaDSP update completed",
+        )
+
+        background_tasks.add_task(do_update)
+
+        return {
+            "status": "success",
+            "message": f"CamillaDSP update started for satellite {mac_id}"
+        }
+
+    @router.get("/satellites/{mac_id}/update-status")
+    async def get_satellite_update_status(mac_id: str):
+        """Retrieve the update status of a satellite (any update type)"""
+        for key in (f"satellite_{mac_id}", f"satellite_app_{mac_id}", f"satellite_camilladsp_{mac_id}"):
+            if key in active_updates:
+                return {
+                    "status": "success",
+                    "updating": True,
+                    **active_updates[key]
+                }
+
+        return {
+            "status": "success",
+            "updating": False,
+            "message": "No update in progress"
+        }
 
     # === GENERIC ROUTES (must come AFTER specific routes) ===
 

@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 from services.equalizer import EqualizerService
 from services.snapclient import SnapclientService
 from services.app_update import AppUpdateService
+from services.camilladsp_update import CamillaDSPUpdateService
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,8 @@ def get_hostname() -> str:
 def create_health_router(
     equalizer_service: EqualizerService,
     snapclient_service: SnapclientService,
-    app_update_service: AppUpdateService
+    app_update_service: AppUpdateService,
+    camilladsp_update_service: CamillaDSPUpdateService
 ) -> APIRouter:
     """Creates health router with injected dependencies."""
     router = APIRouter(tags=["health"])
@@ -55,9 +57,10 @@ def create_health_router(
             uptime = get_system_uptime()
 
             # Parallel subprocess calls for faster response
-            snapclient_version, snapclient_running = await asyncio.gather(
+            snapclient_version, snapclient_running, camilladsp_version = await asyncio.gather(
                 snapclient_service.get_installed_version(),
-                snapclient_service.is_service_running()
+                snapclient_service.is_service_running(),
+                camilladsp_update_service.get_installed_version()
             )
 
             return {
@@ -71,6 +74,10 @@ def create_health_router(
                 "app": {
                     "version": app_update_service.get_app_version(),
                     "update_in_progress": app_update_service.update_in_progress
+                },
+                "camilladsp": {
+                    "version": camilladsp_version,
+                    "update_in_progress": camilladsp_update_service.update_in_progress
                 },
                 "update_in_progress": snapclient_service.update_in_progress,
                 "timestamp": int(time.time())
