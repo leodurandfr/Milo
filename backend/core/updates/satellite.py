@@ -67,6 +67,7 @@ class SatelliteUpdateService:
                 "ip": client.ip,
                 "snapclient_version": result.get("version"),
                 "app_version": result.get("app_version"),
+                "camilladsp_version": result.get("camilladsp_version"),
                 "online": True,
                 "uptime": result.get("uptime"),
                 "snapclient_running": result.get("running", False)
@@ -91,7 +92,8 @@ class SatelliteUpdateService:
                         "version": data.get("snapclient", {}).get("version"),
                         "running": data.get("snapclient", {}).get("running", False),
                         "uptime": data.get("uptime"),
-                        "app_version": data.get("app", {}).get("version")
+                        "app_version": data.get("app", {}).get("version"),
+                        "camilladsp_version": data.get("camilladsp", {}).get("version")
                     }
 
         return {"online": False}
@@ -334,6 +336,124 @@ class SatelliteUpdateService:
                     os.unlink(tarball_path)
                 except Exception:
                     pass
+
+    async def update_satellite_camilladsp(
+        self,
+        mac_id: str,
+        progress_callback: Optional[callable] = None
+    ) -> Dict[str, Any]:
+        """Triggers a CamillaDSP binary update on a satellite."""
+        try:
+            satellites = await self.discover_satellites()
+            satellite = next((s for s in satellites if s["mac_id"] == mac_id), None)
+
+            if not satellite:
+                return {
+                    "success": False,
+                    "error": f"Satellite {mac_id} not found or offline"
+                }
+
+            ip = satellite["ip"]
+            url = f"http://{ip}:{self.satellite_api_port}/camilladsp/update"
+
+            if progress_callback:
+                await progress_callback("updates.progress.startingUpdate", 0)
+
+            timeout = aiohttp.ClientTimeout(total=300)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(url) as response:
+                    if response.status == 200:
+                        data = await response.json()
+
+                        if data.get("success"):
+                            if progress_callback:
+                                await progress_callback(
+                                    "updates.progress.updateInitiated",
+                                    10
+                                )
+
+                            return await self._wait_for_camilladsp_update_completion(
+                                mac_id, ip, progress_callback
+                            )
+                        else:
+                            return {
+                                "success": False,
+                                "error": data.get("message", "Update failed")
+                            }
+                    else:
+                        return {
+                            "success": False,
+                            "error": f"HTTP {response.status}"
+                        }
+
+        except Exception as e:
+            self.logger.error(f"Error updating CamillaDSP on satellite {mac_id}: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    async def _wait_for_camilladsp_update_completion(
+        self,
+        mac_id: str,
+        ip: str,
+        progress_callback: Optional[callable] = None
+    ) -> Dict[str, Any]:
+        """Polls satellite until CamillaDSP update completes."""
+        max_wait_time = 180
+        check_interval = 5
+        elapsed = 0
+
+        while elapsed < max_wait_time:
+            await asyncio.sleep(check_interval)
+            elapsed += check_interval
+
+            progress = min(10 + (elapsed / max_wait_time * 80), 90)
+
+            if progress_callback:
+                await progress_callback(
+                    "updates.progress.updateInProgress",
+                    int(progress)
+                )
+
+            try:
+                url = f"http://{ip}:{self.satellite_api_port}/camilladsp/update/status"
+                timeout = aiohttp.ClientTimeout(total=3)
+
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.get(url) as response:
+                        if response.status == 200:
+                            data = await response.json()
+
+                            if not data.get("update_in_progress", False):
+                                # Fetch updated version from /status
+                                status_url = f"http://{ip}:{self.satellite_api_port}/status"
+
+                                async with session.get(status_url) as status_response:
+                                    if status_response.status == 200:
+                                        status_data = await status_response.json()
+                                        new_version = status_data.get("camilladsp", {}).get("version")
+
+                                        if progress_callback:
+                                            await progress_callback(
+                                                "updates.progress.completed",
+                                                100
+                                            )
+
+                                        return {
+                                            "success": True,
+                                            "message": f"Satellite {mac_id} CamillaDSP updated successfully",
+                                            "new_version": new_version
+                                        }
+
+            except Exception as e:
+                self.logger.debug(f"Waiting for CamillaDSP update on {mac_id}: {e}")
+                continue
+
+        return {
+            "success": False,
+            "error": f"CamillaDSP update timeout for {mac_id}"
+        }
 
     async def _wait_for_app_update_completion(
         self,

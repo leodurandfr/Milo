@@ -1,0 +1,37 @@
+#!/bin/bash
+# Milo Client - Secure CamillaDSP Binary Installation Wrapper
+# Only allows installing a CamillaDSP binary from /tmp
+set -euo pipefail
+
+error_exit() { echo "ERROR: $1" >&2; exit 1; }
+
+[ $# -ne 1 ] && error_exit "Usage: $0 <path-to-camilladsp-binary>"
+
+BINARY_PATH="$1"
+
+# Validate file exists
+[ ! -f "$BINARY_PATH" ] && error_exit "File does not exist: $BINARY_PATH"
+
+# Validate absolute path
+[[ "$BINARY_PATH" != /* ]] && error_exit "Path must be absolute"
+
+# Validate in temp directory only
+case "$BINARY_PATH" in
+    /tmp/*) ;;
+    *) error_exit "Binary must be in /tmp" ;;
+esac
+
+# Validate it's an ELF binary (not a script or random file)
+FILE_TYPE=$(file -b "$BINARY_PATH" 2>/dev/null) || error_exit "Could not determine file type"
+case "$FILE_TYPE" in
+    ELF*) ;;
+    *) error_exit "File is not an ELF binary: $FILE_TYPE" ;;
+esac
+
+# Install binary
+DEST="/usr/local/bin/camilladsp"
+cp "$BINARY_PATH" "$DEST"
+chmod +x "$DEST"
+chown root:root "$DEST"
+
+echo "CamillaDSP binary installed to $DEST"
