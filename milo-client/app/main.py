@@ -83,6 +83,10 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("CamillaDSP client library not available")
 
+    # Start background connection monitor (handles reconnection if CamillaDSP restarts)
+    if equalizer_service.available:
+        equalizer_service.start_connection_loop()
+
     logger.info("Milo Client API startup complete")
 
     # Signal systemd that the service is ready (Type=notify).
@@ -96,6 +100,7 @@ async def lifespan(app: FastAPI):
     yield  # Application runs here
 
     registration_task.cancel()
+    await equalizer_service.stop_connection_loop()
     logger.info("Milo Client API shutting down...")
 
 

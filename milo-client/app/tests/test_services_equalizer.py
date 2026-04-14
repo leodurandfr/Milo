@@ -1,8 +1,9 @@
 """
 Unit tests for EqualizerService.
 """
+import asyncio
 import pytest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock, Mock
 
 
 class TestEqualizerServiceProperties:
@@ -198,3 +199,63 @@ class TestEqualizerServiceConnection:
             result = await service.connect()
             assert result is False
             assert service.connected is False
+
+    @pytest.mark.asyncio
+    async def test_connect_once_skips_when_already_connected(self, equalizer_service):
+        """Should return True immediately when already connected."""
+        result = await equalizer_service._connect_once()
+        assert result is True
+        assert equalizer_service.connected is True
+
+    @pytest.mark.asyncio
+    async def test_probe_detects_dead_connection(self, equalizer_service, mock_camilla_client):
+        """Should mark disconnected when probe fails."""
+        mock_camilla_client.general.state.side_effect = IOError("Connection refused")
+        await equalizer_service._probe_connection()
+        assert equalizer_service.connected is False
+        assert equalizer_service._client is None
+
+    @pytest.mark.asyncio
+    async def test_probe_keeps_connected_on_success(self, equalizer_service, mock_camilla_client):
+        """Should stay connected when probe succeeds."""
+        mock_camilla_client.general.state.return_value = "Running"
+        await equalizer_service._probe_connection()
+        assert equalizer_service.connected is True
+
+    @pytest.mark.asyncio
+    async def test_restore_after_reconnect_sets_volume(self, equalizer_service, mock_camilla_client):
+        """Should restore cached volume and mute after reconnection."""
+        equalizer_service._volume = {"main": -25.0, "mute": False}
+        await equalizer_service._restore_after_reconnect()
+        mock_camilla_client.volume.set_main_volume.assert_called_with(-25.0)
+        mock_camilla_client.volume.set_main_mute.assert_called_with(False)
+
+    @pytest.mark.asyncio
+    async def test_exec_reconnects_on_failure(self, mock_camilla_client):
+        """Should reconnect and retry when first attempt fails."""
+        with patch("services.equalizer.CAMILLADSP_AVAILABLE", True), \
+             patch("services.equalizer.CamillaClient", return_value=mock_camilla_client):
+            from services.equalizer import EqualizerService
+            service = EqualizerService()
+            service._client = mock_camilla_client
+            service._connected = True
+
+            call_count = 0
+            def flaky_call():
+                nonlocal call_count
+                call_count += 1
+                if call_count == 1:
+                    raise IOError("Connection lost")
+                return "ok"
+
+            result = await service._exec(flaky_call)
+            assert result == "ok"
+            assert call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_stop_connection_loop_cleans_up(self, equalizer_service):
+        """Should cancel the background task on stop."""
+        equalizer_service.start_connection_loop()
+        assert equalizer_service._reconnect_task is not None
+        await equalizer_service.stop_connection_loop()
+        assert equalizer_service._running is False
