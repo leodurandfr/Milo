@@ -347,6 +347,11 @@ const headerTitle = computed(() => {
   return titles[currentView.value] || t('settings.title');
 });
 
+// Navigate away from volume view when no device manages volume anymore
+watch(() => unifiedStore.volumeState.any_volume_control, (hasControl) => {
+  if (!hasControl && currentView.value === 'volume') back();
+});
+
 // Watch initialView prop for direct navigation (e.g., from CredentialsRequired)
 watch(() => props.initialView, (newView) => {
   if (newView && newView !== 'home') {

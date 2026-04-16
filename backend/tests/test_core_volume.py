@@ -311,6 +311,63 @@ class TestVolumeStateStore:
         assert state.mode in ["direct", "multiroom"]
 
     @pytest.mark.asyncio
+    async def test_any_volume_control_local_manages(self, state_store, mock_settings):
+        """Test any_volume_control is True when local device manages volume."""
+        mock_settings.get_setting = AsyncMock(return_value=False)
+        state_store.set_volume_control(True)
+
+        state = await state_store.get_complete_state()
+        assert state.any_volume_control is True
+
+    @pytest.mark.asyncio
+    async def test_any_volume_control_direct_dac(self, state_store, mock_settings):
+        """Test any_volume_control is False in direct mode with DAC."""
+        mock_settings.get_setting = AsyncMock(return_value=False)
+        state_store.set_volume_control(False)
+        await state_store.set_mode("direct")
+
+        state = await state_store.get_complete_state()
+        assert state.any_volume_control is False
+
+    @pytest.mark.asyncio
+    async def test_any_volume_control_multiroom_dac_with_remote(self, state_store, mock_settings):
+        """Test any_volume_control is True in multiroom when remote client has volume control."""
+        mock_settings.get_setting = AsyncMock(return_value={})  # No zones
+        state_store.set_volume_control(False)  # Local is DAC
+        await state_store.set_mode("multiroom")
+        await state_store.register_client("remote-client", volume_db=-30.0, available=True)
+
+        # Mock registry with a non-DAC remote client
+        mock_registry = Mock()
+        mock_client = Mock()
+        mock_client.volume_control = True
+        mock_registry.get_client = Mock(return_value=mock_client)
+        mock_registry.get_all_zones = Mock(return_value={})
+        state_store._registry = mock_registry
+
+        state = await state_store.get_complete_state()
+        assert state.any_volume_control is True
+
+    @pytest.mark.asyncio
+    async def test_any_volume_control_multiroom_all_dac(self, state_store, mock_settings):
+        """Test any_volume_control is False in multiroom when all clients are DAC."""
+        mock_settings.get_setting = AsyncMock(return_value={})  # No zones
+        state_store.set_volume_control(False)  # Local is DAC
+        await state_store.set_mode("multiroom")
+        await state_store.register_client("remote-dac", volume_db=-30.0, available=True)
+
+        # Mock registry with a DAC remote client
+        mock_registry = Mock()
+        mock_client = Mock()
+        mock_client.volume_control = False
+        mock_registry.get_client = Mock(return_value=mock_client)
+        mock_registry.get_all_zones = Mock(return_value={})
+        state_store._registry = mock_registry
+
+        state = await state_store.get_complete_state()
+        assert state.any_volume_control is False
+
+    @pytest.mark.asyncio
     async def test_set_mode(self, state_store):
         """Test setting volume mode."""
         await state_store.set_mode("direct")

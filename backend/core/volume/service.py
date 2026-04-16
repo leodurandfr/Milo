@@ -92,6 +92,11 @@ class VolumeService:
         self.logger.warning("Equalizer not available, volume change blocked")
         return False
 
+    async def _get_controllable_client_ids(self) -> list:
+        """Fetch online client IDs that have volume control (excludes DAC clients)."""
+        client_ids = await get_online_client_ids(self.snapcast_service) if self._is_multiroom_enabled() else []
+        return [cid for cid in client_ids if self._state_store.has_volume_control(cid)]
+
     async def _compute_multiroom_updates(self, target_db: float,
                                          client_ids: list) -> Optional[Dict[str, float]]:
         """Compute per-client volume updates for multiroom mode.
@@ -756,9 +761,7 @@ class VolumeService:
         if not await self._check_equalizer_or_error():
             return False
         target_db = self._volume_config.clamp(volume_db)
-        # Fetch online clients before lock (network I/O), exclude DAC clients
-        client_ids = await get_online_client_ids(self.snapcast_service) if self._is_multiroom_enabled() else []
-        client_ids = [cid for cid in client_ids if self._state_store.has_volume_control(cid)]
+        client_ids = await self._get_controllable_client_ids()
         try:
             async with asyncio.timeout(2.0):
                 async with self._volume_lock:
@@ -779,9 +782,7 @@ class VolumeService:
             return True  # Direct + DAC: no clients to control
         if not await self._check_equalizer_or_error():
             return False
-        # Fetch online clients before lock (network I/O), exclude DAC clients
-        client_ids = await get_online_client_ids(self.snapcast_service) if self._is_multiroom_enabled() else []
-        client_ids = [cid for cid in client_ids if self._state_store.has_volume_control(cid)]
+        client_ids = await self._get_controllable_client_ids()
         try:
             async with asyncio.timeout(2.0):
                 async with self._volume_lock:
