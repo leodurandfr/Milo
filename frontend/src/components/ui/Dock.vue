@@ -23,8 +23,8 @@
     </div>
 
     <div ref="dock" class="dock glass-surface glass-border">
-      <!-- Volume Controls - Mobile only (hidden in DAC mode) -->
-      <div v-if="unifiedStore.volumeState.volume_control" class="volume-controls mobile-only" :style="{ transitionDelay: getDockItemDelay(0) }">
+      <!-- Volume Controls - Mobile only (hidden when no device manages volume) -->
+      <div v-if="unifiedStore.volumeState.any_volume_control" class="volume-controls mobile-only" :style="{ transitionDelay: getDockItemDelay(0) }">
         <button v-for="{ icon, delta } in volumeControlsWithSteps" :key="icon"
           @pointerdown="(e) => onVolumeHoldStart(delta, e)" @pointerup="onVolumeHoldEnd"
           @pointercancel="onVolumeHoldEnd" @pointerleave="onVolumeHoldEnd" v-press

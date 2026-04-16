@@ -77,6 +77,7 @@ export const VolumeStateSchema = z.object({
   global_volume_db: z.number().catch(-45.0),
   global_mute: z.boolean().catch(false),
   volume_control: z.boolean().catch(true),  // False = DAC mode (external amp)
+  any_volume_control: z.boolean().catch(true),  // True if any device manages volume via Milo
   clients: z.record(z.string(), VolumeClientSchema).catch({}),
   zones: z.record(z.string(), VolumeZoneSchema).catch({})
 });

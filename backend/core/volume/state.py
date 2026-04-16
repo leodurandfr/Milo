@@ -599,7 +599,7 @@ class VolumeStateStore:
 
     # ========== Zone Operations ==========
 
-    def _has_volume_control(self, mac_id: str) -> bool:
+    def has_volume_control(self, mac_id: str) -> bool:
         """Check if a client has volume control (not a DAC with external amp)."""
         if not self._registry:
             return True
@@ -635,7 +635,7 @@ class VolumeStateStore:
                 if client_id in self._clients:
                     client = self._clients[client_id]
 
-                    if client.available and self._has_volume_control(client_id):
+                    if client.available and self.has_volume_control(client_id):
                         new_volume = self._clamp_db(client.volume_db + delta_db)
                         updates[client_id] = new_volume
 
@@ -682,7 +682,7 @@ class VolumeStateStore:
         for client_id in zone.client_ids:
             if client_id in self._clients:
                 client = self._clients[client_id]
-                if client.available and self._has_volume_control(client_id):
+                if client.available and self.has_volume_control(client_id):
                     volumes.append(client.volume_db)
 
         if volumes:
@@ -756,7 +756,7 @@ class VolumeStateStore:
                 all_volumes = [
                     client.volume_db
                     for mac_id, client in self._clients.items()
-                    if client.available and self._has_volume_control(mac_id)
+                    if client.available and self.has_volume_control(mac_id)
                 ]
                 global_volume = sum(all_volumes) / len(all_volumes) if all_volumes else DEFAULT_VOLUME_DB
 
@@ -764,13 +764,26 @@ class VolumeStateStore:
             available_clients = [c for c in self._clients.values() if c.available]
             global_mute = all(c.mute for c in available_clients) if available_clients else False
 
+            # any_volume_control: True if at least one device manages volume via Milo
+            if self._volume_control:
+                any_vol_ctrl = True
+            elif self._mode == "multiroom":
+                any_vol_ctrl = any(
+                    self.has_volume_control(mac_id)
+                    for mac_id, client in self._clients.items()
+                    if client.available
+                )
+            else:
+                any_vol_ctrl = False
+
             return VolumeState(
                 mode=self._mode,
                 global_volume_db=global_volume,
                 global_mute=global_mute,
                 clients=clients_with_offsets,
                 zones=zone_states,
-                volume_control=self._volume_control
+                volume_control=self._volume_control,
+                any_volume_control=any_vol_ctrl
             )
 
     def _zone_all_muted(self, zone_id: str) -> bool:
@@ -783,7 +796,7 @@ class VolumeStateStore:
             self._clients[cid]
             for cid in zone.client_ids
             if cid in self._clients and self._clients[cid].available
-            and self._has_volume_control(cid)
+            and self.has_volume_control(cid)
         ]
 
         if not controllable_clients:

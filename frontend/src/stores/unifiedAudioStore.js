@@ -25,6 +25,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     global_volume_db: -45.0,         // Global volume (average of unmuted clients)
     global_mute: false,              // Global mute state
     volume_control: true,            // False = DAC mode (external amp manages volume)
+    any_volume_control: true,        // True if any device manages volume via Milo
     clients: {},                     // {hostname: {volume_db, offset_db, mute, available}}
     zones: {},                       // {zoneId: {id, name, client_ids, average_volume_db, all_muted}}
     step_mobile_db: 2.0              // Volume step for mobile buttons
@@ -195,6 +196,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
         volumeState.value.global_volume_db = result.data.global_volume_db;
         volumeState.value.global_mute = result.data.global_mute;
         volumeState.value.volume_control = result.data.volume_control;
+        volumeState.value.any_volume_control = result.data.any_volume_control;
         volumeState.value.clients = result.data.clients;
         volumeState.value.zones = result.data.zones;
       }

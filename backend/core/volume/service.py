@@ -256,9 +256,10 @@ class VolumeService:
         Returns:
             The volume to use for the new mode (for multiroom: local volume to push)
         """
-        # DAC mode: just switch mode, skip volume push to clients
+        # DAC mode: switch mode and broadcast (any_volume_control depends on mode)
         if not self._volume_control:
             await self._state_store.set_mode("multiroom" if multiroom_enabled else "direct")
+            await self._broadcast_volume_state(show_bar=False)
             return None
 
         if multiroom_enabled:
@@ -287,6 +288,7 @@ class VolumeService:
             except Exception as e:
                 self.logger.warning(f"Failed to apply volume/mute to CamillaDSP: {e}")
 
+            await self._broadcast_volume_state(show_bar=False)
             return current_global
 
     # ============================================================================
@@ -749,13 +751,14 @@ class VolumeService:
 
     async def set_volume_db(self, volume_db: float, show_bar: bool = True) -> bool:
         """Set volume to specific level in dB (-80 to 0)."""
-        if not self._volume_control:
-            return True  # DAC mode: volume managed externally
+        if not self._volume_control and not self._is_multiroom_enabled():
+            return True  # Direct + DAC: no clients to control
         if not await self._check_equalizer_or_error():
             return False
         target_db = self._volume_config.clamp(volume_db)
-        # Fetch online clients before lock (network I/O)
+        # Fetch online clients before lock (network I/O), exclude DAC clients
         client_ids = await get_online_client_ids(self.snapcast_service) if self._is_multiroom_enabled() else []
+        client_ids = [cid for cid in client_ids if self._state_store.has_volume_control(cid)]
         try:
             async with asyncio.timeout(2.0):
                 async with self._volume_lock:
@@ -772,12 +775,13 @@ class VolumeService:
 
     async def adjust_volume_db(self, delta_db: float, show_bar: bool = True) -> bool:
         """Adjust volume by delta in dB (positive = louder, negative = quieter)."""
-        if not self._volume_control:
-            return True  # DAC mode: volume managed externally
+        if not self._volume_control and not self._is_multiroom_enabled():
+            return True  # Direct + DAC: no clients to control
         if not await self._check_equalizer_or_error():
             return False
-        # Fetch online clients before lock (network I/O)
+        # Fetch online clients before lock (network I/O), exclude DAC clients
         client_ids = await get_online_client_ids(self.snapcast_service) if self._is_multiroom_enabled() else []
+        client_ids = [cid for cid in client_ids if self._state_store.has_volume_control(cid)]
         try:
             async with asyncio.timeout(2.0):
                 async with self._volume_lock:

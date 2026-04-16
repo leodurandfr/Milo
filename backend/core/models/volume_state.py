@@ -59,6 +59,7 @@ class VolumeState:
     clients: Dict[str, ClientVolume] = field(default_factory=dict)
     zones: Dict[str, ZoneVolume] = field(default_factory=dict)
     volume_control: bool = True  # False when local device is a DAC (external amp)
+    any_volume_control: bool = True  # True if at least one device manages volume via Milo
 
     def to_dict(self) -> dict:
         return {
@@ -66,6 +67,7 @@ class VolumeState:
             "global_volume_db": self.global_volume_db,
             "global_mute": self.global_mute,
             "volume_control": self.volume_control,
+            "any_volume_control": self.any_volume_control,
             "clients": {k: v.to_dict() for k, v in self.clients.items()},
             "zones": {k: v.to_dict() for k, v in self.zones.items()}
         }

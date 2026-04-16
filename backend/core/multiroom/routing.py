@@ -491,6 +491,11 @@ class AudioRoutingService:
                     push_ok = await self.volume_service.push_volume_to_all_clients(target_volume)
                     if not push_ok:
                         self.logger.warning(f"POST_TRANSITION: push_volume_to_all_clients returned failure")
+                elif self.volume_service:
+                    # DAC mode: sync client volumes from equalizers and broadcast
+                    # (push is skipped since local has no volume to push, but remote clients
+                    # need their state synced and any_volume_control must be re-evaluated)
+                    await self.volume_service.sync_all_clients_from_equalizer()
                 self.logger.info("POST_TRANSITION: Broadcasting multiroom_ready event")
                 await self.state_machine.broadcast_event("routing", "multiroom_ready", {})
 
