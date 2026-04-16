@@ -405,16 +405,18 @@ class HardwareScreenRequest(BaseModel):
 
 
 class HardwareRotaryEncoderRequest(BaseModel):
-    """Rotary encoder GPIO pin configuration"""
-    clk_pin: int = Field(..., ge=2, le=27)
-    dt_pin: int = Field(..., ge=2, le=27)
-    sw_pin: int = Field(..., ge=2, le=27)
+    """Rotary encoder configuration (enabled flag + GPIO pins)"""
+    enabled: bool = True
+    clk_pin: int = Field(default=22, ge=2, le=27)
+    dt_pin: int = Field(default=27, ge=2, le=27)
+    sw_pin: int = Field(default=23, ge=2, le=27)
 
     @model_validator(mode='after')
     def validate_unique_pins(self):
-        pins = [self.clk_pin, self.dt_pin, self.sw_pin]
-        if len(set(pins)) != len(pins):
-            raise ValueError('All GPIO pins must be different')
+        if self.enabled:
+            pins = [self.clk_pin, self.dt_pin, self.sw_pin]
+            if len(set(pins)) != len(pins):
+                raise ValueError('All GPIO pins must be different')
         return self
 
 

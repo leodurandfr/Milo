@@ -1112,6 +1112,7 @@ def create_settings_router(
                     "resolution": screen["resolution"],
                 },
                 "rotary_encoder": {
+                    "enabled": payload.rotary_encoder.enabled,
                     "clk_pin": payload.rotary_encoder.clk_pin,
                     "dt_pin": payload.rotary_encoder.dt_pin,
                     "sw_pin": payload.rotary_encoder.sw_pin,

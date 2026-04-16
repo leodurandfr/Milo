@@ -190,6 +190,11 @@ class HardwareService:
         config = self._ensure_cache()
         return config.get('audio', {}).get('id')
 
+    def get_rotary_enabled(self) -> bool:
+        """Returns True if the rotary encoder is enabled in hardware.json."""
+        config = self._ensure_cache()
+        return config.get('rotary_encoder', {}).get('enabled', True)
+
     def get_rotary_pins(self) -> Tuple[int, int, int]:
         """Returns (clk_pin, dt_pin, sw_pin) from config or defaults."""
         config = self._ensure_cache()
@@ -232,7 +237,7 @@ class HardwareService:
         return {
             "audio": config.get('audio', {}),
             "screen": config.get('screen', {'type': 'none', 'resolution': None}),
-            "rotary_encoder": {"clk_pin": clk, "dt_pin": dt, "sw_pin": sw},
+            "rotary_encoder": {"enabled": self.get_rotary_enabled(), "clk_pin": clk, "dt_pin": dt, "sw_pin": sw},
         }
 
     # =========================================================================

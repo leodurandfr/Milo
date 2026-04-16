@@ -24,21 +24,30 @@
       />
     </SettingsSection>
 
-    <!-- Screen -->
-    <SettingsSection :title="t('hardwareSettings.screen')">
+    <!-- Screen (optional) -->
+    <ToggleSection
+      :title="t('hardwareSettings.screen')"
+      :enabled="hasScreen"
+      @change="toggleScreen"
+    >
       <div class="hardware-row">
         <span class="hardware-row__label text-mono">{{ t('hardwareSettings.screenModel') }}</span>
         <Dropdown
           :model-value="config.screen_type"
-          :options="screenOptions"
+          :options="screenOptionsFiltered"
           :disabled="isRebooting"
+          placeholder=""
           @change="onScreenChange"
         />
       </div>
-    </SettingsSection>
+    </ToggleSection>
 
-    <!-- Rotary Encoder -->
-    <SettingsSection :title="t('hardwareSettings.rotaryEncoder')">
+    <!-- Rotary Encoder (optional) -->
+    <ToggleSection
+      :title="t('hardwareSettings.rotaryEncoder')"
+      :enabled="config.rotary_enabled"
+      @change="toggleRotary"
+    >
       <p class="text-mono encoder-description">{{ t('hardwareSettings.rotaryEncoderDescription') }}</p>
       <div class="encoder-pins">
         <SettingItem label="CLK">
@@ -66,7 +75,7 @@
           />
         </SettingItem>
       </div>
-    </SettingsSection>
+    </ToggleSection>
 
     <!-- Apply & Reboot (sticky, two-step confirm) -->
     <Button v-if="isDirty || isRebooting" :variant="confirmReboot ? 'important' : 'brand'" class="apply-button-sticky"
@@ -85,6 +94,7 @@ import { logger } from '@/services/logger';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
+import ToggleSection from '@/components/ui/ToggleSection.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
 import Button from '@/components/ui/Button.vue';
@@ -103,6 +113,7 @@ const config = ref({
   audio_id: '',
   volume_control: true,
   screen_type: 'none',
+  rotary_enabled: true,
   clk_pin: 22,
   dt_pin: 27,
   sw_pin: 23,
@@ -125,6 +136,7 @@ const isDirty = computed(() => {
   return (
     config.value.audio_id !== savedConfig.value.audio_id ||
     config.value.screen_type !== savedConfig.value.screen_type ||
+    config.value.rotary_enabled !== savedConfig.value.rotary_enabled ||
     config.value.clk_pin !== savedConfig.value.clk_pin ||
     config.value.dt_pin !== savedConfig.value.dt_pin ||
     config.value.sw_pin !== savedConfig.value.sw_pin
@@ -138,18 +150,45 @@ const isDacCard = computed(() => {
   return card?.category === 'dac';
 });
 
+// Screen: toggle ON/OFF (replaces "none" option in dropdown)
+const hasScreen = computed(() => config.value.screen_type !== 'none');
+const screenOptionsFiltered = computed(() => screenOptions.value.filter(s => s.value !== 'none'));
+const lastScreenType = ref(null);
+
+function toggleScreen(enabled) {
+  confirmReboot.value = false;
+  if (enabled) {
+    config.value.screen_type = lastScreenType.value || screenOptionsFiltered.value[0]?.value || 'none';
+  } else {
+    lastScreenType.value = config.value.screen_type;
+    config.value.screen_type = 'none';
+  }
+}
+
+// Rotary encoder: toggle ON/OFF
+function toggleRotary(enabled) {
+  config.value.rotary_enabled = enabled;
+  confirmReboot.value = false;
+}
+
 function syncFromData(data) {
   const current = data.current;
   const snapshot = {
     audio_id: current.audio?.id || '',
     volume_control: current.audio?.volume_control !== false,
     screen_type: current.screen?.type || 'none',
+    rotary_enabled: current.rotary_encoder?.enabled !== false,
     clk_pin: current.rotary_encoder?.clk_pin ?? 22,
     dt_pin: current.rotary_encoder?.dt_pin ?? 27,
     sw_pin: current.rotary_encoder?.sw_pin ?? 23,
   };
   config.value = { ...snapshot };
   savedConfig.value = { ...snapshot };
+
+  // Remember last non-none screen type for toggle restore
+  if (snapshot.screen_type !== 'none') {
+    lastScreenType.value = snapshot.screen_type;
+  }
 
   audioCardOptions.value = data.options.audio_cards;
   screenOptions.value = data.options.screens;
@@ -209,6 +248,7 @@ async function applyAndReboot() {
       audio: { id: config.value.audio_id, volume_control: config.value.volume_control },
       screen: { type: config.value.screen_type },
       rotary_encoder: {
+        enabled: config.value.rotary_enabled,
         clk_pin: config.value.clk_pin,
         dt_pin: config.value.dt_pin,
         sw_pin: config.value.sw_pin,
