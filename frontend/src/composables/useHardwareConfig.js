@@ -139,6 +139,7 @@ export function useHardwareConfig() {
 
   const screenType = computed(() => hardwareInfo.value?.screen_type || 'none');
   const screenResolution = computed(() => hardwareInfo.value?.screen_resolution || { width: null, height: null });
+  const rotaryEnabled = computed(() => hardwareConfig.value?.current?.rotary_encoder?.enabled !== false);
 
   return {
     hardwareInfo,
@@ -148,6 +149,7 @@ export function useHardwareConfig() {
     reload,
     screenType,
     screenResolution,
+    rotaryEnabled,
     // Full config for Hardware settings page
     hardwareConfig,
     isLoadingConfig,

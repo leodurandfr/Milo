@@ -53,6 +53,9 @@ def _const(name: str):
 def _create_rotary_controller():
     """Create RotaryVolumeController with GPIO pins from hardware.json."""
     hardware_service = get_service("hardware_service")
+    if not hardware_service.get_rotary_enabled():
+        logging.getLogger(__name__).info("Rotary encoder disabled in hardware config")
+        return None
     if not hardware_service.get_volume_control():
         logging.getLogger(__name__).info("DAC mode: rotary encoder disabled (volume managed externally)")
         return None

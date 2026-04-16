@@ -68,7 +68,7 @@
             </template>
           </ListItemButton>
 
-          <ListItemButton :title="t('settings.screen')" action="caret" @click="push('screen')">
+          <ListItemButton v-if="screenType !== 'none'" :title="t('settings.screen')" action="caret" @click="push('screen')">
             <template #icon>
               <img :src="displayIcon" alt="Display" />
             </template>
@@ -257,7 +257,9 @@ import UpdateManager from '@/components/settings/categories/UpdateManager.vue';
 import InfoSettings from '@/components/settings/categories/InfoSettings.vue';
 import NetworkSettings from '@/components/settings/categories/NetworkSettings.vue';
 import { preloadWifiStatus } from '@/composables/useWifi';
-import { preloadHardwareConfig } from '@/composables/useHardwareConfig';
+import { preloadHardwareConfig, useHardwareConfig } from '@/composables/useHardwareConfig';
+
+const { screenType } = useHardwareConfig();
 const props = defineProps({
   initialView: {
     type: String,

@@ -8,7 +8,7 @@
   <SettingsContainer v-else>
     <!-- Volume controls -->
     <SettingsSection :title="t('volumeSettings.controls')">
-      <SettingItem :label="t('volumeSettings.rotaryStep')">
+      <SettingItem v-if="rotaryEnabled" :label="t('volumeSettings.rotaryStep')">
         <RangeSlider v-model="config.step_rotary_db" :min="1" :max="6" :step="1" value-unit=" dB"
           @input="debouncedUpdate('rotary-steps', 'rotary-steps', { step_rotary_db: $event })" />
       </SettingItem>
@@ -85,6 +85,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
+import { useHardwareConfig } from '@/composables/useHardwareConfig';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
@@ -98,6 +99,7 @@ import Button from '@/components/ui/Button.vue';
 
 const { t } = useI18n();
 const { updateSetting, debouncedUpdate, clearAllTimers } = useSettingsAPI();
+const { rotaryEnabled } = useHardwareConfig();
 const settingsStore = useSettingsStore();
 const unifiedStore = useUnifiedAudioStore();
 
