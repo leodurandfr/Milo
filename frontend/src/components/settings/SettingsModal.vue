@@ -257,6 +257,7 @@ import UpdateManager from '@/components/settings/categories/UpdateManager.vue';
 import InfoSettings from '@/components/settings/categories/InfoSettings.vue';
 import NetworkSettings from '@/components/settings/categories/NetworkSettings.vue';
 import { preloadWifiStatus } from '@/composables/useWifi';
+import { preloadHardwareConfig } from '@/composables/useHardwareConfig';
 const props = defineProps({
   initialView: {
     type: String,
@@ -552,6 +553,9 @@ onMounted(async () => {
 
   // Preload wifi status for instant NetworkSettings rendering (non-blocking)
   preloadWifiStatus();
+
+  // Preload hardware config for instant HardwareSettings rendering (non-blocking)
+  preloadHardwareConfig();
 });
 
 </script>
