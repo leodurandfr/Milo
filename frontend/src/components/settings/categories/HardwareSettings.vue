@@ -90,7 +90,7 @@ import Dropdown from '@/components/ui/Dropdown.vue';
 import Button from '@/components/ui/Button.vue';
 
 const { t } = useI18n();
-const { loadHardwareConfig } = useHardwareConfig();
+const { loadHardwareConfig, hardwareConfig } = useHardwareConfig();
 
 // GPIO pin options (1–40 for RPi 40-pin header)
 const gpioPinOptions = Array.from({ length: 40 }, (_, i) => ({
@@ -244,7 +244,13 @@ async function applyAndReboot() {
   }
 }
 
+// Use preloaded data immediately for correct layout on first render
+if (hardwareConfig.value) {
+  syncFromData(hardwareConfig.value);
+}
+
 onMounted(async () => {
+  // Fresh reload to ensure data is up-to-date
   const data = await loadHardwareConfig(true);
   if (data) {
     syncFromData(data);

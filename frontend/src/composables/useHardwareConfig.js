@@ -20,6 +20,26 @@ const error = ref(null);
 // Shared global state — full hardware config + dropdown options
 const hardwareConfig = ref(null);
 const isLoadingConfig = ref(false);
+/**
+ * Pre-load hardware config for instant rendering when HardwareSettings opens.
+ * Call from SettingsModal.onMounted() (non-blocking, like preloadWifiStatus).
+ */
+export async function preloadHardwareConfig() {
+  if (hardwareConfig.value || isLoadingConfig.value) return;
+  isLoadingConfig.value = true;
+  try {
+    const response = await axios.get('/api/settings/hardware-config', {
+      headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+    });
+    if (response.data.status === 'success') {
+      hardwareConfig.value = response.data;
+    }
+  } catch (err) {
+    logger.error('hardware', 'Failed to preload hardware config', err);
+  } finally {
+    isLoadingConfig.value = false;
+  }
+}
 
 export function useHardwareConfig() {
   /**
