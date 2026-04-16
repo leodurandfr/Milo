@@ -250,7 +250,7 @@ app.include_router(setup_router)
 wifi_router = create_wifi_router(wifi_service)
 app.include_router(wifi_router)
 
-app.add_websocket_route("/ws", websocket_server.websocket_endpoint)
+app.add_api_websocket_route("/ws", websocket_server.websocket_endpoint)
 
 if __name__ == "__main__":
     import uvicorn
