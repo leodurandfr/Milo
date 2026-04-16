@@ -111,6 +111,15 @@ def create_equalizer_router(
                 "error": str(e)
             }
 
+    @router.get("/levels")
+    async def get_local_levels():
+        """Get audio levels directly from local CamillaDSP (no routing/registry needed)."""
+        try:
+            return await camilladsp_service.get_levels()
+        except Exception as e:
+            logger.debug(f"Failed to get local levels: {e}")
+            return {"available": False, "input_peak": [-80.0, -80.0], "output_peak": [-80.0, -80.0]}
+
     @router.get("/levels/zone/{client_ids}")
     async def get_zone_levels(client_ids: str):
         """Get aggregated (AVERAGE) audio levels for multiple clients in a zone."""
