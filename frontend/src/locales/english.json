@@ -194,7 +194,7 @@
     "loadingAlbum": "Loading album",
     "ejecting": "Ejecting...",
     "waiting": "Waiting...",
-    "connectedToMac": "Connected to",
+    "connectedTo": "Connected to",
     "audioReceivedFrom": "Audio received from",
     "disconnect": "Disconnect",
     "disconnecting": "Disconnecting...",

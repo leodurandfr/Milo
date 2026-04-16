@@ -142,7 +142,7 @@ const displayedStatusLines = computed(() => {
       case 'bluetooth':
         return [t('status.connectedTo'), formattedDeviceNames];
       case 'mac':
-        return [t('status.connectedToMac'), formattedDeviceNames];
+        return [t('status.audioReceivedFrom'), formattedDeviceNames];
       case 'airplay':
         return [t('status.connectedTo'), formattedDeviceNames];
       default:

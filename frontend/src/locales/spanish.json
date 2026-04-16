@@ -191,7 +191,7 @@
     "ready": "Listo para conectar",
     "readyToStream": "Listo para transmitir",
     "waiting": "Esperando...",
-    "connectedToMac": "Conectado a",
+    "connectedTo": "Conectado a",
     "audioReceivedFrom": "Audio recibido de",
     "disconnect": "Desconectar",
     "disconnecting": "Desconectando...",
