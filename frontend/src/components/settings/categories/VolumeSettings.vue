@@ -1,7 +1,7 @@
 <!-- frontend/src/components/settings/categories/VolumeSettings.vue -->
 <template>
-  <!-- DAC mode: volume not managed by Milō -->
-  <div v-if="!unifiedStore.volumeState.volume_control" class="dac-notice">
+  <!-- DAC mode: volume not managed by Milō on any device -->
+  <div v-if="!unifiedStore.volumeState.any_volume_control" class="dac-notice">
     <span class="text-mono">{{ t('volumeSettings.volumeNotManaged') }}</span>
   </div>
 
