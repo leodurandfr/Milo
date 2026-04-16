@@ -114,7 +114,7 @@
     "systemOfflineDescription": "Dieses Audiosystem ist derzeit nicht mit Milō verbunden.<br>IP: {ip}",
     "deleteSystem": "Dieses Audiosystem löschen",
     "offline": "Offline",
-    "externalVolume": "Externer Verstärker"
+    "externalVolume": "Lautstärke nicht von Milō gesteuert"
   },
   "equalizer": {
     "title": "Equalizer",
@@ -202,7 +202,8 @@
     "ejecting": "Wird ausgeworfen..."
   },
   "volumeSettings": {
-    "externalAmplifier": "Lautstärke wird vom externen Verstärker gesteuert",
+    "volumeManagement": "Lautstärkeregelung",
+    "volumeNotManaged": "Die Lautstärke wird nicht von Milō gesteuert",
     "controls": "Lautstärkeregler",
     "rotaryStep": "Lautstärkeänderung pro Drehung",
     "mobileStep": "Lautstärkeänderung auf dem Handy",
@@ -588,7 +589,9 @@
     "audio": {
       "title": "Wähle deine Audiokarte",
       "amplifiers": "Verstärker",
-      "dacs": "DACs (externer Verstärker)",
+      "dacs": "DACs",
+      "volumeManagement": "Lautstärkeregelung",
+      "volumeManagementDescription": "Milō steuert die Audiolautstärke",
       "none": "Keine Audiokarte",
       "other": "Sonstige"
     },
@@ -606,7 +609,8 @@
       "confirmReboot": "Neustart bestätigen",
       "rebooting": "Neustart...",
       "rebootingDescription": "Bitte warte, während das System neu startet.",
-      "accessHint": "Verbinde dich nach dem Neustart mit dem Netzwerk {ssid} und öffne milo.local in deinem Browser, um auf Milō zuzugreifen."
+      "accessHint": "Verbinde dich nach dem Neustart mit dem Netzwerk {ssid} und öffne milo.local in deinem Browser, um auf Milō zuzugreifen.",
+      "volumeNotManaged": "Lautstärke nicht von Milō verwaltet"
     }
   }
 }

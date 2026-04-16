@@ -633,6 +633,16 @@ class VolumeService:
             await self._hardware_service.set_volume_control(enabled)
         self._volume_control = enabled
         self._state_store.set_volume_control(enabled)
+        # Apply volume change to CamillaDSP immediately
+        if self._camilladsp_service:
+            if not enabled:
+                # DAC mode: pin CamillaDSP at 0dB (external amp manages volume)
+                await self._camilladsp_service.set_volume(0.0)
+                await self._camilladsp_service.set_mute(False)
+                self.logger.info("DAC mode: CamillaDSP pinned at 0 dB")
+            else:
+                # Restore managed volume from state
+                await self.reapply_current_volume()
         # Sync to registry so zone all_external_volume and WS events stay accurate
         if self._client_registry and self._state_store.local_mac_id:
             await self._client_registry.update_client(

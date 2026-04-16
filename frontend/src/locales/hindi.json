@@ -114,7 +114,7 @@
     "systemOfflineDescription": "यह ऑडियो सिस्टम वर्तमान में Milō से कनेक्ट नहीं है।<br>IP: {ip}",
     "deleteSystem": "इस ऑडियो सिस्टम को हटाएं",
     "offline": "ऑफ़लाइन",
-    "externalVolume": "बाहरी एम्पलीफायर"
+    "externalVolume": "वॉल्यूम Milō द्वारा प्रबंधित नहीं"
   },
   "equalizer": {
     "title": "इक्वलाइज़र",
@@ -202,7 +202,8 @@
     "ejecting": "निकाला जा रहा है..."
   },
   "volumeSettings": {
-    "externalAmplifier": "वॉल्यूम बाहरी एम्पलीफायर द्वारा प्रबंधित",
+    "volumeManagement": "वॉल्यूम प्रबंधन",
+    "volumeNotManaged": "वॉल्यूम Milō द्वारा प्रबंधित नहीं है",
     "controls": "वॉल्यूम नियंत्रण",
     "rotaryStep": "प्रति रोटेशन वॉल्यूम परिवर्तन",
     "mobileStep": "मोबाइल पर वॉल्यूम परिवर्तन",
@@ -588,7 +589,9 @@
     "audio": {
       "title": "अपना ऑडियो कार्ड चुनें",
       "amplifiers": "एम्पलीफायर",
-      "dacs": "DACs (बाहरी एम्पलीफायर)",
+      "dacs": "DACs",
+      "volumeManagement": "वॉल्यूम प्रबंधन",
+      "volumeManagementDescription": "Milō ऑडियो वॉल्यूम नियंत्रित करता है",
       "none": "कोई ऑडियो कार्ड नहीं",
       "other": "अन्य"
     },
@@ -606,7 +609,8 @@
       "confirmReboot": "रीबूट की पुष्टि करें",
       "rebooting": "रीबूट हो रहा है...",
       "rebootingDescription": "कृपया सिस्टम के पुनः आरंभ होने तक प्रतीक्षा करें।",
-      "accessHint": "पुनरारंभ के बाद, नेटवर्क {ssid} से कनेक्ट करें और Milō तक पहुंचने के लिए अपने ब्राउज़र में milo.local खोलें।"
+      "accessHint": "पुनरारंभ के बाद, नेटवर्क {ssid} से कनेक्ट करें और Milō तक पहुंचने के लिए अपने ब्राउज़र में milo.local खोलें।",
+      "volumeNotManaged": "वॉल्यूम Milō द्वारा प्रबंधित नहीं"
     }
   }
 }

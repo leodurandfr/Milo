@@ -1052,6 +1052,10 @@ def create_settings_router(
         try:
             current = hardware_service.get_full_config()
 
+            # Ensure volume_control is always present (resolved from hardware or auto-detected)
+            if "audio" in current and "volume_control" not in current["audio"]:
+                current["audio"]["volume_control"] = hardware_service.get_volume_control()
+
             # Build dropdown options from registry
             audio_options = [
                 {"value": card_id, "label": card["label"], "category": card.get("category")}

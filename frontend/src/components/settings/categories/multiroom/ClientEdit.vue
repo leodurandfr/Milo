@@ -46,14 +46,13 @@
             @change="selectAudioCard"
           />
         </div>
-        <!-- External amplifier toggle (DAC cards only) -->
+        <!-- Volume management toggle (DAC cards only) -->
         <ListItemButton
           v-if="isDacCard"
-          :title="t('multiroom.externalVolume')"
-          :subtitle="t('volumeSettings.externalAmplifier')"
+          :title="t('volumeSettings.volumeManagement')"
           variant="background"
           action="toggle"
-          :model-value="!volumeControl"
+          :model-value="volumeControl"
           @click="toggleVolumeControl"
         />
 

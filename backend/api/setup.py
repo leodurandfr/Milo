@@ -10,6 +10,7 @@ Client mode is handled automatically at first boot by milo-first-boot.service
 import asyncio
 import logging
 from fastapi import APIRouter, HTTPException
+from typing import Optional
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -19,6 +20,7 @@ class SetupCompleteRequest(BaseModel):
     """Wizard completion payload — all settings applied atomically."""
     language: str = Field(..., description="Language key")
     audio_id: str = Field(..., description="Audio card registry ID")
+    volume_control: Optional[bool] = Field(None, description="Volume management override (None = auto-detect from card category)")
     screen_type: str = Field(..., description="Screen type registry ID")
 
 
@@ -68,6 +70,8 @@ def create_setup_router(settings_service, hardware_service, systemd_manager):
                     "alsa_control": card["alsa_control"],
                     "overlay": card["overlay"],
                 })
+            if payload.volume_control is not None:
+                audio_config["volume_control"] = payload.volume_control
 
             config = {
                 "audio": audio_config,
