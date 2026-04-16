@@ -71,6 +71,12 @@ class EqualizerRouter:
         client = self._get_client(mac_id)
 
         if not client:
+            # Client not in registry — fall back to local CamillaDSP.
+            # This happens in non-multiroom mode where the registry is empty
+            # (populated only by Snapcast connections).
+            if self._camilladsp_service:
+                logger.debug(f"Client {mac_id} not in registry, falling back to local CamillaDSP for {action_name}")
+                return await local_action()
             logger.warning(f"Client {mac_id} not found for {action_name}")
             return {"status": "error", "message": f"Client {mac_id} not found"}
 

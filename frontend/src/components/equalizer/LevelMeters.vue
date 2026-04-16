@@ -26,7 +26,6 @@
 import { computed, onMounted, onUnmounted, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useEqualizerStore } from '@/stores/equalizerStore';
-import { useSettingsStore } from '@/stores/settingsStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import LevelMeter from './LevelMeter.vue';
@@ -41,19 +40,19 @@ const props = defineProps({
 
 const { t } = useI18n();
 const equalizerStore = useEqualizerStore();
-const settingsStore = useSettingsStore();
 const audioStore = useUnifiedAudioStore();
 
-// Dynamic min/max from settings
-const meterMin = computed(() => settingsStore.volumeLimits.min_db);
-const meterMax = computed(() => settingsStore.volumeLimits.max_db);
+// Fixed metering range: 0 dBFS is the standard reference for audio level meters,
+// regardless of volume control settings (which define the volume knob range, not signal range)
+const meterMin = -60;
+const meterMax = 0;
 
 let pollInterval = null;
 
 // Convert array levels to individual channels
 const outputLeft = computed(() => {
   const levels = equalizerStore.outputPeak;
-  return Array.isArray(levels) && levels.length > 0 ? levels[0] : meterMin.value;
+  return Array.isArray(levels) && levels.length > 0 ? levels[0] : meterMin;
 });
 
 const outputRight = computed(() => {
@@ -73,18 +72,13 @@ const activeClientIds = computed(() => {
 // Poll levels from API
 async function pollLevels() {
   const ids = activeClientIds.value;
-
-  const silent = [meterMin.value, meterMin.value];
-
-  // All clients muted - show no levels
-  if (ids.length === 0) {
-    equalizerStore.updateLevels(silent, silent);
-    return;
-  }
+  const silent = [meterMin, meterMin];
 
   try {
-    // Always use zone endpoint - it handles both local and remote clients correctly
-    const endpoint = `/api/equalizer/levels/zone/${ids.join(',')}`;
+    // Use zone endpoint when clients are known, otherwise direct local endpoint
+    const endpoint = ids.length > 0
+      ? `/api/equalizer/levels/zone/${ids.join(',')}`
+      : '/api/equalizer/levels';
 
     const response = await axios.get(endpoint);
     if (response.data.available) {
@@ -93,7 +87,6 @@ async function pollLevels() {
         response.data.output_peak || silent
       );
     } else {
-      // No clients available - reset to minimum
       equalizerStore.updateLevels(silent, silent);
     }
   } catch (error) {
