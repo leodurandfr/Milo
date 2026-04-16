@@ -62,7 +62,7 @@
             </template>
           </ListItemButton>
 
-          <ListItemButton :title="t('settings.volume')" action="caret" @click="push('volume')">
+          <ListItemButton v-if="unifiedStore.volumeState.any_volume_control" :title="t('settings.volume')" action="caret" @click="push('volume')">
             <template #icon>
               <img :src="volumeIcon" alt="Volume" />
             </template>
@@ -519,7 +519,8 @@ async function handleShutdown() {
 // Placeholder for odd grid
 const shouldShowPlaceholder = computed(() => {
   // Count the number of visible items
-  let count = 8; // Base: Languages, Applications, Volume, Screen, Network, Hardware, Updates, Information
+  let count = 7; // Base: Languages, Applications, Screen, Network, Hardware, Updates, Information
+  if (unifiedStore.volumeState.any_volume_control) count++;
   if (settingsStore.dockApps.spotify) count++;
   if (settingsStore.dockApps.mac) count++;
   if (settingsStore.dockApps.multiroom) count++;
