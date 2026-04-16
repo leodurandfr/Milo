@@ -114,7 +114,7 @@
     "systemOfflineDescription": "Questo sistema audio non è attualmente connesso a Milō.<br>IP: {ip}",
     "deleteSystem": "Elimina questo sistema audio",
     "offline": "Offline",
-    "externalVolume": "Amplificatore esterno"
+    "externalVolume": "Volume non gestito da Milō"
   },
   "equalizer": {
     "title": "Equalizzatore",
@@ -202,7 +202,8 @@
     "ejecting": "Espulsione in corso..."
   },
   "volumeSettings": {
-    "externalAmplifier": "Volume gestito dall'amplificatore esterno",
+    "volumeManagement": "Gestione del volume",
+    "volumeNotManaged": "Il volume non è gestito da Milō",
     "controls": "Controlli del volume",
     "rotaryStep": "Variazione del volume per rotazione",
     "mobileStep": "Variazione del volume su mobile",
@@ -588,7 +589,9 @@
     "audio": {
       "title": "Seleziona la tua scheda audio",
       "amplifiers": "Amplificatori",
-      "dacs": "DAC (amplificatore esterno)",
+      "dacs": "DACs",
+      "volumeManagement": "Gestione del volume",
+      "volumeManagementDescription": "Milō controlla il volume audio",
       "none": "Nessuna scheda audio",
       "other": "Altro"
     },
@@ -606,7 +609,8 @@
       "confirmReboot": "Conferma riavvio",
       "rebooting": "Riavvio in corso...",
       "rebootingDescription": "Attendi il riavvio del sistema.",
-      "accessHint": "Dopo il riavvio, connettiti a {ssid} e apri milo.local nel tuo browser per accedere a Milō."
+      "accessHint": "Dopo il riavvio, connettiti a {ssid} e apri milo.local nel tuo browser per accedere a Milō.",
+      "volumeNotManaged": "Volume non gestito da Milō"
     }
   }
 }

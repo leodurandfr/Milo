@@ -114,7 +114,7 @@
     "systemOfflineDescription": "此音频系统当前未连接到Milō。<br>IP：{ip}",
     "deleteSystem": "删除此音频系统",
     "offline": "离线",
-    "externalVolume": "外置功放"
+    "externalVolume": "音量未由 Milō 管理"
   },
   "equalizer": {
     "title": "均衡器",
@@ -202,7 +202,8 @@
     "ejecting": "正在弹出..."
   },
   "volumeSettings": {
-    "externalAmplifier": "音量由外置功放管理",
+    "volumeManagement": "音量管理",
+    "volumeNotManaged": "音量未由 Milō 管理",
     "controls": "音量控制",
     "rotaryStep": "每次旋转的音量变化",
     "mobileStep": "移动设备上的音量变化",
@@ -588,7 +589,9 @@
     "audio": {
       "title": "选择您的声卡",
       "amplifiers": "功放",
-      "dacs": "DAC（外置功放）",
+      "dacs": "DACs",
+      "volumeManagement": "音量管理",
+      "volumeManagementDescription": "Milō 控制音频音量",
       "none": "无声卡",
       "other": "其他"
     },
@@ -606,7 +609,8 @@
       "confirmReboot": "确认重启",
       "rebooting": "正在重启...",
       "rebootingDescription": "请等待系统重启。",
-      "accessHint": "重启后，连接到网络 {ssid} 并在浏览器中打开 milo.local 以访问 Milō。"
+      "accessHint": "重启后，连接到网络 {ssid} 并在浏览器中打开 milo.local 以访问 Milō。",
+      "volumeNotManaged": "音量不由 Milō 管理"
     }
   }
 }

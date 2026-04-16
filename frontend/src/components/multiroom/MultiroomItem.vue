@@ -171,7 +171,7 @@
             {{ t('multiroom.offline') }}
           </div>
 
-          <!-- External volume indicator (DAC client) -->
+          <!-- Volume not managed indicator (DAC client) -->
           <div v-else-if="zoneClient.volume_control === false" class="client-external-volume text-mono-small">
             {{ t('multiroom.externalVolume') }}
           </div>

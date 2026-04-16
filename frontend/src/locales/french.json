@@ -114,7 +114,7 @@
     "systemOfflineDescription": "Ce système audio n'est actuellement pas connecté à Milō.<br>IP : {ip}",
     "deleteSystem": "Supprimer ce système audio",
     "offline": "Hors ligne",
-    "externalVolume": "Amplificateur externe"
+    "externalVolume": "Volume non géré par Milō"
   },
   "equalizer": {
     "title": "Égaliseur",
@@ -202,7 +202,8 @@
     "unknownArtist": "Artiste inconnu"
   },
   "volumeSettings": {
-    "externalAmplifier": "Volume géré par l'amplificateur externe",
+    "volumeManagement": "Gestion du volume",
+    "volumeNotManaged": "Le volume n'est pas géré par Milō",
     "controls": "Contrôles du volume",
     "rotaryStep": "Variation du volume par rotation",
     "mobileStep": "Variation du volume sur mobile",
@@ -588,7 +589,9 @@
     "audio": {
       "title": "Sélectionnez votre carte audio",
       "amplifiers": "Amplificateurs",
-      "dacs": "DACs (amplificateur externe)",
+      "dacs": "DACs",
+      "volumeManagement": "Gestion du volume",
+      "volumeManagementDescription": "Milō contrôle le volume audio",
       "none": "Aucune carte audio",
       "other": "Autre"
     },
@@ -606,7 +609,8 @@
       "confirmReboot": "Confirmer le redémarrage",
       "accessHint": "Après le redémarrage, connectez-vous au réseau {ssid} et ouvrez milo.local dans votre navigateur pour accéder à Milō.",
       "rebooting": "Redémarrage en cours...",
-      "rebootingDescription": "Veuillez patienter pendant le redémarrage du système."
+      "rebootingDescription": "Veuillez patienter pendant le redémarrage du système.",
+      "volumeNotManaged": "Volume non géré par Milō"
     }
   }
 }

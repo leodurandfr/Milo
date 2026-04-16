@@ -23,13 +23,15 @@
 
           <NetworkStep v-else-if="currentStep === 2" v-model="wizardState.wifiSsid" :hotspot-active="settingsStore.hotspotActive" />
 
-          <AudioStep v-else-if="currentStep === 3" v-model="wizardState.audioId" :audio-cards="audioCards" />
+          <AudioStep v-else-if="currentStep === 3" v-model="wizardState.audioId"
+            v-model:volume-control="wizardState.volumeControl" :audio-cards="audioCards" />
 
           <ScreenStep v-else-if="currentStep === 4" v-model="wizardState.screenType" :screens="screens" />
 
           <SummaryStep v-else-if="currentStep === 5"
             :language-code="wizardState.language" :language-label="selectedLanguageLabel"
             :audio-label="selectedAudioLabel" :screen-label="selectedScreenLabel"
+            :volume-control="wizardState.volumeControl" :is-dac="isDacSelected"
             :wifi-ssid="wizardState.wifiSsid" :is-rebooting="isRebooting" :error="error" />
         </div>
       </Transition>
@@ -58,7 +60,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useI18n, i18n } from '@/services/i18n';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -96,6 +98,7 @@ const wizardState = reactive({
   wifiSsid: null,
   language: i18n.getCurrentLanguage() || 'english',
   audioId: 'none',
+  volumeControl: true,
   screenType: 'none',
 });
 
@@ -128,13 +131,25 @@ const selectedLanguageLabel = computed(() => {
 });
 
 const selectedAudioLabel = computed(() => {
+  if (wizardState.audioId === 'none') return t('setup.audio.none');
   const card = audioCards.value.find(c => c.value === wizardState.audioId);
   return card?.label || wizardState.audioId;
 });
 
 const selectedScreenLabel = computed(() => {
+  if (wizardState.screenType === 'none') return t('setup.screen.none');
   const screen = screens.value.find(s => s.value === wizardState.screenType);
   return screen?.label || wizardState.screenType;
+});
+
+const isDacSelected = computed(() => {
+  const card = audioCards.value.find(c => c.value === wizardState.audioId);
+  return card?.category === 'dac';
+});
+
+// Auto-set volume_control default when audio card changes
+watch(() => wizardState.audioId, () => {
+  wizardState.volumeControl = !isDacSelected.value;
 });
 
 const { getAvailableLanguages } = useI18n();
@@ -181,6 +196,7 @@ async function applySetup() {
     await axios.post('/api/setup/complete', {
       language: wizardState.language,
       audio_id: wizardState.audioId,
+      volume_control: isDacSelected.value ? wizardState.volumeControl : undefined,
       screen_type: wizardState.screenType,
     });
 
@@ -293,7 +309,7 @@ onUnmounted(() => {
   flex-direction: column;
   overflow-y: auto;
   min-height: 0;
-  padding: 0 var(--space-05) calc(48px + var(--space-03) + var(--space-03));
+  padding: 0 var(--space-05) calc(48px + var(--space-03) + var(--space-05));
 }
 
 /* Sticky gradient at top of scroll area */
@@ -358,7 +374,7 @@ onUnmounted(() => {
   }
 
   .setup-card__body {
-    padding: 0 calc(var(--space-06) + env(safe-area-inset-right, 0px)) calc(48px + var(--space-06) + var(--space-03)) calc(var(--space-06) + env(safe-area-inset-left, 0px));
+    padding: 0 calc(var(--space-06) + env(safe-area-inset-right, 0px)) calc(48px + var(--space-06) + var(--space-05)) calc(var(--space-06) + env(safe-area-inset-left, 0px));
   }
 
   .setup-card__header {

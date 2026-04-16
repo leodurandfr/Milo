@@ -29,6 +29,9 @@
       <div class="summary-item__card">
         <span class="heading-3">{{ audioLabel }}</span>
       </div>
+      <div v-if="isDac && !volumeControl" class="summary-item__card summary-item__card--secondary">
+        <span class="text-mono">{{ t('setup.summary.volumeNotManaged') }}</span>
+      </div>
     </div>
 
     <!-- Screen -->
@@ -90,6 +93,14 @@ const props = defineProps({
     type: String,
     default: '',
   },
+  volumeControl: {
+    type: Boolean,
+    default: true,
+  },
+  isDac: {
+    type: Boolean,
+    default: false,
+  },
   screenLabel: {
     type: String,
     default: '',
@@ -131,6 +142,13 @@ const flagIcon = computed(() => flagIcons[props.languageCode] || null);
   padding: var(--space-03) var(--space-04);
   background: var(--color-background);
   border-radius: var(--radius-04);
+}
+
+.summary-item__card--secondary {
+  justify-content: space-between;
+}
+.summary-item__card--secondary .text-mono {
+  color: var(--color-text-secondary);
 }
 
 .summary-item__flag {
