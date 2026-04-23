@@ -153,6 +153,11 @@ const rawSourceState = computed(() => {
       metadata.value?.disc_present && !metadata.value?.cache_ready) {
     return 'loading_disc';
   }
+  // CD: no drive connected (active source but hardware missing)
+  if (activeSource.value === 'cd' && sourceState.value === 'waiting' &&
+      metadata.value?.drive_connected === false) {
+    return 'no_drive';
+  }
   return sourceState.value;
 });
 

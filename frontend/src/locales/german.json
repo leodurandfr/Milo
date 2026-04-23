@@ -40,7 +40,7 @@
       "unknownAlbum": "Unbekanntes Album",
       "unknownArtist": "Unbekannter Künstler",
       "trackN": "Titel {n}",
-      "connectDrive": "Schließe ein CD-Laufwerk an, um den CD-Player zu aktivieren"
+      "noDriveConnected": "Nicht angeschlossen"
     },
     "radioSource": {
       "favoritesTitle": "Lieblings-Radios",

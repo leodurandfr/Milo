@@ -1,13 +1,6 @@
 <!-- frontend/src/components/settings/categories/DockSettings.vue -->
 <template>
   <SettingsContainer>
-    <!-- CD drive notification -->
-    <NotificationBanner
-      :title="showCdNotification ? t('audioSources.cdSource.connectDrive') : null"
-      :dismissable="true"
-      @dismiss="showCdNotification = false"
-    />
-
     <!-- Audio sources -->
     <SettingsSection class="audio-sources-section">
       <template #header>
@@ -123,13 +116,11 @@ import { storeToRefs } from 'pinia';
 import { useI18n } from '@/services/i18n';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
-import { useCdStore } from '@/stores/cdStore';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import Button from '@/components/ui/Button.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
-import NotificationBanner from '@/components/ui/NotificationBanner.vue';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
@@ -138,13 +129,8 @@ import ToggleSection from '@/components/ui/ToggleSection.vue';
 const { t } = useI18n();
 const { debouncedUpdate, updateSetting } = useSettingsAPI();
 const settingsStore = useSettingsStore();
-const cdStore = useCdStore();
 
 const { dockApps: config, sourceOrder } = storeToRefs(settingsStore);
-
-// CD drive notification
-const showCdNotification = ref(false);
-let cdNotificationTimeout = null;
 
 const AUDIO_SOURCES = ['spotify', 'bluetooth', 'radio', 'podcast', 'airplay', 'mac', 'cd'];
 
@@ -178,13 +164,6 @@ function saveDockApps() {
 }
 
 function handleToggle(appName, value) {
-  // Block enabling CD when no drive is connected
-  if (appName === 'cd' && value && !cdStore.driveConnected) {
-    showCdNotification.value = true;
-    clearTimeout(cdNotificationTimeout);
-    cdNotificationTimeout = setTimeout(() => { showCdNotification.value = false; }, 4000);
-    return;
-  }
   config.value[appName] = value;
   saveDockApps();
 }
@@ -351,7 +330,6 @@ onUnmounted(() => {
   document.removeEventListener('pointermove', onDragMove);
   document.removeEventListener('pointerup', onDragEnd);
   document.removeEventListener('pointercancel', onDragEnd);
-  clearTimeout(cdNotificationTimeout);
 });
 </script>
 

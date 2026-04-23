@@ -40,7 +40,7 @@
       "unknownAlbum": "未知专辑",
       "unknownArtist": "未知艺术家",
       "trackN": "曲目 {n}",
-      "connectDrive": "连接CD驱动器以启用CD播放器"
+      "noDriveConnected": "未连接"
     },
     "radioSource": {
       "favoritesTitle": "喜爱的广播",

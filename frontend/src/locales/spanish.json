@@ -40,7 +40,7 @@
       "unknownAlbum": "Álbum desconocido",
       "unknownArtist": "Artista desconocido",
       "trackN": "Pista {n}",
-      "connectDrive": "Conecta una unidad de CD para activar el reproductor de CD"
+      "noDriveConnected": "No conectado"
     },
     "radioSource": {
       "favoritesTitle": "Radios favoritas",

@@ -40,7 +40,7 @@
       "unknownAlbum": "Unknown Album",
       "unknownArtist": "Unknown Artist",
       "trackN": "Track {n}",
-      "connectDrive": "Connect a CD drive to enable CD Player"
+      "noDriveConnected": "Not plugged in"
     },
     "radioSource": {
       "favoritesTitle": "Favorite radios",
