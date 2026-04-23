@@ -89,6 +89,10 @@ const displayedStatusLines = computed(() => {
   if (props.sourceState === 'loading_disc') {
     return [t('audioSources.cd'), t('status.loadingAlbum')];
   }
+  // CD: no drive connected
+  if (props.sourceState === 'no_drive') {
+    return [t('audioSources.cd'), t('audioSources.cdSource.noDriveConnected')];
+  }
 
   // Starting state
   if (props.sourceState === 'starting') {

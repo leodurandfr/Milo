@@ -82,7 +82,6 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick, inject } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useSettingsStore } from '@/stores/settingsStore';
-import { useCdStore } from '@/stores/cdStore';
 import { useI18n } from '@/services/i18n';
 import { useIsMobile } from '@/composables/useIsMobile';
 import { useDockDrag } from '@/composables/useDockDrag';
@@ -92,7 +91,6 @@ import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const { t } = useI18n();
 const settingsStore = useSettingsStore();
-const cdStore = useCdStore();
 const registerDockControl = inject('registerDockControl', null);
 
 // === STATIC CONFIGURATION ===
@@ -117,7 +115,6 @@ const enabledApps = computed(() => settingsStore.buildEnabledAppsArray());
 const enabledAudioSources = computed(() => {
   return enabledApps.value
     .filter(source => ALL_AUDIO_SOURCES.includes(source))
-    .filter(source => source !== 'cd' || cdStore.driveConnected)
     .map(source => ({ id: source, icon: source }));
 });
 

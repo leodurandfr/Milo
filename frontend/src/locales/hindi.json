@@ -40,7 +40,7 @@
       "unknownAlbum": "अज्ञात एल्बम",
       "unknownArtist": "अज्ञात कलाकार",
       "trackN": "ट्रैक {n}",
-      "connectDrive": "सीडी प्लेयर सक्षम करने के लिए एक सीडी ड्राइव कनेक्ट करें"
+      "noDriveConnected": "कनेक्टेड नहीं"
     },
     "radioSource": {
       "favoritesTitle": "पसंदीदा रेडियो",
