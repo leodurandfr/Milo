@@ -9,8 +9,11 @@ Type=simple
 User=milo
 Group=milo
 
-# Create /run/user/1000 for XDG_RUNTIME_DIR
-RuntimeDirectory=user/1000
+# Create /run/user/1000 for XDG_RUNTIME_DIR, and an ephemeral Chromium
+# profile directory in /run/milo-kiosk (tmpfs, recreated on every start).
+# The ephemeral profile avoids stale Singleton locks tied to the previous
+# hostname or PID after reboots and unclean shutdowns.
+RuntimeDirectory=user/1000 milo-kiosk
 RuntimeDirectoryMode=0700
 RuntimeDirectoryPreserve=yes
 
@@ -34,6 +37,7 @@ Environment=WLR_XCURSOR_SIZE=24
 
 # Launch Cage with Chromium in kiosk mode
 ExecStart=/usr/bin/cage -- /usr/bin/chromium \
+  --user-data-dir=/run/milo-kiosk/chromium \
   --kiosk \
   --incognito \
   --password-store=basic \
