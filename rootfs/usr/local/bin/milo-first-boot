@@ -1,9 +1,11 @@
 #!/bin/bash
 # milo-first-boot — Auto-detect device mode on first boot.
 #
-# Runs before avahi-daemon to avoid mDNS hostname conflicts.
-# If milo.local already exists on the network → configure as client.
-# Otherwise → continue normal boot (wizard will appear for server setup).
+# Runs before avahi-daemon to avoid claiming milo.local while another
+# Milo server already owns it on the network.
+# If milo.local already exists on the network → reconfigure as a satellite
+# client (hostname renamed to milo-client).
+# Otherwise → keep the default "milo" hostname; wizard appears for setup.
 #
 # Skips entirely once setup_completed is true in settings.json
 # (set by the wizard for server mode, or by configure_client below).
@@ -18,6 +20,9 @@ MILO_APP_DIR="/home/milo/milo"
 MILO_CLIENT_USER="milo-client"
 MILO_CLIENT_HOME="/home/$MILO_CLIENT_USER"
 MILO_CLIENT_DATA_DIR="/var/lib/milo-client"
+
+# Active ethernet IPv4 address, populated by wait_for_ethernet_ip
+ETH_IP=""
 
 log() { echo "[milo-first-boot] $1"; }
 
@@ -61,19 +66,24 @@ has_ethernet_carrier() {
 }
 
 wait_for_ethernet_ip() {
-    # Ethernet carrier is present — wait for DHCP to assign an IP (max 15s)
+    # Ethernet carrier is present — wait for DHCP to assign an IP (max 15s).
+    # On success, populates ETH_IP with the assigned IPv4 address so the
+    # mDNS probe can bind multicast send/receive to that interface.
     local max_wait=15
     local waited=0
 
     while (( waited < max_wait )); do
         for iface in /sys/class/net/eth* /sys/class/net/end*; do
-            if [[ -f "$iface/carrier" ]] && [[ "$(cat "$iface/carrier" 2>/dev/null)" == "1" ]]; then
-                local name
-                name=$(basename "$iface")
-                if ip -4 addr show "$name" 2>/dev/null | grep -q "inet "; then
-                    log "Network ready on $name"
-                    return 0
-                fi
+            [[ -f "$iface/carrier" ]] || continue
+            [[ "$(cat "$iface/carrier" 2>/dev/null)" == "1" ]] || continue
+            local name
+            name=$(basename "$iface")
+            local ip
+            ip=$(ip -4 -o addr show "$name" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
+            if [[ -n "$ip" ]]; then
+                ETH_IP="$ip"
+                log "Network ready on $name (ip=$ip)"
+                return 0
             fi
         done
 
@@ -207,27 +217,26 @@ EOF
 
 log "Setup not completed — detecting mode..."
 
-# Wait up to 15s for ethernet carrier (driver may not have detected it yet)
-if ! has_ethernet_carrier 15; then
-    log "No ethernet cable — server mode (wizard will appear)"
-    exit 0
-fi
+if has_ethernet_carrier 15 && wait_for_ethernet_ip; then
+    # Let multicast/IGMP fully settle on the freshly-up interface before probing
+    sleep 5
 
-# Ethernet cable present — could be server or client, need to check
-log "Ethernet detected — waiting for IP then probing for existing Milo..."
+    # Probe up to 3 times to handle transient network conditions
+    # (lost packets, switch IGMP snooping warm-up, peer not yet responding).
+    for attempt in 1 2 3; do
+        if /usr/bin/python3 /usr/local/bin/milo-mdns-probe milo 10 "$ETH_IP"; then
+            configure_client
+            exit 0  # configure_client reboots; safety net only
+        fi
+        if (( attempt < 3 )); then
+            log "Probe attempt $attempt did not find milo.local — retrying"
+            sleep 3
+        fi
+    done
 
-if ! wait_for_ethernet_ip; then
-    log "No IP obtained — server mode (wizard will appear)"
-    exit 0
-fi
-
-# Small delay to let the network fully settle
-sleep 2
-
-# Probe for milo.local via raw mDNS (avahi is not running yet)
-if /usr/bin/python3 /usr/local/bin/milo-mdns-probe milo 10; then
-    configure_client
+    log "No existing Milo found after 3 probes — server mode (wizard will appear)"
 else
-    log "No existing Milo found — server mode (wizard will appear)"
-    exit 0
+    log "No ethernet IP available — server mode (wizard will appear)"
 fi
+
+exit 0
