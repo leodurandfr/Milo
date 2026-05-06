@@ -271,8 +271,12 @@ class CdSource(MpvAudioSource):
                 }
             )
             if not self._drive_connected:
-                await self._handle_disc_removed()
+                await self._clear_disc_state()
                 return
+            # Drive newly connected — refresh source metadata so the frontend
+            # transitions out of "no_drive" (mirrors the _clear_disc_state path).
+            if self.state_machine.system_state.active_source == AudioSource.CD:
+                self._update_connection_state()
 
         if not self._drive_connected:
             return
@@ -296,7 +300,7 @@ class CdSource(MpvAudioSource):
 
         # Disc removed
         if not disc_detected and self._disc_present:
-            await self._handle_disc_removed()
+            await self._clear_disc_state()
 
     async def _handle_disc_detected(self) -> None:
         """Phase 1: disc detected (spinning up or already ready).
@@ -435,9 +439,13 @@ class CdSource(MpvAudioSource):
         self._update_connection_state()
         self._logger.info("Auto-playing track 1")
 
-    async def _handle_disc_removed(self) -> None:
-        """Disc removal: stop playback if active, clear disc state."""
-        self._logger.info("Disc removed")
+    async def _clear_disc_state(self) -> None:
+        """Clear in-memory disc state and stop playback. Does NOT eject physically.
+
+        Called when the disc becomes inaccessible — either drive unplugged or
+        disc physically removed.
+        """
+        self._logger.info("Clearing disc state")
 
         is_active = (
             self.state_machine
