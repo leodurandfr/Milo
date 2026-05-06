@@ -134,6 +134,10 @@ class SnapcastService:
                 ip = client_data["host"]["ip"].replace("::ffff:", "")
                 mac = client_data["host"].get("mac", "")
 
+                if ClientRegistryService.is_stale_local_client(client_data.get("id", ""), ip):
+                    self.logger.warning(f"Skipping stale local client id={client_data.get('id')}")
+                    continue
+
                 # mac_id: MAC address as primary identifier
                 mac_id = ClientRegistryService.compute_mac_id(host, ip, mac)
 
