@@ -231,7 +231,9 @@
     "screensaverSourceNote": "Sur Radio, Podcasts, Bluetooth et macOS uniquement",
     "uiScale": "Affichage",
     "uiScaleLevel": "Proportion de l'interface",
-    "screensaverDelay": "Démarrer l'économiseur d'écran, après :"
+    "screensaverDelay": "Démarrer l'économiseur d'écran, après :",
+    "colorFilter": "Filtre couleur chaude",
+    "colorFilterWarmth": "Intensité"
   },
   "hardwareSettings": {
     "audioCard": "Carte audio",

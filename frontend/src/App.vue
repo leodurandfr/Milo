@@ -38,6 +38,13 @@
     <!-- Global Virtual Keyboard (available in wizard too) -->
     <VirtualKeyboard />
 
+    <!-- Warm color filter overlay (Night Shift-like, configurable in screen settings) -->
+    <div
+      v-if="colorFilterActive"
+      class="color-filter-overlay"
+      :style="colorFilterStyle"
+    />
+
     <!-- Sleep shield: intercepts touch when screen is off to prevent accidental UI interaction -->
     <div
       v-if="settingsStore.isScreenSleeping && settingsStore.setupCompleted !== false"
@@ -334,6 +341,20 @@ watch(isReady, (ready) => {
   }
 });
 
+// === Warm color filter overlay (Night Shift-like) ===
+const COLOR_FILTER_MAX_ALPHA = 0.40;
+
+const colorFilterActive = computed(() => {
+  const cf = settingsStore.screenColorFilter;
+  return cf?.enabled && cf?.warmth > 0;
+});
+
+const colorFilterStyle = computed(() => {
+  const warmth = settingsStore.screenColorFilter?.warmth ?? 0;
+  const alpha = (warmth / 100) * COLOR_FILTER_MAX_ALPHA;
+  return { backgroundColor: `rgba(255, 119, 0, ${alpha})` };
+});
+
 const isEqualizerOpen = ref(false);
 const isMultiroomOpen = ref(false);
 const isSettingsOpen = ref(false);
@@ -530,6 +551,11 @@ onMounted(async () => {
         settingsStore.updateScreenUiScale(event.data.config);
       }
     }),
+    on('settings', 'screen_color_filter_changed', (event) => {
+      if (event.data?.config) {
+        settingsStore.updateScreenColorFilter(event.data.config);
+      }
+    }),
     on('settings', 'radio_settings_changed', (event) => {
       if (event.data?.config) {
         settingsStore.updateRadioSettings(event.data.config);
@@ -633,6 +659,14 @@ onUnmounted(() => {
 <style>
 .app-container {
   height: 100%;
+}
+
+.color-filter-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  mix-blend-mode: multiply;
+  z-index: 9999;
 }
 
 .sleep-shield {

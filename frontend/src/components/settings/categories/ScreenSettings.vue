@@ -20,6 +20,25 @@
       </SettingItem>
     </SettingsSection>
 
+    <!-- Warm color filter (Night Shift-like) -->
+    <ToggleSection
+      :title="t('screenSettings.colorFilter')"
+      :enabled="config.color_filter_enabled"
+      @change="handleColorFilterToggle"
+    >
+      <SettingItem :label="t('screenSettings.colorFilterWarmth')">
+        <RangeSlider
+          v-model="config.color_filter_warmth"
+          :min="0"
+          :max="100"
+          :step="1"
+          value-unit="%"
+          @input="previewColorFilterWarmth"
+          @change="saveColorFilterWarmth"
+        />
+      </SettingItem>
+    </ToggleSection>
+
     <!-- Screensaver -->
     <ToggleSection
       :title="t('screenSettings.screensaver')"
@@ -82,7 +101,9 @@ const config = ref({
   timeout_seconds: DEFAULT_DELAY,
   screensaver_enabled: true,
   screensaver_delay_seconds: DEFAULT_DELAY,
-  ui_scale: 1.0
+  ui_scale: 1.0,
+  color_filter_enabled: false,
+  color_filter_warmth: 50
 });
 
 // Remembers last non-zero timeout for restore on toggle ON
@@ -97,6 +118,9 @@ function syncFromStore() {
   config.value.screensaver_delay_seconds = settingsStore.screenScreensaver.screensaver_delay_seconds;
 
   config.value.ui_scale = settingsStore.screenUiScale.ui_scale;
+
+  config.value.color_filter_enabled = settingsStore.screenColorFilter.enabled;
+  config.value.color_filter_warmth = settingsStore.screenColorFilter.warmth;
 
   if (config.value.timeout_seconds > 0) {
     lastNonZeroTimeout.value = config.value.timeout_seconds;
@@ -207,13 +231,30 @@ function setScreensaverDelay(value) {
   updateSetting('screen-screensaver', { screensaver_delay_seconds: value });
 }
 
+function handleColorFilterToggle(enabled) {
+  config.value.color_filter_enabled = enabled;
+  settingsStore.updateScreenColorFilter({ enabled });
+  updateSetting('screen-color-filter', { enabled });
+}
+
+function previewColorFilterWarmth(value) {
+  settingsStore.updateScreenColorFilter({ warmth: value });
+}
+
+function saveColorFilterWarmth(value) {
+  config.value.color_filter_warmth = value;
+  settingsStore.updateScreenColorFilter({ warmth: value });
+  updateSetting('screen-color-filter', { warmth: value });
+}
+
 // Sync local config when store changes (e.g., WS event from another device)
 watch(
   [
     () => settingsStore.screenBrightness,
     () => settingsStore.screenTimeout,
     () => settingsStore.screenScreensaver,
-    () => settingsStore.screenUiScale
+    () => settingsStore.screenUiScale,
+    () => settingsStore.screenColorFilter
   ],
   syncFromStore,
   { deep: true }
