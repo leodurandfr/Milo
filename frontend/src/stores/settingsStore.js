@@ -117,6 +117,11 @@ export const useSettingsStore = defineStore('settings', () => {
     ui_scale: 1.0
   });
 
+  const screenColorFilter = ref({
+    enabled: false,
+    warmth: 50
+  });
+
   // === ACTIONS ===
 
   /**
@@ -206,6 +211,11 @@ export const useSettingsStore = defineStore('settings', () => {
           ui_scale: d.screen_ui_scale?.ui_scale ?? 1.0
         };
         applyUiScale(screenUiScale.value.ui_scale);
+
+        screenColorFilter.value = {
+          enabled: d.screen_color_filter?.enabled ?? false,
+          warmth: d.screen_color_filter?.warmth ?? 50
+        };
 
         radioSettings.value = {
           shazam_enabled: d.radio_settings?.shazam_enabled ?? true
@@ -376,6 +386,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const updateScreenTimeout = makeUpdater(screenTimeout);
   const updateScreenBrightness = makeUpdater(screenBrightness);
   const updateScreenScreensaver = makeUpdater(screenScreensaver);
+  const updateScreenColorFilter = makeUpdater(screenColorFilter);
 
   function updateScreenUiScale(config) {
     screenUiScale.value = { ...screenUiScale.value, ...config };
@@ -441,6 +452,7 @@ export const useSettingsStore = defineStore('settings', () => {
     screenBrightness,
     screenScreensaver,
     screenUiScale,
+    screenColorFilter,
 
     // Actions
     loadAllSettings,
@@ -468,6 +480,7 @@ export const useSettingsStore = defineStore('settings', () => {
     updateScreenSleeping,
     updateScreenTimeout,
     updateScreenBrightness,
+    updateScreenColorFilter,
     updateScreenScreensaver,
     updateScreenUiScale
   };

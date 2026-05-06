@@ -7,20 +7,6 @@
 
 @media screen and (width: 1024px) and (height: 600px) {
 
-    /* Warm filter to "calibrate" colors */
-    body::before {
-        content: "";
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
-        background-color: rgba(255, 119, 0, 0.36);
-        pointer-events: none;
-        mix-blend-mode: multiply;
-        z-index: 9999;
-    }
-
     /* Center components */
 
     .now-playing-spotify,

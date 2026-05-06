@@ -213,6 +213,12 @@ class ScreenUiScaleRequest(BaseModel):
     ui_scale: float = Field(..., ge=0.9, le=1.1)
 
 
+class ScreenColorFilterRequest(BaseModel):
+    """Screen warm color filter request"""
+    enabled: Optional[bool] = None
+    warmth: Optional[int] = Field(None, ge=0, le=100)
+
+
 # =============================================================================
 # DSP (CamillaDSP)
 # =============================================================================

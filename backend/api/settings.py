@@ -21,6 +21,7 @@ from backend.api.models import (
     ScreenBrightnessRequest,
     ScreenScreensaverRequest,
     ScreenUiScaleRequest,
+    ScreenColorFilterRequest,
     MacRocConfigRequest,
     RadioSettingsRequest,
     InactivityTimeoutRequest,
@@ -150,6 +151,10 @@ def create_settings_router(
             "screen_screensaver": {
                 "screensaver_enabled": screen.get('screensaver_enabled', True),
                 "screensaver_delay_seconds": screen.get('screensaver_delay_seconds', 120)
+            },
+            "screen_color_filter": {
+                "enabled": screen.get('color_filter_enabled', False),
+                "warmth": screen.get('color_filter_warmth', 50)
             },
             "radio_settings": {"shazam_enabled": radio.get('shazam_enabled', True)},
             "mac_roc": {
@@ -801,6 +806,42 @@ def create_settings_router(
             setter=lambda: settings.set_setting('screen.ui_scale', payload.ui_scale),
             event_type="screen_ui_scale_changed",
             event_data={"config": {"ui_scale": payload.ui_scale}}
+        )
+
+    # Screen warm color filter
+    @router.get("/screen-color-filter")
+    async def get_screen_color_filter():
+        screen = await settings.get_setting('screen') or {}
+        return {
+            "status": "success",
+            "config": {
+                "enabled": screen.get("color_filter_enabled", False),
+                "warmth": screen.get("color_filter_warmth", 50)
+            }
+        }
+
+    @router.put("/screen-color-filter")
+    async def set_screen_color_filter(payload: ScreenColorFilterRequest):
+        async def setter():
+            success = True
+            if payload.enabled is not None:
+                success = await settings.set_setting('screen.color_filter_enabled', payload.enabled) and success
+            if payload.warmth is not None:
+                success = await settings.set_setting('screen.color_filter_warmth', payload.warmth) and success
+            return success
+
+        screen = await settings.get_setting('screen') or {}
+        config = {
+            "enabled": payload.enabled if payload.enabled is not None else screen.get("color_filter_enabled", False),
+            "warmth": payload.warmth if payload.warmth is not None else screen.get("color_filter_warmth", 50)
+        }
+
+        return await _handle_setting_update(
+            payload,
+            validator=lambda p: True,
+            setter=setter,
+            event_type="screen_color_filter_changed",
+            event_data={"config": config}
         )
 
     @router.post("/screen-activity")

@@ -38,7 +38,9 @@ class SettingsService:
                 "brightness_on": 5,
                 "screensaver_enabled": True,
                 "screensaver_delay_seconds": 120,
-                "ui_scale": 1.0
+                "ui_scale": 1.0,
+                "color_filter_enabled": False,
+                "color_filter_warmth": 50
             },
             "spotify": {
                 "auto_disconnect_delay": 120.0
@@ -182,7 +184,9 @@ class SettingsService:
             'brightness_on': max(1, min(10, int(screen_input.get('brightness_on', 5)))),
             'screensaver_enabled': bool(screen_input.get('screensaver_enabled', True)),
             'screensaver_delay_seconds': max(5, min(1800, int(screen_input.get('screensaver_delay_seconds', 120)))),
-            'ui_scale': max(0.5, min(2.0, float(screen_input.get('ui_scale', 1.0))))
+            'ui_scale': max(0.5, min(2.0, float(screen_input.get('ui_scale', 1.0)))),
+            'color_filter_enabled': bool(screen_input.get('color_filter_enabled', False)),
+            'color_filter_warmth': max(0, min(100, int(screen_input.get('color_filter_warmth', 50))))
         }
 
         # Spotify - MODIFIED: Accept 0 for auto_disconnect_delay (disabled)

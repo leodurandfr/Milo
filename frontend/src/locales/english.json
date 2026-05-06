@@ -231,7 +231,9 @@
     "screensaverSourceNote": "On Radio, Podcasts, Bluetooth and macOS only",
     "screensaverDelay": "Start the screensaver after:",
     "uiScale": "Display",
-    "uiScaleLevel": "Interface scale"
+    "uiScaleLevel": "Interface scale",
+    "colorFilter": "Warm color filter",
+    "colorFilterWarmth": "Warmth"
   },
   "hardwareSettings": {
     "audioCard": "Audio card",
