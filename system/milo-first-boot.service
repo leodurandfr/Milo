@@ -10,8 +10,8 @@ Type=oneshot
 ExecStart=/usr/local/bin/milo-first-boot
 RemainAfterExit=no
 
-# Give enough time for network wait + mDNS probe + client setup
-TimeoutStartSec=120
+# Give enough time for network wait + multi-attempt mDNS probe + client setup
+TimeoutStartSec=180
 
 StandardOutput=journal
 StandardError=journal
