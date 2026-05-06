@@ -347,6 +347,11 @@ class SnapcastWebSocketService:
                     hostname = host.get("name", "")
                     ip = host.get("ip", "").replace("::ffff:", "")
                     mac = host.get("mac", "")
+
+                    if ClientRegistryService.is_stale_local_client(client_id or "", ip):
+                        self.logger.warning(f"INIT_CLIENTS: Skipping stale local client id={client_id}")
+                        continue
+
                     mac_id = ClientRegistryService.compute_mac_id(hostname, ip, mac)
                     client_name = client.get("config", {}).get("name") or get_client_display_name(hostname) or mac_id
 

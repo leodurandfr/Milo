@@ -1186,6 +1186,25 @@ class ClientRegistryService:
     # === UTILITY ===
 
     @staticmethod
+    def get_local_mac() -> Optional[str]:
+        """MAC of the snapclient's primary interface (eth0 → wlan0 fallback), matching the --hostID flag."""
+        for iface in ('eth0', 'wlan0'):
+            try:
+                with open(f'/sys/class/net/{iface}/address') as f:
+                    return f.read().strip()
+            except FileNotFoundError:
+                continue
+        return None
+
+    @staticmethod
+    def is_stale_local_client(client_id: str, ip: str) -> bool:
+        """True for a Snapcast client at 127.0.0.1 whose id doesn't match the current local MAC."""
+        if ip != "127.0.0.1":
+            return False
+        local_mac = ClientRegistryService.get_local_mac()
+        return bool(local_mac) and client_id != local_mac
+
+    @staticmethod
     def compute_mac_id(hostname: str, ip: str, mac: str = "") -> str:
         """
         Return the MAC address as mac_id.
@@ -1210,13 +1229,10 @@ class ClientRegistryService:
         # (e.g. wlan0 instead of eth0), so we ignore it and read directly from /sys
         # to stay consistent with the --hostID flag in the snapclient service.
         if ip == "127.0.0.1":
-            for iface in ['eth0', 'wlan0']:
-                try:
-                    with open(f'/sys/class/net/{iface}/address') as f:
-                        return f.read().strip()
-                except FileNotFoundError:
-                    continue
-            raise RuntimeError("Cannot determine local MAC address")
+            local_mac = ClientRegistryService.get_local_mac()
+            if not local_mac:
+                raise RuntimeError("Cannot determine local MAC address")
+            return local_mac
 
         # Remote clients: use MAC provided by Snapcast
         if mac and mac != "00:00:00:00:00:00":
