@@ -88,39 +88,14 @@ chown -R milo:audio /var/lib/milo/go-librespot
 CHROOT
 
 # ── Snapserver configuration ─────────────────────────────────────────────────
+# Reuse install/snapcast.sh::configure_snapserver to keep a single source of truth
+# for /etc/snapserver.conf — pi-gen and bash install.sh write the same content.
 
 on_chroot << 'CHROOT'
-tee /etc/snapserver.conf > /dev/null << 'EOF'
-
-[stream]
-default_source = Multiroom
-
-buffer = 300
-codec = flac
-chunk_ms = 20
-sampleformat = 48000:32:2
-
-source = meta:///Bluetooth/ROC/Spotify/Radio/Podcast/AirPlay?name=Multiroom
-
-source = alsa:///?name=Bluetooth&device=hw:1,1,0&idle_threshold=5000&send_silence=true
-source = alsa:///?name=ROC&device=hw:1,1,1&idle_threshold=5000&send_silence=true
-source = alsa:///?name=Spotify&device=hw:1,1,2&idle_threshold=5000&send_silence=true
-source = alsa:///?name=Radio&device=hw:1,1,3&idle_threshold=5000&send_silence=true
-source = alsa:///?name=Podcast&device=hw:1,1,4&idle_threshold=5000&send_silence=true
-source = alsa:///?name=AirPlay&device=hw:1,1,6&idle_threshold=5000&send_silence=true
-
-[http]
-enabled = true
-bind_to_address = 0.0.0.0
-port = 1780
-doc_root = /usr/share/snapserver/snapweb/
-
-[server]
-threads = 4
-
-[logging]
-enabled = true
-EOF
+cd /home/milo/milo
+source install/common.sh
+source install/snapcast.sh
+configure_snapserver
 CHROOT
 
 # ── shairport-sync configuration ─────────────────────────────────────────────
