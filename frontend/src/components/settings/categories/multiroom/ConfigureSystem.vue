@@ -178,13 +178,6 @@ const REBOOT_TIMEOUT_MS = 120000; // 2 minutes
 // Reactive reference to the pending client (ethernet mode only)
 const pendingClient = computed(() => multiroomStore.pendingClients.get(props.macId));
 
-// 4-char MAC suffix derived from "Milō-XXXX".
-const macSuffix = computed(() => {
-  if (!props.hotspotSsid) return '';
-  const parts = props.hotspotSsid.split('-');
-  return parts.length > 1 ? parts[parts.length - 1] : '';
-});
-
 const canUseServerWifi = computed(() =>
   discoveryStore.serverWifiCreds?.available === true
   && !!discoveryStore.serverWifiCreds?.ssid
@@ -293,7 +286,7 @@ async function applyConfiguration() {
       await discoveryStore.adoptSpeaker({
         ssid: props.hotspotSsid,
         audio_id: selectedAudioId.value,
-        speaker_name: speakerName.value.trim() || `Speaker-${macSuffix.value}`,
+        speaker_name: speakerName.value.trim() || 'Speaker',
         speaker_type: selectedSpeakerType.value,
         wifi_ssid: wifiCreds.ssid,
         wifi_password: wifiCreds.password,
@@ -332,10 +325,6 @@ onMounted(async () => {
     // Default to manual mode if the server isn't on wifi.
     if (!canUseServerWifi.value) {
       useServerWifi.value = false;
-    }
-    // Pre-fill the speaker name with the MAC-derived default; user can override.
-    if (!speakerName.value) {
-      speakerName.value = `Speaker-${macSuffix.value}`;
     }
     return;
   }

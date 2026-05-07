@@ -6,7 +6,6 @@ WiFi networks. All nmcli calls use asyncio.create_subprocess_exec.
 """
 import asyncio
 import logging
-import re
 from typing import List, Optional, Tuple
 
 from backend.core.wifi.models import (
@@ -15,26 +14,10 @@ from backend.core.wifi.models import (
 )
 
 
-# Hotspot SSIDs are unique per device: 'Milō-XXXX' where XXXX is the last
-# 4 hex chars of the wlan0 MAC (uppercase, no colons).
-HOTSPOT_NAME_RE = re.compile(r"^Milō-[0-9A-F]{4}$")
-
-
-def _compute_hotspot_name() -> str:
-    """Return this device's unique hotspot SSID ('Milō-XXXX').
-
-    XXXX is the last 4 hex chars of the wlan0 MAC, uppercased without colons.
-    Falls back to 'Milō-0000' if the MAC cannot be read (dev environments).
-    """
-    try:
-        with open("/sys/class/net/wlan0/address") as f:
-            mac = f.read().strip()
-        suffix = mac.replace(":", "").upper()[-4:]
-        if len(suffix) == 4:
-            return f"Milō-{suffix}"
-    except OSError:
-        pass
-    return "Milō-0000"
+# Setup hotspot SSID (shared across all Milō devices). Acceptable trade-off:
+# if multiple fresh devices broadcast their hotspot at the same time, the
+# scanner deduplicates by SSID and only one of them is adoptable at a time.
+HOTSPOT_NAME = "Milō"
 
 
 class WifiService:
@@ -48,7 +31,7 @@ class WifiService:
         self.settings_service = settings_service
         self._hotspot_active: bool = False
         self._connect_lock = asyncio.Lock()
-        self.hotspot_con_name: str = _compute_hotspot_name()
+        self.hotspot_con_name: str = HOTSPOT_NAME
 
     @property
     def hotspot_active(self) -> bool:
@@ -328,7 +311,7 @@ class WifiService:
             name, device = fields[0], fields[1]
             if device != self.WIFI_INTERFACE:
                 continue
-            if HOTSPOT_NAME_RE.match(name):
+            if name == HOTSPOT_NAME:
                 continue
             active_name = name
             break
@@ -447,8 +430,8 @@ class WifiService:
             device_type, state, connection = fields[0], fields[1], fields[2]
             if state != "connected":
                 continue
-            # Skip any hotspot AP connection (Milō-XXXX)
-            if HOTSPOT_NAME_RE.match(connection):
+            # Skip the setup hotspot AP connection
+            if connection == HOTSPOT_NAME:
                 continue
             if device_type in ("ethernet", "wifi"):
                 return True
@@ -534,8 +517,8 @@ class WifiService:
 
         saved = await self._get_saved_ssid()
 
-        # Hotspot's own AP connection (Milō-XXXX) is not a real WiFi client connection
-        if not connection or HOTSPOT_NAME_RE.match(connection):
+        # Hotspot's own AP connection is not a real WiFi client connection
+        if not connection or connection == HOTSPOT_NAME:
             return WifiConnectionStatus(connected=False, saved_ssid=saved)
 
         # Get actual SSID and signal from active wifi connection

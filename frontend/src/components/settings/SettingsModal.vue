@@ -460,11 +460,10 @@ function handleEditClient(macId) {
 }
 
 function handleConfigureSystem(payload) {
-  // payload: { source: 'ethernet'|'wifi', macId?, ssid?, macSuffix?, signal? }
+  // payload: { source: 'ethernet'|'wifi', macId?, ssid?, signal? }
   if (payload?.source === 'wifi') {
     hotspotToAdopt.value = {
       ssid: payload.ssid,
-      macSuffix: payload.macSuffix,
       signal: payload.signal
     };
     macIdToEdit.value = null;

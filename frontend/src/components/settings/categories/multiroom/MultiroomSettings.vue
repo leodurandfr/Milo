@@ -234,12 +234,11 @@ const discoveryItems = computed(() => {
     items.push({
       key: `wifi:${hotspot.ssid}`,
       source: 'wifi',
-      name: `Speaker-${hotspot.mac_suffix}`,
+      name: hotspot.ssid,
       status: t('multiroom.pending.notConfigured'),
       statusVariant: '',
       disabled: false,
       ssid: hotspot.ssid,
-      macSuffix: hotspot.mac_suffix,
       signal: hotspot.signal
     });
   }
@@ -256,7 +255,6 @@ function handleDiscoveryClick(item) {
     emit('configure-system', {
       source: 'wifi',
       ssid: item.ssid,
-      macSuffix: item.macSuffix,
       signal: item.signal
     });
   }

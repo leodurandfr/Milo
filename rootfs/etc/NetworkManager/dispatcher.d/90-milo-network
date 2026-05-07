@@ -19,10 +19,10 @@ ACTION=$2
 AVAHI_CONF="/etc/avahi/avahi-daemon.conf"
 AVAHI_STATE_FILE="/var/lib/milo/avahi-interface"
 
-# Hotspot SSIDs are unique per device: 'Milō-XXXX' (4 last hex chars of wlan0 MAC)
+# Setup hotspot SSID (shared across all Milō devices)
 is_hotspot_connection() {
     case "$1" in
-        Milō-*) return 0 ;;
+        Milō) return 0 ;;
         *) return 1 ;;
     esac
 }

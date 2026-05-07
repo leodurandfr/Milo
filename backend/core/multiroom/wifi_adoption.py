@@ -2,8 +2,8 @@
 """
 WiFi adoption orchestration for multiroom client setup.
 
-When a fresh speaker exposes its setup hotspot ('Milō-XXXX'), the server can
-adopt it without ever touching the speaker physically:
+When a fresh speaker exposes its setup hotspot ('Milō'), the server can adopt
+it without ever touching the speaker physically:
 
   1. Capture the server's currently active wifi connection (for restore).
   2. Add + activate an open NM profile to join the speaker's hotspot.
@@ -28,7 +28,7 @@ from typing import Optional, Tuple
 
 import aiohttp
 
-from backend.core.wifi.service import HOTSPOT_NAME_RE, _parse_nmcli_line
+from backend.core.wifi.service import HOTSPOT_NAME, _parse_nmcli_line
 
 
 logger = logging.getLogger(__name__)
@@ -84,10 +84,10 @@ class WifiAdoptionService:
         Raises :class:`AdoptionError` on any failure; on success returns a
         dict with the gateway used and the speaker SSID.
         """
-        if not HOTSPOT_NAME_RE.match(ssid):
-            raise AdoptionError("invalid_ssid", f"'{ssid}' is not a Milō hotspot SSID")
-        if ssid == self.wifi_service.hotspot_con_name:
-            raise AdoptionError("invalid_ssid", "Cannot adopt this device's own hotspot")
+        if ssid != HOTSPOT_NAME:
+            raise AdoptionError("invalid_ssid", f"'{ssid}' is not the Milō hotspot SSID")
+        if self.wifi_service.hotspot_active:
+            raise AdoptionError("invalid_ssid", "Cannot adopt while broadcasting the setup hotspot")
         if not wifi_ssid:
             raise AdoptionError("invalid_target_wifi", "Target wifi SSID is required")
 
@@ -240,7 +240,7 @@ class WifiAdoptionService:
             name, device = fields[0], fields[1]
             if device != WLAN_INTERFACE:
                 continue
-            if HOTSPOT_NAME_RE.match(name):
+            if name == HOTSPOT_NAME:
                 continue
             return name
         return None

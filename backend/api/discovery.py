@@ -2,8 +2,10 @@
 """
 Speaker discovery API routes — finds new Milō speakers on the network.
 
-GET /api/discovery/wifi-speakers → list devices broadcasting a `Milō-XXXX`
-setup hotspot (fresh devices waiting to be adopted as multiroom clients).
+GET /api/discovery/wifi-speakers → list devices broadcasting the `Milō` setup
+hotspot (fresh devices waiting to be adopted as multiroom clients). Because
+the SSID is shared across devices, the scanner only ever returns 0 or 1
+adoptable hotspot (NetworkManager deduplicates by SSID).
 
 GET /api/discovery/server-wifi-creds → return this server's active WiFi
 credentials for auto-fill during wifi-speaker adoption (or `available: false`
@@ -22,14 +24,14 @@ from pydantic import BaseModel, Field, field_validator
 from backend.api.route_helpers import api_error_handler
 from backend.core.multiroom.models import SPEAKER_TYPES
 from backend.core.multiroom.wifi_adoption import AdoptionError
-from backend.core.wifi.service import HOTSPOT_NAME_RE
+from backend.core.wifi.service import HOTSPOT_NAME
 
 logger = logging.getLogger(__name__)
 
 
 class AdoptSpeakerRequest(BaseModel):
-    """Payload to adopt a wifi-only speaker exposing a 'Milō-XXXX' hotspot."""
-    ssid: str = Field(..., min_length=1, description="Hotspot SSID of the speaker (Milō-XXXX)")
+    """Payload to adopt a wifi-only speaker exposing the 'Milō' hotspot."""
+    ssid: str = Field(..., min_length=1, description="Hotspot SSID of the speaker (always 'Milō')")
     audio_id: str = Field(..., min_length=1, description="Audio card registry ID")
     speaker_name: str = Field(..., min_length=1, description="Display name for the speaker")
     speaker_type: Literal['satellite', 'bookshelf', 'tower', 'subwoofer'] = Field(..., description="Speaker physical type")
@@ -62,21 +64,19 @@ def create_discovery_router(wifi_service, wifi_adoption_service):
     async def list_wifi_speakers():
         """List Milō devices broadcasting their setup hotspot.
 
-        Filters a fresh wifi scan to SSIDs matching `Milō-XXXX` (where XXXX is
-        the last 4 hex chars of the device's wlan0 MAC). Excludes this device's
-        own hotspot SSID as a safety guard.
+        Filters a fresh wifi scan to the `Milō` SSID. Returns an empty list
+        while this device is itself broadcasting the setup hotspot (a fresh
+        server cannot adopt anything). The scan dedupes by SSID, so the
+        result contains at most one adoptable hotspot.
         """
         async with api_error_handler("Discovery wifi speakers", logger):
+            if wifi_service.hotspot_active:
+                return {"status": "success", "data": {"hotspots": []}}
             networks = await wifi_service.scan_networks()
-            own_hotspot = wifi_service.hotspot_con_name
             hotspots = [
-                {
-                    "ssid": n.ssid,
-                    "mac_suffix": n.ssid.split("-", 1)[1],
-                    "signal": n.signal,
-                }
+                {"ssid": n.ssid, "signal": n.signal}
                 for n in networks
-                if HOTSPOT_NAME_RE.match(n.ssid) and n.ssid != own_hotspot
+                if n.ssid == HOTSPOT_NAME
             ]
             return {"status": "success", "data": {"hotspots": hotspots}}
 
