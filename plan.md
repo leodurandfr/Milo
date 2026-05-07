@@ -303,10 +303,10 @@ Au final : symétrie complète — un nouveau device peut être adopté comme cl
 **Fichier** : `frontend/src/stores/discoveryStore.js` (nouveau)
 
 **Changements** :
-- [ ] Store Pinia avec :
+- [x] Store Pinia avec :
   - `state` : `{ hotspots: [], scanning: false, serverWifiCreds: null }`
   - `actions` : `scanHotspots()`, `loadServerWifiCreds()`, `adoptSpeaker(payload)`
-- [ ] Polling automatique des hotspots toutes les 10s pendant que la modal est ouverte.
+- [x] Polling automatique des hotspots toutes les 10s pendant que la modal est ouverte. *(Implémentation : `startPolling()` / `stopPolling()` reference-counted, kicke un scan immédiat puis intervalle 10s. `adoptSpeaker` retire optimistiquement le hotspot adopté de la liste car le device va reboot et cesser d'émettre.)*
 
 **Acceptance** :
 - Le store reflète l'état des hotspots détectés et des wifi creds du serveur.
