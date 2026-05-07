@@ -412,8 +412,8 @@ Tout le reste passe par la validation.
 
 ## Phase C — Détection conflit hostname mDNS + auto-reclaim
 
-- [ ] **Audit**
-- [ ] **Fix**
+- [x] **Audit** — fait le 2026-05-07, 5 findings (P0: 0 / P1: 1 / P2: 4)
+- [x] **Fix** — fait le 2026-05-07, 5 appliqués / 0 écartés / 0 reportés
 
 ### Commits couverts
 - `375473f7` feat(system): mDNS hostname conflict detection + auto-reclaim
@@ -488,9 +488,93 @@ Tout le reste passe par la validation.
 
 ### Findings (à remplir lors de l'audit)
 
-> Format par finding (préfixe `C-NN`) — voir Phase A pour le template.
+#### C-01 — WS broadcast `hostname_conflict_changed` omet `local_ip` → UI affiche `?` pour l'IP en cas de race au boot
+- **Sévérité** : P1 design
+- **Localisation** : `backend/core/system/hostname_conflict.py:260-273` + `frontend/src/stores/systemStore.js:22-39`
+- **Problème** : `_broadcast_if_changed` n'inclut dans `data` que `hostname_conflict`, `advertised_name` et `expected_name` — pas `local_ip`. Or `get_state()` (consommé par `GET /api/system/status` → `systemStore.fetchStatus`) retourne bien `local_ip`. Au boot, deux séquences cohabitent : (a) `App.vue:onMounted` → `systemStore.fetchStatus()` (HTTP) ; (b) `init_async` → `hostname_conflict_service.check()` qui broadcast le résultat dès qu'il diffère de l'état initial (`previous=False, conflict=True`). Si le HTTP fetch atterrit AVANT que `check()` ne broadcast, la séquence est : fetchStatus retourne l'état initial (`hostname_conflict=False, local_ip=None`) → store met `localIp=null` → puis WS event arrive avec uniquement `advertised_name=milo-2.local`, `applyState` skip `local_ip` (test `state.local_ip !== undefined` reste false) → `localIp` reste `null`. `HostnameConflictView.deviceDetails` affiche alors `t('system.hostnameConflict.thisDevice', { name: 'milo-2.local', ip: '?' })`. Le commit `6fdc2922` ("show device name + IP on conflict alert for clarity") a explicitement été fait pour donner l'IP — mais le payload WS la perd dans la moitié des cas.
+- **Fix proposé** : Ajouter `local_ip` au payload broadcast dans `_broadcast_if_changed` :
+  ```python
+  data={
+      "source": "system",
+      "hostname_conflict": self._conflict,
+      "advertised_name": self._advertised_name,
+      "local_ip": self._local_ip,
+      "expected_name": EXPECTED_FQDN,
+  },
+  ```
+  1 ligne, supprime la race. Pas besoin de toucher au front (`applyState` consomme déjà `state.local_ip` côté reception WS).
+- **Confiance** : haute
+- [x] À appliquer — 5e498b62
 
-_(à remplir)_
+#### C-02 — `_attempt_avahi_reclaim` exécuté à l'intérieur du `_lock` → bloque le boot et les `recheck` manuels jusqu'à 10 s
+- **Sévérité** : P2 lisibilité-optim
+- **Localisation** : `backend/core/system/hostname_conflict.py:89-128` + `:238-258`
+- **Problème** : `check()` prend `self._lock` ligne 89 et le garde jusqu'au `return` ligne 128 — ce qui inclut `await self._attempt_avahi_reclaim()` (ligne 126), qui spawn `sudo systemctl restart avahi-daemon` avec un timeout de 10 s. Conséquences :
+  - **Au boot** : `init_async` (`dependencies.py:410`) `await`-e `hostname_conflict_service.check()` dans un `asyncio.gather` ; un reclaim ajoute donc jusqu'à 10 s à la durée de boot du backend. Le scénario reclaim-au-boot est précisément le cas typique (au démarrage avec un autre Milō déjà allumé qui a survécu sans peer).
+  - **Recheck manuel** : si le périodique vient de déclencher un reclaim, l'utilisateur qui clique sur "Vérifier à nouveau" voit le bouton tourner 10 s parce que `check()` attend le `_lock` détenu par le reclaim en cours.
+  Aucune raison de tenir le lock pendant le restart d'avahi : le restart ne lit/écrit aucune des variables d'instance protégées.
+- **Fix proposé** : Sortir `_attempt_avahi_reclaim` du lock, et l'exécuter en fire-and-forget pour ne pas bloquer le caller :
+  ```python
+  should_reclaim = False
+  async with self._lock:
+      ...
+      if self._should_attempt_reclaim():
+          self._reclaim_attempted_ts = time.time()
+          should_reclaim = True
+
+  if should_reclaim:
+      asyncio.create_task(self._attempt_avahi_reclaim())
+
+  return self._conflict
+  ```
+  Le `_reclaim_attempted_ts` est posé AVANT le release du lock pour que le cooldown joue même si plusieurs `check()` se croisent. La task peut logger ses propres erreurs.
+- **Confiance** : moyenne
+- [x] À appliquer — 5e498b62
+
+#### C-03 — `_first_non_loopback` itère un `set` non ordonné → IP affichée non-déterministe sur host dual-iface (eth+wifi)
+- **Sévérité** : P2 lisibilité-optim
+- **Localisation** : `backend/core/system/hostname_conflict.py:165-170` (et site d'appel `:158`, `:162`)
+- **Problème** : `_get_local_ips` retourne un `Set[str]`. L'itération de `set` en CPython est dépendante du hash randomisé (PYTHONHASHSEED) → ordre non-déterministe entre redémarrages backend. Sur un Pi avec à la fois eth0 et wlan0 actifs, deux IPs cohabitent ; `_first_non_loopback` retourne aléatoirement l'une ou l'autre. Effet visible : l'utilisateur regarde la conflict view, voit `192.168.1.10`, redémarre le backend pour confirmer, voit `192.168.2.10`. Pollution mineure mais source de confusion pour debug.
+- **Fix proposé** : Trier les IPs (par ordre lexico ou par préférence eth>wlan) avant de retourner. Le plus simple :
+  ```python
+  @staticmethod
+  def _first_non_loopback(local_ips: Set[str]) -> Optional[str]:
+      candidates = sorted(ip for ip in local_ips if ip != "127.0.0.1")
+      return candidates[0] if candidates else None
+  ```
+  L'ordre lexico est stable et "192.168.1.10" < "192.168.2.10" — pas parfait mais déterministe.
+- **Confiance** : moyenne
+- [x] À appliquer — 5e498b62
+
+#### C-04 — `milo-backend.service` ne déclare pas avahi-daemon en dépendance → check au boot peut tomber sur avahi pas prêt → faux négatif jusqu'au prochain périodique (5 min)
+- **Sévérité** : P2 lisibilité-optim
+- **Localisation** : `system/milo-backend.service:3-4` + `backend/dependencies.py:410`
+- **Problème** : Le service backend déclare `Wants=NetworkManager.service network.target` + `After=NetworkManager.service network.target` mais pas avahi-daemon. Au boot du Pi, milo-backend peut démarrer avant qu'avahi-daemon n'ait fini sa séquence de probe. La première `check()` dans `init_async` appelle `avahi-resolve` → si avahi n'est pas prêt, `proc.returncode != 0` → `_run_avahi` retourne None → `_detect_conflict` conclut "no conflict" (fail open). L'utilisateur ne voit donc PAS l'alerte au boot même s'il y a vraiment un conflit. Il faut attendre `PERIODIC_INTERVAL_S=300` s (5 min) que le `_periodic_loop` réessaie. Pour un device qui doit signaler tout de suite "Un autre Milō détecté", c'est 5 min de silence inutiles.
+- **Fix proposé** : Ajouter avahi-daemon aux dépendances du service backend :
+  ```ini
+  Wants=NetworkManager.service network.target avahi-daemon.service
+  After=NetworkManager.service network.target avahi-daemon.service
+  ```
+  Ne pas mettre `Requires=` (un crash avahi ne doit pas empêcher le backend de tourner — seul le check hostname est concerné, et il fail-open). Note : le commit d'install (`install/system.sh:220`) enable bien avahi-daemon, donc l'unité existe.
+- **Confiance** : moyenne
+- [x] À appliquer — 5e498b62
+
+#### C-05 — `_get_local_ips` n'a pas de timeout sur `proc.communicate()` → asymétrie avec les autres subprocess
+- **Sévérité** : P2 lisibilité-optim
+- **Localisation** : `backend/core/system/hostname_conflict.py:305-324`
+- **Problème** : `_run_avahi` utilise `asyncio.wait_for(proc.communicate(), timeout=RESOLVE_TIMEOUT_S)` et `_scan_renamed_milos` utilise `BROWSE_TIMEOUT_S`. Mais `_get_local_ips` fait juste `stdout, _ = await proc.communicate()` sans timeout. La commande `ip -4 -o addr show` est triviale et ne bloquera quasi jamais — mais l'asymétrie est inutile et expose à un hang théorique si le subsystem net est dans un état dégradé. Le `_lock` étant tenu pendant tout `check()`, un hang ici bloquerait toutes les checks futures (même périodiques).
+- **Fix proposé** : Wrapper le `communicate()` comme les autres :
+  ```python
+  try:
+      stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=2.0)
+  except asyncio.TimeoutError:
+      proc.kill()
+      await proc.wait()
+      return ips
+  ```
+  2 s suffisent largement pour `ip addr`. Plus l'imports `IP_LOCAL_TIMEOUT_S = 2.0` en haut du fichier pour rester aligné avec `RESOLVE_TIMEOUT_S` / `BROWSE_TIMEOUT_S`.
+- **Confiance** : moyenne
+- [x] À appliquer — 5e498b62
 
 ---
 
