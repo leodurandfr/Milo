@@ -300,6 +300,72 @@ class WifiService:
 
         return networks
 
+    async def get_active_wifi_credentials(self) -> Optional[dict]:
+        """Return SSID + PSK of the active WiFi client connection on wlan0.
+
+        Used by the multiroom adoption flow: when adopting a wifi-only speaker,
+        the server pushes its own home-network credentials so the speaker
+        joins the same LAN after reboot.
+
+        Returns a dict ``{"ssid": str, "password": str}`` or ``None`` when
+        wlan0 has no active client connection (e.g. ethernet-only server, or
+        only the setup hotspot is up). ``password`` is an empty string for
+        open networks.
+        """
+        rc, stdout, _ = await self._run_nmcli(
+            "-t", "-f", "NAME,DEVICE", "connection", "show", "--active"
+        )
+        if rc != 0:
+            return None
+
+        active_name: Optional[str] = None
+        for line in stdout.split("\n"):
+            if not line:
+                continue
+            fields = _parse_nmcli_line(line)
+            if len(fields) < 2:
+                continue
+            name, device = fields[0], fields[1]
+            if device != self.WIFI_INTERFACE:
+                continue
+            if HOTSPOT_NAME_RE.match(name):
+                continue
+            active_name = name
+            break
+
+        if not active_name:
+            return None
+
+        rc, stdout, stderr = await self._run_nmcli(
+            "-s", "-t",
+            "-f", "802-11-wireless.ssid,802-11-wireless-security.psk",
+            "connection", "show", active_name,
+        )
+        if rc != 0:
+            self.logger.error(
+                "Failed to read WiFi credentials for '%s': %s", active_name, stderr
+            )
+            return None
+
+        ssid: Optional[str] = None
+        password: str = ""
+        for line in stdout.split("\n"):
+            if not line:
+                continue
+            fields = _parse_nmcli_line(line)
+            if len(fields) < 2:
+                continue
+            key, value = fields[0], fields[1]
+            if key == "802-11-wireless.ssid":
+                ssid = value
+            elif key == "802-11-wireless-security.psk":
+                password = value
+
+        if not ssid:
+            return None
+
+        return {"ssid": ssid, "password": password}
+
     async def get_country(self) -> str:
         """Return the stored WiFi country code, or empty string if not set."""
         code = await self.settings_service.get_setting("wifi.country")
