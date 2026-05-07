@@ -9,10 +9,10 @@
     <p v-if="title" class="heading-2">{{ title }}</p>
     <p v-if="subtitle" class="text-mono" v-html="subtitle"></p>
     <div v-if="ctaLabel || ctaSecondaryLabel" class="cta-group">
-      <Button v-if="ctaLabel" :variant="ctaVariant" @click="ctaClick">
+      <Button v-if="ctaLabel" :variant="ctaVariant" :loading="ctaLoading" @click="ctaClick">
         {{ ctaLabel }}
       </Button>
-      <Button v-if="ctaSecondaryLabel" :variant="ctaSecondaryVariant" @click="ctaSecondaryClick">
+      <Button v-if="ctaSecondaryLabel" :variant="ctaSecondaryVariant" :loading="ctaSecondaryLoading" @click="ctaSecondaryClick">
         {{ ctaSecondaryLabel }}
       </Button>
     </div>
@@ -58,6 +58,10 @@ const props = defineProps({
     type: Function,
     default: null
   },
+  ctaLoading: {
+    type: Boolean,
+    default: false
+  },
   ctaSecondaryLabel: {
     type: String,
     default: null
@@ -69,6 +73,10 @@ const props = defineProps({
   ctaSecondaryClick: {
     type: Function,
     default: null
+  },
+  ctaSecondaryLoading: {
+    type: Boolean,
+    default: false
   }
 })
 
