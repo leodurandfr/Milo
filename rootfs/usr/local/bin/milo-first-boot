@@ -21,6 +21,7 @@ set -euo pipefail
 
 MILO_DATA_DIR="/var/lib/milo"
 MILO_APP_DIR="/home/milo/milo"
+PENDING_CLIENT_ROLE_FILE="$MILO_DATA_DIR/pending_client_role.json"
 
 MILO_CLIENT_USER="milo-client"
 MILO_CLIENT_HOME="/home/$MILO_CLIENT_USER"
@@ -30,18 +31,6 @@ MILO_CLIENT_DATA_DIR="/var/lib/milo-client"
 ETH_IP=""
 
 log() { echo "[milo-first-boot] $1"; }
-
-# Setup already completed (wizard finished or client configured) — nothing to do
-if python3 -c "
-import json, sys
-try:
-    d = json.load(open('${MILO_DATA_DIR}/settings.json'))
-    sys.exit(0 if d.get('setup_completed') else 1)
-except Exception:
-    sys.exit(1)
-" 2>/dev/null; then
-    exit 0
-fi
 
 # =============================================================================
 # Check for ethernet connection
@@ -104,9 +93,11 @@ wait_for_ethernet_ip() {
 # Configure as milo-client
 # =============================================================================
 
-configure_client() {
-    log "Configuring as milo-client..."
-
+# Apply all client-role filesystem changes (hostname, user, services, ALSA).
+# Idempotent — safe to call on a device that is already a client.
+# Does NOT write hardware.json / identity.json (callers handle those) and does
+# NOT reboot — that is the caller's responsibility.
+_apply_client_filesystem() {
     # 1. Set hostname
     hostnamectl set-hostname milo-client
     echo "milo-client" > /etc/hostname
@@ -137,24 +128,13 @@ configure_client() {
     chown -h "$MILO_CLIENT_USER:audio" "$MILO_CLIENT_HOME/venv"
     log "Venv linked"
 
-    # 5. Create data directory with env and hardware config
+    # 5. Create data directory with env file
     mkdir -p "$MILO_CLIENT_DATA_DIR"
 
     cat > "$MILO_CLIENT_DATA_DIR/env" << 'EOF'
 MILO_PRINCIPAL_IP=milo.local
 MILO_CLIENT_DSP_ENABLED=false
 EOF
-
-    cat > "$MILO_CLIENT_DATA_DIR/hardware.json" << 'EOF'
-{
-  "audio": {
-    "id": "none"
-  }
-}
-EOF
-
-    chown -R "$MILO_CLIENT_USER:audio" "$MILO_CLIENT_DATA_DIR"
-    log "Client data directory created"
 
     # 6. Set up CamillaDSP config
     mkdir -p "$MILO_CLIENT_DATA_DIR/camilladsp/configs"
@@ -207,8 +187,88 @@ EOF
     # setup_completed is intentionally NOT written here — it is set only after the
     # user finishes configuration via the milo-client hardware-apply handler.
     chown -R "$MILO_CLIENT_USER:audio" "$MILO_DATA_DIR"
+}
+
+configure_client() {
+    log "Configuring as milo-client..."
+
+    _apply_client_filesystem
+
+    # Default hardware config — user will pick the audio card via the milo-client UI.
+    cat > "$MILO_CLIENT_DATA_DIR/hardware.json" << 'EOF'
+{
+  "audio": {
+    "id": "none"
+  }
+}
+EOF
+    chown -R "$MILO_CLIENT_USER:audio" "$MILO_CLIENT_DATA_DIR"
+    log "Client data directory created"
 
     log "Client configuration complete — rebooting"
+    /sbin/reboot
+}
+
+# Apply client role with the audio + identity values from the wifi-adoption marker
+# left by the server's POST /api/setup/become-client endpoint.
+configure_client_with_hardware() {
+    log "Configuring as milo-client with adopted hardware..."
+
+    _apply_client_filesystem
+
+    # Read marker, write hardware.json + identity.json, then drop the marker so
+    # subsequent boots return to the standard skip-check fast-path.
+    if ! /usr/bin/python3 << PY
+import json
+import os
+import sys
+
+marker_path = "$PENDING_CLIENT_ROLE_FILE"
+client_dir = "$MILO_CLIENT_DATA_DIR"
+
+try:
+    with open(marker_path) as f:
+        m = json.load(f)
+except Exception as e:
+    print(f"Failed to read marker: {e}", file=sys.stderr)
+    sys.exit(1)
+
+required = ("audio_id", "overlay", "volume_control", "speaker_name", "speaker_type")
+for key in required:
+    if key not in m:
+        print(f"Marker missing required key: {key}", file=sys.stderr)
+        sys.exit(1)
+
+audio = {"id": m["audio_id"]}
+if m["audio_id"] != "none":
+    audio["overlay"] = m["overlay"]
+    audio["volume_control"] = bool(m["volume_control"])
+
+def atomic_write(path: str, data: dict) -> None:
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+
+atomic_write(f"{client_dir}/hardware.json", {"audio": audio})
+atomic_write(
+    f"{client_dir}/identity.json",
+    {"name": m["speaker_name"], "speaker_type": m["speaker_type"]},
+)
+
+os.remove(marker_path)
+PY
+    then
+        log "ERROR: failed to apply marker — leaving marker in place for retry"
+        exit 1
+    fi
+
+    chown -R "$MILO_CLIENT_USER:audio" "$MILO_CLIENT_DATA_DIR"
+    log "Hardware + identity written from marker, marker removed"
+
+    log "Client configuration with adopted hardware complete — rebooting"
     /sbin/reboot
 }
 
@@ -283,6 +343,25 @@ configure_server() {
 # =============================================================================
 # Main
 # =============================================================================
+
+# Setup already completed (wizard finished or client configured).
+# One exception: if a wifi-adoption marker was dropped by the server's
+# /api/setup/become-client endpoint, apply the client role with the provided
+# hardware config now (setup_completed is set to true alongside the marker).
+if python3 -c "
+import json, sys
+try:
+    d = json.load(open('${MILO_DATA_DIR}/settings.json'))
+    sys.exit(0 if d.get('setup_completed') else 1)
+except Exception:
+    sys.exit(1)
+" 2>/dev/null; then
+    if [[ -f "$PENDING_CLIENT_ROLE_FILE" ]]; then
+        log "Pending client-role marker found — applying wifi adoption"
+        configure_client_with_hardware  # reboots
+    fi
+    exit 0
+fi
 
 current_hostname=$(hostname)
 log "Setup not completed (hostname=$current_hostname) — detecting role..."
