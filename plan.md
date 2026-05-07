@@ -26,14 +26,14 @@ Au final : symétrie complète — un nouveau device peut être adopté comme cl
 - **`setup_completed=true` est écrit côté client** dans le handler `POST /api/hardware/reboot` du milo-client backend, AVANT de lancer apply-hardware
 
 ### Phase 2
-- **SSID hotspot devient unique par device** : `Milō-XXXX` où XXXX = 4 derniers chars du MAC (uppercase hex, sans `:`)
+- **SSID hotspot reste `Milō`** (partagé entre devices). Compromis assumé : si plusieurs Pis fraîchement bootés diffusent leur hotspot simultanément, le scan dédoublonne par SSID et un seul est adoptable à la fois. Cas trop rare pour justifier un suffix MAC qui dégrade l'UX du listing wifi.
 - **Le serveur orchestre l'adoption** (switch wifi temporaire si nécessaire, push config, restore wifi)
 - **Endpoint sur le device en mode "fresh server"** : `POST /api/setup/become-client` reçoit la config, écrit un fichier marker, applique wifi creds, marque `setup_completed=true`, reboot
 - **`milo-first-boot` lit le fichier marker** au boot suivant : exécute `configure_client` avec la config audio fournie + écrit `hardware.json` du milo-client + supprime le marker → reboot
 - **UI unifiée côté serveur** : la liste "Nouveaux haut-parleurs détectés" agrège pending ethernet + hotspots wifi, avec badge 🔌/📶
 - **`ConfigureSystem.vue` étendu** avec section conditionnelle "Connexion réseau" en haut pour les adoptions wifi
 - **Auto-fill wifi creds** si serveur sur wifi (via sudoers `nmcli ... --show-secrets`), sinon NetworkStep-like selector
-- **Speaker name par défaut** : `Speaker-XXXX` (4 derniers chars MAC) si vide
+- **Speaker name par défaut** : vide à l'ouverture (placeholder visible) ; fallback `Speaker` à l'apply si l'utilisateur ne saisit rien
 - **Hotspot ouvert sans auth pour MVP** (proximité physique requise comme protection ; ajout d'un challenge token noté comme amélioration future)
 
 ### Hors scope de ce plan
@@ -166,20 +166,20 @@ Au final : symétrie complète — un nouveau device peut être adopté comme cl
 
 **Estimation** : ~530 lignes, ~6 fichiers modifiés/créés.
 
-## Étape 2.1 — Hotspot SSID unique par device
+## Étape 2.1 — Hotspot SSID `Milō`
 
 **Fichier** : `backend/core/wifi/service.py`
 
+**Décision finale (revert d'un suffix MAC qui avait été testé)** : SSID partagé `Milō`. Branding plus propre dans la liste wifi du téléphone et du serveur. **Limitation acceptée** : si plusieurs devices sont en setup hotspot simultanément, le serveur ne peut adopter qu'un seul à la fois (NetworkManager dédoublonne par SSID). Recommandation : adopter un speaker à la fois en mode setup.
+
 **Changements** :
-- [x] Calculer `HOTSPOT_CON_NAME` dynamiquement au moment de l'activation : lire `/sys/class/net/wlan0/address`, prendre les 4 derniers chars hex (uppercase, sans `:`), former `Milō-XXXX`.
-- [x] Adapter `_activate_hotspot()` et `_delete_hotspot_profile()` pour utiliser ce nom dynamique.
-- [x] Adapter le dispatcher `rootfs/etc/NetworkManager/dispatcher.d/90-milo-network` (et son équivalent client) : matcher tout SSID `Milō-*` au lieu de juste `Milō`. *(Note : le dispatcher milo-client ne référence pas le hotspot, aucun changement requis.)*
-- [x] Adapter `wifi/service.py::_has_active_connection()` pour détecter aussi `Milō-*`.
-- [x] Mettre à jour les i18n strings du wizard `setup.wifi.*` qui mentionnent "Milō" → utiliser le nouveau format dans l'affichage si pertinent. *(Note : aucun string `setup.wifi.*` ne mentionne le SSID hotspot ; `setup.summary.accessHint` utilise `{ssid}` paramétré, pas de changement requis.)*
+- [x] `HOTSPOT_NAME = "Milō"` constante au module-level (plus de calcul MAC-based).
+- [x] `_activate_hotspot()` / `_delete_hotspot_profile()` utilisent `self.hotspot_con_name = HOTSPOT_NAME`.
+- [x] Dispatcher `rootfs/etc/NetworkManager/dispatcher.d/90-milo-network` : `case "$1" in Milō)` (match exact).
+- [x] `wifi/service.py::_has_active_connection()` détecte le hotspot via `connection == HOTSPOT_NAME`.
 
 **Acceptance** :
-- Hotspot s'appelle `Milō-AB12` (format MAC-based, unique par device).
-- Backwards compatible : aucun device existant n'utilisait l'ancien format de manière persistante.
+- Hotspot s'appelle `Milō` (constant, identique sur tous les devices).
 
 ## Étape 2.2 — Endpoint serveur : scan hotspots
 
@@ -190,13 +190,13 @@ Au final : symétrie complète — un nouveau device peut être adopté comme cl
 **Changements** :
 - [x] Nouveau router `GET /api/discovery/wifi-speakers` qui :
   - Réutilise `wifi_service.scan_networks()` (déjà existant, scan via nmcli avec `--rescan yes`, timeout 15s)
-  - Filtre les SSID matchant `HOTSPOT_NAME_RE` (`^Milō-[0-9A-F]{4}$`), exclut le hotspot propre du device
-  - Retourne `{"status": "success", "data": {"hotspots": [{"ssid": "Milō-AB12", "mac_suffix": "AB12", "signal": 75}, ...]}}` (convention `status/data` du codebase)
+  - Filtre les SSID égaux à `HOTSPOT_NAME` (`Milō`), exclut le hotspot propre du device
+  - Retourne `{"status": "success", "data": {"hotspots": [{"ssid": "Milō", "signal": 75}]}}` (typiquement 0 ou 1 entrée — dédoublonnage par SSID)
 - [x] Enregistrer le router dans `main.py`.
 - [x] ~~Sudoers : `milo ALL=(root) NOPASSWD: /usr/bin/nmcli device wifi list*`~~ — non nécessaire : la polkit rule `50-milo-networkmanager.rules` autorise déjà toutes les actions NetworkManager pour le user `milo` (utilisé par `wifi_service` existant sans sudo).
 
 **Acceptance** :
-- Appel `/api/discovery/wifi-speakers` retourne les hotspots Milō-XXXX visibles.
+- Appel `/api/discovery/wifi-speakers` retourne le hotspot `Milō` visible (0 ou 1 entrée).
 
 ## Étape 2.3 — Endpoint serveur : récupérer wifi creds actifs
 
@@ -331,14 +331,14 @@ Au final : symétrie complète — un nouveau device peut être adopté comme cl
 
 **Changements** :
 - [x] Ajouter prop `mode: 'ethernet' | 'wifi'` (default `'ethernet'`).
-- [x] Ajouter prop `hotspotSsid: String` (uniquement utile en mode wifi). *(macSuffix est dérivé du SSID via `Milō-XXXX.split('-')`, pas de prop séparée.)*
+- [x] Ajouter prop `hotspotSsid: String` (uniquement utile en mode wifi, vaut toujours `"Milō"`).
 - [x] Si `mode === 'wifi'`, afficher en haut une section "Connexion réseau" :
   - Si `discoveryStore.serverWifiCreds.available === true` : "Ce haut-parleur sera connecté à `<ssid>` (réseau du serveur)" + bouton "Changer" qui révèle le `NetworkSelector.vue`.
   - Si `serverWifiCreds.available === false` : afficher directement `NetworkSelector.vue` pour saisie manuelle. *(NetworkSelector utilisé sans slot `action` — on capte les creds via `@update:wifi`, l'apply se fait via le bouton sticky existant en bas du formulaire.)*
 - [x] Au moment de l'apply :
   - Mode ethernet : appel existant `multiroomStore.configurePendingClient(macId, payload)`.
   - Mode wifi : appel `discoveryStore.adoptSpeaker({ssid: hotspotSsid, audio_id, speaker_name, speaker_type, wifi_ssid, wifi_password})`. À la résolution synchrone du push (le device a accepté et reboot), on émet `back` ; le nouveau client apparaîtra dans la liste lorsqu'il rejoint le LAN.
-- [x] Speaker name : valeur par défaut `Speaker-XXXX` (4 derniers chars de mac_suffix dérivés du SSID `Milō-XXXX`) si vide. *(Pré-rempli en mode wifi pour que l'utilisateur voit la valeur par défaut, et fallback final à l'apply si vidée par l'utilisateur.)*
+- [x] Speaker name : champ vide à l'ouverture (placeholder visible). Si l'utilisateur n'entre rien, fallback `Speaker` à l'apply. *(Pas de pré-fill MAC-based : le SSID hotspot est partagé donc aucun suffix unique disponible.)*
 
 **Acceptance** :
 - Mode ethernet : comportement identique à aujourd'hui.
@@ -360,7 +360,7 @@ Au final : symétrie complète — un nouveau device peut être adopté comme cl
 
 **Acceptance** :
 - [ ] Test A — adoption wifi end-to-end :
-  - Boot du second Pi sans ethernet → hotspot `Milō-XXXX` actif.
+  - Boot du second Pi sans ethernet → hotspot `Milō` actif.
   - Sur le serveur, ouvrir Settings → Multiroom → la liste affiche le hotspot avec badge wifi.
   - Click → ConfigureSystem.vue mode wifi → wifi creds pré-remplies (cas 1, serveur sur wifi) → choisir audio + nom → Apply.
   - Le serveur perd brièvement la connexion (~30s), le second Pi reboot.
@@ -372,8 +372,8 @@ Au final : symétrie complète — un nouveau device peut être adopté comme cl
   - Brancher le second Pi en ethernet → apparaît en pending → ConfigureSystem.vue mode ethernet (sans section wifi) → Apply → reboot → configured.
 - [ ] Test D — adoption échoue (mauvais wifi password) :
   - Adopter avec un mauvais password wifi maison → device reboot, ne joint pas le wifi → après timeout, hotspot revient → user retente.
-- [ ] Test E — vérification SSID unique :
-  - Booter 2 Pis sans ethernet en même temps → 2 hotspots distincts visibles avec MAC suffixes différents.
+- [N/A] Test E — vérification SSID unique :
+  - Retiré : SSID partagé `Milō` par décision (étape 2.1). Le scan dédoublonne par SSID, donc 2 Pis en hotspot simultanés ne sont pas distinguables côté serveur. Cas considéré trop rare en pratique.
 
 ---
 

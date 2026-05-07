@@ -2,10 +2,11 @@
 /**
  * Pinia store for wifi-only speaker adoption discovery.
  *
- * Tracks Milō-XXXX setup hotspots visible from the server and the server's
- * own WiFi credentials (used to auto-fill the adoption form). The hotspot
- * list is refreshed on demand and via an opt-in 10s polling loop activated
- * while the multiroom discovery UI is open.
+ * Tracks 'Milō' setup hotspots visible from the server and the server's own
+ * WiFi credentials (used to auto-fill the adoption form). The hotspot list is
+ * refreshed on demand and via an opt-in 10s polling loop activated while the
+ * multiroom discovery UI is open. Because the SSID is shared, the list will
+ * contain at most one adoptable hotspot at a time.
  */
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
@@ -17,7 +18,7 @@ const POLL_INTERVAL_MS = 10000;
 export const useDiscoveryStore = defineStore('discovery', () => {
   // === STATE ===
 
-  // Hotspots currently visible from the server (Milō-XXXX SSIDs).
+  // Hotspots currently visible from the server (always 'Milō').
   const hotspots = ref([]);
 
   // True while a hotspot scan is in flight.
@@ -34,7 +35,7 @@ export const useDiscoveryStore = defineStore('discovery', () => {
   // === ACTIONS ===
 
   /**
-   * Refresh the list of visible Milō-XXXX hotspots.
+   * Refresh the list of visible 'Milō' hotspots.
    * Runs a fresh nmcli scan server-side; takes up to ~15s.
    */
   async function scanHotspots() {
