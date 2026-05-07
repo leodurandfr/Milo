@@ -8,7 +8,7 @@
     <!-- Contenu toujours visible (même en loading) -->
     <p v-if="title" class="heading-2">{{ title }}</p>
     <p v-if="subtitle" class="text-mono" v-html="subtitle"></p>
-    <p v-if="details" class="text-mono details">{{ details }}</p>
+    <p v-if="details" class="text-mono">{{ details }}</p>
     <div v-if="ctaLabel || ctaSecondaryLabel" class="cta-group">
       <Button v-if="ctaLabel" :variant="ctaVariant" :loading="ctaLoading" @click="ctaClick">
         {{ ctaLabel }}
@@ -153,11 +153,6 @@ onUnmounted(() => {
   margin-top: 0;
 }
 
-.message-content :deep(.details) {
-  opacity: 0.6;
-  font-size: 0.875em;
-  margin-top: calc(-1 * var(--space-02));
-}
 
 .message-content.is-delayed {
   visibility: hidden;
