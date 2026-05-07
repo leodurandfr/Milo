@@ -263,13 +263,13 @@ Au final : symétrie complète — un nouveau device peut être adopté comme cl
 **Fichier** : `rootfs/usr/local/bin/milo-first-boot`
 
 **Changements** :
-- [ ] Modifier le skip-check : avant d'exit sur `setup_completed=true`, vérifier si `/var/lib/milo/pending_client_role.json` existe :
+- [x] Modifier le skip-check : avant d'exit sur `setup_completed=true`, vérifier si `/var/lib/milo/pending_client_role.json` existe :
   - Si oui : lire le fichier, exécuter `configure_client_with_hardware()` (nouvelle fonction qui appelle configure_client + écrit `hardware.json` du milo-client avec les valeurs lues), supprimer le fichier marker, reboot.
   - Si non : exit 0 (rôle verrouillé, normal).
-- [ ] Nouvelle fonction `configure_client_with_hardware(audio_id, overlay, volume_control, speaker_name, speaker_type)` qui :
-  - Appelle la logique de `configure_client` (sans le bloc settings.json puisque setup_completed est déjà true).
-  - Écrit `/var/lib/milo-client/hardware.json` avec la config audio.
-  - Stocke speaker_name et speaker_type quelque part qui sera lu par registration.py au prochain boot (peut-être dans `/var/lib/milo-client/identity.json`).
+- [x] Nouvelle fonction `configure_client_with_hardware()` qui :
+  - Appelle un helper `_apply_client_filesystem` partagé (extrait de `configure_client`) pour la logique commune (hostname, user, services, ALSA), sans toucher à settings.json (setup_completed déjà true).
+  - Lit le marker JSON et écrit `/var/lib/milo-client/hardware.json` (audio_id/overlay/volume_control) + `/var/lib/milo-client/identity.json` (name/speaker_type) en atomic write, puis supprime le marker.
+  - Si l'application du marker échoue (lecture, clé manquante, IO), exit 1 sans reboot pour permettre un retry au prochain boot.
 
 **Acceptance** :
 - Au boot après `become-client` : le device passe en milo-client avec hardware déjà appliqué.
