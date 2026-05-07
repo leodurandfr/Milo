@@ -8,18 +8,54 @@ setup hotspot (fresh devices waiting to be adopted as multiroom clients).
 GET /api/discovery/server-wifi-creds → return this server's active WiFi
 credentials for auto-fill during wifi-speaker adoption (or `available: false`
 when the server is ethernet-only).
+
+POST /api/discovery/adopt-speaker → orchestrate the wifi adoption of a fresh
+speaker: temporarily join its setup hotspot, push audio + target wifi config,
+then restore the server's original network connection.
 """
 import logging
-from fastapi import APIRouter
+from typing import Literal
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field, field_validator
 
 from backend.api.route_helpers import api_error_handler
+from backend.core.multiroom.models import SPEAKER_TYPES
+from backend.core.multiroom.wifi_adoption import AdoptionError
 from backend.core.wifi.service import HOTSPOT_NAME_RE
 
 logger = logging.getLogger(__name__)
 
 
-def create_discovery_router(wifi_service):
-    """Create discovery router with injected WiFi service."""
+class AdoptSpeakerRequest(BaseModel):
+    """Payload to adopt a wifi-only speaker exposing a 'Milō-XXXX' hotspot."""
+    ssid: str = Field(..., min_length=1, description="Hotspot SSID of the speaker (Milō-XXXX)")
+    audio_id: str = Field(..., min_length=1, description="Audio card registry ID")
+    speaker_name: str = Field(..., min_length=1, description="Display name for the speaker")
+    speaker_type: Literal['satellite', 'bookshelf', 'tower', 'subwoofer'] = Field(..., description="Speaker physical type")
+    wifi_ssid: str = Field(..., min_length=1, description="Target home wifi the speaker must join")
+    wifi_password: str = Field(default="", description="Target wifi password (empty for open networks)")
+
+    @field_validator('speaker_type')
+    @classmethod
+    def _validate_speaker_type(cls, v):
+        if v not in SPEAKER_TYPES:
+            raise ValueError(f"Invalid speaker_type '{v}'. Must be one of: {', '.join(SPEAKER_TYPES)}")
+        return v
+
+
+# Adoption error codes that should map to HTTP 4xx (client-side error or user
+# action expected) instead of generic HTTP 500.
+_ADOPTION_CLIENT_ERROR_CODES = {
+    "invalid_ssid": 400,
+    "invalid_target_wifi": 400,
+    "already_configured": 409,
+    "push_rejected": 502,
+}
+
+
+def create_discovery_router(wifi_service, wifi_adoption_service):
+    """Create discovery router with injected services."""
     router = APIRouter(prefix="/api/discovery", tags=["discovery"])
 
     @router.get("/wifi-speakers")
@@ -63,5 +99,42 @@ def create_discovery_router(wifi_service):
                 "status": "success",
                 "data": {"available": True, **creds},
             }
+
+    @router.post("/adopt-speaker")
+    async def adopt_speaker(payload: AdoptSpeakerRequest):
+        """Orchestrate wifi adoption of a fresh speaker.
+
+        The server temporarily switches its wifi to the speaker's hotspot,
+        pushes the audio + target wifi config, then reconnects to its original
+        wifi. Wifi-only servers lose LAN connectivity for ~30 s during this
+        flow; the UI is expected to handle the brief outage. Ethernet-equipped
+        servers keep their LAN through the whole adoption.
+        """
+        try:
+            data = await wifi_adoption_service.adopt_speaker(
+                ssid=payload.ssid,
+                audio_id=payload.audio_id,
+                speaker_name=payload.speaker_name,
+                speaker_type=payload.speaker_type,
+                wifi_ssid=payload.wifi_ssid,
+                wifi_password=payload.wifi_password,
+            )
+            return {"status": "success", "data": data}
+        except AdoptionError as e:
+            status_code = _ADOPTION_CLIENT_ERROR_CODES.get(e.code, 500)
+            logger.error(
+                "Adopt speaker '%s' failed (code=%s): %s",
+                payload.ssid, e.code, e.detail,
+            )
+            raise HTTPException(
+                status_code=status_code,
+                detail={"code": e.code, "message": e.detail or e.code},
+            )
+        except Exception as e:
+            logger.error("Adopt speaker '%s' unexpected error: %s", payload.ssid, e)
+            raise HTTPException(
+                status_code=500,
+                detail={"code": "internal_error", "message": str(e)},
+            )
 
     return router
