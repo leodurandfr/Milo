@@ -3,17 +3,28 @@
 Setup wizard API routes — first-boot configuration.
 
 POST /api/setup/complete → atomic wizard completion (language + hardware + setup_completed)
+POST /api/setup/become-client → adopt this fresh device as a multiroom client (wifi flow)
 
-Client mode is handled automatically at first boot by milo-first-boot.service
-(mDNS detection), not through the wizard.
+Client mode is normally handled automatically at first boot by
+milo-first-boot.service (mDNS detection over ethernet). The wifi adoption
+flow is the alternative path when no ethernet is available: a server pushes
+the audio config + target wifi creds, the device persists them and reboots,
+and milo-first-boot reads the marker on next boot to apply the client role.
 """
 import asyncio
+import json
 import logging
+import os
 from fastapi import APIRouter, HTTPException
-from typing import Optional
-from pydantic import BaseModel, Field
+from typing import Literal, Optional
+from pydantic import BaseModel, Field, field_validator
+
+from backend.config.constants import MILO_DATA_DIR
+from backend.core.multiroom.models import SPEAKER_TYPES
 
 logger = logging.getLogger(__name__)
+
+PENDING_CLIENT_ROLE_FILE = MILO_DATA_DIR / "pending_client_role.json"
 
 
 class SetupCompleteRequest(BaseModel):
@@ -24,7 +35,33 @@ class SetupCompleteRequest(BaseModel):
     screen_type: str = Field(..., description="Screen type registry ID")
 
 
-def create_setup_router(settings_service, hardware_service, systemd_manager):
+class BecomeClientRequest(BaseModel):
+    """Wifi adoption payload pushed by a server to a fresh device."""
+    wifi_ssid: str = Field(..., min_length=1, description="Target WiFi SSID the device must join after reboot")
+    wifi_password: str = Field(default="", description="Target WiFi password (empty for open networks)")
+    audio_id: str = Field(..., min_length=1, description="Audio card registry ID")
+    speaker_name: str = Field(..., min_length=1, description="Display name for the speaker")
+    speaker_type: Literal['satellite', 'bookshelf', 'tower', 'subwoofer'] = Field(..., description="Speaker physical type")
+
+    @field_validator('speaker_type')
+    @classmethod
+    def validate_speaker_type(cls, v):
+        if v not in SPEAKER_TYPES:
+            raise ValueError(f"Invalid speaker_type '{v}'. Must be one of: {', '.join(SPEAKER_TYPES)}")
+        return v
+
+
+def _atomic_write_json(path, data: dict) -> None:
+    """Write JSON to ``path`` atomically (tempfile + fsync + rename)."""
+    tmp = f"{path}.tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+
+
+def create_setup_router(settings_service, hardware_service, systemd_manager, wifi_service):
     """Create setup wizard router with injected services."""
     router = APIRouter(prefix="/api/setup", tags=["setup"])
 
@@ -117,5 +154,104 @@ def create_setup_router(settings_service, hardware_service, systemd_manager):
             else:
                 logger.error("Setup wizard: rollback FAILED — setup_completed may remain true")
             raise HTTPException(status_code=500, detail=f"Setup failed: {e}")
+
+    @router.post("/become-client")
+    async def become_client(payload: BecomeClientRequest):
+        """
+        Adopt this fresh device as a multiroom client (wifi flow).
+
+        Steps:
+          1. Persist /var/lib/milo/pending_client_role.json so milo-first-boot
+             switches into client mode + applies hardware on next boot.
+          2. Save the target WiFi profile (no live switch — the open hotspot
+             stays up so the HTTP response can still reach the server).
+          3. Mark setup_completed=true so milo-first-boot's skip-check sees a
+             role-locked device on the boot AFTER the client switch.
+          4. Schedule a fire-and-forget reboot once the response is sent.
+
+        On any failure before the reboot is scheduled, the marker file is
+        removed so the device stays a fresh server (retry is safe).
+        """
+        from backend.hardware.registry import AUDIO_CARDS, is_dac_card
+
+        if payload.audio_id not in AUDIO_CARDS or payload.audio_id == "none":
+            valid = [k for k in AUDIO_CARDS if k != "none"]
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid audio_id '{payload.audio_id}'. Must be one of: {', '.join(valid)}",
+            )
+
+        already_done = await settings_service.get_setting("setup_completed")
+        if already_done:
+            raise HTTPException(
+                status_code=409,
+                detail="Device already configured (setup_completed=true)",
+            )
+
+        card = AUDIO_CARDS[payload.audio_id]
+        overlay = card.get("overlay") or ""
+        volume_control = not is_dac_card(payload.audio_id)
+
+        marker = {
+            "audio_id": payload.audio_id,
+            "overlay": overlay,
+            "volume_control": volume_control,
+            "speaker_name": payload.speaker_name,
+            "speaker_type": payload.speaker_type,
+        }
+
+        try:
+            MILO_DATA_DIR.mkdir(parents=True, exist_ok=True)
+            _atomic_write_json(PENDING_CLIENT_ROLE_FILE, marker)
+            logger.info(
+                "become-client: pending_client_role.json written (audio=%s, name=%s, type=%s)",
+                payload.audio_id, payload.speaker_name, payload.speaker_type,
+            )
+        except OSError as e:
+            logger.error("become-client: failed to write marker file: %s", e)
+            raise HTTPException(status_code=500, detail=f"Failed to write client role marker: {e}")
+
+        try:
+            await wifi_service.save_network(
+                payload.wifi_ssid,
+                payload.wifi_password if payload.wifi_password else None,
+            )
+            logger.info("become-client: wifi profile saved for SSID '%s'", payload.wifi_ssid)
+        except Exception as e:
+            logger.error("become-client: failed to save wifi profile for '%s': %s", payload.wifi_ssid, e)
+            try:
+                PENDING_CLIENT_ROLE_FILE.unlink()
+            except OSError:
+                pass
+            raise HTTPException(status_code=500, detail=f"Failed to save WiFi profile: {e}")
+
+        if not await settings_service.set_setting("setup_completed", True):
+            logger.error("become-client: failed to persist setup_completed=true")
+            try:
+                PENDING_CLIENT_ROLE_FILE.unlink()
+            except OSError:
+                pass
+            raise HTTPException(status_code=500, detail="Failed to persist setup_completed flag")
+        logger.info("become-client: setup_completed=true persisted")
+
+        async def _delayed_reboot():
+            await asyncio.sleep(1)
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "sudo", "/usr/sbin/reboot",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                _, stderr = await proc.communicate()
+                if proc.returncode is not None and proc.returncode > 0:
+                    logger.error(
+                        "become-client: reboot failed (rc=%d): %s",
+                        proc.returncode, stderr.decode().strip() if stderr else "",
+                    )
+            except Exception as e:
+                logger.error("become-client: reboot subprocess failed: %s", e)
+
+        asyncio.create_task(_delayed_reboot())
+        return {"status": "rebooting"}
 
     return router
