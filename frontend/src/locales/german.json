@@ -110,6 +110,21 @@
       "errorLoadingHardware": "Audiokartenoptionen konnten nicht geladen werden.",
       "retry": "Erneut versuchen"
     },
+    "discovery": {
+      "title": "Neu entdeckte Lautsprecher",
+      "viaEthernet": "Über Ethernet verbunden",
+      "viaWifi": "WLAN-Hotspot erkannt"
+    },
+    "adopt": {
+      "networkSection": "Netzwerkverbindung",
+      "useServerWifi": "Netzwerk des Servers verwenden ({ssid})",
+      "changeNetwork": "Ändern",
+      "enterCredentials": "Der Server ist nicht über WLAN verbunden. Geben Sie die Netzwerkdaten für diesen Lautsprecher ein.",
+      "adopting": "Wird hinzugefügt...",
+      "success": "Lautsprecher erfolgreich hinzugefügt",
+      "errorWifi": "Verbindung zum Hotspot des Lautsprechers fehlgeschlagen",
+      "errorPush": "Der Lautsprecher hat die Konfiguration nicht akzeptiert"
+    },
     "systemOffline": "\"{name}\" ist offline",
     "systemOfflineDescription": "Dieses Audiosystem ist derzeit nicht mit Milō verbunden.<br>IP: {ip}",
     "deleteSystem": "Dieses Audiosystem löschen",

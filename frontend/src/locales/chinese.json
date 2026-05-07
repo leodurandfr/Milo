@@ -110,6 +110,21 @@
       "errorLoadingHardware": "无法加载声卡选项。",
       "retry": "重试"
     },
+    "discovery": {
+      "title": "新发现的扬声器",
+      "viaEthernet": "通过以太网连接",
+      "viaWifi": "检测到 WiFi 热点"
+    },
+    "adopt": {
+      "networkSection": "网络连接",
+      "useServerWifi": "使用服务器网络 ({ssid})",
+      "changeNetwork": "更改",
+      "enterCredentials": "服务器未通过 WiFi 连接。请输入此扬声器的网络凭据。",
+      "adopting": "添加中...",
+      "success": "扬声器添加成功",
+      "errorWifi": "连接扬声器热点失败",
+      "errorPush": "扬声器未接受该配置"
+    },
     "systemOffline": "「{name}」已离线",
     "systemOfflineDescription": "此音频系统当前未连接到Milō。<br>IP：{ip}",
     "deleteSystem": "删除此音频系统",

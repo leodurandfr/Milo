@@ -349,19 +349,7 @@ Au final : symétrie complète — un nouveau device peut être adopté comme cl
 **Fichier** : `frontend/src/locales/en.json`, `frontend/src/locales/fr.json`
 
 **Changements** :
-- [ ] Nouveaux strings :
-  - `multiroom.discovery.title` : "Nouveaux haut-parleurs détectés" / "Newly discovered speakers"
-  - `multiroom.discovery.viaEthernet` : "Connecté en ethernet"
-  - `multiroom.discovery.viaWifi` : "Hotspot WiFi détecté"
-  - `multiroom.adopt.networkSection` : "Connexion réseau"
-  - `multiroom.adopt.useServerWifi` : "Utiliser le réseau du serveur (`<ssid>`)"
-  - `multiroom.adopt.changeNetwork` : "Changer"
-  - `multiroom.adopt.enterCredentials` : "Le serveur n'est pas connecté en wifi. Entrez les identifiants du réseau pour ce haut-parleur."
-  - `multiroom.adopt.adopting` : "Adoption en cours..."
-  - `multiroom.adopt.success` : "Haut-parleur ajouté avec succès"
-  - `multiroom.adopt.errorWifi` : "Échec de la connexion au hotspot du haut-parleur"
-  - `multiroom.adopt.errorPush` : "Le haut-parleur n'a pas accepté la configuration"
-  - Tous en EN aussi.
+- [x] Nouveaux strings ajoutés dans les 8 locales (`english`, `french`, `german`, `spanish`, `italian`, `portuguese`, `chinese`, `hindi`) — sections `multiroom.discovery` (`title`, `viaEthernet`, `viaWifi`) et `multiroom.adopt` (`networkSection`, `useServerWifi` paramétré `{ssid}`, `changeNetwork`, `enterCredentials`, `adopting`, `success`, `errorWifi`, `errorPush`). *(Note : les fichiers s'appellent `<langue>.json` — pas `en.json`/`fr.json`. Les 6 autres langues étaient également à mettre à jour pour rester alignées.)*
 
 **Acceptance** :
 - Aucune key manquante dans la console au runtime.

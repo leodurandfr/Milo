@@ -110,6 +110,21 @@
       "errorLoadingHardware": "No se pudieron cargar las opciones de tarjeta de audio.",
       "retry": "Reintentar"
     },
+    "discovery": {
+      "title": "Nuevos altavoces detectados",
+      "viaEthernet": "Conectado por ethernet",
+      "viaWifi": "Hotspot WiFi detectado"
+    },
+    "adopt": {
+      "networkSection": "Conexión de red",
+      "useServerWifi": "Usar la red del servidor ({ssid})",
+      "changeNetwork": "Cambiar",
+      "enterCredentials": "El servidor no está conectado por WiFi. Introduce las credenciales de red para este altavoz.",
+      "adopting": "Añadiendo...",
+      "success": "Altavoz añadido correctamente",
+      "errorWifi": "Error al conectar con el hotspot del altavoz",
+      "errorPush": "El altavoz no aceptó la configuración"
+    },
     "systemOffline": "« {name} » está desconectado",
     "systemOfflineDescription": "Este sistema de audio no está conectado actualmente a Milō.<br>IP: {ip}",
     "deleteSystem": "Eliminar este sistema de audio",
