@@ -6,38 +6,23 @@
           :icon="isLoading ? null : 'multiroom'" :title="messageTitle" />
         <!-- SETTINGS: Active and ready -->
         <SettingsContainer v-else key="settings">
-          <!-- Pending Speakers Section -->
-          <SettingsSection v-if="pendingClientsList.length > 0">
+          <!-- Discovered Speakers Section (pending ethernet + wifi hotspots) -->
+          <SettingsSection v-if="discoveryItems.length > 0">
             <template #header>
               <SectionHeader :title="t('multiroom.pending.title')" />
             </template>
-            <div class="pending-clients">
-              <ListItemButton
-                v-for="client in pendingClientsList"
-                :key="client.mac_id"
-                variant="background"
-                icon-variant="standard"
-                :action="multiroomClientStore.isClientConfiguring(client.mac_id) ? 'none' : 'caret'"
-                :disabled="multiroomClientStore.isClientConfiguring(client.mac_id)"
-                @click="handleConfigureSystem(client.mac_id)"
-              >
-                <template #icon>
-                  <div class="pending-icon">
-                    <SvgIcon name="speakerShelf" :size="28" />
-                  </div>
-                </template>
-                <template #title>
-                  <div class="speaker-title">
-                    <span>{{ client.name || client.ip }}</span>
-                    <span v-if="multiroomClientStore.isClientConfiguring(client.mac_id)" class="text-mono-small speaker-title__status speaker-title__status--configuring">
-                      {{ t('multiroom.pending.rebooting') }}
-                    </span>
-                    <span v-else class="text-mono-small speaker-title__status">
-                      {{ t('multiroom.pending.notConfigured') }}
-                    </span>
-                  </div>
-                </template>
-              </ListItemButton>
+            <div class="discovery-list">
+              <SystemListItem
+                v-for="item in discoveryItems"
+                :key="item.key"
+                :name="item.name"
+                :discovery-source="item.source"
+                :status="item.status"
+                :status-variant="item.statusVariant"
+                :action="item.disabled ? 'none' : 'caret'"
+                :disabled="item.disabled"
+                @click="handleDiscoveryClick(item)"
+              />
             </div>
           </SettingsSection>
 
@@ -138,14 +123,14 @@
 </template>
 
 <script setup>
-import { computed, onMounted, watch } from 'vue';
+import { computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useSnapcastStore } from '@/stores/snapcastStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
+import { useDiscoveryStore } from '@/stores/discoveryStore';
 import Button from '@/components/ui/Button.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
-import ListItemButton from '@/components/ui/ListItemButton.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import SystemListItem from '@/components/settings/categories/multiroom/SystemListItem.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
@@ -161,6 +146,7 @@ const { t } = useI18n();
 const snapcastStore = useSnapcastStore();
 const unifiedStore = useUnifiedAudioStore();
 const multiroomClientStore = useMultiroomStore();
+const discoveryStore = useDiscoveryStore();
 
 // Multiroom state
 const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
@@ -225,13 +211,55 @@ const ungroupedClients = computed(() => {
     }));
 });
 
-// Pending clients list
-const pendingClientsList = computed(() => multiroomClientStore.pendingClientList);
+// Unified discovery list: pending ethernet clients + visible wifi hotspots.
+// Each item carries a discovery `source` so the parent knows which adoption
+// flow to launch (ethernet via configure-pending, wifi via adopt-speaker).
+const discoveryItems = computed(() => {
+  const items = [];
 
-// Navigation handlers - emit to parent (SettingsModal)
-function handleConfigureSystem(macId) {
-  if (multiroomClientStore.isClientConfiguring(macId)) return;
-  emit('configure-system', macId);
+  for (const client of multiroomClientStore.pendingClientList) {
+    const configuring = multiroomClientStore.isClientConfiguring(client.mac_id);
+    items.push({
+      key: `eth:${client.mac_id}`,
+      source: 'ethernet',
+      name: client.name || client.ip,
+      status: configuring ? t('multiroom.pending.rebooting') : t('multiroom.pending.notConfigured'),
+      statusVariant: configuring ? 'configuring' : '',
+      disabled: configuring,
+      macId: client.mac_id
+    });
+  }
+
+  for (const hotspot of discoveryStore.hotspots) {
+    items.push({
+      key: `wifi:${hotspot.ssid}`,
+      source: 'wifi',
+      name: `Speaker-${hotspot.mac_suffix}`,
+      status: t('multiroom.pending.notConfigured'),
+      statusVariant: '',
+      disabled: false,
+      ssid: hotspot.ssid,
+      macSuffix: hotspot.mac_suffix,
+      signal: hotspot.signal
+    });
+  }
+
+  return items;
+});
+
+// Navigation: dispatch to ConfigureSystem with the right discovery context.
+function handleDiscoveryClick(item) {
+  if (item.disabled) return;
+  if (item.source === 'ethernet') {
+    emit('configure-system', { source: 'ethernet', macId: item.macId });
+  } else {
+    emit('configure-system', {
+      source: 'wifi',
+      ssid: item.ssid,
+      macSuffix: item.macSuffix,
+      signal: item.signal
+    });
+  }
 }
 
 function handleEditZone(groupId) {
@@ -336,6 +364,14 @@ onMounted(async () => {
     // Fetch pending clients even when multiroom is off (they register regardless)
     multiroomClientStore.fetchPendingClients();
   }
+
+  // Start hotspot polling + load the server's wifi creds for adoption auto-fill.
+  discoveryStore.startPolling();
+  discoveryStore.loadServerWifiCreds();
+});
+
+onBeforeUnmount(() => {
+  discoveryStore.stopPolling();
 });
 </script>
 
@@ -432,31 +468,11 @@ onMounted(async () => {
   z-index: 10;
 }
 
-/* Pending clients */
-.pending-clients {
+/* Discovered speakers list (pending ethernet + wifi hotspots) */
+.discovery-list {
   display: flex;
   flex-direction: column;
   gap: var(--space-01);
-}
-
-.pending-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0.6;
-}
-
-.speaker-title {
-  display: flex;
-  flex-direction: column;
-}
-
-.speaker-title__status {
-  color: var(--color-text-secondary);
-}
-
-.speaker-title__status--configuring {
-  color: var(--color-brand);
 }
 
 /* Responsive */

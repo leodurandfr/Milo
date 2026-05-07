@@ -290,6 +290,7 @@ const headerRef = ref(null);
 const stationToEdit = ref(null);
 const zoneGroupId = ref(null);
 const macIdToEdit = ref(null);
+const hotspotToAdopt = ref(null);
 const showPowerMenu = ref(false);
 const confirmRestart = ref(false);
 const confirmShutdown = ref(false);
@@ -454,13 +455,25 @@ function handleEditClient(macId) {
   push('multiroom-client-edit');
 }
 
-function handleConfigureSystem(macId) {
-  macIdToEdit.value = macId;
+function handleConfigureSystem(payload) {
+  // payload: { source: 'ethernet'|'wifi', macId?, ssid?, macSuffix?, signal? }
+  if (payload?.source === 'wifi') {
+    hotspotToAdopt.value = {
+      ssid: payload.ssid,
+      macSuffix: payload.macSuffix,
+      signal: payload.signal
+    };
+    macIdToEdit.value = null;
+  } else {
+    macIdToEdit.value = payload?.macId ?? null;
+    hotspotToAdopt.value = null;
+  }
   push('multiroom-configure-system');
 }
 
 function handleConfigureSystemBack() {
   macIdToEdit.value = null;
+  hotspotToAdopt.value = null;
   back();
 }
 
