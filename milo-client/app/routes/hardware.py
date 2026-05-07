@@ -15,6 +15,7 @@ from pydantic import BaseModel, field_validator, model_validator
 logger = logging.getLogger(__name__)
 
 HARDWARE_FILE = "/var/lib/milo-client/hardware.json"
+MILO_SETTINGS_FILE = "/var/lib/milo/settings.json"
 APPLY_HARDWARE_SCRIPT = "/usr/local/bin/milo-client-apply-hardware"
 
 # Must match the allowlist in milo-client-apply-hardware
@@ -67,6 +68,22 @@ def _write_hardware_json(data: dict) -> None:
     os.replace(tmp_path, HARDWARE_FILE)
 
 
+def _set_setup_completed_in_milo_settings() -> None:
+    """Mark setup as completed in /var/lib/milo/settings.json (read by milo-first-boot)."""
+    try:
+        with open(MILO_SETTINGS_FILE) as f:
+            data = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        data = {}
+    data["setup_completed"] = True
+    tmp_path = MILO_SETTINGS_FILE + ".tmp"
+    with open(tmp_path, "w") as f:
+        json.dump(data, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_path, MILO_SETTINGS_FILE)
+
+
 def create_hardware_router() -> APIRouter:
     """Creates hardware router for client-side hardware management."""
     router = APIRouter(prefix="/api/hardware", tags=["hardware"])
@@ -115,6 +132,14 @@ def create_hardware_router() -> APIRouter:
         and reboots the system.
         """
         try:
+            # Lock the role: milo-first-boot will skip the mDNS probe on subsequent
+            # boots once setup_completed=true, preventing accidental client→server reverts.
+            try:
+                _set_setup_completed_in_milo_settings()
+                logger.info("Marked setup_completed=true in /var/lib/milo/settings.json")
+            except Exception as e:
+                logger.error(f"Failed to mark setup_completed in milo settings: {e}")
+
             proc = await asyncio.create_subprocess_exec(
                 "sudo", APPLY_HARDWARE_SCRIPT,
                 stdout=asyncio.subprocess.PIPE,
