@@ -279,8 +279,8 @@ Au final : symétrie complète — un nouveau device peut être adopté comme cl
 **Fichier** : `milo-client/app/services/registration.py`
 
 **Changements** :
-- [ ] Lire `/var/lib/milo-client/identity.json` si présent, ajouter `name` + `speaker_type` au payload de registration.
-- [ ] Côté serveur (`backend/api/multiroom.py::register_client`) : si `name` et `speaker_type` fournis dans le payload, les utiliser pour pré-remplir le client dans le registry (au lieu d'attendre une étape "configure" séparée).
+- [x] Lire `/var/lib/milo-client/identity.json` si présent, ajouter `name` + `speaker_type` au payload de registration.
+- [x] Côté serveur (`backend/api/multiroom.py::register_client`) : si `name` et `speaker_type` fournis dans le payload, les utiliser pour pré-remplir le client dans le registry (au lieu d'attendre une étape "configure" séparée). *(Implémentation : staged via `pending_clients_service` so the existing snapclient-connect transfer logic in `websocket.py` picks them up at registry insertion time.)*
 
 **Acceptance** :
 - Le client wifi-adopté s'enregistre directement avec son nom et type → apparaît dans la liste "configured" sans passer par "pending".

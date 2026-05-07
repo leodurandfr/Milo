@@ -16,6 +16,7 @@ import aiohttp
 logger = logging.getLogger(__name__)
 
 HARDWARE_FILE = "/var/lib/milo-client/hardware.json"
+IDENTITY_FILE = "/var/lib/milo-client/identity.json"
 MILO_PRINCIPAL_PORT = 8000
 REGISTER_ENDPOINT = "/api/multiroom/register-client"
 RETRY_INTERVAL = 30  # seconds (before first successful registration)
@@ -70,6 +71,23 @@ def _read_hardware_config() -> dict:
         return {"audio_id": "none", "hardware_configured": False, "volume_control": True}
 
 
+def _read_identity() -> dict:
+    """Read identity.json (name + speaker_type) for registration payload.
+
+    Written by milo-first-boot when applying a wifi-adoption marker, so the
+    server can pre-fill the registry without waiting for a separate configure step.
+    """
+    try:
+        with open(IDENTITY_FILE, "r") as f:
+            data = json.load(f)
+        return {
+            "name": data.get("name"),
+            "speaker_type": data.get("speaker_type"),
+        }
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
 async def register_with_main_milo() -> None:
     """
     Register this client with the main Milo server, then heartbeat.
@@ -94,6 +112,7 @@ async def register_with_main_milo() -> None:
             mac_id = await loop.run_in_executor(None, _get_mac_address)
             local_ip = await loop.run_in_executor(None, _get_local_ip, milo_ip, MILO_PRINCIPAL_PORT)
             hw_config = await loop.run_in_executor(None, _read_hardware_config)
+            identity = await loop.run_in_executor(None, _read_identity)
 
             payload = {
                 "mac_id": mac_id,
@@ -102,6 +121,10 @@ async def register_with_main_milo() -> None:
                 "audio_id": hw_config["audio_id"],
                 "volume_control": hw_config["volume_control"],
             }
+            if identity.get("name"):
+                payload["name"] = identity["name"]
+            if identity.get("speaker_type"):
+                payload["speaker_type"] = identity["speaker_type"]
 
             url = f"http://{milo_ip}:{MILO_PRINCIPAL_PORT}{REGISTER_ENDPOINT}"
 
