@@ -1,14 +1,19 @@
 #!/bin/bash
-# milo-first-boot — Auto-detect device mode on first boot.
+# milo-first-boot — Auto-detect device mode on each boot until role is locked.
 #
 # Runs before avahi-daemon to avoid claiming milo.local while another
 # Milo server already owns it on the network.
-# If milo.local already exists on the network → reconfigure as a satellite
-# client (hostname renamed to milo-client).
-# Otherwise → keep the default "milo" hostname; wizard appears for setup.
 #
-# Skips entirely once setup_completed is true in settings.json
-# (set by the wizard for server mode, or by configure_client below).
+# Idempotent flow (re-evaluated on every boot until setup_completed=true):
+#   - milo.local found on LAN  + hostname=milo        → configure_client (reboot)
+#   - milo.local found on LAN  + hostname=milo-client → no-op (already client)
+#   - milo.local not found     + hostname=milo        → no-op (already server)
+#   - milo.local not found     + hostname=milo-client → configure_server (reboot, revert)
+#   - no ethernet IP available                         → no-op (cannot probe)
+#
+# Skips entirely once setup_completed is true in settings.json. That flag is
+# written by the server wizard or by the milo-client hardware-apply handler
+# once the user has fully configured the device.
 #
 # Must be run as root (systemd service).
 
@@ -198,14 +203,10 @@ EOF
     done
     log "Client services enabled"
 
-    # 10. Write settings.json with setup_completed so detection doesn't re-run
-    cat > "$MILO_DATA_DIR/settings.json" << 'EOF'
-{
-  "setup_completed": true,
-  "mode": "client"
-}
-EOF
-    chown milo:milo "$MILO_DATA_DIR/settings.json"
+    # 10. Hand /var/lib/milo to milo-client (the milo user is unused on a client).
+    # setup_completed is intentionally NOT written here — it is set only after the
+    # user finishes configuration via the milo-client hardware-apply handler.
+    chown -R "$MILO_CLIENT_USER:audio" "$MILO_DATA_DIR"
 
     log "Client configuration complete — rebooting"
     /sbin/reboot
@@ -215,7 +216,8 @@ EOF
 # Main
 # =============================================================================
 
-log "Setup not completed — detecting mode..."
+current_hostname=$(hostname)
+log "Setup not completed (hostname=$current_hostname) — detecting role..."
 
 if has_ethernet_carrier 15 && wait_for_ethernet_ip; then
     # Let multicast/IGMP fully settle on the freshly-up interface before probing
@@ -223,10 +225,11 @@ if has_ethernet_carrier 15 && wait_for_ethernet_ip; then
 
     # Probe up to 3 times to handle transient network conditions
     # (lost packets, switch IGMP snooping warm-up, peer not yet responding).
+    milo_local_found=false
     for attempt in 1 2 3; do
         if /usr/bin/python3 /usr/local/bin/milo-mdns-probe milo 10 "$ETH_IP"; then
-            configure_client
-            exit 0  # configure_client reboots; safety net only
+            milo_local_found=true
+            break
         fi
         if (( attempt < 3 )); then
             log "Probe attempt $attempt did not find milo.local — retrying"
@@ -234,9 +237,22 @@ if has_ethernet_carrier 15 && wait_for_ethernet_ip; then
         fi
     done
 
-    log "No existing Milo found after 3 probes — server mode (wizard will appear)"
+    if $milo_local_found; then
+        if [[ "$current_hostname" != "milo-client" ]]; then
+            configure_client  # reboots
+        else
+            log "milo.local found and already a client — no action"
+        fi
+    else
+        if [[ "$current_hostname" == "milo-client" ]]; then
+            log "milo.local gone but hostname is milo-client — reverting to server"
+            configure_server  # reboots
+        else
+            log "No milo.local found — staying as server (wizard will appear)"
+        fi
+    fi
 else
-    log "No ethernet IP available — server mode (wizard will appear)"
+    log "No ethernet IP available — cannot probe, no role change"
 fi
 
 exit 0
