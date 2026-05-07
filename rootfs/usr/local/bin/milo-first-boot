@@ -183,9 +183,29 @@ EOF
     done
     log "Client services enabled"
 
-    # 10. Hand /var/lib/milo to milo-client (the milo user is unused on a client).
-    # setup_completed is intentionally NOT written here — it is set only after the
-    # user finishes configuration via the milo-client hardware-apply handler.
+    # 10. Lock the role early, then hand /var/lib/milo to milo-client.
+    # setup_completed=true is written here so milo-first-boot skips re-detection on
+    # subsequent boots, even if the user hasn't yet picked an audio card via the UI.
+    # Without this, a transient mDNS failure (LAN flake, switch IGMP warm-up,
+    # server reboot) could trigger configure_server and revert this device.
+    /usr/bin/python3 << PY
+import json
+import os
+
+path = "$MILO_DATA_DIR/settings.json"
+try:
+    with open(path) as f:
+        data = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError):
+    data = {}
+data["setup_completed"] = True
+tmp = path + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(data, f, indent=2)
+    f.flush()
+    os.fsync(f.fileno())
+os.replace(tmp, path)
+PY
     chown -R "$MILO_CLIENT_USER:audio" "$MILO_DATA_DIR"
 }
 
@@ -279,17 +299,11 @@ PY
 configure_server() {
     log "Reverting to milo server..."
 
-    # 1. Set hostname back to milo
-    hostnamectl set-hostname milo
-    echo "milo" > /etc/hostname
-    if grep -q "127.0.1.1" /etc/hosts; then
-        sed -i "s/127.0.1.1.*/127.0.1.1\tmilo/" /etc/hosts
-    else
-        echo -e "127.0.1.1\tmilo" >> /etc/hosts
-    fi
-    log "Hostname set to milo"
+    # Hostname change is intentionally LAST: until it flips back to "milo", the
+    # client→server trigger condition (hostname=milo-client + no milo.local) stays
+    # true, so an interrupted revert (power loss mid-run) is retried on next boot.
 
-    # 2. Restore server ALSA configuration
+    # 1. Restore server ALSA configuration
     if [[ -f "$MILO_APP_DIR/rootfs/etc/asound.conf" ]]; then
         cp "$MILO_APP_DIR/rootfs/etc/asound.conf" /etc/asound.conf
         log "Server ALSA config restored"
@@ -297,13 +311,13 @@ configure_server() {
         log "Warning: server asound.conf not found at $MILO_APP_DIR/rootfs/etc/asound.conf"
     fi
 
-    # 3. Remove client loopback module options (server uses defaults / its own)
+    # 2. Remove client loopback module options (server uses defaults / its own)
     if [[ -f /etc/modprobe.d/milo-client-loopback.conf ]]; then
         rm -f /etc/modprobe.d/milo-client-loopback.conf
         log "Client loopback config removed"
     fi
 
-    # 4. Disable client services
+    # 3. Disable client services
     local client_services=(
         milo-client
         milo-client-snapclient
@@ -314,7 +328,7 @@ configure_server() {
     done
     log "Client services disabled"
 
-    # 5. Re-enable server services
+    # 4. Re-enable server services
     local server_services=(
         milo-backend
         milo-kiosk
@@ -329,12 +343,27 @@ configure_server() {
     done
     log "Server services enabled"
 
-    # 6. Reset server data directory (backend will recreate settings.json with defaults).
+    # 5. Reset only settings.json — other data files (radio, podcast, hardware) are
+    # inert on a fresh server and will be overwritten when needed.
     # /var/lib/milo-client, the milo-client user and its symlinks are left in place:
     # they are inert on a server and avoid extra teardown work.
     rm -f "$MILO_DATA_DIR/settings.json"
+    if [[ -f "$PENDING_CLIENT_ROLE_FILE" ]]; then
+        rm -f "$PENDING_CLIENT_ROLE_FILE"
+        log "Stale wifi-adoption marker removed"
+    fi
     chown -R milo:milo "$MILO_DATA_DIR"
     log "Server data directory reset"
+
+    # 6. Set hostname back to milo (last — see top of function)
+    hostnamectl set-hostname milo
+    echo "milo" > /etc/hostname
+    if grep -q "127.0.1.1" /etc/hosts; then
+        sed -i "s/127.0.1.1.*/127.0.1.1\tmilo/" /etc/hosts
+    else
+        echo -e "127.0.1.1\tmilo" >> /etc/hosts
+    fi
+    log "Hostname set to milo"
 
     log "Server configuration complete — rebooting"
     /sbin/reboot
