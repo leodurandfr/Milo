@@ -290,9 +290,9 @@ Au final : symétrie complète — un nouveau device peut être adopté comme cl
 **Fichier** : `frontend/src/components/setup/NetworkStep.vue` → extraire la partie scan/select/password en `frontend/src/components/network/NetworkSelector.vue`
 
 **Changements** :
-- [ ] Extraire le bloc "wifi networks" + "country selector" + "password input" en composant réutilisable `NetworkSelector.vue` qui émet `update:wifi {ssid, password}`.
-- [ ] Refactor `NetworkStep.vue` pour utiliser ce nouveau composant.
-- [ ] Vérifier qu'aucun comportement existant ne casse (test wizard serveur).
+- [x] Extraire le bloc "wifi networks" + "country selector" + "password input" en composant réutilisable `NetworkSelector.vue` qui émet `update:wifi {ssid, password}`. *(Implémentation : NetworkSelector encapsule le state via useWifi() per-instance, expose les closures `connect`/`save` via le slot `action`, et accepte une prop `submitAction` pour gérer Enter dans le password input — évite de fragmenter le password ref entre composants.)*
+- [x] Refactor `NetworkStep.vue` pour utiliser ce nouveau composant.
+- [x] Vérifier qu'aucun comportement existant ne casse (test wizard serveur).
 
 **Acceptance** :
 - `NetworkStep.vue` fonctionne identiquement à avant.
