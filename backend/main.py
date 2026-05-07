@@ -245,7 +245,7 @@ app.include_router(multiroom_router)
 bt_remote_router = create_bt_remote_router(bt_remote_controller)
 app.include_router(bt_remote_router)
 
-setup_router = create_setup_router(settings_service, hardware_service, systemd_manager)
+setup_router = create_setup_router(settings_service, hardware_service, systemd_manager, wifi_service)
 app.include_router(setup_router)
 
 wifi_router = create_wifi_router(wifi_service)
