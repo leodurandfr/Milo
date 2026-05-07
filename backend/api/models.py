@@ -473,6 +473,10 @@ class RegisterClientRequest(BaseModel):
     hardware_configured: bool
     audio_id: str = Field(default="none")
     volume_control: bool = Field(default=True)  # False for DAC cards (external amp)
+    # Identity carried by wifi-adopted clients so the server can pre-fill the
+    # registry without waiting for a separate configure step.
+    name: Optional[str] = Field(default=None, max_length=64)
+    speaker_type: Optional[Literal['satellite', 'bookshelf', 'tower', 'subwoofer']] = None
 
     @field_validator('mac_id')
     @classmethod
@@ -482,6 +486,21 @@ class RegisterClientRequest(BaseModel):
         if not re.match(r'^([0-9a-f]{2}:){5}[0-9a-f]{2}$', v, re.IGNORECASE):
             raise ValueError(f"Invalid MAC address format: '{v}'")
         return v.lower()
+
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v):
+        if v is None:
+            return v
+        stripped = v.strip()
+        return stripped or None
+
+    @field_validator('speaker_type')
+    @classmethod
+    def validate_speaker_type(cls, v):
+        if v is not None and v not in SPEAKER_TYPES:
+            raise ValueError(f"Invalid speaker_type '{v}'. Must be one of: {', '.join(SPEAKER_TYPES)}")
+        return v
 
 
 class UpdatePendingClientRequest(BaseModel):

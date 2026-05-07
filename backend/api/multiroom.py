@@ -528,11 +528,30 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
             # Still sync volume_control from client's audio card to keep registry accurate
             if request.hardware_configured:
                 existing = registry_service.get_client(request.mac_id)
-                if existing and existing.volume_control != request.volume_control:
-                    await registry_service.update_client(request.mac_id, volume_control=request.volume_control)
-                    logger.info(f"Client {request.mac_id} volume_control updated to {request.volume_control}")
-                logger.info(f"Client {request.mac_id} registered with hardware configured, skipping pending")
-                return {"status": "success", "message": "Hardware configured, snapclient will reconnect"}
+                if existing:
+                    if existing.volume_control != request.volume_control:
+                        await registry_service.update_client(request.mac_id, volume_control=request.volume_control)
+                        logger.info(f"Client {request.mac_id} volume_control updated to {request.volume_control}")
+                    logger.info(f"Client {request.mac_id} registered with hardware configured, skipping pending")
+                    return {"status": "success", "message": "Hardware configured, snapclient will reconnect"}
+
+                # Not in registry yet (e.g. wifi-adopted client on first boot).
+                # Stage identity in pending storage so the snapclient transfer
+                # logic picks up name/speaker_type when it connects.
+                client = await pending_clients_service.register_client(
+                    mac_id=request.mac_id,
+                    ip=request.ip,
+                    hardware_configured=request.hardware_configured,
+                    audio_id=request.audio_id,
+                    volume_control=request.volume_control,
+                )
+                if request.name or request.speaker_type:
+                    client = await pending_clients_service.update_client(
+                        request.mac_id,
+                        name=request.name,
+                        speaker_type=request.speaker_type,
+                    ) or client
+                return {"status": "success", "client": client}
 
             # Reinstall detection: if mac_id exists in registry, remove stale entry
             existing = registry_service.get_client(request.mac_id)
@@ -547,6 +566,12 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
                 audio_id=request.audio_id,
                 volume_control=request.volume_control,
             )
+            if request.name or request.speaker_type:
+                client = await pending_clients_service.update_client(
+                    request.mac_id,
+                    name=request.name,
+                    speaker_type=request.speaker_type,
+                ) or client
             return {"status": "success", "client": client}
 
     @router.get("/pending-clients")
