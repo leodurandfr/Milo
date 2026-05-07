@@ -17,6 +17,7 @@
         :cta-label="t('system.hostnameConflict.recheck')"
         cta-variant="background-strong"
         :cta-click="handleRecheck"
+        :cta-loading="systemStore.rechecking"
         :cta-secondary-label="t('system.hostnameConflict.shutdown')"
         cta-secondary-variant="brand"
         :cta-secondary-click="handleShutdown"
