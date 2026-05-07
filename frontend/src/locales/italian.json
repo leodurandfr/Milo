@@ -110,19 +110,12 @@
       "errorLoadingHardware": "Impossibile caricare le opzioni della scheda audio.",
       "retry": "Riprova"
     },
-    "discovery": {
-      "title": "Nuovi altoparlanti rilevati",
-      "viaEthernet": "Connesso via ethernet",
-      "viaWifi": "Hotspot WiFi rilevato"
-    },
     "adopt": {
       "networkSection": "Connessione di rete",
       "useServerWifi": "Usa la rete del server ({ssid})",
       "changeNetwork": "Cambia",
       "enterCredentials": "Il server non è connesso via WiFi. Inserisci le credenziali di rete per questo altoparlante.",
       "adopting": "Aggiunta in corso...",
-      "success": "Altoparlante aggiunto con successo",
-      "errorWifi": "Connessione all'hotspot dell'altoparlante fallita",
       "errorPush": "L'altoparlante non ha accettato la configurazione"
     },
     "systemOffline": "« {name} » è offline",

@@ -110,19 +110,12 @@
       "errorLoadingHardware": "Unable to load audio card options.",
       "retry": "Retry"
     },
-    "discovery": {
-      "title": "Newly discovered speakers",
-      "viaEthernet": "Connected via ethernet",
-      "viaWifi": "WiFi hotspot detected"
-    },
     "adopt": {
       "networkSection": "Network connection",
       "useServerWifi": "Use the server's network ({ssid})",
       "changeNetwork": "Change",
       "enterCredentials": "The server is not connected via WiFi. Enter the network credentials for this speaker.",
       "adopting": "Adopting...",
-      "success": "Speaker added successfully",
-      "errorWifi": "Failed to connect to the speaker's hotspot",
       "errorPush": "The speaker did not accept the configuration"
     },
     "systemOffline": "\"{name}\" is offline",

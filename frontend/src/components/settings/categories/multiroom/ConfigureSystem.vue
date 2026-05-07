@@ -48,6 +48,7 @@
             :show-country="false"
             :show-label="false"
             :submit-action="null"
+            :show-connect-error="false"
             @update:wifi="onManualWifiUpdate"
           />
         </template>
@@ -283,6 +284,12 @@ async function applyConfiguration() {
             password: manualWifi.value.password || '',
           };
 
+      // Mirror the ethernet watchdog: if the request stalls (server stuck on
+      // hotspot, restore wifi failure, etc.) flip the UI to a timeout state
+      // instead of spinning indefinitely.
+      rebootTimeoutId = setTimeout(() => {
+        rebootTimedOut.value = true;
+      }, REBOOT_TIMEOUT_MS);
       await discoveryStore.adoptSpeaker({
         ssid: props.hotspotSsid,
         audio_id: selectedAudioId.value,
@@ -293,6 +300,8 @@ async function applyConfiguration() {
       });
       // Server returns once the device has accepted the config and is rebooting.
       // The new client appears in the multiroom list when it joins the LAN.
+      clearTimeout(rebootTimeoutId);
+      rebootTimeoutId = null;
       emit('back');
     } else {
       await multiroomStore.configurePendingClient(props.macId, {
@@ -305,6 +314,10 @@ async function applyConfiguration() {
       }, REBOOT_TIMEOUT_MS);
     }
   } catch (e) {
+    if (rebootTimeoutId) {
+      clearTimeout(rebootTimeoutId);
+      rebootTimeoutId = null;
+    }
     isRebooting.value = false;
     error.value = e?.response?.data?.detail
       || (props.mode === 'wifi' ? t('multiroom.adopt.errorPush') : t('multiroom.pending.errorGeneric'));

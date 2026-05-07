@@ -57,7 +57,7 @@
             :connect="() => connectToNetwork(network, t)"
             :save="() => saveNetwork(network, t)"
           />
-          <span v-if="connectError" class="wifi-error text-mono-small">{{ connectError }}</span>
+          <span v-if="showConnectError && connectError" class="wifi-error text-mono-small">{{ connectError }}</span>
         </div>
       </div>
 
@@ -96,6 +96,10 @@ const props = defineProps({
     default: null,
     validator: (v) => v === null || v === 'connect' || v === 'save',
   },
+  // Render the connect error inline. Set to false in flows where the parent
+  // never invokes the slot's `connect`/`save` closures (the ref can't fill,
+  // so the conditional DOM is dead and confusing).
+  showConnectError: { type: Boolean, default: true },
 });
 
 const emit = defineEmits(['update:wifi', 'submit']);

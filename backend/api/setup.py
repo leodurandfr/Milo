@@ -26,6 +26,10 @@ logger = logging.getLogger(__name__)
 
 PENDING_CLIENT_ROLE_FILE = MILO_DATA_DIR / "pending_client_role.json"
 
+# Serializes /api/setup/become-client so two concurrent adopters can't race on
+# the marker write + wifi profile + setup_completed sequence.
+_become_client_lock = asyncio.Lock()
+
 
 class SetupCompleteRequest(BaseModel):
     """Wizard completion payload — all settings applied atomically."""
@@ -40,7 +44,7 @@ class BecomeClientRequest(BaseModel):
     wifi_ssid: str = Field(..., min_length=1, description="Target WiFi SSID the device must join after reboot")
     wifi_password: str = Field(default="", description="Target WiFi password (empty for open networks)")
     audio_id: str = Field(..., min_length=1, description="Audio card registry ID")
-    speaker_name: str = Field(..., min_length=1, description="Display name for the speaker")
+    speaker_name: str = Field(..., min_length=1, max_length=64, description="Display name for the speaker")
     speaker_type: Literal['satellite', 'bookshelf', 'tower', 'subwoofer'] = Field(..., description="Speaker physical type")
 
     @field_validator('speaker_type')
@@ -181,81 +185,82 @@ def create_setup_router(settings_service, hardware_service, systemd_manager, wif
                 detail=f"Invalid audio_id '{payload.audio_id}'. Must be one of: {', '.join(valid)}",
             )
 
-        already_done = await settings_service.get_setting("setup_completed")
-        if already_done:
-            raise HTTPException(
-                status_code=409,
-                detail="Device already configured (setup_completed=true)",
-            )
-
-        card = AUDIO_CARDS[payload.audio_id]
-        overlay = card.get("overlay") or ""
-        volume_control = not is_dac_card(payload.audio_id)
-
-        marker = {
-            "audio_id": payload.audio_id,
-            "overlay": overlay,
-            "volume_control": volume_control,
-            "speaker_name": payload.speaker_name,
-            "speaker_type": payload.speaker_type,
-        }
-
-        try:
-            MILO_DATA_DIR.mkdir(parents=True, exist_ok=True)
-            _atomic_write_json(PENDING_CLIENT_ROLE_FILE, marker)
-            logger.info(
-                "become-client: pending_client_role.json written (audio=%s, name=%s, type=%s)",
-                payload.audio_id, payload.speaker_name, payload.speaker_type,
-            )
-        except OSError as e:
-            logger.error("become-client: failed to write marker file: %s", e)
-            raise HTTPException(status_code=500, detail=f"Failed to write client role marker: {e}")
-
-        try:
-            await wifi_service.save_network(
-                payload.wifi_ssid,
-                payload.wifi_password if payload.wifi_password else None,
-            )
-            logger.info("become-client: wifi profile saved for SSID '%s'", payload.wifi_ssid)
-        except Exception as e:
-            logger.error("become-client: failed to save wifi profile for '%s': %s", payload.wifi_ssid, e)
-            try:
-                PENDING_CLIENT_ROLE_FILE.unlink()
-            except OSError:
-                pass
-            raise HTTPException(status_code=500, detail=f"Failed to save WiFi profile: {e}")
-
-        if not await settings_service.set_setting("setup_completed", True):
-            logger.error("become-client: failed to persist setup_completed=true")
-            try:
-                PENDING_CLIENT_ROLE_FILE.unlink()
-            except OSError:
-                pass
-            try:
-                await wifi_service.forget_network(payload.wifi_ssid)
-            except Exception as e:
-                logger.warning("become-client: failed to roll back wifi profile for '%s': %s", payload.wifi_ssid, e)
-            raise HTTPException(status_code=500, detail="Failed to persist setup_completed flag")
-        logger.info("become-client: setup_completed=true persisted")
-
-        async def _delayed_reboot():
-            await asyncio.sleep(1)
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    "sudo", "/usr/sbin/reboot",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
+        async with _become_client_lock:
+            already_done = await settings_service.get_setting("setup_completed")
+            if already_done:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Device already configured (setup_completed=true)",
                 )
-                _, stderr = await proc.communicate()
-                if proc.returncode is not None and proc.returncode > 0:
-                    logger.error(
-                        "become-client: reboot failed (rc=%d): %s",
-                        proc.returncode, stderr.decode().strip() if stderr else "",
-                    )
-            except Exception as e:
-                logger.error("become-client: reboot subprocess failed: %s", e)
 
-        asyncio.create_task(_delayed_reboot())
-        return {"status": "rebooting"}
+            card = AUDIO_CARDS[payload.audio_id]
+            overlay = card.get("overlay") or ""
+            volume_control = not is_dac_card(payload.audio_id)
+
+            marker = {
+                "audio_id": payload.audio_id,
+                "overlay": overlay,
+                "volume_control": volume_control,
+                "speaker_name": payload.speaker_name,
+                "speaker_type": payload.speaker_type,
+            }
+
+            try:
+                MILO_DATA_DIR.mkdir(parents=True, exist_ok=True)
+                _atomic_write_json(PENDING_CLIENT_ROLE_FILE, marker)
+                logger.info(
+                    "become-client: pending_client_role.json written (audio=%s, name=%s, type=%s)",
+                    payload.audio_id, payload.speaker_name, payload.speaker_type,
+                )
+            except OSError as e:
+                logger.error("become-client: failed to write marker file: %s", e)
+                raise HTTPException(status_code=500, detail=f"Failed to write client role marker: {e}")
+
+            try:
+                await wifi_service.save_network(
+                    payload.wifi_ssid,
+                    payload.wifi_password if payload.wifi_password else None,
+                )
+                logger.info("become-client: wifi profile saved for SSID '%s'", payload.wifi_ssid)
+            except Exception as e:
+                logger.error("become-client: failed to save wifi profile for '%s': %s", payload.wifi_ssid, e)
+                try:
+                    PENDING_CLIENT_ROLE_FILE.unlink()
+                except OSError:
+                    pass
+                raise HTTPException(status_code=500, detail=f"Failed to save WiFi profile: {e}")
+
+            if not await settings_service.set_setting("setup_completed", True):
+                logger.error("become-client: failed to persist setup_completed=true")
+                try:
+                    PENDING_CLIENT_ROLE_FILE.unlink()
+                except OSError:
+                    pass
+                try:
+                    await wifi_service.forget_network(payload.wifi_ssid)
+                except Exception as e:
+                    logger.warning("become-client: failed to roll back wifi profile for '%s': %s", payload.wifi_ssid, e)
+                raise HTTPException(status_code=500, detail="Failed to persist setup_completed flag")
+            logger.info("become-client: setup_completed=true persisted")
+
+            async def _delayed_reboot():
+                await asyncio.sleep(1)
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        "sudo", "/usr/sbin/reboot",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+                    _, stderr = await proc.communicate()
+                    if proc.returncode is not None and proc.returncode > 0:
+                        logger.error(
+                            "become-client: reboot failed (rc=%d): %s",
+                            proc.returncode, stderr.decode().strip() if stderr else "",
+                        )
+                except Exception as e:
+                    logger.error("become-client: reboot subprocess failed: %s", e)
+
+            asyncio.create_task(_delayed_reboot())
+            return {"status": "rebooting"}
 
     return router

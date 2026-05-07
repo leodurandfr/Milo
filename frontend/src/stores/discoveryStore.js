@@ -14,6 +14,10 @@ import axios from 'axios';
 import { apiCall } from '@/services/apiCall';
 
 const POLL_INTERVAL_MS = 10000;
+// Worst-case server-side adoption: ~30s hotspot connect + ~20s push + ~30s
+// restore wifi → ~80s. Add headroom so the request doesn't dangle if a step
+// stalls just below its own timeout.
+const ADOPT_TIMEOUT_MS = 120000;
 
 export const useDiscoveryStore = defineStore('discovery', () => {
   // === STATE ===
@@ -69,7 +73,9 @@ export const useDiscoveryStore = defineStore('discovery', () => {
    */
   async function adoptSpeaker(payload) {
     return apiCall('discovery', 'Error adopting wifi speaker', async () => {
-      const response = await axios.post('/api/discovery/adopt-speaker', payload);
+      const response = await axios.post('/api/discovery/adopt-speaker', payload, {
+        timeout: ADOPT_TIMEOUT_MS,
+      });
       // Optimistically drop the adopted hotspot from the list — it will reboot
       // and stop broadcasting; a stale entry would only confuse the UI.
       hotspots.value = hotspots.value.filter(h => h.ssid !== payload.ssid);
