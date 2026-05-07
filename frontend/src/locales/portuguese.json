@@ -632,6 +632,7 @@
     "hostnameConflict": {
       "title": "Outro Milō detetado",
       "subtitle": "Dois servidores Milō não podem coexistir na mesma rede. Desliga um deles, ou verifica novamente se já o fizeste.",
+      "thisDevice": "Este dispositivo: {name} ({ip})",
       "recheck": "Verificar novamente",
       "shutdown": "Desligar este dispositivo"
     }

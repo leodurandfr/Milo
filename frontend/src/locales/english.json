@@ -634,6 +634,7 @@
     "hostnameConflict": {
       "title": "Another Milō detected",
       "subtitle": "Two Milō servers can't share the same network. Turn off one of them, or check again if you've already done it.",
+      "thisDevice": "This device: {name} ({ip})",
       "recheck": "Check again",
       "shutdown": "Turn off this device"
     }
