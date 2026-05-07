@@ -632,6 +632,7 @@
     "hostnameConflict": {
       "title": "Weiteres Milō erkannt",
       "subtitle": "Zwei Milō-Server können nicht im selben Netzwerk koexistieren. Schalte eines davon aus oder prüfe erneut, falls bereits geschehen.",
+      "thisDevice": "Dieses Gerät: {name} ({ip})",
       "recheck": "Erneut prüfen",
       "shutdown": "Dieses Gerät ausschalten"
     }

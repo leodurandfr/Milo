@@ -14,6 +14,7 @@ import { apiCall } from '@/services/apiCall';
 export const useSystemStore = defineStore('system', () => {
   const hostnameConflict = ref(false);
   const advertisedName = ref(null);
+  const localIp = ref(null);
   const expectedName = ref('milo.local');
   const lastChecked = ref(null);
   const rechecking = ref(false);
@@ -25,6 +26,9 @@ export const useSystemStore = defineStore('system', () => {
     }
     if (state.advertised_name !== undefined) {
       advertisedName.value = state.advertised_name;
+    }
+    if (state.local_ip !== undefined) {
+      localIp.value = state.local_ip;
     }
     if (state.expected_name !== undefined) {
       expectedName.value = state.expected_name;
@@ -65,6 +69,7 @@ export const useSystemStore = defineStore('system', () => {
   return {
     hostnameConflict,
     advertisedName,
+    localIp,
     expectedName,
     lastChecked,
     rechecking,

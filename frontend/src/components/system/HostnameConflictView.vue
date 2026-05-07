@@ -14,6 +14,7 @@
         icon="network"
         :title="t('system.hostnameConflict.title')"
         :subtitle="t('system.hostnameConflict.subtitle')"
+        :details="deviceDetails"
         :cta-label="t('system.hostnameConflict.recheck')"
         cta-variant="background-strong"
         :cta-click="handleRecheck"
@@ -27,6 +28,7 @@
 </template>
 
 <script setup>
+import { computed } from 'vue';
 import axios from 'axios';
 import { useSystemStore } from '@/stores/systemStore';
 import { useI18n } from '@/services/i18n';
@@ -36,6 +38,16 @@ import MessageContent from '@/components/ui/MessageContent.vue';
 
 const { t } = useI18n();
 const systemStore = useSystemStore();
+
+const deviceDetails = computed(() => {
+  const name = systemStore.advertisedName;
+  const ip = systemStore.localIp;
+  if (!name && !ip) return null;
+  return t('system.hostnameConflict.thisDevice', {
+    name: name || '?',
+    ip: ip || '?',
+  });
+});
 
 function handleRecheck() {
   systemStore.recheckHostname();

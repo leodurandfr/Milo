@@ -37,6 +37,7 @@ class HostnameConflictService:
         self._conflict: bool = False
         self._last_checked: Optional[float] = None
         self._advertised_name: Optional[str] = None
+        self._local_ip: Optional[str] = None
         self._milo_local_orphan: bool = False
         self._other_milos: List[str] = []
         self._reclaim_attempted_ts: Optional[float] = None
@@ -67,6 +68,7 @@ class HostnameConflictService:
             "hostname_conflict": self._conflict,
             "last_checked": self._last_checked,
             "advertised_name": self._advertised_name,
+            "local_ip": self._local_ip,
             "expected_name": EXPECTED_FQDN,
             "other_milos": list(self._other_milos),
         }
@@ -137,6 +139,7 @@ class HostnameConflictService:
             # Milō server (milo-N.local) is also on the LAN — the user must
             # know to turn it off before it stays orphaned forever.
             self._advertised_name = EXPECTED_FQDN
+            self._local_ip = resolved_ip
             return bool(self._other_milos)
 
         for ip in local_ips:
@@ -145,16 +148,26 @@ class HostnameConflictService:
             advertised = await self._avahi_resolve_address(ip)
             if advertised:
                 self._advertised_name = advertised
+                self._local_ip = ip
                 if advertised == EXPECTED_FQDN:
                     return False
                 return True
 
         if resolved_ip is not None and resolved_ip not in local_ips:
             self._advertised_name = None
+            self._local_ip = self._first_non_loopback(local_ips)
             return True
 
         self._advertised_name = None
+        self._local_ip = self._first_non_loopback(local_ips)
         return False
+
+    @staticmethod
+    def _first_non_loopback(local_ips: Set[str]) -> Optional[str]:
+        for ip in local_ips:
+            if ip != "127.0.0.1":
+                return ip
+        return None
 
     @staticmethod
     async def _scan_renamed_milos(local_ips: Set[str]) -> List[str]:
