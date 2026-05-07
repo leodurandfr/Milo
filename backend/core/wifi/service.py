@@ -6,6 +6,7 @@ WiFi networks. All nmcli calls use asyncio.create_subprocess_exec.
 """
 import asyncio
 import logging
+import re
 from typing import List, Optional, Tuple
 
 from backend.core.wifi.models import (
@@ -14,10 +15,31 @@ from backend.core.wifi.models import (
 )
 
 
+# Hotspot SSIDs are unique per device: 'Milō-XXXX' where XXXX is the last
+# 4 hex chars of the wlan0 MAC (uppercase, no colons).
+HOTSPOT_NAME_RE = re.compile(r"^Milō-[0-9A-F]{4}$")
+
+
+def _compute_hotspot_name() -> str:
+    """Return this device's unique hotspot SSID ('Milō-XXXX').
+
+    XXXX is the last 4 hex chars of the wlan0 MAC, uppercased without colons.
+    Falls back to 'Milō-0000' if the MAC cannot be read (dev environments).
+    """
+    try:
+        with open("/sys/class/net/wlan0/address") as f:
+            mac = f.read().strip()
+        suffix = mac.replace(":", "").upper()[-4:]
+        if len(suffix) == 4:
+            return f"Milō-{suffix}"
+    except OSError:
+        pass
+    return "Milō-0000"
+
+
 class WifiService:
     """WiFi management service wrapping nmcli commands."""
 
-    HOTSPOT_CON_NAME = "Milō"
     WIFI_INTERFACE = "wlan0"
 
     def __init__(self, state_machine, settings_service):
@@ -26,6 +48,7 @@ class WifiService:
         self.settings_service = settings_service
         self._hotspot_active: bool = False
         self._connect_lock = asyncio.Lock()
+        self.hotspot_con_name: str = _compute_hotspot_name()
 
     @property
     def hotspot_active(self) -> bool:
@@ -337,7 +360,7 @@ class WifiService:
         try:
             await self._activate_hotspot()
             self._hotspot_active = True
-            self.logger.info("Hotspot '%s' activated for first-boot setup", self.HOTSPOT_CON_NAME)
+            self.logger.info("Hotspot '%s' activated for first-boot setup", self.hotspot_con_name)
             return True
         except Exception as e:
             self.logger.error("Failed to activate hotspot: %s", e)
@@ -358,8 +381,8 @@ class WifiService:
             device_type, state, connection = fields[0], fields[1], fields[2]
             if state != "connected":
                 continue
-            # Skip the hotspot's own AP connection
-            if connection == self.HOTSPOT_CON_NAME:
+            # Skip any hotspot AP connection (Milō-XXXX)
+            if HOTSPOT_NAME_RE.match(connection):
                 continue
             if device_type in ("ethernet", "wifi"):
                 return True
@@ -375,8 +398,8 @@ class WifiService:
             "connection", "add",
             "type", "wifi",
             "ifname", self.WIFI_INTERFACE,
-            "con-name", self.HOTSPOT_CON_NAME,
-            "ssid", self.HOTSPOT_CON_NAME,
+            "con-name", self.hotspot_con_name,
+            "ssid", self.hotspot_con_name,
             "wifi.mode", "ap",
             "wifi.band", "bg",
             "wifi.channel", "6",
@@ -387,7 +410,7 @@ class WifiService:
             raise RuntimeError(f"Hotspot profile creation failed: {stderr}")
 
         rc, _, stderr = await self._run_nmcli(
-            "connection", "up", self.HOTSPOT_CON_NAME,
+            "connection", "up", self.hotspot_con_name,
             timeout=20.0,
         )
         if rc != 0:
@@ -445,8 +468,8 @@ class WifiService:
 
         saved = await self._get_saved_ssid()
 
-        # Hotspot's own AP connection is not a real WiFi client connection
-        if not connection or connection == self.HOTSPOT_CON_NAME:
+        # Hotspot's own AP connection (Milō-XXXX) is not a real WiFi client connection
+        if not connection or HOTSPOT_NAME_RE.match(connection):
             return WifiConnectionStatus(connected=False, saved_ssid=saved)
 
         # Get actual SSID and signal from active wifi connection
@@ -523,7 +546,7 @@ class WifiService:
     async def _delete_hotspot_profile(self) -> None:
         """Remove the hotspot NM connection profile (ignores if missing)."""
         rc, _, stderr = await self._run_nmcli(
-            "connection", "delete", self.HOTSPOT_CON_NAME
+            "connection", "delete", self.hotspot_con_name
         )
         if rc != 0:
             self.logger.debug("Hotspot profile cleanup (rc=%d): %s", rc, stderr)

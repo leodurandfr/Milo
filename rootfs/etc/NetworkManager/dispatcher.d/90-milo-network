@@ -18,7 +18,14 @@ INTERFACE=$1
 ACTION=$2
 AVAHI_CONF="/etc/avahi/avahi-daemon.conf"
 AVAHI_STATE_FILE="/var/lib/milo/avahi-interface"
-HOTSPOT_CON_NAME="Milō"
+
+# Hotspot SSIDs are unique per device: 'Milō-XXXX' (4 last hex chars of wlan0 MAC)
+is_hotspot_connection() {
+    case "$1" in
+        Milō-*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
 
 # Get current Avahi interface configuration
 get_avahi_interface() {
@@ -65,7 +72,7 @@ case "$INTERFACE" in
 
                 # 1. Disconnect WiFi unless hotspot is active (managed by backend)
                 active_conn=$(get_wlan0_connection)
-                if [ -n "$active_conn" ] && [ "$active_conn" != "$HOTSPOT_CON_NAME" ]; then
+                if [ -n "$active_conn" ] && ! is_hotspot_connection "$active_conn"; then
                     nmcli device disconnect wlan0 2>/dev/null
                 fi
 
@@ -86,7 +93,7 @@ case "$INTERFACE" in
                 # WiFi is now up - only use it if eth0 is not available
                 active_conn=$(get_wlan0_connection)
 
-                if [ "$active_conn" = "$HOTSPOT_CON_NAME" ]; then
+                if is_hotspot_connection "$active_conn"; then
                     # Hotspot is managed by the backend - do not disconnect
                     set_avahi_interface "wlan0"
                 elif has_ip eth0 || eth0_has_carrier; then
