@@ -174,7 +174,11 @@
 
       <!-- Multiroom configure pending speaker view -->
       <ConfigureSystem v-else-if="currentView === 'multiroom-configure-system'" key="multiroom-configure-system"
-        class="view-content" :mac-id="macIdToEdit" @back="handleConfigureSystemBack" />
+        class="view-content"
+        :mac-id="macIdToEdit"
+        :mode="hotspotToAdopt ? 'wifi' : 'ethernet'"
+        :hotspot-ssid="hotspotToAdopt?.ssid ?? null"
+        @back="handleConfigureSystemBack" />
 
       <!-- Radio view -->
       <RadioSettings v-else-if="currentView === 'radio'" key="radio" class="view-content"

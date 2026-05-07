@@ -330,15 +330,15 @@ Au final : symétrie complète — un nouveau device peut être adopté comme cl
 **Fichier** : `frontend/src/components/settings/categories/multiroom/ConfigureSystem.vue`
 
 **Changements** :
-- [ ] Ajouter prop `mode: 'ethernet' | 'wifi'` (default `'ethernet'`).
-- [ ] Ajouter prop `hotspotSsid: String` (uniquement utile en mode wifi).
-- [ ] Si `mode === 'wifi'`, afficher en haut une section "Connexion réseau" :
+- [x] Ajouter prop `mode: 'ethernet' | 'wifi'` (default `'ethernet'`).
+- [x] Ajouter prop `hotspotSsid: String` (uniquement utile en mode wifi). *(macSuffix est dérivé du SSID via `Milō-XXXX.split('-')`, pas de prop séparée.)*
+- [x] Si `mode === 'wifi'`, afficher en haut une section "Connexion réseau" :
   - Si `discoveryStore.serverWifiCreds.available === true` : "Ce haut-parleur sera connecté à `<ssid>` (réseau du serveur)" + bouton "Changer" qui révèle le `NetworkSelector.vue`.
-  - Si `serverWifiCreds.available === false` : afficher directement `NetworkSelector.vue` pour saisie manuelle.
-- [ ] Au moment de l'apply :
+  - Si `serverWifiCreds.available === false` : afficher directement `NetworkSelector.vue` pour saisie manuelle. *(NetworkSelector utilisé sans slot `action` — on capte les creds via `@update:wifi`, l'apply se fait via le bouton sticky existant en bas du formulaire.)*
+- [x] Au moment de l'apply :
   - Mode ethernet : appel existant `multiroomStore.configurePendingClient(macId, payload)`.
-  - Mode wifi : appel `discoveryStore.adoptSpeaker({ssid: hotspotSsid, audio_id, speaker_name, speaker_type, wifi_ssid, wifi_password})`.
-- [ ] Speaker name : valeur par défaut `Speaker-XXXX` (4 derniers chars de mac_suffix dérivés du SSID `Milō-XXXX`) si vide.
+  - Mode wifi : appel `discoveryStore.adoptSpeaker({ssid: hotspotSsid, audio_id, speaker_name, speaker_type, wifi_ssid, wifi_password})`. À la résolution synchrone du push (le device a accepté et reboot), on émet `back` ; le nouveau client apparaîtra dans la liste lorsqu'il rejoint le LAN.
+- [x] Speaker name : valeur par défaut `Speaker-XXXX` (4 derniers chars de mac_suffix dérivés du SSID `Milō-XXXX`) si vide. *(Pré-rempli en mode wifi pour que l'utilisateur voit la valeur par défaut, et fallback final à l'apply si vidée par l'utilisateur.)*
 
 **Acceptance** :
 - Mode ethernet : comportement identique à aujourd'hui.
