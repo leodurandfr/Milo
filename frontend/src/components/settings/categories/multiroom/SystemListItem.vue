@@ -17,7 +17,7 @@
             class="discovery-badge" />
           <WifiSignal
             v-else-if="discoverySource === 'wifi'"
-            :signal="100"
+            :signal="signal ?? 100"
             :size="16"
             class="discovery-badge" />
           <span>{{ metaText }}</span>
@@ -61,6 +61,11 @@ const props = defineProps({
     type: String,
     default: '',
     validator: (value) => ['', 'ethernet', 'wifi'].includes(value)
+  },
+  // Signal strength (0-100) for wifi-discovery items; ignored otherwise.
+  signal: {
+    type: Number,
+    default: null
   },
   // Custom status text shown below the name (replaces speaker type label).
   status: {

@@ -33,7 +33,7 @@ class AdoptSpeakerRequest(BaseModel):
     """Payload to adopt a wifi-only speaker exposing the 'Milō' hotspot."""
     ssid: str = Field(..., min_length=1, description="Hotspot SSID of the speaker (always 'Milō')")
     audio_id: str = Field(..., min_length=1, description="Audio card registry ID")
-    speaker_name: str = Field(..., min_length=1, description="Display name for the speaker")
+    speaker_name: str = Field(..., min_length=1, max_length=64, description="Display name for the speaker")
     speaker_type: Literal['satellite', 'bookshelf', 'tower', 'subwoofer'] = Field(..., description="Speaker physical type")
     wifi_ssid: str = Field(..., min_length=1, description="Target home wifi the speaker must join")
     wifi_password: str = Field(default="", description="Target wifi password (empty for open networks)")
@@ -46,13 +46,18 @@ class AdoptSpeakerRequest(BaseModel):
         return v
 
 
-# Adoption error codes that should map to HTTP 4xx (client-side error or user
-# action expected) instead of generic HTTP 500.
+# Map AdoptionError.code → HTTP status. 4xx = caller/state issue, 502 = the
+# server is fine but an upstream step (speaker hotspot, push, gateway) failed.
+# Anything not listed falls through to 500 (genuinely internal).
 _ADOPTION_CLIENT_ERROR_CODES = {
     "invalid_ssid": 400,
     "invalid_target_wifi": 400,
     "already_configured": 409,
+    "server_in_hotspot_mode": 409,
     "push_rejected": 502,
+    "push_failed": 502,
+    "no_gateway": 502,
+    "hotspot_connect_failed": 502,
 }
 
 

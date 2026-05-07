@@ -17,6 +17,7 @@
                 :key="item.key"
                 :name="item.name"
                 :discovery-source="item.source"
+                :signal="item.signal ?? null"
                 :status="item.status"
                 :status-variant="item.statusVariant"
                 :action="item.disabled ? 'none' : 'caret'"

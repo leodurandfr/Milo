@@ -87,7 +87,10 @@ class WifiAdoptionService:
         if ssid != HOTSPOT_NAME:
             raise AdoptionError("invalid_ssid", f"'{ssid}' is not the Milō hotspot SSID")
         if self.wifi_service.hotspot_active:
-            raise AdoptionError("invalid_ssid", "Cannot adopt while broadcasting the setup hotspot")
+            raise AdoptionError(
+                "server_in_hotspot_mode",
+                "Cannot adopt while broadcasting the setup hotspot",
+            )
         if not wifi_ssid:
             raise AdoptionError("invalid_target_wifi", "Target wifi SSID is required")
 
@@ -220,10 +223,16 @@ class WifiAdoptionService:
         rc, _, stderr = await self._run_nmcli(
             "connection", "up", name, timeout=RESTORE_CONNECT_TIMEOUT
         )
-        if rc != 0:
-            self.logger.error(
-                "Failed to restore wifi connection '%s': %s", name, stderr
-            )
+        if rc == 0:
+            return
+        # Connection up failed (home AP still hidden by the speaker hotspot,
+        # corrupted profile, etc.). Force NM to release wlan0 so it autoconnects
+        # to the best known profile once the speaker stops broadcasting.
+        self.logger.error(
+            "Failed to restore wifi connection '%s': %s — falling back to nmcli device disconnect",
+            name, stderr,
+        )
+        await self._run_nmcli("device", "disconnect", WLAN_INTERFACE)
 
     async def _get_active_wifi_name(self) -> Optional[str]:
         rc, stdout, _ = await self._run_nmcli(
