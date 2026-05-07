@@ -213,6 +213,74 @@ EOF
 }
 
 # =============================================================================
+# Configure as milo (server) — revert from milo-client
+# =============================================================================
+
+configure_server() {
+    log "Reverting to milo server..."
+
+    # 1. Set hostname back to milo
+    hostnamectl set-hostname milo
+    echo "milo" > /etc/hostname
+    if grep -q "127.0.1.1" /etc/hosts; then
+        sed -i "s/127.0.1.1.*/127.0.1.1\tmilo/" /etc/hosts
+    else
+        echo -e "127.0.1.1\tmilo" >> /etc/hosts
+    fi
+    log "Hostname set to milo"
+
+    # 2. Restore server ALSA configuration
+    if [[ -f "$MILO_APP_DIR/rootfs/etc/asound.conf" ]]; then
+        cp "$MILO_APP_DIR/rootfs/etc/asound.conf" /etc/asound.conf
+        log "Server ALSA config restored"
+    else
+        log "Warning: server asound.conf not found at $MILO_APP_DIR/rootfs/etc/asound.conf"
+    fi
+
+    # 3. Remove client loopback module options (server uses defaults / its own)
+    if [[ -f /etc/modprobe.d/milo-client-loopback.conf ]]; then
+        rm -f /etc/modprobe.d/milo-client-loopback.conf
+        log "Client loopback config removed"
+    fi
+
+    # 4. Disable client services
+    local client_services=(
+        milo-client
+        milo-client-snapclient
+        milo-client-camilladsp
+    )
+    for svc in "${client_services[@]}"; do
+        systemctl disable "$svc.service" 2>/dev/null || true
+    done
+    log "Client services disabled"
+
+    # 5. Re-enable server services
+    local server_services=(
+        milo-backend
+        milo-kiosk
+        milo-readiness
+        milo-bluealsa
+        milo-bluealsa-aplay
+        milo-camilladsp
+        nginx
+    )
+    for svc in "${server_services[@]}"; do
+        systemctl enable "$svc.service" 2>/dev/null || log "Warning: could not enable $svc"
+    done
+    log "Server services enabled"
+
+    # 6. Reset server data directory (backend will recreate settings.json with defaults).
+    # /var/lib/milo-client, the milo-client user and its symlinks are left in place:
+    # they are inert on a server and avoid extra teardown work.
+    rm -f "$MILO_DATA_DIR/settings.json"
+    chown -R milo:milo "$MILO_DATA_DIR"
+    log "Server data directory reset"
+
+    log "Server configuration complete — rebooting"
+    /sbin/reboot
+}
+
+# =============================================================================
 # Main
 # =============================================================================
 
