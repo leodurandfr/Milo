@@ -132,21 +132,13 @@ def create_hardware_router() -> APIRouter:
         and reboots the system.
         """
         try:
-            # Lock the role: milo-first-boot will skip the mDNS probe on subsequent
-            # boots once setup_completed=true, preventing accidental client→server reverts.
-            try:
-                _set_setup_completed_in_milo_settings()
-                logger.info("Marked setup_completed=true in /var/lib/milo/settings.json")
-            except Exception as e:
-                logger.error(f"Failed to mark setup_completed in milo settings: {e}")
-
             proc = await asyncio.create_subprocess_exec(
                 "sudo", APPLY_HARDWARE_SCRIPT,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
             # Wait briefly to catch immediate failures (bad script, permission denied, etc.)
-            # If the process is still running after 2s, it's proceeding to reboot
+            # If the process is still running after 2s, it's proceeding to reboot.
             try:
                 await asyncio.wait_for(proc.wait(), timeout=2)
                 # Process exited within 2s — check if it failed before reaching reboot.
@@ -159,6 +151,16 @@ def create_hardware_router() -> APIRouter:
             except asyncio.TimeoutError:
                 # Still running after 2s — reboot is in progress, this is expected
                 pass
+
+            # Apply-hardware succeeded (or is rebooting) — lock the role now so
+            # milo-first-boot skips the mDNS probe on subsequent boots, preventing
+            # accidental client→server reverts. Setting it earlier risks locking the
+            # role on a device that never gets the audio overlay applied.
+            try:
+                _set_setup_completed_in_milo_settings()
+                logger.info("Marked setup_completed=true in /var/lib/milo/settings.json")
+            except Exception as e:
+                logger.error(f"Failed to mark setup_completed in milo settings: {e}")
 
             logger.info("Reboot triggered via milo-client-apply-hardware")
             return {"status": "success", "message": "Rebooting..."}

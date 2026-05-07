@@ -231,6 +231,10 @@ def create_setup_router(settings_service, hardware_service, systemd_manager, wif
                 PENDING_CLIENT_ROLE_FILE.unlink()
             except OSError:
                 pass
+            try:
+                await wifi_service.forget_network(payload.wifi_ssid)
+            except Exception as e:
+                logger.warning("become-client: failed to roll back wifi profile for '%s': %s", payload.wifi_ssid, e)
             raise HTTPException(status_code=500, detail="Failed to persist setup_completed flag")
         logger.info("become-client: setup_completed=true persisted")
 
