@@ -106,7 +106,7 @@ import SettingsSection from '@/components/settings/SettingsSection.vue';
 const props = defineProps({
   macId: {
     type: String,
-    required: true,
+    default: null,
   },
 });
 

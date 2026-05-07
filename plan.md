@@ -316,11 +316,11 @@ Au final : symétrie complète — un nouveau device peut être adopté comme cl
 **Fichiers** : `frontend/src/components/settings/categories/multiroom/SystemListItem.vue`, `MultiroomSettings.vue`
 
 **Changements** :
-- [ ] Ajouter prop `discoverySource: 'ethernet' | 'wifi'` à `SystemListItem.vue` + petit badge icône (réutiliser SvgIcon `network` pour ethernet, `wifi` pour wifi).
-- [ ] Dans `MultiroomSettings.vue`, fusionner `pendingClients` (multiroomStore) + `hotspots` (discoveryStore) en une seule liste "Nouveaux haut-parleurs détectés".
-- [ ] Identifier la source par origine (clé `mac_id` pour pending vs `ssid` pour hotspot) → dériver le badge.
-- [ ] Click sur item ethernet → `ConfigureSystem.vue` mode ethernet (existing behavior).
-- [ ] Click sur item wifi → `ConfigureSystem.vue` mode wifi (nouveau, voir étape suivante).
+- [x] Ajouter prop `discoverySource: 'ethernet' | 'wifi'` à `SystemListItem.vue` + petit badge icône (SvgIcon `network` pour ethernet, `WifiSignal` plein pour wifi — réutilisation du composant déjà utilisé dans NetworkStep, évite l'ajout d'une nouvelle asset).
+- [x] Dans `MultiroomSettings.vue`, fusionner `pendingClients` (multiroomStore) + `hotspots` (discoveryStore) en une seule liste "Nouveaux haut-parleurs détectés" (computed `discoveryItems`). Polling discoveryStore lifecycle géré via onMounted/onBeforeUnmount.
+- [x] Identifier la source par origine (clé `mac_id` pour pending vs `ssid` pour hotspot) → dériver le badge via `source: 'ethernet' | 'wifi'` injecté dans chaque item.
+- [x] Click sur item ethernet → `ConfigureSystem.vue` mode ethernet (existing behavior).
+- [x] Click sur item wifi → push de `multiroom-configure-system` avec `hotspotToAdopt` stashé dans SettingsModal (consommé par ConfigureSystem en étape 2.11). `macId` relâché de `required` à `default: null` dans ConfigureSystem pour accepter le mode wifi sans crash entre 2.10 et 2.11.
 
 **Acceptance** :
 - La liste affiche pending ethernet + hotspots wifi avec badges visuels.
