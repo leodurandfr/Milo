@@ -21,6 +21,7 @@ EXPECTED_SERVER_HOSTNAME = "milo"
 EXPECTED_FQDN = f"{EXPECTED_SERVER_HOSTNAME}.local"
 RESOLVE_TIMEOUT_S = 3.0
 BROWSE_TIMEOUT_S = 5.0
+IP_LOCAL_TIMEOUT_S = 2.0
 PERIODIC_INTERVAL_S = 300  # 5 minutes
 RECLAIM_COOLDOWN_S = 1800  # 30 minutes — avoid restart loops if reclaim fails
 
@@ -86,6 +87,7 @@ class HostnameConflictService:
                renamed → conflict.
           3. Any unrecoverable error fails open (no conflict).
         """
+        should_reclaim = False
         async with self._lock:
             previous = self._conflict
 
@@ -121,11 +123,19 @@ class HostnameConflictService:
 
             # Self-healing: if we got renamed but nobody else owns milo.local,
             # the survivor is just stuck on milo-N — restart Avahi to re-probe.
+            # Stamp the cooldown inside the lock, but run the restart outside
+            # so we don't block concurrent check() callers (boot init, manual
+            # recheck) for up to 10 s.
             if self._should_attempt_reclaim():
                 self._reclaim_attempted_ts = time.time()
-                await self._attempt_avahi_reclaim()
+                should_reclaim = True
 
-            return self._conflict
+            conflict = self._conflict
+
+        if should_reclaim:
+            asyncio.create_task(self._attempt_avahi_reclaim())
+
+        return conflict
 
     async def _detect_conflict(self) -> bool:
         local_ips = await self._get_local_ips()
@@ -164,10 +174,11 @@ class HostnameConflictService:
 
     @staticmethod
     def _first_non_loopback(local_ips: Set[str]) -> Optional[str]:
-        for ip in local_ips:
-            if ip != "127.0.0.1":
-                return ip
-        return None
+        # Sort so the IP shown to the user is deterministic across reboots
+        # on dual-iface hosts (eth0 + wlan0). Set iteration order depends
+        # on hash randomization.
+        candidates = sorted(ip for ip in local_ips if ip != "127.0.0.1")
+        return candidates[0] if candidates else None
 
     @staticmethod
     async def _scan_renamed_milos(local_ips: Set[str]) -> List[str]:
@@ -267,6 +278,7 @@ class HostnameConflictService:
                 "source": "system",
                 "hostname_conflict": self._conflict,
                 "advertised_name": self._advertised_name,
+                "local_ip": self._local_ip,
                 "expected_name": EXPECTED_FQDN,
             },
             include_full_state=False,
@@ -313,7 +325,14 @@ class HostnameConflictService:
             )
         except FileNotFoundError:
             return ips
-        stdout, _ = await proc.communicate()
+        try:
+            stdout, _ = await asyncio.wait_for(
+                proc.communicate(), timeout=IP_LOCAL_TIMEOUT_S
+            )
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            return ips
         for line in stdout.decode("utf-8", errors="ignore").splitlines():
             tokens = line.split()
             try:
