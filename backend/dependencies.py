@@ -152,6 +152,9 @@ def _create_service(name: str) -> Any:
             wifi_service=get_service("wifi_service")
         ),
 
+        # System utilities
+        "hostname_conflict_service": lambda: _import("backend.core.system", "HostnameConflictService")(),
+
         # Update services
         "update_service": lambda: _import("backend.core.updates", "UpdateService")(),
         "satellite_update_service": lambda: _import("backend.core.updates", "SatelliteUpdateService")(
@@ -268,8 +271,10 @@ def initialize_services() -> None:
     equalizer_client_proxy_service = get_service("equalizer_client_proxy_service")
     multiroom_equalizer_service = get_service("multiroom_equalizer_service")
     pending_clients_service = get_service("pending_clients_service")
+    hostname_conflict_service = get_service("hostname_conflict_service")
 
     state_machine.ws_manager = websocket_manager
+    hostname_conflict_service.set_state_machine(state_machine)
 
     # =========================================================================
     # STEP 2: Resolve circular dependencies (CRITICAL ORDER)
@@ -400,7 +405,9 @@ def initialize_services() -> None:
             # Radio station data needs early init for API access
             ("radio_source", radio_source.initialize()),
             # CD disc watcher needs early init for auto-detection
-            ("cd_source", cd_source.initialize())
+            ("cd_source", cd_source.initialize()),
+            # mDNS hostname conflict detection (fail-open, never raises)
+            ("hostname_conflict_service", hostname_conflict_service.check())
         ]
 
         results = await asyncio.gather(
@@ -420,5 +427,8 @@ def initialize_services() -> None:
             if service_name in critical_services and isinstance(results[i], Exception):
                 logger.critical("Critical service %s failed to initialize", service_name)
                 raise results[i]
+
+        # Start periodic hostname conflict re-check after the boot check completed
+        hostname_conflict_service.start_periodic()
 
     _init_task = asyncio.create_task(init_async())

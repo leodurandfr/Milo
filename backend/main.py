@@ -220,7 +220,9 @@ settings_router = create_settings_router(
 )
 app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
 
-system_router = create_system_router()
+system_router = create_system_router(
+    hostname_conflict_service=get_service("hostname_conflict_service")
+)
 app.include_router(system_router, prefix="/api/system", tags=["system"])
 
 programs_router = create_programs_router(

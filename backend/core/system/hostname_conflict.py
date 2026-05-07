@@ -1,0 +1,248 @@
+"""
+Hostname conflict detection for Milō servers.
+
+Two Milō servers on the same LAN both try to claim `milo.local` via mDNS.
+The second one is auto-renamed to `milo-2.local` by Avahi, and AirPlay /
+Spotify Connect / discovery start showing duplicates. This service detects
+that situation so the UI can warn the user.
+
+Detection runs once at backend startup and on demand from the API.
+"""
+import asyncio
+import logging
+import socket
+import time
+from typing import Any, Dict, Optional, Set
+
+logger = logging.getLogger(__name__)
+
+EXPECTED_SERVER_HOSTNAME = "milo"
+EXPECTED_FQDN = f"{EXPECTED_SERVER_HOSTNAME}.local"
+RESOLVE_TIMEOUT_S = 3.0
+PERIODIC_INTERVAL_S = 300  # 5 minutes
+RECLAIM_COOLDOWN_S = 1800  # 30 minutes — avoid restart loops if reclaim fails
+
+
+class HostnameConflictService:
+    """Detects whether another device on the LAN owns `milo.local`."""
+
+    def __init__(self):
+        self._state_machine = None
+        self._conflict: bool = False
+        self._last_checked: Optional[float] = None
+        self._advertised_name: Optional[str] = None
+        self._milo_local_orphan: bool = False
+        self._reclaim_attempted_ts: Optional[float] = None
+        self._lock = asyncio.Lock()
+        self._periodic_task: Optional[asyncio.Task] = None
+
+    def set_state_machine(self, state_machine) -> None:
+        self._state_machine = state_machine
+
+    def start_periodic(self) -> None:
+        """Start the background check loop (called once after initial check)."""
+        if self._periodic_task is not None and not self._periodic_task.done():
+            return
+        self._periodic_task = asyncio.create_task(self._periodic_loop())
+
+    async def _periodic_loop(self) -> None:
+        while True:
+            try:
+                await asyncio.sleep(PERIODIC_INTERVAL_S)
+                await self.check()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.error("Periodic hostname conflict check crashed: %s", exc)
+
+    def get_state(self) -> Dict[str, Any]:
+        return {
+            "hostname_conflict": self._conflict,
+            "last_checked": self._last_checked,
+            "advertised_name": self._advertised_name,
+            "expected_name": EXPECTED_FQDN,
+        }
+
+    async def check(self) -> bool:
+        """Run detection. Returns True if a conflict is detected.
+
+        Strategy:
+          1. If OS hostname isn't `milo` (e.g. `milo-client`), no conflict.
+          2. Resolve `milo.local`:
+             - resolves to one of our IPs → we own it, no conflict.
+             - resolves to a remote IP → another device owns it, conflict.
+             - doesn't resolve → reverse-resolve our IPs to read our actual
+               Avahi name. If Avahi advertises us as `milo-N.local`, we got
+               renamed → conflict.
+          3. Any unrecoverable error fails open (no conflict).
+        """
+        async with self._lock:
+            previous = self._conflict
+
+            os_hostname = socket.gethostname()
+            if os_hostname != EXPECTED_SERVER_HOSTNAME:
+                self._conflict = False
+                self._advertised_name = f"{os_hostname}.local"
+                self._last_checked = time.time()
+                await self._broadcast_if_changed(previous)
+                return False
+
+            try:
+                self._conflict = await self._detect_conflict()
+            except Exception as exc:
+                logger.error("Hostname conflict detection failed: %s", exc)
+                self._conflict = False
+
+            self._last_checked = time.time()
+
+            if self._conflict:
+                logger.warning(
+                    "Hostname conflict detected: OS hostname is '%s' "
+                    "but Avahi advertises '%s' (expected '%s')",
+                    os_hostname, self._advertised_name, EXPECTED_FQDN,
+                )
+
+            await self._broadcast_if_changed(previous)
+
+            # Self-healing: if we got renamed but nobody else owns milo.local,
+            # the survivor is just stuck on milo-N — restart Avahi to re-probe.
+            if self._should_attempt_reclaim():
+                self._reclaim_attempted_ts = time.time()
+                await self._attempt_avahi_reclaim()
+
+            return self._conflict
+
+    async def _detect_conflict(self) -> bool:
+        local_ips = await self._get_local_ips()
+
+        resolved_ip = await self._avahi_resolve_name(EXPECTED_FQDN)
+        self._milo_local_orphan = resolved_ip is None
+
+        if resolved_ip and resolved_ip in local_ips:
+            self._advertised_name = EXPECTED_FQDN
+            return False
+
+        for ip in local_ips:
+            if ip == "127.0.0.1":
+                continue
+            advertised = await self._avahi_resolve_address(ip)
+            if advertised:
+                self._advertised_name = advertised
+                if advertised == EXPECTED_FQDN:
+                    return False
+                return True
+
+        if resolved_ip is not None and resolved_ip not in local_ips:
+            self._advertised_name = None
+            return True
+
+        self._advertised_name = None
+        return False
+
+    def _should_attempt_reclaim(self) -> bool:
+        """True iff we got renamed but nobody else owns milo.local on the LAN.
+
+        Avahi never reclaims the principal name once it has been renamed —
+        even after the conflicting peer disappears. A restart of avahi-daemon
+        forces it to re-probe milo.local. Cooldown avoids restart loops if the
+        reclaim doesn't take (e.g. another race on the next probe).
+        """
+        if not self._conflict:
+            return False
+        if not self._milo_local_orphan:
+            return False
+        if self._advertised_name is None or self._advertised_name == EXPECTED_FQDN:
+            return False
+        if self._reclaim_attempted_ts is not None:
+            elapsed = time.time() - self._reclaim_attempted_ts
+            if elapsed < RECLAIM_COOLDOWN_S:
+                return False
+        return True
+
+    async def _attempt_avahi_reclaim(self) -> None:
+        logger.warning(
+            "Restarting avahi-daemon to reclaim '%s' (currently advertised as '%s', no peer holds it)",
+            EXPECTED_FQDN, self._advertised_name,
+        )
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", "systemctl", "restart", "avahi-daemon",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+            if proc.returncode != 0:
+                logger.error(
+                    "avahi-daemon restart failed (exit %s): %s",
+                    proc.returncode, stderr.decode("utf-8", errors="ignore").strip(),
+                )
+        except asyncio.TimeoutError:
+            logger.error("avahi-daemon restart timed out")
+        except Exception as exc:
+            logger.error("avahi-daemon restart failed: %s", exc)
+
+    async def _broadcast_if_changed(self, previous: bool) -> None:
+        if previous == self._conflict or self._state_machine is None:
+            return
+        await self._state_machine.broadcast_event(
+            category="system",
+            event_type="hostname_conflict_changed",
+            data={
+                "source": "system",
+                "hostname_conflict": self._conflict,
+                "advertised_name": self._advertised_name,
+                "expected_name": EXPECTED_FQDN,
+            },
+            include_full_state=False,
+        )
+
+    async def _avahi_resolve_name(self, name: str) -> Optional[str]:
+        return await self._run_avahi(["avahi-resolve", "-4", "-n", name])
+
+    async def _avahi_resolve_address(self, ip: str) -> Optional[str]:
+        return await self._run_avahi(["avahi-resolve", "-a", ip])
+
+    @staticmethod
+    async def _run_avahi(cmd) -> Optional[str]:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+        except FileNotFoundError:
+            return None
+        try:
+            stdout, _ = await asyncio.wait_for(
+                proc.communicate(), timeout=RESOLVE_TIMEOUT_S
+            )
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            return None
+        if proc.returncode != 0:
+            return None
+        # Output format: "<query>\t<answer>"
+        parts = stdout.decode("utf-8", errors="ignore").strip().split()
+        return parts[1] if len(parts) >= 2 else None
+
+    @staticmethod
+    async def _get_local_ips() -> Set[str]:
+        ips: Set[str] = {"127.0.0.1"}
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "ip", "-4", "-o", "addr", "show",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+        except FileNotFoundError:
+            return ips
+        stdout, _ = await proc.communicate()
+        for line in stdout.decode("utf-8", errors="ignore").splitlines():
+            tokens = line.split()
+            try:
+                cidr = tokens[tokens.index("inet") + 1]
+                ips.add(cidr.split("/")[0])
+            except (ValueError, IndexError):
+                continue
+        return ips

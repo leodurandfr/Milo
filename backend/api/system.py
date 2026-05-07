@@ -1,6 +1,6 @@
 # backend/api/system.py
 """
-System power management routes (restart, shutdown).
+System power management + status routes (restart, shutdown, hostname conflict).
 """
 from fastapi import APIRouter
 import asyncio
@@ -9,7 +9,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def create_system_router():
+def create_system_router(hostname_conflict_service=None):
     router = APIRouter()
 
     async def _delayed_exec(command: str, label: str):
@@ -38,5 +38,20 @@ def create_system_router():
         logger.info("System shutdown requested")
         asyncio.create_task(_delayed_exec("poweroff", "shutdown"))
         return {"status": "success"}
+
+    @router.get("/status")
+    async def get_system_status():
+        """Return system-level status (currently: hostname conflict detection)."""
+        if hostname_conflict_service is None:
+            return {"status": "success", "data": {"hostname_conflict": False}}
+        return {"status": "success", "data": hostname_conflict_service.get_state()}
+
+    @router.post("/recheck-hostname")
+    async def recheck_hostname():
+        """Trigger an immediate hostname conflict re-check (manual button)."""
+        if hostname_conflict_service is None:
+            return {"status": "success", "data": {"hostname_conflict": False}}
+        await hostname_conflict_service.check()
+        return {"status": "success", "data": hostname_conflict_service.get_state()}
 
     return router
