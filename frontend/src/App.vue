@@ -9,8 +9,11 @@
       @dismiss="dismissNotification"
     />
 
+    <!-- Hostname conflict takes priority over everything (incl. setup wizard) -->
+    <HostnameConflictView v-if="isBootComplete && systemStore.hostnameConflict" />
+
     <!-- Setup Wizard (blocks entire UI when setup not completed) -->
-    <SetupWizard v-if="settingsStore.setupCompleted === false" />
+    <SetupWizard v-else-if="settingsStore.setupCompleted === false" />
 
     <!-- App content only renders after boot completes AND setup is done -->
     <template v-else-if="isBootComplete">
@@ -82,6 +85,9 @@ const VirtualKeyboard = defineAsyncComponent(() =>
 const SetupWizard = defineAsyncComponent(() =>
   import('@/components/setup/SetupWizard.vue')
 );
+const HostnameConflictView = defineAsyncComponent(() =>
+  import('@/components/system/HostnameConflictView.vue')
+);
 
 import axios from 'axios';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
@@ -91,6 +97,7 @@ import { useRadioStore } from '@/stores/radioStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useEqualizerStore } from '@/stores/equalizerStore';
+import { useSystemStore } from '@/stores/systemStore';
 import { i18n, useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { logger } from '@/services/logger';
@@ -116,6 +123,7 @@ const radioStore = useRadioStore();
 const settingsStore = useSettingsStore();
 const multiroomStore = useMultiroomStore();
 const equalizerStore = useEqualizerStore();
+const systemStore = useSystemStore();
 const { on, onReconnect, onVisibilityChange, isConnected } = useWebSocket();
 const { loadHardwareInfo } = useHardwareConfig();
 
@@ -589,6 +597,7 @@ onMounted(async () => {
         });
       }
     }),
+    on('system', 'hostname_conflict_changed', (event) => systemStore.handleConflictEvent(event)),
     // Equalizer events
     on('equalizer', 'filter_changed', (event) => equalizerStore.handleFilterChanged(event)),
     on('equalizer', 'filters_reset', () => equalizerStore.handleFiltersReset()),
@@ -619,6 +628,9 @@ onMounted(async () => {
   // Now perform async initialization
   await loadHardwareInfo();
   await settingsStore.loadAllSettings();
+
+  // Fetch hostname conflict status (re-checked every 5 min by backend)
+  systemStore.fetchStatus();
 
   // Load BT remote status in background (separate endpoint, may not be available)
   settingsStore.loadBtRemoteStatus();

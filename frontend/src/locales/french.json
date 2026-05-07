@@ -629,5 +629,13 @@
       "rebootingDescription": "Veuillez patienter pendant le redémarrage du système.",
       "volumeNotManaged": "Volume non géré par Milō"
     }
+  },
+  "system": {
+    "hostnameConflict": {
+      "title": "Un autre Milō détecté",
+      "subtitle": "Deux serveurs Milō ne peuvent pas cohabiter sur le même réseau. Éteins l'un des deux, ou vérifie à nouveau si c'est déjà fait.",
+      "recheck": "Vérifier à nouveau",
+      "shutdown": "Éteindre cet appareil"
+    }
   }
 }

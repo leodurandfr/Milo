@@ -627,5 +627,13 @@
       "accessHint": "重启后，连接到网络 {ssid} 并在浏览器中打开 milo.local 以访问 Milō。",
       "volumeNotManaged": "音量不由 Milō 管理"
     }
+  },
+  "system": {
+    "hostnameConflict": {
+      "title": "检测到另一台 Milō",
+      "subtitle": "同一网络中不能同时存在两台 Milō 服务器。请关闭其中一台，或在已操作后重新检测。",
+      "recheck": "重新检测",
+      "shutdown": "关闭此设备"
+    }
   }
 }

@@ -627,5 +627,13 @@
       "accessHint": "Dopo il riavvio, connettiti a {ssid} e apri milo.local nel tuo browser per accedere a Milō.",
       "volumeNotManaged": "Volume non gestito da Milō"
     }
+  },
+  "system": {
+    "hostnameConflict": {
+      "title": "Rilevato un altro Milō",
+      "subtitle": "Due server Milō non possono coesistere sulla stessa rete. Spegnine uno, oppure ricontrolla se l'hai già fatto.",
+      "recheck": "Ricontrolla",
+      "shutdown": "Spegni questo dispositivo"
+    }
   }
 }

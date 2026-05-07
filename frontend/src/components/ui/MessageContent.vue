@@ -8,9 +8,14 @@
     <!-- Contenu toujours visible (même en loading) -->
     <p v-if="title" class="heading-2">{{ title }}</p>
     <p v-if="subtitle" class="text-mono" v-html="subtitle"></p>
-    <Button v-if="ctaLabel" :variant="ctaVariant" @click="ctaClick">
-      {{ ctaLabel }}
-    </Button>
+    <div v-if="ctaLabel || ctaSecondaryLabel" class="cta-group">
+      <Button v-if="ctaLabel" :variant="ctaVariant" @click="ctaClick">
+        {{ ctaLabel }}
+      </Button>
+      <Button v-if="ctaSecondaryLabel" :variant="ctaSecondaryVariant" @click="ctaSecondaryClick">
+        {{ ctaSecondaryLabel }}
+      </Button>
+    </div>
   </div>
 </template>
 
@@ -50,6 +55,18 @@ const props = defineProps({
     default: 'brand'
   },
   ctaClick: {
+    type: Function,
+    default: null
+  },
+  ctaSecondaryLabel: {
+    type: String,
+    default: null
+  },
+  ctaSecondaryVariant: {
+    type: String,
+    default: 'background-strong'
+  },
+  ctaSecondaryClick: {
     type: Function,
     default: null
   }
@@ -109,6 +126,18 @@ onUnmounted(() => {
 
 .message-content :deep(.btn) {
   margin-top: var(--space-02);
+}
+
+.cta-group {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-02);
+}
+
+.cta-group :deep(.btn) {
+  margin-top: 0;
 }
 
 .message-content.is-delayed {

@@ -627,5 +627,13 @@
       "accessHint": "Verbinde dich nach dem Neustart mit dem Netzwerk {ssid} und öffne milo.local in deinem Browser, um auf Milō zuzugreifen.",
       "volumeNotManaged": "Lautstärke nicht von Milō verwaltet"
     }
+  },
+  "system": {
+    "hostnameConflict": {
+      "title": "Weiteres Milō erkannt",
+      "subtitle": "Zwei Milō-Server können nicht im selben Netzwerk koexistieren. Schalte eines davon aus oder prüfe erneut, falls bereits geschehen.",
+      "recheck": "Erneut prüfen",
+      "shutdown": "Dieses Gerät ausschalten"
+    }
   }
 }
