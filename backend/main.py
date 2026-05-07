@@ -80,6 +80,7 @@ equalizer_sync_service = get_service("equalizer_settings_sync_service")
 client_registry_service = get_service("client_registry_service")
 equalizer_router_service = get_service("equalizer_router")
 wifi_service = get_service("wifi_service")
+wifi_adoption_service = get_service("wifi_adoption_service")
 ws_manager = get_service("websocket_manager")
 websocket_server = WebSocketServer(ws_manager, state_machine, volume_service, settings_service, wifi_service)
 
@@ -251,7 +252,7 @@ app.include_router(setup_router)
 wifi_router = create_wifi_router(wifi_service)
 app.include_router(wifi_router)
 
-discovery_router = create_discovery_router(wifi_service)
+discovery_router = create_discovery_router(wifi_service, wifi_adoption_service)
 app.include_router(discovery_router)
 
 app.add_api_websocket_route("/ws", websocket_server.websocket_endpoint)

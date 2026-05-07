@@ -148,6 +148,9 @@ def _create_service(name: str) -> Any:
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service")
         ),
+        "wifi_adoption_service": lambda: _import("backend.core.multiroom.wifi_adoption", "WifiAdoptionService")(
+            wifi_service=get_service("wifi_service")
+        ),
 
         # Update services
         "update_service": lambda: _import("backend.core.updates", "UpdateService")(),
