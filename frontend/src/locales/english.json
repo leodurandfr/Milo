@@ -629,5 +629,13 @@
       "rebootingDescription": "Please wait while the system restarts.",
       "volumeNotManaged": "Volume not managed by Milō"
     }
+  },
+  "system": {
+    "hostnameConflict": {
+      "title": "Another Milō detected",
+      "subtitle": "Two Milō servers can't share the same network. Turn off one of them, or check again if you've already done it.",
+      "recheck": "Check again",
+      "shutdown": "Turn off this device"
+    }
   }
 }

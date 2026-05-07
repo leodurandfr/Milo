@@ -10,17 +10,23 @@ Detection runs once at backend startup and on demand from the API.
 """
 import asyncio
 import logging
+import re
 import socket
 import time
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 logger = logging.getLogger(__name__)
 
 EXPECTED_SERVER_HOSTNAME = "milo"
 EXPECTED_FQDN = f"{EXPECTED_SERVER_HOSTNAME}.local"
 RESOLVE_TIMEOUT_S = 3.0
+BROWSE_TIMEOUT_S = 5.0
 PERIODIC_INTERVAL_S = 300  # 5 minutes
 RECLAIM_COOLDOWN_S = 1800  # 30 minutes — avoid restart loops if reclaim fails
+
+# Avahi-renamed Milō servers (milo-2.local, milo-3.local, …) on the LAN —
+# distinct from milo-client.local satellites which are legitimate.
+RENAMED_MILO_PATTERN = re.compile(r"^milo-\d+\.local$")
 
 
 class HostnameConflictService:
@@ -32,6 +38,7 @@ class HostnameConflictService:
         self._last_checked: Optional[float] = None
         self._advertised_name: Optional[str] = None
         self._milo_local_orphan: bool = False
+        self._other_milos: List[str] = []
         self._reclaim_attempted_ts: Optional[float] = None
         self._lock = asyncio.Lock()
         self._periodic_task: Optional[asyncio.Task] = None
@@ -61,6 +68,7 @@ class HostnameConflictService:
             "last_checked": self._last_checked,
             "advertised_name": self._advertised_name,
             "expected_name": EXPECTED_FQDN,
+            "other_milos": list(self._other_milos),
         }
 
     async def check(self) -> bool:
@@ -96,11 +104,16 @@ class HostnameConflictService:
             self._last_checked = time.time()
 
             if self._conflict:
-                logger.warning(
-                    "Hostname conflict detected: OS hostname is '%s' "
-                    "but Avahi advertises '%s' (expected '%s')",
-                    os_hostname, self._advertised_name, EXPECTED_FQDN,
-                )
+                if self._advertised_name == EXPECTED_FQDN and self._other_milos:
+                    logger.warning(
+                        "Hostname conflict: parasite Milō servers detected on the LAN: %s",
+                        ", ".join(self._other_milos),
+                    )
+                else:
+                    logger.warning(
+                        "Hostname conflict: OS hostname is '%s' but Avahi advertises '%s' (expected '%s')",
+                        os_hostname, self._advertised_name, EXPECTED_FQDN,
+                    )
 
             await self._broadcast_if_changed(previous)
 
@@ -117,10 +130,14 @@ class HostnameConflictService:
 
         resolved_ip = await self._avahi_resolve_name(EXPECTED_FQDN)
         self._milo_local_orphan = resolved_ip is None
+        self._other_milos = await self._scan_renamed_milos(local_ips)
 
         if resolved_ip and resolved_ip in local_ips:
+            # We legitimately own milo.local. Conflict only if a renamed
+            # Milō server (milo-N.local) is also on the LAN — the user must
+            # know to turn it off before it stays orphaned forever.
             self._advertised_name = EXPECTED_FQDN
-            return False
+            return bool(self._other_milos)
 
         for ip in local_ips:
             if ip == "127.0.0.1":
@@ -138,6 +155,52 @@ class HostnameConflictService:
 
         self._advertised_name = None
         return False
+
+    @staticmethod
+    async def _scan_renamed_milos(local_ips: Set[str]) -> List[str]:
+        """Returns the FQDNs of milo-N.local servers visible on the LAN
+        (excluding ourselves). Used to detect 'parasite' servers when we
+        legitimately own milo.local but another renamed server is lurking.
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "avahi-browse", "-rt", "-p", "_workstation._tcp",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+        except FileNotFoundError:
+            return []
+        try:
+            stdout, _ = await asyncio.wait_for(
+                proc.communicate(), timeout=BROWSE_TIMEOUT_S
+            )
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            return []
+        if proc.returncode != 0:
+            return []
+
+        # Parsable format: =;<iface>;<proto>;<name>;<type>;<domain>;<fqdn>;<ip>;<port>;<txt>
+        seen: Set[str] = set()
+        out: List[str] = []
+        for line in stdout.decode("utf-8", errors="ignore").splitlines():
+            if not line.startswith("="):
+                continue
+            fields = line.split(";")
+            if len(fields) < 8:
+                continue
+            fqdn = fields[6]
+            ip = fields[7]
+            if not RENAMED_MILO_PATTERN.match(fqdn):
+                continue
+            if ip in local_ips:
+                continue
+            if fqdn in seen:
+                continue
+            seen.add(fqdn)
+            out.append(fqdn)
+        return out
 
     def _should_attempt_reclaim(self) -> bool:
         """True iff we got renamed but nobody else owns milo.local on the LAN.
