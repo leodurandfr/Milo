@@ -35,6 +35,7 @@ from backend.api.health import create_health_router
 from backend.api.errors import create_errors_router
 from backend.api.setup import create_setup_router
 from backend.api.wifi import create_wifi_router
+from backend.api.discovery import create_discovery_router
 from backend.api.multiroom import create_multiroom_router
 from backend.ws import WebSocketServer
 from backend.core.models.audio_state import AudioSource
@@ -249,6 +250,9 @@ app.include_router(setup_router)
 
 wifi_router = create_wifi_router(wifi_service)
 app.include_router(wifi_router)
+
+discovery_router = create_discovery_router(wifi_service)
+app.include_router(discovery_router)
 
 app.add_api_websocket_route("/ws", websocket_server.websocket_endpoint)
 
