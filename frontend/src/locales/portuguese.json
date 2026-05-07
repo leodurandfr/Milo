@@ -110,6 +110,21 @@
       "errorLoadingHardware": "Não foi possível carregar as opções de placa de áudio.",
       "retry": "Tentar novamente"
     },
+    "discovery": {
+      "title": "Novos altifalantes detetados",
+      "viaEthernet": "Ligado por ethernet",
+      "viaWifi": "Hotspot WiFi detetado"
+    },
+    "adopt": {
+      "networkSection": "Ligação de rede",
+      "useServerWifi": "Usar a rede do servidor ({ssid})",
+      "changeNetwork": "Alterar",
+      "enterCredentials": "O servidor não está ligado por WiFi. Introduza as credenciais de rede para este altifalante.",
+      "adopting": "A adicionar...",
+      "success": "Altifalante adicionado com sucesso",
+      "errorWifi": "Falha ao ligar ao hotspot do altifalante",
+      "errorPush": "O altifalante não aceitou a configuração"
+    },
     "systemOffline": "« {name} » está offline",
     "systemOfflineDescription": "Este sistema de áudio não está atualmente ligado ao Milō.<br>IP: {ip}",
     "deleteSystem": "Eliminar este sistema de áudio",
