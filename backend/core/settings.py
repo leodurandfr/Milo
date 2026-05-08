@@ -243,11 +243,19 @@ class SettingsService:
         legacy_spotify_delay = settings.get('spotify', {}).get('auto_disconnect_delay')
         legacy_airplay_delay = settings.get('airplay', {}).get('auto_disconnect_delay')
 
+        def _coerce_delay(value):
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+
         if 'auto_disconnect_delay' in audio_input:
-            disconnect_raw = float(audio_input.get('auto_disconnect_delay', 120.0))
+            disconnect_raw = _coerce_delay(audio_input.get('auto_disconnect_delay'))
+            if disconnect_raw is None:
+                disconnect_raw = 120.0
         else:
             legacy_values = [
-                float(v) for v in (legacy_spotify_delay, legacy_airplay_delay)
+                v for v in (_coerce_delay(legacy_spotify_delay), _coerce_delay(legacy_airplay_delay))
                 if v is not None
             ]
             disconnect_raw = max(legacy_values) if legacy_values else 120.0
