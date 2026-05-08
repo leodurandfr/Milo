@@ -382,18 +382,15 @@ class BaseAudioSource(ABC):
         """
         await self._do_restart()
 
-    async def _load_auto_disconnect_config(self, settings_key: str) -> None:
-        """
-        Load auto-disconnect config from settings.
+    AUTO_DISCONNECT_SETTINGS_KEY = "audio.auto_disconnect_delay"
 
-        Args:
-            settings_key: Settings path (e.g., 'spotify.auto_disconnect_delay')
-        """
-        if not hasattr(self, '_settings_service') or not self._settings_service:
+    async def _load_auto_disconnect_config(self) -> None:
+        """Load the global auto-disconnect delay from settings."""
+        if not self._settings_service:
             return
 
         try:
-            delay = await self._settings_service.get_setting(settings_key)
+            delay = await self._settings_service.get_setting(self.AUTO_DISCONNECT_SETTINGS_KEY)
             if delay is not None:
                 if delay == 0:
                     self.auto_disconnect_enabled = False
@@ -409,20 +406,35 @@ class BaseAudioSource(ABC):
         except Exception as e:
             self._logger.error(f"Auto-disconnect settings load failed: {e}")
 
+    async def reload_auto_disconnect_config(self) -> bool:
+        """
+        Reload the global auto-disconnect delay and refresh any running timer.
+
+        Called from the settings API when the global delay changes so live
+        sources pick up the new value without a restart.
+        """
+        await self._load_auto_disconnect_config()
+
+        # Refresh a pending timer so the new delay takes effect immediately.
+        if self._pause_timer and not self._pause_timer.done():
+            self._cancel_pause_timer()
+            if self.auto_disconnect_enabled:
+                self._start_pause_timer()
+
+        return True
+
     async def set_auto_disconnect_config(
         self,
         enabled: bool,
         delay: Optional[float] = None,
-        settings_key: Optional[str] = None,
         save_to_settings: bool = True
     ) -> bool:
         """
-        Update auto-disconnect configuration.
+        Update the global auto-disconnect configuration.
 
         Args:
             enabled: Whether auto-disconnect is enabled
             delay: Disconnect delay in seconds (0 = disabled)
-            settings_key: Settings path for persistence
             save_to_settings: Whether to persist to settings
 
         Returns:
@@ -440,11 +452,10 @@ class BaseAudioSource(ABC):
         else:
             self.auto_disconnect_enabled = enabled
 
-        # Persist to settings
-        if save_to_settings and settings_key and hasattr(self, '_settings_service') and self._settings_service:
+        if save_to_settings and self._settings_service:
             try:
                 save_value = 0.0 if not self.auto_disconnect_enabled else self.pause_disconnect_delay
-                success = await self._settings_service.set_setting(settings_key, save_value)
+                success = await self._settings_service.set_setting(self.AUTO_DISCONNECT_SETTINGS_KEY, save_value)
                 if not success:
                     self.auto_disconnect_enabled = old_enabled
                     self.pause_disconnect_delay = old_delay

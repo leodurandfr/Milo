@@ -46,7 +46,8 @@ class TestSettingsService:
         assert service._cache is None
         assert 'volume' in service.defaults
         assert 'screen' in service.defaults
-        assert 'spotify' in service.defaults
+        assert 'audio' in service.defaults
+        assert 'auto_disconnect_delay' in service.defaults['audio']
         assert 'routing' in service.defaults
 
     @pytest.mark.asyncio
@@ -153,25 +154,55 @@ class TestSettingsService:
         })
         assert result['screen']['timeout_seconds'] == 3
 
-    def test_validate_and_merge_spotify_disconnect_zero(self, service):
-        """Spotify delay validation test with 0 = disabled"""
+    def test_validate_and_merge_audio_disconnect_zero(self, service):
+        """Global auto-disconnect delay validation test with 0 = disabled"""
         # Delay at 0 (disabled)
         result = service._validate_and_merge({
-            'spotify': {'auto_disconnect_delay': 0.0}
+            'audio': {'auto_disconnect_delay': 0.0}
         })
-        assert result['spotify']['auto_disconnect_delay'] == 0.0
+        assert result['audio']['auto_disconnect_delay'] == 0.0
+        assert 'spotify' not in result
+        assert 'airplay' not in result
 
         # Normal delay
         result = service._validate_and_merge({
-            'spotify': {'auto_disconnect_delay': 15.0}
+            'audio': {'auto_disconnect_delay': 15.0}
         })
-        assert result['spotify']['auto_disconnect_delay'] == 15.0
+        assert result['audio']['auto_disconnect_delay'] == 15.0
 
         # Delay too small (minimum 1.0s if non-zero)
         result = service._validate_and_merge({
-            'spotify': {'auto_disconnect_delay': 0.5}
+            'audio': {'auto_disconnect_delay': 0.5}
         })
-        assert result['spotify']['auto_disconnect_delay'] == 1.0
+        assert result['audio']['auto_disconnect_delay'] == 1.0
+
+    def test_validate_and_merge_migrates_legacy_spotify_delay(self, service):
+        """Legacy spotify.auto_disconnect_delay should migrate to audio.*"""
+        result = service._validate_and_merge({
+            'spotify': {'auto_disconnect_delay': 300.0}
+        })
+        assert result['audio']['auto_disconnect_delay'] == 300.0
+        assert 'spotify' not in result
+        assert 'airplay' not in result
+
+    def test_validate_and_merge_migrates_legacy_both_takes_max(self, service):
+        """Both legacy keys present: keep the max and drop both."""
+        result = service._validate_and_merge({
+            'spotify': {'auto_disconnect_delay': 300.0},
+            'airplay': {'auto_disconnect_delay': 600.0}
+        })
+        assert result['audio']['auto_disconnect_delay'] == 600.0
+        assert 'spotify' not in result
+        assert 'airplay' not in result
+
+    def test_validate_and_merge_audio_overrides_legacy(self, service):
+        """Explicit audio.auto_disconnect_delay wins over legacy keys."""
+        result = service._validate_and_merge({
+            'audio': {'auto_disconnect_delay': 90.0},
+            'spotify': {'auto_disconnect_delay': 300.0}
+        })
+        assert result['audio']['auto_disconnect_delay'] == 90.0
+        assert 'spotify' not in result
 
     def test_validate_and_merge_dock_apps(self, service):
         """Dock apps validation test"""

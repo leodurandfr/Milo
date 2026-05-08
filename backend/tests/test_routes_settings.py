@@ -35,6 +35,8 @@ class TestSettingsRoutes:
         sm.update_multiroom_state = AsyncMock()
         sm.update_equalizer_state = AsyncMock()
         sm.broadcast_event = AsyncMock()
+        sm.reload_auto_disconnect_for_all_sources = AsyncMock(return_value=True)
+        sm.reload_inactivity_config = AsyncMock(return_value=True)
         return sm
 
     @pytest.fixture
@@ -113,6 +115,7 @@ class TestSettingsRoutes:
 
         client = TestClient(app)
         client._mock_settings = mock_settings
+        client._mock_state_machine = mock_state_machine
         return client
 
     # ===================
@@ -316,34 +319,36 @@ class TestSettingsRoutes:
         assert response.status_code == 422
 
     # ===================
-    # SPOTIFY DISCONNECT TESTS
+    # AUDIO DISCONNECT TESTS (global)
     # ===================
 
-    def test_get_spotify_disconnect(self, client):
-        """Test GET /spotify-disconnect"""
+    def test_get_audio_disconnect(self, client):
+        """Test GET /audio-disconnect"""
         client._mock_settings.get_setting = AsyncMock(return_value={
             "auto_disconnect_delay": 10.0
         })
-        response = client.get("/api/settings/spotify-disconnect")
+        response = client.get("/api/settings/audio-disconnect")
         assert response.status_code == 200
+        assert response.json()["config"]["auto_disconnect_delay"] == 10.0
 
-    def test_set_spotify_disconnect_valid(self, client):
-        """Test PUT /spotify-disconnect with valid value"""
-        response = client.put("/api/settings/spotify-disconnect", json={
+    def test_set_audio_disconnect_valid(self, client):
+        """Test PUT /audio-disconnect with valid value"""
+        response = client.put("/api/settings/audio-disconnect", json={
             "auto_disconnect_delay": 15.0
         })
         assert response.status_code == 200
+        client._mock_state_machine.reload_auto_disconnect_for_all_sources.assert_awaited()
 
-    def test_set_spotify_disconnect_zero_disable(self, client):
-        """Test PUT /spotify-disconnect with 0 (disabled)"""
-        response = client.put("/api/settings/spotify-disconnect", json={
+    def test_set_audio_disconnect_zero_disable(self, client):
+        """Test PUT /audio-disconnect with 0 (disabled)"""
+        response = client.put("/api/settings/audio-disconnect", json={
             "auto_disconnect_delay": 0.0
         })
         assert response.status_code == 200
 
-    def test_set_spotify_disconnect_negative(self, client):
-        """Test PUT /spotify-disconnect with negative value - should return 422"""
-        response = client.put("/api/settings/spotify-disconnect", json={
+    def test_set_audio_disconnect_negative(self, client):
+        """Test PUT /audio-disconnect with negative value - should return 422"""
+        response = client.put("/api/settings/audio-disconnect", json={
             "auto_disconnect_delay": -5.0
         })
         assert response.status_code == 422

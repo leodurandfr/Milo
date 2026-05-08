@@ -369,6 +369,28 @@ class AudioStateMachine:
         )
         return True
 
+    async def reload_auto_disconnect_for_all_sources(self) -> bool:
+        """Refresh the auto-disconnect delay on every registered source.
+
+        Invoked by the settings API after `audio.auto_disconnect_delay`
+        is updated so each live source picks up the new value without
+        a restart. Failures on individual sources are logged but do not
+        abort the rest of the fan-out.
+        """
+        all_ok = True
+        for source, instance in self.sources.items():
+            if instance is None:
+                continue
+            try:
+                await instance.reload_auto_disconnect_config()
+            except Exception as e:
+                all_ok = False
+                logger.error(
+                    "Failed to reload auto-disconnect for %s: %s",
+                    source.value, e
+                )
+        return all_ok
+
     async def _monitor_inactivity(self) -> None:
         """Deactivate source after inactivity timeout without ACTIVE state."""
         try:

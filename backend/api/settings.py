@@ -15,7 +15,7 @@ from backend.api.models import (
     RotaryStepsRequest,
     BtRemoteStepsRequest,
     DockAppsRequest,
-    SpotifyDisconnectRequest,
+    AudioDisconnectRequest,
     PodcastCredentialsRequest,
     ScreenTimeoutRequest,
     ScreenBrightnessRequest,
@@ -111,8 +111,6 @@ def create_settings_router(
 
         vol = all_settings.get('volume', {})
         dock = all_settings.get('dock', {})
-        spotify = all_settings.get('spotify', {})
-        airplay = all_settings.get('airplay', {})
         podcast = all_settings.get('podcast', {})
         audio = all_settings.get('audio', {})
         screen = all_settings.get('screen', {})
@@ -135,8 +133,7 @@ def create_settings_router(
             "rotary_steps": {"step_rotary_db": vol.get('step_rotary_db', 2.0)},
             "bt_remote_steps": {"step_bt_remote_db": vol.get('step_bt_remote_db', 2.0)},
             "dock_apps": {"enabled_apps": dock.get('enabled_apps', DEFAULT_DOCK_APPS)},
-            "spotify_disconnect": {"auto_disconnect_delay": spotify.get('auto_disconnect_delay', 120.0)},
-            "airplay_disconnect": {"auto_disconnect_delay": airplay.get('auto_disconnect_delay', 120.0)},
+            "audio_disconnect": {"auto_disconnect_delay": audio.get('auto_disconnect_delay', 120.0)},
             "podcast_credentials": {
                 "taddy_user_id": podcast.get('taddy_user_id', ''),
                 "taddy_api_key": podcast.get('taddy_api_key', '')
@@ -516,36 +513,26 @@ def create_settings_router(
             logger.error(f"Unexpected error in dock-apps update: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    # Spotify
-    @router.get("/spotify-disconnect")
-    async def get_spotify_disconnect():
-        spotify = await settings.get_setting('spotify') or {}
+    # Global audio auto-disconnect (applies to every eligible source)
+    @router.get("/audio-disconnect")
+    async def get_audio_disconnect():
+        audio = await settings.get_setting('audio') or {}
         return {
             "status": "success",
-            "config": {"auto_disconnect_delay": spotify.get("auto_disconnect_delay", 120.0)}
+            "config": {"auto_disconnect_delay": audio.get("auto_disconnect_delay", 120.0)}
         }
 
-    @router.put("/spotify-disconnect")
-    async def set_spotify_disconnect(payload: SpotifyDisconnectRequest):
+    @router.put("/audio-disconnect")
+    async def set_audio_disconnect(payload: AudioDisconnectRequest):
         delay = payload.auto_disconnect_delay
-
-        async def apply_to_source():
-            try:
-                source = state_machine.get_source(AudioSource.SPOTIFY)
-                if source:
-                    enabled = delay != 0
-                    return await source.set_auto_disconnect_config(enabled=enabled, delay=delay, save_to_settings=False)
-            except Exception:
-                pass
-            return False
 
         return await _handle_setting_update(
             payload,
             validator=lambda p: True,  # Validated by Pydantic
-            setter=lambda: settings.set_setting('spotify.auto_disconnect_delay', delay),
-            event_type="spotify_disconnect_changed",
+            setter=lambda: settings.set_setting('audio.auto_disconnect_delay', delay),
+            event_type="audio_disconnect_changed",
             event_data={"config": {"auto_disconnect_delay": delay}},
-            reload_callback=apply_to_source
+            reload_callback=state_machine.reload_auto_disconnect_for_all_sources
         )
 
     # Podcast credentials
