@@ -204,6 +204,24 @@ class TestSettingsService:
         assert result['audio']['auto_disconnect_delay'] == 90.0
         assert 'spotify' not in result
 
+    def test_validate_and_merge_migrates_legacy_zero_disabled(self, service):
+        """Legacy disabled (0.0) value migrates to audio.* as disabled."""
+        result = service._validate_and_merge({
+            'spotify': {'auto_disconnect_delay': 0.0}
+        })
+        assert result['audio']['auto_disconnect_delay'] == 0.0
+        assert 'spotify' not in result
+
+    def test_validate_and_merge_legacy_non_numeric_falls_back_to_default(self, service):
+        """Corrupted (non-numeric) legacy value must not crash; fall back to default."""
+        result = service._validate_and_merge({
+            'spotify': {'auto_disconnect_delay': 'broken'},
+            'airplay': {'auto_disconnect_delay': None}
+        })
+        assert result['audio']['auto_disconnect_delay'] == 120.0
+        assert 'spotify' not in result
+        assert 'airplay' not in result
+
     def test_validate_and_merge_dock_apps(self, service):
         """Dock apps validation test"""
         # Valid apps

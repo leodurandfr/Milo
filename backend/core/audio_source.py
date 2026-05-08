@@ -423,57 +423,6 @@ class BaseAudioSource(ABC):
 
         return True
 
-    async def set_auto_disconnect_config(
-        self,
-        enabled: bool,
-        delay: Optional[float] = None,
-        save_to_settings: bool = True
-    ) -> bool:
-        """
-        Update the global auto-disconnect configuration.
-
-        Args:
-            enabled: Whether auto-disconnect is enabled
-            delay: Disconnect delay in seconds (0 = disabled)
-            save_to_settings: Whether to persist to settings
-
-        Returns:
-            True if configuration succeeded
-        """
-        old_enabled = self.auto_disconnect_enabled
-        old_delay = self.pause_disconnect_delay
-
-        if delay is not None and delay == 0:
-            self.auto_disconnect_enabled = False
-            self.pause_disconnect_delay = 10.0
-        elif delay is not None:
-            self.auto_disconnect_enabled = enabled
-            self.pause_disconnect_delay = max(1.0, delay)
-        else:
-            self.auto_disconnect_enabled = enabled
-
-        if save_to_settings and self._settings_service:
-            try:
-                save_value = 0.0 if not self.auto_disconnect_enabled else self.pause_disconnect_delay
-                success = await self._settings_service.set_setting(self.AUTO_DISCONNECT_SETTINGS_KEY, save_value)
-                if not success:
-                    self.auto_disconnect_enabled = old_enabled
-                    self.pause_disconnect_delay = old_delay
-                    return False
-            except Exception as e:
-                self._logger.error(f"Auto-disconnect settings save failed: {e}")
-                self.auto_disconnect_enabled = old_enabled
-                self.pause_disconnect_delay = old_delay
-                return False
-
-        # Manage running timer
-        if self._pause_timer and not self._pause_timer.done():
-            self._cancel_pause_timer()
-            if self.auto_disconnect_enabled:
-                self._start_pause_timer()
-
-        return True
-
     # === Monitor task ===
 
     def _start_monitor(self) -> None:
