@@ -19,9 +19,12 @@ Concurrency:
 Key rules:
 - NEVER start reader without corresponding mpv loadfile (FIFO deadlock)
 - NEVER set is_playing=True except in command handlers
+- NEVER start mpv, run a MusicBrainz lookup, or begin playback while CD is
+  not the active source — at boot the watcher only reads the local TOC.
 """
 import asyncio
 import logging
+from time import monotonic
 from typing import Any, Dict, List, Optional
 
 from backend.config.constants import CD_DEVICE
@@ -34,6 +37,10 @@ from backend.shared.mpv import MpvController
 from backend.shared.mpv_audio_source import MpvAudioSource
 
 logger = logging.getLogger(__name__)
+
+# Retry MusicBrainz when the initial lookup fell through to the fallback DiscInfo
+# (typically because DNS wasn't ready at boot when the disc was first detected).
+METADATA_RETRY_INTERVAL_S = 60.0
 
 
 class CdSource(MpvAudioSource):
@@ -78,6 +85,12 @@ class CdSource(MpvAudioSource):
         # Sector offsets from libdiscid (persists across start/stop)
         self._sector_offsets: List[int] = []  # LBA start of each track
         self._disc_end_lba: int = 0  # total sectors (leadout)
+
+        # MusicBrainz retry: set when lookup_metadata fell through to fallback
+        # (album/artist/year=None). Throttled retry from the watcher loop until
+        # the network comes back and the lookup succeeds.
+        self._metadata_retry_pending = False
+        self._metadata_retry_last_attempt: float = 0.0
 
         # Playback state (reset on stop)
         self._current_track: Optional[int] = None  # 1-based
@@ -158,8 +171,13 @@ class CdSource(MpvAudioSource):
             disc_info = await self._data_service.lookup_metadata(
                 disc_id, toc_string, toc_tracks
             )
+            # Guard: disc may have been ejected during the await — refuse to
+            # repopulate state for a disc that's no longer in the drive.
+            if not self._disc_present or self._last_disc_id != disc_id:
+                return
             self._current_disc = disc_info
             self._tracks = disc_info.tracks
+            self._metadata_retry_pending = disc_info.album is None
             self._update_connection_state()
 
         except Exception as e:
@@ -241,10 +259,54 @@ class CdSource(MpvAudioSource):
             try:
                 await asyncio.sleep(0.5)
                 await self._check_drive_and_disc()
+                await self._retry_metadata_if_pending()
             except asyncio.CancelledError:
                 return
             except Exception as e:
                 self._logger.error(f"Disc watcher error: {e}")
+
+    async def _retry_metadata_if_pending(self) -> None:
+        """Re-run MusicBrainz when an earlier lookup fell through to fallback.
+
+        Only fires while CD is the active source — we never touch the network
+        for a source the user hasn't opened. Throttled to one attempt per
+        METADATA_RETRY_INTERVAL_S so a permanently-unknown disc doesn't spam.
+        """
+        if not self._metadata_retry_pending or not self._last_disc_id:
+            return
+        if not (self.state_machine
+                and self.state_machine.system_state.active_source == AudioSource.CD):
+            return
+
+        now = monotonic()
+        if now - self._metadata_retry_last_attempt < METADATA_RETRY_INTERVAL_S:
+            return
+        self._metadata_retry_last_attempt = now
+
+        result = await self._data_service.read_disc()
+        if not result:
+            return
+        disc_id, toc_string, toc_tracks, _ = result
+        if disc_id != self._last_disc_id:
+            return  # Disc swapped — let the watcher's normal flow handle it.
+
+        disc_info = await self._data_service.lookup_metadata(
+            disc_id, toc_string, toc_tracks
+        )
+        if disc_info.album is None:
+            return  # Still fallback — try again next cycle.
+
+        # Guard: disc may have been ejected during the await.
+        if not self._disc_present or self._last_disc_id != disc_id:
+            return
+        self._current_disc = disc_info
+        self._tracks = disc_info.tracks
+        self._metadata_retry_pending = False
+        self._logger.info(
+            "MusicBrainz retry succeeded for %s: %s — %s",
+            disc_id, disc_info.artist, disc_info.album,
+        )
+        self._update_connection_state()
 
     async def _check_drive_and_disc(self) -> None:
         """Check drive connection and disc status (two-phase detection).
@@ -333,54 +395,58 @@ class CdSource(MpvAudioSource):
             })
 
     async def _handle_disc_ready(self) -> None:
-        """Phase 2: disc ready (CDS_DISC_OK). Read TOC, lookup metadata, auto-play."""
+        """Phase 2: disc ready (CDS_DISC_OK).
+
+        Always reads the TOC (local I/O — needed for sector offsets so playback
+        can start instantly later). MusicBrainz lookup is deferred to source
+        activation: at boot the source may never be opened, and the network
+        often isn't ready when the watcher first sees a disc inserted at boot.
+        """
         self._logger.info("Disc ready, reading TOC")
 
-        is_active = (
-            self.state_machine
-            and self.state_machine.system_state.active_source == AudioSource.CD
-        )
-
-        # Start mpv service early (in parallel with TOC read) if CD is active
-        pre_start_task = None
-        if is_active:
-            pre_start_task = asyncio.create_task(self._pre_start_service())
-
-        # Read TOC (blocking I/O in thread)
         result = await self._data_service.read_disc()
         if not result:
             self._logger.warning("Failed to read disc TOC")
-            await self._cancel_task(pre_start_task)
             return
 
         disc_id, toc_string, toc_tracks, disc_end_lba = result
         self._sector_offsets = [t["offset"] for t in toc_tracks]
         self._disc_end_lba = disc_end_lba
 
-        # Same disc re-inserted: reuse cached metadata, skip MusicBrainz lookup
+        is_active = (
+            self.state_machine
+            and self.state_machine.system_state.active_source == AudioSource.CD
+        )
+
+        # Same disc re-inserted: reuse cached metadata.
         if disc_id == self._last_disc_id and self._current_disc:
             self._logger.info(f"Same disc re-detected: {disc_id}")
-            if is_active and pre_start_task:
-                await pre_start_task
+            if is_active and self._mpv and self._mpv.is_connected:
                 await self._auto_play_track_1()
-            else:
-                await self._cancel_task(pre_start_task)
             return
 
         self._last_disc_id = disc_id
         self._logger.info(f"New disc: {disc_id}, {len(toc_tracks)} tracks")
 
-        # Metadata lookup (network) in parallel with mpv service start
+        # Source not active → stop here; _do_start() / _load_disc_metadata()
+        # will fetch MusicBrainz when the user opens the CD source.
+        if not is_active:
+            return
+
+        # Source is active: lookup metadata in parallel with mpv warmup.
+        pre_start_task = asyncio.create_task(self._pre_start_service())
         metadata_coro = self._data_service.lookup_metadata(
             disc_id, toc_string, toc_tracks
         )
-        if is_active and pre_start_task:
-            disc_info, _ = await asyncio.gather(metadata_coro, pre_start_task)
-        else:
-            disc_info = await metadata_coro
+        disc_info, _ = await asyncio.gather(metadata_coro, pre_start_task)
 
+        # Guard: disc may have been ejected during the gather — refuse to
+        # repopulate state for a disc that's no longer in the drive.
+        if not self._disc_present or self._last_disc_id != disc_id:
+            return
         self._current_disc = disc_info
         self._tracks = disc_info.tracks
+        self._metadata_retry_pending = disc_info.album is None
 
         # Re-check active state after awaits (user could have switched source)
         still_active = (
@@ -464,6 +530,8 @@ class CdSource(MpvAudioSource):
         self._disc_ready = False
         self._sector_offsets = []
         self._disc_end_lba = 0
+        self._metadata_retry_pending = False
+        self._metadata_retry_last_attempt = 0.0
 
         if is_active:
             self._update_connection_state()

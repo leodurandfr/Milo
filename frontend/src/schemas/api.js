@@ -22,33 +22,38 @@ const SourceStateSchema = z.enum([
   'starting', 'waiting', 'active', 'error'
 ]);
 
-// Metadata varies by source, so we use a flexible schema
+// Metadata varies by source, so we use a flexible schema.
+// String/number fields are nullable: backend emits null for "unknown"
+// (e.g. CD with failed MusicBrainz lookup → album/artist/year=null).
 const MetadataSchema = z.object({
   // Common fields
-  title: z.string().optional(),
-  artist: z.string().optional(),
-  album: z.string().optional(),
-  duration: z.number().optional(),
-  position: z.number().optional(),
+  title: z.string().nullable().optional(),
+  artist: z.string().nullable().optional(),
+  album: z.string().nullable().optional(),
+  duration: z.number().nullable().optional(),
+  position: z.number().nullable().optional(),
   is_playing: z.boolean().optional(),
   is_buffering: z.boolean().optional(),
   album_art_url: z.string().nullable().optional(),
 
   // Radio-specific
-  station_name: z.string().optional(),
-  station_id: z.string().optional(),
+  station_name: z.string().nullable().optional(),
+  station_id: z.string().nullable().optional(),
 
   // Podcast-specific
-  episode_uuid: z.string().optional(),
-  podcast_name: z.string().optional(),
-  playback_speed: z.number().optional()
+  episode_uuid: z.string().nullable().optional(),
+  podcast_name: z.string().nullable().optional(),
+  playback_speed: z.number().nullable().optional()
 }).passthrough(); // Allow additional fields
 
 export const SystemStateSchema = z.object({
   active_source: AudioSourceSchema.catch('none'),
   source_state: SourceStateSchema.catch('waiting'),
   transitioning: z.boolean().catch(false),
-  metadata: MetadataSchema.optional().default({}),
+  // .catch({}) safety net: an unexpected metadata shape must never block
+  // a SystemState update — losing the metadata is preferable to freezing
+  // the UI on a stale source_state.
+  metadata: MetadataSchema.catch({}).optional().default({}),
   error: z.string().nullable().optional().catch(null),
   multiroom_enabled: z.boolean().catch(false),
   equalizer_effects_enabled: z.boolean().catch(false)
