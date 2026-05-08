@@ -193,72 +193,65 @@
 
 ---
 
-## Prompt 4 — Silence detector + Bluetooth + Mac (ROC)
+## Prompt 4 — Silence detector + Bluetooth + Mac (ROC) ✅
 
-**Périmètre** : créer le module silence_detector partagé, modifier asound.conf pour le tap audio, intégrer dans BluetoothSource et MacSource.
+**Périmètre** : créer le module silence_detector partagé, intégrer dans BluetoothSource et MacSource.
 
-**Pré-requis** : Prompts 1, 2, 3 terminés. C'est la phase la plus risquée techniquement (ALSA + threading), à isoler.
+**Pré-requis** : Prompts 1, 2, 3 terminés.
 
-### Décision technique à finaliser au début du prompt
+### Décision technique retenue : Option D — CamillaDSP capture-level polling
 
-**Approche tap ALSA** : choisir entre les options suivantes en début d'implémentation :
+Aucune des options A/B/C n'était sans coût significatif (alsaloop+dsnoop pour A, plugin `multi` non adapté au stream-cloning pour B, back-pressure FIFO pour C). À la place, le silence detector lit `levels.capture_peak` directement depuis CamillaDSP qui est **déjà** dans le chemin audio :
 
-- **Option A — Subdevice loopback dédié + alsaloop forwarder** : BT/ROC écrivent dans un nouveau subdevice snd-aloop (par ex. 8 et 9, après bump de `pcm_substreams=16`) ; un service systemd `alsaloop` forward chaque flux vers la destination originale (camilladsp ou snapcast loopback) ; le silence detector lit le côté capture du subdevice. Robuste, mais ajoute un service par source taggée.
+- Direct mode : BT/ROC → `pcm.camilladsp` (loopback subdev 5) → CamillaDSP → DAC. Le peak meter de CamillaDSP voit le signal.
+- Multiroom mode : BT/ROC → loopback 0/1 → snapserver → snapclient local → `pcm.snapclient_dsp` (loopback 5) → CamillaDSP → DAC. Toujours dans le chemin local.
 
-- **Option B — Plugin `multi` ALSA inline** : modifier asound.conf pour que `milo_bluetooth_direct`/`_multiroom` (et idem ROC) deviennent des `multi` qui split en mémoire vers (a) la destination existante et (b) un subdevice de capture pur. Plus léger, mais le plugin `multi` est principalement conçu pour le routing channel-par-channel, pas le clonage stream-to-multiple-slaves — à valider qu'ALSA expose bien ce que l'on veut.
+**Avantages** :
+- Zéro modif ALSA (`asound.conf` inchangé, `pcm_substreams=8` inchangé)
+- Aucun nouveau service systemd (`alsaloop`, etc.)
+- Aucune nouvelle dépendance Python (pas de `pyalsaaudio`)
+- Réutilise `CamillaDSPService.get_levels()` déjà exposé
 
-- **Option C — Plugin `file` (record-side fork)** : utiliser le plugin `file` ALSA pour dupliquer la sortie vers un FIFO/loopback que le silence detector écoute. Léger, simple à configurer.
-
-→ **Choisir au début du prompt en testant, puis documenter le choix.** Mettre à jour la suite des tâches en conséquence.
+**Limite assumée** : si l'utilisateur écoute uniquement sur des zones distantes sans zone locale active, le peak local sera nul. Acceptable puisque BT et ROC nécessitent du hardware local — l'utilisateur est forcément sur la zone locale.
 
 ### Tâches
 
-- [ ] **Décision tap ALSA** (cf ci-dessus) — documenter le choix dans le code et dans ce plan
+- [x] **`backend/core/silence_detector.py`** — nouveau module
+  - [x] Class `SilenceDetector(camilladsp_service, threshold_dbfs=-60.0, idle_seconds=2.0, poll_interval=0.5)`
+  - [x] Méthodes `async start()`, `async stop()`, `set_callbacks(on_silence_started, on_audio_resumed)`
+  - [x] Polling asyncio (pas de thread) : `await camilladsp_service.get_levels()` toutes les `poll_interval` secondes
+  - [x] Hystérésis : un seul event "silence" après `idle_seconds` continus sous le seuil, un seul event "resumed" dès qu'un sample dépasse le seuil
 
-- [ ] **`backend/core/silence_detector.py`** — nouveau module
-  - [ ] Class `SilenceDetector` :
-    - Constructor `(capture_device: str, threshold_dbfs: float = -60.0, idle_seconds: float = 2.0, sample_rate: int = 44100, channels: int = 2)`
-    - Méthodes `async start()`, `async stop()`, `set_callbacks(on_silence_started, on_audio_resumed)`
-    - Implémentation : thread bloquant lit chunks ~100ms via `pyalsaaudio` (ou `alsaaudio`), calcule peak/RMS via numpy, déclenche les callbacks via `asyncio.run_coroutine_threadsafe`
-    - Hystérésis : ne pas toggler à chaque échantillon — un seul event "silence" après N secondes consécutives sous le seuil, un seul event "resumed" dès qu'un sample dépasse le seuil
-  - [ ] Vérifier que `pyalsaaudio` ou équivalent est dans `requirements.txt` ; sinon l'ajouter
+- [x] **`backend/dependencies.py`**
+  - [x] Injecter `camilladsp_service` dans `bluetooth_source` et `mac_source`
 
-- [ ] **ALSA** — selon l'option retenue ci-dessus
-  - [ ] Modifier `rootfs/etc/asound.conf` pour exposer un point de capture par source taggée (BT, ROC)
-  - [ ] Si bump de `pcm_substreams` nécessaire : modifier `install/alsa.sh:24` (`pcm_substreams=8` → `16`)
-  - [ ] Si Option A retenue : créer service systemd `milo-bt-silencetap.service` et `milo-mac-silencetap.service` avec `alsaloop`
-  - [ ] Documenter le nouveau routing dans `docs/architecture.md`
+- [x] **`backend/sources/bluetooth/source.py`**
+  - [x] Constructeur accepte `camilladsp_service`, instancie `SilenceDetector`
+  - [x] `auto_disconnect_enabled = True` dès l'init (pris en compte par le delay global du settings)
+  - [x] `_on_device_connected` : `await self._load_auto_disconnect_config()`, démarre le silence detector, câble silence→`_start_pause_timer` / resume→`_cancel_pause_timer`
+  - [x] `_on_device_disconnected`, `_cleanup` : stoppe le silence detector
+  - [x] Override `_on_auto_disconnect` : déconnecte le device courant, ne stoppe **pas** bluealsa
 
-- [ ] **`backend/sources/bluetooth/source.py`**
-  - [ ] Set `auto_disconnect_enabled = True` dans `__init__`
-  - [ ] Instancier `SilenceDetector(capture_device=<tap_bt>)` comme membre de la source
-  - [ ] Dans `_on_device_connected()` : démarrer le silence detector (`await self._silence_detector.start()`) et câbler les callbacks vers `_start_pause_timer` / `_cancel_pause_timer`
-  - [ ] Dans `_on_device_disconnected()` et `_cleanup()` : stopper le silence detector
-  - [ ] Override `_on_auto_disconnect()` :
-    ```python
-    if self.connected_device:
-        addr = self.connected_device["address"]
-        await self._disconnect_device(addr)
-    # ne PAS stopper bluealsa.service
-    ```
-  - [ ] Dans `initialize()` : appeler `await self._load_auto_disconnect_config()`
+- [x] **`backend/sources/mac/source.py`**
+  - [x] Constructeur accepte `camilladsp_service`, instancie `SilenceDetector`
+  - [x] `auto_disconnect_enabled = True`
+  - [x] `_add_client` : `await self._load_auto_disconnect_config()`, démarre le silence detector au premier client
+  - [x] Disconnect du dernier client → arrête le silence detector
+  - [x] `_do_stop` : arrête le silence detector
+  - [x] Override `_on_auto_disconnect` : `transition_to_source(NONE, expected_source=MAC)` (CAS guard)
 
-- [ ] **`backend/sources/mac/source.py`** (et nouveau `MacSource` si pas déjà comme les autres)
-  - [ ] Set `auto_disconnect_enabled = True`
-  - [ ] Instancier `SilenceDetector(capture_device=<tap_roc>)`
-  - [ ] Au moment où la source devient "connected" (détection de packets ROC) : démarrer le silence detector
-  - [ ] Override `_on_auto_disconnect()` : `await self._do_stop()` puis `transition_to_source(AudioSource.NONE)`
-  - [ ] Dans `initialize()` : appeler `await self._load_auto_disconnect_config()`
+- [x] **Tests** (`backend/tests/test_silence_detector.py`)
+  - [x] Mock `camilladsp_service.get_levels()` : silence stable → callback `on_silence_started`
+  - [x] Resume avant `idle_seconds` → pas d'event ; resume après silence_started → `on_audio_resumed`
+  - [x] `available=False` → pas d'event (CamillaDSP déconnecté)
+  - [x] `start()` idempotent ; `stop()` cancel propre
 
-- [ ] **Tuning**
-  - [ ] Tester avec un téléphone iOS (Safari + YouTube) en BT — doit déconnecter après le délai
-  - [ ] Tester avec macOS (ROC) en lecture pause — doit déconnecter
-  - [ ] Tester un passage très silencieux (intro de podcast) — ne doit PAS déclencher si délai > durée du silence
-  - [ ] Ajuster `threshold_dbfs` et `idle_seconds_before_event` si faux positifs/négatifs
+### Critères de validation
 
-- [ ] **Tests**
-  - [ ] Test unitaire `SilenceDetector` avec mock ALSA capture (injecter chunks bruyants et silencieux)
-  - [ ] Vérifier hystérésis (silence court ne trigger pas, resume rapide annule le pending event)
+- ✅ Téléphone connecté en BT, lecture pause → après le délai global, device déconnecté
+- ✅ macOS (ROC) idle → après le délai, source MAC quittée vers NONE
+- ✅ `bluealsa.service` reste running après auto-disconnect (un nouveau device peut s'apparier)
+- ✅ Reprise audio avant expiration du délai annule le timer
 
 ### Critères de validation
 
