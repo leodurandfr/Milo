@@ -41,12 +41,16 @@
     <!-- Global Virtual Keyboard (available in wizard too) -->
     <VirtualKeyboard />
 
-    <!-- Warm color filter overlay (Night Shift-like, configurable in screen settings) -->
-    <div
-      v-if="colorFilterActive"
-      class="color-filter-overlay"
-      :style="colorFilterStyle"
-    />
+    <!-- Warm color filter overlay (Night Shift-like, configurable in screen settings).
+         Teleported to <body> so the multiply blend reaches teleported elements
+         (Dropdown menus, mobile AudioPlayer) that are siblings of #app. -->
+    <Teleport to="body">
+      <div
+        v-if="colorFilterActive"
+        class="color-filter-overlay"
+        :style="colorFilterStyle"
+      />
+    </Teleport>
 
     <!-- Sleep shield: intercepts touch when screen is off to prevent accidental UI interaction -->
     <div
@@ -350,9 +354,13 @@ watch(isReady, (ready) => {
 });
 
 // === Warm color filter overlay (Night Shift-like) ===
+// Only applied on the Pi kiosk (localhost). Remote browsers (e.g. milo.local
+// from another device) keep their native colors — same pattern as ui_scale.
 const COLOR_FILTER_MAX_ALPHA = 0.40;
+const isKiosk = window.location.hostname === 'localhost';
 
 const colorFilterActive = computed(() => {
+  if (!isKiosk) return false;
   const cf = settingsStore.screenColorFilter;
   return cf?.enabled && cf?.warmth > 0;
 });
