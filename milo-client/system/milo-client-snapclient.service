@@ -11,19 +11,7 @@ User=milo-client
 Group=audio
 EnvironmentFile=/var/lib/milo-client/env
 
-ExecStart=/bin/sh -c '\
-  AUDIO_ID=$(python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get(sys.argv[1],{}).get(sys.argv[2],sys.argv[3]))" audio id none < /var/lib/milo-client/hardware.json || echo "none"); \
-  if [ "$AUDIO_ID" = "none" ]; then echo "No audio card configured, skipping snapclient"; exit 0; fi; \
-  /usr/bin/snapclient \
-    -h ${MILO_PRINCIPAL_IP} \
-    -p 1704 \
-    --hostID $(ETH_MAC=$(cat /sys/class/net/eth0/address 2>/dev/null); \
-      if [ -n "$ETH_MAC" ] && [ "$ETH_MAC" != "00:00:00:00:00:00" ]; then echo "$ETH_MAC"; \
-      else cat /sys/class/net/wlan0/address 2>/dev/null || echo "milo-client"; fi) \
-    --logsink=system \
-    --soundcard camilladsp_input \
-    --mixer software \
-    --player alsa:buffer_time=${MILO_SNAPCLIENT_BUFFER_TIME:-80},fragments=${MILO_SNAPCLIENT_FRAGMENTS:-4}'
+ExecStart=/usr/local/bin/milo-client-snapclient-launcher
 
 Restart=on-failure
 RestartSec=5
