@@ -542,9 +542,9 @@ onMounted(async () => {
         settingsStore.updateVolumeSteps(event.data.config);
       }
     }),
-    on('settings', 'spotify_disconnect_changed', (event) => {
+    on('settings', 'audio_disconnect_changed', (event) => {
       if (event.data?.config) {
-        settingsStore.updateSpotifyDisconnect(event.data.config);
+        settingsStore.updateAudioPlayback(event.data.config);
       }
     }),
     on('settings', 'screen_timeout_changed', (event) => {
@@ -584,7 +584,7 @@ onMounted(async () => {
     }),
     on('settings', 'inactivity_timeout_changed', (event) => {
       if (event.data?.config) {
-        settingsStore.updateInactivityTimeout(event.data.config);
+        settingsStore.updateAudioPlayback(event.data.config);
       }
     }),
     on('settings', 'bt_remote_config_changed', (event) => {

@@ -70,7 +70,6 @@ import { useI18n } from '@/services/i18n'
 import { logger } from '@/services/logger'
 import { genreOptions as createGenreOptions } from '@/constants/musicGenres'
 import { countryOptions as createCountryOptions } from '@/constants/countries'
-import { RADIO_PLAYER_HIDE_DELAY_MS } from '@/constants/audioPlayer'
 import IconButton from '@/components/ui/IconButton.vue'
 import Button from '@/components/ui/Button.vue'
 import AudioPlayer from '@/components/audio/AudioPlayer.vue'
@@ -84,8 +83,12 @@ const unifiedStore = useUnifiedAudioStore()
 const { t } = useI18n()
 
 // === PLAYBACK VISIBILITY ===
+// Visual fade-out delay when radio stops — purely cosmetic, the backend
+// handles auto-disconnect via audio.auto_disconnect_delay.
+const HIDE_FADE_MS = 3000
+
 const { isPlaying: isCurrentlyPlaying, isBuffering, shouldShowPlayer: shouldShowNowPlayingLayout } =
-  useSourcePlaybackVisibility('radio', { hideDelayMs: RADIO_PLAYER_HIDE_DELAY_MS })
+  useSourcePlaybackVisibility('radio', { hideDelayMs: HIDE_FADE_MS })
 
 // === STATE ===
 const isSearchMode = ref(false)

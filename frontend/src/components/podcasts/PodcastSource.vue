@@ -99,7 +99,6 @@ import AudioPlayer from '@/components/audio/AudioPlayer.vue'
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue'
 import Dropdown from '@/components/ui/Dropdown.vue'
 import episodePlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
-import { PODCAST_PLAYER_HIDE_DELAY_MS } from '@/constants/audioPlayer'
 
 // Views
 import HomeView from './HomeView.vue'
@@ -141,16 +140,15 @@ function openPodcastSettings() {
 }
 
 // Playback state + player visibility (shared logic via composable)
+// Visual fade-out delay only — the backend handles auto-disconnect via
+// audio.auto_disconnect_delay (mpv pause hook).
+const HIDE_FADE_MS = 3000
+
 const { isPlaying: isCurrentlyPlaying, isBuffering, shouldShowPlayer: shouldShowPlayerLayout } =
   useSourcePlaybackVisibility('podcast', {
-    hideDelayMs: PODCAST_PLAYER_HIDE_DELAY_MS,
+    hideDelayMs: HIDE_FADE_MS,
     hideOnReady: true,
     shouldStartTimer: (playing, buffering) => !playing && !buffering && podcastStore.hasCurrentEpisode,
-    onHideTimeout: async () => {
-      if (!isCurrentlyPlaying.value && !isBuffering.value) {
-        await podcastStore.stop()
-      }
-    },
     onFadeOutStart: () => {
       setTimeout(() => podcastStore.clearDisplayEpisode(), 600)
     }
