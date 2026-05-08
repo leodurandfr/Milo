@@ -80,7 +80,7 @@ class AirPlaySource(BaseAudioSource):
             self._cancel_pause_timer()
 
             # Load auto-disconnect config from settings
-            await self._load_auto_disconnect_config('airplay.auto_disconnect_delay')
+            await self._load_auto_disconnect_config()
 
             await self._ensure_metadata_pipe()
 

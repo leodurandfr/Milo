@@ -213,7 +213,7 @@ class SpotifySource(BaseAudioSource):
         self._ws_url = f"ws://{addr}:{port}/events"
 
         # Load auto-disconnect config from settings
-        await self._load_auto_disconnect_config('spotify.auto_disconnect_delay')
+        await self._load_auto_disconnect_config()
 
         self._logger.info(f"Config loaded: API={self._api_url}")
         return True
@@ -514,20 +514,4 @@ class SpotifySource(BaseAudioSource):
             self._device_connected,
             {**self._metadata, "device_connected": True, "is_playing": self._is_playing},
             {"device_connected": False, "is_playing": False}
-        )
-
-    # === Public API ===
-
-    async def set_auto_disconnect_config(
-        self,
-        enabled: bool,
-        delay: Optional[float] = None,
-        save_to_settings: bool = True
-    ) -> bool:
-        """Configure auto-disconnect behavior (delegates to base class)."""
-        return await super().set_auto_disconnect_config(
-            enabled=enabled,
-            delay=delay,
-            settings_key='spotify.auto_disconnect_delay',
-            save_to_settings=save_to_settings
         )

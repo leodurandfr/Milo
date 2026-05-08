@@ -42,11 +42,9 @@ class SettingsService:
                 "color_filter_enabled": False,
                 "color_filter_warmth": 50
             },
-            "spotify": {
-                "auto_disconnect_delay": 120.0
-            },
-            "airplay": {
-                "auto_disconnect_delay": 120.0
+            "audio": {
+                "auto_disconnect_delay": 120.0,
+                "inactivity_timeout": 7200,
             },
             "podcast": {
                 "taddy_user_id": "",
@@ -189,23 +187,6 @@ class SettingsService:
             'color_filter_warmth': max(0, min(100, int(screen_input.get('color_filter_warmth', 50))))
         }
 
-        # Spotify - MODIFIED: Accept 0 for auto_disconnect_delay (disabled)
-        spotify_input = settings.get('spotify', {})
-        disconnect_delay_raw = float(spotify_input.get('auto_disconnect_delay', 120.0))
-
-        validated['spotify'] = {
-            # 0 = disabled, otherwise minimum 1.0 second, maximum 1h (3600s)
-            'auto_disconnect_delay': 0.0 if disconnect_delay_raw == 0.0 else max(1.0, min(9999.0, disconnect_delay_raw))
-        }
-
-        # AirPlay - same pattern as Spotify: 0 = disabled
-        airplay_input = settings.get('airplay', {})
-        airplay_delay_raw = float(airplay_input.get('auto_disconnect_delay', 120.0))
-
-        validated['airplay'] = {
-            'auto_disconnect_delay': 0.0 if airplay_delay_raw == 0.0 else max(1.0, min(9999.0, airplay_delay_raw))
-        }
-
         # Podcast credentials
         podcast_input = settings.get('podcast', {})
         validated['podcast'] = {
@@ -254,14 +235,31 @@ class SettingsService:
             # Preserve equalizer section as-is (no strict validation)
             validated['equalizer'] = equalizer_input
 
-        # Audio (inactivity timeout)
+        # Audio (auto-disconnect on pause + inactivity timeout)
+        # Migration: legacy spotify.auto_disconnect_delay / airplay.auto_disconnect_delay
+        # are folded into audio.auto_disconnect_delay (max of both if both present),
+        # then dropped from the validated output.
         audio_input = settings.get('audio', {})
-        if audio_input:
-            inactivity_raw = int(audio_input.get('inactivity_timeout', 7200))
-            validated['audio'] = {
-                # 0 = disabled, otherwise minimum 300s (5 min)
-                'inactivity_timeout': 0 if inactivity_raw == 0 else max(300, min(86400, inactivity_raw))
-            }
+        legacy_spotify_delay = settings.get('spotify', {}).get('auto_disconnect_delay')
+        legacy_airplay_delay = settings.get('airplay', {}).get('auto_disconnect_delay')
+
+        if 'auto_disconnect_delay' in audio_input:
+            disconnect_raw = float(audio_input.get('auto_disconnect_delay', 120.0))
+        else:
+            legacy_values = [
+                float(v) for v in (legacy_spotify_delay, legacy_airplay_delay)
+                if v is not None
+            ]
+            disconnect_raw = max(legacy_values) if legacy_values else 120.0
+
+        inactivity_raw = int(audio_input.get('inactivity_timeout', 7200))
+
+        validated['audio'] = {
+            # 0 = disabled, otherwise clamp to [1.0, 9999.0]
+            'auto_disconnect_delay': 0.0 if disconnect_raw == 0.0 else max(1.0, min(9999.0, disconnect_raw)),
+            # 0 = disabled, otherwise minimum 300s (5 min)
+            'inactivity_timeout': 0 if inactivity_raw == 0 else max(300, min(86400, inactivity_raw))
+        }
 
         # Radio settings
         radio_input = settings.get('radio', {})

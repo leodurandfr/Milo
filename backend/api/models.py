@@ -148,11 +148,11 @@ class DockAppsRequest(BaseModel):
 
 
 # =============================================================================
-# SETTINGS - SPOTIFY
+# SETTINGS - AUDIO AUTO-DISCONNECT
 # =============================================================================
 
-class SpotifyDisconnectRequest(BaseModel):
-    """Spotify auto-disconnect delay request"""
+class AudioDisconnectRequest(BaseModel):
+    """Global audio auto-disconnect delay request (applies to all sources)"""
     auto_disconnect_delay: float = Field(..., ge=0, le=9999)
 
     @field_validator('auto_disconnect_delay')
