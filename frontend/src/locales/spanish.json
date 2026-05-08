@@ -19,6 +19,7 @@
     "updates": "Actualizaciones",
     "information": "Información",
     "hardware": "Hardware",
+    "audioPlayback": "Reproducción de audio",
     "restart": "Reiniciar",
     "confirmRestart": "Confirmar reinicio",
     "shutdown": "Apagar",
@@ -252,9 +253,12 @@
     "confirmReboot": "Confirmar reinicio",
     "rebooting": "Reiniciando..."
   },
-  "spotifySettings": {
-    "autoDisconnect": "Desconexión automática",
-    "disconnectDelay": "Desconectar tras pausar la música durante:"
+  "audioPlayback": {
+    "autoDisconnect": "Auto-detener en pausa",
+    "autoDisconnectHint": "Detener el audio cuando esté en pausa durante:",
+    "notApplicableNote": "Se aplica a las fuentes que admiten la pausa.",
+    "inactivityTimeout": "Cierre automático",
+    "inactivityHint": "Desactivar la fuente de audio tras un período de inactividad:"
   },
   "macSettings": {
     "latency": "Latencia",
@@ -344,8 +348,6 @@
     "features": "Funcionalidades"
   },
   "applicationsSettings": {
-    "inactivityTimeout": "Cierre automático",
-    "inactivityDelay": "Desactivar la fuente de audio tras un período de inactividad:",
     "reorder": "Reordenar",
     "done": "Listo"
   },
@@ -364,6 +366,7 @@
     "1h": "1 h",
     "2h": "2 h",
     "4h": "4 h",
+    "6h": "6 h",
     "12h": "12 h"
   },
   "common": {

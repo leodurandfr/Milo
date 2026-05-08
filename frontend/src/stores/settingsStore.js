@@ -54,11 +54,6 @@ export const useSettingsStore = defineStore('settings', () => {
   // Ordered list of all audio sources (both enabled and disabled)
   const sourceOrder = ref([...ALL_AUDIO_SOURCES]);
 
-  // === SPOTIFY ===
-  const spotifyDisconnect = ref({
-    auto_disconnect_delay: 120.0
-  });
-
   // === PODCAST ===
   const podcastCredentials = ref({
     taddy_user_id: '',
@@ -70,8 +65,12 @@ export const useSettingsStore = defineStore('settings', () => {
   const podcastApiUsage = ref(null); // requests_used (null if no valid credentials)
   const podcastCredentialsValidatedAt = ref(null); // Unix timestamp when credentials were validated
 
-  // === AUDIO INACTIVITY ===
-  const inactivityTimeout = ref({
+  // === AUDIO PLAYBACK ===
+  // Two global behaviors applied to every eligible audio source:
+  // - auto_disconnect_delay: stop a paused source after N seconds (0 = disabled)
+  // - inactivity_timeout: deactivate an idle source after N seconds (0 = disabled)
+  const audioPlayback = ref({
+    auto_disconnect_delay: 120.0,
     inactivity_timeout: 7200
   });
 
@@ -180,16 +179,13 @@ export const useSettingsStore = defineStore('settings', () => {
           syncSourceOrder(enabledApps);
         }
 
-        spotifyDisconnect.value = {
-          auto_disconnect_delay: d.spotify_disconnect?.auto_disconnect_delay ?? 120.0
-        };
-
         podcastCredentials.value = {
           taddy_user_id: d.podcast_credentials?.taddy_user_id ?? '',
           taddy_api_key: d.podcast_credentials?.taddy_api_key ?? ''
         };
 
-        inactivityTimeout.value = {
+        audioPlayback.value = {
+          auto_disconnect_delay: d.audio_disconnect?.auto_disconnect_delay ?? 120.0,
           inactivity_timeout: d.inactivity_timeout?.inactivity_timeout ?? 7200
         };
 
@@ -299,7 +295,7 @@ export const useSettingsStore = defineStore('settings', () => {
     return [...orderedAudio, ...utilities];
   }
 
-  const updateSpotifyDisconnect = makeUpdater(spotifyDisconnect);
+  const updateAudioPlayback = makeUpdater(audioPlayback);
   const updatePodcastCredentials = makeUpdater(podcastCredentials);
 
   /**
@@ -411,7 +407,6 @@ export const useSettingsStore = defineStore('settings', () => {
       appEl.style.overflow = 'hidden';
     }
   }
-  const updateInactivityTimeout = makeUpdater(inactivityTimeout);
   const updateRadioSettings = makeUpdater(radioSettings);
   const updateMacRocSettings = makeUpdater(macRocSettings);
 
@@ -438,12 +433,11 @@ export const useSettingsStore = defineStore('settings', () => {
     volumeSteps,
     dockApps,
     sourceOrder,
-    spotifyDisconnect,
+    audioPlayback,
     podcastCredentials,
     podcastCredentialsStatus,
     podcastApiUsage,
     podcastCredentialsValidatedAt,
-    inactivityTimeout,
     radioSettings,
     macRocSettings,
     btRemote,
@@ -465,10 +459,9 @@ export const useSettingsStore = defineStore('settings', () => {
     updateDockApps,
     updateSourceOrder,
     buildEnabledAppsArray,
-    updateSpotifyDisconnect,
+    updateAudioPlayback,
     updatePodcastCredentials,
     refreshPodcastCredentialsStatus,
-    updateInactivityTimeout,
     updateRadioSettings,
     updateMacRocSettings,
     updateBtRemoteConfig,

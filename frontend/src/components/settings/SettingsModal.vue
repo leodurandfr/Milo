@@ -87,10 +87,9 @@
             </template>
           </ListItemButton>
 
-          <ListItemButton v-if="settingsStore.dockApps.spotify" :title="t('audioSources.spotify')" action="caret"
-            @click="push('spotify')">
+          <ListItemButton :title="t('settings.audioPlayback')" action="caret" @click="push('audio-playback')">
             <template #icon>
-              <img :src="spotifyIcon" alt="Spotify" />
+              <img :src="audioPlaybackIcon" alt="Audio playback" />
             </template>
           </ListItemButton>
 
@@ -156,8 +155,8 @@
       <!-- Hardware view -->
       <HardwareSettings v-else-if="currentView === 'hardware'" key="hardware" class="view-content" />
 
-      <!-- Spotify view -->
-      <SpotifySettings v-else-if="currentView === 'spotify'" key="spotify" class="view-content" />
+      <!-- Audio playback view -->
+      <AudioPlaybackSettings v-else-if="currentView === 'audio-playback'" key="audio-playback" class="view-content" />
 
       <!-- Multiroom view -->
       <MultiroomSettings v-else-if="currentView === 'multiroom'" key="multiroom" class="view-content"
@@ -233,7 +232,7 @@ import languagesIcon from '@/assets/settings-icons/languages.svg';
 import applicationsIcon from '@/assets/settings-icons/applications.svg';
 import volumeIcon from '@/assets/settings-icons/volume.svg';
 import displayIcon from '@/assets/settings-icons/display.svg';
-import spotifyIcon from '@/assets/settings-icons/spotify.svg';
+import audioPlaybackIcon from '@/assets/settings-icons/audio-playback.svg';
 import multiroomIcon from '@/assets/settings-icons/multiroom.svg';
 import updatesIcon from '@/assets/settings-icons/updates.svg';
 import informationIcon from '@/assets/settings-icons/information.svg';
@@ -247,7 +246,7 @@ import shutdownIcon from '@/assets/settings-icons/shutdown.svg';
 import DockSettings from '@/components/settings/categories/DockSettings.vue';
 import VolumeSettings from '@/components/settings/categories/VolumeSettings.vue';
 import ScreenSettings from '@/components/settings/categories/ScreenSettings.vue';
-import SpotifySettings from '@/components/settings/categories/SpotifySettings.vue';
+import AudioPlaybackSettings from '@/components/settings/categories/AudioPlaybackSettings.vue';
 import MultiroomSettings from './categories/multiroom/MultiroomSettings.vue';
 import ZoneEdit from './categories/multiroom/ZoneEdit.vue';
 import ClientEdit from './categories/multiroom/ClientEdit.vue';
@@ -336,7 +335,7 @@ const headerTitle = computed(() => {
     'screen': t('settings.screen'),
     'network': t('settings.network'),
     'hardware': t('settings.hardware'),
-    'spotify': t('audioSources.spotify'),
+    'audio-playback': t('settings.audioPlayback'),
     'multiroom': t('audioSources.multiroom'),
     'multiroom-zone-edit': zoneGroupId.value
       ? t('equalizer.zones.editZone')
@@ -543,9 +542,9 @@ async function handleShutdown() {
 // Placeholder for odd grid
 const shouldShowPlaceholder = computed(() => {
   // Count the number of visible items
-  let count = 7; // Base: Languages, Applications, Screen, Network, Hardware, Updates, Information
+  let count = 7; // Base: Languages, Applications, Network, Hardware, Audio playback, Updates, Information
+  if (screenType.value !== 'none') count++;
   if (unifiedStore.volumeState.any_volume_control) count++;
-  if (settingsStore.dockApps.spotify) count++;
   if (settingsStore.dockApps.mac) count++;
   if (settingsStore.dockApps.multiroom) count++;
   if (settingsStore.dockApps.radio) count++;

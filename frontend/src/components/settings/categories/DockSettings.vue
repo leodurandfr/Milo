@@ -92,26 +92,11 @@
       </div>
     </SettingsSection>
 
-    <!-- Inactivity timeout -->
-    <ToggleSection
-      :title="t('applicationsSettings.inactivityTimeout')"
-      :enabled="inactivityEnabled"
-      @change="handleInactivityToggle"
-    >
-      <SettingItem :label="t('applicationsSettings.inactivityDelay')">
-        <ButtonGroup
-          :model-value="inactivityConfig.inactivity_timeout"
-          :options="inactivityPresets"
-          mobile-layout="grid-3"
-          @change="setInactivityTimeout"
-        />
-      </SettingItem>
-    </ToggleSection>
   </SettingsContainer>
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onUnmounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useI18n } from '@/services/i18n';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
@@ -120,14 +105,11 @@ import ListItemButton from '@/components/ui/ListItemButton.vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import Button from '@/components/ui/Button.vue';
-import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
-import SettingItem from '@/components/settings/SettingItem.vue';
-import ToggleSection from '@/components/ui/ToggleSection.vue';
 
 const { t } = useI18n();
-const { debouncedUpdate, updateSetting } = useSettingsAPI();
+const { debouncedUpdate } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 
 const { dockApps: config, sourceOrder } = storeToRefs(settingsStore);
@@ -261,69 +243,11 @@ function swap(i, j) {
   [arr[i], arr[j]] = [arr[j], arr[i]];
 }
 
-// === Inactivity Timeout ===
-
-const inactivityConfig = ref({
-  inactivity_timeout: 7200
-});
-
-const inactivityEnabled = computed(() => inactivityConfig.value.inactivity_timeout !== 0);
-
-const lastNonZeroTimeout = ref(7200);
-
-function syncInactivityFromStore() {
-  const timeout = settingsStore.inactivityTimeout.inactivity_timeout;
-  inactivityConfig.value.inactivity_timeout = timeout;
-  if (timeout > 0) {
-    lastNonZeroTimeout.value = timeout;
-  }
-}
-
-const inactivityPresets = computed(() => [
-  { value: 300, label: t('time.5min') },
-  { value: 900, label: t('time.15min') },
-  { value: 3600, label: t('time.1h') },
-  { value: 7200, label: t('time.2h') },
-  { value: 14400, label: t('time.4h') },
-  { value: 43200, label: t('time.12h') }
-]);
-
-function handleInactivityToggle(enabled) {
-  if (enabled) {
-    inactivityConfig.value.inactivity_timeout = lastNonZeroTimeout.value;
-    settingsStore.updateInactivityTimeout({ inactivity_timeout: lastNonZeroTimeout.value });
-    updateSetting('inactivity-timeout', { inactivity_timeout: lastNonZeroTimeout.value });
-  } else {
-    if (inactivityConfig.value.inactivity_timeout > 0) {
-      lastNonZeroTimeout.value = inactivityConfig.value.inactivity_timeout;
-    }
-    inactivityConfig.value.inactivity_timeout = 0;
-    settingsStore.updateInactivityTimeout({ inactivity_timeout: 0 });
-    updateSetting('inactivity-timeout', { inactivity_timeout: 0 });
-  }
-}
-
-function setInactivityTimeout(value) {
-  if (value > 0) {
-    lastNonZeroTimeout.value = value;
-  }
-  inactivityConfig.value.inactivity_timeout = value;
-  settingsStore.updateInactivityTimeout({ inactivity_timeout: value });
-  updateSetting('inactivity-timeout', { inactivity_timeout: value });
-}
-
 // Sync reorder list when sourceOrder changes externally (e.g. WS dock_apps_changed)
 watch(sourceOrder, (newOrder) => {
   if (isReordering.value) {
     reorderList.value = [...newOrder];
   }
-});
-
-// Sync local config when store changes (e.g., WS event from another device)
-watch(() => settingsStore.inactivityTimeout, syncInactivityFromStore, { deep: true });
-
-onMounted(() => {
-  syncInactivityFromStore();
 });
 
 onUnmounted(() => {

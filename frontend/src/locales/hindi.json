@@ -19,6 +19,7 @@
     "updates": "अपडेट",
     "information": "जानकारी",
     "hardware": "हार्डवेयर",
+    "audioPlayback": "ऑडियो प्लेबैक",
     "restart": "पुनः आरंभ करें",
     "confirmRestart": "पुनः आरंभ की पुष्टि करें",
     "shutdown": "बंद करें",
@@ -252,9 +253,12 @@
     "confirmReboot": "पुनः आरंभ की पुष्टि करें",
     "rebooting": "पुनः आरंभ हो रहा है..."
   },
-  "spotifySettings": {
-    "autoDisconnect": "ऑटो डिस्कनेक्ट",
-    "disconnectDelay": "संगीत रुकने के बाद इतने समय में डिस्कनेक्ट करें:"
+  "audioPlayback": {
+    "autoDisconnect": "विराम पर स्वतः बंद",
+    "autoDisconnectHint": "विराम के बाद ऑडियो बंद करें:",
+    "notApplicableNote": "विराम का समर्थन करने वाले स्रोतों पर लागू होता है।",
+    "inactivityTimeout": "स्वचालित बंद",
+    "inactivityHint": "निष्क्रियता की अवधि के बाद ऑडियो स्रोत को निष्क्रिय करें:"
   },
   "macSettings": {
     "latency": "विलंबता",
@@ -344,8 +348,6 @@
     "features": "सुविधाएं"
   },
   "applicationsSettings": {
-    "inactivityTimeout": "स्वचालित बंद",
-    "inactivityDelay": "निष्क्रियता की अवधि के बाद ऑडियो स्रोत को निष्क्रिय करें:",
     "reorder": "पुनः क्रमित करें",
     "done": "पूर्ण"
   },
@@ -364,6 +366,7 @@
     "1h": "1 घंटा",
     "2h": "2 घंटे",
     "4h": "4 घंटे",
+    "6h": "6 घंटे",
     "12h": "12 घंटे"
   },
   "common": {

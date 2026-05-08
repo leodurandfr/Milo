@@ -9,7 +9,6 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
  * @param {Object} [options]
  * @param {number} [options.hideDelayMs=5000] - Delay before hiding the player after playback stops
  * @param {boolean} [options.hideOnReady=false] - Hide immediately when source_state becomes 'waiting'
- * @param {Function} [options.onHideTimeout] - Called when the hide timer fires (e.g. to stop backend playback)
  * @param {Function} [options.onFadeOutStart] - Called when shouldShowPlayer transitions true → false
  * @param {Function} [options.shouldStartTimer] - Custom predicate: (isPlaying, isBuffering) => boolean.
  *   Returns true when the hide timer should start. Defaults to: !isPlaying
@@ -18,7 +17,6 @@ export function useSourcePlaybackVisibility(source, options = {}) {
   const {
     hideDelayMs = 5000,
     hideOnReady = false,
-    onHideTimeout,
     onFadeOutStart,
     shouldStartTimer
   } = options;
@@ -95,7 +93,6 @@ export function useSourcePlaybackVisibility(source, options = {}) {
       if (shouldStart && shouldShowPlayer.value) {
         stopTimer.value = setTimeout(() => {
           shouldShowPlayer.value = false;
-          onHideTimeout?.();
         }, hideDelayMs);
       }
     },
