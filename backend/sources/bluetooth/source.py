@@ -127,7 +127,7 @@ class BluetoothSource(BaseAudioSource):
             await self._stop_service(self.bluealsa_service)
 
             # Keep bluetooth.service running if BT remote controller needs it
-            bt_remote = await self.settings_service.get_setting('hardware.bt_remote')
+            bt_remote = await self._settings_service.get_setting('hardware.bt_remote')
             if not (bt_remote and bt_remote.get('enabled')):
                 await self._stop_service(self.bluetooth_service)
 
