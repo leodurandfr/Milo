@@ -48,6 +48,19 @@ get_wlan0_connection() {
         grep ":wlan0$" | cut -d: -f1
 }
 
+# Disable Energy Efficient Ethernet on a wired interface.
+# EEE/LPI causes micro-pauses on link wake-up that produce TCP retransmissions
+# and Snapcast buffer underruns on the multiroom audio path.
+disable_eee() {
+    local iface="$1"
+    [ -x /usr/sbin/ethtool ] || return 0
+    /usr/sbin/ethtool --show-eee "$iface" 2>/dev/null | \
+        grep -q "EEE status: enabled" || return 0
+    if ! /usr/sbin/ethtool --set-eee "$iface" eee off >/dev/null 2>&1; then
+        logger -t milo-network "EEE disable unsupported on $iface (driver limitation)"
+    fi
+}
+
 # Update Avahi interface - writes to state file then restarts Avahi
 set_avahi_interface() {
     local interface="$1"
@@ -69,6 +82,9 @@ case "$INTERFACE" in
         case "$ACTION" in
             up)
                 # Ethernet is now up - this is the preferred interface
+
+                # 0. Disable EEE to keep the audio link awake (Snapcast)
+                disable_eee eth0
 
                 # 1. Disconnect WiFi unless hotspot is active (managed by backend)
                 active_conn=$(get_wlan0_connection)

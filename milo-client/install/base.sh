@@ -42,6 +42,7 @@ install_dependencies() {
         python3-venv \
         python3-dev \
         libasound2-dev \
+        ethtool \
         avahi-daemon \
         avahi-utils
 
