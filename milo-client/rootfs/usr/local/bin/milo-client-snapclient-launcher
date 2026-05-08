@@ -1,0 +1,72 @@
+#!/bin/sh
+# Milo Client - Snapclient launcher
+#
+# Resolves MILO_PRINCIPAL_IP to a literal IP at service start, then runs
+# snapclient with the resolved address. This avoids snapclient's internal
+# reconnect loop re-issuing mDNS lookups for milo.local — which can stall
+# for ~30s on transient avahi failures and turn a brief network glitch into
+# an audible audio drop.
+#
+# When MILO_PRINCIPAL_IP changes (e.g. server moves between Ethernet and
+# WiFi), systemd Restart=on-failure will eventually re-run this launcher
+# and resolve the new IP.
+#
+# Environment variables (provided by /var/lib/milo-client/env):
+#   MILO_PRINCIPAL_IP            hostname or IP of the main Milō server
+#   MILO_SNAPCLIENT_BUFFER_TIME  ALSA buffer time in ms (default 80)
+#   MILO_SNAPCLIENT_FRAGMENTS    ALSA fragments (default 4)
+
+set -eu
+
+HARDWARE_FILE="/var/lib/milo-client/hardware.json"
+
+# Skip launch entirely when no audio card is configured (matches previous behavior)
+audio_id=$(python3 -c \
+    "import json,sys;d=json.load(sys.stdin);print(d.get(sys.argv[1],{}).get(sys.argv[2],sys.argv[3]))" \
+    audio id none < "$HARDWARE_FILE" 2>/dev/null || echo "none")
+
+if [ "$audio_id" = "none" ]; then
+    echo "milo-client-snapclient-launcher: no audio card configured, skipping snapclient"
+    exit 0
+fi
+
+# Resolve MILO_PRINCIPAL_IP if it looks like a hostname.
+# Numeric literals (1.2.3.4) are passed through unchanged — covers the
+# install-time --server <ip> case.
+server="${MILO_PRINCIPAL_IP:-milo.local}"
+case "$server" in
+    *[!0-9.]*)
+        # Hostname — try to resolve, retry up to ~10s for slow avahi/DNS at boot
+        resolved=""
+        i=0
+        while [ "$i" -lt 5 ]; do
+            resolved=$(getent hosts "$server" 2>/dev/null | awk '{print $1}' | head -n1)
+            [ -n "$resolved" ] && break
+            i=$((i + 1))
+            sleep 2
+        done
+        if [ -n "$resolved" ]; then
+            echo "milo-client-snapclient-launcher: resolved $server -> $resolved"
+            server="$resolved"
+        else
+            echo "milo-client-snapclient-launcher: could not resolve $server, falling back to hostname (snapclient will retry internally)" >&2
+        fi
+        ;;
+esac
+
+# Build hostID from primary interface MAC (eth0 preferred, wlan0 fallback)
+eth_mac=$(cat /sys/class/net/eth0/address 2>/dev/null || true)
+if [ -n "$eth_mac" ] && [ "$eth_mac" != "00:00:00:00:00:00" ]; then
+    host_id="$eth_mac"
+else
+    host_id=$(cat /sys/class/net/wlan0/address 2>/dev/null || echo "milo-client")
+fi
+
+exec /usr/bin/snapclient \
+    -h "$server" \
+    -p 1704 \
+    --hostID "$host_id" \
+    --logsink=system \
+    --soundcard camilladsp_input \
+    --mixer software \
+    --player "alsa:buffer_time=${MILO_SNAPCLIENT_BUFFER_TIME:-80},fragments=${MILO_SNAPCLIENT_FRAGMENTS:-4}"

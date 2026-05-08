@@ -96,6 +96,11 @@ install_wrapper_scripts() {
     sudo chmod 755 /usr/local/bin/milo-client-deploy-update
     sudo chown root:root /usr/local/bin/milo-client-deploy-update
 
+    # Snapclient launcher (resolves MILO_PRINCIPAL_IP at start to avoid mDNS in reconnect loop)
+    sudo cp "$MILO_CLIENT_ROOTFS_DIR/usr/local/bin/milo-client-snapclient-launcher" /usr/local/bin/
+    sudo chmod 755 /usr/local/bin/milo-client-snapclient-launcher
+    sudo chown root:root /usr/local/bin/milo-client-snapclient-launcher
+
     log_success "Wrapper scripts installed"
 }
 
