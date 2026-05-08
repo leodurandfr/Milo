@@ -3,7 +3,7 @@
 MpvAudioSource - Intermediate base class for mpv-based audio sources.
 
 Provides shared _do_restart() and _monitor_loop() skeletons with hooks
-for source-specific behavior. Used by RadioSource and PodcastSource.
+for source-specific behavior. Used by RadioSource, PodcastSource, CdSource.
 
 Hooks:
     _before_restart_save(): Called after stopping monitor, before reset (e.g., save progress)
@@ -15,6 +15,7 @@ import asyncio
 from typing import Optional
 
 from backend.core.audio_source import BaseAudioSource
+from backend.core.models.audio_state import AudioSource
 from backend.shared.decorators import handle_errors
 from backend.shared.mpv import MpvController
 
@@ -43,10 +44,19 @@ class MpvAudioSource(BaseAudioSource):
         self._is_buffering = False
         self._position_ticks: int = 0
 
+        # Auto-disconnect on mpv pause (effective enable controlled by
+        # the global delay: 0 means disabled, see _load_auto_disconnect_config).
+        self.auto_disconnect_enabled = True
+        # Last observed pause state, used by _handle_pause_change to debounce
+        # repeated same-state calls from a subclass's monitor tick.
+        self._was_paused: bool = False
+
     def _reset_playback_state(self) -> None:
         super()._reset_playback_state()
         self._is_buffering = False
         self._position_ticks = 0
+        self._was_paused = False
+        self._cancel_pause_timer()
 
     def _position_sync_due(self) -> bool:
         """Return True every POSITION_SYNC_INTERVAL ticks, then reset."""
@@ -117,6 +127,44 @@ class MpvAudioSource(BaseAudioSource):
             pass
         except Exception as e:
             self._logger.error(f"Monitor error: {e}")
+
+    # === Auto-disconnect on pause ===
+
+    def _handle_pause_change(self, is_paused: bool) -> None:
+        """Arm or cancel the auto-disconnect timer on a pause-state edge.
+
+        Called by subclasses with whatever pause signal they already track:
+        an mpv property they polled in their tick (radio, podcast) or an
+        explicit user command (CD play/pause/resume/stop). Edge-tracking via
+        `_was_paused` keeps repeated same-state calls cheap.
+        """
+        if not self.auto_disconnect_enabled:
+            return
+        if is_paused == self._was_paused:
+            return
+        self._was_paused = is_paused
+        if is_paused:
+            self._start_pause_timer()
+        else:
+            self._cancel_pause_timer()
+
+    async def _on_auto_disconnect(self) -> None:
+        """Stop playback and return to no source after pause timeout.
+
+        Uses transition_to_source(NONE) with a CAS guard so a user who
+        switched to another source between the timer firing and the lock
+        being acquired isn't kicked back to the home screen.
+
+        Note: this override is mandatory for CdSource — the BaseAudioSource
+        default (`_do_restart`) would re-load the FIFO into mpv with no
+        reader running, deadlocking the playback chain.
+        """
+        if self.state_machine:
+            await self.state_machine.transition_to_source(
+                AudioSource.NONE, expected_source=self.source
+            )
+        else:
+            await self.stop()
 
     async def _on_mpv_disconnect(self) -> None:
         """Hook: called on unexpected mpv disconnect during playback.

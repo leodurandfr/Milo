@@ -363,12 +363,16 @@ class BaseAudioSource(ABC):
         async def disconnect_after_delay():
             try:
                 await asyncio.sleep(self.pause_disconnect_delay)
-                self._logger.info(
-                    f"Auto-disconnecting after {self.pause_disconnect_delay}s pause"
-                )
-                await self._on_auto_disconnect()
             except asyncio.CancelledError:
-                pass
+                return
+            # Detach the task ref so re-entrant _cancel_pause_timer() calls
+            # (e.g. from stop() inside _on_auto_disconnect) become no-ops.
+            self._pause_timer = None
+            self._logger.info(
+                f"Auto-disconnecting after {self.pause_disconnect_delay}s pause"
+            )
+            try:
+                await self._on_auto_disconnect()
             except Exception as e:
                 self._logger.error(f"Auto-disconnect failed: {e}")
 

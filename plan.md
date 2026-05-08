@@ -90,7 +90,7 @@
 
 ---
 
-## Prompt 2 — Frontend reorganization (nouveau panneau + suppressions)
+## Prompt 2 — Frontend reorganization (nouveau panneau + suppressions) ✅
 
 **Périmètre** : créer le panneau "Lecture audio", supprimer SpotifySettings, déplacer inactivity_timeout hors de DockSettings, nettoyer les timers hardcodés Radio/Podcast côté frontend.
 
@@ -98,58 +98,47 @@
 
 ### Tâches
 
-- [ ] **Nouveau composant `frontend/src/components/settings/categories/AudioPlaybackSettings.vue`**
-  - [ ] Structure identique à l'actuel `SpotifySettings.vue` mais avec **deux** `ToggleSection` :
+- [x] **Nouveau composant `frontend/src/components/settings/categories/AudioPlaybackSettings.vue`**
+  - [x] Structure identique à l'actuel `SpotifySettings.vue` mais avec **deux** `ToggleSection` :
     - "Auto-stop sur pause" → presets `30s, 2min, 5min, 10min, 30min`, lié à `audio.auto_disconnect_delay`
     - "Fermeture automatique après inactivité" → presets `5min, 30min, 1h, 2h, 6h, 12h`, lié à `audio.inactivity_timeout`
-  - [ ] Note discrète sous le 1er toggle : "S'applique aux sources qui supportent la pause" (i18n)
+  - [x] Note discrète sous le 1er toggle : "S'applique aux sources qui supportent la pause" (i18n)
 
-- [ ] **`frontend/src/stores/settingsStore.js`**
-  - [ ] Supprimer `spotifyDisconnect` ref + getter + `updateSpotifyDisconnect`
-  - [ ] Remplacer `inactivityTimeout` ref par un `audioPlayback` ref groupé :
-    ```js
-    const audioPlayback = ref({
-      auto_disconnect_delay: 120,
-      inactivity_timeout: 7200,
-    })
-    ```
-  - [ ] Adapter `loadAllSettings()` pour mapper depuis le nouveau payload backend (`audio_disconnect` + `inactivity_timeout`)
-  - [ ] Ajouter handlers WS pour `audio_disconnect_changed` et `inactivity_timeout_changed`
+- [x] **`frontend/src/stores/settingsStore.js`**
+  - [x] Supprimer `spotifyDisconnect` ref + getter + `updateSpotifyDisconnect`
+  - [x] Remplacer `inactivityTimeout` ref par un `audioPlayback` ref groupé
+  - [x] Adapter `loadAllSettings()` pour mapper depuis le nouveau payload backend (`audio_disconnect` + `inactivity_timeout`)
+  - [x] Handlers WS `audio_disconnect_changed` et `inactivity_timeout_changed` mis à jour dans `App.vue`
 
-- [ ] **`frontend/src/components/settings/SettingsModal.vue`**
-  - [ ] Ajouter entrée `Lecture audio` dans la grille (créer/réutiliser une icône SVG appropriée — cf existant pour le style)
-  - [ ] Supprimer entrée `Spotify` (lignes ~90-95) et l'import associé
-  - [ ] Mettre à jour `headerTitle` map : retirer `'spotify'`, ajouter `'audio-playback'`
-  - [ ] Mettre à jour `shouldShowPlaceholder` (count change cohérent)
-  - [ ] Importer et router `AudioPlaybackSettings` au lieu de `SpotifySettings`
+- [x] **`frontend/src/components/settings/SettingsModal.vue`**
+  - [x] Entrée `Lecture audio` ajoutée (icône `audio-playback.svg` créée)
+  - [x] Entrée `Spotify` + import supprimés
+  - [x] `headerTitle` map mise à jour
+  - [x] `shouldShowPlaceholder` recompté (Audio playback inconditionnel, Spotify supprimé, Screen géré séparément)
+  - [x] `AudioPlaybackSettings` importé et routé
 
-- [ ] **`frontend/src/components/settings/categories/DockSettings.vue`**
-  - [ ] Supprimer la section "Inactivity timeout" (template lignes ~95-109)
-  - [ ] Supprimer toute la logique associée : `inactivityConfig`, `inactivityEnabled`, `setInactivityTimeout`, `handleInactivityToggle`, `lastNonZeroTimeout`, le `watch` correspondant, l'import/usage de `settingsStore.inactivityTimeout`
-  - [ ] Vérifier que le composant ne contient plus que la gestion du dock/applications
+- [x] **`frontend/src/components/settings/categories/DockSettings.vue`**
+  - [x] Section "Inactivity timeout" supprimée
+  - [x] Toute la logique associée supprimée
 
-- [ ] **Suppressions définitives**
-  - [ ] Supprimer `frontend/src/components/settings/categories/SpotifySettings.vue`
-  - [ ] Supprimer `RADIO_PLAYER_HIDE_DELAY_MS` et `PODCAST_PLAYER_HIDE_DELAY_MS` de `frontend/src/constants/audioPlayer.js`
-  - [ ] Le fichier `audioPlayer.js` peut être supprimé entièrement s'il ne contenait que ces deux constantes
+- [x] **Suppressions définitives**
+  - [x] `SpotifySettings.vue` supprimé
+  - [x] `frontend/src/constants/audioPlayer.js` supprimé (les deux constantes étaient les seules)
 
-- [ ] **`frontend/src/components/radio/RadioSource.vue`**
-  - [ ] Remplacer l'import `RADIO_PLAYER_HIDE_DELAY_MS` par une constante locale `const HIDE_FADE_MS = 3000`
-  - [ ] Le timer reste purement esthétique (cache l'UI quand la radio s'arrête)
+- [x] **`frontend/src/components/radio/RadioSource.vue`**
+  - [x] Constante locale `HIDE_FADE_MS = 3000`
 
-- [ ] **`frontend/src/components/podcasts/PodcastSource.vue`**
-  - [ ] Remplacer `PODCAST_PLAYER_HIDE_DELAY_MS` par une constante locale `const HIDE_FADE_MS = 3000`
-  - [ ] **Supprimer** le callback `onHideTimeout: async () => { await podcastStore.stop() }` (lignes ~149-153) — le backend gère le stop maintenant
-  - [ ] Garder `onFadeOutStart` pour le `clearDisplayEpisode()`
+- [x] **`frontend/src/components/podcasts/PodcastSource.vue`**
+  - [x] Constante locale `HIDE_FADE_MS = 3000`
+  - [x] Callback `onHideTimeout: stop()` supprimé
+  - [x] `onFadeOutStart` conservé
 
-- [ ] **`frontend/src/composables/useSourcePlaybackVisibility.js`**
-  - [ ] Si `onHideTimeout` n'est plus utilisé nulle part après les modifs ci-dessus → retirer le param et la logique associée
-  - [ ] Sinon, le garder tel quel (il peut servir à nettoyer de l'UI sans appel backend)
+- [x] **`frontend/src/composables/useSourcePlaybackVisibility.js`**
+  - [x] `onHideTimeout` n'avait plus aucun caller → param et logique retirés
 
-- [ ] **i18n** (`frontend/src/locales/english.json`, `french.json`, et autres si présents)
-  - [ ] Ajouter clés `settings.audioPlayback`, `audioPlayback.title`, `audioPlayback.autoDisconnect`, `audioPlayback.autoDisconnectHint`, `audioPlayback.notApplicableNote`, `audioPlayback.inactivityTimeout`, `audioPlayback.inactivityHint`
-  - [ ] Conserver les clés `time.*` (réutilisées pour les presets)
-  - [ ] Supprimer `spotifySettings.*`, `applicationsSettings.inactivityTimeout`, `applicationsSettings.inactivityDelay`
+- [x] **i18n** (8 locales)
+  - [x] Ajout `settings.audioPlayback`, `audioPlayback.{autoDisconnect,autoDisconnectHint,notApplicableNote,inactivityTimeout,inactivityHint}`, `time.6h`
+  - [x] Suppression `spotifySettings.*`, `applicationsSettings.inactivityTimeout`, `applicationsSettings.inactivityDelay`
 
 ### Critères de validation
 
@@ -161,7 +150,7 @@
 
 ---
 
-## Prompt 3 — Radio / Podcast / CD pause hooks (backend mpv)
+## Prompt 3 — Radio / Podcast / CD pause hooks (backend mpv) ✅
 
 **Périmètre** : ajouter le câblage pause→`_start_pause_timer()` aux 3 sources mpv. Le frontend ne change pas (déjà nettoyé au Prompt 2).
 
@@ -169,30 +158,31 @@
 
 ### Tâches
 
-- [ ] **`backend/shared/mpv_audio_source.py`** (base partagée)
-  - [ ] Dans `__init__` : set `self.auto_disconnect_enabled = True` (l'effective enable est piloté par le delay global = 0 → désactivé)
-  - [ ] Dans le state listener mpv existant qui broadcast les events :
-    - Quand `pause` devient `True` ou état mpv = "paused" → appeler `self._start_pause_timer()`
-    - Quand `pause` devient `False` ou playback reprend → appeler `self._cancel_pause_timer()`
-  - [ ] Override `_on_auto_disconnect()` : appeler `self._do_stop()`, puis demander au state_machine de retourner sur `AudioSource.NONE` via `transition_to_source(AudioSource.NONE)`
+- [x] **`backend/shared/mpv_audio_source.py`** (base partagée)
+  - [x] `__init__` : `auto_disconnect_enabled = True` + `_was_paused: bool = False`
+  - [x] `_handle_pause_change(is_paused)` : helper edge-trigger (pas d'IPC), appelé par les sous-classes avec leur propre signal de pause
+  - [x] Override `_on_auto_disconnect()` : `state_machine.transition_to_source(NONE, expected_source=self.source)` (CAS guard)
+  - [x] Fix sous-jacent dans `BaseAudioSource._start_pause_timer` : détacher la task ref avant d'appeler le callback pour éviter qu'un `_cancel_pause_timer()` ré-entrant (via `stop()` interne) cancel la task en cours
 
-- [ ] **`backend/sources/radio/source.py`**
-  - [ ] Dans `initialize()` ou `_do_start()` : appeler `await self._load_auto_disconnect_config()`
-  - [ ] Vérifier que les events pause mpv sont bien remontés (le listener radio écoute déjà `pause` pour son état UI ?)
-  - [ ] Note : pour la radio, "pause" mpv peut ne pas être un cas usuel (stream live = stop, pas pause). Vérifier si mpv émet `pause` ou seulement `idle-active`. Adapter le listener si besoin.
+- [x] **`backend/sources/radio/source.py`**
+  - [x] `_do_start` appelle `await self._load_auto_disconnect_config()`
+  - [x] `_on_monitor_tick` lit `pause` une fois si une station joue, appelle `_handle_pause_change`
+  - [x] `_handle_stop_playback` annule explicitement (pause mpv peut rester sticky après `stop`)
 
-- [ ] **`backend/sources/podcast/source.py`**
-  - [ ] Dans `initialize()` ou `_do_start()` : appeler `await self._load_auto_disconnect_config()`
-  - [ ] Vérifier que la pause mpv déclenche bien `_start_pause_timer` via la base mpv
-  - [ ] Le système de save de progression toutes les 10s doit continuer de fonctionner pendant la fenêtre du timer (les deux sont indépendants)
+- [x] **`backend/sources/podcast/source.py`**
+  - [x] `_do_start` appelle `await self._load_auto_disconnect_config()`
+  - [x] `_on_monitor_tick` réutilise le `pause_state` déjà lu pour appeler `_handle_pause_change` (zéro IPC supplémentaire)
+  - [x] `_handle_stop_playback` annule explicitement le timer
 
-- [ ] **`backend/sources/cd/source.py`**
-  - [ ] Dans `initialize()` ou `_do_start()` : appeler `await self._load_auto_disconnect_config()`
-  - [ ] Vérifier comportement mpv pour la lecture CD (le reader thread tourne en parallèle de mpv ; à l'auto-disconnect, `_do_stop` doit aussi arrêter le reader thread proprement — c'est déjà fait dans le `_do_stop` existant)
+- [x] **`backend/sources/cd/source.py`**
+  - [x] `_do_start` appelle `await self._load_auto_disconnect_config()`
+  - [x] `_handle_pause` / `_handle_resume` / `_handle_play_track` / `_handle_stop_playback` appellent explicitement `_handle_pause_change` (pas de polling mpv pour CD — évite la confusion `playback-time` vs `time-pos` du démuxer FIFO/raw_audio)
 
-- [ ] **Tests**
-  - [ ] Test que sur Radio/Podcast/CD, un appel à `reload_auto_disconnect_config()` met bien à jour la valeur active
-  - [ ] Test (si possible avec mock mpv) que pause + délai → `_on_auto_disconnect()` est appelé
+- [x] **Tests** (`backend/tests/test_mpv_audio_source.py`, nouveau fichier)
+  - [x] Test edge pause→arme / unpause→annule / pas de média→clear / désactivé→no-op
+  - [x] Test `_on_auto_disconnect` appelle `transition_to_source(NONE, expected_source=...)`
+  - [x] Test `reload_auto_disconnect_config` (delay=0 et delay>0)
+  - [x] Test régression : timer auto-détaché avant exécution du callback (évite self-cancel)
 
 ### Critères de validation
 

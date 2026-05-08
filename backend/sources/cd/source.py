@@ -141,6 +141,7 @@ class CdSource(MpvAudioSource):
                         self._logger.error("Failed to connect to mpv IPC")
                         return False
 
+            await self._load_auto_disconnect_config()
             self._start_monitor()
             self._update_connection_state()
 
@@ -599,6 +600,7 @@ class CdSource(MpvAudioSource):
             self._is_paused = False
             self._is_buffering = True  # Until mpv produces audio
             self._album_finished = False
+            self._handle_pause_change(False)
 
             self._update_connection_state()
             self.broadcast_error_cleared()
@@ -615,6 +617,7 @@ class CdSource(MpvAudioSource):
             await self._mpv.pause()
             self._is_playing = False
             self._is_paused = True
+            self._handle_pause_change(True)
             self._update_connection_state()
             return self.success_response("Paused")
         except Exception as e:
@@ -632,6 +635,7 @@ class CdSource(MpvAudioSource):
                 await self._mpv.resume()
                 self._is_playing = True
                 self._is_paused = False
+                self._handle_pause_change(False)
                 self._update_connection_state()
                 return self.success_response("Resumed")
 
@@ -702,6 +706,7 @@ class CdSource(MpvAudioSource):
             self._current_track = None
             self._track_position = 0
             self._album_finished = False
+            self._handle_pause_change(False)
             self._update_connection_state()
             return self.success_response("Playback stopped")
         except Exception as e:
