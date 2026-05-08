@@ -18,7 +18,8 @@ import ipaddress
 from typing import Dict, Any, Optional, Tuple
 
 from backend.core.audio_source import BaseAudioSource
-from backend.core.models.audio_state import SourceState
+from backend.core.models.audio_state import AudioSource, SourceState
+from backend.core.silence_detector import SilenceDetector
 from backend.shared.decorators import handle_errors
 
 
@@ -66,7 +67,8 @@ class MacSource(BaseAudioSource):
         config: Optional[Dict[str, Any]] = None,
         state_machine=None,
         settings_service=None,
-        systemd_manager=None
+        systemd_manager=None,
+        camilladsp_service=None
     ):
         super().__init__(
             source_id="mac",
@@ -87,6 +89,18 @@ class MacSource(BaseAudioSource):
         self.connected_clients: Dict[str, str] = {}  # {ip: hostname}
         self._monitor_task: Optional[asyncio.Task] = None
         self._stopping = False
+
+        # Auto-disconnect on silence (effective enable controlled by global delay).
+        # ROC is always sending packets (even silent ones) once a session is open,
+        # so we rely on signal-level detection rather than packet absence.
+        self.auto_disconnect_enabled = True
+        self._silence_detector: Optional[SilenceDetector] = None
+        if camilladsp_service is not None:
+            self._silence_detector = SilenceDetector(camilladsp_service)
+            self._silence_detector.set_callbacks(
+                on_silence_started=self._on_silence_started,
+                on_audio_resumed=self._on_audio_resumed,
+            )
 
     def _reset_playback_state(self) -> None:
         super()._reset_playback_state()
@@ -132,6 +146,8 @@ class MacSource(BaseAudioSource):
                 pass
             self._monitor_task = None
 
+        await self._stop_silence_watch()
+        self._cancel_pause_timer()
         self._reset_playback_state()
 
         # Stop service
@@ -149,6 +165,9 @@ class MacSource(BaseAudioSource):
             except asyncio.CancelledError:
                 pass
             self._monitor_task = None
+
+        await self._stop_silence_watch()
+        self._cancel_pause_timer()
 
         # Restart service
         if not await self._restart_service_and_wait(settle=1):
@@ -288,6 +307,9 @@ class MacSource(BaseAudioSource):
                 if ip in self.connected_clients:
                     name = self.connected_clients.pop(ip)
                     self._logger.info(f"Disconnected: {name} ({ip})")
+                    if not self.connected_clients:
+                        await self._stop_silence_watch()
+                        self._cancel_pause_timer()
                     self._update_connection_state()
             return
 
@@ -313,10 +335,50 @@ class MacSource(BaseAudioSource):
         if ip in self.connected_clients:
             return
 
+        is_first_client = not self.connected_clients
         hostname = await self._resolve_hostname(ip)
         self.connected_clients[ip] = hostname
         self._logger.info(f"Connected: {hostname} ({ip})")
         self._update_connection_state()
+
+        if is_first_client:
+            await self._start_silence_watch()
+
+    # === Silence-based auto-disconnect ===
+
+    async def _start_silence_watch(self) -> None:
+        """Start the silence detector and refresh the global delay."""
+        if not self._silence_detector:
+            return
+        await self._load_auto_disconnect_config()
+        await self._silence_detector.start()
+
+    async def _stop_silence_watch(self) -> None:
+        """Stop the silence detector."""
+        if self._silence_detector:
+            await self._silence_detector.stop()
+
+    async def _on_silence_started(self) -> None:
+        """Silence detector edge: arm the auto-disconnect timer."""
+        self._start_pause_timer()
+
+    async def _on_audio_resumed(self) -> None:
+        """Silence detector edge: cancel a pending auto-disconnect."""
+        self._cancel_pause_timer()
+
+    async def _on_auto_disconnect(self) -> None:
+        """Quit the source on extended silence.
+
+        Uses transition_to_source(NONE) with a CAS guard so a user who
+        switched away between the timer firing and the lock being acquired
+        isn't kicked back to the home screen.
+        """
+        if self.state_machine:
+            await self.state_machine.transition_to_source(
+                AudioSource.NONE, expected_source=self.source
+            )
+        else:
+            await self.stop()
 
     async def _resolve_hostname(self, ip: str) -> str:
         """Resolve mDNS hostname for IP."""
