@@ -100,8 +100,9 @@ class PodcastSource(MpvAudioSource):
             saved_speed = await self._podcast_data.get_setting("playback_speed", 1.0)
             self._playback_speed = saved_speed
 
-            # 4. Reset state
+            # 4. Reset state and load auto-disconnect config
             self._reset_playback_state()
+            await self._load_auto_disconnect_config()
 
             # 5. Start monitor task
             self._start_monitor()
@@ -361,6 +362,9 @@ class PodcastSource(MpvAudioSource):
         """Stop playback."""
         try:
             self._loading = False
+            # Stop is an explicit user action — drop any pending pause timer
+            # (mpv's pause property can stay True after `stop`).
+            self._handle_pause_change(False)
             if self._current_episode:
                 await self._save_progress()
                 await self._mpv.stop()
@@ -525,6 +529,10 @@ class PodcastSource(MpvAudioSource):
             self.broadcast_position_update(
                 self._position * 1000, self._duration * 1000
             )
+
+        # Auto-disconnect: arm/cancel timer based on the pause we already polled.
+        if pause_state is not None:
+            self._handle_pause_change(bool(pause_state))
 
         # Detect stuck at position 0 with pause=True
         if self._is_playing and position == 0.0 and pause_state is True:
