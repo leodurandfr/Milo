@@ -148,9 +148,15 @@ const rawSourceState = computed(() => {
       metadata.value?.ejecting) {
     return 'ejecting';
   }
-  // CD: disc present but cache still loading (WAITING state, not yet ACTIVE)
+  // CD: disc present but TOC or metadata not yet attached.
+  // disc_id is emitted by _build_metadata only once `_current_disc` is set
+  // — true on either MusicBrainz success OR fallback. Its absence covers
+  // the activation window where the TOC has been read but the lookup
+  // hasn't completed; once `_current_disc` is populated has_disc flips
+  // the source state to ACTIVE and we leave 'loading_disc' anyway.
   if (activeSource.value === 'cd' && sourceState.value === 'waiting' &&
-      metadata.value?.disc_present && !metadata.value?.cache_ready) {
+      metadata.value?.disc_present &&
+      (!metadata.value?.cache_ready || !metadata.value?.disc_id)) {
     return 'loading_disc';
   }
   // CD: no drive connected (active source but hardware missing)
