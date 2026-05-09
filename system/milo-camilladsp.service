@@ -17,9 +17,6 @@ RuntimeDirectoryMode=0755
 # Working directory for config files
 WorkingDirectory=/var/lib/milo/camilladsp
 
-# Load Milo environment variables
-EnvironmentFile=/var/lib/milo/routing.env
-
 # Start CamillaDSP with WebSocket server enabled
 # -p 1234: WebSocket server port
 # -a 127.0.0.1: Listen only on localhost
