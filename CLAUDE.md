@@ -484,6 +484,11 @@ These are auto-generated in `/var/lib/milo/routing.env` based on settings.json.
 - Mock dependencies via constructor injection
 - See `backend/tests/` for examples
 
+**ALSA routing smoke test (Pi only):**
+- `bash scripts/test-alsa-routing.sh` — static checks of the ALSA chain: Loopback subdevice layout in `/etc/asound.conf`, CamillaDSP capture device, and snapserver source devices all match the documented slot map (DSP→0, sources→1..7). Catches subdevice renumbering, alias renames, and dead-PCM accumulation.
+- `bash scripts/test-alsa-routing.sh --with-live` — additionally probes each alias with a non-destructive `aplay` open. BUSY (subdevice held by an active writer) is reported as a warning, not a failure.
+- `pytest backend/tests/test_alsa_routing.py` — pytest wrapper around the static checks; auto-skips off-Pi.
+
 **Frontend (Vitest):**
 - Not currently configured but structure supports it
 - Would use `@vue/test-utils` for component testing
