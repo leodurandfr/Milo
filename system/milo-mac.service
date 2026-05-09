@@ -12,6 +12,7 @@ Group=audio
 
 EnvironmentFile=/etc/environment
 EnvironmentFile=/var/lib/milo/routing.env
+EnvironmentFile=-/var/lib/milo/mac.env
 Environment=HOME=/home/milo
 
 ExecStart=/usr/bin/roc-recv -vvv \

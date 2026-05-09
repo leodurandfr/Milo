@@ -37,7 +37,21 @@ configure_alsa_complete() {
 MILO_MODE=direct
 EOF
 
-    sudo chown "$MILO_USER:$MILO_USER" "$MILO_DATA_DIR/routing.env"
+    sudo tee "$MILO_DATA_DIR/snapclient.env" > /dev/null << 'EOF'
+MILO_SNAPCLIENT_BUFFER_TIME=80
+MILO_SNAPCLIENT_FRAGMENTS=4
+EOF
+
+    sudo tee "$MILO_DATA_DIR/mac.env" > /dev/null << 'EOF'
+ROC_TARGET_LATENCY=200ms
+ROC_LATENCY_PROFILE=responsive
+ROC_FRAME_LENGTH=7ms
+EOF
+
+    sudo chown "$MILO_USER:$MILO_USER" \
+        "$MILO_DATA_DIR/routing.env" \
+        "$MILO_DATA_DIR/snapclient.env" \
+        "$MILO_DATA_DIR/mac.env"
 
     log_success "Complete ALSA configuration done"
 }
