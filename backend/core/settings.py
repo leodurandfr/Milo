@@ -44,7 +44,6 @@ class SettingsService:
             },
             "audio": {
                 "auto_disconnect_delay": 120.0,
-                "inactivity_timeout": 7200,
             },
             "podcast": {
                 "taddy_user_id": "",
@@ -235,7 +234,7 @@ class SettingsService:
             # Preserve equalizer section as-is (no strict validation)
             validated['equalizer'] = equalizer_input
 
-        # Audio (auto-disconnect on pause + inactivity timeout)
+        # Audio (auto-disconnect on pause)
         # Migration: legacy spotify.auto_disconnect_delay / airplay.auto_disconnect_delay
         # are folded into audio.auto_disconnect_delay (max of both if both present),
         # then dropped from the validated output.
@@ -260,13 +259,9 @@ class SettingsService:
             ]
             disconnect_raw = max(legacy_values) if legacy_values else 120.0
 
-        inactivity_raw = int(audio_input.get('inactivity_timeout', 7200))
-
         validated['audio'] = {
             # 0 = disabled, otherwise clamp to [1.0, 9999.0]
-            'auto_disconnect_delay': 0.0 if disconnect_raw == 0.0 else max(1.0, min(9999.0, disconnect_raw)),
-            # 0 = disabled, otherwise minimum 300s (5 min)
-            'inactivity_timeout': 0 if inactivity_raw == 0 else max(300, min(86400, inactivity_raw))
+            'auto_disconnect_delay': 0.0 if disconnect_raw == 0.0 else max(1.0, min(9999.0, disconnect_raw))
         }
 
         # Radio settings

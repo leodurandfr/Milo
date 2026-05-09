@@ -24,7 +24,6 @@ from backend.api.models import (
     ScreenColorFilterRequest,
     MacRocConfigRequest,
     RadioSettingsRequest,
-    InactivityTimeoutRequest,
     HardwareConfigRequest,
 )
 from backend.core.multiroom.routing import RoutingEnvironment
@@ -138,7 +137,6 @@ def create_settings_router(
                 "taddy_user_id": podcast.get('taddy_user_id', ''),
                 "taddy_api_key": podcast.get('taddy_api_key', '')
             },
-            "inactivity_timeout": {"inactivity_timeout": audio.get('inactivity_timeout', 7200)},
             "screen_timeout": {
                 "screen_timeout_enabled": timeout_seconds != 0,
                 "screen_timeout_seconds": timeout_seconds
@@ -1269,27 +1267,6 @@ def create_settings_router(
             event_type="radio_settings_changed",
             event_data={"config": radio_config},
             reload_callback=apply_to_radio
-        )
-
-    # Audio inactivity timeout
-    @router.get("/inactivity-timeout")
-    async def get_inactivity_timeout():
-        audio = await settings.get_setting('audio') or {}
-        timeout = audio.get("inactivity_timeout", 7200)
-        return {
-            "status": "success",
-            "config": {"inactivity_timeout": timeout}
-        }
-
-    @router.put("/inactivity-timeout")
-    async def set_inactivity_timeout(payload: InactivityTimeoutRequest):
-        return await _handle_setting_update(
-            payload,
-            validator=lambda p: True,
-            setter=lambda: settings.set_setting('audio.inactivity_timeout', payload.inactivity_timeout),
-            event_type="inactivity_timeout_changed",
-            event_data={"config": {"inactivity_timeout": payload.inactivity_timeout}},
-            reload_callback=lambda: state_machine.reload_inactivity_config(payload.inactivity_timeout)
         )
 
     return router

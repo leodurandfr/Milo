@@ -255,10 +255,7 @@
   },
   "audioPlayback": {
     "autoDisconnect": "विराम पर स्वतः बंद",
-    "autoDisconnectHint": "विराम के बाद ऑडियो बंद करें:",
-    "notApplicableNote": "विराम का समर्थन करने वाले स्रोतों पर लागू होता है।",
-    "inactivityTimeout": "स्वचालित बंद",
-    "inactivityHint": "निष्क्रियता की अवधि के बाद ऑडियो स्रोत को निष्क्रिय करें:"
+    "autoDisconnectHint": "विराम के बाद ऑडियो बंद करें:"
   },
   "macSettings": {
     "latency": "विलंबता",

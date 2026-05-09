@@ -255,10 +255,7 @@
   },
   "audioPlayback": {
     "autoDisconnect": "暂停时自动停止",
-    "autoDisconnectHint": "暂停后停止音频:",
-    "notApplicableNote": "适用于支持暂停的音源。",
-    "inactivityTimeout": "自动关闭",
-    "inactivityHint": "在一段时间不活动后停用音频源："
+    "autoDisconnectHint": "暂停后停止音频:"
   },
   "macSettings": {
     "latency": "延迟",

@@ -582,11 +582,6 @@ onMounted(async () => {
         settingsStore.updateMacRocSettings(event.data.config);
       }
     }),
-    on('settings', 'inactivity_timeout_changed', (event) => {
-      if (event.data?.config) {
-        settingsStore.updateAudioPlayback(event.data.config);
-      }
-    }),
     on('settings', 'bt_remote_config_changed', (event) => {
       if (event.data?.config) {
         settingsStore.updateBtRemoteConfig(event.data.config);

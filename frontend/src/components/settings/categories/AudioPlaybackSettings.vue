@@ -15,23 +15,6 @@
           @change="setAutoDisconnectDelay"
         />
       </SettingItem>
-      <p class="audio-playback__note text-mono">{{ t('audioPlayback.notApplicableNote') }}</p>
-    </ToggleSection>
-
-    <!-- Inactivity timeout (deactivate audio source after a long idle period) -->
-    <ToggleSection
-      :title="t('audioPlayback.inactivityTimeout')"
-      :enabled="inactivityEnabled"
-      @change="handleInactivityToggle"
-    >
-      <SettingItem :label="t('audioPlayback.inactivityHint')">
-        <ButtonGroup
-          :model-value="config.inactivity_timeout"
-          :options="inactivityPresets"
-          mobile-layout="grid-3"
-          @change="setInactivityTimeout"
-        />
-      </SettingItem>
     </ToggleSection>
   </SettingsContainer>
 </template>
@@ -52,16 +35,13 @@ const settingsStore = useSettingsStore();
 
 // Local state for instant responsiveness
 const config = ref({
-  auto_disconnect_delay: 120,
-  inactivity_timeout: 7200
+  auto_disconnect_delay: 120
 });
 
-// Remember last non-zero values so toggling OFF then ON restores the user choice
+// Remember last non-zero value so toggling OFF then ON restores the user choice
 const lastAutoDisconnect = ref(120);
-const lastInactivity = ref(7200);
 
 const autoDisconnectEnabled = computed(() => config.value.auto_disconnect_delay !== 0);
-const inactivityEnabled = computed(() => config.value.inactivity_timeout !== 0);
 
 const autoDisconnectPresets = computed(() => [
   { value: 30, label: t('time.30sec') },
@@ -71,24 +51,11 @@ const autoDisconnectPresets = computed(() => [
   { value: 1800, label: t('time.30min') }
 ]);
 
-const inactivityPresets = computed(() => [
-  { value: 300, label: t('time.5min') },
-  { value: 1800, label: t('time.30min') },
-  { value: 3600, label: t('time.1h') },
-  { value: 7200, label: t('time.2h') },
-  { value: 21600, label: t('time.6h') },
-  { value: 43200, label: t('time.12h') }
-]);
-
 function syncFromStore() {
   const playback = settingsStore.audioPlayback;
   config.value.auto_disconnect_delay = playback.auto_disconnect_delay;
-  config.value.inactivity_timeout = playback.inactivity_timeout;
   if (playback.auto_disconnect_delay > 0) {
     lastAutoDisconnect.value = playback.auto_disconnect_delay;
-  }
-  if (playback.inactivity_timeout > 0) {
-    lastInactivity.value = playback.inactivity_timeout;
   }
 }
 
@@ -111,25 +78,6 @@ function setAutoDisconnectDelay(value) {
   updateSetting('audio-disconnect', { auto_disconnect_delay: value });
 }
 
-function handleInactivityToggle(enabled) {
-  const next = enabled ? lastInactivity.value : 0;
-  if (!enabled && config.value.inactivity_timeout > 0) {
-    lastInactivity.value = config.value.inactivity_timeout;
-  }
-  config.value.inactivity_timeout = next;
-  settingsStore.updateAudioPlayback({ inactivity_timeout: next });
-  updateSetting('inactivity-timeout', { inactivity_timeout: next });
-}
-
-function setInactivityTimeout(value) {
-  if (value > 0) {
-    lastInactivity.value = value;
-  }
-  config.value.inactivity_timeout = value;
-  settingsStore.updateAudioPlayback({ inactivity_timeout: value });
-  updateSetting('inactivity-timeout', { inactivity_timeout: value });
-}
-
 // Re-sync when the store changes (e.g. WS event from another device)
 watch(() => settingsStore.audioPlayback, syncFromStore, { deep: true });
 
@@ -137,10 +85,3 @@ onMounted(() => {
   syncFromStore();
 });
 </script>
-
-<style scoped>
-.audio-playback__note {
-  color: var(--color-text-secondary);
-  margin: 0;
-}
-</style>
