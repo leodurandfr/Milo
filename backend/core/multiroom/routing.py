@@ -6,7 +6,7 @@ import logging
 import asyncio
 import os
 import time
-from typing import Any, Callable, Dict, Literal, Optional
+from typing import Any, Callable, Dict, Optional
 from backend.core.models.audio_state import AudioSource, SourceState
 from backend.core.systemd import SystemdServiceManager  # noqa: F401 (patched in tests)
 from backend.shared.decorators import handle_errors
@@ -346,8 +346,10 @@ class AudioRoutingService:
             # Do NOT reset multiroom/equalizer state here — routing.env was already
             # written correctly from settings.json above. Resetting would overwrite
             # MILO_MODE=multiroom with MILO_MODE=direct, causing ALSA device conflicts.
+            #
+            # Leave _initial_detection_done = False so a transient init failure can
+            # be retried on the next caller (e.g., set_multiroom_enabled).
             self.logger.error(f"Error during initial state detection: {e}")
-            self._initial_detection_done = True
 
     async def _sync_snapcast_state(self) -> None:
         """Reconcile running Snapcast services with persisted multiroom state."""
@@ -407,7 +409,7 @@ class AudioRoutingService:
         else:
             self.logger.warning("VolumeService not available for equalizer sync")
 
-    async def _guarded_state_transition(
+    async def _guarded_simple_toggle(
         self,
         get_fn,
         set_fn,
@@ -416,13 +418,17 @@ class AudioRoutingService:
         body_fn,
     ) -> bool:
         """
-        Execute a state transition with lock, idempotency check, and rollback.
+        Execute a *simple* state toggle with lock, idempotency check, and rollback.
+
+        Used by lightweight togglers (e.g. equalizer effects) where there is no
+        service start/stop and no source restart. The multiroom transition has
+        its own three-phase machinery in `set_multiroom_enabled`.
 
         Args:
             get_fn: async () -> bool — read current state
-            set_fn: async (bool) -> None — set state + any side effects (e.g., systemd env)
+            set_fn: async (bool) -> None — set state + any side effects
             desired: Target state value
-            operation_name: For logging (e.g., "multiroom", "equalizer_effects")
+            operation_name: For logging (e.g., "equalizer_effects")
             body_fn: async (bool) -> bool — the transition body, returns success
         """
         async with self._routing_lock:
@@ -446,42 +452,187 @@ class AudioRoutingService:
                 return False
 
     async def set_multiroom_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
-        """Enables/disables multiroom mode with early notification"""
+        """Enable/disable multiroom mode using a 3-phase transition.
+
+        PHASE 1 — COMMIT: settings.json + state machine + routing.env. If any
+                          sub-step fails, revert all three together.
+        PHASE 2 — APPLY:  stop source, start/stop snapcast, restart source. On
+                          failure, revert phase 1 AND services back to old state.
+        PHASE 3 — BEST EFFORT: WS connection, volume push, ready broadcast.
+                          Never fails the transition; just logs warnings.
+        """
         if not self._initial_detection_done:
             await self._detect_initial_state()
 
-        async def set_multiroom_with_env(value: bool) -> None:
-            await self._set_multiroom_state(value)
-            await self._update_systemd_environment()
+        async with self._routing_lock:
+            if self.multiroom_enabled == enabled:
+                self.logger.info(f"multiroom already {'enabled' if enabled else 'disabled'}")
+                return True
 
-        async def body(enabled: bool) -> bool:
+            old_state = self.multiroom_enabled
             self.logger.info(f"Changing multiroom to {enabled}")
-            await self._broadcast_transition_event(enabled)
 
-            if enabled:
-                success = await self._transition_to_multiroom(active_source)
-            else:
-                success = await self._transition_to_direct(active_source)
-
-            if not success:
+            # PHASE 1 — COMMIT
+            try:
+                await self._commit_state(enabled)
+            except Exception as e:
+                self.logger.error(f"PHASE 1 commit failed: {e}; reverting to {old_state}")
+                try:
+                    await self._commit_state(old_state)
+                except Exception as e2:
+                    self.logger.error(f"PHASE 1 commit revert ALSO failed: {e2}")
+                await self._broadcast_error(enabled)
                 return False
 
-            await self._post_transition_setup(enabled)
-            self.logger.info(f"Multiroom state changed and saved: {enabled}")
+            # PHASE 2 — APPLY (with symmetric rollback)
+            try:
+                await self._broadcast_transition_event(enabled)
+                await self._apply_transition(enabled, active_source)
+            except Exception as e:
+                self.logger.error(f"PHASE 2 apply failed: {e}; rolling back")
+                try:
+                    await self._apply_transition(old_state, active_source)
+                except Exception as e2:
+                    self.logger.error(f"PHASE 2 rollback ALSO failed: {e2}")
+                try:
+                    await self._commit_state(old_state)
+                except Exception as e3:
+                    self.logger.error(f"PHASE 2 commit-revert ALSO failed: {e3}")
+                await self._broadcast_error(enabled)
+                return False
+
+            # PHASE 3 — BEST EFFORT
+            await self._post_transition_setup_best_effort(enabled)
+
+            # Final non-silent broadcast (commit was silent)
+            if self.state_machine:
+                await self.state_machine.update_multiroom_state(enabled)
+
+            self.logger.info(f"Multiroom transition complete: {enabled}")
             return True
 
-        success = await self._guarded_state_transition(
-            self._get_multiroom_enabled, set_multiroom_with_env,
-            enabled, "multiroom", body,
-        )
-        if self.state_machine:
-            if success:
-                await self.state_machine.update_multiroom_state(enabled)
+    async def _commit_state(self, enabled: bool) -> None:
+        """PHASE 1: persist target state across all 3 layers atomically.
+
+        Order matters: persistent disk first (so it survives a crash before the
+        in-memory state mutates), in-memory next, artifact (routing.env) last.
+        Raises if any sub-step fails — caller decides whether to revert.
+        """
+        if self.settings_service:
+            await self.settings_service.set_setting('routing.multiroom_enabled', enabled)
+        await self._set_multiroom_state(enabled)
+        RoutingEnv.regenerate(enabled)
+
+    async def _apply_transition(self, enabled: bool, active_source: AudioSource = None) -> None:
+        """PHASE 2: stop source, toggle snapcast services, restart source.
+
+        Acquires `state_machine._transition_lock` to prevent concurrent source
+        lifecycle operations with `transition_to_source()`. Lock order is
+        always: `_routing_lock` (held by caller) → `_transition_lock`.
+
+        Raises on failure; caller catches and rolls back.
+        """
+        if not self.state_machine:
+            raise RuntimeError("State machine not available for routing transition")
+
+        target_mode = "multiroom" if enabled else "direct"
+        source_instance = None
+        if active_source and self.get_source:
+            source_instance = self.get_source(active_source)
+
+        async with self.state_machine._transition_lock:
+            # Step 1: Notify STARTING state to show loading UI
+            if source_instance:
+                await self.state_machine.update_source_state(
+                    source=active_source,
+                    new_state=SourceState.STARTING,
+                    metadata={"reason": "routing_change"}
+                )
+
+            # Step 2: Stop source FIRST to release ALSA device before routing change.
+            # Critical: in direct mode the source holds camilladsp; in multiroom mode
+            # snapclient needs the same device.
+            if source_instance:
+                self.logger.info(f"Stopping source {active_source.value} to release ALSA device")
+                await source_instance.stop()
+                await asyncio.sleep(0.5)  # Wait for ALSA to release
+
+            # Step 3: Start/stop Snapcast services based on target mode
+            if enabled:
+                self.logger.info("Starting snapcast services")
+                snapcast_success = await self._start_snapcast()
+                if not snapcast_success:
+                    # Best-effort: restart source so the system isn't left silent.
+                    # The caller will see the raise and run rollback anyway.
+                    if source_instance:
+                        self.logger.info(f"Snapcast failed, restarting source {active_source.value}")
+                        try:
+                            await source_instance.start()
+                        except Exception as e:
+                            self.logger.warning(f"Source recovery start failed: {e}")
+                    raise RuntimeError("Failed to start snapcast services")
             else:
-                await self.state_machine.broadcast_event("routing", "multiroom_error", {
-                    "error": f"Failed to {'enable' if enabled else 'disable'} multiroom",
-                })
-        return success
+                await self._stop_snapcast()
+
+            # Step 4: Restart source with new routing
+            if source_instance:
+                self.logger.info(f"Starting source {active_source.value} for {target_mode} mode")
+                start_success = await source_instance.start()
+                if not start_success:
+                    raise RuntimeError(
+                        f"Source {active_source.value} start failed after {target_mode} transition"
+                    )
+
+    async def _post_transition_setup_best_effort(self, enabled: bool) -> None:
+        """PHASE 3: WebSocket lifecycle, volume sync, and ready broadcast.
+
+        Every step is wrapped in try/except — failures are logged as warnings
+        and never fail the transition. Settings persistence has already happened
+        in `_commit_state`.
+        """
+        # WebSocket connection lifecycle + readiness wait
+        try:
+            if self.snapcast_websocket_service:
+                if enabled:
+                    await self.snapcast_websocket_service.start_connection()
+                    self.logger.info("POST_TRANSITION: Waiting for Snapcast WebSocket to be ready...")
+                    ws_ready = await self.snapcast_websocket_service.wait_for_ready(timeout=15.0)
+                    if ws_ready:
+                        self.logger.info("POST_TRANSITION: Snapcast WebSocket is ready")
+                    else:
+                        self.logger.warning(
+                            "POST_TRANSITION: Snapcast WebSocket NOT ready after 15s timeout — volume sync may fail"
+                        )
+                else:
+                    await self.snapcast_websocket_service.stop_connection()
+        except Exception as e:
+            self.logger.warning(f"POST_TRANSITION: WS lifecycle failed (non-fatal): {e}")
+
+        # Volume mode update + client sync
+        try:
+            if self.volume_service:
+                target_volume = await self.volume_service.update_volume_mode(enabled)
+                if enabled:
+                    if target_volume is not None:
+                        self.logger.info(
+                            f"POST_TRANSITION: Pushing volume ({target_volume:.1f}dB) to all clients..."
+                        )
+                        push_ok = await self.volume_service.push_volume_to_all_clients(target_volume)
+                        if not push_ok:
+                            self.logger.warning("POST_TRANSITION: push_volume_to_all_clients returned failure")
+                    else:
+                        # DAC mode: sync client volumes from equalizers
+                        await self.volume_service.sync_all_clients_from_equalizer()
+        except Exception as e:
+            self.logger.warning(f"POST_TRANSITION: Volume sync failed (non-fatal): {e}")
+
+        # multiroom_ready broadcast — only when enabling, signals UI volume bar refresh
+        if enabled and self.state_machine:
+            try:
+                self.logger.info("POST_TRANSITION: Broadcasting multiroom_ready event")
+                await self.state_machine.broadcast_event("routing", "multiroom_ready", {})
+            except Exception as e:
+                self.logger.warning(f"POST_TRANSITION: multiroom_ready broadcast failed: {e}")
 
     async def _broadcast_transition_event(self, enabled: bool) -> None:
         """Broadcast pre-transition event to let frontend react."""
@@ -493,50 +644,16 @@ class AudioRoutingService:
         await self.state_machine.broadcast_event("routing", event_type, {"reason": "user_action"})
         await asyncio.sleep(0.1)  # Let frontend react
 
-    async def _post_transition_setup(self, enabled: bool) -> None:
-        """Handle WebSocket lifecycle, volume sync, and settings persistence after transition.
-
-        Exceptions propagate to caller for proper rollback handling.
-        """
-        # WebSocket connection lifecycle
-        if self.snapcast_websocket_service:
-            if enabled:
-                await self.snapcast_websocket_service.start_connection()
-            else:
-                await self.snapcast_websocket_service.stop_connection()
-
-        # Wait for WebSocket readiness
-        if enabled and self.snapcast_websocket_service:
-            self.logger.info("POST_TRANSITION: Waiting for Snapcast WebSocket to be ready...")
-            ws_ready = await self.snapcast_websocket_service.wait_for_ready(timeout=15.0)
-            if ws_ready:
-                self.logger.info("POST_TRANSITION: Snapcast WebSocket is ready")
-            else:
-                self.logger.warning("POST_TRANSITION: Snapcast WebSocket NOT ready after 15s timeout — volume sync may fail")
-
-        # Update volume mode and push to clients
-        if self.state_machine:
-            target_volume = None
-            if self.volume_service:
-                target_volume = await self.volume_service.update_volume_mode(enabled)
-
-            if enabled:
-                if self.volume_service and target_volume is not None:
-                    self.logger.info(f"POST_TRANSITION: Pushing volume ({target_volume:.1f}dB) to all clients...")
-                    push_ok = await self.volume_service.push_volume_to_all_clients(target_volume)
-                    if not push_ok:
-                        self.logger.warning(f"POST_TRANSITION: push_volume_to_all_clients returned failure")
-                elif self.volume_service:
-                    # DAC mode: sync client volumes from equalizers and broadcast
-                    # (push is skipped since local has no volume to push, but remote clients
-                    # need their state synced and any_volume_control must be re-evaluated)
-                    await self.volume_service.sync_all_clients_from_equalizer()
-                self.logger.info("POST_TRANSITION: Broadcasting multiroom_ready event")
-                await self.state_machine.broadcast_event("routing", "multiroom_ready", {})
-
-        # Persist setting
-        if self.settings_service:
-            await self.settings_service.set_setting('routing.multiroom_enabled', enabled)
+    async def _broadcast_error(self, attempted_state: bool) -> None:
+        """Broadcast a multiroom_error event after a failed transition."""
+        if not self.state_machine:
+            return
+        try:
+            await self.state_machine.broadcast_event("routing", "multiroom_error", {
+                "error": f"Failed to {'enable' if attempted_state else 'disable'} multiroom",
+            })
+        except Exception as e:
+            self.logger.warning(f"multiroom_error broadcast failed: {e}")
 
     async def set_equalizer_effects_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
         """
@@ -578,7 +695,7 @@ class AudioRoutingService:
             self.logger.info(f"Equalizer effects {'enabled' if enabled else 'bypassed'}")
             return True
 
-        success = await self._guarded_state_transition(
+        success = await self._guarded_simple_toggle(
             self._get_equalizer_effects_enabled, self._set_equalizer_effects_state,
             enabled, "equalizer_effects", body,
         )
@@ -590,91 +707,6 @@ class AudioRoutingService:
     async def _update_systemd_environment(self) -> None:
         """Regenerate routing.env to reflect the current multiroom state."""
         RoutingEnv.regenerate(self.multiroom_enabled)
-
-    async def _transition_to_multiroom(self, active_source: AudioSource = None) -> bool:
-        """Transition to multiroom mode."""
-        return await self._transition("multiroom", active_source)
-
-    async def _transition_to_direct(self, active_source: AudioSource = None) -> bool:
-        """Transition to direct mode."""
-        return await self._transition("direct", active_source)
-
-    async def _transition(
-        self,
-        target_mode: Literal["direct", "multiroom"],
-        active_source: AudioSource = None,
-    ) -> bool:
-        """
-        Unified transition to target routing mode.
-
-        Acquires state_machine._transition_lock to prevent race conditions
-        with concurrent source transitions (transition_to_source).
-
-        Args:
-            target_mode: Target routing mode ("direct" or "multiroom")
-            active_source: Currently active audio source (if any)
-
-        Returns:
-            True if transition successful, False otherwise
-        """
-        if not self.state_machine:
-            self.logger.error("State machine not available for routing transition")
-            return False
-
-        try:
-            source_instance = None
-
-            if active_source and self.get_source:
-                source_instance = self.get_source(active_source)
-
-            # Acquire transition lock to prevent concurrent source lifecycle
-            # operations with transition_to_source(). Lock order is always:
-            # _routing_lock (held by caller) -> _transition_lock (acquired here)
-            async with self.state_machine._transition_lock:
-
-                # Step 1: Notify STARTING state to show loading UI
-                if source_instance:
-                    await self.state_machine.update_source_state(
-                        source=active_source,
-                        new_state=SourceState.STARTING,
-                        metadata={"reason": "routing_change"}
-                    )
-
-                # Step 2: Stop source FIRST to release ALSA device before routing change
-                # This is critical: in direct mode, the source holds camilladsp device
-                # which snapclient needs in multiroom mode
-                if source_instance:
-                    self.logger.info(f"Stopping source {active_source.value} to release ALSA device")
-                    await source_instance.stop()
-                    await asyncio.sleep(0.5)  # Wait for ALSA to release
-
-                # Step 3: Start/stop Snapcast services based on target mode
-                if target_mode == "multiroom":
-                    self.logger.info("Starting snapcast services")
-                    snapcast_success = await self._start_snapcast()
-                    if not snapcast_success:
-                        # Try to restart source even if Snapcast failed
-                        if source_instance:
-                            self.logger.info(f"Snapcast failed, restarting source {active_source.value}")
-                            await source_instance.start()
-                        return False
-                else:
-                    await self._stop_snapcast()
-
-                # Step 4: Restart source with new routing
-                if source_instance:
-                    mode_label = "multiroom" if target_mode == "multiroom" else "direct"
-                    self.logger.info(f"Starting source {active_source.value} for {mode_label} mode")
-                    start_success = await source_instance.start()
-                    if not start_success:
-                        self.logger.error(f"Source {active_source.value} start failed after {mode_label} transition")
-                        return False
-
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Error in {target_mode} transition: {e}")
-            return False
 
     @handle_errors(default=False)
     async def _start_snapcast(self) -> bool:

@@ -190,17 +190,19 @@ class TestAudioRoutingService:
         )
         routing_service.set_state_machine(mock_state_machine)
 
-        with patch.object(routing_service, '_update_systemd_environment', new_callable=AsyncMock):
-            with patch.object(routing_service, '_transition_to_multiroom', new_callable=AsyncMock, return_value=True):
-                result = await routing_service.set_multiroom_enabled(True)
+        with patch('backend.core.multiroom.routing.RoutingEnv.regenerate'):
+            with patch.object(routing_service, '_apply_transition', new_callable=AsyncMock):
+                with patch.object(routing_service, '_post_transition_setup_best_effort', new_callable=AsyncMock):
+                    result = await routing_service.set_multiroom_enabled(True)
 
         assert result is True
         assert mock_state_machine.system_state.multiroom_enabled is True
+        # settings.json is the FIRST write in _commit_state — no longer the LAST
         mock_settings_service.set_setting.assert_called_with('routing.multiroom_enabled', True)
 
     @pytest.mark.asyncio
     async def test_set_multiroom_enabled_failure_rollback(self, routing_service, mock_settings_service):
-        """Activation failure test with state rollback"""
+        """Apply-phase failure test with full state + settings + services rollback (symmetry)."""
         mock_sm = Mock()
         mock_sm.system_state = Mock()
         mock_sm.system_state.multiroom_enabled = False
@@ -210,15 +212,93 @@ class TestAudioRoutingService:
         )
         routing_service.set_state_machine(mock_sm)
 
-        with patch.object(routing_service, '_update_systemd_environment', new_callable=AsyncMock):
-            with patch.object(routing_service, '_transition_to_multiroom', new_callable=AsyncMock, return_value=False):
-                result = await routing_service.set_multiroom_enabled(True)
+        # Track _apply_transition calls so we can verify rollback symmetry:
+        # call 1 with target=True must raise; call 2 with target=False must run.
+        apply_calls = []
+
+        async def apply_side_effect(enabled, active_source=None):
+            apply_calls.append(enabled)
+            if len(apply_calls) == 1:
+                raise RuntimeError("simulated apply failure")
+            return None
+
+        with patch('backend.core.multiroom.routing.RoutingEnv.regenerate') as mock_regenerate:
+            with patch.object(routing_service, '_apply_transition', side_effect=apply_side_effect):
+                with patch.object(routing_service, '_post_transition_setup_best_effort', new_callable=AsyncMock) as mock_best_effort:
+                    result = await routing_service.set_multiroom_enabled(True)
 
         assert result is False
-        # State should have reverted to False
+        # State machine reverted to False
         assert mock_sm.system_state.multiroom_enabled is False
-        # Should NOT have saved
-        mock_settings_service.set_setting.assert_not_called()
+        # _apply_transition called twice: target then rollback to old state
+        assert apply_calls == [True, False]
+        # routing.env was regenerated to True (commit) AND back to False (rollback)
+        regen_args = [c.args[0] for c in mock_regenerate.call_args_list]
+        assert regen_args == [True, False]
+        # settings.json was written to True (commit), then back to False (rollback)
+        set_calls = [c for c in mock_settings_service.set_setting.call_args_list
+                     if c.args == ('routing.multiroom_enabled', True) or c.args == ('routing.multiroom_enabled', False)]
+        assert any(c.args == ('routing.multiroom_enabled', True) for c in set_calls)
+        assert set_calls[-1].args == ('routing.multiroom_enabled', False)
+        # PHASE 3 must be skipped on rollback
+        mock_best_effort.assert_not_called()
+        # multiroom_error event was broadcast
+        error_events = [c for c in mock_sm.broadcast_event.call_args_list
+                        if c.args[:2] == ("routing", "multiroom_error")]
+        assert len(error_events) == 1
+
+    @pytest.mark.asyncio
+    async def test_set_multiroom_enabled_best_effort_failure_does_not_fail_transition(
+        self, routing_service, mock_settings_service
+    ):
+        """PHASE 3 (post_transition WS/volume) failure must not fail the transition."""
+        mock_sm = Mock()
+        mock_sm.system_state = Mock()
+        mock_sm.system_state.multiroom_enabled = False
+        mock_sm.broadcast_event = AsyncMock()
+        mock_sm.update_multiroom_state = AsyncMock(
+            side_effect=lambda v, silent=False: setattr(mock_sm.system_state, 'multiroom_enabled', v)
+        )
+        routing_service.set_state_machine(mock_sm)
+
+        # Wire a WS service that raises on start_connection
+        ws_service = Mock()
+        ws_service.start_connection = AsyncMock(side_effect=RuntimeError("ws boom"))
+        ws_service.stop_connection = AsyncMock()
+        ws_service.wait_for_ready = AsyncMock(return_value=True)
+        routing_service.set_snapcast_websocket_service(ws_service)
+
+        with patch('backend.core.multiroom.routing.RoutingEnv.regenerate'):
+            with patch.object(routing_service, '_apply_transition', new_callable=AsyncMock):
+                result = await routing_service.set_multiroom_enabled(True)
+
+        assert result is True
+        # State committed, ready event still attempted, no rollback
+        assert mock_sm.system_state.multiroom_enabled is True
+        mock_settings_service.set_setting.assert_called_with('routing.multiroom_enabled', True)
+
+    @pytest.mark.asyncio
+    async def test_detect_initial_state_failure_keeps_flag_false(self, routing_service, mock_settings_service):
+        """Init-retry test: a transient failure in _detect_initial_state must NOT
+        flip _initial_detection_done to True, so subsequent calls retry."""
+        # Force _initial_detection_done back to False (fixture sets True)
+        routing_service._initial_detection_done = False
+
+        mock_sm = Mock()
+        mock_sm.system_state = Mock()
+        mock_sm.system_state.multiroom_enabled = False
+        mock_sm.system_state.equalizer_effects_enabled = False
+        mock_sm.update_multiroom_state = AsyncMock()
+        mock_sm.update_equalizer_effects_state = AsyncMock()
+        routing_service.set_state_machine(mock_sm)
+
+        # Make the very first settings read raise — covers a transient I/O fault
+        mock_settings_service.get_setting = AsyncMock(side_effect=RuntimeError("settings boom"))
+
+        await routing_service._detect_initial_state()
+
+        # Flag MUST stay False so the next caller retries detection
+        assert routing_service._initial_detection_done is False
 
     @pytest.mark.asyncio
     async def test_set_equalizer_effects_enabled_already_enabled(self, routing_service):
@@ -338,22 +418,29 @@ class TestAudioRoutingService:
         assert status["multiroom_available"] is False
 
     @pytest.mark.asyncio
-    async def test_transition_to_multiroom(self, routing_service, mock_systemd_manager):
-        """Transition to multiroom test"""
+    async def test_apply_transition_to_multiroom(self, routing_service, mock_systemd_manager):
+        """_apply_transition(enabled=True) starts both snapcast services."""
         mock_systemd_manager.start = AsyncMock(return_value=True)
 
-        result = await routing_service._transition_to_multiroom()
+        # _apply_transition raises on failure, returns None on success
+        await routing_service._apply_transition(True)
 
-        assert result is True
         assert mock_systemd_manager.start.call_count == 2  # server + client
 
     @pytest.mark.asyncio
-    async def test_transition_to_direct(self, routing_service, mock_systemd_manager):
-        """Transition to direct mode test"""
+    async def test_apply_transition_to_direct(self, routing_service, mock_systemd_manager):
+        """_apply_transition(enabled=False) stops both snapcast services."""
         mock_systemd_manager.stop = AsyncMock()
 
-        result = await routing_service._transition_to_direct()
+        await routing_service._apply_transition(False)
 
-        assert result is True
         assert mock_systemd_manager.stop.call_count == 2  # server + client
+
+    @pytest.mark.asyncio
+    async def test_apply_transition_raises_on_snapcast_failure(self, routing_service, mock_systemd_manager):
+        """_apply_transition raises RuntimeError when snapcast services fail to start."""
+        mock_systemd_manager.start = AsyncMock(return_value=False)
+
+        with pytest.raises(RuntimeError):
+            await routing_service._apply_transition(True)
 
