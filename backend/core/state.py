@@ -32,7 +32,7 @@ class AudioStateMachine:
     """
 
     TRANSITION_TIMEOUT = 10.0
-    INACTIVITY_TIMEOUT = 7200  # 2 hours in seconds
+    INACTIVITY_TIMEOUT = 43200  # 12 hours in seconds
 
     # Only "source"/"system" categories include full_state (used by unifiedAudioStore).
     # Other categories (volume, equalizer, multiroom, settings) send only
@@ -49,7 +49,6 @@ class AudioStateMachine:
         self._state_lock = asyncio.Lock()
 
         # Inactivity monitor
-        self._inactivity_timeout: int = self.INACTIVITY_TIMEOUT
         self._last_activity_time: float = monotonic()
         self._inactivity_monitor_task: Optional[asyncio.Task] = None
 
@@ -347,27 +346,13 @@ class AudioStateMachine:
 
     # === Inactivity Monitor ===
 
-    def start_inactivity_monitor(self, timeout: int = INACTIVITY_TIMEOUT) -> None:
+    def start_inactivity_monitor(self) -> None:
         """Start the background task that deactivates idle sources."""
-        self._inactivity_timeout = timeout
         if self._inactivity_monitor_task is None:
             self._inactivity_monitor_task = asyncio.create_task(
                 self._monitor_inactivity()
             )
-            logger.info(
-                "Inactivity monitor started (timeout: %s)",
-                f"{self._inactivity_timeout}s" if self._inactivity_timeout > 0 else "disabled"
-            )
-
-    async def reload_inactivity_config(self, timeout: int) -> bool:
-        """Update inactivity timeout (called by settings API)."""
-        self._inactivity_timeout = timeout
-        self._last_activity_time = monotonic()
-        logger.info(
-            "Inactivity timeout updated: %s",
-            f"{timeout}s" if timeout > 0 else "disabled"
-        )
-        return True
+            logger.info("Inactivity monitor started (timeout: %ds)", self.INACTIVITY_TIMEOUT)
 
     async def reload_auto_disconnect_for_all_sources(self) -> bool:
         """Refresh the auto-disconnect delay on every registered source.
@@ -404,11 +389,10 @@ class AudioStateMachine:
                     transitioning = self.system_state.transitioning
 
                 if (
-                    self._inactivity_timeout > 0
-                    and source != AudioSource.NONE
+                    source != AudioSource.NONE
                     and source_state == SourceState.WAITING
                     and not transitioning
-                    and (monotonic() - self._last_activity_time) >= self._inactivity_timeout
+                    and (monotonic() - self._last_activity_time) >= self.INACTIVITY_TIMEOUT
                 ):
                     elapsed = monotonic() - self._last_activity_time
                     logger.info(

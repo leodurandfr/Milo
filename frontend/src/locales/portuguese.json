@@ -255,10 +255,7 @@
   },
   "audioPlayback": {
     "autoDisconnect": "Auto-parar em pausa",
-    "autoDisconnectHint": "Parar o áudio quando estiver em pausa por:",
-    "notApplicableNote": "Aplica-se às fontes que suportam pausa.",
-    "inactivityTimeout": "Encerramento automático",
-    "inactivityHint": "Desativar a fonte de áudio após um período de inatividade:"
+    "autoDisconnectHint": "Parar o áudio quando estiver em pausa por:"
   },
   "macSettings": {
     "latency": "Latência",

@@ -256,11 +256,8 @@
     "rebooting": "Redémarrage en cours..."
   },
   "audioPlayback": {
-    "autoDisconnect": "Auto-stop sur pause",
-    "autoDisconnectHint": "Arrêter la lecture après une pause de :",
-    "notApplicableNote": "S'applique aux sources qui supportent la pause.",
-    "inactivityTimeout": "Fermeture automatique",
-    "inactivityHint": "Désactiver la source audio après une période d'inactivité :"
+    "autoDisconnect": "Arrêt automatique",
+    "autoDisconnectHint": "Arrêter la lecture après une pause ou un silence de :"
   },
   "macSettings": {
     "latency": "Latence",

@@ -36,7 +36,6 @@ class TestSettingsRoutes:
         sm.update_equalizer_state = AsyncMock()
         sm.broadcast_event = AsyncMock()
         sm.reload_auto_disconnect_for_all_sources = AsyncMock(return_value=True)
-        sm.reload_inactivity_config = AsyncMock(return_value=True)
         return sm
 
     @pytest.fixture
@@ -457,43 +456,6 @@ class TestSettingsRoutes:
         """Test PUT /podcast-credentials with missing field - should return 422"""
         response = client.put("/api/settings/podcast-credentials", json={
             "taddy_user_id": "user123"
-        })
-        assert response.status_code == 422
-
-    # ===================
-    # INACTIVITY TIMEOUT TESTS
-    # ===================
-
-    def test_get_inactivity_timeout(self, client):
-        """Test GET /inactivity-timeout"""
-        client._mock_settings.get_setting = AsyncMock(return_value={
-            "inactivity_timeout": 7200
-        })
-        response = client.get("/api/settings/inactivity-timeout")
-        assert response.status_code == 200
-        assert "config" in response.json()
-
-    def test_set_inactivity_timeout_valid(self, client):
-        """Test PUT /inactivity-timeout with valid value"""
-        client._mock_state_machine = Mock()
-        response = client.put("/api/settings/inactivity-timeout", json={
-            "inactivity_timeout": 3600
-        })
-        assert response.status_code == 200
-        assert response.json()["status"] == "success"
-
-    def test_set_inactivity_timeout_zero_disable(self, client):
-        """Test PUT /inactivity-timeout with 0 (disabled)"""
-        response = client.put("/api/settings/inactivity-timeout", json={
-            "inactivity_timeout": 0
-        })
-        assert response.status_code == 200
-        assert response.json()["status"] == "success"
-
-    def test_set_inactivity_timeout_too_low(self, client):
-        """Test PUT /inactivity-timeout with non-zero value < 300 - should return 422"""
-        response = client.put("/api/settings/inactivity-timeout", json={
-            "inactivity_timeout": 60
         })
         assert response.status_code == 422
 

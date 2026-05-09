@@ -109,10 +109,7 @@ async def lifespan(app: FastAPI):
         # Enable WebSocket broadcasting for backend errors/warnings
         _ws_log_handler.set_state_machine(state_machine)
 
-        # Load inactivity timeout from settings (0 = disabled, default 7200s = 2h)
-        audio_settings = await settings_service.get_setting('audio') or {}
-        inactivity_timeout = audio_settings.get('inactivity_timeout', 7200)
-        state_machine.start_inactivity_monitor(inactivity_timeout)
+        state_machine.start_inactivity_monitor()
 
         # Activate WiFi hotspot for first-boot setup if no network is available
         await wifi_service.maybe_start_hotspot(settings_service)

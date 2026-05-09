@@ -66,12 +66,10 @@ export const useSettingsStore = defineStore('settings', () => {
   const podcastCredentialsValidatedAt = ref(null); // Unix timestamp when credentials were validated
 
   // === AUDIO PLAYBACK ===
-  // Two global behaviors applied to every eligible audio source:
-  // - auto_disconnect_delay: stop a paused source after N seconds (0 = disabled)
-  // - inactivity_timeout: deactivate an idle source after N seconds (0 = disabled)
+  // Global behavior applied to every eligible audio source:
+  // - auto_disconnect_delay: stop a paused (or silent) source after N seconds (0 = disabled)
   const audioPlayback = ref({
-    auto_disconnect_delay: 120.0,
-    inactivity_timeout: 7200
+    auto_disconnect_delay: 120.0
   });
 
   // === RADIO ===
@@ -185,8 +183,7 @@ export const useSettingsStore = defineStore('settings', () => {
         };
 
         audioPlayback.value = {
-          auto_disconnect_delay: d.audio_disconnect?.auto_disconnect_delay ?? 120.0,
-          inactivity_timeout: d.inactivity_timeout?.inactivity_timeout ?? 7200
+          auto_disconnect_delay: d.audio_disconnect?.auto_disconnect_delay ?? 120.0
         };
 
         screenTimeout.value = {
