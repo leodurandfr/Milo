@@ -371,16 +371,18 @@ def initialize_services() -> None:
     state_machine.register_source(AudioSource.CD, get_service("cd_source"))
 
     # =========================================================================
-    # STEP 3b: Write routing.env synchronously BEFORE async init
+    # STEP 3b: Write routing.env / mac.env / snapclient.env synchronously BEFORE async init
     # =========================================================================
-    # Audio source systemd services read EnvironmentFile=routing.env at start.
+    # Audio source systemd services read their EnvironmentFiles at start.
     # If they start before routing_service.initialize() completes (which runs
-    # in async init_async), they would read stale MILO_MODE. Pre-writing here
-    # guarantees routing.env matches settings.json before any service starts.
-    from backend.core.multiroom.routing import RoutingEnvironment
+    # in async init_async), they would read stale values. Pre-writing here
+    # guarantees the three env files match settings.json before any service starts.
+    from backend.core.multiroom.routing import RoutingEnv, MacEnv, SnapclientEnv
     settings_service = get_service("settings_service")
     _multiroom = settings_service.get_setting_sync('routing.multiroom_enabled')
-    RoutingEnvironment.update(bool(_multiroom))
+    RoutingEnv.regenerate(bool(_multiroom))
+    MacEnv.regenerate(settings_service)
+    SnapclientEnv.regenerate(settings_service)
 
     # =========================================================================
     # STEP 4: Parallel async initialization

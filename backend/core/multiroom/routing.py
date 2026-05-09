@@ -6,168 +6,203 @@ import logging
 import asyncio
 import os
 import time
-from typing import Dict, Any, Callable, Optional, Literal
+from typing import Any, Callable, Dict, Literal, Optional
 from backend.core.models.audio_state import AudioSource, SourceState
 from backend.core.systemd import SystemdServiceManager  # noqa: F401 (patched in tests)
 from backend.shared.decorators import handle_errors
 
 
 # =============================================================================
-# Routing Environment (consolidated from routing_env.py)
+# Environment files — three independent regenerate functions, each driven
+# strictly by settings.json (no class-level caches, no os.environ as truth).
+#
+# File ownership:
+#   /var/lib/milo/routing.env     → MILO_MODE only (consumed by all sources + camilladsp)
+#   /var/lib/milo/mac.env         → ROC_* (consumed by milo-mac)
+#   /var/lib/milo/snapclient.env  → MILO_SNAPCLIENT_* (consumed by milo-snapclient-multiroom)
 # =============================================================================
 
-class RoutingEnvironment:
-    """
-    Manages the routing environment file for ALSA configuration.
+ALLOWED_LATENCY_PROFILES = frozenset(["responsive", "gradual", "intact"])
+ALLOWED_FRAME_LENGTHS = frozenset([2, 4, 7, 8, 12])
 
-    Environment variables written:
-    - MILO_MODE: "direct" or "multiroom"
-    - MILO_SNAPCLIENT_SOUNDCARD: always "camilladsp"
-    - MILO_SNAPCLIENT_BUFFER_TIME: Snapclient ALSA buffer time in ms (default 80)
-    - MILO_SNAPCLIENT_FRAGMENTS: Snapclient ALSA buffer fragments (default 4)
-    - ROC_TARGET_LATENCY: ROC target latency (e.g., "10ms")
-    - ROC_LATENCY_PROFILE: ROC latency profile (responsive/gradual/intact)
-    - ROC_FRAME_LENGTH: ROC frame length (e.g., "4ms")
+DEFAULT_ROC_CONFIG = {
+    "target_latency_ms": 200,
+    "latency_profile": "responsive",
+    "frame_length_ms": 7,
+}
 
-    Note: MILO_EQUALIZER was removed - CamillaDSP is always in the audio path.
-    Equalizer effects (EQ, compressor, loudness) are controlled via CamillaDSP bypass,
-    not via ALSA routing.
-    """
+DEFAULT_SNAPCLIENT_CONFIG = {
+    "buffer_time": 80,
+    "fragments": 4,
+}
 
-    ENVIRONMENT_FILE = "/var/lib/milo/routing.env"
-    ALLOWED_MODES = frozenset(["direct", "multiroom"])
-    ALLOWED_LATENCY_PROFILES = frozenset(["responsive", "gradual", "intact"])
-    ALLOWED_FRAME_LENGTHS = frozenset([2, 4, 7, 8, 12])
 
-    # Default ROC settings (aligned with roc-streaming official defaults)
-    DEFAULT_ROC_CONFIG = {
-        "target_latency_ms": 200,
-        "latency_profile": "responsive",
-        "frame_length_ms": 7
-    }
+def _atomic_write(path: str, content: str) -> None:
+    """Write file atomically: temp file + fsync + os.replace."""
+    temp_path = path + ".tmp"
+    try:
+        with open(temp_path, "w") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_path, path)
+    except Exception:
+        try:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        except Exception:
+            pass
+        raise
 
-    # Default Snapclient settings
-    DEFAULT_SNAPCLIENT_CONFIG = {
-        "buffer_time": 80,
-        "fragments": 4
-    }
 
-    # Class-level ROC config cache (updated via update_roc_config)
-    _roc_config = None
+class RoutingEnv:
+    """Writes /var/lib/milo/routing.env. Holds only MILO_MODE."""
 
-    # Class-level Snapclient config cache
-    _snapclient_config = None
+    PATH = "/var/lib/milo/routing.env"
 
-    @classmethod
-    def update(cls, multiroom_enabled: bool, roc_config: Dict[str, Any] = None, snapclient_config: Dict[str, Any] = None) -> None:
-        """
-        Update routing environment file atomically.
+    @staticmethod
+    def regenerate(multiroom_enabled: bool) -> None:
+        """Regenerate routing.env from a boolean state.
 
-        Args:
-            multiroom_enabled: Whether multiroom mode is active
-            roc_config: Optional ROC configuration dict with:
-                - target_latency_ms: int (5-500)
-                - latency_profile: str (responsive/gradual/intact)
-                - frame_length_ms: int (2/4/7/8/12)
-            snapclient_config: Optional Snapclient configuration dict with:
-                - buffer_time: int (10-200)
-                - fragments: int (2-8)
+        Sets os.environ["MILO_MODE"] as a side effect for in-process ALSA
+        resolution (e.g., aplay invocations). Never read os.environ as truth —
+        the only authoritative input is the explicit `multiroom_enabled` arg.
         """
         logger = logging.getLogger(__name__)
-        mode_value = "multiroom" if multiroom_enabled else "direct"
+        mode_value = "multiroom" if bool(multiroom_enabled) else "direct"
 
-        if mode_value not in cls.ALLOWED_MODES:
-            raise ValueError(f"Invalid mode value: {mode_value}")
-
-        temp_file = cls.ENVIRONMENT_FILE + ".tmp"
+        content = (
+            "# Milo Audio Routing Environment\n"
+            "# Auto-generated by Milo backend. Do not edit manually.\n"
+            "\n"
+            f"MILO_MODE={mode_value}\n"
+        )
 
         try:
-            snapclient_soundcard = "camilladsp"
-
-            # Use provided ROC config, cached config, or defaults
-            roc = roc_config or cls._roc_config or cls.DEFAULT_ROC_CONFIG
-            target_latency = roc.get("target_latency_ms", 200)
-            latency_profile = roc.get("latency_profile", "responsive")
-            frame_length = roc.get("frame_length_ms", 7)
-
-            # Validate ROC settings
-            if latency_profile not in cls.ALLOWED_LATENCY_PROFILES:
-                latency_profile = "responsive"
-            if frame_length not in cls.ALLOWED_FRAME_LENGTHS:
-                frame_length = 7
-            target_latency = max(5, min(500, target_latency))
-
-            # Use provided Snapclient config, cached config, or defaults
-            snapclient = snapclient_config or cls._snapclient_config or cls.DEFAULT_SNAPCLIENT_CONFIG
-            buffer_time = snapclient.get("buffer_time", 80)
-            fragments = snapclient.get("fragments", 4)
-
-            # Validate Snapclient settings
-            buffer_time = max(10, min(200, buffer_time))
-            fragments = max(2, min(8, fragments))
-
-            with open(temp_file, 'w') as f:
-                f.write("# Milo Audio Routing Environment Variables\n")
-                f.write("# This file is automatically modified by Milo backend\n")
-                f.write("# Do not edit manually\n\n")
-                f.write(f"MILO_MODE={mode_value}\n")
-                f.write(f"MILO_SNAPCLIENT_SOUNDCARD={snapclient_soundcard}\n")
-                f.write("\n# Snapclient ALSA Buffer Configuration\n")
-                f.write(f"MILO_SNAPCLIENT_BUFFER_TIME={buffer_time}\n")
-                f.write(f"MILO_SNAPCLIENT_FRAGMENTS={fragments}\n")
-                f.write("\n# ROC Streaming Configuration\n")
-                f.write(f"ROC_TARGET_LATENCY={target_latency}ms\n")
-                f.write(f"ROC_LATENCY_PROFILE={latency_profile}\n")
-                f.write(f"ROC_FRAME_LENGTH={frame_length}ms\n")
-                f.flush()
-                os.fsync(f.fileno())
-
-            os.replace(temp_file, cls.ENVIRONMENT_FILE)
-            os.environ["MILO_MODE"] = mode_value
-
-            logger.info(f"Updated routing.env: MODE={mode_value}, SNAPCLIENT buffer_time={buffer_time}ms/fragments={fragments}, ROC latency={target_latency}ms/{latency_profile}")
-
+            _atomic_write(RoutingEnv.PATH, content)
         except Exception as e:
-            logger.error(f"Failed to update environment file: {e}")
-            try:
-                if os.path.exists(temp_file):
-                    os.remove(temp_file)
-            except Exception:
-                pass
-            raise RuntimeError(f"Failed to update environment file: {e}")
+            logger.error(f"Failed to write {RoutingEnv.PATH}: {e}")
+            raise RuntimeError(f"Failed to write routing.env: {e}")
 
-    @classmethod
-    def update_roc_config(cls, roc_config: Dict[str, Any]) -> None:
+        os.environ["MILO_MODE"] = mode_value
+        logger.info(f"Updated routing.env: MODE={mode_value}")
+
+
+class MacEnv:
+    """Writes /var/lib/milo/mac.env. Holds ROC_* vars consumed by milo-mac."""
+
+    PATH = "/var/lib/milo/mac.env"
+
+    @staticmethod
+    def regenerate(settings_service) -> None:
+        """Regenerate mac.env from the `mac` section of settings.json.
+
+        Reads settings each call (no class cache). Validates and clamps values
+        to allowed ranges. Falls back to DEFAULT_ROC_CONFIG when settings are
+        missing.
         """
-        Update ROC configuration and regenerate routing.env.
+        logger = logging.getLogger(__name__)
 
-        Args:
-            roc_config: ROC configuration dict
+        mac_config = None
+        if settings_service:
+            mac_config = settings_service.get_setting_sync("mac")
+        if not isinstance(mac_config, dict):
+            mac_config = {}
+
+        target_latency = mac_config.get("target_latency_ms", DEFAULT_ROC_CONFIG["target_latency_ms"])
+        latency_profile = mac_config.get("latency_profile", DEFAULT_ROC_CONFIG["latency_profile"])
+        frame_length = mac_config.get("frame_length_ms", DEFAULT_ROC_CONFIG["frame_length_ms"])
+
+        try:
+            target_latency = int(target_latency)
+        except (TypeError, ValueError):
+            target_latency = DEFAULT_ROC_CONFIG["target_latency_ms"]
+        target_latency = max(5, min(500, target_latency))
+
+        if latency_profile not in ALLOWED_LATENCY_PROFILES:
+            latency_profile = DEFAULT_ROC_CONFIG["latency_profile"]
+
+        try:
+            frame_length = int(frame_length)
+        except (TypeError, ValueError):
+            frame_length = DEFAULT_ROC_CONFIG["frame_length_ms"]
+        if frame_length not in ALLOWED_FRAME_LENGTHS:
+            frame_length = DEFAULT_ROC_CONFIG["frame_length_ms"]
+
+        content = (
+            "# Milo ROC (Mac streaming) Environment\n"
+            "# Auto-generated by Milo backend. Do not edit manually.\n"
+            "\n"
+            f"ROC_TARGET_LATENCY={target_latency}ms\n"
+            f"ROC_LATENCY_PROFILE={latency_profile}\n"
+            f"ROC_FRAME_LENGTH={frame_length}ms\n"
+        )
+
+        try:
+            _atomic_write(MacEnv.PATH, content)
+        except Exception as e:
+            logger.error(f"Failed to write {MacEnv.PATH}: {e}")
+            raise RuntimeError(f"Failed to write mac.env: {e}")
+
+        logger.info(
+            f"Updated mac.env: ROC latency={target_latency}ms profile={latency_profile} frame={frame_length}ms"
+        )
+
+
+class SnapclientEnv:
+    """Writes /var/lib/milo/snapclient.env. Holds MILO_SNAPCLIENT_* vars consumed by milo-snapclient-multiroom."""
+
+    PATH = "/var/lib/milo/snapclient.env"
+
+    @staticmethod
+    def regenerate(settings_service) -> None:
+        """Regenerate snapclient.env from the `multiroom.*` keys of settings.json.
+
+        Reads settings each call (no class cache). Validates and clamps values.
         """
-        cls._roc_config = roc_config
-        # Read current mode and regenerate file with new ROC config
-        current_mode = cls.get_mode()
-        cls.update(current_mode == "multiroom", roc_config, cls._snapclient_config)
+        logger = logging.getLogger(__name__)
 
-    @classmethod
-    def update_snapclient_config(cls, snapclient_config: Dict[str, Any]) -> None:
-        """
-        Update Snapclient configuration and regenerate routing.env.
+        buffer_time = DEFAULT_SNAPCLIENT_CONFIG["buffer_time"]
+        fragments = DEFAULT_SNAPCLIENT_CONFIG["fragments"]
 
-        Args:
-            snapclient_config: Snapclient configuration dict with:
-                - buffer_time: int (10-200)
-                - fragments: int (2-8)
-        """
-        cls._snapclient_config = snapclient_config
-        # Read current mode and regenerate file with new Snapclient config
-        current_mode = cls.get_mode()
-        cls.update(current_mode == "multiroom", cls._roc_config, snapclient_config)
+        if settings_service:
+            raw_buffer = settings_service.get_setting_sync("multiroom.snapclient_buffer_time")
+            if raw_buffer is not None:
+                buffer_time = raw_buffer
+            raw_fragments = settings_service.get_setting_sync("multiroom.snapclient_fragments")
+            if raw_fragments is not None:
+                fragments = raw_fragments
 
-    @classmethod
-    def get_mode(cls) -> Literal["direct", "multiroom"]:
-        """Get current routing mode from environment."""
-        return os.environ.get("MILO_MODE", "direct")
+        try:
+            buffer_time = int(buffer_time)
+        except (TypeError, ValueError):
+            buffer_time = DEFAULT_SNAPCLIENT_CONFIG["buffer_time"]
+        buffer_time = max(10, min(200, buffer_time))
+
+        try:
+            fragments = int(fragments)
+        except (TypeError, ValueError):
+            fragments = DEFAULT_SNAPCLIENT_CONFIG["fragments"]
+        fragments = max(2, min(8, fragments))
+
+        content = (
+            "# Milo Snapclient Environment\n"
+            "# Auto-generated by Milo backend. Do not edit manually.\n"
+            "\n"
+            f"MILO_SNAPCLIENT_BUFFER_TIME={buffer_time}\n"
+            f"MILO_SNAPCLIENT_FRAGMENTS={fragments}\n"
+        )
+
+        try:
+            _atomic_write(SnapclientEnv.PATH, content)
+        except Exception as e:
+            logger.error(f"Failed to write {SnapclientEnv.PATH}: {e}")
+            raise RuntimeError(f"Failed to write snapclient.env: {e}")
+
+        logger.info(
+            f"Updated snapclient.env: buffer_time={buffer_time}ms fragments={fragments}"
+        )
+
 
 class AudioRoutingService:
     """
@@ -553,8 +588,8 @@ class AudioRoutingService:
         return success
 
     async def _update_systemd_environment(self) -> None:
-        """Updates ALSA environment variables via static routing.env file."""
-        RoutingEnvironment.update(self.multiroom_enabled)
+        """Regenerate routing.env to reflect the current multiroom state."""
+        RoutingEnv.regenerate(self.multiroom_enabled)
 
     async def _transition_to_multiroom(self, active_source: AudioSource = None) -> bool:
         """Transition to multiroom mode."""
