@@ -12,7 +12,7 @@ devices:
   capture:
     type: Alsa
     channels: 2
-    device: "plughw:Loopback,1,5"
+    device: "plughw:Loopback,1,0"
     format: S32_LE
   playback:
     type: Alsa

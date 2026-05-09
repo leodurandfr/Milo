@@ -233,11 +233,17 @@ Virtual device that captures audio and makes it available to snapcast:
 Source → Loopback (hw:1,0,X) → Snapserver reads from hw:1,1,X
 ```
 
-Each source has its own loopback subdevice:
-- Bluetooth: subdevice 0
-- ROC: subdevice 1
-- Spotify: subdevice 2
-- Radio: subdevice 3
+Loopback subdevice layout:
+- subdevice 0: DSP input (`pcm.camilladsp`) — captured by milo-camilladsp on `plughw:Loopback,1,0`. Written by the active source (direct mode) or by snapclient (multiroom mode); the two writers are mutually exclusive.
+- subdevice 1: Bluetooth (multiroom)
+- subdevice 2: ROC / Mac (multiroom)
+- subdevice 3: Spotify (multiroom)
+- subdevice 4: Radio (multiroom)
+- subdevice 5: Podcast (multiroom)
+- subdevice 6: AirPlay (multiroom)
+- subdevice 7: CD (multiroom)
+
+Sources are strictly contiguous in slots 1..7; DSP is isolated in slot 0 so adding a future source (`pcm_substreams` bump → slot 8) does not require reshuffling.
 
 ## Hardware control
 

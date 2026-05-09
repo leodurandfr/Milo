@@ -250,13 +250,16 @@ pcm.milo_mysource_direct {
 }
 
 # Multiroom mode: via Snapcast loopback
+# Slot 0 is reserved for the DSP input; existing sources occupy slots 1..7.
+# Use the next free contiguous slot (currently 8) and bump pcm_substreams in
+# /etc/modprobe.d/snd-aloop.conf accordingly. Then add a matching `source = alsa:///?...&device=hw:1,1,N` line in /etc/snapserver.conf.
 pcm.milo_mysource_multiroom {
     type plug
     slave.pcm {
         type hw
         card Loopback
         device 0
-        subdevice 3
+        subdevice 8
     }
 }
 ```
