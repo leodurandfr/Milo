@@ -26,7 +26,7 @@ from backend.api.models import (
     RadioSettingsRequest,
     HardwareConfigRequest,
 )
-from backend.core.multiroom.routing import RoutingEnvironment
+from backend.core.multiroom.routing import MacEnv
 import logging
 import asyncio
 
@@ -1188,7 +1188,7 @@ def create_settings_router(
 
         This endpoint:
         1. Saves settings to settings.json
-        2. Updates routing.env with ROC environment variables
+        2. Regenerates mac.env from the saved settings (does NOT touch routing.env)
         3. Restarts milo-mac.service to apply changes
         """
         try:
@@ -1206,8 +1206,8 @@ def create_settings_router(
             if not success:
                 raise HTTPException(status_code=500, detail="Failed to save Mac ROC settings")
 
-            # Update routing.env with ROC environment variables
-            RoutingEnvironment.update_roc_config(mac_config)
+            # Regenerate mac.env from the just-saved settings
+            MacEnv.regenerate(settings)
 
             # Restart milo-mac.service to apply changes
             restart_success = await systemd_manager.restart("milo-mac.service")
