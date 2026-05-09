@@ -124,11 +124,15 @@ multi-user.target
 
 ## Dynamic ALSA Routing
 
-All audio source services use environment variables from `/var/lib/milo/routing.env`:
+Three environment files split by consumer (a var lives in `routing.env` only if multiple services consume it; otherwise it lives in a dedicated file owned by its consumer):
 
-- **MILO_MODE**: `direct` or `multiroom`
+- **`/var/lib/milo/routing.env`** — `MILO_MODE` (`direct` or `multiroom`). Loaded by every audio source service for ALSA `getenv` resolution.
+- **`/var/lib/milo/mac.env`** — `ROC_TARGET_LATENCY`, `ROC_LATENCY_PROFILE`, `ROC_FRAME_LENGTH`. Loaded only by `milo-mac.service`.
+- **`/var/lib/milo/snapclient.env`** — `MILO_SNAPCLIENT_BUFFER_TIME`, `MILO_SNAPCLIENT_FRAGMENTS`. Loaded only by `milo-snapclient-multiroom.service`.
 
-ALSA device names are dynamically resolved:
+All three files are auto-generated from `settings.json` by the backend (`RoutingEnv` / `MacEnv` / `SnapclientEnv` in `backend/core/multiroom/routing.py`); never edit them manually.
+
+ALSA device names are dynamically resolved via `MILO_MODE`:
 - `milo_spotify` → `milo_spotify_direct` or `milo_spotify_multiroom`
 
 This allows runtime switching between:

@@ -203,8 +203,8 @@
 
 Aucune des options A/B/C n'était sans coût significatif (alsaloop+dsnoop pour A, plugin `multi` non adapté au stream-cloning pour B, back-pressure FIFO pour C). À la place, le silence detector lit `levels.capture_peak` directement depuis CamillaDSP qui est **déjà** dans le chemin audio :
 
-- Direct mode : BT/ROC → `pcm.camilladsp` (loopback subdev 5) → CamillaDSP → DAC. Le peak meter de CamillaDSP voit le signal.
-- Multiroom mode : BT/ROC → loopback 0/1 → snapserver → snapclient local → `pcm.snapclient_dsp` (loopback 5) → CamillaDSP → DAC. Toujours dans le chemin local.
+- Direct mode : BT/ROC → `pcm.camilladsp` (Loopback subdev 0) → CamillaDSP → DAC. Le peak meter de CamillaDSP voit le signal.
+- Multiroom mode : BT/ROC → Loopback subdev 1/2 → snapserver → snapclient local (`--soundcard camilladsp` → Loopback subdev 0) → CamillaDSP → DAC. Toujours dans le chemin local.
 
 **Avantages** :
 - Zéro modif ALSA (`asound.conf` inchangé, `pcm_substreams=8` inchangé)
