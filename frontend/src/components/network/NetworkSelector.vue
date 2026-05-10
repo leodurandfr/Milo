@@ -221,6 +221,7 @@ onMounted(async () => {
   background: var(--color-background);
   cursor: pointer;
   transition: background-color var(--transition-fast), var(--transition-press);
+  min-width: 0;
 }
 
 .network-item__row {
@@ -228,6 +229,7 @@ onMounted(async () => {
   justify-content: space-between;
   align-items: center;
   gap: var(--space-03);
+  min-width: 0;
 }
 
 .network-item__ssid-row {
@@ -235,6 +237,7 @@ onMounted(async () => {
   align-items: center;
   gap: var(--space-03);
   min-width: 0;
+  flex: 1;
 }
 
 .network-item__ssid {

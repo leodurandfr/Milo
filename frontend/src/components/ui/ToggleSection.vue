@@ -120,6 +120,7 @@ function handleToggle(newEnabled) {
 
 .toggle-section-expand__inner {
   min-height: 0;  /* Fixes iOS collapse */
+  min-width: 0;   /* Allows children with long unbreakable text to ellipsize instead of overflowing */
 }
 
 </style>
