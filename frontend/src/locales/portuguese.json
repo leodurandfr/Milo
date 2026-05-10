@@ -11,6 +11,12 @@
   },
   "settings": {
     "title": "Configuração do Milō",
+    "section": {
+      "appearance": "Aparência",
+      "audio": "Áudio",
+      "sources": "Fontes",
+      "system": "Sistema"
+    },
     "languages": "Idiomas",
     "applications": "Aplicações",
     "volume": "Volume",

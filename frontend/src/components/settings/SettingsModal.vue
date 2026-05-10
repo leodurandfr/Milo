@@ -49,91 +49,116 @@
               </ListItemButton>
             </div>
         </div>
-        <div class="settings-nav-grid">
-          <ListItemButton :title="t('settings.languages')" action="caret" @click="push('languages')">
-            <template #icon>
-              <img :src="languagesIcon" alt="Languages" />
+        <div class="settings-sections">
+          <SettingsSection>
+            <template #header>
+              <span class="text-body settings-home-section-title">{{ t('settings.section.appearance') }}</span>
             </template>
-          </ListItemButton>
+            <div class="settings-nav-grid">
+              <ListItemButton :title="t('settings.languages')" action="caret" @click="push('languages')">
+                <template #icon>
+                  <img :src="languagesIcon" alt="Languages" />
+                </template>
+              </ListItemButton>
 
-          <ListItemButton :title="t('settings.applications')" action="caret" @click="push('apps')">
-            <template #icon>
-              <img :src="applicationsIcon" alt="Applications" />
-            </template>
-          </ListItemButton>
+              <ListItemButton :title="t('settings.applications')" action="caret" @click="push('apps')">
+                <template #icon>
+                  <img :src="applicationsIcon" alt="Applications" />
+                </template>
+              </ListItemButton>
 
-          <ListItemButton v-if="unifiedStore.volumeState.any_volume_control" :title="t('settings.volume')" action="caret" @click="push('volume')">
-            <template #icon>
-              <img :src="volumeIcon" alt="Volume" />
-            </template>
-          </ListItemButton>
+              <ListItemButton v-if="screenType !== 'none'" :title="t('settings.screen')" action="caret" @click="push('screen')">
+                <template #icon>
+                  <img :src="displayIcon" alt="Display" />
+                </template>
+              </ListItemButton>
+            </div>
+          </SettingsSection>
 
-          <ListItemButton v-if="screenType !== 'none'" :title="t('settings.screen')" action="caret" @click="push('screen')">
-            <template #icon>
-              <img :src="displayIcon" alt="Display" />
+          <SettingsSection>
+            <template #header>
+              <span class="text-body settings-home-section-title">{{ t('settings.section.audio') }}</span>
             </template>
-          </ListItemButton>
+            <div class="settings-nav-grid">
+              <ListItemButton v-if="unifiedStore.volumeState.any_volume_control" :title="t('settings.volume')" action="caret" @click="push('volume')">
+                <template #icon>
+                  <img :src="volumeIcon" alt="Volume" />
+                </template>
+              </ListItemButton>
 
-          <ListItemButton :title="t('settings.network')" action="caret" @click="push('network')">
-            <template #icon>
-              <img :src="networkIcon" alt="Network" />
-            </template>
-          </ListItemButton>
+              <ListItemButton :title="t('settings.audioPlayback')" action="caret" @click="push('audio-playback')">
+                <template #icon>
+                  <img :src="audioPlaybackIcon" alt="Audio playback" />
+                </template>
+              </ListItemButton>
 
-          <ListItemButton v-if="settingsStore.dockApps.multiroom" :title="t('audioSources.multiroom')" action="caret"
-            @click="push('multiroom')">
-            <template #icon>
-              <img :src="multiroomIcon" alt="Multiroom" />
-            </template>
-          </ListItemButton>
+              <ListItemButton v-if="settingsStore.dockApps.multiroom" :title="t('audioSources.multiroom')" action="caret"
+                @click="push('multiroom')">
+                <template #icon>
+                  <img :src="multiroomIcon" alt="Multiroom" />
+                </template>
+              </ListItemButton>
+            </div>
+          </SettingsSection>
 
-          <ListItemButton :title="t('settings.audioPlayback')" action="caret" @click="push('audio-playback')">
-            <template #icon>
-              <img :src="audioPlaybackIcon" alt="Audio playback" />
+          <SettingsSection v-if="hasAnyConfigurableSource">
+            <template #header>
+              <span class="text-body settings-home-section-title">{{ t('settings.section.sources') }}</span>
             </template>
-          </ListItemButton>
+            <div class="settings-nav-grid">
+              <ListItemButton v-if="settingsStore.dockApps.mac" :title="t('audioSources.macOS')" action="caret"
+                @click="push('macos')">
+                <template #icon>
+                  <img :src="macosIcon" alt="Mac" />
+                </template>
+              </ListItemButton>
 
-          <ListItemButton v-if="settingsStore.dockApps.mac" :title="t('audioSources.macOS')" action="caret"
-            @click="push('macos')">
-            <template #icon>
-              <img :src="macosIcon" alt="Mac" />
-            </template>
-          </ListItemButton>
+              <ListItemButton v-if="settingsStore.dockApps.radio" :title="t('audioSources.radio')" action="caret"
+                @click="push('radio')">
+                <template #icon>
+                  <img :src="radioIcon" alt="Radio" />
+                </template>
+              </ListItemButton>
 
-          <ListItemButton v-if="settingsStore.dockApps.radio" :title="t('audioSources.radio')" action="caret"
-            @click="push('radio')">
-            <template #icon>
-              <img :src="radioIcon" alt="Radio" />
-            </template>
-          </ListItemButton>
+              <ListItemButton v-if="settingsStore.dockApps.podcast" :title="t('audioSources.podcasts')" action="caret"
+                @click="push('podcast')">
+                <template #icon>
+                  <img :src="podcastIcon" alt="Podcasts" />
+                </template>
+              </ListItemButton>
+            </div>
+          </SettingsSection>
 
-          <ListItemButton v-if="settingsStore.dockApps.podcast" :title="t('audioSources.podcasts')" action="caret"
-            @click="push('podcast')">
-            <template #icon>
-              <img :src="podcastIcon" alt="Podcasts" />
+          <SettingsSection>
+            <template #header>
+              <span class="text-body settings-home-section-title">{{ t('settings.section.system') }}</span>
             </template>
-          </ListItemButton>
+            <div class="settings-nav-grid">
+              <ListItemButton :title="t('settings.network')" action="caret" @click="push('network')">
+                <template #icon>
+                  <img :src="networkIcon" alt="Network" />
+                </template>
+              </ListItemButton>
 
-          <ListItemButton :title="t('settings.hardware')" action="caret" @click="push('hardware')">
-            <template #icon>
-              <img :src="hardwareIcon" alt="Hardware" />
-            </template>
-          </ListItemButton>
-          
-          <ListItemButton :title="t('settings.updates')" action="caret" @click="push('updates')">
-            <template #icon>
-              <img :src="updatesIcon" alt="Updates" />
-            </template>
-          </ListItemButton>
+              <ListItemButton :title="t('settings.hardware')" action="caret" @click="push('hardware')">
+                <template #icon>
+                  <img :src="hardwareIcon" alt="Hardware" />
+                </template>
+              </ListItemButton>
 
-          <ListItemButton :title="t('settings.information')" action="caret" @click="push('info')">
-            <template #icon>
-              <img :src="informationIcon" alt="Information" />
-            </template>
-          </ListItemButton>
+              <ListItemButton :title="t('settings.updates')" action="caret" @click="push('updates')">
+                <template #icon>
+                  <img :src="updatesIcon" alt="Updates" />
+                </template>
+              </ListItemButton>
 
-          <!-- Placeholder for an odd number of IconButtons on desktop -->
-          <div v-if="shouldShowPlaceholder" class="icon-button-placeholder"></div>
+              <ListItemButton :title="t('settings.information')" action="caret" @click="push('info')">
+                <template #icon>
+                  <img :src="informationIcon" alt="Information" />
+                </template>
+              </ListItemButton>
+            </div>
+          </SettingsSection>
         </div>
       </div>
 
@@ -226,6 +251,7 @@ import Toggle from '@/components/ui/Toggle.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import LanguageSettings from '@/components/settings/categories/LanguageSettings.vue';
+import SettingsSection from '@/components/settings/SettingsSection.vue';
 
 // Import settings icons
 import languagesIcon from '@/assets/settings-icons/languages.svg';
@@ -539,20 +565,12 @@ async function handleShutdown() {
   }
 }
 
-// Placeholder for odd grid
-const shouldShowPlaceholder = computed(() => {
-  // Count the number of visible items
-  let count = 7; // Base: Languages, Applications, Network, Hardware, Audio playback, Updates, Information
-  if (screenType.value !== 'none') count++;
-  if (unifiedStore.volumeState.any_volume_control) count++;
-  if (settingsStore.dockApps.mac) count++;
-  if (settingsStore.dockApps.multiroom) count++;
-  if (settingsStore.dockApps.radio) count++;
-  if (settingsStore.dockApps.podcast) count++;
-
-  // Return true if odd
-  return count % 2 !== 0;
-});
+// Hide the entire Sources section when none of its per-source entries are visible
+const hasAnyConfigurableSource = computed(() =>
+  settingsStore.dockApps.mac
+  || settingsStore.dockApps.radio
+  || settingsStore.dockApps.podcast
+);
 
 // Multiroom toggle
 const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
@@ -696,17 +714,22 @@ onMounted(async () => {
   color: var(--color-text-secondary);
 }
 
+/* Stack of 4 home grid sections */
+.settings-sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-06);
+}
+
+.settings-home-section-title {
+  color: var(--color-text-secondary);
+}
+
 /* Navigation Grid */
 .settings-nav-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-01);
-}
-
-/* Placeholder for odd grid */
-.icon-button-placeholder {
-  background: var(--color-background-neutral-50);
-  border-radius: var(--radius-05);
 }
 
 /* Responsive */
@@ -721,11 +744,6 @@ onMounted(async () => {
 
   .power-menu-items {
     grid-template-columns: 1fr;
-  }
-
-  /* Hide placeholder on mobile */
-  .icon-button-placeholder {
-    display: none;
   }
 }
 </style>

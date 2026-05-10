@@ -11,6 +11,12 @@
   },
   "settings": {
     "title": "Milō 设置",
+    "section": {
+      "appearance": "外观",
+      "audio": "音频",
+      "sources": "音源",
+      "system": "系统"
+    },
     "languages": "语言",
     "applications": "应用",
     "volume": "音量",

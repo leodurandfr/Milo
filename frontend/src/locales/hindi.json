@@ -11,6 +11,12 @@
   },
   "settings": {
     "title": "Milō सेटिंग्स",
+    "section": {
+      "appearance": "स्वरूप",
+      "audio": "ऑडियो",
+      "sources": "स्रोत",
+      "system": "सिस्टम"
+    },
     "languages": "भाषाएं",
     "applications": "ऐप्स",
     "volume": "वॉल्यूम",
