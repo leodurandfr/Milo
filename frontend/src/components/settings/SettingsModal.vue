@@ -301,6 +301,7 @@ const modalContentRef = inject('modalContentRef', null);
 const modalDeferScrollRestore = inject('modalDeferScrollRestore', null);
 const modalContentInnerRef = inject('modalContentInnerRef', null);
 const modalRequestHeightDelta = inject('modalRequestHeightDelta', null);
+const modalCancelDeferredFinalize = inject('modalCancelDeferredFinalize', null);
 
 // Navigation with scroll save/restore
 const { currentView, canGoBack, push: navPush, back: navBack, reset, goTo, pendingScrollRestore } =
@@ -327,6 +328,7 @@ const { prepareNavigation, onBeforeLeave, onEnter, onAfterLeave } = useViewTrans
   deferScrollRestore: modalDeferScrollRestore,
   contentInnerRef: modalContentInnerRef,
   requestHeightDelta: modalRequestHeightDelta,
+  cancelDeferred: modalCancelDeferredFinalize,
 });
 
 // Wrap push/back to pre-capture header clone.
