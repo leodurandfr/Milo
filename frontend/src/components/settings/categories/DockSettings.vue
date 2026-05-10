@@ -1,4 +1,4 @@
-<!-- frontend/src/components/settings/categories/ApplicationsSettings.vue -->
+<!-- frontend/src/components/settings/categories/DockSettings.vue -->
 <template>
   <SettingsContainer>
     <!-- Audio sources -->

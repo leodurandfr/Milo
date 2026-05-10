@@ -49,25 +49,25 @@
               </ListItemButton>
             </div>
         </div>
-        <div class="settings-sections">
+        <SettingsContainer>
           <SettingsSection>
             <template #header>
               <span class="text-body settings-home-section-title">{{ t('settings.section.appearance') }}</span>
             </template>
             <div class="settings-nav-grid">
-              <ListItemButton :title="t('settings.languages')" action="caret" @click="push('languages')">
+              <ListItemButton variant="background" :title="t('settings.languages')" action="caret" @click="push('languages')">
                 <template #icon>
                   <img :src="languagesIcon" alt="Languages" />
                 </template>
               </ListItemButton>
 
-              <ListItemButton :title="t('settings.applications')" action="caret" @click="push('apps')">
+              <ListItemButton variant="background" :title="t('settings.dock')" action="caret" @click="push('apps')">
                 <template #icon>
-                  <img :src="applicationsIcon" alt="Applications" />
+                  <img :src="applicationsIcon" alt="Dock" />
                 </template>
               </ListItemButton>
 
-              <ListItemButton v-if="screenType !== 'none'" :title="t('settings.screen')" action="caret" @click="push('screen')">
+              <ListItemButton v-if="screenType !== 'none'" variant="background" :title="t('settings.screen')" action="caret" @click="push('screen')">
                 <template #icon>
                   <img :src="displayIcon" alt="Display" />
                 </template>
@@ -80,19 +80,19 @@
               <span class="text-body settings-home-section-title">{{ t('settings.section.audio') }}</span>
             </template>
             <div class="settings-nav-grid">
-              <ListItemButton v-if="unifiedStore.volumeState.any_volume_control" :title="t('settings.volume')" action="caret" @click="push('volume')">
+              <ListItemButton v-if="unifiedStore.volumeState.any_volume_control" variant="background" :title="t('settings.volume')" action="caret" @click="push('volume')">
                 <template #icon>
                   <img :src="volumeIcon" alt="Volume" />
                 </template>
               </ListItemButton>
 
-              <ListItemButton :title="t('settings.audioPlayback')" action="caret" @click="push('audio-playback')">
+              <ListItemButton variant="background" :title="t('settings.audioPlayback')" action="caret" @click="push('audio-playback')">
                 <template #icon>
                   <img :src="audioPlaybackIcon" alt="Audio playback" />
                 </template>
               </ListItemButton>
 
-              <ListItemButton v-if="settingsStore.dockApps.multiroom" :title="t('audioSources.multiroom')" action="caret"
+              <ListItemButton v-if="settingsStore.dockApps.multiroom" variant="background" :title="t('audioSources.multiroom')" action="caret"
                 @click="push('multiroom')">
                 <template #icon>
                   <img :src="multiroomIcon" alt="Multiroom" />
@@ -106,21 +106,21 @@
               <span class="text-body settings-home-section-title">{{ t('settings.section.sources') }}</span>
             </template>
             <div class="settings-nav-grid">
-              <ListItemButton v-if="settingsStore.dockApps.mac" :title="t('audioSources.macOS')" action="caret"
+              <ListItemButton v-if="settingsStore.dockApps.mac" variant="background" :title="t('audioSources.macOS')" action="caret"
                 @click="push('macos')">
                 <template #icon>
                   <img :src="macosIcon" alt="Mac" />
                 </template>
               </ListItemButton>
 
-              <ListItemButton v-if="settingsStore.dockApps.radio" :title="t('audioSources.radio')" action="caret"
+              <ListItemButton v-if="settingsStore.dockApps.radio" variant="background" :title="t('audioSources.radio')" action="caret"
                 @click="push('radio')">
                 <template #icon>
                   <img :src="radioIcon" alt="Radio" />
                 </template>
               </ListItemButton>
 
-              <ListItemButton v-if="settingsStore.dockApps.podcast" :title="t('audioSources.podcasts')" action="caret"
+              <ListItemButton v-if="settingsStore.dockApps.podcast" variant="background" :title="t('audioSources.podcasts')" action="caret"
                 @click="push('podcast')">
                 <template #icon>
                   <img :src="podcastIcon" alt="Podcasts" />
@@ -134,39 +134,39 @@
               <span class="text-body settings-home-section-title">{{ t('settings.section.system') }}</span>
             </template>
             <div class="settings-nav-grid">
-              <ListItemButton :title="t('settings.network')" action="caret" @click="push('network')">
+              <ListItemButton variant="background" :title="t('settings.network')" action="caret" @click="push('network')">
                 <template #icon>
                   <img :src="networkIcon" alt="Network" />
                 </template>
               </ListItemButton>
 
-              <ListItemButton :title="t('settings.hardware')" action="caret" @click="push('hardware')">
+              <ListItemButton variant="background" :title="t('settings.hardware')" action="caret" @click="push('hardware')">
                 <template #icon>
                   <img :src="hardwareIcon" alt="Hardware" />
                 </template>
               </ListItemButton>
 
-              <ListItemButton :title="t('settings.updates')" action="caret" @click="push('updates')">
+              <ListItemButton variant="background" :title="t('settings.updates')" action="caret" @click="push('updates')">
                 <template #icon>
                   <img :src="updatesIcon" alt="Updates" />
                 </template>
               </ListItemButton>
 
-              <ListItemButton :title="t('settings.information')" action="caret" @click="push('info')">
+              <ListItemButton variant="background" :title="t('settings.information')" action="caret" @click="push('info')">
                 <template #icon>
                   <img :src="informationIcon" alt="Information" />
                 </template>
               </ListItemButton>
             </div>
           </SettingsSection>
-        </div>
+        </SettingsContainer>
       </div>
 
       <!-- Languages view -->
       <LanguageSettings v-else-if="currentView === 'languages'" key="languages" class="view-content" />
 
-      <!-- Applications view -->
-      <ApplicationsSettings v-else-if="currentView === 'apps'" key="apps" class="view-content" />
+      <!-- Dock view -->
+      <DockSettings v-else-if="currentView === 'apps'" key="apps" class="view-content" />
 
       <!-- Volume view -->
       <VolumeSettings v-else-if="currentView === 'volume'" key="volume" class="view-content" />
@@ -251,6 +251,7 @@ import Toggle from '@/components/ui/Toggle.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import LanguageSettings from '@/components/settings/categories/LanguageSettings.vue';
+import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 
 // Import settings icons
@@ -269,7 +270,7 @@ import hardwareIcon from '@/assets/settings-icons/hardware.svg';
 import networkIcon from '@/assets/settings-icons/network.svg';
 import rebootIcon from '@/assets/settings-icons/reboot.svg';
 import shutdownIcon from '@/assets/settings-icons/shutdown.svg';
-import ApplicationsSettings from '@/components/settings/categories/ApplicationsSettings.vue';
+import DockSettings from '@/components/settings/categories/DockSettings.vue';
 import VolumeSettings from '@/components/settings/categories/VolumeSettings.vue';
 import ScreenSettings from '@/components/settings/categories/ScreenSettings.vue';
 import AudioPlaybackSettings from '@/components/settings/categories/AudioPlaybackSettings.vue';
@@ -356,7 +357,7 @@ const headerTitle = computed(() => {
   const titles = {
     'home': t('settings.title'),
     'languages': t('settings.languages'),
-    'apps': t('settings.applications'),
+    'apps': t('settings.dock'),
     'volume': t('settings.volume'),
     'screen': t('settings.screen'),
     'network': t('settings.network'),
@@ -712,13 +713,6 @@ onMounted(async () => {
 
 .power-text--light {
   color: var(--color-text-secondary);
-}
-
-/* Stack of 4 home grid sections */
-.settings-sections {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-06);
 }
 
 .settings-home-section-title {
