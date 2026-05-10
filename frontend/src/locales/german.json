@@ -11,6 +11,12 @@
   },
   "settings": {
     "title": "Milō Einstellungen",
+    "section": {
+      "appearance": "Erscheinungsbild",
+      "audio": "Audio",
+      "sources": "Quellen",
+      "system": "System"
+    },
     "languages": "Sprachen",
     "applications": "Anwendungen",
     "volume": "Lautstärke",
