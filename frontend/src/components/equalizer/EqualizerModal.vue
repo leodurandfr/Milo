@@ -156,6 +156,7 @@ const modalContentRef = inject('modalContentRef', null);
 const modalDeferScrollRestore = inject('modalDeferScrollRestore', null);
 const modalContentInnerRef = inject('modalContentInnerRef', null);
 const modalRequestHeightDelta = inject('modalRequestHeightDelta', null);
+const modalCancelDeferredFinalize = inject('modalCancelDeferredFinalize', null);
 
 // Local state
 const isMobile = ref(false);
@@ -170,6 +171,7 @@ const { prepareNavigation, onBeforeLeave, onEnter, onAfterLeave } = useViewTrans
   deferScrollRestore: modalDeferScrollRestore,
   contentInnerRef: modalContentInnerRef,
   requestHeightDelta: modalRequestHeightDelta,
+  cancelDeferred: modalCancelDeferredFinalize,
 });
 
 // Detect content key changes and prepare transition before Vue patches the DOM

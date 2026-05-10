@@ -1,4 +1,5 @@
 import { ref, unref } from 'vue';
+import { modalDebugLog } from '@/services/modalDebug';
 
 /**
  * Composable for scroll-aware view transitions with NavigationHeader clone support.
@@ -31,6 +32,11 @@ import { ref, unref } from 'vue';
  *   Ref to Modal's contentInner element for height delta measurement.
  * @param {((delta: number, duration?: number) => void)|null} [options.requestHeightDelta]
  *   Pre-announce height changes to Modal's animated height system.
+ * @param {(() => void)|null} [options.cancelDeferred]
+ *   Called by prepareNavigation() when a new navigation starts, to invalidate
+ *   any pending deferScrollRestore finalize from a previous (interrupted)
+ *   transition. Without this, transitioncancel of the previous height spring
+ *   would fire the stale finalize during the new transition, corrupting state.
  */
 export function useViewTransition({
   scrollElRef,
@@ -40,6 +46,7 @@ export function useViewTransition({
   deferScrollRestore = null,
   contentInnerRef = null,
   requestHeightDelta = null,
+  cancelDeferred = null,
 }) {
   // Scroll-aware cross-fade state
   let wasScrolled = false;
@@ -56,6 +63,12 @@ export function useViewTransition({
    * Also saves contentInner height for delta calculation in onEnter.
    */
   function prepareNavigation() {
+    // Cancel any pending deferred finalize from a previous (still-springing or
+    // just-cancelled) transition. Otherwise transitioncancel from the spring we're
+    // about to interrupt fires the stale finalize during the new navigation, which
+    // overwrites scrollTop with the old target and resets headers we just restyled.
+    cancelDeferred?.();
+
     // Clean up stale state from an interrupted transition
     if (pinnedWrapper) {
       pinnedWrapper.style.minHeight = '';
@@ -72,6 +85,22 @@ export function useViewTransition({
       headerClone.parentNode.removeChild(headerClone);
     }
     headerClone = null;
+
+    // Reset real header inline styles so the upcoming clone (cloneNode below) and
+    // savedInnerHeight measurement reflect the in-flow header. Without this, leaked
+    // styles from a cancelled transition (position:absolute, translateY(...)) would
+    // be cloned into the new clone, breaking layout, and would exclude the header
+    // from contentInner's offsetHeight (skewing the height-delta calculation).
+    const headerEl = headerRef.value?.$el;
+    if (headerEl) {
+      headerEl.style.position = '';
+      headerEl.style.top = '';
+      headerEl.style.left = '';
+      headerEl.style.width = '';
+      headerEl.style.transform = '';
+      headerEl.style.transition = '';
+      headerEl.style.opacity = '';
+    }
 
     // Save current contentInner height BEFORE Vue patches the DOM.
     // Used in onEnter to calculate the height delta for the Modal spring.
@@ -252,7 +281,7 @@ export function useViewTransition({
         let delta = enteringHeight - savedLeavingHeight;
         let usedOverflowPath = false;
 
-        console.log(`[ViewTransition] onEnter rAF — leaving=${savedLeavingHeight} entering=${enteringHeight} savedInner=${savedInnerHeight} rawDelta=${delta}`);
+        modalDebugLog(`[ViewTransition] onEnter rAF — leaving=${savedLeavingHeight} entering=${enteringHeight} savedInner=${savedInnerHeight} rawDelta=${delta}`);
 
         // When both old and new views overflow the modal, cap heights to the visible
         // slot area so the modal stays at max height (avoids double-spring).
@@ -276,10 +305,10 @@ export function useViewTransition({
           const effectiveEntering = Math.min(enteringHeight, maxSlotVisible);
 
           delta = effectiveEntering - effectiveLeaving;
-          console.log(`[ViewTransition] overflow path — clientH=${scrollEl.clientHeight} scrollPad=${scrollPadding} effectiveLeaving=${effectiveLeaving} effectiveEntering=${effectiveEntering} finalDelta=${delta}`);
+          modalDebugLog(`[ViewTransition] overflow path — clientH=${scrollEl.clientHeight} scrollPad=${scrollPadding} effectiveLeaving=${effectiveLeaving} effectiveEntering=${effectiveEntering} finalDelta=${delta}`);
         }
 
-        console.log(`[ViewTransition] onEnter — finalDelta=${delta} overflow=${usedOverflowPath} → ${Math.abs(delta) > 2 ? 'calling requestHeightDelta' : 'skipped (< 2px)'}`);
+        modalDebugLog(`[ViewTransition] onEnter — finalDelta=${delta} overflow=${usedOverflowPath} → ${Math.abs(delta) > 2 ? 'calling requestHeightDelta' : 'skipped (< 2px)'}`);
 
         if (Math.abs(delta) > 2) {
           requestHeightDelta(delta, 800, { skipOverflowCheck: true });
@@ -297,57 +326,61 @@ export function useViewTransition({
     const targetScroll = unref(pendingScrollRestore) ?? 0;
     const shouldSignalRestore = unref(pendingScrollRestore) !== null;
 
-    // --- Phase 1: Reset inline styles ---
+    // [DEBUG-SCROLL]
+    const _scrollEl = unref(scrollElRef);
+    modalDebugLog(`[ViewTransition/onAfterLeave] ${performance.now().toFixed(0)}ms — targetScroll=${targetScroll} wasScrolled=${wasScrolled} savedScrollTop=${savedScrollTop}` + (_scrollEl ? ` currentScrollTop=${_scrollEl.scrollTop}` : ''));
 
-    if (wasScrolled) {
-      // Remove clone from DOM
-      if (headerClone && headerClone.parentNode) {
-        headerClone.parentNode.removeChild(headerClone);
-        headerClone = null;
-      }
-
-      // Reset real header inline styles (header becomes visible at flow position)
-      const headerEl = headerRef.value?.$el;
-      if (headerEl) {
-        headerEl.style.position = '';
-        headerEl.style.top = '';
-        headerEl.style.left = '';
-        headerEl.style.width = '';
-        headerEl.style.transform = '';
-        headerEl.style.transition = '';
-        headerEl.style.opacity = '';
-      }
-
-      // Reset entering element inline styles
-      if (enteringEl) {
+    // Phases 1+2+3 must happen ATOMICALLY in the same frame to avoid visual jumps:
+    // - Phase 1 resets entering element from absolute (top:-X, simulating scroll) to in-flow.
+    // - Phase 2 unpins the wrapper.
+    // - Phase 3 sets scrollTop to the target.
+    // Until these run, the entering element shows the "scrolled" view via CSS offset.
+    //
+    // In Modal context, the height spring may overshoot (linear() bezier > 1) and clamp
+    // modal-content.clientHeight ≥ scrollHeight, making maxScroll = 0 and silently
+    // clamping any scrollTop write to 0. So we defer the entire finalize() until
+    // isHeightTransitioning becomes false (spring settled), guaranteeing maxScroll
+    // is correct when scrollTop is written.
+    const finalize = () => {
+      // --- Phase 1: Reset inline styles ---
+      if (wasScrolled) {
+        if (headerClone && headerClone.parentNode) {
+          headerClone.parentNode.removeChild(headerClone);
+          headerClone = null;
+        }
+        const headerEl = headerRef.value?.$el;
+        if (headerEl) {
+          headerEl.style.position = '';
+          headerEl.style.top = '';
+          headerEl.style.left = '';
+          headerEl.style.width = '';
+          headerEl.style.transform = '';
+          headerEl.style.transition = '';
+          headerEl.style.opacity = '';
+        }
+        if (enteringEl) {
+          enteringEl.style.position = '';
+          enteringEl.style.top = '';
+          enteringEl.style.left = '';
+          enteringEl.style.width = '';
+        }
+        enteringEl = null;
+        wasScrolled = false;
+        savedScrollTop = 0;
+      } else if (enteringEl && savedScrollTop !== targetScroll) {
         enteringEl.style.position = '';
         enteringEl.style.top = '';
-        enteringEl.style.left = '';
         enteringEl.style.width = '';
+        enteringEl = null;
       }
 
-      enteringEl = null;
-      wasScrolled = false;
-      savedScrollTop = 0;
-    } else if (enteringEl && savedScrollTop !== targetScroll) {
-      // Non-scrolled case with scroll restore: reset entering element
-      enteringEl.style.position = '';
-      enteringEl.style.top = '';
-      enteringEl.style.width = '';
-      enteringEl = null;
-    }
+      // --- Phase 2: Unpin wrapper height ---
+      if (pinnedWrapper) {
+        pinnedWrapper.style.minHeight = '';
+        pinnedWrapper = null;
+      }
 
-    // --- Phase 2: Unpin wrapper height ---
-    // The wrapper can now shrink to the entering element's natural height.
-    // The ResizeObserver will correct any remaining height discrepancy.
-    if (pinnedWrapper) {
-      pinnedWrapper.style.minHeight = '';
-      pinnedWrapper = null;
-    }
-
-    // --- Phase 3: Restore scroll (deferred in Modal context) ---
-
-    const doScrollRestore = () => {
+      // --- Phase 3: Restore scroll ---
       const scrollEl = unref(scrollElRef);
       if (scrollEl) scrollEl.scrollTop = targetScroll;
       if (shouldSignalRestore) {
@@ -356,9 +389,9 @@ export function useViewTransition({
     };
 
     if (deferScrollRestore) {
-      deferScrollRestore(doScrollRestore);
+      deferScrollRestore(finalize);
     } else {
-      doScrollRestore();
+      finalize();
     }
   }
 
