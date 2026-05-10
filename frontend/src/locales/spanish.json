@@ -12,7 +12,7 @@
   "settings": {
     "title": "Configuración de Milō",
     "languages": "Idiomas",
-    "dock": "Dock",
+    "applications": "Aplicaciones",
     "volume": "Volumen",
     "screen": "Pantalla",
     "network": "Red",
