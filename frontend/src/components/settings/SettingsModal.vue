@@ -49,11 +49,9 @@
               </ListItemButton>
             </div>
         </div>
-        <SettingsContainer>
-          <SettingsSection>
-            <template #header>
-              <span class="text-body settings-home-section-title">{{ t('settings.section.appearance') }}</span>
-            </template>
+        <SettingsSection class="home-card">
+          <div class="home-group">
+            <span class="text-body settings-home-section-title">{{ t('settings.section.appearance') }}</span>
             <div class="settings-nav-grid">
               <ListItemButton variant="background" :title="t('settings.languages')" action="caret" @click="push('languages')">
                 <template #icon>
@@ -73,12 +71,10 @@
                 </template>
               </ListItemButton>
             </div>
-          </SettingsSection>
+          </div>
 
-          <SettingsSection>
-            <template #header>
-              <span class="text-body settings-home-section-title">{{ t('settings.section.audio') }}</span>
-            </template>
+          <div class="home-group">
+            <span class="text-body settings-home-section-title">{{ t('settings.section.audio') }}</span>
             <div class="settings-nav-grid">
               <ListItemButton v-if="unifiedStore.volumeState.any_volume_control" variant="background" :title="t('settings.volume')" action="caret" @click="push('volume')">
                 <template #icon>
@@ -99,12 +95,10 @@
                 </template>
               </ListItemButton>
             </div>
-          </SettingsSection>
+          </div>
 
-          <SettingsSection v-if="hasAnyConfigurableSource">
-            <template #header>
-              <span class="text-body settings-home-section-title">{{ t('settings.section.sources') }}</span>
-            </template>
+          <div v-if="hasAnyConfigurableSource" class="home-group">
+            <span class="text-body settings-home-section-title">{{ t('settings.section.sources') }}</span>
             <div class="settings-nav-grid">
               <ListItemButton v-if="settingsStore.dockApps.mac" variant="background" :title="t('audioSources.macOS')" action="caret"
                 @click="push('macos')">
@@ -127,12 +121,10 @@
                 </template>
               </ListItemButton>
             </div>
-          </SettingsSection>
+          </div>
 
-          <SettingsSection>
-            <template #header>
-              <span class="text-body settings-home-section-title">{{ t('settings.section.system') }}</span>
-            </template>
+          <div class="home-group">
+            <span class="text-body settings-home-section-title">{{ t('settings.section.system') }}</span>
             <div class="settings-nav-grid">
               <ListItemButton variant="background" :title="t('settings.network')" action="caret" @click="push('network')">
                 <template #icon>
@@ -158,8 +150,8 @@
                 </template>
               </ListItemButton>
             </div>
-          </SettingsSection>
-        </SettingsContainer>
+          </div>
+        </SettingsSection>
       </div>
 
       <!-- Languages view -->
@@ -251,7 +243,6 @@ import Toggle from '@/components/ui/Toggle.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import LanguageSettings from '@/components/settings/categories/LanguageSettings.vue';
-import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 
 // Import settings icons
@@ -713,6 +704,17 @@ onMounted(async () => {
 
 .power-text--light {
   color: var(--color-text-secondary);
+}
+
+/* Override SettingsSection's default 16px gap to 24px for the denser home grid */
+.home-card {
+  gap: var(--space-05);
+}
+
+.home-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-03);
 }
 
 .settings-home-section-title {
