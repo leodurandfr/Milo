@@ -56,7 +56,7 @@
             </template>
           </ListItemButton>
 
-          <ListItemButton :title="t('settings.dock')" action="caret" @click="push('apps')">
+          <ListItemButton :title="t('settings.applications')" action="caret" @click="push('apps')">
             <template #icon>
               <img :src="applicationsIcon" alt="Applications" />
             </template>
@@ -141,7 +141,7 @@
       <LanguageSettings v-else-if="currentView === 'languages'" key="languages" class="view-content" />
 
       <!-- Applications view -->
-      <DockSettings v-else-if="currentView === 'apps'" key="apps" class="view-content" />
+      <ApplicationsSettings v-else-if="currentView === 'apps'" key="apps" class="view-content" />
 
       <!-- Volume view -->
       <VolumeSettings v-else-if="currentView === 'volume'" key="volume" class="view-content" />
@@ -243,7 +243,7 @@ import hardwareIcon from '@/assets/settings-icons/hardware.svg';
 import networkIcon from '@/assets/settings-icons/network.svg';
 import rebootIcon from '@/assets/settings-icons/reboot.svg';
 import shutdownIcon from '@/assets/settings-icons/shutdown.svg';
-import DockSettings from '@/components/settings/categories/DockSettings.vue';
+import ApplicationsSettings from '@/components/settings/categories/ApplicationsSettings.vue';
 import VolumeSettings from '@/components/settings/categories/VolumeSettings.vue';
 import ScreenSettings from '@/components/settings/categories/ScreenSettings.vue';
 import AudioPlaybackSettings from '@/components/settings/categories/AudioPlaybackSettings.vue';
@@ -330,7 +330,7 @@ const headerTitle = computed(() => {
   const titles = {
     'home': t('settings.title'),
     'languages': t('settings.languages'),
-    'apps': t('settings.dock'),
+    'apps': t('settings.applications'),
     'volume': t('settings.volume'),
     'screen': t('settings.screen'),
     'network': t('settings.network'),
