@@ -595,6 +595,41 @@ When refactoring or adding features:
 
 In short: **keep the codebase OPTIM** (simple, efficient, modern) and avoid accumulating backward-compatibility or migration baggage.
 
+### 3. Dev-Only Symptoms vs. Production Bugs
+
+Milō is a **fixed-purpose Pi appliance**. End users:
+
+- Run the **pre-built** frontend served by nginx from `frontend/dist/`.
+- Do **not** rebuild, hot-reload, or keep stale tabs open across deploys.
+- Do **not** interact with Vite dev server (`npm run dev`), HMR, source-map URLs, or `localhost:5173`.
+
+When the developer reports a bug they hit *while developing*, classify the symptom **before** writing any code:
+
+**A. Dev-only artifact** — diagnose, explain, **do not modify code**.
+
+Telltale signs that the symptom is dev-only:
+  - Caused by a rebuild while a browser tab was already open (stale JS bundle, renamed chunks → 404 on dynamic imports → blank page).
+  - Errors referencing `localhost:5173`, `192.168.x.x:5173`, `?t=<timestamp>` query strings, or `Vite HMR` / `[vite]` log lines.
+  - Stale `sessionStorage` / `localStorage` from a prior dev iteration of the schema.
+  - Service worker / PWA cache pollution from experimentation (the prod build has no SW).
+  - Anything that disappears with a hard refresh (`⌘ + Shift + R`) or after clearing site data.
+  - "Page blanche" / "écran blanc" after `npm run build` while a tab was open — almost always the stale-chunk pattern above.
+
+For these: explain *why* it happened, point to the dev workflow that triggered it, and stop. Do **not** add reload guards, version-check loops, error-handler fallbacks, or any other code whose only purpose is to mask a developer's mid-session inconsistency. That code would bloat the prod bundle for a scenario no end user will ever create.
+
+**B. Real bug that would also hit production** — fix in code.
+
+Telltale signs that the symptom impacts end users:
+  - Reproduces from a clean prod state (fresh boot, nginx-served `dist/`, no dev tools open).
+  - Triggered by user actions the appliance is built for: connecting AirPlay, selecting a radio station, multi-room handoff, screen sleep, etc.
+  - Reproduces on the Pi kiosk itself (which always runs the prod build), not just the developer's Mac browser.
+  - Backend logs (`journalctl -u milo-backend`) or `errors.log` show a server-side trace independent of how the user got there.
+  - Hardware-related: ALSA routing, CamillaDSP, ROC, Snapcast, rotary encoder, screen brightness — these always count as prod-relevant.
+
+For these: investigate root cause and fix.
+
+**When in doubt, ask explicitly before implementing**: *"Is this reproducible from a clean prod boot, or only because of your dev session state?"* Do not bake mitigation into the prod codebase to silently absorb developer mistakes.
+
 
 ## Reference Documentation
 
