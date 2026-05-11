@@ -2,21 +2,25 @@
 <template>
   <SettingsContainer>
     <ToggleSection
-      :title="t('btRemoteSettings.title')"
       :enabled="settingsStore.btRemote.enabled"
       @change="handleBtRemoteToggle"
     >
-      <div class="bt-remote-status text-mono">
-        <span class="bt-remote-status__dot" :class="{ 'is-connected': btRemoteConnected }" />
-        {{ btRemoteConnected ? t('btRemoteSettings.connected') : t('btRemoteSettings.notConnected') }}
-        <span v-if="btRemoteConnected && settingsStore.btRemote.battery_percentage !== null"
-          class="bt-remote-status__battery"
-          :class="{ 'is-low': settingsStore.btRemote.battery_percentage < 20 }"
-          :title="settingsStore.btRemote.battery_percentage < 20 ? t('btRemoteSettings.batteryLow') : undefined">
-          — {{ settingsStore.btRemote.battery_percentage }}%
+      <template #title>
+        <span class="bt-remote-status">
+          <span class="bt-remote-status__dot" :class="{ 'is-connected': btRemoteConnected }" />
+          {{ btRemoteConnected ? t('btRemoteSettings.connected') : t('btRemoteSettings.notConnected') }}
+          <span
+            v-if="btRemoteConnected && settingsStore.btRemote.battery_percentage !== null"
+            class="bt-remote-status__battery"
+            :class="{ 'is-low': settingsStore.btRemote.battery_percentage < 20 }"
+            :title="settingsStore.btRemote.battery_percentage < 20 ? t('btRemoteSettings.batteryLow') : undefined"
+          >
+            · {{ settingsStore.btRemote.battery_percentage }}%
+          </span>
         </span>
+      </template>
+      <template v-if="!btRemoteConnected" #actions>
         <Button
-          v-if="!btRemoteConnected"
           variant="brand"
           size="small"
           :loading="settingsStore.btRemote.discovering"
@@ -25,7 +29,7 @@
         >
           {{ settingsStore.btRemote.discovering ? t('btRemoteSettings.discovering') : t('btRemoteSettings.discover') }}
         </Button>
-      </div>
+      </template>
 
       <SettingItem :label="t('btRemoteSettings.step')">
         <RangeSlider
@@ -90,9 +94,7 @@ onUnmounted(() => {
 
 <style scoped>
 .bt-remote-status {
-  color: var(--color-text-secondary);
-  margin-bottom: var(--space-04);
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: var(--space-02);
 }
@@ -102,7 +104,6 @@ onUnmounted(() => {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  vertical-align: middle;
   background: var(--color-error);
 }
 
@@ -113,9 +114,5 @@ onUnmounted(() => {
 .bt-remote-status__battery.is-low {
   color: var(--color-warning);
   font-weight: 600;
-}
-
-.bt-remote-status :deep(.btn) {
-  margin-left: auto;
 }
 </style>
