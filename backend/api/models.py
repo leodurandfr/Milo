@@ -114,6 +114,11 @@ class BtRemoteStepsRequest(BaseModel):
     step_bt_remote_db: float = Field(..., ge=1, le=6, description="BT remote volume step in dB")
 
 
+class IrRemoteStepsRequest(BaseModel):
+    """IR remote volume steps request (in dB)"""
+    step_ir_remote_db: float = Field(..., ge=1, le=6, description="IR remote volume step in dB")
+
+
 class BtRemoteConfigRequest(BaseModel):
     """BT remote partial config update request."""
     enabled: Optional[bool] = None

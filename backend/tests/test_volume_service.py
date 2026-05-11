@@ -208,6 +208,8 @@ class TestVolumeConfig:
         """Test all default values"""
         assert config.step_mobile_db == 2.0
         assert config.step_rotary_db == 2.0
+        assert config.step_bt_remote_db == 2.0
+        assert config.step_ir_remote_db == 2.0
         assert config.startup_volume_db == -45.0  # DEFAULT_VOLUME_DB from constants
         assert config.restore_last_volume is True
 
@@ -236,6 +238,8 @@ class TestVolumeConfig:
         assert result["limit_max_db"] == -20.0
         assert result["step_mobile_db"] == 2.0
         assert result["step_rotary_db"] == 2.0
+        assert result["step_bt_remote_db"] == 2.0
+        assert result["step_ir_remote_db"] == 2.0
         assert result["startup_volume_db"] == -45.0  # DEFAULT_VOLUME_DB from constants
         assert result["restore_last_volume"] is True
 
