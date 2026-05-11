@@ -62,7 +62,7 @@
       </div>
 
       <!-- Refresh -->
-      <Button variant="background-strong" size="medium" left-icon="arrowsClockwise"
+      <Button variant="background-strong" size="medium" left-icon="arrowClockwise"
         :loading="scanning" :disabled="scanning"
         @click="scanNetworks">
         {{ t('network.refresh') }}

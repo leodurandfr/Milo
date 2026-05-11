@@ -31,7 +31,8 @@ import plusIcon from '@/assets/icons/plus.svg?raw'
 import minusIcon from '@/assets/icons/minus.svg?raw'
 import threeDotsIcon from '@/assets/icons/three-dots.svg?raw'
 import closeDotsIcon from '@/assets/icons/close-dots.svg?raw'
-import arrowsClockwiseIcon from '@/assets/icons/arrows-clockwise.svg?raw'
+import arrowClockwiseIcon from '@/assets/icons/arrow-clockwise.svg?raw'
+import arrowCounterClockwiseIcon from '@/assets/icons/arrow-counter-clockwise.svg?raw'
 import settingsIcon from '@/assets/icons/settings.svg?raw'
 import closeIcon from '@/assets/icons/close.svg?raw'
 import caretLeftIcon from '@/assets/icons/caret-left.svg?raw'
@@ -76,7 +77,8 @@ const icons = {
   minus: minusIcon,
   threeDots: threeDotsIcon,
   closeDots: closeDotsIcon,
-  arrowsClockwise: arrowsClockwiseIcon,
+  arrowClockwise: arrowClockwiseIcon,
+  arrowCounterClockwise: arrowCounterClockwiseIcon,
   settings: settingsIcon,
   close: closeIcon,
   caretLeft: caretLeftIcon,
