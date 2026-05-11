@@ -4,7 +4,7 @@
     <LazyImage
       ref="lazyImg"
       :src="getFaviconUrl(station.favicon)"
-      :fallback="generateStationAvatar(station.name)"
+      :fallback-name="station.name"
       :alt="station.name"
       :class="['station-image', { playing: isPlaying, loading: isLoading }]"
     >
@@ -32,7 +32,7 @@
   }]" @click="$emit('click')">
     <LazyImage
       :src="getFaviconUrl(station.favicon)"
-      :fallback="generateStationAvatar(station.name)"
+      :fallback-name="station.name"
       :alt="station.name"
       class="station-logo"
     >
@@ -63,7 +63,6 @@ import { getTranslatedCountryName } from '@/constants/countries';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
 import SkeletonStationCard from './SkeletonStationCard.vue';
-import { generateStationAvatar } from '@/utils/stationAvatar';
 
 const { t } = useI18n();
 
@@ -153,6 +152,11 @@ function getFaviconUrl(faviconUrl) {
   position: absolute;
   inset: 0;
   z-index: 2;
+  /* Force opaque shimmer here so the SVG fallback underneath cannot bleed through
+     during the favicon load. Defaults (--color-background-neutral-50/12) are
+     translucent and intended for skeletons sitting on a darker backdrop. */
+  --shimmer-base: var(--color-background-strong);
+  --shimmer-highlight: var(--color-background-neutral);
 }
 
 /* Transition animations */

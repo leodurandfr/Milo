@@ -1,43 +1,63 @@
-// Generates a deterministic colored avatar (canvas data URL) for radio stations without a favicon.
+// Generates a deterministic SVG avatar for radio stations without a favicon.
 // Uses Space Mono Bold with a pastel background and vivid text color derived from the station name.
+//
+// Two output forms:
+//   generateStationAvatarSvg(name) → raw SVG string, intended for inline rendering (v-html).
+//   generateStationAvatar(name)    → data URL, for use as <img src> or CSS background-image.
+//
+// Prefer the inline form when possible: it paints in the same frame as the host DOM,
+// inherits @font-face from the document, and skips the browser's image decode pipeline.
 
-const PALETTE = [
-  { bg: '#E8D5F5', text: '#6B3FA0' },  // violet
-  { bg: '#D5EAF5', text: '#2E6B9E' },  // blue
-  { bg: '#F5E0D5', text: '#B85C3A' },  // terracotta
-  { bg: '#D5F5E0', text: '#2E8B57' },  // green
-  { bg: '#F5F0D5', text: '#8B7D2E' },  // golden
-  { bg: '#F5D5E8', text: '#9E2E6B' },  // pink
-  { bg: '#D5F5F0', text: '#2E8B80' },  // teal
-  { bg: '#F5D5D5', text: '#9E3A3A' },  // red
-  { bg: '#E0D5F5', text: '#5A3FA0' },  // indigo
-  { bg: '#F5ECD5', text: '#9E7B2E' },  // amber
-  { bg: '#D5E0F5', text: '#3A5A9E' },  // steel blue
-  { bg: '#E8F5D5', text: '#5A8B2E' },  // lime
-  { bg: '#F0D5F5', text: '#8B2E8B' },  // magenta
-  { bg: '#D5F0F5', text: '#2E7B8B' },  // cyan
-  { bg: '#F5DDD5', text: '#A0522D' },  // sienna
-  { bg: '#DDF5D5', text: '#3D8B2E' },  // forest
-];
-
-const SIZE = 1024;
+const VIEW = 1024;
 const FONT_FAMILY = "'Space Mono Bold', 'Space Mono Regular', monospace";
-const cache = new Map();
 
-/**
- * Split station name into 1–3 lines (1 word per line, max 3 words).
- */
-function splitLines(name) {
-  const words = name.trim().split(/\s+/);
-  if (words.length <= 3) return words;
-  return words.slice(0, 3);
+// 24 evenly-spaced HSL hues — pastel background, vivid text (~7:1 contrast).
+const PALETTE = Array.from({ length: 24 }, (_, i) => {
+  const hue = i * 15;
+  return {
+    bg: `hsl(${hue} 60% 88%)`,
+    text: `hsl(${hue} 55% 32%)`,
+  };
+});
+
+const svgCache = new Map();
+
+// Trigger font load early so measureText below uses real Space Mono metrics,
+// not a fallback. On resolution we clear the cache so entries built before the
+// font was ready get rebuilt with correct measurements on the next render.
+let fontReady = false;
+if (typeof document !== 'undefined' && document.fonts) {
+  document.fonts.load(`700 100px ${FONT_FAMILY}`)
+    .then(() => { fontReady = true; svgCache.clear(); })
+    .catch(() => { fontReady = true; });
 }
 
-/**
- * Compute font size that fits within the canvas width with padding.
- */
+// Single reusable canvas context for text measurement (no rasterization).
+let measureCtx = null;
+function getMeasureCtx() {
+  if (!measureCtx) {
+    measureCtx = document.createElement('canvas').getContext('2d');
+  }
+  return measureCtx;
+}
+
+function splitLines(name) {
+  const words = name.trim().split(/\s+/);
+  return words.length <= 3 ? words : words.slice(0, 3);
+}
+
+// FNV-1a — good distribution for short strings.
+function hashName(name) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < name.length; i++) {
+    h ^= name.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
 function computeFontSize(ctx, lines) {
-  const maxWidth = SIZE * 0.82;
+  const maxWidth = VIEW * 0.82;
   const startSize = lines.length === 1 ? 310 : lines.length === 2 ? 245 : 195;
   const minFontSize = 80;
   let fontSize = startSize;
@@ -52,60 +72,62 @@ function computeFontSize(ctx, lines) {
   return fontSize;
 }
 
-/**
- * FNV-1a hash — much better distribution than djb2 for short strings.
- */
-function hashName(name) {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < name.length; i++) {
-    h ^= name.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return (h >>> 0);
+const XML_ESCAPES = { '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' };
+function escapeXml(s) {
+  return s.replace(/[<>&"']/g, c => XML_ESCAPES[c]);
 }
 
-/**
- * Generate a station avatar as a data URL.
- * Returns a cached result if already generated for this name.
- */
-export function generateStationAvatar(name) {
-  if (!name) return '';
-  if (cache.has(name)) return cache.get(name);
-
+function buildSvg(name) {
   const color = PALETTE[hashName(name) % PALETTE.length];
   const lines = splitLines(name);
-  const canvas = document.createElement('canvas');
-  canvas.width = SIZE;
-  canvas.height = SIZE;
-  const ctx = canvas.getContext('2d');
+  const ctx = getMeasureCtx();
 
-  // Background
-  ctx.fillStyle = color.bg;
-  ctx.fillRect(0, 0, SIZE, SIZE);
-
-  // Text setup
   const fontSize = computeFontSize(ctx, lines);
-  ctx.fillStyle = color.text;
   ctx.font = `700 ${fontSize}px ${FONT_FAMILY}`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'alphabetic';
-
-  // Measure actual glyph height for precise optical centering
   const metrics = ctx.measureText(lines[0]);
   const ascent = metrics.actualBoundingBoxAscent;
   const descent = metrics.actualBoundingBoxDescent;
   const glyphHeight = ascent + descent;
 
-  // Compute total block height and center it
   const lineGap = fontSize * 0.22;
   const totalHeight = lines.length * glyphHeight + (lines.length - 1) * lineGap;
-  const startY = (SIZE - totalHeight) / 2 + ascent;
+  const startY = (VIEW - totalHeight) / 2 + ascent;
 
-  for (let i = 0; i < lines.length; i++) {
-    ctx.fillText(lines[i], SIZE / 2, startY + i * (glyphHeight + lineGap));
-  }
+  const tspans = lines.map((line, i) => {
+    const y = (startY + i * (glyphHeight + lineGap)).toFixed(2);
+    return `<tspan x="${VIEW / 2}" y="${y}">${escapeXml(line)}</tspan>`;
+  }).join('');
 
-  const url = canvas.toDataURL('image/png');
-  cache.set(name, url);
-  return url;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${VIEW} ${VIEW}" width="100%" height="100%" preserveAspectRatio="xMidYMid slice">`
+    + `<rect width="${VIEW}" height="${VIEW}" fill="${color.bg}"/>`
+    + `<text text-anchor="middle" font-family="${FONT_FAMILY}" font-weight="700" font-size="${fontSize}" fill="${color.text}">`
+    + tspans
+    + `</text></svg>`;
+}
+
+function getSvg(name) {
+  if (svgCache.has(name)) return svgCache.get(name);
+  const svg = buildSvg(name);
+  if (fontReady) svgCache.set(name, svg);
+  return svg;
+}
+
+/**
+ * Returns the raw SVG markup for inline rendering (v-html).
+ * Renders in the same frame as the host DOM, with no image-decode delay,
+ * and inherits document @font-face for accurate typography.
+ */
+export function generateStationAvatarSvg(name) {
+  if (!name) return '';
+  return getSvg(name);
+}
+
+/**
+ * Returns the avatar as a data URL — for <img src> or CSS background-image.
+ * Note: SVGs loaded via <img> do NOT inherit document fonts, so text may
+ * render with the system monospace fallback rather than Space Mono Bold.
+ */
+export function generateStationAvatar(name) {
+  if (!name) return '';
+  return `data:image/svg+xml;utf8,${encodeURIComponent(getSvg(name))}`;
 }
