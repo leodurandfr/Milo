@@ -8,6 +8,7 @@ import re
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from backend.sources.radio.genres import extract_valid_genre
+from backend.sources.radio.server_discovery import ServerDiscovery
 from backend.shared.decorators import handle_errors
 from backend.shared.network import is_network_error, NetworkUnavailableError
 
@@ -26,6 +27,7 @@ class RadioBrowserAPI:
         self.logger = logging.getLogger(__name__)
         self.session: Optional[aiohttp.ClientSession] = None
         self.station_manager = station_manager
+        self._discovery = ServerDiscovery()
 
         # Cache for the list of available countries (valid 24h)
         self._countries_cache: List[Dict[str, Any]] = []
@@ -46,6 +48,69 @@ class RadioBrowserAPI:
         if self.session and not self.session.closed:
             await self.session.close()
             self.session = None
+
+    async def _request(
+        self,
+        path: str,
+        params: Optional[Dict[str, Any]] = None,
+        timeout: float = 15,
+    ) -> Optional[Any]:
+        """GET {server}/json/{path} with mirror rotation on failure.
+
+        Returns parsed JSON on success, None on a 4xx logical failure, or raises
+        NetworkUnavailableError if every mirror failed with transient errors.
+        """
+        await self._ensure_session()
+
+        # Trigger DNS resolution on first use so the retry budget below reflects
+        # the actual mirror count (otherwise it would always be the stale 0).
+        await self._discovery.get_server()
+        # Try every known mirror once; min 2 covers the fallback-only case where
+        # DNS failed and we want a chance for transient recovery on the retry.
+        attempts = max(2, self._discovery.server_count)
+        endpoint = path.lstrip("/")
+        last_error: Optional[Exception] = None
+
+        for _ in range(attempts):
+            server = await self._discovery.get_server()
+            url = f"{self._discovery.base_url(server)}/{endpoint}"
+
+            try:
+                async with self.session.get(
+                    url,
+                    params=params,
+                    timeout=aiohttp.ClientTimeout(total=timeout),
+                ) as resp:
+                    if 200 <= resp.status < 300:
+                        return await resp.json()
+                    if 500 <= resp.status < 600:
+                        self.logger.warning(
+                            f"Mirror {server} returned HTTP {resp.status} for /{endpoint}; rotating"
+                        )
+                        await self._discovery.rotate()
+                        continue
+                    # 4xx: every federated mirror shares the same DB, so rotating
+                    # won't help. Treat as a logical not-found / bad-request.
+                    self.logger.info(
+                        f"Mirror {server} returned HTTP {resp.status} for /{endpoint}"
+                    )
+                    return None
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                last_error = e
+                self.logger.warning(
+                    f"Mirror {server} failed for /{endpoint}: {e}; rotating"
+                )
+                await self._discovery.rotate()
+                continue
+            except Exception as e:
+                self.logger.error(
+                    f"Unexpected error calling mirror {server} for /{endpoint}: {e}"
+                )
+                return None
+
+        raise NetworkUnavailableError(
+            f"All Radio Browser mirrors failed for /{endpoint}: {last_error}"
+        )
 
     async def _fetch_stations_by_query(self, query: str) -> List[Dict[str, Any]]:
         """

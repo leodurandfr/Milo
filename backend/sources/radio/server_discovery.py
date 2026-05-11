@@ -44,6 +44,11 @@ class ServerDiscovery:
         """Build the JSON API base URL for a given mirror hostname."""
         return f"https://{server}/json"
 
+    @property
+    def server_count(self) -> int:
+        """Number of mirrors currently in the rotation pool (0 before resolution)."""
+        return len(self._servers)
+
     async def get_server(self) -> str:
         """Return the current preferred mirror, resolving on first call or TTL expiry."""
         async with self._lock:
