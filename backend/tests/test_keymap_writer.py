@@ -4,12 +4,10 @@ Unit tests for the Apple Remote keymap writer.
 """
 import pytest
 
-from backend.hardware import keymap_writer
 from backend.hardware.keymap_writer import (
     APPLE_BUTTON_CMDS,
     APPLE_MANUFACTURER,
     render_keymap,
-    write_keymap,
 )
 
 
@@ -76,31 +74,3 @@ class TestRenderKeymap:
         toml = render_keymap(0x01)
         for keycode in APPLE_BUTTON_CMDS.keys():
             assert keycode in toml, f"Missing button: {keycode}"
-
-
-class TestWriteKeymap:
-    """write_keymap should produce a TOML file at the requested path."""
-
-    def test_writes_file(self, tmp_path):
-        path = tmp_path / "milo-apple-remote.toml"
-        result = write_keymap(0x8D, path=path)
-
-        assert result == path
-        assert path.exists()
-        content = path.read_text(encoding="utf-8")
-        assert '0x87ee8d04 = "KEY_PLAYPAUSE"' in content
-
-    def test_overwrites_existing_file(self, tmp_path):
-        path = tmp_path / "milo-apple-remote.toml"
-        path.write_text("stale content", encoding="utf-8")
-
-        write_keymap(0x42, path=path)
-
-        content = path.read_text(encoding="utf-8")
-        assert "stale content" not in content
-        assert '0x87ee4204 = "KEY_PLAYPAUSE"' in content
-
-    def test_creates_parent_directory(self, tmp_path):
-        path = tmp_path / "nested" / "milo-apple-remote.toml"
-        write_keymap(0x8D, path=path)
-        assert path.exists()

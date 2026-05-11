@@ -90,6 +90,12 @@
                 </template>
               </ListItemButton>
 
+              <ListItemButton variant="background" :title="t('settings.remoteControls')" action="caret" @click="push('remote-controls')">
+                <template #icon>
+                  <img :src="remoteControlsIcon" alt="Remote controls" />
+                </template>
+              </ListItemButton>
+
               <ListItemButton v-if="settingsStore.dockApps.multiroom" variant="background" :title="t('audioSources.multiroom')" action="caret"
                 @click="push('multiroom')">
                 <template #icon>
@@ -177,6 +183,16 @@
       <!-- Audio playback view -->
       <AudioPlaybackSettings v-else-if="currentView === 'audio-playback'" key="audio-playback" class="view-content" />
 
+      <!-- Remote controls view -->
+      <RemoteControlsSettings v-else-if="currentView === 'remote-controls'" key="remote-controls" class="view-content"
+        @open-bt-remote="push('bt-remote')" @open-ir-remote="push('ir-remote')" />
+
+      <!-- BT remote sub-view -->
+      <BtRemoteSettings v-else-if="currentView === 'bt-remote'" key="bt-remote" class="view-content" />
+
+      <!-- IR remote sub-view -->
+      <IrRemoteSettings v-else-if="currentView === 'ir-remote'" key="ir-remote" class="view-content" />
+
       <!-- Multiroom view -->
       <MultiroomSettings v-else-if="currentView === 'multiroom'" key="multiroom" class="view-content"
         @edit-zone="handleEditZone" @create-zone="handleCreateZone" @edit-client="handleEditClient"
@@ -254,6 +270,7 @@ import applicationsIcon from '@/assets/settings-icons/applications.svg';
 import volumeIcon from '@/assets/settings-icons/volume.svg';
 import displayIcon from '@/assets/settings-icons/display.svg';
 import audioPlaybackIcon from '@/assets/settings-icons/audio-playback.svg';
+import remoteControlsIcon from '@/assets/settings-icons/remote-controls.svg';
 import multiroomIcon from '@/assets/settings-icons/multiroom.svg';
 import updatesIcon from '@/assets/settings-icons/updates.svg';
 import informationIcon from '@/assets/settings-icons/information.svg';
@@ -268,6 +285,9 @@ import DockSettings from '@/components/settings/categories/DockSettings.vue';
 import VolumeSettings from '@/components/settings/categories/VolumeSettings.vue';
 import ScreenSettings from '@/components/settings/categories/ScreenSettings.vue';
 import AudioPlaybackSettings from '@/components/settings/categories/AudioPlaybackSettings.vue';
+import RemoteControlsSettings from '@/components/settings/categories/RemoteControlsSettings.vue';
+import BtRemoteSettings from '@/components/settings/categories/BtRemoteSettings.vue';
+import IrRemoteSettings from '@/components/settings/categories/IrRemoteSettings.vue';
 import MultiroomSettings from './categories/multiroom/MultiroomSettings.vue';
 import ZoneEdit from './categories/multiroom/ZoneEdit.vue';
 import ClientEdit from './categories/multiroom/ClientEdit.vue';
@@ -359,6 +379,9 @@ const headerTitle = computed(() => {
     'network': t('settings.network'),
     'hardware': t('settings.hardware'),
     'audio-playback': t('settings.audioPlayback'),
+    'remote-controls': t('settings.remoteControls'),
+    'bt-remote': t('settings.btRemote'),
+    'ir-remote': t('settings.irRemote'),
     'multiroom': t('audioSources.multiroom'),
     'multiroom-zone-edit': zoneGroupId.value
       ? t('equalizer.zones.editZone')

@@ -542,6 +542,11 @@ onMounted(async () => {
         settingsStore.updateVolumeSteps(event.data.config);
       }
     }),
+    on('settings', 'ir_remote_steps_changed', (event) => {
+      if (event.data?.config) {
+        settingsStore.updateVolumeSteps(event.data.config);
+      }
+    }),
     on('settings', 'audio_disconnect_changed', (event) => {
       if (event.data?.config) {
         settingsStore.updateAudioPlayback(event.data.config);
@@ -590,6 +595,11 @@ onMounted(async () => {
     on('settings', 'bt_remote_status_changed', (event) => {
       if (event.data) {
         settingsStore.updateBtRemoteStatus(event.data);
+      }
+    }),
+    on('settings', 'ir_remote_status_changed', (event) => {
+      if (event.data) {
+        settingsStore.applyIrRemoteStatus(event.data);
       }
     }),
     on('settings', 'podcast_credentials_changed', (event) => {

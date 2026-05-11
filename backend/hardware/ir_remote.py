@@ -322,8 +322,7 @@ class IrRemoteController:
         if result.get("status") == "success":
             device_id = result["device_id"]
             try:
-                keymap_writer.write_keymap(device_id)
-                await keymap_writer.reload_kernel_keymap()
+                await keymap_writer.apply_keymap(device_id)
             except Exception as e:
                 logger.error("Failed to apply keymap for device_id=0x%02X: %s", device_id, e)
                 return {"status": "error", "message": f"Failed to apply keymap: {e}"}
@@ -425,7 +424,6 @@ class IrRemoteController:
         except Exception as e:
             # Don't block the unpair if the helper fails — settings/state still need clearing.
             logger.warning("Failed to clear kernel keymap during unpair: %s", e)
-        keymap_writer.remove_keymap()
 
         self.paired = False
         self.device_id = None

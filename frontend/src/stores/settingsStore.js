@@ -32,7 +32,8 @@ export const useSettingsStore = defineStore('settings', () => {
   // Only step_rotary_db is kept here as it's hardware-specific
   const volumeSteps = ref({
     step_rotary_db: 2.0,
-    step_bt_remote_db: 2.0
+    step_bt_remote_db: 2.0,
+    step_ir_remote_db: 2.0
   });
 
   // === DOCK APPS ===
@@ -91,6 +92,17 @@ export const useSettingsStore = defineStore('settings', () => {
     discovering: false,
     device_name: '',
     battery_percentage: null
+  });
+
+  // === IR REMOTE ===
+  const irRemote = ref({
+    available: true,
+    enabled: false,
+    paired: false,
+    device_id: null,
+    paired_at: null,
+    listening: false,
+    pairing_in_progress: false
   });
 
   // === SCREEN ===
@@ -159,6 +171,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
         volumeSteps.value.step_rotary_db = d.rotary_steps?.step_rotary_db ?? 2.0;
         volumeSteps.value.step_bt_remote_db = d.bt_remote_steps?.step_bt_remote_db ?? 2.0;
+        volumeSteps.value.step_ir_remote_db = d.ir_remote_steps?.step_ir_remote_db ?? 2.0;
 
         if (d.dock_apps?.enabled_apps) {
           const enabledApps = d.dock_apps.enabled_apps;
@@ -369,6 +382,68 @@ export const useSettingsStore = defineStore('settings', () => {
     return result;
   }
 
+  // === IR REMOTE ACTIONS ===
+
+  function applyIrRemoteStatus(data) {
+    if (data.available !== undefined) irRemote.value.available = data.available;
+    if (data.enabled !== undefined) irRemote.value.enabled = data.enabled;
+    if (data.paired !== undefined) irRemote.value.paired = data.paired;
+    if (data.device_id !== undefined) irRemote.value.device_id = data.device_id;
+    if (data.paired_at !== undefined) irRemote.value.paired_at = data.paired_at;
+    if (data.listening !== undefined) irRemote.value.listening = data.listening;
+    if (data.pairing_in_progress !== undefined) {
+      irRemote.value.pairing_in_progress = data.pairing_in_progress;
+    }
+  }
+
+  async function loadIrRemoteStatus() {
+    await apiCall('settings', 'Error loading IR remote status:', async () => {
+      const res = await axios.get('/api/ir-remote/status');
+      applyIrRemoteStatus(res.data);
+    });
+  }
+
+  async function toggleIrRemote(enabled) {
+    const prev = { ...irRemote.value };
+    irRemote.value.enabled = enabled;
+    const result = await apiCall('settings', 'Error toggling IR remote:', async () => {
+      const res = await axios.patch('/api/ir-remote/config', { enabled });
+      applyIrRemoteStatus(res.data);
+      return true;
+    });
+    if (!result) {
+      Object.assign(irRemote.value, prev);
+    }
+  }
+
+  /**
+   * Start the pairing capture. Resolves with the backend's pairing result:
+   *   { status: 'success' | 'timeout' | 'cancelled' | 'unsupported' | 'error',
+   *     device_id?: number, message?: string }
+   */
+  async function startIrRemotePairing() {
+    return await apiCall('settings', 'Error starting IR pairing:', async () => {
+      const res = await axios.post('/api/ir-remote/pair');
+      return res.data;
+    });
+  }
+
+  async function cancelIrRemotePairing() {
+    return await apiCall('settings', 'Error cancelling IR pairing:', async () => {
+      const res = await axios.post('/api/ir-remote/pair/cancel');
+      return res.data;
+    });
+  }
+
+  async function unpairIrRemote() {
+    const result = await apiCall('settings', 'Error unpairing IR remote:', async () => {
+      const res = await axios.delete('/api/ir-remote/pair');
+      applyIrRemoteStatus(res.data);
+      return true;
+    });
+    return Boolean(result);
+  }
+
   /**
    * Update screen sleep state (from WebSocket broadcast)
    */
@@ -438,6 +513,7 @@ export const useSettingsStore = defineStore('settings', () => {
     radioSettings,
     macRocSettings,
     btRemote,
+    irRemote,
     isScreenSleeping,
     screenTimeout,
     screenBrightness,
@@ -467,6 +543,12 @@ export const useSettingsStore = defineStore('settings', () => {
     toggleBtRemote,
     fetchBtRemoteBattery,
     discoverBtRemote,
+    applyIrRemoteStatus,
+    loadIrRemoteStatus,
+    toggleIrRemote,
+    startIrRemotePairing,
+    cancelIrRemotePairing,
+    unpairIrRemote,
     updateScreenSleeping,
     updateScreenTimeout,
     updateScreenBrightness,

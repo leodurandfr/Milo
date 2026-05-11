@@ -31,7 +31,10 @@
     "shutdown": "Desligar",
     "confirmShutdown": "Confirmar desligamento",
     "restartInProgress": "A reiniciar...",
-    "shutdownInProgress": "A desligar..."
+    "shutdownInProgress": "A desligar...",
+    "remoteControls": "Remote controls",
+    "btRemote": "Bluetooth remote",
+    "irRemote": "IR remote"
   },
   "audioSources": {
     "title": "Fontes de áudio",
@@ -227,15 +230,7 @@
     "startup": "Volume de inicialização",
     "fixedVolume": "Volume fixo",
     "restoreLast": "Restaurar último",
-    "fixedStartup": "Volume fixo de inicialização",
-    "btRemote": {
-      "title": "Controlador Bluetooth",
-      "connected": "Conectado",
-      "notConnected": "Não conectado",
-      "discover": "Procurar",
-      "discovering": "A procurar...",
-      "batteryLow": "Bateria fraca"
-    }
+    "fixedStartup": "Volume fixo de inicialização"
   },
   "screenSettings": {
     "brightness": "Brilho",
@@ -579,6 +574,50 @@
       "thisDevice": "Este dispositivo: {name} ({ip})",
       "recheck": "Verificar novamente",
       "shutdown": "Desligar este dispositivo"
+    }
+  },
+  "remoteControls": {
+    "btRemote": "Bluetooth Remote",
+    "irRemote": "IR Remote",
+    "status": {
+      "disabled": "Disabled",
+      "connected": "Connected",
+      "notConnected": "Not connected",
+      "notPaired": "Not paired",
+      "paired": "Paired",
+      "listening": "Listening"
+    }
+  },
+  "btRemoteSettings": {
+    "title": "Bluetooth Remote",
+    "connected": "Connected",
+    "notConnected": "Not connected",
+    "discover": "Search",
+    "discovering": "Searching...",
+    "batteryLow": "Battery low",
+    "step": "Volume step per click"
+  },
+  "irRemoteSettings": {
+    "title": "IR Remote",
+    "step": "Volume step per click",
+    "statusDisabled": "Disabled",
+    "statusListening": "Listening",
+    "statusIdle": "Paired",
+    "unpair": "Unpair this remote",
+    "wizard": {
+      "idleTitle": "Pair your Apple Remote",
+      "idleDetails": "Press the button below, then press any key on your Apple Remote.",
+      "waitingTitle": "Press any button on your remote...",
+      "waitingDetails": "{seconds}s remaining",
+      "timeoutTitle": "No remote detected",
+      "timeoutDetails": "Check the receiver wiring and try again.",
+      "unsupportedTitle": "Unsupported remote",
+      "unsupportedDetails": "Milō only supports the Apple Remote (1st gen).",
+      "errorTitle": "Pairing failed",
+      "errorDetails": "An unexpected error occurred. Please try again.",
+      "startCta": "Pair this remote",
+      "cancelCta": "Cancel",
+      "retryCta": "Try again"
     }
   }
 }
