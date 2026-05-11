@@ -232,8 +232,13 @@ class RadioSource(MpvAudioSource):
                 self._current_station = station
                 self._metadata = self._build_playback_metadata()
 
-            # Start Shazam recognition if enabled (detect pre-roll for Shazam capture)
-            if self._shazam and await self._shazam.is_enabled():
+            # Start Shazam recognition if enabled globally AND for this specific
+            # station. Stations like news/talk/ambient can opt out via ManageStation.
+            if (
+                self._shazam
+                and await self._shazam.is_enabled()
+                and self._station_data.is_station_shazam_enabled(station_id)
+            ):
                 preroll = await self._detect_preroll(working_url)
                 await self._shazam.start(working_url, preroll_skip=preroll)
 
@@ -428,15 +433,16 @@ class RadioSource(MpvAudioSource):
         )
 
     async def on_shazam_setting_changed(self, enabled: bool) -> bool:
-        """React to Shazam toggle change."""
+        """React to global Shazam toggle change."""
         if not self._shazam:
             return True
 
         if enabled:
-            # Start recognition if radio is currently playing
+            # Start recognition only if the playing station is not opted out.
             if self._current_station and self._is_playing:
+                station_id = self._current_station.get('id')
                 stream_url = self._current_station.get('url')
-                if stream_url:
+                if stream_url and self._station_data.is_station_shazam_enabled(station_id):
                     preroll = await self._detect_preroll(stream_url)
                     await self._shazam.start(stream_url, preroll_skip=preroll)
         else:

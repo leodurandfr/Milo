@@ -401,6 +401,7 @@ export const useRadioStore = defineStore('radio', () => {
       formData.append('genre', stationData.genre || '');
       formData.append('bitrate', stationData.bitrate || 0);
       formData.append('codec', stationData.codec || '');
+      formData.append('shazam_enabled', (stationData.shazam_enabled !== false).toString());
 
       if (stationData.image) {
         formData.append('image', stationData.image);

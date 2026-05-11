@@ -400,18 +400,19 @@
       "codecPlaceholder": "उदाहरण: MP3, AAC, OGG",
       "bitrate": "बिटरेट (kbps)",
       "bitratePlaceholder": "उदाहरण: 128, 192, 320",
-      "add": "जोड़ें",
       "adding": "जोड़ा जा रहा है...",
-      "confirmDelete": "पुष्टि करें",
       "loading": "लोड हो रहा है...",
       "invalidImageFormat": "असमर्थित छवि प्रारूप। JPG, PNG, WEBP या GIF का उपयोग करें।",
       "imageTooLarge": "छवि बहुत बड़ी है। अधिकतम 5MB।",
-      "noStationToEdit": "संपादित करने के लिए कोई स्टेशन नहीं",
       "editFailed": "स्टेशन संपादित करने में विफल",
       "addFailed": "स्टेशन जोड़ने में विफल",
       "errorOccurred": "एक त्रुटि हुई",
       "addStationTitle": "स्टेशन जोड़ें",
-      "editStationTitle": "स्टेशन संपादित करें"
+      "editStationTitle": "स्टेशन संपादित करें",
+      "shazamEnabled": "इस स्टेशन के लिए गाना पहचान",
+      "createStation": "स्टेशन बनाएं",
+      "confirmRestore": "पुनर्स्थापना की पुष्टि करें",
+      "confirmDelete": "हटाने की पुष्टि करें"
     }
   },
   "radioSettings": {
