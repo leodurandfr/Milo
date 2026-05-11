@@ -126,6 +126,11 @@ class BtRemoteConfigRequest(BaseModel):
     key_map: Optional[dict] = None
 
 
+class IrRemoteConfigRequest(BaseModel):
+    """IR remote partial config update request."""
+    enabled: Optional[bool] = None
+
+
 # =============================================================================
 # SETTINGS - DOCK APPS
 # =============================================================================

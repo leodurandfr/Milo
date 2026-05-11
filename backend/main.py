@@ -31,6 +31,7 @@ from backend.api.settings import create_settings_router
 from backend.api.system import create_system_router
 from backend.api.programs import create_programs_router
 from backend.hardware.bt_remote_routes import create_bt_remote_router
+from backend.hardware.ir_remote_routes import create_ir_remote_router
 from backend.api.health import create_health_router
 from backend.api.errors import create_errors_router
 from backend.api.setup import create_setup_router
@@ -72,6 +73,7 @@ volume_service = get_service("volume_service")
 rotary_controller = get_service("rotary_controller")
 screen_controller = get_service("screen_controller")
 bt_remote_controller = get_service("bt_remote_controller")
+ir_remote_controller = get_service("ir_remote_controller")
 systemd_manager = get_service("systemd_manager")
 hardware_service = get_service("hardware_service")
 crossover_service = get_service("crossover_service")
@@ -133,6 +135,7 @@ async def lifespan(app: FastAPI):
             await rotary_controller.cleanup()
         screen_controller.cleanup()
         await bt_remote_controller.cleanup()
+        await ir_remote_controller.cleanup()
         logger.info("Cleanup completed")
     except Exception as e:
         logger.error(f"Cleanup error: {e}")
@@ -244,6 +247,9 @@ app.include_router(multiroom_router)
 
 bt_remote_router = create_bt_remote_router(bt_remote_controller)
 app.include_router(bt_remote_router)
+
+ir_remote_router = create_ir_remote_router(ir_remote_controller)
+app.include_router(ir_remote_router)
 
 setup_router = create_setup_router(settings_service, hardware_service, systemd_manager, wifi_service)
 app.include_router(setup_router)

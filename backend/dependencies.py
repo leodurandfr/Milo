@@ -127,6 +127,11 @@ def _create_service(name: str) -> Any:
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service")
         ),
+        "ir_remote_controller": lambda: _import("backend.hardware", "IrRemoteController")(
+            volume_service=get_service("volume_service"),
+            state_machine=get_service("audio_state_machine"),
+            settings_service=get_service("settings_service")
+        ),
         "pending_clients_service": lambda: _import("backend.core.multiroom.pending_clients", "PendingClientsService")(),
         "crossover_service": lambda: _import("backend.core.multiroom.crossover", "CrossoverService")(
             settings_service=get_service("settings_service"),
@@ -264,6 +269,7 @@ def initialize_services() -> None:
     rotary_controller = get_service("rotary_controller")
     screen_controller = get_service("screen_controller")
     bt_remote_controller = get_service("bt_remote_controller")
+    ir_remote_controller = get_service("ir_remote_controller")
     snapcast_websocket_service = get_service("snapcast_websocket_service")
     camilladsp_service = get_service("camilladsp_service")
     crossover_service = get_service("crossover_service")
@@ -402,6 +408,7 @@ def initialize_services() -> None:
             *([("rotary_controller", rotary_controller.initialize())] if rotary_controller else []),
             ("screen_controller", screen_controller.initialize()),
             ("bt_remote_controller", bt_remote_controller.initialize()),
+            ("ir_remote_controller", ir_remote_controller.initialize()),
             ("snapcast_websocket_service", snapcast_websocket_service.initialize()),
             ("camilladsp_service", camilladsp_service.initialize()),
             ("crossover_service", crossover_service.initialize()),
