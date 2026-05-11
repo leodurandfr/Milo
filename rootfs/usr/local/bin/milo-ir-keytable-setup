@@ -1,0 +1,60 @@
+#!/bin/bash
+# milo-ir-keytable-setup — Configure the rc-core device for Apple Remote NEC
+# decoding at boot.
+#
+# Run as a oneshot systemd service before milo-backend starts. Locates the
+# rc-core sysfs node bound to the gpio_ir_recv driver and enables the NEC
+# protocol on it. If a previously-paired keymap exists, load it.
+#
+# Idempotent — re-running has no side effects beyond re-applying the same
+# protocol + keymap.
+
+set -euo pipefail
+
+KEYMAP_PATH="/etc/rc_keymaps/milo-apple-remote.toml"
+
+# Locate the rc-core device backed by the gpio_ir_recv driver.
+# `ir-keytable` enumerates devices and prints `Found /sys/class/rc/rcN/ with:`
+# headers; we parse those.
+find_rc_device() {
+    local rc_dev=""
+    local current=""
+
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^Found\ /sys/class/rc/(rc[0-9]+)/ ]]; then
+            current="${BASH_REMATCH[1]}"
+        elif [[ -n "$current" && "$line" =~ Driver:\ gpio_ir_recv ]]; then
+            rc_dev="$current"
+            break
+        fi
+    done < <(ir-keytable 2>/dev/null || true)
+
+    echo "$rc_dev"
+}
+
+RC_DEV=""
+# Retry a few times — on some boots the rc-core device appears slightly
+# after systemd considers the unit ready to start.
+for attempt in 1 2 3 4 5; do
+    RC_DEV=$(find_rc_device)
+    if [[ -n "$RC_DEV" ]]; then
+        break
+    fi
+    sleep 1
+done
+
+if [[ -z "$RC_DEV" ]]; then
+    echo "milo-ir-keytable-setup: gpio_ir_recv device not found — IR receiver" \
+         "likely not wired or gpio-ir overlay not loaded. Skipping." >&2
+    exit 0
+fi
+
+echo "milo-ir-keytable-setup: enabling NEC protocol on $RC_DEV"
+ir-keytable -s "$RC_DEV" -p nec
+
+if [[ -f "$KEYMAP_PATH" ]]; then
+    echo "milo-ir-keytable-setup: loading paired keymap from $KEYMAP_PATH"
+    ir-keytable -s "$RC_DEV" --write="$KEYMAP_PATH"
+fi
+
+exit 0

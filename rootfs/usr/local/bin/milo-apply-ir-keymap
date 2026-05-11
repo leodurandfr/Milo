@@ -1,0 +1,75 @@
+#!/bin/bash
+# milo-apply-ir-keymap — Load a Milo-managed rc-core keymap into the kernel.
+#
+# Invoked from the backend (keymap_writer.reload_kernel_keymap) via the
+# sudoers-protected entry in /etc/sudoers.d/milo-ir-remote.
+#
+# Usage:
+#   milo-apply-ir-keymap /etc/rc_keymaps/milo-<name>.toml   # load keymap
+#   milo-apply-ir-keymap --clear                            # clear keymap
+#
+# Path validation is strict — only files matching /etc/rc_keymaps/milo-*.toml
+# are accepted to prevent passing arbitrary files via sudo.
+
+set -euo pipefail
+
+usage() {
+    echo "Usage: $0 <keymap-path>|--clear" >&2
+    exit 1
+}
+
+[[ $# -eq 1 ]] || usage
+
+ARG="$1"
+
+# Locate the rc-core device backed by gpio_ir_recv (same logic as setup).
+find_rc_device() {
+    local rc_dev=""
+    local current=""
+
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^Found\ /sys/class/rc/(rc[0-9]+)/ ]]; then
+            current="${BASH_REMATCH[1]}"
+        elif [[ -n "$current" && "$line" =~ Driver:\ gpio_ir_recv ]]; then
+            rc_dev="$current"
+            break
+        fi
+    done < <(ir-keytable 2>/dev/null || true)
+
+    echo "$rc_dev"
+}
+
+RC_DEV=$(find_rc_device)
+if [[ -z "$RC_DEV" ]]; then
+    echo "milo-apply-ir-keymap: gpio_ir_recv device not found" >&2
+    exit 2
+fi
+
+# Re-enable NEC every time — `ir-keytable --clear` drops the protocol set too.
+ir-keytable -s "$RC_DEV" -p nec >/dev/null
+
+if [[ "$ARG" == "--clear" ]]; then
+    ir-keytable -s "$RC_DEV" -c
+    exit 0
+fi
+
+# Strict path validation
+case "$ARG" in
+    /etc/rc_keymaps/milo-*.toml) ;;
+    *) echo "milo-apply-ir-keymap: refusing path '$ARG' — must match /etc/rc_keymaps/milo-*.toml" >&2; exit 1 ;;
+esac
+
+if [[ ! -f "$ARG" ]]; then
+    echo "milo-apply-ir-keymap: keymap not found: $ARG" >&2
+    exit 1
+fi
+
+# Realpath check — defeat symlink traversal that bypasses the prefix check.
+REAL=$(readlink -f "$ARG")
+case "$REAL" in
+    /etc/rc_keymaps/milo-*.toml) ;;
+    *) echo "milo-apply-ir-keymap: refusing resolved path '$REAL'" >&2; exit 1 ;;
+esac
+
+ir-keytable -s "$RC_DEV" --write="$REAL"
+exit 0

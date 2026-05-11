@@ -1,0 +1,6 @@
+# Milo IR remote — allow the backend (running as `milo`) to reload the
+# rc-core keymap after a successful pairing without prompting for a password.
+#
+# The shell wrapper validates the keymap path strictly (must match
+# /etc/rc_keymaps/milo-*.toml) before invoking ir-keytable.
+milo ALL=(root) NOPASSWD: /usr/local/bin/milo-apply-ir-keymap

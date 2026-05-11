@@ -1,0 +1,20 @@
+[Unit]
+Description=Milo IR keytable — enable NEC decoding on rc-core
+Documentation=https://man.archlinux.org/man/ir-keytable.1.en
+ConditionPathExists=/sys/class/rc
+
+# Run early in boot, before the backend starts the IR controller.
+After=systemd-modules-load.service
+Before=milo-backend.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/milo-ir-keytable-setup
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=milo-ir-keytable
+
+[Install]
+WantedBy=multi-user.target
