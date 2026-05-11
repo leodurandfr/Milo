@@ -52,6 +52,12 @@ fi
 echo "milo-ir-keytable-setup: enabling NEC protocol on $RC_DEV"
 ir-keytable -s "$RC_DEV" -p nec
 
+# Align kernel autorepeat with Dock.vue's useVolumeHold cadence (400 ms initial
+# delay, 50 ms period) so a held Volume +/- button on the IR remote feels
+# identical to a held volume button on the touchscreen dock. Kernel default
+# for rc-core is 500/125, which is ~2.5x slower.
+ir-keytable -s "$RC_DEV" -D 400 -P 50
+
 if [[ -f "$KEYMAP_PATH" ]]; then
     echo "milo-ir-keytable-setup: loading paired keymap from $KEYMAP_PATH"
     ir-keytable -s "$RC_DEV" --write="$KEYMAP_PATH"
