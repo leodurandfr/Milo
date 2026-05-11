@@ -11,15 +11,16 @@
       decoding="async"
       @load="handleImageLoad"
       @error="handleImageError"
+      @transitionend="handleTransitionEnd"
     />
-    <!-- Fallback visible until the main image is loaded (bridges the network/decode gap) -->
+    <!-- Fallback stays mounted until the favicon's opacity fade completes (transitionend) -->
     <div
-      v-if="!imageLoaded && fallbackName"
+      v-if="!fadeComplete && fallbackName"
       class="lazy-image-placeholder"
       v-html="resolvedFallbackSvg"
     />
     <img
-      v-else-if="!imageLoaded && fallback"
+      v-else-if="!fadeComplete && fallback"
       :src="fallback"
       class="lazy-image-placeholder"
       alt=""
@@ -29,7 +30,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { generateStationAvatarSvg } from '@/utils/stationAvatar'
 
 const props = defineProps({
@@ -57,12 +58,13 @@ const props = defineProps({
 const imgRef = ref(null)
 const imageLoaded = ref(false)
 const imageError = ref(false)
+const fadeComplete = ref(false)
 
 const MIN_IMAGE_SIZE = 8
 
 // Resolve the SVG markup lazily — generation runs only when the fallback is actually rendered
 const resolvedFallbackSvg = computed(() => {
-  if (imageLoaded.value || !props.fallbackName) return ''
+  if (fadeComplete.value || !props.fallbackName) return ''
   return generateStationAvatarSvg(props.fallbackName)
 })
 
@@ -79,11 +81,28 @@ function handleImageError() {
   imageError.value = true
 }
 
-// Handle browser-cached images that complete before Vue mounts
+function handleTransitionEnd(e) {
+  if (e.propertyName === 'opacity' && imageLoaded.value) {
+    fadeComplete.value = true
+  }
+}
+
+// Reset state on src change so the new image gets its own fade-in over the fallback
+watch(() => props.src, () => {
+  imageLoaded.value = false
+  imageError.value = false
+  fadeComplete.value = false
+})
+
+// Handle browser-cached images that complete before Vue mounts.
+// We can't rely on a transitionend event here (the transition may never run
+// in the same tick as the initial paint), so skip the fade and unmount the
+// fallback immediately by flipping fadeComplete alongside imageLoaded.
 onMounted(() => {
   const img = imgRef.value
   if (img?.complete && img.naturalHeight >= MIN_IMAGE_SIZE && img.naturalWidth >= MIN_IMAGE_SIZE) {
     imageLoaded.value = true
+    fadeComplete.value = true
   }
 })
 
@@ -109,10 +128,12 @@ img.lazy-image-placeholder {
   object-fit: cover;
 }
 
-/* Main image: invisible until loaded, then instant swap to opaque on top of the fallback.
-   No opacity transition — a fade would let the (unmounting) fallback bleed through. */
+/* Main image fades in over the fallback; the fallback stays mounted until
+   transitionend, then unmounts. The fallback bleeds through during the ramp
+   — accepted trade-off for a softer transition. */
 .lazy-image-main {
   opacity: 0;
+  transition: opacity 200ms ease-out;
   z-index: 1;
 }
 
