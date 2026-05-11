@@ -271,7 +271,8 @@ const getIndicatorOffset = (targetItem) => {
   if (!targetItem || !dock.value) return null;
   const dockRect = dock.value.getBoundingClientRect();
   const itemRect = targetItem.getBoundingClientRect();
-  const scale = dockRect.width / dock.value.offsetWidth || 1;
+  const w = dock.value.offsetWidth;
+  const scale = w ? dockRect.width / w : 1;
   return (itemRect.left - dockRect.left + (itemRect.width / 2) - 2) / scale;
 };
 
