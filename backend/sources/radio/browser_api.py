@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from backend.sources.radio.genres import extract_valid_genre
 from backend.sources.radio.server_discovery import ServerDiscovery
 from backend.shared.decorators import handle_errors
-from backend.shared.network import is_network_error, NetworkUnavailableError
+from backend.shared.network import NetworkUnavailableError
 
 
 class RadioBrowserAPI:
@@ -18,10 +18,9 @@ class RadioBrowserAPI:
     Async client for Radio Browser API
 
     API Doc: https://api.radio-browser.info/
-    Uses all.api.radio-browser.info for automatic load balancing
+    Uses ServerDiscovery for explicit mirror selection + rotation
+    (per the official Radio Browser docs).
     """
-
-    BASE_URL = "https://all.api.radio-browser.info/json"
 
     def __init__(self, station_manager=None):
         self.logger = logging.getLogger(__name__)
@@ -122,42 +121,37 @@ class RadioBrowserAPI:
 
         Returns:
             List of normalized and filtered stations
+            (empty list on network failure — preserves the pre-rotation contract
+            for callers like get_stations_by_ids' favicon-fallback loop)
         """
-        await self._ensure_session()
-
         try:
-            # Use the global search endpoint
-            url = f"{self.BASE_URL}/stations/search"
-            params = {"name": query, "limit": 10000}  # High limit to get all results
-
-            async with self.session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                if resp.status != 200:
-                    self.logger.info(f"API error for query '{query}': {resp.status}")
-                    return []
-
-                stations = await resp.json()
-                self.logger.debug(f"Fetched {len(stations)} stations for query '{query}'")
-
-                # Filter and normalize
-                valid_stations = []
-                for station in stations:
-                    if self._is_valid_station(station):
-                        normalized = self._normalize_station(station)
-                        valid_stations.append(normalized)
-
-                # Deduplicate (preserves original order)
-                deduplicated_stations = await self._deduplicate_stations(valid_stations)
-
-                self.logger.info(f"Deduplicated {len(stations)} → {len(deduplicated_stations)} stations for query '{query}'")
-
-                return deduplicated_stations
-
-        except asyncio.TimeoutError:
-            self.logger.error(f"Timeout fetching stations for query '{query}'")
+            stations = await self._request(
+                "stations/search",
+                params={"name": query, "limit": 10000},
+                timeout=15,
+            )
+        except NetworkUnavailableError as e:
+            self.logger.warning(f"Network unavailable for query '{query}': {e}")
             return []
-        except Exception as e:
-            self.logger.error(f"Error fetching stations for query '{query}': {e}")
+
+        if not stations:
             return []
+
+        self.logger.debug(f"Fetched {len(stations)} stations for query '{query}'")
+
+        valid_stations = [
+            self._normalize_station(station)
+            for station in stations
+            if self._is_valid_station(station)
+        ]
+
+        deduplicated_stations = await self._deduplicate_stations(valid_stations)
+
+        self.logger.info(
+            f"Deduplicated {len(stations)} → {len(deduplicated_stations)} stations for query '{query}'"
+        )
+
+        return deduplicated_stations
 
     async def _fetch_station_by_id(self, station_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -167,38 +161,30 @@ class RadioBrowserAPI:
             station_id: Station UUID
 
         Returns:
-            Normalized station or None if not found
+            Normalized station, or None if not found or all mirrors unreachable
         """
-        await self._ensure_session()
-
         try:
-            url = f"{self.BASE_URL}/stations/byuuid/{station_id}"
-            async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                if resp.status != 200:
-                    self.logger.info(f"API error for station {station_id}: {resp.status}")
-                    return None
-
-                stations = await resp.json()
-                if not stations or len(stations) == 0:
-                    self.logger.debug(f"Station {station_id} not found")
-                    return None
-
-                station = stations[0]  # The API returns a list with 1 element
-
-                if self._is_valid_station(station):
-                    normalized = self._normalize_station(station)
-                    self.logger.debug(f"Fetched station {station_id}: {normalized['name']}")
-                    return normalized
-                else:
-                    self.logger.debug(f"Station {station_id} is not valid")
-                    return None
-
-        except asyncio.TimeoutError:
-            self.logger.error(f"Timeout fetching station {station_id}")
+            stations = await self._request(
+                f"stations/byuuid/{station_id}",
+                timeout=10,
+            )
+        except NetworkUnavailableError as e:
+            self.logger.warning(f"Network unavailable for station {station_id}: {e}")
             return None
-        except Exception as e:
-            self.logger.error(f"Error fetching station {station_id}: {e}")
+
+        if not stations:
+            self.logger.debug(f"Station {station_id} not found")
             return None
+
+        station = stations[0]  # The API returns a list with 1 element
+
+        if not self._is_valid_station(station):
+            self.logger.debug(f"Station {station_id} is not valid")
+            return None
+
+        normalized = self._normalize_station(station)
+        self.logger.debug(f"Fetched station {station_id}: {normalized['name']}")
+        return normalized
 
     async def _fetch_top_stations(self, limit: int = 500) -> List[Dict[str, Any]]:
         """
@@ -210,41 +196,30 @@ class RadioBrowserAPI:
 
         Returns:
             List of normalized and filtered stations
+
+        Raises:
+            NetworkUnavailableError: If all mirrors are unreachable
         """
-        await self._ensure_session()
-
-        try:
-            # Use the topclick endpoint for the most clicked stations
-            url = f"{self.BASE_URL}/stations/topclick/{limit}"
-
-            async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                if resp.status != 200:
-                    self.logger.info(f"API error for top stations: {resp.status}")
-                    return []
-
-                stations = await resp.json()
-                self.logger.debug(f"Fetched {len(stations)} top stations")
-
-                # Filter and normalize
-                valid_stations = []
-                for station in stations:
-                    if self._is_valid_station(station):
-                        normalized = self._normalize_station(station)
-                        valid_stations.append(normalized)
-
-                # Deduplicate (just in case)
-                deduplicated_stations = await self._deduplicate_stations(valid_stations)
-
-                self.logger.info(f"Returning {len(deduplicated_stations)} top stations")
-
-                return deduplicated_stations
-
-        except Exception as e:
-            if is_network_error(e):
-                self.logger.error(f"Network error fetching top stations: {e}")
-                raise NetworkUnavailableError(str(e)) from e
-            self.logger.error(f"Error fetching top stations: {e}")
+        stations = await self._request(
+            f"stations/topclick/{limit}",
+            timeout=15,
+        )
+        if not stations:
             return []
+
+        self.logger.debug(f"Fetched {len(stations)} top stations")
+
+        valid_stations = [
+            self._normalize_station(station)
+            for station in stations
+            if self._is_valid_station(station)
+        ]
+
+        deduplicated_stations = await self._deduplicate_stations(valid_stations)
+
+        self.logger.info(f"Returning {len(deduplicated_stations)} top stations")
+
+        return deduplicated_stations
 
     def _is_valid_station(self, station: Dict[str, Any]) -> bool:
         """
@@ -541,50 +516,37 @@ class RadioBrowserAPI:
 
         Returns:
             List of normalized and deduplicated stations
+
+        Raises:
+            NetworkUnavailableError: If all mirrors are unreachable
         """
-        await self._ensure_session()
+        self.logger.debug(f"API call [{description}]: {params}")
 
-        try:
-            url = f"{self.BASE_URL}/stations/search"
-
-            self.logger.debug(f"API call [{description}]: {params}")
-
-            async with self.session.get(
-                url,
-                params=params,
-                timeout=aiohttp.ClientTimeout(total=15)
-            ) as resp:
-                if resp.status != 200:
-                    self.logger.info(f"API error [{description}]: HTTP {resp.status}")
-                    return []
-
-                stations = await resp.json()
-                self.logger.debug(f"Fetched {len(stations)} raw stations [{description}]")
-
-                # Filter and normalize
-                valid_stations = []
-                for station in stations:
-                    if self._is_valid_station(station):
-                        normalized = self._normalize_station(station)
-                        valid_stations.append(normalized)
-
-                # Deduplicate (preserves original order)
-                deduplicated_stations = await self._deduplicate_stations(valid_stations)
-
-                self.logger.info(
-                    f"[{description}] {len(stations)} raw → "
-                    f"{len(valid_stations)} valid → "
-                    f"{len(deduplicated_stations)} deduplicated"
-                )
-
-                return deduplicated_stations
-
-        except Exception as e:
-            if is_network_error(e):
-                self.logger.error(f"Network error during [{description}]: {e}")
-                raise NetworkUnavailableError(str(e)) from e
-            self.logger.error(f"Error during [{description}]: {e}")
+        stations = await self._request(
+            "stations/search",
+            params=params,
+            timeout=15,
+        )
+        if not stations:
             return []
+
+        self.logger.debug(f"Fetched {len(stations)} raw stations [{description}]")
+
+        valid_stations = [
+            self._normalize_station(station)
+            for station in stations
+            if self._is_valid_station(station)
+        ]
+
+        deduplicated_stations = await self._deduplicate_stations(valid_stations)
+
+        self.logger.info(
+            f"[{description}] {len(stations)} raw → "
+            f"{len(valid_stations)} valid → "
+            f"{len(deduplicated_stations)} deduplicated"
+        )
+
+        return deduplicated_stations
 
     async def search_stations(
         self,
@@ -798,19 +760,16 @@ class RadioBrowserAPI:
         Returns:
             True if successful
         """
-        await self._ensure_session()
-
-        url = f"{self.BASE_URL}/url/{station_id}"
-        async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-            success = resp.status == 200
-            if success:
-                self.logger.debug(f"Incremented click count for station {station_id}")
-            return success
+        result = await self._request(f"url/{station_id}", timeout=5)
+        success = isinstance(result, dict) and result.get("ok") is True
+        if success:
+            self.logger.debug(f"Incremented click count for station {station_id}")
+        return success
 
     async def get_available_countries(self) -> List[Dict[str, Any]]:
         """
         Gets list of all available countries from Radio Browser API
-        With 24h cache + retry logic + fallback
+        With 24h cache + stale-cache fallback when all mirrors are unreachable
 
         Returns:
             List of countries with name and station count
@@ -823,63 +782,40 @@ class RadioBrowserAPI:
                 self.logger.debug(f"Using cached countries ({len(self._countries_cache)} countries, age: {cache_age})")
                 return self._countries_cache
 
-        # Cache expired or absent, try to fetch
-        await self._ensure_session()
+        try:
+            countries = await self._request("countries", timeout=10)
+        except NetworkUnavailableError as e:
+            # All mirrors failed — fall back to stale cache if we have one
+            if self._countries_cache:
+                cache_age = datetime.now() - self._countries_cache_timestamp if self._countries_cache_timestamp else None
+                self.logger.info(
+                    f"API unreachable ({e}), using stale cache "
+                    f"({len(self._countries_cache)} countries, age: {cache_age})"
+                )
+                return self._countries_cache
+            self.logger.error(f"API unreachable ({e}) and no cache available, returning empty list")
+            return []
 
-        # Try 3 times with retry
-        for attempt in range(1, 4):
-            try:
-                self.logger.info(f"Attempt {attempt}/3 fetching countries from Radio Browser API...")
-                url = f"{self.BASE_URL}/countries"
-                async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                    if resp.status != 200:
-                        self.logger.info(f"API error fetching countries (attempt {attempt}): HTTP {resp.status}")
-                        if attempt < 3:
-                            await asyncio.sleep(2)  # Wait 2s before retry
-                            continue
-                        # Last attempt failed, use fallback
-                        break
+        if not countries:
+            return self._countries_cache or []
 
-                    countries = await resp.json()
-                    # Filter countries with at least 80 stations
-                    filtered_countries = [
-                        {"name": c.get("name", ""), "stationcount": c.get("stationcount", 0)}
-                        for c in countries
-                        if c.get("stationcount", 0) >= 80 and c.get("name")
-                    ]
+        # Filter countries with at least 80 stations
+        filtered_countries = [
+            {"name": c.get("name", ""), "stationcount": c.get("stationcount", 0)}
+            for c in countries
+            if c.get("stationcount", 0) >= 80 and c.get("name")
+        ]
 
-                    # Sort by station count (descending)
-                    sorted_countries = sorted(
-                        filtered_countries,
-                        key=lambda c: c["stationcount"],
-                        reverse=True
-                    )
+        # Sort by station count (descending)
+        sorted_countries = sorted(
+            filtered_countries,
+            key=lambda c: c["stationcount"],
+            reverse=True
+        )
 
-                    # Cache
-                    self._countries_cache = sorted_countries
-                    self._countries_cache_timestamp = datetime.now()
+        # Cache
+        self._countries_cache = sorted_countries
+        self._countries_cache_timestamp = datetime.now()
 
-                    self.logger.info(f"Fetched and cached {len(sorted_countries)} countries from Radio Browser API")
-                    return sorted_countries
-
-            except asyncio.TimeoutError:
-                self.logger.info(f"Timeout fetching countries list (attempt {attempt}/3)")
-                if attempt < 3:
-                    await asyncio.sleep(2)  # Wait 2s before retry
-                    continue
-            except Exception as e:
-                self.logger.info(f"Error fetching countries (attempt {attempt}/3): {e}")
-                if attempt < 3:
-                    await asyncio.sleep(2)  # Wait 2s before retry
-                    continue
-
-        # All attempts failed
-        # Use stale cache if it exists
-        if self._countries_cache:
-            cache_age = datetime.now() - self._countries_cache_timestamp if self._countries_cache_timestamp else None
-            self.logger.info(f"API unreachable, using stale cache ({len(self._countries_cache)} countries, age: {cache_age})")
-            return self._countries_cache
-
-        # No cache, return empty list
-        self.logger.error("API unreachable and no cache available, returning empty list")
-        return []
+        self.logger.info(f"Fetched and cached {len(sorted_countries)} countries from Radio Browser API")
+        return sorted_countries
