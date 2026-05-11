@@ -1,7 +1,7 @@
 <template>
   <div class="lazy-image">
     <img
-      v-if="src"
+      v-if="src && !imageError"
       ref="imgRef"
       :src="src"
       :alt="alt"
@@ -12,8 +12,14 @@
       @load="handleImageLoad"
       @error="handleImageError"
     />
+    <!-- Fallback visible until the main image is loaded (bridges the network/decode gap) -->
+    <div
+      v-if="!imageLoaded && fallbackName"
+      class="lazy-image-placeholder"
+      v-html="resolvedFallbackSvg"
+    />
     <img
-      v-if="!imageLoaded"
+      v-else-if="!imageLoaded && fallback"
       :src="fallback"
       class="lazy-image-placeholder"
       alt=""
@@ -23,16 +29,24 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { generateStationAvatarSvg } from '@/utils/stationAvatar'
 
-defineProps({
+const props = defineProps({
   src: {
     type: String,
     default: ''
   },
+  // Static fallback URL (e.g. local placeholder asset)
   fallback: {
     type: String,
-    required: true
+    default: ''
+  },
+  // Name used to lazily generate a deterministic inline SVG avatar.
+  // Takes precedence over `fallback` when provided.
+  fallbackName: {
+    type: String,
+    default: ''
   },
   alt: {
     type: String,
@@ -45,6 +59,12 @@ const imageLoaded = ref(false)
 const imageError = ref(false)
 
 const MIN_IMAGE_SIZE = 8
+
+// Resolve the SVG markup lazily — generation runs only when the fallback is actually rendered
+const resolvedFallbackSvg = computed(() => {
+  if (imageLoaded.value || !props.fallbackName) return ''
+  return generateStationAvatarSvg(props.fallbackName)
+})
 
 function handleImageLoad() {
   const img = imgRef.value
@@ -76,17 +96,23 @@ defineExpose({ imageLoaded, imageError })
   overflow: hidden;
 }
 
-.lazy-image img {
+.lazy-image-main,
+.lazy-image-placeholder {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
+}
+
+img.lazy-image-main,
+img.lazy-image-placeholder {
   object-fit: cover;
 }
 
+/* Main image: invisible until loaded, then instant swap to opaque on top of the fallback.
+   No opacity transition — a fade would let the (unmounting) fallback bleed through. */
 .lazy-image-main {
   opacity: 0;
-  transition: opacity var(--transition-normal);
   z-index: 1;
 }
 
