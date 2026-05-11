@@ -400,18 +400,19 @@
       "codecPlaceholder": "例：MP3、AAC、OGG",
       "bitrate": "比特率 (kbps)",
       "bitratePlaceholder": "例：128、192、320",
-      "add": "添加",
       "adding": "正在添加...",
-      "confirmDelete": "确认",
       "loading": "正在加载...",
       "invalidImageFormat": "不支持的图片格式。请使用JPG、PNG、WEBP或GIF。",
       "imageTooLarge": "图片太大。最大5MB。",
-      "noStationToEdit": "没有要编辑的电台",
       "editFailed": "编辑电台失败",
       "addFailed": "添加电台失败",
       "errorOccurred": "发生错误",
       "addStationTitle": "添加电台",
-      "editStationTitle": "编辑电台"
+      "editStationTitle": "编辑电台",
+      "shazamEnabled": "为此电台启用歌曲识别",
+      "createStation": "创建电台",
+      "confirmRestore": "确认恢复",
+      "confirmDelete": "确认删除"
     }
   },
   "radioSettings": {

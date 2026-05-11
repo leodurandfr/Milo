@@ -402,18 +402,19 @@
       "codecPlaceholder": "Ex: MP3, AAC, OGG",
       "bitrate": "Bitrate (kbps)",
       "bitratePlaceholder": "Ex: 128, 192, 320",
-      "add": "Ajouter",
       "adding": "Ajout en cours...",
-      "confirmDelete": "Confirmer",
       "loading": "Chargement...",
       "invalidImageFormat": "Format d'image non supporté. Utilisez JPG, PNG, WEBP ou GIF.",
       "imageTooLarge": "Image trop volumineuse. Maximum 5MB.",
-      "noStationToEdit": "Aucune station à modifier",
       "editFailed": "Échec de la modification de la station",
       "addFailed": "Échec de l'ajout de la station",
       "errorOccurred": "Une erreur est survenue",
       "addStationTitle": "Ajouter une station",
-      "editStationTitle": "Modifier la station"
+      "editStationTitle": "Modifier la station",
+      "shazamEnabled": "Reconnaissance des morceaux de cette station",
+      "createStation": "Créer la station",
+      "confirmRestore": "Confirmer la restauration",
+      "confirmDelete": "Confirmer la suppression"
     }
   },
   "radioSettings": {

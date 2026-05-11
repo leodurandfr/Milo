@@ -178,6 +178,10 @@ class StationDataService:
         "manual_stations": {"custom_xxx": {...}},
         "favorites_cache": {"station_id": {...}}
     }
+
+    Per-station Shazam preference (shazam_enabled) lives as a regular field
+    inside modified_metadata[id] / manual_stations[id]. Default ON when the
+    field is absent.
     """
 
     def __init__(self, state_machine=None):
@@ -278,6 +282,21 @@ class StationDataService:
             "favorites_cache": self._favorites_cache
         }
         return await self._save_data(data)
+
+    def is_station_shazam_enabled(self, station_id: str) -> bool:
+        """Check if Shazam recognition is enabled for a specific station.
+
+        Default is True. A station is OFF only if it has an explicit
+        shazam_enabled=False stored in its modified_metadata or manual_stations
+        entry (set via the ManageStation UI).
+        """
+        if not station_id:
+            return True
+        if station_id in self._modified_metadata:
+            return self._modified_metadata[station_id].get('shazam_enabled', True)
+        if station_id in self._manual_stations:
+            return self._manual_stations[station_id].get('shazam_enabled', True)
+        return True
 
     # === Favorites Management ===
 
@@ -424,9 +443,26 @@ class StationDataService:
         """Get all manually created stations."""
         return self._manual_stations.copy()
 
+    def _is_real_metadata_modification(self, station_id: str) -> bool:
+        """True if the modified_metadata entry diverges from the original on any
+        non-shazam field. A shazam-only delta is a behavior preference, not a
+        metadata modification, and must not promote the station to "Modified".
+        """
+        if station_id not in self._modified_metadata:
+            return False
+        custom = self._modified_metadata[station_id]
+        original = self._favorites_cache.get(station_id, {})
+        real_fields = ('name', 'url', 'country', 'genre', 'codec', 'bitrate',
+                       'image_filename', 'favicon')
+        return any(custom.get(f) != original.get(f) for f in real_fields)
+
     def get_modified_metadata(self) -> Dict[str, Dict[str, Any]]:
-        """Get all modified metadata."""
-        return self._modified_metadata.copy()
+        """Get stations with REAL metadata modifications (excludes shazam-only deltas)."""
+        return {
+            sid: meta.copy()
+            for sid, meta in self._modified_metadata.items()
+            if self._is_real_metadata_modification(sid)
+        }
 
     def get_custom_station_by_id(self, station_id: str) -> Optional[Dict[str, Any]]:
         """Get custom station by ID."""
@@ -450,7 +486,8 @@ class StationDataService:
         genre: str = "",
         image_filename: str = "",
         bitrate: int = 0,
-        codec: str = ""
+        codec: str = "",
+        shazam_enabled: bool = True
     ) -> Dict[str, Any]:
         """Add custom station."""
         if not name or not url:
@@ -471,6 +508,7 @@ class StationDataService:
                 "bitrate": bitrate,
                 "codec": codec.strip(),
                 "is_custom": True,
+                "shazam_enabled": shazam_enabled,
                 "votes": 0,
                 "clickcount": 0,
                 "score": 0
@@ -515,7 +553,8 @@ class StationDataService:
         country: str = "",
         genre: str = "",
         image_filename: Optional[str] = None,
-        remove_image: bool = False
+        remove_image: bool = False,
+        shazam_enabled: bool = True
     ) -> Dict[str, Any]:
         """Update an existing custom station."""
         if not station_id or not station_id.startswith("custom_"):
@@ -552,6 +591,7 @@ class StationDataService:
                 "bitrate": old_station.get('bitrate', 0),
                 "codec": old_station.get('codec', ''),
                 "is_custom": True,
+                "shazam_enabled": shazam_enabled,
                 "votes": 0,
                 "clickcount": 0,
                 "score": 0,
@@ -622,7 +662,8 @@ class StationDataService:
         genre: str = "",
         codec: str = "",
         bitrate: int = 0,
-        image_filename: Optional[str] = None
+        image_filename: Optional[str] = None,
+        shazam_enabled: bool = True
     ) -> Dict[str, Any]:
         """Create/update custom metadata for a station."""
         if not name or not url:
@@ -655,6 +696,7 @@ class StationDataService:
                 "image_filename": final_image_filename,
                 "bitrate": bitrate,
                 "codec": codec.strip(),
+                "shazam_enabled": shazam_enabled,
                 "votes": original.get("votes", 0),
                 "clickcount": original.get("clickcount", 0),
                 "score": original.get("score", 0)

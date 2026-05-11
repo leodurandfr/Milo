@@ -248,6 +248,7 @@ async def modify_favorite_metadata(
     bitrate: int = Form(0),
     image: Optional[UploadFile] = File(None),
     remove_image: str = Form("false"),
+    shazam_enabled: bool = Form(True),
     source: RadioSource = Depends(get_source)
 ) -> Dict[str, Any]:
     """
@@ -277,7 +278,8 @@ async def modify_favorite_metadata(
             genre=genre,
             codec=codec,
             bitrate=bitrate,
-            image_filename=image_filename if image_filename else ("" if should_remove_image else None)
+            image_filename=image_filename if image_filename else ("" if should_remove_image else None),
+            shazam_enabled=shazam_enabled
         )
 
         if result["success"]:
@@ -348,6 +350,7 @@ async def add_custom_station(
     bitrate: int = Form(0),
     codec: str = Form(""),
     image: Optional[UploadFile] = File(None),
+    shazam_enabled: bool = Form(True),
     source: RadioSource = Depends(get_source)
 ) -> Dict[str, Any]:
     """
@@ -387,7 +390,8 @@ async def add_custom_station(
             genre=genre,
             image_filename=image_filename,
             bitrate=bitrate,
-            codec=codec
+            codec=codec,
+            shazam_enabled=shazam_enabled
         )
 
         if not result.get("success"):

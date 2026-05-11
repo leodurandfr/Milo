@@ -400,18 +400,19 @@
       "codecPlaceholder": "z.B: MP3, AAC, OGG",
       "bitrate": "Bitrate (kbps)",
       "bitratePlaceholder": "z.B: 128, 192, 320",
-      "add": "Hinzufügen",
       "adding": "Wird hinzugefügt...",
-      "confirmDelete": "Bestätigen",
       "loading": "Wird geladen...",
       "invalidImageFormat": "Nicht unterstütztes Bildformat. Verwende JPG, PNG, WEBP oder GIF.",
       "imageTooLarge": "Bild zu groß. Maximum 5MB.",
-      "noStationToEdit": "Kein Sender zum Bearbeiten",
       "editFailed": "Sender konnte nicht bearbeitet werden",
       "addFailed": "Sender konnte nicht hinzugefügt werden",
       "errorOccurred": "Ein Fehler ist aufgetreten",
       "addStationTitle": "Sender hinzufügen",
-      "editStationTitle": "Sender bearbeiten"
+      "editStationTitle": "Sender bearbeiten",
+      "shazamEnabled": "Titelidentifikation für diesen Sender",
+      "createStation": "Sender erstellen",
+      "confirmRestore": "Wiederherstellung bestätigen",
+      "confirmDelete": "Löschen bestätigen"
     }
   },
   "radioSettings": {

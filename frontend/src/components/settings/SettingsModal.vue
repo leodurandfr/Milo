@@ -4,7 +4,7 @@
     <!-- Single NavigationHeader outside transition -->
     <NavigationHeader ref="headerRef" :title="headerTitle" :show-back="canGoBack" :actions-key="currentView"
       @back="back">
-      <template v-if="currentView === 'home' || currentView === 'multiroom'" #actions>
+      <template v-if="currentView === 'home' || currentView === 'multiroom' || stationActionIcon" #actions>
         <button v-if="currentView === 'home'" v-press class="power-toggle" @click="togglePowerMenu">
           <SvgIcon name="power" size="large" color="var(--color-text-contrast)"
             class="power-toggle__icon" :class="{ 'power-toggle__icon--hidden': showPowerMenu }" />
@@ -13,6 +13,8 @@
         </button>
         <Toggle v-if="currentView === 'multiroom'" :model-value="isMultiroomActive"
           :disabled="unifiedStore.systemState.transitioning || multiroomStore.isTransitioning" @change="handleMultiroomToggle" />
+        <IconButton v-if="stationActionIcon" :icon="stationActionIcon" variant="on-dark"
+          @click="toggleStationActionMenu" />
       </template>
     </NavigationHeader>
 
@@ -206,9 +208,9 @@
 
       <!-- Radio view - Edit a station -->
       <ManageStation v-else-if="currentView === 'radio-edit'" key="radio-edit" class="view-content" mode="edit"
-        :station="stationToEdit" :can-restore="canRestoreStation" :can-delete="canDeleteStation"
-        @back="handleBackFromRadioModal" @success="handleRadioStationEdited" @restore="handleRestoreStation"
-        @delete="handleDeleteStation" />
+        :station="stationToEdit" :show-action-menu="showStationActionMenu"
+        @back="handleBackFromRadioModal" @success="handleRadioStationEdited"
+        @confirm-action="handleStationActionConfirm" />
 
       <!-- Podcast view -->
       <PodcastSettings v-else-if="currentView === 'podcast'" key="podcast" class="view-content" />
@@ -240,6 +242,7 @@ import { logger } from '@/services/logger';
 import axios from 'axios';
 import NavigationHeader from '@/components/ui/NavigationHeader.vue';
 import Toggle from '@/components/ui/Toggle.vue';
+import IconButton from '@/components/ui/IconButton.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import LanguageSettings from '@/components/settings/categories/LanguageSettings.vue';
@@ -387,20 +390,41 @@ watch(() => props.initialView, (newView) => {
   }
 }, { immediate: true });
 
-// Check if the station can be restored (only modified stations)
-const canRestoreStation = computed(() => {
-  return stationToEdit.value?._canRestore === true;
+// === Radio edit-view header action (Restore / Delete) ===
+// Tapping the header IconButton toggles a confirm drawer (same pattern as the
+// home power-menu). Tapping the ListItemButton in the drawer fires the action.
+
+const showStationActionMenu = ref(false);
+
+const stationActionIcon = computed(() => {
+  if (currentView.value !== 'radio-edit' || !stationToEdit.value) return null;
+  if (stationToEdit.value._canRestore) return 'arrowCounterClockwise';
+  if (stationToEdit.value._canDelete) return 'trash';
+  return null;
 });
 
-// Check if the station can be deleted (only manually added stations)
-const canDeleteStation = computed(() => {
-  return stationToEdit.value?._canDelete === true;
+function toggleStationActionMenu() {
+  showStationActionMenu.value = !showStationActionMenu.value;
+}
+
+function handleStationActionConfirm() {
+  showStationActionMenu.value = false;
+  if (stationToEdit.value?._canRestore) {
+    handleRestoreStation();
+  } else if (stationToEdit.value?._canDelete) {
+    handleDeleteStation();
+  }
+}
+
+// Close the drawer when leaving the edit view.
+watch(currentView, (next) => {
+  if (next !== 'radio-edit') showStationActionMenu.value = false;
 });
 
 // Radio navigation handling
 function handleBackFromRadioModal() {
   back();
-  stationToEdit.value = null; // Reset station to edit
+  stationToEdit.value = null;
 }
 
 function handleEditStation(station) {
@@ -412,7 +436,6 @@ async function handleRestoreStation() {
   if (!stationToEdit.value) return;
 
   try {
-    // Call API to restore favorite metadata
     const formData = new FormData();
     formData.append('station_id', stationToEdit.value.id);
 
@@ -426,10 +449,10 @@ async function handleRestoreStation() {
       back();
       stationToEdit.value = null;
     } else {
-      console.error('Failed to restore station');
+      logger.error('settings', 'Failed to restore station');
     }
   } catch (error) {
-    console.error('Error restoring station:', error);
+    logger.error('settings', 'Error restoring station:', error);
   }
 }
 
@@ -449,10 +472,10 @@ async function handleDeleteStation() {
       back();
       stationToEdit.value = null;
     } else {
-      console.error('Failed to delete station');
+      logger.error('settings', 'Failed to delete station');
     }
   } catch (error) {
-    console.error('Error deleting station:', error);
+    logger.error('settings', 'Error deleting station:', error);
   }
 }
 
