@@ -27,7 +27,7 @@ find_rc_device() {
             rc_dev="$current"
             break
         fi
-    done < <(ir-keytable 2>/dev/null || true)
+    done < <(ir-keytable 2>&1 || true)
 
     echo "$rc_dev"
 }

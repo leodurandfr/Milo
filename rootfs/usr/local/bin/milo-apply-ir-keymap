@@ -1,28 +1,39 @@
 #!/bin/bash
-# milo-apply-ir-keymap — Load a Milo-managed rc-core keymap into the kernel.
+# milo-apply-ir-keymap — Install and load a Milo-managed rc-core keymap.
 #
-# Invoked from the backend (keymap_writer.reload_kernel_keymap) via the
-# sudoers-protected entry in /etc/sudoers.d/milo-ir-remote.
+# Invoked from the backend (keymap_writer.apply_keymap / clear_kernel_keymap)
+# via the sudoers-protected entry in /etc/sudoers.d/milo-ir-remote.
 #
 # Usage:
-#   milo-apply-ir-keymap /etc/rc_keymaps/milo-<name>.toml   # load keymap
-#   milo-apply-ir-keymap --clear                            # clear keymap
+#   milo-apply-ir-keymap                # read TOML from stdin, install + load
+#   milo-apply-ir-keymap --clear        # clear the active keymap + remove file
 #
-# Path validation is strict — only files matching /etc/rc_keymaps/milo-*.toml
-# are accepted to prevent passing arbitrary files via sudo.
+# Installing reads the keymap TOML from stdin, validates it, writes it
+# atomically to /etc/rc_keymaps/milo-apple-remote.toml, then loads it via
+# ir-keytable. Doing the file write inside the privileged helper means the
+# backend (running as `milo`) never needs to touch /etc/rc_keymaps/.
 
 set -euo pipefail
 
+INSTALL_PATH="/etc/rc_keymaps/milo-apple-remote.toml"
+INSTALL_DIR="$(dirname "$INSTALL_PATH")"
+
 usage() {
-    echo "Usage: $0 <keymap-path>|--clear" >&2
+    echo "Usage: $0 [--clear]" >&2
     exit 1
 }
 
-[[ $# -eq 1 ]] || usage
+# Accept exactly: no args (install from stdin), or `--clear`. Anything else
+# is rejected — silently falling through to the stdin path on an unknown arg
+# would mask caller bugs.
+if [[ $# -gt 1 ]]; then
+    usage
+fi
+if [[ $# -eq 1 && "$1" != "--clear" ]]; then
+    usage
+fi
 
-ARG="$1"
-
-# Locate the rc-core device backed by gpio_ir_recv (same logic as setup).
+# Locate the rc-core device backed by gpio_ir_recv.
 find_rc_device() {
     local rc_dev=""
     local current=""
@@ -34,7 +45,7 @@ find_rc_device() {
             rc_dev="$current"
             break
         fi
-    done < <(ir-keytable 2>/dev/null || true)
+    done < <(ir-keytable 2>&1 || true)
 
     echo "$rc_dev"
 }
@@ -45,31 +56,36 @@ if [[ -z "$RC_DEV" ]]; then
     exit 2
 fi
 
-# Re-enable NEC every time — `ir-keytable --clear` drops the protocol set too.
+# Re-enable NEC every time — `ir-keytable --clear` drops the protocol set too,
+# and a fresh boot before milo-ir-keytable.service ran would leave NEC off.
 ir-keytable -s "$RC_DEV" -p nec >/dev/null
 
-if [[ "$ARG" == "--clear" ]]; then
-    ir-keytable -s "$RC_DEV" -c
+if [[ "${1:-}" == "--clear" ]]; then
+    ir-keytable -s "$RC_DEV" -c >/dev/null
+    rm -f "$INSTALL_PATH"
     exit 0
 fi
 
-# Strict path validation
-case "$ARG" in
-    /etc/rc_keymaps/milo-*.toml) ;;
-    *) echo "milo-apply-ir-keymap: refusing path '$ARG' — must match /etc/rc_keymaps/milo-*.toml" >&2; exit 1 ;;
-esac
+# Read TOML content from stdin to a temp file inside the target directory
+# so the final `mv` is an atomic rename (same filesystem).
+mkdir -p "$INSTALL_DIR"
+TMPFILE=$(mktemp "$INSTALL_DIR/.milo-apple-remote.XXXXXX.toml")
+trap 'rm -f "$TMPFILE"' EXIT
+cat > "$TMPFILE"
 
-if [[ ! -f "$ARG" ]]; then
-    echo "milo-apply-ir-keymap: keymap not found: $ARG" >&2
-    exit 1
+# Basic content validation — refuse anything that doesn't look like our keymap.
+if ! grep -q '^variant = "nec-32"' "$TMPFILE"; then
+    echo "milo-apply-ir-keymap: rejected stdin payload (missing nec-32 variant)" >&2
+    exit 3
+fi
+if ! grep -q '^\[protocols.scancodes\]' "$TMPFILE"; then
+    echo "milo-apply-ir-keymap: rejected stdin payload (missing scancodes block)" >&2
+    exit 3
 fi
 
-# Realpath check — defeat symlink traversal that bypasses the prefix check.
-REAL=$(readlink -f "$ARG")
-case "$REAL" in
-    /etc/rc_keymaps/milo-*.toml) ;;
-    *) echo "milo-apply-ir-keymap: refusing resolved path '$REAL'" >&2; exit 1 ;;
-esac
+chmod 0644 "$TMPFILE"
+mv "$TMPFILE" "$INSTALL_PATH"
+trap - EXIT
 
-ir-keytable -s "$RC_DEV" --write="$REAL"
+ir-keytable -s "$RC_DEV" --write="$INSTALL_PATH" >/dev/null
 exit 0

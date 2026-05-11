@@ -31,7 +31,10 @@
     "shutdown": "Éteindre",
     "confirmShutdown": "Confirmer l'extinction",
     "restartInProgress": "Redémarrage en cours...",
-    "shutdownInProgress": "Extinction en cours..."
+    "shutdownInProgress": "Extinction en cours...",
+    "remoteControls": "Télécommandes",
+    "btRemote": "Télécommande Bluetooth",
+    "irRemote": "Télécommande IR"
   },
   "audioSources": {
     "title": "Sources audio",
@@ -227,15 +230,7 @@
     "startup": "Volume au démarrage",
     "fixedVolume": "Volume fixe",
     "restoreLast": "Restaurer le dernier",
-    "fixedStartup": "Volume fixe au démarrage",
-    "btRemote": {
-      "title": "Contrôleur Bluetooth",
-      "connected": "Connecté",
-      "notConnected": "Non connecté",
-      "discover": "Rechercher",
-      "discovering": "Recherche...",
-      "batteryLow": "Batterie faible"
-    }
+    "fixedStartup": "Volume fixe au démarrage"
   },
   "screenSettings": {
     "brightness": "Luminosité",
@@ -581,6 +576,50 @@
       "thisDevice": "Cet appareil : {name} ({ip})",
       "recheck": "Vérifier à nouveau",
       "shutdown": "Éteindre cet appareil"
+    }
+  },
+  "remoteControls": {
+    "btRemote": "Télécommande Bluetooth",
+    "irRemote": "Télécommande IR",
+    "status": {
+      "disabled": "Désactivée",
+      "connected": "Connectée",
+      "notConnected": "Non connectée",
+      "notPaired": "Non appairée",
+      "paired": "Appairée",
+      "listening": "À l'écoute"
+    }
+  },
+  "btRemoteSettings": {
+    "title": "Télécommande Bluetooth",
+    "connected": "Connectée",
+    "notConnected": "Non connectée",
+    "discover": "Rechercher",
+    "discovering": "Recherche...",
+    "batteryLow": "Batterie faible",
+    "step": "Variation du volume par appui"
+  },
+  "irRemoteSettings": {
+    "title": "Télécommande infrarouge",
+    "step": "Variation du volume par appui",
+    "statusDisabled": "Désactivée",
+    "statusListening": "À l'écoute",
+    "statusIdle": "Appairée",
+    "unpair": "Désappairer cette télécommande",
+    "wizard": {
+      "idleTitle": "Appairer votre Apple Remote",
+      "idleDetails": "Appuyez sur le bouton ci-dessous, puis sur une touche de votre Apple Remote.",
+      "waitingTitle": "Appuyez sur un bouton de votre télécommande...",
+      "waitingDetails": "Il reste {seconds} s",
+      "timeoutTitle": "Aucune télécommande détectée",
+      "timeoutDetails": "Vérifiez le câblage du récepteur et réessayez.",
+      "unsupportedTitle": "Télécommande non prise en charge",
+      "unsupportedDetails": "Milō prend uniquement en charge l'Apple Remote (1ère génération).",
+      "errorTitle": "Échec de l'appairage",
+      "errorDetails": "Une erreur inattendue est survenue. Veuillez réessayer.",
+      "startCta": "Appairer cette télécommande",
+      "cancelCta": "Annuler",
+      "retryCta": "Réessayer"
     }
   }
 }

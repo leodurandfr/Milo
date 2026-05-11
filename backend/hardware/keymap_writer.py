@@ -3,13 +3,18 @@
 rc_keymap(5) writer for the Apple Remote (1st gen, white).
 
 Given a captured device_id (the per-remote pairing byte at bits 15..8 of the
-32-bit Apple NEC scancode), produce a TOML keymap that targets only that
-remote and load it into the kernel via ir-keytable.
+32-bit Apple NEC scancode), generate a TOML keymap that targets only that
+remote and load it into the kernel via the sudoers-protected helper.
 
 The 6 button command bytes are documented in §5.3 of docs/plans/remote-controls.md.
 For each button we emit both parity variants because the Apple variant disables
 the standard NEC checksum check and the kernel emits whichever parity the
 remote's device_id yields.
+
+The backend never writes to /etc/rc_keymaps/ directly — it pipes the TOML
+content via stdin to /usr/local/bin/milo-apply-ir-keymap (sudoers-protected),
+which writes the file atomically and reloads the kernel state in a single
+privileged step. This avoids needing /etc/rc_keymaps/ writable by the milo user.
 """
 import asyncio
 import logging
@@ -33,8 +38,6 @@ APPLE_BUTTON_CMDS: Dict[str, int] = {
     "KEY_VOLUMEDOWN":   0x06,  # Down
 }
 
-KEYMAP_DIR = Path("/etc/rc_keymaps")
-KEYMAP_FILE = KEYMAP_DIR / "milo-apple-remote.toml"
 APPLY_HELPER = Path("/usr/local/bin/milo-apply-ir-keymap")
 
 
@@ -71,53 +74,40 @@ def render_keymap(device_id: int) -> str:
     return "\n".join(lines)
 
 
-def write_keymap(device_id: int, path: Path = KEYMAP_FILE) -> Path:
-    """Write the keymap TOML for the given device_id and return its path."""
-    _validate_device_id(device_id)
-    content = render_keymap(device_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(content, encoding="utf-8")
-    tmp.replace(path)
-    logger.info("Wrote IR keymap for device_id=0x%02X to %s", device_id, path)
-    return path
+async def apply_keymap(device_id: int) -> None:
+    """Generate the keymap for `device_id` and load it into the kernel.
 
-
-async def reload_kernel_keymap(path: Path = KEYMAP_FILE) -> None:
-    """Reload the kernel rc-core keymap via the sudoers-protected helper.
+    The TOML content is piped via stdin to the sudoers-protected helper,
+    which writes it atomically under /etc/rc_keymaps/ and reloads the
+    rc-core keymap.
 
     Raises RuntimeError if the helper exits non-zero so callers can surface
     a user-facing error instead of silently leaving the kernel in the old
     state.
     """
-    cmd = ["sudo", "-n", str(APPLY_HELPER), str(path)]
+    _validate_device_id(device_id)
+    content = render_keymap(device_id)
+
+    cmd = ["sudo", "-n", str(APPLY_HELPER)]
     proc = await asyncio.create_subprocess_exec(
         *cmd,
+        stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout, stderr = await proc.communicate()
+    stdout, stderr = await proc.communicate(input=content.encode("utf-8"))
     if proc.returncode != 0:
         out = (stderr or stdout or b"").decode(errors="replace").strip()
-        raise RuntimeError(f"milo-apply-ir-keymap failed (exit {proc.returncode}): {out}")
-    logger.info("Kernel rc-core keymap reloaded from %s", path)
-
-
-def remove_keymap(path: Path = KEYMAP_FILE) -> None:
-    """Delete the keymap file. Caller is responsible for reloading the kernel
-    state separately (e.g. by re-running `ir-keytable -c` via the helper)."""
-    try:
-        path.unlink()
-        logger.info("Removed IR keymap file: %s", path)
-    except FileNotFoundError:
-        pass
+        raise RuntimeError(
+            f"milo-apply-ir-keymap failed (exit {proc.returncode}): {out}"
+        )
+    logger.info("Kernel rc-core keymap loaded for device_id=0x%02X", device_id)
 
 
 async def clear_kernel_keymap() -> None:
-    """Clear the active kernel keymap (used on unpair).
+    """Clear the active kernel keymap and remove the on-disk file.
 
-    Invokes the sudoers-protected helper with the special `--clear` argument
-    instead of a TOML path.
+    Invokes the sudoers-protected helper with the special `--clear` argument.
     """
     cmd = ["sudo", "-n", str(APPLY_HELPER), "--clear"]
     proc = await asyncio.create_subprocess_exec(
@@ -128,5 +118,7 @@ async def clear_kernel_keymap() -> None:
     stdout, stderr = await proc.communicate()
     if proc.returncode != 0:
         out = (stderr or stdout or b"").decode(errors="replace").strip()
-        raise RuntimeError(f"milo-apply-ir-keymap --clear failed (exit {proc.returncode}): {out}")
+        raise RuntimeError(
+            f"milo-apply-ir-keymap --clear failed (exit {proc.returncode}): {out}"
+        )
     logger.info("Kernel rc-core keymap cleared")

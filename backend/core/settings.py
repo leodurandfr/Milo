@@ -294,6 +294,17 @@ class SettingsService:
                     'device_name_filter': str(bt_remote_input.get('device_name_filter', 'ANTICATER'))[:64],
                     'key_map': bt_remote_input.get('key_map', {}) if isinstance(bt_remote_input.get('key_map'), dict) else {}
                 }
+            ir_remote_input = hardware_input.get('ir_remote', {})
+            if ir_remote_input:
+                raw_device_id = ir_remote_input.get('device_id')
+                device_id = raw_device_id if isinstance(raw_device_id, int) and 0 <= raw_device_id <= 0xFF else None
+                raw_paired_at = ir_remote_input.get('paired_at')
+                paired_at = float(raw_paired_at) if isinstance(raw_paired_at, (int, float)) else None
+                validated_hardware['ir_remote'] = {
+                    'enabled': bool(ir_remote_input.get('enabled', False)),
+                    'device_id': device_id,
+                    'paired_at': paired_at,
+                }
             if validated_hardware:
                 validated['hardware'] = validated_hardware
 

@@ -31,7 +31,10 @@
     "shutdown": "बंद करें",
     "confirmShutdown": "बंद करने की पुष्टि करें",
     "restartInProgress": "पुनः आरंभ हो रहा है...",
-    "shutdownInProgress": "बंद हो रहा है..."
+    "shutdownInProgress": "बंद हो रहा है...",
+    "remoteControls": "Remote controls",
+    "btRemote": "Bluetooth remote",
+    "irRemote": "IR remote"
   },
   "audioSources": {
     "title": "ऑडियो स्रोत",
@@ -227,15 +230,7 @@
     "startup": "स्टार्टअप वॉल्यूम",
     "fixedVolume": "निश्चित वॉल्यूम",
     "restoreLast": "पिछला वॉल्यूम रखें",
-    "fixedStartup": "निश्चित स्टार्टअप वॉल्यूम",
-    "btRemote": {
-      "title": "ब्लूटूथ नियंत्रक",
-      "connected": "कनेक्ट है",
-      "notConnected": "कनेक्ट नहीं है",
-      "discover": "खोजें",
-      "discovering": "खोज रहा है...",
-      "batteryLow": "बैटरी कम है"
-    }
+    "fixedStartup": "निश्चित स्टार्टअप वॉल्यूम"
   },
   "screenSettings": {
     "brightness": "चमक",
@@ -579,6 +574,50 @@
       "thisDevice": "यह डिवाइस: {name} ({ip})",
       "recheck": "फिर से जांचें",
       "shutdown": "यह डिवाइस बंद करें"
+    }
+  },
+  "remoteControls": {
+    "btRemote": "Bluetooth Remote",
+    "irRemote": "IR Remote",
+    "status": {
+      "disabled": "Disabled",
+      "connected": "Connected",
+      "notConnected": "Not connected",
+      "notPaired": "Not paired",
+      "paired": "Paired",
+      "listening": "Listening"
+    }
+  },
+  "btRemoteSettings": {
+    "title": "Bluetooth Remote",
+    "connected": "Connected",
+    "notConnected": "Not connected",
+    "discover": "Search",
+    "discovering": "Searching...",
+    "batteryLow": "Battery low",
+    "step": "Volume step per click"
+  },
+  "irRemoteSettings": {
+    "title": "IR Remote",
+    "step": "Volume step per click",
+    "statusDisabled": "Disabled",
+    "statusListening": "Listening",
+    "statusIdle": "Paired",
+    "unpair": "Unpair this remote",
+    "wizard": {
+      "idleTitle": "Pair your Apple Remote",
+      "idleDetails": "Press the button below, then press any key on your Apple Remote.",
+      "waitingTitle": "Press any button on your remote...",
+      "waitingDetails": "{seconds}s remaining",
+      "timeoutTitle": "No remote detected",
+      "timeoutDetails": "Check the receiver wiring and try again.",
+      "unsupportedTitle": "Unsupported remote",
+      "unsupportedDetails": "Milō only supports the Apple Remote (1st gen).",
+      "errorTitle": "Pairing failed",
+      "errorDetails": "An unexpected error occurred. Please try again.",
+      "startCta": "Pair this remote",
+      "cancelCta": "Cancel",
+      "retryCta": "Try again"
     }
   }
 }
