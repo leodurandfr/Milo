@@ -59,10 +59,14 @@ const isDraggingMin = ref(false);
 const isDraggingMax = ref(false);
 const track = ref(null);
 const thumbRef = ref(null);
+// Layout (unscaled) sizes — for CSS positioning, which uses % of unscaled parent.
+// Using BCR here would mix scaled px with unscaled % when an ancestor has transform: scale (ui_scale).
 const trackWidth = ref(0);
 const thumbAxisSize = ref(54);
 
 let resizeObserver = null;
+// Scaled thumb size captured fresh at drag start (drag math runs in viewport/scaled coords).
+let dragThumbSize = 0;
 
 // Pixel positions (clean)
 const minPosition = computed(() => {
@@ -135,27 +139,29 @@ let thumbOffset = 0;
 
 function startDrag(event, type) {
   if (event.button !== 0) return;
-  
+
   event.preventDefault();
   event.stopPropagation();
   dragType = type;
-  
-  if (!track.value) return;
-  
+
+  if (!track.value || !thumbRef.value) return;
+
   const rect = track.value.getBoundingClientRect();
+  const thumbRect = thumbRef.value.getBoundingClientRect();
   const clickX = event.clientX;
-  
+
   // Current center position of the thumb with the new calculation
   const currentPercentage = type === 'min'
     ? (props.modelValue.min - props.min) / (props.max - props.min)
     : (props.modelValue.max - props.min) / (props.max - props.min);
 
   // Thumb center position: half + percentage * (usable width)
-  const size = thumbAxisSize.value;
-  const half = size / 2;
-  const usableWidth = rect.width - size;
+  // Use BCR (scaled) for drag math so it matches event.clientX coords.
+  dragThumbSize = thumbRect.width;
+  const half = dragThumbSize / 2;
+  const usableWidth = rect.width - dragThumbSize;
   const thumbCenterX = rect.left + half + (currentPercentage * usableWidth);
-  
+
   // Offset = difference between where we click and the thumb center
   thumbOffset = clickX - thumbCenterX;
   
@@ -174,11 +180,11 @@ function startDrag(event, type) {
 
 function handleDrag(event) {
   if (!track.value || !dragType) return;
-  
+
   const rect = track.value.getBoundingClientRect();
   const correctedX = event.clientX - thumbOffset;
 
-  const size = thumbAxisSize.value;
+  const size = dragThumbSize;
   const half = size / 2;
   const usableWidth = rect.width - size;
   const positionInUsableArea = correctedX - rect.left - half;
@@ -213,10 +219,10 @@ function stopDrag() {
 
 function updateSizes() {
   if (track.value) {
-    trackWidth.value = track.value.getBoundingClientRect().width;
+    trackWidth.value = track.value.offsetWidth;
   }
   if (thumbRef.value) {
-    thumbAxisSize.value = thumbRef.value.getBoundingClientRect().width;
+    thumbAxisSize.value = thumbRef.value.offsetWidth;
   }
 }
 
