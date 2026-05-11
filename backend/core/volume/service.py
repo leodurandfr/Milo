@@ -312,6 +312,7 @@ class VolumeService:
                 step_mobile_db=volume_settings.get("step_mobile_db", 3.0),
                 step_rotary_db=volume_settings.get("step_rotary_db", 2.0),
                 step_bt_remote_db=volume_settings.get("step_bt_remote_db", 2.0),
+                step_ir_remote_db=volume_settings.get("step_ir_remote_db", 2.0),
                 startup_volume_db=volume_settings.get("startup_volume_db", DEFAULT_VOLUME_DB),
                 restore_last_volume=volume_settings.get("restore_last_volume", False)
             )

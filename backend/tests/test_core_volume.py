@@ -33,6 +33,8 @@ class TestVolumeConfig:
         assert config.limit_max_db == -20.0
         assert config.step_mobile_db == 2.0
         assert config.step_rotary_db == 2.0
+        assert config.step_bt_remote_db == 2.0
+        assert config.step_ir_remote_db == 2.0
         assert config.startup_volume_db == DEFAULT_VOLUME_DB
         assert config.restore_last_volume is True
 
@@ -67,6 +69,14 @@ class TestVolumeConfig:
         assert "limit_min_db" in result
         assert "limit_max_db" in result
         assert "step_mobile_db" in result
+        assert "step_bt_remote_db" in result
+        assert "step_ir_remote_db" in result
+
+    def test_step_ir_remote_db_custom(self):
+        """Custom step_ir_remote_db value is preserved through to_dict()."""
+        config = VolumeConfig(step_ir_remote_db=4.5)
+        assert config.step_ir_remote_db == 4.5
+        assert config.to_dict()["step_ir_remote_db"] == 4.5
 
 
 # ============================================================================

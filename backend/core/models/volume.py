@@ -23,6 +23,7 @@ class VolumeConfig:
     step_mobile_db: float = 2.0
     step_rotary_db: float = 2.0
     step_bt_remote_db: float = 2.0
+    step_ir_remote_db: float = 2.0
     startup_volume_db: float = DEFAULT_VOLUME_DB
     restore_last_volume: bool = True
 
@@ -52,6 +53,7 @@ class VolumeConfig:
             "step_mobile_db": self.step_mobile_db,
             "step_rotary_db": self.step_rotary_db,
             "step_bt_remote_db": self.step_bt_remote_db,
+            "step_ir_remote_db": self.step_ir_remote_db,
             "startup_volume_db": self.startup_volume_db,
             "restore_last_volume": self.restore_last_volume
         }

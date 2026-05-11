@@ -75,15 +75,15 @@ class PlaybackDispatcher:
             self._click_timer = None
 
             if count == 1:
-                await self._dispatch_play_pause()
+                await self.dispatch_play_pause()
             elif count == 2:
-                await self._dispatch_track("next")
+                await self.dispatch_track("next")
             elif count >= 3:
-                await self._dispatch_track("prev")
+                await self.dispatch_track("prev")
         except Exception as e:
             logger.error("Error resolving clicks: %s", e)
 
-    async def _dispatch_play_pause(self):
+    async def dispatch_play_pause(self):
         """Dispatch play/pause to the active audio source."""
         active_source = self._state_machine.system_state.active_source
         if active_source not in _PLAY_PAUSE_SOURCES:
@@ -109,7 +109,7 @@ class PlaybackDispatcher:
         except Exception as e:
             logger.error("Error dispatching play/pause to %s: %s", active_source.value, e)
 
-    async def _dispatch_track(self, direction: str):
+    async def dispatch_track(self, direction: str):
         """Dispatch next/prev track command to the active source."""
         active_source = self._state_machine.system_state.active_source
         if active_source not in _TRACK_NAV_SOURCES:

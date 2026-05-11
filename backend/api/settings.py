@@ -14,6 +14,7 @@ from backend.api.models import (
     VolumeStepsRequest,
     RotaryStepsRequest,
     BtRemoteStepsRequest,
+    IrRemoteStepsRequest,
     DockAppsRequest,
     AudioDisconnectRequest,
     PodcastCredentialsRequest,
@@ -131,6 +132,7 @@ def create_settings_router(
             },
             "rotary_steps": {"step_rotary_db": vol.get('step_rotary_db', 2.0)},
             "bt_remote_steps": {"step_bt_remote_db": vol.get('step_bt_remote_db', 2.0)},
+            "ir_remote_steps": {"step_ir_remote_db": vol.get('step_ir_remote_db', 2.0)},
             "dock_apps": {"enabled_apps": dock.get('enabled_apps', DEFAULT_DOCK_APPS)},
             "audio_disconnect": {"auto_disconnect_delay": audio.get('auto_disconnect_delay', 120.0)},
             "podcast_credentials": {
@@ -289,6 +291,26 @@ def create_settings_router(
             setter=lambda: settings.set_setting('volume.step_bt_remote_db', payload.step_bt_remote_db),
             event_type="bt_remote_steps_changed",
             event_data={"config": {"step_bt_remote_db": payload.step_bt_remote_db}},
+            reload_callback=volume_service.reload_steps_config
+        )
+
+    # IR remote steps (in dB)
+    @router.get("/ir-remote-steps")
+    async def get_ir_remote_steps():
+        vol = await settings.get_setting('volume') or {}
+        return {
+            "status": "success",
+            "config": {"step_ir_remote_db": vol.get("step_ir_remote_db", 2.0)}
+        }
+
+    @router.put("/ir-remote-steps")
+    async def set_ir_remote_steps(payload: IrRemoteStepsRequest):
+        return await _handle_setting_update(
+            payload,
+            validator=lambda p: True,  # Validated by Pydantic
+            setter=lambda: settings.set_setting('volume.step_ir_remote_db', payload.step_ir_remote_db),
+            event_type="ir_remote_steps_changed",
+            event_data={"config": {"step_ir_remote_db": payload.step_ir_remote_db}},
             reload_callback=volume_service.reload_steps_config
         )
 
