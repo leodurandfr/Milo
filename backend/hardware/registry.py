@@ -124,7 +124,10 @@ DEFAULT_ROTARY_PINS = {
 # =============================================================================
 # IR REMOTE
 # =============================================================================
-# GPIO pin used by the gpio-ir device-tree overlay for the TSOP4838 receiver.
-# Physically pin 11 on the 40-pin header — adjacent to pin 6 (GND) and pin 1
-# (3V3) for clean wiring of the TSOP4838.
-IR_REMOTE_GPIO = 17
+# Default GPIO pin used by the gpio-ir device-tree overlay for the TSOP4838
+# receiver. Physically pin 11 on the 40-pin header — adjacent to pin 6 (GND)
+# and pin 1 (3V3) for clean wiring of the TSOP4838.
+DEFAULT_IR_REMOTE = {
+    "enabled": True,
+    "gpio_pin": 17,
+}

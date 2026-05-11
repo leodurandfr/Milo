@@ -1165,6 +1165,10 @@ def create_settings_router(
                     "dt_pin": payload.rotary_encoder.dt_pin,
                     "sw_pin": payload.rotary_encoder.sw_pin,
                 },
+                "ir_remote": {
+                    "enabled": payload.ir_remote.enabled,
+                    "gpio_pin": payload.ir_remote.gpio_pin,
+                },
             }
 
             await hardware_service.save_config(config)

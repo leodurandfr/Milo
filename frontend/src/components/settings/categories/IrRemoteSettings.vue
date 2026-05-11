@@ -1,9 +1,19 @@
 <!-- frontend/src/components/settings/categories/IrRemoteSettings.vue -->
 <template>
   <SettingsContainer>
+    <!-- Hardware disabled: redirect to Hardware Settings -->
+    <MessageContent
+      v-if="!irHardwareEnabled"
+      icon="hardware"
+      :title="t('irRemoteSettings.hardwareDisabledTitle')"
+      :details="t('irRemoteSettings.hardwareDisabledDetails')"
+      :cta-label="t('irRemoteSettings.openHardwareSettings')"
+      :cta-click="() => emit('open-hardware')"
+    />
+
     <!-- Paired: regular settings -->
     <ToggleSection
-      v-if="settingsStore.irRemote.paired"
+      v-else-if="settingsStore.irRemote.paired"
       :title="t('irRemoteSettings.title')"
       :enabled="settingsStore.irRemote.enabled"
       @change="handleToggle"
@@ -57,6 +67,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount, onUnmounted } from 'v
 import { useI18n } from '@/services/i18n';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useHardwareConfig } from '@/composables/useHardwareConfig';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
@@ -64,9 +75,16 @@ import ToggleSection from '@/components/ui/ToggleSection.vue';
 import Button from '@/components/ui/Button.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 
+const emit = defineEmits(['open-hardware']);
+
 const { t } = useI18n();
 const { debouncedUpdate, clearAllTimers } = useSettingsAPI();
 const settingsStore = useSettingsStore();
+const { hardwareConfig } = useHardwareConfig();
+
+const irHardwareEnabled = computed(
+  () => hardwareConfig.value?.current?.ir_remote?.enabled !== false
+);
 
 const PAIRING_TIMEOUT_SECONDS = 15;
 

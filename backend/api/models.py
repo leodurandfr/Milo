@@ -423,11 +423,18 @@ class HardwareRotaryEncoderRequest(BaseModel):
         return self
 
 
+class HardwareIrRemoteRequest(BaseModel):
+    """IR remote configuration (enabled flag + TSOP4838 data line GPIO pin)"""
+    enabled: bool = True
+    gpio_pin: int = Field(default=17, ge=2, le=27)
+
+
 class HardwareConfigRequest(BaseModel):
     """Full hardware configuration request"""
     audio: HardwareAudioRequest
     screen: HardwareScreenRequest
     rotary_encoder: HardwareRotaryEncoderRequest
+    ir_remote: HardwareIrRemoteRequest
 
 
 class MacRocConfigRequest(BaseModel):

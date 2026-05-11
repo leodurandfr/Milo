@@ -249,7 +249,7 @@
     "screen": "स्क्रीन",
     "screenModel": "मॉडल",
     "rotaryEncoder": "रोटरी एन्कोडर",
-    "rotaryEncoderDescription": "अपने रोटरी एन्कोडर से जुड़े GPIO पिन चुनें।",
+    "irRemote": "इन्फ्रारेड रिसीवर",
     "applyAndReboot": "लागू करें और पुनः आरंभ करें",
     "confirmReboot": "पुनः आरंभ की पुष्टि करें",
     "rebooting": "पुनः आरंभ हो रहा है..."
@@ -583,9 +583,9 @@
       "disabled": "Disabled",
       "connected": "Connected",
       "notConnected": "Not connected",
-      "notPaired": "Not paired",
-      "paired": "Paired",
-      "listening": "Listening"
+      "notPaired": "पेयर नहीं किया गया",
+      "paired": "पेयर किया गया",
+      "hardwareDisabled": "इन्फ्रारेड रिसीवर अक्षम"
     }
   },
   "btRemoteSettings": {
@@ -604,6 +604,9 @@
     "statusListening": "Listening",
     "statusIdle": "Paired",
     "unpair": "Unpair this remote",
+    "hardwareDisabledTitle": "इन्फ्रारेड रिसीवर अक्षम",
+    "hardwareDisabledDetails": "रिमोट को पेयर करने के लिए हार्डवेयर सेटिंग्स में इन्फ्रारेड रिसीवर सक्षम करें।",
+    "openHardwareSettings": "हार्डवेयर सेटिंग्स खोलें",
     "wizard": {
       "idleTitle": "Pair your Apple Remote",
       "idleDetails": "Press the button below, then press any key on your Apple Remote.",

@@ -249,7 +249,7 @@
     "screen": "屏幕",
     "screenModel": "型号",
     "rotaryEncoder": "旋转编码器",
-    "rotaryEncoderDescription": "选择连接到旋转编码器的 GPIO 引脚。",
+    "irRemote": "红外接收器",
     "applyAndReboot": "应用并重启",
     "confirmReboot": "确认重启",
     "rebooting": "正在重启..."
@@ -583,9 +583,9 @@
       "disabled": "Disabled",
       "connected": "Connected",
       "notConnected": "Not connected",
-      "notPaired": "Not paired",
-      "paired": "Paired",
-      "listening": "Listening"
+      "notPaired": "未配对",
+      "paired": "已配对",
+      "hardwareDisabled": "红外接收器已禁用"
     }
   },
   "btRemoteSettings": {
@@ -604,6 +604,9 @@
     "statusListening": "Listening",
     "statusIdle": "Paired",
     "unpair": "Unpair this remote",
+    "hardwareDisabledTitle": "红外接收器已禁用",
+    "hardwareDisabledDetails": "在硬件设置中启用红外接收器以配对遥控器。",
+    "openHardwareSettings": "打开硬件设置",
     "wizard": {
       "idleTitle": "Pair your Apple Remote",
       "idleDetails": "Press the button below, then press any key on your Apple Remote.",

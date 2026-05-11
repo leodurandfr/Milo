@@ -249,7 +249,7 @@
     "screen": "Bildschirm",
     "screenModel": "Modell",
     "rotaryEncoder": "Drehregler",
-    "rotaryEncoderDescription": "Wähle die GPIO-Pins deines Drehreglers aus.",
+    "irRemote": "Infrarot-Empfänger",
     "applyAndReboot": "Anwenden und neu starten",
     "confirmReboot": "Neustart bestätigen",
     "rebooting": "Neustart läuft..."
@@ -583,9 +583,9 @@
       "disabled": "Disabled",
       "connected": "Connected",
       "notConnected": "Not connected",
-      "notPaired": "Not paired",
-      "paired": "Paired",
-      "listening": "Listening"
+      "notPaired": "Nicht gekoppelt",
+      "paired": "Gekoppelt",
+      "hardwareDisabled": "Infrarot-Empfänger deaktiviert"
     }
   },
   "btRemoteSettings": {
@@ -604,6 +604,9 @@
     "statusListening": "Listening",
     "statusIdle": "Paired",
     "unpair": "Unpair this remote",
+    "hardwareDisabledTitle": "Infrarot-Empfänger deaktiviert",
+    "hardwareDisabledDetails": "Aktiviere den Infrarot-Empfänger in den Hardware-Einstellungen, um eine Fernbedienung zu koppeln.",
+    "openHardwareSettings": "Hardware-Einstellungen öffnen",
     "wizard": {
       "idleTitle": "Pair your Apple Remote",
       "idleDetails": "Press the button below, then press any key on your Apple Remote.",
