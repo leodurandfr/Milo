@@ -63,7 +63,6 @@ VALID_GENRES = {
     'hard rock',
     'hardcore',
     'hip-hop',
-    'hiphop',
     'house',
     'indie',
     'italo disco',
@@ -99,7 +98,6 @@ VALID_GENRES = {
     'rare groove',
     'reggae',
     'reggaeton',
-    'rnb',
     'rock',
     'roots',
     'salsa',
@@ -119,9 +117,7 @@ VALID_GENRES = {
     'trance',
     'trap',
     'trip-hop',
-    'tropical',
-    'urban',
-    'world music'
+    'tropical'
 }
 
 

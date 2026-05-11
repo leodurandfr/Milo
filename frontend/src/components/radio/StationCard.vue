@@ -60,11 +60,12 @@
 import { ref, computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { getTranslatedCountryName } from '@/constants/countries';
+import { getTranslatedGenreName } from '@/constants/musicGenres';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
 import SkeletonStationCard from './SkeletonStationCard.vue';
 
-const { t } = useI18n();
+const { getCurrentLanguage } = useI18n();
 
 const props = defineProps({
   station: {
@@ -90,17 +91,11 @@ defineEmits(['click', 'play']);
 
 const lazyImg = ref(null);
 
-// Helper function to capitalize first letter
-function capitalizeGenre(genre) {
-  if (!genre) return '';
-  return genre.charAt(0).toUpperCase() + genre.slice(1);
-}
-
 // Computed metadata for card variant: country + genre
 const cardMetadata = computed(() => {
-  const country = props.station?.country;
-  const translatedCountry = country ? getTranslatedCountryName(t, country) : '';
-  const genre = capitalizeGenre(props.station?.genre);
+  const { country, countrycode } = props.station || {};
+  const translatedCountry = getTranslatedCountryName(getCurrentLanguage(), countrycode, country || '');
+  const genre = getTranslatedGenreName(getCurrentLanguage(), props.station?.genre || '');
 
   // Both country and genre
   if (translatedCountry && genre) {

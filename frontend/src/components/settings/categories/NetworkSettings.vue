@@ -148,7 +148,7 @@ import WifiSignal from '@/components/settings/categories/wifi/WifiSignal.vue';
 import axios from 'axios';
 import { logger } from '@/services/logger';
 
-const { t } = useI18n();
+const { t, getCurrentLanguage } = useI18n();
 const requestHeightDelta = inject('modalRequestHeightDelta', null);
 const modalContentInnerRef = inject('modalContentInnerRef', null);
 
@@ -173,7 +173,7 @@ const {
 } = useWifi();
 
 // === WiFi country selector (Apply & Reboot pattern from HardwareSettings) ===
-const countryOptions = computed(() => wifiCountryOptions(t));
+const countryOptions = computed(() => wifiCountryOptions(getCurrentLanguage()));
 const pendingCountry = ref('');
 const confirmRebootCountry = ref(false);
 const isApplyingCountry = ref(false);

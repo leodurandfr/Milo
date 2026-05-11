@@ -82,7 +82,7 @@ import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 
-const { t } = useI18n();
+const { t, getCurrentLanguage } = useI18n();
 
 const props = defineProps({
   // Hide a specific SSID from the list (e.g., the currently-connected one).
@@ -121,7 +121,7 @@ const {
   initialize,
 } = useWifi();
 
-const countryOptions = computed(() => wifiCountryOptions(t));
+const countryOptions = computed(() => wifiCountryOptions(getCurrentLanguage()));
 
 const visibleNetworks = computed(() =>
   networks.value.filter(n => !n.in_use && n.ssid !== props.excludeSsid)

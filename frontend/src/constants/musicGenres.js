@@ -1,13 +1,16 @@
 /**
- * Valid music genres for RadioBrowser API
+ * Curated music-genre list for the Radio source.
  *
- * This list is used to:
- * - Filter search results in RadioSource.vue
- * - Validate genre tags from RadioBrowser API (backend)
+ * Mirrors `backend/sources/radio/genres.py::VALID_GENRES`. Used to build the
+ * SearchView genre filter dropdown. Values are sent to Radio Browser as the
+ * `tag` query parameter (substring match on station tags).
  *
- * Note: Genres are case-insensitive when matching.
- * The backend normalizes tags to lowercase before comparison.
+ * Most genre names are language-invariant. Only the few entries listed in
+ * `radio.genres.*` translation keys differ across locales; everything else
+ * falls back to first-letter capitalization.
  */
+import { bcp47For } from '@/constants/countries';
+import { i18n } from '@/services/i18n';
 
 const MUSIC_GENRES = [
   '60s',
@@ -62,7 +65,6 @@ const MUSIC_GENRES = [
   'hard rock',
   'hardcore',
   'hip-hop',
-  'hiphop',
   'house',
   'indie',
   'italo disco',
@@ -98,7 +100,6 @@ const MUSIC_GENRES = [
   'rare groove',
   'reggae',
   'reggaeton',
-  'rnb',
   'rock',
   'roots',
   'salsa',
@@ -118,25 +119,59 @@ const MUSIC_GENRES = [
   'trance',
   'trap',
   'trip-hop',
-  'tropical',
-  'urban',
-  'world music'
+  'tropical'
 ];
 
+function genreI18nKey(genre) {
+  return genre.replace(/[\s&]+/g, '_').replace(/-/g, '_').toLowerCase();
+}
+
 /**
- * Generate dropdown options from genres
- * @param {Function} t - i18n translation function
- * @param {string} allGenresLabel - Label for "All Genres" option
- * @returns {Array} Array of {label, value} objects for Dropdown component
+ * Translate a canonical genre key into the UI language.
+ *
+ * Looks up `radio.genres.<key>` in i18n where `<key>` is the genre normalized
+ * (spaces/hyphens/`&` → `_`, lowercased). Falls back to capitalize-first-letter
+ * on the raw English genre when no translation key exists.
+ *
+ * @param {string} language - Milō language code (unused at lookup time — the
+ *   i18n singleton already knows the current language — but kept in the
+ *   signature so callers stay reactive when the language changes).
+ * @param {string} genre - Canonical genre slug (e.g. 'hip-hop', 'r&b').
+ * @returns {string}
  */
-export function genreOptions(t, allGenresLabel) {
-  const options = [{ label: allGenresLabel, value: '' }];
+// eslint-disable-next-line no-unused-vars
+export function getTranslatedGenreName(language, genre) {
+  if (!genre) return '';
 
-  MUSIC_GENRES.forEach(genre => {
-    // Capitalize first letter for display
-    const label = genre.charAt(0).toUpperCase() + genre.slice(1);
-    options.push({ label, value: genre });
-  });
+  const key = genreI18nKey(genre);
+  const path = `radio.genres.${key}`;
+  const translated = i18n.t(path);
+  if (translated && translated !== path) {
+    return translated;
+  }
 
-  return options;
+  return genre.charAt(0).toUpperCase() + genre.slice(1);
+}
+
+/**
+ * Build dropdown options for the genre filter.
+ *
+ * Options are translated via `getTranslatedGenreName` and sorted alphabetically
+ * using the UI language's collation.
+ *
+ * @param {string} language - Milō language code
+ * @param {string} allGenresLabel - Label for the "All genres" option
+ * @returns {Array<{label: string, value: string}>}
+ */
+export function genreOptions(language, allGenresLabel) {
+  const bcp47 = bcp47For(language);
+
+  const translated = MUSIC_GENRES.map((g) => ({
+    label: getTranslatedGenreName(language, g),
+    value: g,
+  }));
+
+  translated.sort((a, b) => a.label.localeCompare(b.label, bcp47));
+
+  return [{ label: allGenresLabel, value: '' }, ...translated];
 }
