@@ -37,6 +37,8 @@ const emit = defineEmits(['update:modelValue', 'input', 'change', 'drag-start', 
 const isDragging = ref(false);
 const track = ref(null);
 const thumbRef = ref(null);
+// Layout (unscaled) sizes — for CSS positioning, which uses % of unscaled parent.
+// Using BCR here would mix scaled px with unscaled % when an ancestor has transform: scale (ui_scale).
 const trackSize = ref({ width: 0, height: 0 });
 const thumbAxisSize = ref(54);
 
@@ -45,6 +47,8 @@ const localDragValue = ref(null);
 
 let resizeObserver = null;
 let thumbOffset = 0;
+// Scaled thumb size captured fresh at drag start (drag math runs in viewport/scaled coords).
+let dragThumbSize = 0;
 
 // Effective value: local during drag, prop otherwise
 const effectiveValue = computed(() => {
@@ -98,19 +102,21 @@ function startDrag(event) {
   event.preventDefault();
   event.stopPropagation();
 
-  if (!track.value) return;
+  if (!track.value || !thumbRef.value) return;
 
   const rect = track.value.getBoundingClientRect();
+  const thumbRect = thumbRef.value.getBoundingClientRect();
   const currentPct = (props.modelValue - props.min) / (props.max - props.min);
-  const size = thumbAxisSize.value;
-  const half = size / 2;
+  // Use BCR (scaled) for drag math so it matches event.clientX coords.
+  dragThumbSize = props.orientation === 'horizontal' ? thumbRect.width : thumbRect.height;
+  const half = dragThumbSize / 2;
 
   if (props.orientation === 'horizontal') {
-    const usableWidth = rect.width - size;
+    const usableWidth = rect.width - dragThumbSize;
     const thumbCenterX = rect.left + half + (currentPct * usableWidth);
     thumbOffset = event.clientX - thumbCenterX;
   } else {
-    const usableHeight = rect.height - size;
+    const usableHeight = rect.height - dragThumbSize;
     const thumbCenterY = rect.bottom - half - (currentPct * usableHeight);
     thumbOffset = event.clientY - thumbCenterY;
   }
@@ -128,7 +134,7 @@ function handleDrag(event) {
   if (!track.value) return;
 
   const rect = track.value.getBoundingClientRect();
-  const size = thumbAxisSize.value;
+  const size = dragThumbSize;
   const half = size / 2;
   let pct;
 
@@ -167,12 +173,12 @@ function stopDrag() {
 
 function updateSizes() {
   if (track.value) {
-    const rect = track.value.getBoundingClientRect();
-    trackSize.value = { width: rect.width, height: rect.height };
+    trackSize.value = { width: track.value.offsetWidth, height: track.value.offsetHeight };
   }
   if (thumbRef.value) {
-    const rect = thumbRef.value.getBoundingClientRect();
-    thumbAxisSize.value = props.orientation === 'horizontal' ? rect.width : rect.height;
+    thumbAxisSize.value = props.orientation === 'horizontal'
+      ? thumbRef.value.offsetWidth
+      : thumbRef.value.offsetHeight;
   }
 }
 

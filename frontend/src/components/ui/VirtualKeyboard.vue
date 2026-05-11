@@ -373,15 +373,26 @@ function handleClose() {
 }
 
 // ===== KEY PRESS POPUP =====
+// BCR returns visual (post-transform) px, but `left/bottom: Xpx` on the popup
+// is interpreted in layout px. When #app has transform: scale (ui_scale), we
+// must convert BCR diffs to layout via `BCR / offsetWidth` to keep popups aligned.
+function getKeyboardScale() {
+  if (!keyboardRef.value) return 1;
+  const w = keyboardRef.value.offsetWidth;
+  return w ? keyboardRef.value.getBoundingClientRect().width / w : 1;
+}
+
 function showPressPopup(event, key) {
   if (!keyboardRef.value) return;
 
   const keyRect = event.target.getBoundingClientRect();
   const kbRect = keyboardRef.value.getBoundingClientRect();
+  const scale = getKeyboardScale();
 
-  const popupWidth = Math.max(keyRect.width + 12, 48);
-  const left = keyRect.left - kbRect.left + (keyRect.width / 2) - (popupWidth / 2);
-  const bottom = kbRect.bottom - keyRect.top + 6;
+  const keyLayoutWidth = keyRect.width / scale;
+  const popupWidth = Math.max(keyLayoutWidth + 12, 48);
+  const left = (keyRect.left - kbRect.left) / scale + (keyLayoutWidth / 2) - (popupWidth / 2);
+  const bottom = (kbRect.bottom - keyRect.top) / scale + 6;
 
   pressPopup.char = key;
   pressPopup.style = {
@@ -404,16 +415,19 @@ function showAccentPopup(event, key) {
 
   const keyRect = event.target.getBoundingClientRect();
   const kbRect = keyboardRef.value.getBoundingClientRect();
+  const scale = getKeyboardScale();
 
   const optionWidth = 44;
   const gap = 2;
   const padding = 8;
   const totalWidth = (mappedVariants.length * (optionWidth + gap)) - gap + padding;
+  const kbLayoutWidth = kbRect.width / scale;
+  const keyLayoutWidth = keyRect.width / scale;
 
-  let left = keyRect.left - kbRect.left + (keyRect.width / 2) - (totalWidth / 2);
-  left = Math.max(4, Math.min(left, kbRect.width - totalWidth - 4));
+  let left = (keyRect.left - kbRect.left) / scale + (keyLayoutWidth / 2) - (totalWidth / 2);
+  left = Math.max(4, Math.min(left, kbLayoutWidth - totalWidth - 4));
 
-  const bottom = kbRect.bottom - keyRect.top + 6;
+  const bottom = (kbRect.bottom - keyRect.top) / scale + 6;
 
   accentPopup.variants = mappedVariants;
   accentPopup.selectedIndex = -1;
@@ -473,12 +487,14 @@ function onDocumentPointerMove(event) {
   if (!accentPopup.visible || !keyboardRef.value) return;
 
   const kbRect = keyboardRef.value.getBoundingClientRect();
-  const popupLeft = parseFloat(accentPopup.style.left);
+  const scale = getKeyboardScale();
+  const popupLeft = parseFloat(accentPopup.style.left); // layout px
   const padding = 4;
   const optionWidth = 44;
   const gap = 2;
 
-  const x = event.clientX - kbRect.left - popupLeft - padding;
+  // event.clientX is viewport (post-scale); convert the offset to layout px to match popupLeft/optionWidth.
+  const x = (event.clientX - kbRect.left) / scale - popupLeft - padding;
   const index = Math.floor(x / (optionWidth + gap));
   accentPopup.selectedIndex = Math.max(0, Math.min(index, accentPopup.variants.length - 1));
 }
