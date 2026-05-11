@@ -183,6 +183,10 @@ save_hardware_config() {
     "clk_pin": 22,
     "dt_pin": 27,
     "sw_pin": 23
+  },
+  "ir_remote": {
+    "enabled": true,
+    "gpio_pin": 17
   }
 }
 EOF

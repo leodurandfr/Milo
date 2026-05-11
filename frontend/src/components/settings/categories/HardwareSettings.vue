@@ -48,7 +48,6 @@
       :enabled="config.rotary_enabled"
       @change="toggleRotary"
     >
-      <p class="text-mono encoder-description">{{ t('hardwareSettings.rotaryEncoderDescription') }}</p>
       <div class="encoder-pins">
         <SettingItem label="CLK">
           <Dropdown
@@ -73,6 +72,42 @@
             :disabled="isRebooting"
             @change="v => onPinChange('sw_pin', v)"
           />
+        </SettingItem>
+      </div>
+    </ToggleSection>
+
+    <!-- IR Remote receiver (TSOP4838) -->
+    <ToggleSection
+      :title="t('hardwareSettings.irRemote')"
+      :enabled="config.ir_enabled"
+      @change="toggleIrRemote"
+    >
+      <div class="encoder-pins">
+        <SettingItem label="OUT">
+          <Dropdown
+            :model-value="config.ir_gpio_pin"
+            :options="gpioPinOptions"
+            :disabled="isRebooting"
+            @change="v => onIrPinChange(v)"
+          />
+        </SettingItem>
+        <SettingItem label="VCC">
+          <div class="ir-fixed-pin">
+            <Dropdown
+              :model-value="'5V/3.3V'"
+              :options="[{ label: '5V/3.3V', value: '5V/3.3V' }]"
+              disabled
+            />
+          </div>
+        </SettingItem>
+        <SettingItem label="GND">
+          <div class="ir-fixed-pin">
+            <Dropdown
+              :model-value="'GND'"
+              :options="[{ label: 'GND', value: 'GND' }]"
+              disabled
+            />
+          </div>
         </SettingItem>
       </div>
     </ToggleSection>
@@ -117,6 +152,8 @@ const config = ref({
   clk_pin: 22,
   dt_pin: 27,
   sw_pin: 23,
+  ir_enabled: true,
+  ir_gpio_pin: 17,
 });
 
 // Saved config (for dirty check)
@@ -139,7 +176,9 @@ const isDirty = computed(() => {
     config.value.rotary_enabled !== savedConfig.value.rotary_enabled ||
     config.value.clk_pin !== savedConfig.value.clk_pin ||
     config.value.dt_pin !== savedConfig.value.dt_pin ||
-    config.value.sw_pin !== savedConfig.value.sw_pin
+    config.value.sw_pin !== savedConfig.value.sw_pin ||
+    config.value.ir_enabled !== savedConfig.value.ir_enabled ||
+    config.value.ir_gpio_pin !== savedConfig.value.ir_gpio_pin
   );
 });
 
@@ -181,6 +220,8 @@ function syncFromData(data) {
     clk_pin: current.rotary_encoder?.clk_pin ?? 22,
     dt_pin: current.rotary_encoder?.dt_pin ?? 27,
     sw_pin: current.rotary_encoder?.sw_pin ?? 23,
+    ir_enabled: current.ir_remote?.enabled !== false,
+    ir_gpio_pin: current.ir_remote?.gpio_pin ?? 17,
   };
   config.value = { ...snapshot };
   savedConfig.value = { ...snapshot };
@@ -239,6 +280,16 @@ function onPinChange(pin, value) {
   confirmReboot.value = false;
 }
 
+function onIrPinChange(value) {
+  config.value.ir_gpio_pin = value;
+  confirmReboot.value = false;
+}
+
+function toggleIrRemote(enabled) {
+  config.value.ir_enabled = enabled;
+  confirmReboot.value = false;
+}
+
 async function applyAndReboot() {
   isApplying.value = true;
   confirmReboot.value = false;
@@ -252,6 +303,10 @@ async function applyAndReboot() {
         clk_pin: config.value.clk_pin,
         dt_pin: config.value.dt_pin,
         sw_pin: config.value.sw_pin,
+      },
+      ir_remote: {
+        enabled: config.value.ir_enabled,
+        gpio_pin: config.value.ir_gpio_pin,
       },
     };
 
@@ -316,15 +371,17 @@ onMounted(async () => {
   flex: 1;
 }
 
-/* Rotary encoder */
-.encoder-description {
-  color: var(--color-text-secondary);
-}
-
 .encoder-pins {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
   gap: var(--space-03);
+}
+
+/* IR receiver: VCC and GND are physical rails, not configurable GPIOs.
+   They are rendered as visually consistent disabled dropdowns with the caret
+   removed so they don't suggest a hidden option list. */
+.ir-fixed-pin :deep(.dropdown-icon) {
+  display: none;
 }
 
 /* Sticky apply button (matches MultiroomSettings pattern) */

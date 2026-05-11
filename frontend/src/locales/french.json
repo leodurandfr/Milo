@@ -251,7 +251,7 @@
     "screen": "Écran",
     "screenModel": "Modèle",
     "rotaryEncoder": "Encodeur rotatif",
-    "rotaryEncoderDescription": "Sélectionnez les pins GPIO connectés à votre encodeur rotatif.",
+    "irRemote": "Récepteur infrarouge",
     "applyAndReboot": "Appliquer et redémarrer",
     "confirmReboot": "Confirmer le redémarrage",
     "rebooting": "Redémarrage en cours..."
@@ -587,7 +587,7 @@
       "notConnected": "Non connectée",
       "notPaired": "Non appairée",
       "paired": "Appairée",
-      "listening": "À l'écoute"
+      "hardwareDisabled": "Récepteur infrarouge désactivé"
     }
   },
   "btRemoteSettings": {
@@ -606,6 +606,9 @@
     "statusListening": "À l'écoute",
     "statusIdle": "Appairée",
     "unpair": "Désappairer cette télécommande",
+    "hardwareDisabledTitle": "Récepteur infrarouge désactivé",
+    "hardwareDisabledDetails": "Activez le récepteur infrarouge dans les réglages matériel pour pouvoir appairer une télécommande.",
+    "openHardwareSettings": "Ouvrir les réglages matériel",
     "wizard": {
       "idleTitle": "Appairer votre Apple Remote",
       "idleDetails": "Appuyez sur le bouton ci-dessous, puis sur une touche de votre Apple Remote.",

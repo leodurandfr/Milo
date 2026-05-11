@@ -14,7 +14,7 @@ import tempfile
 from typing import Optional, Dict, Tuple
 
 from backend.config.constants import HARDWARE_FILE
-from backend.hardware.registry import AUDIO_CARDS, DEFAULT_ROTARY_PINS
+from backend.hardware.registry import AUDIO_CARDS, DEFAULT_ROTARY_PINS, DEFAULT_IR_REMOTE
 from backend.shared.decorators import handle_errors
 
 
@@ -46,15 +46,37 @@ class HardwareService:
         with open(self.hardware_file, 'r') as f:
             config = json.load(f)
 
+        dirty = False
+
         # Migrate legacy format if detected
         migrated = self._migrate_legacy_format(config)
         if migrated is not None:
             config = migrated
-            self._write_sync(config)
+            dirty = True
             self.logger.info("Migrated hardware.json to new format")
+
+        # Backfill default sections introduced by later versions
+        if self._ensure_defaults(config):
+            dirty = True
+
+        if dirty:
+            self._write_sync(config)
 
         self.logger.info(f"Hardware config loaded: {config}")
         return config
+
+    def _ensure_defaults(self, config: Dict) -> bool:
+        """Add default sections introduced after the initial schema.
+
+        Mutates `config` in place. Returns True if anything was added.
+        Runs on every load so upgrades from pre-feature versions converge to
+        the current schema without depending on legacy-format detection.
+        """
+        changed = False
+        if 'ir_remote' not in config:
+            config['ir_remote'] = dict(DEFAULT_IR_REMOTE)
+            changed = True
+        return changed
 
     def _migrate_legacy_format(self, config: Dict) -> Optional[Dict]:
         """
@@ -205,6 +227,16 @@ class HardwareService:
             rotary.get('sw_pin', DEFAULT_ROTARY_PINS['sw_pin']),
         )
 
+    def get_ir_enabled(self) -> bool:
+        """Returns True if the gpio-ir overlay should be loaded at boot."""
+        config = self._ensure_cache()
+        return config.get('ir_remote', {}).get('enabled', DEFAULT_IR_REMOTE['enabled'])
+
+    def get_ir_gpio_pin(self) -> int:
+        """Returns the GPIO pin used by the gpio-ir overlay (TSOP4838 data line)."""
+        config = self._ensure_cache()
+        return config.get('ir_remote', {}).get('gpio_pin', DEFAULT_IR_REMOTE['gpio_pin'])
+
     def get_volume_control(self) -> bool:
         """Returns False if audio card is a DAC with external amp managing volume.
 
@@ -238,6 +270,7 @@ class HardwareService:
             "audio": config.get('audio', {}),
             "screen": config.get('screen', {'type': 'none', 'resolution': None}),
             "rotary_encoder": {"enabled": self.get_rotary_enabled(), "clk_pin": clk, "dt_pin": dt, "sw_pin": sw},
+            "ir_remote": {"enabled": self.get_ir_enabled(), "gpio_pin": self.get_ir_gpio_pin()},
         }
 
     # =========================================================================

@@ -251,7 +251,7 @@
     "screen": "Screen",
     "screenModel": "Model",
     "rotaryEncoder": "Rotary encoder",
-    "rotaryEncoderDescription": "Select the GPIO pins connected to your rotary encoder.",
+    "irRemote": "Infrared receiver",
     "applyAndReboot": "Apply and reboot",
     "confirmReboot": "Confirm reboot",
     "rebooting": "Rebooting..."
@@ -587,7 +587,7 @@
       "notConnected": "Not connected",
       "notPaired": "Not paired",
       "paired": "Paired",
-      "listening": "Listening"
+      "hardwareDisabled": "Infrared receiver disabled"
     }
   },
   "btRemoteSettings": {
@@ -606,6 +606,9 @@
     "statusListening": "Listening",
     "statusIdle": "Paired",
     "unpair": "Unpair this remote",
+    "hardwareDisabledTitle": "Infrared receiver disabled",
+    "hardwareDisabledDetails": "Enable the infrared receiver in the hardware settings to pair a remote.",
+    "openHardwareSettings": "Open hardware settings",
     "wizard": {
       "idleTitle": "Pair your Apple Remote",
       "idleDetails": "Press the button below, then press any key on your Apple Remote.",

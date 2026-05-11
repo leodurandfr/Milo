@@ -24,8 +24,18 @@ validate_hardware_json
 
 AUDIO_OVERLAY=$(read_json "audio.overlay")
 SCREEN_TYPE=$(read_json "screen.type")
+IR_ENABLED=$(read_json "ir_remote.enabled")
+IR_GPIO_PIN=$(read_json "ir_remote.gpio_pin")
 
 validate_audio_overlay "$AUDIO_OVERLAY"
+
+# Validate IR GPIO pin (must be a BCM GPIO number 2..27) — only if enabled
+if [[ "$IR_ENABLED" == "True" && -n "$IR_GPIO_PIN" ]]; then
+    if ! [[ "$IR_GPIO_PIN" =~ ^[0-9]+$ ]] || (( IR_GPIO_PIN < 2 || IR_GPIO_PIN > 27 )); then
+        echo "ERROR: Invalid IR GPIO pin '$IR_GPIO_PIN' (must be 2..27)" >&2
+        exit 1
+    fi
+fi
 
 # Validate screen type against allowlist
 VALID_SCREENS="waveshare_7_usb waveshare_8_dsi none"
@@ -111,6 +121,21 @@ EOF
         # No screen configuration needed
         ;;
 esac
+
+# =============================================================================
+# IR Remote configuration (gpio-ir overlay for TSOP4838)
+# =============================================================================
+
+remove_block "MILO IR"
+
+if [[ "$IR_ENABLED" == "True" && -n "$IR_GPIO_PIN" ]]; then
+    cat >> "$CONFIG_FILE" << EOF
+
+# BEGIN MILO IR
+dtoverlay=gpio-ir,gpio_pin=$IR_GPIO_PIN
+# END MILO IR
+EOF
+fi
 
 # Ensure usb_max_current_enable is present
 if ! grep -q "usb_max_current_enable=1" "$CONFIG_FILE"; then

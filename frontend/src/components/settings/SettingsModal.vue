@@ -191,7 +191,8 @@
       <BtRemoteSettings v-else-if="currentView === 'bt-remote'" key="bt-remote" class="view-content" />
 
       <!-- IR remote sub-view -->
-      <IrRemoteSettings v-else-if="currentView === 'ir-remote'" key="ir-remote" class="view-content" />
+      <IrRemoteSettings v-else-if="currentView === 'ir-remote'" key="ir-remote" class="view-content"
+        @open-hardware="push('hardware')" />
 
       <!-- Multiroom view -->
       <MultiroomSettings v-else-if="currentView === 'multiroom'" key="multiroom" class="view-content"

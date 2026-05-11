@@ -249,7 +249,7 @@
     "screen": "Pantalla",
     "screenModel": "Modelo",
     "rotaryEncoder": "Codificador rotativo",
-    "rotaryEncoderDescription": "Selecciona los pines GPIO conectados a tu codificador rotativo.",
+    "irRemote": "Receptor infrarrojo",
     "applyAndReboot": "Aplicar y reiniciar",
     "confirmReboot": "Confirmar reinicio",
     "rebooting": "Reiniciando..."
@@ -583,9 +583,9 @@
       "disabled": "Disabled",
       "connected": "Connected",
       "notConnected": "Not connected",
-      "notPaired": "Not paired",
-      "paired": "Paired",
-      "listening": "Listening"
+      "notPaired": "No emparejado",
+      "paired": "Emparejado",
+      "hardwareDisabled": "Receptor infrarrojo desactivado"
     }
   },
   "btRemoteSettings": {
@@ -604,6 +604,9 @@
     "statusListening": "Listening",
     "statusIdle": "Paired",
     "unpair": "Unpair this remote",
+    "hardwareDisabledTitle": "Receptor infrarrojo desactivado",
+    "hardwareDisabledDetails": "Activa el receptor infrarrojo en los ajustes de hardware para emparejar un mando.",
+    "openHardwareSettings": "Abrir ajustes de hardware",
     "wizard": {
       "idleTitle": "Pair your Apple Remote",
       "idleDetails": "Press the button below, then press any key on your Apple Remote.",
