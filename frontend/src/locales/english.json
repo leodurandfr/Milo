@@ -591,7 +591,6 @@
     }
   },
   "btRemoteSettings": {
-    "title": "Bluetooth Remote",
     "connected": "Connected",
     "notConnected": "Not connected",
     "discover": "Search",
@@ -600,11 +599,7 @@
     "step": "Volume step per click"
   },
   "irRemoteSettings": {
-    "title": "IR Remote",
     "step": "Volume step per click",
-    "statusDisabled": "Disabled",
-    "statusListening": "Listening",
-    "statusIdle": "Paired",
     "unpair": "Unpair this remote",
     "hardwareDisabledTitle": "Infrared receiver disabled",
     "hardwareDisabledDetails": "Enable the infrared receiver in the hardware settings to pair a remote.",

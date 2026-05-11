@@ -14,25 +14,26 @@
     <!-- Paired: regular settings -->
     <ToggleSection
       v-else-if="settingsStore.irRemote.paired"
-      :title="t('irRemoteSettings.title')"
       :enabled="settingsStore.irRemote.enabled"
       @change="handleToggle"
     >
-      <div class="ir-remote-status text-mono">
-        <span class="ir-remote-status__dot" :class="statusDotClass" />
-        {{ statusText }}
-        <span v-if="deviceIdLabel" class="ir-remote-status__device">— {{ deviceIdLabel }}</span>
+      <template #title>
+        <span class="ir-remote-status">
+          <span class="ir-remote-status__dot" />
+          {{ t('remoteControls.status.paired') }}
+        </span>
+      </template>
+      <template #actions>
         <Button
           variant="background-strong"
           size="small"
-          class="ir-remote-status__unpair"
           :loading="unpairing"
           :disabled="unpairing"
           @click="handleUnpair"
         >
           {{ t('irRemoteSettings.unpair') }}
         </Button>
-      </div>
+      </template>
 
       <SettingItem :label="t('irRemoteSettings.step')">
         <RangeSlider
@@ -91,26 +92,6 @@ const PAIRING_TIMEOUT_SECONDS = 15;
 // === Paired view ===
 const stepIrRemoteDb = ref(settingsStore.volumeSteps.step_ir_remote_db);
 const unpairing = ref(false);
-
-const deviceIdLabel = computed(() => {
-  const id = settingsStore.irRemote.device_id;
-  if (id === null || id === undefined) return '';
-  return `0x${id.toString(16).toUpperCase().padStart(2, '0')}`;
-});
-
-const statusText = computed(() => {
-  const ir = settingsStore.irRemote;
-  if (!ir.enabled) return t('irRemoteSettings.statusDisabled');
-  if (ir.listening) return t('irRemoteSettings.statusListening');
-  return t('irRemoteSettings.statusIdle');
-});
-
-const statusDotClass = computed(() => {
-  const ir = settingsStore.irRemote;
-  if (!ir.enabled) return 'ir-remote-status__dot--off';
-  if (ir.listening) return 'ir-remote-status__dot--ok';
-  return 'ir-remote-status__dot--idle';
-});
 
 watch(
   () => settingsStore.volumeSteps.step_ir_remote_db,
@@ -300,9 +281,7 @@ onUnmounted(() => {
 
 <style scoped>
 .ir-remote-status {
-  color: var(--color-text-secondary);
-  margin-bottom: var(--space-04);
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: var(--space-02);
 }
@@ -312,26 +291,6 @@ onUnmounted(() => {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  vertical-align: middle;
-}
-
-.ir-remote-status__dot--off {
-  background: var(--color-background-medium-16);
-}
-
-.ir-remote-status__dot--idle {
-  background: var(--color-error);
-}
-
-.ir-remote-status__dot--ok {
   background: var(--color-success);
-}
-
-.ir-remote-status__device {
-  color: var(--color-text-secondary);
-}
-
-.ir-remote-status__unpair {
-  margin-left: auto;
 }
 </style>

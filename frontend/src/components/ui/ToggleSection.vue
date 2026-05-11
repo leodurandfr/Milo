@@ -4,7 +4,12 @@
   <SettingsSection :class="{ 'toggle-section--has-content': hasContent }">
     <template #header>
       <div class="toggle-section-header">
-        <h2 class="heading-2">{{ title }}</h2>
+        <h2 class="heading-2">
+          <slot name="title">{{ title }}</slot>
+        </h2>
+        <div v-if="slots.actions" class="toggle-section-header__actions">
+          <slot name="actions" />
+        </div>
         <Toggle :model-value="enabled" @change="handleToggle" />
       </div>
     </template>
@@ -23,7 +28,7 @@ import Toggle from '@/components/ui/Toggle.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 
 const props = defineProps({
-  title: { type: String, required: true },
+  title: { type: String, default: '' },
   enabled: { type: Boolean, required: true }
 });
 
@@ -86,8 +91,18 @@ function handleToggle(newEnabled) {
 .toggle-section-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-04);
+}
+
+.toggle-section-header > .heading-2 {
+  margin-right: auto;
+  min-width: 0;
+}
+
+.toggle-section-header__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-02);
 }
 
 /* Suppress transition on initial mount (prevents 0fr→1fr grid animation on page entry) */

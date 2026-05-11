@@ -591,20 +591,15 @@
     }
   },
   "btRemoteSettings": {
-    "title": "Télécommande Bluetooth",
     "connected": "Connectée",
     "notConnected": "Non connectée",
     "discover": "Rechercher",
     "discovering": "Recherche...",
     "batteryLow": "Batterie faible",
-    "step": "Variation du volume par appui"
+    "step": "Variation du volume par cran"
   },
   "irRemoteSettings": {
-    "title": "Télécommande infrarouge",
     "step": "Variation du volume par appui",
-    "statusDisabled": "Désactivée",
-    "statusListening": "À l'écoute",
-    "statusIdle": "Appairée",
     "unpair": "Désappairer cette télécommande",
     "hardwareDisabledTitle": "Récepteur infrarouge désactivé",
     "hardwareDisabledDetails": "Activez le récepteur infrarouge dans les réglages matériel pour pouvoir appairer une télécommande.",
