@@ -230,6 +230,12 @@ class IrRemoteController:
         The kernel keymap is the strict filter — only scancodes whose
         device_id matches the paired remote produce EV_KEY events. We trust
         that filter and don't re-validate the scancode at userspace level.
+
+        Event values: 1 = key down, 0 = key up, 2 = kernel autorepeat.
+        Volume +/- accept autorepeats so holding the button accumulates
+        steps through VolumeAccumulator (Dock.vue hold-to-repeat parity).
+        The 4 non-volume buttons stay single-press — autorepeats on
+        play/pause, next, prev, or menu would double-fire those actions.
         """
         try:
             device = evdev.InputDevice(self._device_path)
@@ -237,12 +243,17 @@ class IrRemoteController:
             logger.error("Failed to open IR device %s: %s", self._device_path, e)
             return
 
+        volume_keys = (evdev.ecodes.KEY_VOLUMEUP, evdev.ecodes.KEY_VOLUMEDOWN)
+
         try:
             async with self._mode_lock:
                 async for event in device.async_read_loop():
-                    if event.type != evdev.ecodes.EV_KEY or event.value != 1:
+                    if event.type != evdev.ecodes.EV_KEY:
                         continue
-                    await self._handle_keycode(event.code)
+                    if event.value == 1:
+                        await self._handle_keycode(event.code)
+                    elif event.value == 2 and event.code in volume_keys:
+                        await self._handle_keycode(event.code)
         except asyncio.CancelledError:
             raise
         except OSError as e:
