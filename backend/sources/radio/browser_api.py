@@ -373,6 +373,7 @@ class RadioBrowserAPI:
             'name': station.get('name'),
             'url': station.get('url_resolved'),
             'country': station.get('country', 'Unknown'),
+            'countrycode': (station.get('countrycode') or '').upper(),
             'genre': extract_valid_genre(station.get('tags', '')),
             'favicon': favicon,
             'bitrate': station.get('bitrate', 0),
@@ -771,9 +772,13 @@ class RadioBrowserAPI:
         Gets list of all available countries from Radio Browser API
         With 24h cache + stale-cache fallback when all mirrors are unreachable
 
+        Uses `hidebroken=true` to match the station counts displayed on
+        radio-browser.info (broken/offline stations excluded).
+
         Returns:
-            List of countries with name and station count
-            Format: [{"name": "France", "stationcount": 2345}, ...]
+            List of countries with ISO 3166-1 alpha-2 code, name and station count.
+            Format: [{"name": "France", "iso_3166_1": "FR", "stationcount": 2345}, ...]
+            Frontend translates and sorts via Intl.DisplayNames using iso_3166_1.
         """
         # Check cache first
         if self._countries_cache and self._countries_cache_timestamp:
@@ -783,7 +788,7 @@ class RadioBrowserAPI:
                 return self._countries_cache
 
         try:
-            countries = await self._request("countries", timeout=10)
+            countries = await self._request("countries", params={"hidebroken": "true"}, timeout=10)
         except NetworkUnavailableError as e:
             # All mirrors failed — fall back to stale cache if we have one
             if self._countries_cache:
@@ -799,23 +804,25 @@ class RadioBrowserAPI:
         if not countries:
             return self._countries_cache or []
 
-        # Filter countries with at least 80 stations
+        # Keep countries with at least 20 valid stations (matches the threshold
+        # surfaced on radio-browser.info). Drop entries without an ISO code:
+        # the frontend relies on it for Intl.DisplayNames translation.
         filtered_countries = [
-            {"name": c.get("name", ""), "stationcount": c.get("stationcount", 0)}
+            {
+                "name": c.get("name", ""),
+                "iso_3166_1": c.get("iso_3166_1", "").upper(),
+                "stationcount": c.get("stationcount", 0),
+            }
             for c in countries
-            if c.get("stationcount", 0) >= 80 and c.get("name")
+            if c.get("stationcount", 0) >= 20
+            and c.get("name")
+            and c.get("iso_3166_1")
         ]
 
-        # Sort by station count (descending)
-        sorted_countries = sorted(
-            filtered_countries,
-            key=lambda c: c["stationcount"],
-            reverse=True
-        )
-
-        # Cache
-        self._countries_cache = sorted_countries
+        # No stationcount sort: the frontend sorts alphabetically on the
+        # translated name (locale-aware), which can only happen client-side.
+        self._countries_cache = filtered_countries
         self._countries_cache_timestamp = datetime.now()
 
-        self.logger.info(f"Fetched and cached {len(sorted_countries)} countries from Radio Browser API")
-        return sorted_countries
+        self.logger.info(f"Fetched and cached {len(filtered_countries)} countries from Radio Browser API")
+        return filtered_countries

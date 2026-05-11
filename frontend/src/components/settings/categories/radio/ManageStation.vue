@@ -151,7 +151,7 @@ const actionIcon = computed(() => {
   return null;
 });
 
-const { t } = useI18n();
+const { t, getCurrentLanguage } = useI18n();
 const radioStore = useRadioStore();
 const settingsStore = useSettingsStore();
 
@@ -202,7 +202,7 @@ const countryOptions = computed(() => {
   if (availableCountries.value.length === 0) {
     return [{ label: t('radio.manageStation.loading'), value: '' }];
   }
-  const translatedOptions = createCountryOptions(t, availableCountries.value, '');
+  const translatedOptions = createCountryOptions(getCurrentLanguage(), availableCountries.value, '');
   return translatedOptions.slice(1);
 });
 

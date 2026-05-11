@@ -68,7 +68,7 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore'
 import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility'
 import { useI18n } from '@/services/i18n'
 import { logger } from '@/services/logger'
-import { genreOptions as createGenreOptions } from '@/constants/musicGenres'
+import { genreOptions as createGenreOptions, getTranslatedGenreName } from '@/constants/musicGenres'
 import { countryOptions as createCountryOptions } from '@/constants/countries'
 import IconButton from '@/components/ui/IconButton.vue'
 import Button from '@/components/ui/Button.vue'
@@ -80,7 +80,7 @@ import { generateStationAvatar } from '@/utils/stationAvatar'
 
 const radioStore = useRadioStore()
 const unifiedStore = useUnifiedAudioStore()
-const { t } = useI18n()
+const { t, getCurrentLanguage } = useI18n()
 
 // === PLAYBACK VISIBILITY ===
 // Visual fade-out delay when radio stops — purely cosmetic, the backend
@@ -138,7 +138,7 @@ const stationMetadata = computed(() => {
   const station = radioStore.currentStation
   if (!station) return ''
 
-  const genre = station.genre ? station.genre.charAt(0).toUpperCase() + station.genre.slice(1) : ''
+  const genre = getTranslatedGenreName(getCurrentLanguage(), station.genre || '')
   const bitrate = station.bitrate
 
   // Both genre and bitrate
@@ -169,12 +169,12 @@ const countryOptions = computed(() => {
     ]
   }
 
-  return createCountryOptions(t, availableCountries.value, t('radio.country'))
+  return createCountryOptions(getCurrentLanguage(), availableCountries.value, t('radio.country'))
 })
 
 // Genre options for dropdown
 const genreOptions = computed(() => {
-  return createGenreOptions(t, t('radio.genre'))
+  return createGenreOptions(getCurrentLanguage(), t('radio.genre'))
 })
 
 // === NAVIGATION ===
