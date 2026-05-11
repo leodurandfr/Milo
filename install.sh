@@ -34,6 +34,7 @@ source "$INSTALL_DIR/alsa.sh"
 source "$INSTALL_DIR/network.sh"
 source "$INSTALL_DIR/display.sh"
 source "$INSTALL_DIR/system.sh"
+source "$INSTALL_DIR/ir-remote.sh"
 source "$INSTALL_DIR/uninstall.sh"
 
 # --- Orchestrator functions ---
@@ -126,6 +127,7 @@ main() {
 
     # Hardware
     configure_fan_control
+    install_ir_remote
 
     # Network & web
     install_seatd
