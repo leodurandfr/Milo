@@ -31,7 +31,8 @@ class SettingsService:
                 "startup_volume_db": DEFAULT_VOLUME_DB,
                 "step_mobile_db": 2.0,
                 "step_rotary_db": 2.0,
-                "step_bt_remote_db": 2.0
+                "step_bt_remote_db": 2.0,
+                "step_ir_remote_db": 2.0
             },
             "screen": {
                 "timeout_seconds": 120,
@@ -169,6 +170,7 @@ class SettingsService:
         vol['step_mobile_db'] = max(1.0, min(6.0, float(vol_input.get('step_mobile_db', 2.0))))
         vol['step_rotary_db'] = max(1.0, min(6.0, float(vol_input.get('step_rotary_db', 2.0))))
         vol['step_bt_remote_db'] = max(1.0, min(6.0, float(vol_input.get('step_bt_remote_db', 2.0))))
+        vol['step_ir_remote_db'] = max(1.0, min(6.0, float(vol_input.get('step_ir_remote_db', 2.0))))
         validated['volume'] = vol
 
         # Screen - MODIFIED: Accept 0 for timeout_seconds (disabled)
@@ -388,7 +390,8 @@ class SettingsService:
             "restore_last_volume": volume_settings.get("restore_last_volume", True),
             "step_mobile_db": volume_settings.get("step_mobile_db", 2.0),
             "step_rotary_db": volume_settings.get("step_rotary_db", 2.0),
-            "step_bt_remote_db": volume_settings.get("step_bt_remote_db", 2.0)
+            "step_bt_remote_db": volume_settings.get("step_bt_remote_db", 2.0),
+            "step_ir_remote_db": volume_settings.get("step_ir_remote_db", 2.0)
         }
 
     async def get_volume_config_async(self) -> Dict[str, Any]:
@@ -401,5 +404,6 @@ class SettingsService:
             "restore_last_volume": volume_settings.get("restore_last_volume", True),
             "step_mobile_db": volume_settings.get("step_mobile_db", 2.0),
             "step_rotary_db": volume_settings.get("step_rotary_db", 2.0),
-            "step_bt_remote_db": volume_settings.get("step_bt_remote_db", 2.0)
+            "step_bt_remote_db": volume_settings.get("step_bt_remote_db", 2.0),
+            "step_ir_remote_db": volume_settings.get("step_ir_remote_db", 2.0)
         }
