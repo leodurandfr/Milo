@@ -9,8 +9,10 @@ gpio_ir_recv input device.
 
 Two mutually-exclusive read modes — guarded by an asyncio.Lock — are exposed:
 
-- **runtime**: filter EV_KEY events to dispatch volume / play-pause / track /
-  stop. Active whenever the controller is enabled and a remote is paired.
+- **runtime**: filter EV_KEY events to dispatch volume / play-pause / track,
+  and resolve MENU clicks (1=cycle next audio source in dock order,
+  2=transition to NONE). Active whenever the controller is enabled and a
+  remote is paired.
 - **pairing**: filter EV_MSC/MSC_SCAN to capture one valid Apple scancode,
   extract its device_id, then regenerate the keymap so only that remote is
   recognized going forward. Bounded by a timeout.
@@ -20,6 +22,7 @@ import logging
 import time
 from typing import Optional, Tuple
 
+from backend.config.constants import AUDIO_SOURCE_APPS
 from backend.core.models.audio_state import AudioSource
 from backend.hardware import keymap_writer
 from backend.hardware.keymap_writer import APPLE_MANUFACTURER
@@ -38,6 +41,11 @@ logger = logging.getLogger(__name__)
 GPIO_IR_DEVICE_NAME = "gpio_ir_recv"
 
 DEFAULT_PAIRING_TIMEOUT = 15.0  # seconds
+
+# Window for disambiguating MENU single-click (cycle source) from
+# double-click (transition to NONE). Mirrors PlaybackDispatcher's window
+# so the UX feels consistent across hardware controllers.
+MENU_CLICK_WINDOW = 0.4
 
 
 class UnsupportedRemoteError(Exception):
@@ -105,6 +113,12 @@ class IrRemoteController:
         self._volume = VolumeAccumulator(volume_service)
         self._dispatcher = PlaybackDispatcher(state_machine)
 
+        # MENU click resolver — 1 click cycles to the next audio source in
+        # dock order, 2+ clicks within MENU_CLICK_WINDOW transition to NONE.
+        self._menu_click_count = 0
+        self._menu_click_timer: Optional[asyncio.TimerHandle] = None
+        self._menu_resolve_task: Optional[asyncio.Task] = None
+
     # ========================================================================
     # LIFECYCLE
     # ========================================================================
@@ -135,6 +149,7 @@ class IrRemoteController:
         """Stop background tasks."""
         await self._stop_runtime_listener()
         self._dispatcher.cancel()
+        self._cancel_menu_click_timer()
         await self._volume.cleanup()
         logger.info("IR remote controller cleaned up")
 
@@ -282,13 +297,74 @@ class IrRemoteController:
             elif code == evdev.ecodes.KEY_PREVIOUSSONG:
                 await self._dispatcher.dispatch_track("prev")
             elif code == evdev.ecodes.KEY_HOMEPAGE:
-                # Apple Remote's Menu button → stop the active audio source.
-                # Mapped per docs/plans/remote-controls.md §3.3.
-                await self.state_machine.transition_to_source(AudioSource.NONE)
+                # Menu button: 1 click cycles to next audio source in dock
+                # order, 2+ clicks within MENU_CLICK_WINDOW transition to NONE.
+                self._register_menu_click()
             else:
                 logger.debug("Unmapped IR keycode: %d", code)
         except Exception as e:
             logger.error("Error handling IR keycode %d: %s", code, e)
+
+    # ========================================================================
+    # MENU CLICK RESOLVER
+    # ========================================================================
+
+    def _register_menu_click(self) -> None:
+        """Increment the MENU click counter and (re)arm the resolution timer."""
+        self._menu_click_count += 1
+        if self._menu_click_timer:
+            self._menu_click_timer.cancel()
+        loop = asyncio.get_running_loop()
+        self._menu_click_timer = loop.call_later(MENU_CLICK_WINDOW, self._fire_menu_resolution)
+
+    def _fire_menu_resolution(self) -> None:
+        """Spawn the resolver task, tracking it so cleanup can cancel it."""
+        self._menu_resolve_task = asyncio.create_task(self._resolve_menu_clicks())
+
+    def _cancel_menu_click_timer(self) -> None:
+        if self._menu_click_timer:
+            self._menu_click_timer.cancel()
+            self._menu_click_timer = None
+        if self._menu_resolve_task and not self._menu_resolve_task.done():
+            self._menu_resolve_task.cancel()
+        self._menu_resolve_task = None
+        self._menu_click_count = 0
+
+    async def _resolve_menu_clicks(self) -> None:
+        """Apply the MENU action once the click window has expired."""
+        try:
+            count = self._menu_click_count
+            self._menu_click_count = 0
+            self._menu_click_timer = None
+            if count >= 2:
+                await self.state_machine.transition_to_source(AudioSource.NONE)
+            elif count == 1:
+                next_source = await self._next_audio_source_in_dock_order()
+                if next_source is not None:
+                    await self.state_machine.transition_to_source(next_source)
+        except Exception as e:
+            logger.error("Error resolving MENU clicks: %s", e)
+
+    async def _next_audio_source_in_dock_order(self) -> Optional[AudioSource]:
+        """Return the audio source following the active one in dock order.
+
+        Uses `settings.dock.enabled_apps` (the user-customized dock order)
+        filtered to audio sources. When the active source is NONE or not
+        present in the dock, wraps to the first audio app.
+        """
+        dock = await self.settings_service.get_setting('dock') or {}
+        enabled_apps = dock.get('enabled_apps') or []
+        audio_apps = [app for app in enabled_apps if app in AUDIO_SOURCE_APPS]
+        if not audio_apps:
+            return None
+        current = self.state_machine.system_state.active_source
+        if current == AudioSource.NONE:
+            return AudioSource(audio_apps[0])
+        try:
+            idx = audio_apps.index(current.value)
+        except ValueError:
+            return AudioSource(audio_apps[0])
+        return AudioSource(audio_apps[(idx + 1) % len(audio_apps)])
 
     # ========================================================================
     # PAIRING
