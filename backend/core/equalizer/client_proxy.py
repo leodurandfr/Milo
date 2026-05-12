@@ -66,10 +66,28 @@ class EqualizerClientProxyService:
         """
         self.routing_service = routing_service
         self.logger = logging.getLogger(__name__)
+        self._session: Optional[aiohttp.ClientSession] = None
 
     def set_routing_service(self, routing_service) -> None:
         """Set the routing service (for dependency injection after init)."""
         self.routing_service = routing_service
+
+    def _get_session(self) -> aiohttp.ClientSession:
+        """Return the shared HTTP session, lazily creating it on first use.
+
+        Reusing a single session enables TCP keep-alive across requests,
+        which cuts handshake latency when rapidly fanning out volume / EQ
+        commands to satellites.
+        """
+        if self._session is None:
+            self._session = aiohttp.ClientSession()
+        return self._session
+
+    async def cleanup(self) -> None:
+        """Close the shared HTTP session. Called from app shutdown."""
+        if self._session is not None:
+            await self._session.close()
+            self._session = None
 
     def _get_host(self, identifier: str) -> str:
         """
@@ -107,15 +125,14 @@ class EqualizerClientProxyService:
         """
         try:
             host = self._get_host(hostname)
+            url = f"http://{host}:{CLIENT_API_PORT}/health"
             timeout = aiohttp.ClientTimeout(total=HEALTH_CHECK_TIMEOUT)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                url = f"http://{host}:{CLIENT_API_PORT}/health"
-                async with session.get(url) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        # Check equalizer_ready flag (default True for backward compatibility)
-                        return data.get("equalizer_ready", True)
-                    return False
+            async with self._get_session().get(url, timeout=timeout) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    # Check equalizer_ready flag (default True for backward compatibility)
+                    return data.get("equalizer_ready", True)
+                return False
         except Exception as e:
             self.logger.debug(f"Health check failed for {hostname}: {e}")
             return False
@@ -163,34 +180,24 @@ class EqualizerClientProxyService:
             host = self._get_host(hostname)
             url = f"http://{host}:{CLIENT_API_PORT}{path}"
             timeout = aiohttp.ClientTimeout(total=10)
+            session = self._get_session()
 
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                if method == "GET":
-                    async with session.get(url) as response:
-                        if response.status == 200:
-                            return await response.json()
-                        raise HTTPException(
-                            status_code=response.status,
-                            detail=f"Client error: {response.status}"
-                        )
-                elif method == "PUT":
-                    async with session.put(url, json=body) as response:
-                        if response.status == 200:
-                            return await response.json()
-                        raise HTTPException(
-                            status_code=response.status,
-                            detail=f"Client error: {response.status}"
-                        )
-                elif method == "POST":
-                    async with session.post(url, json=body) as response:
-                        if response.status == 200:
-                            return await response.json()
-                        raise HTTPException(
-                            status_code=response.status,
-                            detail=f"Client error: {response.status}"
-                        )
-                else:
-                    raise ValueError(f"Unsupported HTTP method: {method}")
+            if method == "GET":
+                ctx = session.get(url, timeout=timeout)
+            elif method == "PUT":
+                ctx = session.put(url, json=body, timeout=timeout)
+            elif method == "POST":
+                ctx = session.post(url, json=body, timeout=timeout)
+            else:
+                raise ValueError(f"Unsupported HTTP method: {method}")
+
+            async with ctx as response:
+                if response.status == 200:
+                    return await response.json()
+                raise HTTPException(
+                    status_code=response.status,
+                    detail=f"Client error: {response.status}"
+                )
 
         except aiohttp.ClientError as e:
             self.logger.warning(f"Cannot reach client {hostname}: {e}")
@@ -213,11 +220,11 @@ class EqualizerClientProxyService:
         """
         try:
             host = self._get_host(hostname)
+            url = f"http://{host}:{CLIENT_API_PORT}/equalizer/levels"
             timeout = aiohttp.ClientTimeout(total=1.0)  # Short timeout for levels polling
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(f"http://{host}:{CLIENT_API_PORT}/equalizer/levels") as resp:
-                    if resp.status == 200:
-                        return await resp.json()
+            async with self._get_session().get(url, timeout=timeout) as resp:
+                if resp.status == 200:
+                    return await resp.json()
         except Exception as e:
             self.logger.debug(f"Failed to get equalizer levels from {hostname}: {e}")
         return None

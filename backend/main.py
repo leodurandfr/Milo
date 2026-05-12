@@ -131,6 +131,7 @@ async def lifespan(app: FastAPI):
         await snapcast_websocket_service.cleanup()
         await get_service("pending_clients_service").shutdown()
         await volume_service.cleanup()
+        await equalizer_proxy_service.cleanup()
         if rotary_controller:
             await rotary_controller.cleanup()
         screen_controller.cleanup()
