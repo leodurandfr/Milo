@@ -99,7 +99,6 @@ class EqualizerController:
             volume_db: Target volume in dB
             retry: Current retry attempt (internal)
             force: Bypass online check in router (for reconnection sync)
-            force: Bypass online check in router (for reconnection sync)
 
         Returns:
             True if successful, False otherwise
@@ -160,6 +159,12 @@ class EqualizerController:
         """
         Apply volume updates to multiple clients in parallel.
 
+        Routes through EqualizerRouter, which short-circuits offline clients
+        (online flag driven by Snapcast WS) and dispatches to the local
+        CamillaDSP or the proxy service. No pre-flight health check is
+        performed: an extra round-trip would only add latency and a second
+        failure mode on top of the actual set_volume call.
+
         Args:
             updates: Dict mapping mac_id -> volume_db
 
@@ -175,40 +180,12 @@ class EqualizerController:
             self.logger.warning("Cannot apply parallel volumes: client registry not available")
             return {k: False for k in updates}
 
-        # Check availability for all remote clients in parallel
-        available_map = {}
-        check_tasks = {}
-        for mac_id in updates.keys():
-            if self._registry.is_local_client(mac_id):
-                available_map[mac_id] = True
-            else:
-                client_ip = self._registry.get_client_ip(mac_id)
-                if client_ip:
-                    check_tasks[mac_id] = asyncio.create_task(
-                        self._proxy_service.check_available(client_ip)
-                    )
-                else:
-                    available_map[mac_id] = False
-
-        if check_tasks:
-            results = await asyncio.gather(*check_tasks.values(), return_exceptions=True)
-            for mac_id, result in zip(check_tasks.keys(), results):
-                available_map[mac_id] = result is True
-
-        # Filter to available clients
-        available_updates = {k: v for k, v in updates.items() if available_map.get(k)}
-        success_map = {k: False for k in updates if not available_map.get(k)}
-
-        if not available_updates:
-            return success_map
-
-        # Apply volumes in parallel
         tasks = {mac_id: asyncio.create_task(self.set_equalizer_volume(mac_id, vol))
-                 for mac_id, vol in available_updates.items()}
+                 for mac_id, vol in updates.items()}
         results = await asyncio.gather(*tasks.values(), return_exceptions=True)
 
-        for mac_id, result in zip(tasks.keys(), results):
-            success_map[mac_id] = result if not isinstance(result, Exception) else False
-
-        return success_map
+        return {
+            mac_id: result if not isinstance(result, Exception) else False
+            for mac_id, result in zip(tasks.keys(), results)
+        }
 
