@@ -267,6 +267,18 @@ class ScreenController:
         if was_sleeping:
             await self._broadcast_sleep_state(False)
 
+    async def force_sleep(self):
+        """Public interface to put the screen to sleep immediately.
+
+        Symmetric to `on_touch_detected()` — used by hardware controllers
+        (e.g. IR remote MENU long-press) to short-circuit the inactivity
+        timer and turn the screen off on demand. No-op if already sleeping.
+        """
+        if not self.screen_on:
+            return
+        await self._screen_cmd(self.screen_off_cmd)
+        await self._broadcast_sleep_state(True)
+
     def cleanup(self):
         """Cleans up resources"""
         self.running = False
