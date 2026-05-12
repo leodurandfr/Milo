@@ -63,7 +63,11 @@ class TestControllerConfig:
         settings_service = MagicMock()
         settings_service.get_setting = AsyncMock(return_value=None)
         settings_service.set_setting = AsyncMock()
-        return IrRemoteController(volume_service, state_machine, settings_service)
+        screen_controller = MagicMock()
+        screen_controller.force_sleep = AsyncMock()
+        return IrRemoteController(
+            volume_service, state_machine, settings_service, screen_controller
+        )
 
     @pytest.mark.asyncio
     async def test_unconfigured_settings_yield_idle_state(self, controller):
@@ -137,7 +141,11 @@ def _menu_controller(dock_apps, active_source):
         return_value={"enabled_apps": dock_apps}
     )
     settings_service.set_setting = AsyncMock()
-    return IrRemoteController(volume_service, state_machine, settings_service)
+    screen_controller = MagicMock()
+    screen_controller.force_sleep = AsyncMock()
+    return IrRemoteController(
+        volume_service, state_machine, settings_service, screen_controller
+    )
 
 
 class TestNextAudioSourceInDockOrder:
@@ -198,6 +206,7 @@ class TestMenuClickResolver:
             ["spotify", "radio", "podcast"], AudioSource.SPOTIFY
         )
         controller._register_menu_click()
+        controller._menu_pressed = False  # simulate release
         await asyncio.sleep(MENU_CLICK_WINDOW + 0.1)
         controller.state_machine.transition_to_source.assert_awaited_once_with(
             AudioSource.RADIO
@@ -209,7 +218,9 @@ class TestMenuClickResolver:
             ["spotify", "radio"], AudioSource.SPOTIFY
         )
         controller._register_menu_click()
+        controller._menu_pressed = False
         controller._register_menu_click()
+        controller._menu_pressed = False
         await asyncio.sleep(MENU_CLICK_WINDOW + 0.1)
         controller.state_machine.transition_to_source.assert_awaited_once_with(
             AudioSource.NONE
@@ -222,6 +233,7 @@ class TestMenuClickResolver:
         )
         for _ in range(3):
             controller._register_menu_click()
+            controller._menu_pressed = False
         await asyncio.sleep(MENU_CLICK_WINDOW + 0.1)
         controller.state_machine.transition_to_source.assert_awaited_once_with(
             AudioSource.NONE
@@ -233,6 +245,7 @@ class TestMenuClickResolver:
             ["bluetooth", "radio", "spotify"], AudioSource.NONE
         )
         controller._register_menu_click()
+        controller._menu_pressed = False
         await asyncio.sleep(MENU_CLICK_WINDOW + 0.1)
         controller.state_machine.transition_to_source.assert_awaited_once_with(
             AudioSource.BLUETOOTH
@@ -242,6 +255,7 @@ class TestMenuClickResolver:
     async def test_single_click_noop_when_no_audio_apps_in_dock(self):
         controller = _menu_controller(["settings"], AudioSource.NONE)
         controller._register_menu_click()
+        controller._menu_pressed = False
         await asyncio.sleep(MENU_CLICK_WINDOW + 0.1)
         controller.state_machine.transition_to_source.assert_not_called()
 
@@ -252,7 +266,71 @@ class TestMenuClickResolver:
         controller._cancel_menu_click_timer()
         await asyncio.sleep(MENU_CLICK_WINDOW + 0.1)
         controller.state_machine.transition_to_source.assert_not_called()
+        controller.screen_controller.force_sleep.assert_not_called()
         assert controller._menu_click_count == 0
         assert controller._menu_click_timer is None
+        assert controller._menu_pressed is False
+
+
+class TestMenuHold:
+    """Hold detection: MENU still pressed at T+MENU_CLICK_WINDOW → screen sleep."""
+
+    @pytest.mark.asyncio
+    async def test_hold_fires_screen_sleep(self):
+        controller = _menu_controller(
+            ["spotify", "radio"], AudioSource.SPOTIFY
+        )
+        controller._register_menu_click()
+        # Button stays pressed — simulate by NOT clearing _menu_pressed.
+        await asyncio.sleep(MENU_CLICK_WINDOW + 0.1)
+        controller.screen_controller.force_sleep.assert_awaited_once()
+        controller.state_machine.transition_to_source.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_release_before_window_fires_cycle_not_sleep(self):
+        controller = _menu_controller(
+            ["spotify", "radio"], AudioSource.SPOTIFY
+        )
+        controller._register_menu_click()
+        # Release the button promptly (well within the click window).
+        controller._menu_pressed = False
+        await asyncio.sleep(MENU_CLICK_WINDOW + 0.1)
+        controller.screen_controller.force_sleep.assert_not_called()
+        controller.state_machine.transition_to_source.assert_awaited_once_with(
+            AudioSource.RADIO
+        )
+
+    @pytest.mark.asyncio
+    async def test_hold_overrides_accumulated_clicks(self):
+        """Two quick taps then a hold of the third press → hold wins."""
+        controller = _menu_controller(
+            ["spotify", "radio"], AudioSource.SPOTIFY
+        )
+        # Tap, release, tap, release, tap and HOLD
+        controller._register_menu_click()
+        controller._menu_pressed = False
+        controller._register_menu_click()
+        controller._menu_pressed = False
+        controller._register_menu_click()
+        # Last press still held at resolution
+        await asyncio.sleep(MENU_CLICK_WINDOW + 0.1)
+        controller.screen_controller.force_sleep.assert_awaited_once()
+        controller.state_machine.transition_to_source.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_hold_resolver_clears_count_not_pressed_flag(self):
+        """Resolver clears click bookkeeping but leaves `_menu_pressed` alone.
+
+        The pressed flag is only cleared by the runtime loop when the
+        physical value=0 (release) arrives. Clearing it inside the resolver
+        would race with that release event.
+        """
+        controller = _menu_controller(["spotify"], AudioSource.NONE)
+        controller._register_menu_click()
+        await asyncio.sleep(MENU_CLICK_WINDOW + 0.1)
+        controller.screen_controller.force_sleep.assert_awaited_once()
+        assert controller._menu_click_count == 0
+        assert controller._menu_click_timer is None
+        assert controller._menu_pressed is True  # cleared by runtime loop, not here
 
 

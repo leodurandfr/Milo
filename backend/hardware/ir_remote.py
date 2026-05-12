@@ -10,9 +10,11 @@ gpio_ir_recv input device.
 Two mutually-exclusive read modes — guarded by an asyncio.Lock — are exposed:
 
 - **runtime**: filter EV_KEY events to dispatch volume / play-pause / track,
-  and resolve MENU clicks (1=cycle next audio source in dock order,
-  2=transition to NONE). Active whenever the controller is enabled and a
-  remote is paired.
+  and resolve MENU clicks. At resolution time (400 ms after the first press)
+  the resolver branches on whether MENU is still held: held → screen sleep,
+  released with 1 tap → cycle next audio source in dock order, released
+  with 2+ taps → transition to NONE. Active whenever the controller is
+  enabled and a remote is paired.
 - **pairing**: filter EV_MSC/MSC_SCAN to capture one valid Apple scancode,
   extract its device_id, then regenerate the keymap so only that remote is
   recognized going forward. Bounded by a timeout.
@@ -91,10 +93,11 @@ class IrRemoteController:
     are filtered out at the kernel level by the keymap, not by Python.
     """
 
-    def __init__(self, volume_service, state_machine, settings_service):
+    def __init__(self, volume_service, state_machine, settings_service, screen_controller):
         self.volume_service = volume_service
         self.state_machine = state_machine
         self.settings_service = settings_service
+        self.screen_controller = screen_controller
 
         self.enabled: bool = False
         self.paired: bool = False
@@ -113,11 +116,15 @@ class IrRemoteController:
         self._volume = VolumeAccumulator(volume_service)
         self._dispatcher = PlaybackDispatcher(state_machine)
 
-        # MENU click resolver — 1 click cycles to the next audio source in
-        # dock order, 2+ clicks within MENU_CLICK_WINDOW transition to NONE.
+        # MENU click resolver — at T+MENU_CLICK_WINDOW after the first press,
+        # we resolve based on whether MENU is still held (hold → screen sleep)
+        # or already released (1 tap = cycle source, 2+ taps = transition to
+        # NONE). Tracking `_menu_pressed` lets the resolver disambiguate hold
+        # from tap without a separate hold-detection timer.
         self._menu_click_count = 0
         self._menu_click_timer: Optional[asyncio.TimerHandle] = None
         self._menu_resolve_task: Optional[asyncio.Task] = None
+        self._menu_pressed = False
 
     # ========================================================================
     # LIFECYCLE
@@ -269,6 +276,10 @@ class IrRemoteController:
                         await self._handle_keycode(event.code)
                     elif event.value == 2 and event.code in volume_keys:
                         await self._handle_keycode(event.code)
+                    elif event.value == 0 and event.code == evdev.ecodes.KEY_HOMEPAGE:
+                        # MENU released — the resolver checks this flag at
+                        # T+MENU_CLICK_WINDOW to distinguish tap from hold.
+                        self._menu_pressed = False
         except asyncio.CancelledError:
             raise
         except OSError as e:
@@ -311,6 +322,7 @@ class IrRemoteController:
 
     def _register_menu_click(self) -> None:
         """Increment the MENU click counter and (re)arm the resolution timer."""
+        self._menu_pressed = True
         self._menu_click_count += 1
         if self._menu_click_timer:
             self._menu_click_timer.cancel()
@@ -329,14 +341,23 @@ class IrRemoteController:
             self._menu_resolve_task.cancel()
         self._menu_resolve_task = None
         self._menu_click_count = 0
+        self._menu_pressed = False
 
     async def _resolve_menu_clicks(self) -> None:
-        """Apply the MENU action once the click window has expired."""
+        """Apply the MENU action once the click window has expired.
+
+        Resolution rule: button still held at T+MENU_CLICK_WINDOW takes
+        priority over click count — a held button is a hold gesture, even
+        if a previous tap-release-tap sequence accumulated a count of 2.
+        """
         try:
             count = self._menu_click_count
+            held = self._menu_pressed
             self._menu_click_count = 0
             self._menu_click_timer = None
-            if count >= 2:
+            if held:
+                await self.screen_controller.force_sleep()
+            elif count >= 2:
                 await self.state_machine.transition_to_source(AudioSource.NONE)
             elif count == 1:
                 next_source = await self._next_audio_source_in_dock_order()

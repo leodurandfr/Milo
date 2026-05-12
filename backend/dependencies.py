@@ -130,7 +130,8 @@ def _create_service(name: str) -> Any:
         "ir_remote_controller": lambda: _import("backend.hardware", "IrRemoteController")(
             volume_service=get_service("volume_service"),
             state_machine=get_service("audio_state_machine"),
-            settings_service=get_service("settings_service")
+            settings_service=get_service("settings_service"),
+            screen_controller=get_service("screen_controller")
         ),
         "pending_clients_service": lambda: _import("backend.core.multiroom.pending_clients", "PendingClientsService")(),
         "crossover_service": lambda: _import("backend.core.multiroom.crossover", "CrossoverService")(
