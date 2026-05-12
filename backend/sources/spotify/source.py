@@ -454,10 +454,13 @@ class SpotifySource(BaseAudioSource):
             self.broadcast_error(self._extract_log_message(line))
             return
 
-        # Connection error: show after 3 consecutive failures within 10s
-        if "failed connecting to accesspoint" in line:
+        # Connection failures — accesspoint unreachable (running) or zeroconf /
+        # apresolve down (boot). Broadcast after 3 consecutive failures within
+        # 60s: long enough to cover the ~5-15s systemd restart cadence on
+        # zeroconf crashes, short enough to stay tied to a real outage.
+        if "failed connecting to accesspoint" in line or "failed running zeroconf" in line:
             now = time.time()
-            if now - self._last_error_time < 10:
+            if now - self._last_error_time < 60:
                 self._connection_error_count += 1
             else:
                 self._connection_error_count = 1
