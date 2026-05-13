@@ -2,16 +2,20 @@
 """
 Integration tests for Story 4-5: Global Equalizer Bypass
 
+Bypass is pipeline-only: `bypass_effects()` removes EQ / compressor /
+loudness references from CamillaDSP's pipeline without mutating the
+in-memory cache (`_filters`, `_compressor`, `_loudness`). `restore_effects()`
+re-pushes the cached values and adds the pipeline references back. The
+cache is the source of truth for user intent and survives any number of
+bypass/restore cycles.
+
 Tests cover:
-- AC1: bypass_effects() sets all EQ to 0dB, disables compressor/loudness
-- AC2: restore_effects() restores all Equalizer settings from equalizer.* settings
+- AC1: bypass_effects() removes EQ / compressor / loudness from pipeline
+- AC2: restore_effects() pushes cached values and rebuilds pipeline
 - AC3: Zone propagation for Equalizer bypass (API-level validation)
 - AC4: Crossover filters NOT affected by bypass
-- AC5: Bypass preserves persisted settings (persist=False pattern)
+- AC5: Bypass preserves cached user intent (no cache mutation)
 - AC6: State syncs on reconnection and mode switch
-
-These tests verify the complete flow:
-API → routing_service → CamillaDSPService → WebSocket → Frontend state update
 """
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
@@ -89,23 +93,43 @@ def disconnected_camilladsp_service(mock_settings_service):
 
 
 # =============================================================================
-# AC1: bypass_effects() sets all EQ to 0dB, disables compressor/loudness
+# AC1: bypass_effects() removes EQ / compressor / loudness from pipeline
 # =============================================================================
 
+def _pipeline_filter_names(config):
+    """Flatten all filter names referenced in pipeline Filter steps."""
+    names = []
+    for step in config.get("pipeline", []):
+        if step.get("type") == "Filter":
+            names.extend(step.get("names", []))
+    return names
+
+
+def _pipeline_processor_names(config):
+    """Flatten all processor names referenced in pipeline Processor steps."""
+    return [s.get("name") for s in config.get("pipeline", []) if s.get("type") == "Processor"]
+
+
 class TestAC1BypassEffects:
-    """AC1: Toggle enables bypass_effects() → all EQ to 0dB, compressor/loudness disabled"""
+    """AC1: Toggle disables → bypass_effects() removes EQ / compressor / loudness from pipeline.
+
+    Filter definitions and cache stay intact; only pipeline references go.
+    """
 
     @pytest.mark.asyncio
-    async def test_bypass_resets_all_eq_bands_to_zero(self, connected_camilladsp_with_effects, mock_settings_service):
-        """Should reset all EQ band gains to 0 dB"""
+    async def test_bypass_removes_eq_bands_from_pipeline(self, connected_camilladsp_with_effects, mock_settings_service):
+        """Should remove all EQ band references from pipeline (defs and cache preserved)"""
         mock_config = {
             "filters": {
                 "eq_band_00": {"type": "Biquad", "parameters": {"type": "Peaking", "freq": 32, "gain": 3, "q": 1.41}},
                 "eq_band_01": {"type": "Biquad", "parameters": {"type": "Peaking", "freq": 64, "gain": -2, "q": 1.41}},
                 "eq_band_02": {"type": "Biquad", "parameters": {"type": "Peaking", "freq": 125, "gain": 4, "q": 1.41}},
             },
-            "processors": {"compressor": {}},
-            "pipeline": []
+            "processors": {},
+            "pipeline": [
+                {"type": "Filter", "channels": [0], "names": ["eq_band_00", "eq_band_01", "eq_band_02"]},
+                {"type": "Filter", "channels": [1], "names": ["eq_band_00", "eq_band_01", "eq_band_02"]},
+            ],
         }
         captured_config = None
 
@@ -115,23 +139,32 @@ class TestAC1BypassEffects:
 
         with patch.object(connected_camilladsp_with_effects, '_get_config', new_callable=AsyncMock, return_value=mock_config):
             with patch.object(connected_camilladsp_with_effects, '_set_config', new_callable=AsyncMock, side_effect=capture_config):
-                with patch.object(connected_camilladsp_with_effects, 'save_current_config', new_callable=AsyncMock):
-                    result = await connected_camilladsp_with_effects.bypass_effects()
+                result = await connected_camilladsp_with_effects.bypass_effects()
 
-                    assert result is True
-                    # All EQ gains should be 0
-                    for filter_id, filter_data in captured_config["filters"].items():
-                        if filter_id.startswith("eq_band_"):
-                            assert filter_data["parameters"]["gain"] == 0, \
-                                f"Filter {filter_id} should have gain=0, got {filter_data['parameters']['gain']}"
+                assert result is True
+
+                # EQ bands removed from pipeline
+                pipeline_names = _pipeline_filter_names(captured_config)
+                assert "eq_band_00" not in pipeline_names
+                assert "eq_band_01" not in pipeline_names
+                assert "eq_band_02" not in pipeline_names
+
+                # Filter definitions PRESERVED (original gains intact, not zeroed)
+                assert captured_config["filters"]["eq_band_00"]["parameters"]["gain"] == 3
+                assert captured_config["filters"]["eq_band_01"]["parameters"]["gain"] == -2
+                assert captured_config["filters"]["eq_band_02"]["parameters"]["gain"] == 4
+
+                # In-memory cache UNCHANGED (the source of truth for restore)
+                gains = [f["gain"] for f in connected_camilladsp_with_effects._filters]
+                assert gains == [3.0, -2.0, 4.0]
 
     @pytest.mark.asyncio
-    async def test_bypass_disables_compressor(self, connected_camilladsp_with_effects, mock_settings_service):
-        """Should disable compressor when bypass_effects() is called"""
+    async def test_bypass_removes_compressor_from_pipeline(self, connected_camilladsp_with_effects, mock_settings_service):
+        """Should remove compressor processor reference from pipeline; cache enabled flag stays True"""
         mock_config = {
             "filters": {},
             "processors": {"compressor": {"type": "Compressor", "parameters": {}}},
-            "pipeline": [{"type": "Processor", "name": "compressor"}]
+            "pipeline": [{"type": "Processor", "name": "compressor"}],
         }
         captured_config = None
 
@@ -141,22 +174,26 @@ class TestAC1BypassEffects:
 
         with patch.object(connected_camilladsp_with_effects, '_get_config', new_callable=AsyncMock, return_value=mock_config):
             with patch.object(connected_camilladsp_with_effects, '_set_config', new_callable=AsyncMock, side_effect=capture_config):
-                with patch.object(connected_camilladsp_with_effects, 'save_current_config', new_callable=AsyncMock):
-                    result = await connected_camilladsp_with_effects.bypass_effects()
+                result = await connected_camilladsp_with_effects.bypass_effects()
 
-                    assert result is True
-                    assert connected_camilladsp_with_effects._compressor["enabled"] is False
+                assert result is True
+                assert "compressor" not in _pipeline_processor_names(captured_config)
+                # Cache untouched — user's compressor preference survives the bypass
+                assert connected_camilladsp_with_effects._compressor["enabled"] is True
 
     @pytest.mark.asyncio
-    async def test_bypass_disables_loudness(self, connected_camilladsp_with_effects, mock_settings_service):
-        """Should disable loudness when bypass_effects() is called"""
+    async def test_bypass_removes_loudness_from_pipeline(self, connected_camilladsp_with_effects, mock_settings_service):
+        """Should remove loudness filter references from pipeline; cache enabled flag stays True"""
         mock_config = {
             "filters": {
                 "loudness_low": {"type": "Biquad", "parameters": {"type": "Lowshelf", "freq": 100, "gain": 10, "slope": 6}},
                 "loudness_high": {"type": "Biquad", "parameters": {"type": "Highshelf", "freq": 8000, "gain": 8, "slope": 6}},
             },
             "processors": {},
-            "pipeline": []
+            "pipeline": [
+                {"type": "Filter", "channels": [0], "names": ["loudness_low", "loudness_high"]},
+                {"type": "Filter", "channels": [1], "names": ["loudness_low", "loudness_high"]},
+            ],
         }
         captured_config = None
 
@@ -166,91 +203,195 @@ class TestAC1BypassEffects:
 
         with patch.object(connected_camilladsp_with_effects, '_get_config', new_callable=AsyncMock, return_value=mock_config):
             with patch.object(connected_camilladsp_with_effects, '_set_config', new_callable=AsyncMock, side_effect=capture_config):
-                with patch.object(connected_camilladsp_with_effects, 'save_current_config', new_callable=AsyncMock):
-                    result = await connected_camilladsp_with_effects.bypass_effects()
+                result = await connected_camilladsp_with_effects.bypass_effects()
 
-                    assert result is True
-                    assert connected_camilladsp_with_effects._loudness["enabled"] is False
+                assert result is True
+                pipeline_names = _pipeline_filter_names(captured_config)
+                assert "loudness_low" not in pipeline_names
+                assert "loudness_high" not in pipeline_names
+                # Cache untouched
+                assert connected_camilladsp_with_effects._loudness["enabled"] is True
 
 
 # =============================================================================
-# AC2: restore_effects() restores all Equalizer settings from equalizer.* settings
+# AC2: restore_effects() pushes cached values and rebuilds pipeline
 # =============================================================================
 
 class TestAC2RestoreEffects:
-    """AC2: Toggle enables restore_effects() → restore all Equalizer from settings"""
+    """AC2: Toggle enables → restore_effects() pushes filter defs and pipeline refs from cache."""
 
     @pytest.mark.asyncio
-    async def test_restore_loads_eq_filters_from_settings(self, connected_camilladsp_with_effects):
-        """Should restore EQ filters from in-memory persisted state."""
+    async def test_restore_writes_eq_definitions_and_pipeline(self, connected_camilladsp_with_effects):
+        """Should write EQ filter defs into config and add pipeline references."""
         saved_filters = [
             {"id": "eq_band_00", "freq": 32, "gain": 3, "q": 1.41, "type": "Peaking", "enabled": True},
             {"id": "eq_band_01", "freq": 64, "gain": -2, "q": 1.41, "type": "Peaking", "enabled": True},
         ]
         connected_camilladsp_with_effects._filters = list(saved_filters)
-        connected_camilladsp_with_effects._compressor.update({"enabled": True, "threshold": -25, "ratio": 6})
-        connected_camilladsp_with_effects._loudness.update({"enabled": True, "high_boost": 8})
+        connected_camilladsp_with_effects._compressor = {
+            "enabled": False, "threshold": -20.0, "ratio": 4.0, "attack": 10.0, "release": 100.0, "makeup_gain": 0.0,
+        }
+        connected_camilladsp_with_effects._loudness = {"enabled": False, "high_boost": 5.0, "low_boost": 8.0}
 
         mock_config = {"filters": {}, "processors": {}, "pipeline": []}
+        captured_config = None
 
-        applied_filters: list = []
-
-        async def fake_set_filter(filter_id, freq, gain, q, filter_type="Peaking", **kwargs):
-            applied_filters.append(filter_id)
-            return True
+        async def capture_config(config):
+            nonlocal captured_config
+            captured_config = config
 
         with patch.object(connected_camilladsp_with_effects, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_with_effects, '_set_config', new_callable=AsyncMock):
-                with patch.object(connected_camilladsp_with_effects, 'set_filter', side_effect=fake_set_filter):
-                    result = await connected_camilladsp_with_effects.restore_effects()
+            with patch.object(connected_camilladsp_with_effects, '_set_config', new_callable=AsyncMock, side_effect=capture_config):
+                result = await connected_camilladsp_with_effects.restore_effects()
 
-                    assert result is True
-                    assert applied_filters == ["eq_band_00", "eq_band_01"]
+                assert result is True
+
+                # Filter definitions written with cached gains
+                assert captured_config["filters"]["eq_band_00"]["parameters"]["gain"] == 3
+                assert captured_config["filters"]["eq_band_01"]["parameters"]["gain"] == -2
+
+                # Pipeline references added
+                pipeline_names = _pipeline_filter_names(captured_config)
+                assert "eq_band_00" in pipeline_names
+                assert "eq_band_01" in pipeline_names
 
     @pytest.mark.asyncio
-    async def test_restore_loads_compressor_from_settings(self, connected_camilladsp_with_effects):
-        """Should restore compressor settings from in-memory persisted state."""
+    async def test_restore_adds_compressor_to_pipeline_when_enabled(self, connected_camilladsp_with_effects):
+        """Should add compressor processor to pipeline only when cache says enabled."""
         connected_camilladsp_with_effects._compressor = {
             "enabled": True,
             "threshold": -25,
             "ratio": 6,
             "attack": 15,
             "release": 150,
-            "makeup_gain": 5
+            "makeup_gain": 5,
         }
         connected_camilladsp_with_effects._loudness = {"enabled": False, "high_boost": 5.0, "low_boost": 8.0}
         connected_camilladsp_with_effects._filters = []
 
         mock_config = {"filters": {}, "processors": {}, "pipeline": []}
+        captured_config = None
+
+        async def capture_config(config):
+            nonlocal captured_config
+            captured_config = config
 
         with patch.object(connected_camilladsp_with_effects, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_with_effects, '_set_config', new_callable=AsyncMock):
+            with patch.object(connected_camilladsp_with_effects, '_set_config', new_callable=AsyncMock, side_effect=capture_config):
                 result = await connected_camilladsp_with_effects.restore_effects()
 
                 assert result is True
-                assert connected_camilladsp_with_effects._compressor["enabled"] is True
-                assert connected_camilladsp_with_effects._compressor["threshold"] == -25
+                assert "compressor" in captured_config.get("processors", {})
+                assert "compressor" in _pipeline_processor_names(captured_config)
+                # Compressor parameters reflect the cached values (attack/release converted ms->s)
+                params = captured_config["processors"]["compressor"]["parameters"]
+                assert params["threshold"] == -25
+                assert params["factor"] == 6
+                assert params["attack"] == pytest.approx(0.015)
+                assert params["release"] == pytest.approx(0.150)
 
     @pytest.mark.asyncio
-    async def test_restore_loads_loudness_from_settings(self, connected_camilladsp_with_effects):
-        """Should restore loudness settings from in-memory persisted state."""
-        connected_camilladsp_with_effects._loudness = {
-            "enabled": True,
-            "low_boost": 10,
-            "high_boost": 8
+    async def test_restore_skips_compressor_when_cache_disabled(self, connected_camilladsp_with_effects):
+        """Should NOT add compressor to pipeline when cache says disabled."""
+        connected_camilladsp_with_effects._compressor = {
+            "enabled": False, "threshold": -20.0, "ratio": 4.0, "attack": 10.0, "release": 100.0, "makeup_gain": 0.0,
         }
-        connected_camilladsp_with_effects._compressor = {"enabled": False, "threshold": -20.0, "ratio": 4.0, "attack": 10.0, "release": 100.0, "makeup_gain": 0.0}
+        connected_camilladsp_with_effects._loudness = {"enabled": False, "high_boost": 5.0, "low_boost": 8.0}
         connected_camilladsp_with_effects._filters = []
 
         mock_config = {"filters": {}, "processors": {}, "pipeline": []}
+        captured_config = None
+
+        async def capture_config(config):
+            nonlocal captured_config
+            captured_config = config
 
         with patch.object(connected_camilladsp_with_effects, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_with_effects, '_set_config', new_callable=AsyncMock):
+            with patch.object(connected_camilladsp_with_effects, '_set_config', new_callable=AsyncMock, side_effect=capture_config):
+                await connected_camilladsp_with_effects.restore_effects()
+
+                assert "compressor" not in _pipeline_processor_names(captured_config)
+
+    @pytest.mark.asyncio
+    async def test_restore_adds_loudness_to_pipeline_when_enabled(self, connected_camilladsp_with_effects):
+        """Should write loudness filter defs and add pipeline references when enabled."""
+        connected_camilladsp_with_effects._loudness = {
+            "enabled": True,
+            "low_boost": 10,
+            "high_boost": 8,
+        }
+        connected_camilladsp_with_effects._compressor = {
+            "enabled": False, "threshold": -20.0, "ratio": 4.0, "attack": 10.0, "release": 100.0, "makeup_gain": 0.0,
+        }
+        connected_camilladsp_with_effects._filters = []
+
+        mock_config = {"filters": {}, "processors": {}, "pipeline": []}
+        captured_config = None
+
+        async def capture_config(config):
+            nonlocal captured_config
+            captured_config = config
+
+        with patch.object(connected_camilladsp_with_effects, '_get_config', new_callable=AsyncMock, return_value=mock_config):
+            with patch.object(connected_camilladsp_with_effects, '_set_config', new_callable=AsyncMock, side_effect=capture_config):
                 result = await connected_camilladsp_with_effects.restore_effects()
 
                 assert result is True
-                assert connected_camilladsp_with_effects._loudness["enabled"] is True
-                assert connected_camilladsp_with_effects._loudness["low_boost"] == 10
+                assert captured_config["filters"]["loudness_low"]["parameters"]["gain"] == 10
+                assert captured_config["filters"]["loudness_high"]["parameters"]["gain"] == 8
+                pipeline_names = _pipeline_filter_names(captured_config)
+                assert "loudness_low" in pipeline_names
+                assert "loudness_high" in pipeline_names
+
+    @pytest.mark.asyncio
+    async def test_bypass_then_restore_preserves_preset_gains(self, connected_camilladsp_with_effects):
+        """Regression: applying hip-hop, bypassing, then restoring must keep the same gains.
+
+        This is the bug that motivated the pipeline-only refactor. Before the fix,
+        bypass_effects() called set_filter(gain=0, persist=False) which zeroed the
+        in-memory cache; restore_effects() then read those zeros and pushed flat 0 dB
+        to the daemon while the UI still showed the preset name.
+        """
+        hip_hop_gains = [4.0, 4.5, 3.5, 1.0, -1.0, -0.5, 1.5, 3.0, 3.5, 4.0]
+        connected_camilladsp_with_effects._filters = [
+            {"id": f"eq_band_{i:02d}", "freq": float(f), "gain": g, "q": 1.41, "type": "Peaking", "enabled": True}
+            for i, (f, g) in enumerate(zip([32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000], hip_hop_gains))
+        ]
+        connected_camilladsp_with_effects._compressor = {
+            "enabled": False, "threshold": -20.0, "ratio": 4.0, "attack": 10.0, "release": 100.0, "makeup_gain": 0.0,
+        }
+        connected_camilladsp_with_effects._loudness = {"enabled": False, "high_boost": 5.0, "low_boost": 8.0}
+
+        bypass_config = {
+            "filters": {f["id"]: {"type": "Biquad", "parameters": {"type": "Peaking", "freq": f["freq"], "gain": f["gain"], "q": 1.41}}
+                        for f in connected_camilladsp_with_effects._filters},
+            "processors": {},
+            "pipeline": [
+                {"type": "Filter", "channels": [0], "names": [f["id"] for f in connected_camilladsp_with_effects._filters]},
+                {"type": "Filter", "channels": [1], "names": [f["id"] for f in connected_camilladsp_with_effects._filters]},
+            ],
+        }
+        restore_captured = None
+
+        async def capture_restore(config):
+            nonlocal restore_captured
+            restore_captured = config
+
+        with patch.object(connected_camilladsp_with_effects, '_get_config', new_callable=AsyncMock, return_value=bypass_config):
+            with patch.object(connected_camilladsp_with_effects, '_set_config', new_callable=AsyncMock):
+                await connected_camilladsp_with_effects.bypass_effects()
+
+        # Cache must be untouched by bypass
+        cached_gains = [f["gain"] for f in connected_camilladsp_with_effects._filters]
+        assert cached_gains == hip_hop_gains
+
+        with patch.object(connected_camilladsp_with_effects, '_get_config', new_callable=AsyncMock, return_value={"filters": {}, "processors": {}, "pipeline": []}):
+            with patch.object(connected_camilladsp_with_effects, '_set_config', new_callable=AsyncMock, side_effect=capture_restore):
+                await connected_camilladsp_with_effects.restore_effects()
+
+        restored_gains = [restore_captured["filters"][f"eq_band_{i:02d}"]["parameters"]["gain"]
+                          for i in range(10)]
+        assert restored_gains == hip_hop_gains
 
 
 # =============================================================================
@@ -398,14 +539,13 @@ class TestAC4CrossoverIndependence:
 
         with patch.object(connected_camilladsp_with_effects, '_get_config', new_callable=AsyncMock, return_value=mock_config):
             with patch.object(connected_camilladsp_with_effects, '_set_config', new_callable=AsyncMock, side_effect=capture_config):
-                with patch.object(connected_camilladsp_with_effects, 'save_current_config', new_callable=AsyncMock):
-                    await connected_camilladsp_with_effects.bypass_effects()
+                await connected_camilladsp_with_effects.bypass_effects()
 
-                    # crossover_highpass should remain unchanged
-                    assert "crossover_highpass" in captured_config["filters"]
-                    crossover = captured_config["filters"]["crossover_highpass"]
-                    assert crossover["parameters"]["type"] == "Highpass"
-                    assert crossover["parameters"]["freq"] == 80
+                # crossover_highpass should remain unchanged
+                assert "crossover_highpass" in captured_config["filters"]
+                crossover = captured_config["filters"]["crossover_highpass"]
+                assert crossover["parameters"]["type"] == "Highpass"
+                assert crossover["parameters"]["freq"] == 80
 
     @pytest.mark.asyncio
     async def test_bypass_preserves_crossover_lowpass(self, connected_camilladsp_with_effects):
@@ -426,14 +566,13 @@ class TestAC4CrossoverIndependence:
 
         with patch.object(connected_camilladsp_with_effects, '_get_config', new_callable=AsyncMock, return_value=mock_config):
             with patch.object(connected_camilladsp_with_effects, '_set_config', new_callable=AsyncMock, side_effect=capture_config):
-                with patch.object(connected_camilladsp_with_effects, 'save_current_config', new_callable=AsyncMock):
-                    await connected_camilladsp_with_effects.bypass_effects()
+                await connected_camilladsp_with_effects.bypass_effects()
 
-                    # crossover_lowpass should remain unchanged
-                    assert "crossover_lowpass" in captured_config["filters"]
-                    crossover = captured_config["filters"]["crossover_lowpass"]
-                    assert crossover["parameters"]["type"] == "Lowpass"
-                    assert crossover["parameters"]["freq"] == 80
+                # crossover_lowpass should remain unchanged
+                assert "crossover_lowpass" in captured_config["filters"]
+                crossover = captured_config["filters"]["crossover_lowpass"]
+                assert crossover["parameters"]["type"] == "Lowpass"
+                assert crossover["parameters"]["freq"] == 80
 
 
 # =============================================================================
@@ -456,14 +595,13 @@ class TestAC5SettingsPersistence:
 
         with patch.object(connected_camilladsp_with_effects, '_get_config', new_callable=AsyncMock, return_value=mock_config):
             with patch.object(connected_camilladsp_with_effects, '_set_config', new_callable=AsyncMock):
-                with patch.object(connected_camilladsp_with_effects, 'save_current_config', new_callable=AsyncMock):
-                    await connected_camilladsp_with_effects.bypass_effects()
+                await connected_camilladsp_with_effects.bypass_effects()
 
-                    # Verify eq.filters was NOT saved during bypass
-                    filter_calls = [c for c in mock_settings_service.set_setting.call_args_list
-                                   if c[0][0] == "equalizer.filters"]
-                    assert len(filter_calls) == 0, \
-                        "set_setting should NOT be called for eq.filters during bypass"
+                # Verify eq.filters was NOT saved during bypass
+                filter_calls = [c for c in mock_settings_service.set_setting.call_args_list
+                               if c[0][0] == "equalizer.filters"]
+                assert len(filter_calls) == 0, \
+                    "set_setting should NOT be called for eq.filters during bypass"
 
     @pytest.mark.asyncio
     async def test_bypass_does_not_overwrite_saved_compressor_settings(self, connected_camilladsp_with_effects, mock_settings_service):
@@ -478,14 +616,13 @@ class TestAC5SettingsPersistence:
 
         with patch.object(connected_camilladsp_with_effects, '_get_config', new_callable=AsyncMock, return_value=mock_config):
             with patch.object(connected_camilladsp_with_effects, '_set_config', new_callable=AsyncMock):
-                with patch.object(connected_camilladsp_with_effects, 'save_current_config', new_callable=AsyncMock):
-                    await connected_camilladsp_with_effects.bypass_effects()
+                await connected_camilladsp_with_effects.bypass_effects()
 
-                    # Verify eq.compressor was NOT saved during bypass
-                    compressor_calls = [c for c in mock_settings_service.set_setting.call_args_list
-                                       if c[0][0] == "equalizer.compressor"]
-                    assert len(compressor_calls) == 0, \
-                        "set_setting should NOT be called for eq.compressor during bypass"
+                # Verify eq.compressor was NOT saved during bypass
+                compressor_calls = [c for c in mock_settings_service.set_setting.call_args_list
+                                   if c[0][0] == "equalizer.compressor"]
+                assert len(compressor_calls) == 0, \
+                    "set_setting should NOT be called for eq.compressor during bypass"
 
     @pytest.mark.asyncio
     async def test_bypass_does_not_overwrite_saved_loudness_settings(self, connected_camilladsp_with_effects, mock_settings_service):
@@ -500,14 +637,13 @@ class TestAC5SettingsPersistence:
 
         with patch.object(connected_camilladsp_with_effects, '_get_config', new_callable=AsyncMock, return_value=mock_config):
             with patch.object(connected_camilladsp_with_effects, '_set_config', new_callable=AsyncMock):
-                with patch.object(connected_camilladsp_with_effects, 'save_current_config', new_callable=AsyncMock):
-                    await connected_camilladsp_with_effects.bypass_effects()
+                await connected_camilladsp_with_effects.bypass_effects()
 
-                    # Verify eq.loudness was NOT saved during bypass
-                    loudness_calls = [c for c in mock_settings_service.set_setting.call_args_list
-                                     if c[0][0] == "equalizer.loudness"]
-                    assert len(loudness_calls) == 0, \
-                        "set_setting should NOT be called for eq.loudness during bypass"
+                # Verify eq.loudness was NOT saved during bypass
+                loudness_calls = [c for c in mock_settings_service.set_setting.call_args_list
+                                 if c[0][0] == "equalizer.loudness"]
+                assert len(loudness_calls) == 0, \
+                    "set_setting should NOT be called for eq.loudness during bypass"
 
 
 # =============================================================================

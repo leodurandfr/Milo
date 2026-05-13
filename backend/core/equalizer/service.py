@@ -990,35 +990,34 @@ class CamillaDSPService:
         """
         Bypass all equalizer effects while keeping volume control active.
 
-        This is called when user disables "DSP" toggle. CamillaDSP keeps running
-        but all audio processing (EQ, compressor, loudness) is bypassed.
+        Pipeline-only bypass: removes EQ / compressor / loudness references
+        from CamillaDSP's pipeline so the daemon stops applying them. The
+        in-memory cache (`self._filters`, `self._compressor`, `self._loudness`)
+        is the source of truth for user intent and is **never** mutated here —
+        that is what lets `restore_effects()` re-push the exact pre-bypass
+        values without going through disk.
+
+        Filter / processor definitions stay intact in `config["filters"]` and
+        `config["processors"]`; only their pipeline references are removed.
+        Crossover filters share `config["pipeline"]` but use different names
+        (`crossover_*`) so they are untouched.
         """
         if not self._connected:
             self.logger.warning("Cannot bypass effects: not connected")
             return False
 
-        self.logger.info("Bypassing all equalizer effects...")
+        self.logger.info("Bypassing equalizer effects (pipeline-only)")
 
-        # Save current config before bypassing (filters, compressor, loudness)
-        await self.save_current_config()
+        config = await self._get_config()
 
-        # 1. Reset all EQ filters to 0 dB gain (persist=False to keep saved values)
         for f in self._filters:
-            await self.set_filter(
-                filter_id=f["id"],
-                freq=f["freq"],
-                gain=0,  # Bypass = 0 dB gain
-                q=f.get("q", 1.0),
-                filter_type=f.get("type", "Peaking"),
-                persist=False,  # Don't overwrite saved settings
-                broadcast=False  # Suppress per-filter broadcasts (effects_bypassed handles it)
-            )
+            self._remove_filter_from_pipeline(config, f["id"])
 
-        # 2. Disable compressor (persist=False to keep settings for restore)
-        await self.set_compressor(enabled=False, persist=False)
+        self._remove_processor_from_pipeline(config, "compressor")
+        self._remove_filter_from_pipeline(config, "loudness_low")
+        self._remove_filter_from_pipeline(config, "loudness_high")
 
-        # 3. Disable loudness (persist=False to keep settings for restore)
-        await self.set_loudness(enabled=False, persist=False)
+        await self._set_config(config)
 
         self.logger.info("Equalizer effects bypassed (volume unchanged)")
         return True
@@ -1026,47 +1025,76 @@ class CamillaDSPService:
     @handle_errors(default=False)
     async def restore_effects(self) -> bool:
         """
-        Restore all equalizer effects from the in-memory persisted state.
+        Restore all equalizer effects from the in-memory cache.
 
-        This is called when user enables equalizer toggle. Restores EQ filters,
-        compressor, and loudness from values loaded from equalizer.json.
-
-        persist=False on every nested write: we are pushing the file's values
-        out to the daemon, not the other way around. Letting set_filter()
-        schedule a debounced write here would race with itself across the 10
-        bands and corrupt equalizer.json with a partial state.
+        Pushes the user's saved EQ / compressor / loudness state from
+        `self._filters`, `self._compressor`, `self._loudness` to the daemon
+        as a single config write: writes the definitions into
+        `config["filters"]` / `config["processors"]` and (re)adds their
+        pipeline references. Compressor and loudness are only added to the
+        pipeline if their `enabled` flag is True in the cache — preserving
+        the user's per-effect on/off choice across a master bypass/restore
+        cycle.
         """
         if not self._connected:
             self.logger.warning("Cannot restore effects: not connected")
             return False
 
-        self.logger.info("Restoring equalizer effects...")
+        self.logger.info("Restoring equalizer effects from cache")
 
-        # 1. Restore EQ filters
-        if self._filters:
-            for f in list(self._filters):
-                await self.set_filter(
-                    filter_id=f["id"],
-                    freq=f["freq"],
-                    gain=f.get("gain", 0),
-                    q=f.get("q", 1.0),
-                    filter_type=f.get("type", "Peaking"),
-                    persist=False,
-                    broadcast=False  # Suppress per-filter broadcasts (effects_restored handles it)
-                )
+        config = await self._get_config()
+        config.setdefault("filters", {})
+        config.setdefault("processors", {})
 
-        # 2. Restore compressor settings
-        if self._compressor:
-            await self.set_compressor(**self._compressor, persist=False)
+        for f in self._filters:
+            config["filters"][f["id"]] = {
+                "type": "Biquad",
+                "parameters": {
+                    "type": f.get("type", "Peaking"),
+                    "freq": f["freq"],
+                    "gain": f.get("gain", 0),
+                    "q": f.get("q", 1.0),
+                },
+            }
+            self._add_filter_to_pipeline(config, f["id"])
 
-        # 3. Restore loudness settings
-        if self._loudness:
-            await self.set_loudness(
-                enabled=self._loudness.get("enabled"),
-                high_boost=self._loudness.get("high_boost"),
-                low_boost=self._loudness.get("low_boost"),
-                persist=False,
-            )
+        if self._compressor.get("enabled"):
+            config["processors"]["compressor"] = {
+                "type": "Compressor",
+                "parameters": {
+                    "channels": 2,
+                    "threshold": self._compressor["threshold"],
+                    "factor": self._compressor["ratio"],
+                    "attack": self._compressor["attack"] / 1000.0,
+                    "release": self._compressor["release"] / 1000.0,
+                    "makeup_gain": self._compressor["makeup_gain"],
+                },
+            }
+            self._add_processor_to_pipeline(config, "compressor")
+
+        if self._loudness.get("enabled"):
+            config["filters"]["loudness_low"] = {
+                "type": "Biquad",
+                "parameters": {
+                    "type": "Lowshelf",
+                    "freq": 100,
+                    "gain": self._loudness["low_boost"],
+                    "slope": 6.0,
+                },
+            }
+            config["filters"]["loudness_high"] = {
+                "type": "Biquad",
+                "parameters": {
+                    "type": "Highshelf",
+                    "freq": 8000,
+                    "gain": self._loudness["high_boost"],
+                    "slope": 6.0,
+                },
+            }
+            self._add_filter_to_pipeline(config, "loudness_low")
+            self._add_filter_to_pipeline(config, "loudness_high")
+
+        await self._set_config(config)
 
         self.logger.info("Equalizer effects restored")
         return True
@@ -1221,12 +1249,6 @@ class CamillaDSPService:
         self.logger.info(
             "Migrated equalizer state from settings.json -> /var/lib/milo/equalizer.json"
         )
-
-    @handle_errors(default=False)
-    async def save_current_config(self) -> bool:
-        """Persist current configuration to equalizer.json."""
-        await self._persist_state_async()
-        return True
 
     @handle_errors(default=None)
     async def _save_filters(self) -> None:
