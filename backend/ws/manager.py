@@ -158,7 +158,7 @@ class WebSocketServer:
             client_msg = json.loads(message)
 
             if client_msg.get("type") == "ready":
-                current_state = await self.state_machine.get_current_state()
+                current_state = self.state_machine.get_current_state()
 
                 setup_completed = False
                 if self.settings_service:

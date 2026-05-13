@@ -87,10 +87,9 @@ class VolumeStateStore:
         self._zone_target_volumes: Dict[str, float] = {}  # Cached zone targets for initial sync
         self._mode: str = "multiroom"  # 'direct' or 'multiroom'
 
-        # Local volume for direct mode (separate from clients for quick access)
-        self._local_volume_db: float = DEFAULT_VOLUME_DB
-
-        # Cached local client mac_id (set when local client connects)
+        # Local client mac_id. Loaded from disk at init (if previously persisted)
+        # so _clients[_local_mac_id].volume_db can serve as SSOT immediately;
+        # otherwise set by the registry CLIENT_CONNECTED event (ip=127.0.0.1).
         self._local_mac_id: Optional[str] = None
 
         # VolumeConfig reference (set via set_volume_config from VolumeService)
@@ -140,8 +139,34 @@ class VolumeStateStore:
             mac_id = data.get("mac_id")
             client_data = data.get("client", {})
             if mac_id:
-                # Cache local client mac_id for fast lookup
-                if client_data.get("ip") == "127.0.0.1":
+                is_local = client_data.get("ip") == "127.0.0.1"
+
+                # If the local client's MAC changed since the last session
+                # (e.g. network card swap), migrate the persisted volume/mute
+                # from the old MAC entry to the new one so the user's preferred
+                # volume follows the appliance, not the MAC.
+                if (
+                    is_local
+                    and self._local_mac_id
+                    and self._local_mac_id != mac_id
+                ):
+                    async with self._lock:
+                        old_mac = self._local_mac_id
+                        old_client = self._clients.pop(old_mac, None)
+                        if old_client and mac_id not in self._clients:
+                            self._clients[mac_id] = ClientVolume(
+                                volume_db=old_client.volume_db,
+                                offset_db=0.0,
+                                mute=old_client.mute,
+                                available=True,
+                            )
+                            self.logger.info(
+                                f"Local client MAC changed: {old_mac} -> {mac_id}, "
+                                f"migrated volume={old_client.volume_db:.1f}dB"
+                            )
+                            self._schedule_persist()
+
+                if is_local:
                     self._local_mac_id = mac_id
 
                 if mac_id not in self._clients:
@@ -275,7 +300,7 @@ class VolumeStateStore:
                           if self._volume_config else "not set")
             self.logger.info(f"VolumeStateStore initialized: mode={self._mode}, "
                            f"zones={len(self._zones)}, clients={len(self._clients)}, "
-                           f"local_volume={self._local_volume_db:.1f}dB, "
+                           f"local_volume={self.local_volume_db:.1f}dB, "
                            f"limits={limits_info}dB")
 
     async def set_mode(self, mode: str) -> None:
@@ -298,22 +323,23 @@ class VolumeStateStore:
         Set local client volume in memory with debounced persistence.
         Used for direct mode where volume changes are frequent.
         """
-        volume_db = self._clamp_db(volume_db)
-        self._local_volume_db = volume_db
-
-        # Use mac_id as key for consistency with multiroom clients
         local_mac_id = self._local_mac_id
-        if local_mac_id:
-            if local_mac_id in self._clients:
-                self._clients[local_mac_id].volume_db = volume_db
-            else:
-                self._clients[local_mac_id] = ClientVolume(
-                    volume_db=volume_db,
-                    offset_db=0.0,
-                    mute=False,
-                    available=True
-                )
+        if not local_mac_id:
+            self.logger.warning(
+                "set_local_volume called before local mac_id is known; ignored"
+            )
+            return
 
+        volume_db = self._clamp_db(volume_db)
+        if local_mac_id in self._clients:
+            self._clients[local_mac_id].volume_db = volume_db
+        else:
+            self._clients[local_mac_id] = ClientVolume(
+                volume_db=volume_db,
+                offset_db=0.0,
+                mute=False,
+                available=True,
+            )
         self._schedule_persist()
 
     async def _load_zones(self) -> None:
@@ -377,7 +403,7 @@ class VolumeStateStore:
         """
         Load persisted volume state from disk.
 
-        Format: {"timestamp": ISO, "local_volume_db": float, "clients": {...}}
+        Format: {"timestamp": ISO, "local_mac_id": str | null, "clients": {...}}
         """
         try:
             if not self.STORAGE_PATH.exists():
@@ -400,26 +426,26 @@ class VolumeStateStore:
                     self.logger.info(f"Persisted volume state is {age_days} days old (max {self.MAX_AGE_DAYS}), ignoring")
                     return
 
-            # Load local_volume_db and clients
-            if "local_volume_db" in data:
-                local_vol = data.get("local_volume_db", DEFAULT_VOLUME_DB)
-                if -80.0 <= local_vol <= 0.0:
-                    self._local_volume_db = local_vol
+            # Restore local mac_id so local_volume_db property works before the
+            # registry CLIENT_CONNECTED event fires.
+            local_mac_id = data.get("local_mac_id")
+            if isinstance(local_mac_id, str) and local_mac_id:
+                self._local_mac_id = local_mac_id
 
             # Restore client volumes
             clients_data = data.get("clients", {})
-            for hostname, client_data in clients_data.items():
+            for mac_id, client_data in clients_data.items():
                 volume_db = client_data.get("volume_db", DEFAULT_VOLUME_DB)
                 volume_db = self._clamp_db(volume_db)
 
-                self._clients[hostname] = ClientVolume(
+                self._clients[mac_id] = ClientVolume(
                     volume_db=volume_db,
                     offset_db=0.0,  # Offsets computed on demand
                     mute=client_data.get("mute", False),
                     available=False  # Availability set by snapcast events
                 )
 
-            self.logger.info(f"Restored volume state: local={self._local_volume_db:.1f}dB, {len(self._clients)} clients")
+            self.logger.info(f"Restored volume state: local={self.local_volume_db:.1f}dB, {len(self._clients)} clients")
 
         except Exception as e:
             self.logger.error(f"Error loading persisted volume state: {e}", exc_info=True)
@@ -448,13 +474,13 @@ class VolumeStateStore:
         try:
             data = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "local_volume_db": self._local_volume_db,
+                "local_mac_id": self._local_mac_id,
                 "clients": {
-                    hostname: {
+                    mac_id: {
                         "volume_db": client.volume_db,
                         "mute": client.mute
                     }
-                    for hostname, client in self._clients.items()
+                    for mac_id, client in self._clients.items()
                 }
             }
 
@@ -465,32 +491,32 @@ class VolumeStateStore:
                 await f.write(json.dumps(data, indent=2))
 
             temp_path.replace(self.STORAGE_PATH)
-            self.logger.debug(f"Persisted volume state: local={self._local_volume_db:.1f}dB, {len(self._clients)} clients")
+            self.logger.debug(f"Persisted volume state: local={self.local_volume_db:.1f}dB, {len(self._clients)} clients")
 
         except Exception as e:
             self.logger.error(f"Error persisting volume state: {e}", exc_info=True)
 
     # ========== Client Management ==========
 
-    async def register_client(self, hostname: str, volume_db: Optional[float] = None,
+    async def register_client(self, mac_id: str, volume_db: Optional[float] = None,
                              mute: bool = False, available: bool = False) -> None:
         """
         Register or update a client.
 
         Args:
-            hostname: Client hostname (e.g., 'local', 'milo-client')
+            mac_id: Client MAC identifier
             volume_db: Volume in dB (None = keep existing or use default)
             mute: Initial mute state
             available: Initial availability
         """
         async with self._lock:
-            if hostname in self._clients:
+            if mac_id in self._clients:
                 # Update availability and volume if provided
-                self._clients[hostname].available = available
+                self._clients[mac_id].available = available
                 if volume_db is not None:
-                    self._clients[hostname].volume_db = self._clamp_db(volume_db)
+                    self._clients[mac_id].volume_db = self._clamp_db(volume_db)
                     self._schedule_persist()
-                self.logger.debug(f"Updated client: {hostname} -> available={available}, volume_db={self._clients[hostname].volume_db:.1f}dB")
+                self.logger.debug(f"Updated client: {mac_id} -> available={available}, volume_db={self._clients[mac_id].volume_db:.1f}dB")
             else:
                 # New client
                 if volume_db is None:
@@ -498,45 +524,45 @@ class VolumeStateStore:
 
                 volume_db = self._clamp_db(volume_db)
 
-                self._clients[hostname] = ClientVolume(
+                self._clients[mac_id] = ClientVolume(
                     volume_db=volume_db,
                     offset_db=0.0,  # Offsets computed on demand
                     mute=mute,
                     available=available
                 )
 
-                self.logger.info(f"Registered client: {hostname} at {volume_db:.1f}dB")
+                self.logger.info(f"Registered client: {mac_id} at {volume_db:.1f}dB")
 
-    async def set_client_availability(self, hostname: str, available: bool) -> None:
+    async def set_client_availability(self, mac_id: str, available: bool) -> None:
         """
         Update client availability status.
 
         Args:
-            hostname: Client hostname
+            mac_id: Client MAC identifier
             available: New availability state
         """
         async with self._lock:
-            if hostname in self._clients:
-                self._clients[hostname].available = available
-                self.logger.debug(f"Client availability: {hostname} -> {available}")
+            if mac_id in self._clients:
+                self._clients[mac_id].available = available
+                self.logger.debug(f"Client availability: {mac_id} -> {available}")
             else:
-                self.logger.warning(f"Cannot set availability for unknown client: {hostname}")
+                self.logger.warning(f"Cannot set availability for unknown client: {mac_id}")
 
-    async def set_client_mute(self, hostname: str, mute: bool) -> None:
+    async def set_client_mute(self, mac_id: str, mute: bool) -> None:
         """
         Set client mute state.
 
         Args:
-            hostname: Client hostname
+            mac_id: Client MAC identifier
             mute: New mute state
         """
         async with self._lock:
-            if hostname in self._clients:
-                self._clients[hostname].mute = mute
+            if mac_id in self._clients:
+                self._clients[mac_id].mute = mute
                 self._schedule_persist()
-                self.logger.debug(f"Client mute: {hostname} -> {mute}")
+                self.logger.debug(f"Client mute: {mac_id} -> {mute}")
             else:
-                self.logger.warning(f"Cannot mute unknown client: {hostname}")
+                self.logger.warning(f"Cannot mute unknown client: {mac_id}")
 
     async def set_client_volume(self, mac_id: str, volume_db: float) -> float:
         """
@@ -572,25 +598,32 @@ class VolumeStateStore:
 
         return volume_db
 
-    def get_client_volume(self, hostname: str) -> Optional[float]:
+    def get_client_volume(self, mac_id: str) -> Optional[float]:
         """Get persisted volume for a client, or None if not registered."""
-        if hostname in self._clients:
-            return self._clients[hostname].volume_db
+        if mac_id in self._clients:
+            return self._clients[mac_id].volume_db
         return None
 
-    def get_client_mute(self, hostname: str) -> bool:
+    def get_client_mute(self, mac_id: str) -> bool:
         """Get mute state for a client. Returns False if not registered."""
-        client = self._clients.get(hostname)
+        client = self._clients.get(mac_id)
         return client.mute if client else False
 
-    def has_client(self, hostname: str) -> bool:
+    def has_client(self, mac_id: str) -> bool:
         """Check if a client is registered in the volume state."""
-        return hostname in self._clients
+        return mac_id in self._clients
 
     @property
     def local_volume_db(self) -> float:
-        """Current local volume in dB (direct mode)."""
-        return self._local_volume_db
+        """Current local volume in dB (direct mode).
+
+        SSOT is _clients[_local_mac_id].volume_db. Returns DEFAULT_VOLUME_DB
+        only at first-ever boot, before any persisted state exists and before
+        the local client has registered with snapcast.
+        """
+        if self._local_mac_id and self._local_mac_id in self._clients:
+            return self._clients[self._local_mac_id].volume_db
+        return DEFAULT_VOLUME_DB
 
     @property
     def local_mac_id(self) -> Optional[str]:
@@ -708,11 +741,11 @@ class VolumeStateStore:
 
             # Compute offsets for clients (offset = client_volume - zone_average)
             clients_with_offsets = {}
-            for hostname, client in self._clients.items():
+            for mac_id, client in self._clients.items():
                 # Find which zone this client belongs to
                 zone_avg = None
                 for zone_id, zone_config in self._zones.items():
-                    if hostname in zone_config.client_ids:
+                    if mac_id in zone_config.client_ids:
                         zone_avg = self.compute_zone_average(zone_id)
                         break
 
@@ -723,7 +756,7 @@ class VolumeStateStore:
                     offset = 0.0
 
                 # Create client with computed offset
-                clients_with_offsets[hostname] = ClientVolume(
+                clients_with_offsets[mac_id] = ClientVolume(
                     volume_db=client.volume_db,
                     offset_db=offset,
                     mute=client.mute,
@@ -745,12 +778,7 @@ class VolumeStateStore:
             # - Direct mode: use local client's volume
             # - Multiroom mode: average of all available, unmuted clients
             if self._mode == "direct":
-                local_mac_id = self._local_mac_id
-                local_client = self._clients.get(local_mac_id) if local_mac_id else None
-                if local_client and local_client.available:
-                    global_volume = local_client.volume_db
-                else:
-                    global_volume = self._local_volume_db
+                global_volume = self.local_volume_db
             else:
                 # Multiroom: average of all available clients with volume control (exclude DAC)
                 all_volumes = [

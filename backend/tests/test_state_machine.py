@@ -57,10 +57,9 @@ class TestAudioStateMachine:
         state_other = state_machine.get_source_state(AudioSource.BLUETOOTH)
         assert state_other == SourceState.WAITING
 
-    @pytest.mark.asyncio
-    async def test_get_current_state(self, state_machine):
+    def test_get_current_state(self, state_machine):
         """Current state retrieval test"""
-        state = await state_machine.get_current_state()
+        state = state_machine.get_current_state()
 
         assert "active_source" in state
         assert "source_state" in state

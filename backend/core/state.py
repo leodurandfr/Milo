@@ -78,7 +78,7 @@ class AudioStateMachine:
             return self.system_state.source_state
         return SourceState.WAITING
 
-    async def get_current_state(self) -> Dict[str, Any]:
+    def get_current_state(self) -> Dict[str, Any]:
         """Return current system state as dict."""
         return self.system_state.to_dict()
 
@@ -294,9 +294,9 @@ class AudioStateMachine:
         if not source or not hasattr(source, '_refresh_metadata'):
             return False
 
-        if await source._refresh_metadata() and hasattr(source, '_metadata'):
+        if await source._refresh_metadata():
             async with self._state_lock:
-                self.system_state.metadata = source._metadata.copy()
+                self.system_state.metadata = source.metadata
             return True
 
         return False

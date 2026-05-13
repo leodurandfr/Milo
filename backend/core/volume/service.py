@@ -684,8 +684,9 @@ class VolumeService:
         - True: Use persisted volume from last_volume.json
         - False: Use startup_volume_db from settings.json
 
-        Note: At startup, registry may not have the local client yet, so we use
-        _local_volume_db and direct CamillaDSP service calls.
+        Note: At startup, registry may not have the local client yet, so we
+        rely on startup_volume_db from settings (the single source of truth at
+        boot) and apply it directly to CamillaDSP.
         """
         # Wait for CamillaDSP connection
         if self._camilladsp_service:

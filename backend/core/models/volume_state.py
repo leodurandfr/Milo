@@ -1,4 +1,4 @@
-# backend/domain/volume_state.py
+# backend/core/models/volume_state.py
 """
 Unified volume state domain models.
 
