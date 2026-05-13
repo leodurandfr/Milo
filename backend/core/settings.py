@@ -360,25 +360,92 @@ class SettingsService:
 
     @handle_errors(default=False)
     async def set_setting(self, key_path: str, value: Any) -> bool:
-        """Sets a setting and invalidates cache (async)"""
-        settings = await self.load_settings()
+        """Sets a setting atomically and invalidates cache (async)"""
+        async with self._file_lock:
+            settings = await self._read_locked()
 
-        keys = key_path.split('.')
-        current = settings
-        for key in keys[:-1]:
-            if key not in current:
-                current[key] = {}
-            current = current[key]
+            keys = key_path.split('.')
+            current = settings
+            for key in keys[:-1]:
+                if key not in current:
+                    current[key] = {}
+                current = current[key]
 
-        current[keys[-1]] = value
+            current[keys[-1]] = value
 
-        success = await self.save_settings(settings)
+            success = await self._write_locked(settings)
 
-        # Invalidate cache to force reload
         if success:
             self._cache = None
 
         return success
+
+    @handle_errors(default=False)
+    async def delete_setting(self, key_path: str) -> bool:
+        """Atomically remove a setting key if present. No-op if it doesn't exist."""
+        async with self._file_lock:
+            settings = await self._read_locked()
+
+            keys = key_path.split('.')
+            current = settings
+            for key in keys[:-1]:
+                if not isinstance(current, dict) or key not in current:
+                    return True  # Nothing to delete
+                current = current[key]
+
+            if not (isinstance(current, dict) and keys[-1] in current):
+                return True
+
+            del current[keys[-1]]
+            success = await self._write_locked(settings)
+
+        if success:
+            self._cache = None
+
+        return success
+
+    async def _read_locked(self) -> Dict[str, Any]:
+        """Read + validate settings. Caller must hold self._file_lock.
+
+        Falls back to defaults on missing/empty/corrupt files so that a write
+        operation can recover the file rather than fail.
+        """
+        if not os.path.exists(self.settings_file):
+            return self.defaults.copy()
+        try:
+            async with aiofiles.open(self.settings_file, 'r', encoding='utf-8') as f:
+                content = await f.read()
+            if not content.strip():
+                return self.defaults.copy()
+            return self._validate_and_merge(json.loads(content))
+        except json.JSONDecodeError:
+            self.logger.warning("settings.json corrupt during locked read; using defaults")
+            return self.defaults.copy()
+
+    async def _write_locked(self, settings: Dict[str, Any]) -> bool:
+        """Validate + atomically write settings. Caller must hold self._file_lock."""
+        try:
+            validated = self._validate_and_merge(settings)
+            temp_file = self.settings_file + '.tmp'
+            json_content = json.dumps(validated, ensure_ascii=False, indent=2)
+
+            async with aiofiles.open(temp_file, 'w', encoding='utf-8') as f:
+                await f.write(json_content)
+                await f.write('\n')
+                await f.flush()
+                os.fsync(f.fileno())
+
+            os.replace(temp_file, self.settings_file)
+            self._cache = validated
+            return True
+        except Exception as e:
+            self.logger.error(f"Error writing settings: {e}")
+            try:
+                if os.path.exists(self.settings_file + '.tmp'):
+                    os.remove(self.settings_file + '.tmp')
+            except Exception:
+                pass
+            return False
 
     def get_volume_config(self) -> Dict[str, Any]:
         """Synchronous helper method (uses cache only)"""

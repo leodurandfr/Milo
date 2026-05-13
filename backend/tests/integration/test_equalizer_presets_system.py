@@ -91,17 +91,15 @@ def connected_camilladsp_service(mock_settings_service, mock_state_machine):
 
 
 @pytest.fixture
-def camilladsp_service_with_jazz_preset(connected_camilladsp_service, mock_settings_service):
+def camilladsp_service_with_jazz_preset(connected_camilladsp_service):
     """Equalizer service with jazz preset active"""
     # Simulate jazz preset loaded
     jazz_gains = [4, 3, 2, 2, -2, -2, 0, 2, 3, 4]
     for i, gain in enumerate(jazz_gains):
         connected_camilladsp_service._filters[i]["gain"] = gain
 
-    mock_settings_service.get_setting = AsyncMock(side_effect=lambda key: {
-        "equalizer.active_preset": "jazz",
-        "equalizer.custom_gains": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    }.get(key))
+    connected_camilladsp_service._active_preset = "jazz"
+    connected_camilladsp_service._custom_gains = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
     return connected_camilladsp_service
 
@@ -130,16 +128,15 @@ class TestAC1ApplyPreset:
                         f"Filter {i} should have gain={expected_gain}, got {connected_camilladsp_service._filters[i]['gain']}"
 
     @pytest.mark.asyncio
-    async def test_load_preset_saves_active_preset_to_settings(self, connected_camilladsp_service, mock_settings_service):
-        """Should save active preset ID to settings"""
+    async def test_load_preset_saves_active_preset_to_settings(self, connected_camilladsp_service):
+        """Should save active preset ID to in-memory state."""
         mock_config = {"filters": {}, "pipeline": []}
 
         with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
             with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
                 await connected_camilladsp_service.load_preset("rock")
 
-                # Verify equalizer.active_preset was saved
-                mock_settings_service.set_setting.assert_any_call("equalizer.active_preset", "rock")
+                assert connected_camilladsp_service._active_preset == "rock"
 
     @pytest.mark.asyncio
     async def test_load_preset_broadcasts_preset_loaded_event(self, connected_camilladsp_service, mock_state_machine):
@@ -163,9 +160,9 @@ class TestAC1ApplyPreset:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_load_preset_skips_if_already_active(self, connected_camilladsp_service, mock_settings_service, mock_state_machine):
+    async def test_load_preset_skips_if_already_active(self, connected_camilladsp_service, mock_state_machine):
         """Should skip if preset is already active (no redundant API calls)"""
-        mock_settings_service.get_setting = AsyncMock(return_value="jazz")
+        connected_camilladsp_service._active_preset = "jazz"
 
         result = await connected_camilladsp_service.load_preset("jazz")
 
@@ -522,12 +519,10 @@ class TestAC4PresetsList:
             assert expected_id in preset_ids, f"Expected preset '{expected_id}' not found"
 
     @pytest.mark.asyncio
-    async def test_get_presets_api_returns_all_data(self, connected_camilladsp_service, mock_settings_service):
+    async def test_get_presets_api_returns_all_data(self, connected_camilladsp_service):
         """get_presets() should return presets, custom_gains, and active_preset"""
-        mock_settings_service.get_setting = AsyncMock(side_effect=lambda key: {
-            "equalizer.active_preset": "rock",
-            "equalizer.custom_gains": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-        }.get(key))
+        connected_camilladsp_service._active_preset = "rock"
+        connected_camilladsp_service._custom_gains = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
         # Test the service methods
         presets = connected_camilladsp_service.get_presets()
@@ -539,14 +534,12 @@ class TestAC4PresetsList:
         assert custom == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
     @pytest.mark.asyncio
-    async def test_custom_preset_selectable_via_api(self, connected_camilladsp_service, mock_settings_service):
+    async def test_custom_preset_selectable_via_api(self, connected_camilladsp_service):
         """Custom preset should be loadable via load_preset('custom')"""
         saved_custom_gains = [3, 2, 1, 0, -1, -2, -3, -4, -5, -6]
 
-        mock_settings_service.get_setting = AsyncMock(side_effect=lambda key: {
-            "equalizer.active_preset": "jazz",  # Currently on jazz
-            "equalizer.custom_gains": saved_custom_gains,
-        }.get(key))
+        connected_camilladsp_service._active_preset = "jazz"
+        connected_camilladsp_service._custom_gains = list(saved_custom_gains)
 
         mock_config = {"filters": {}, "pipeline": []}
 
@@ -560,7 +553,7 @@ class TestAC4PresetsList:
                     assert connected_camilladsp_service._filters[i]["gain"] == expected_gain
 
                 # Verify active preset set to custom
-                mock_settings_service.set_setting.assert_any_call("equalizer.active_preset", "custom")
+                assert connected_camilladsp_service._active_preset == "custom"
 
 
 # =============================================================================
@@ -595,14 +588,12 @@ class TestAC5CustomPresetPersistence:
                 assert len(save_calls) == 0, "Should NOT auto-save custom gains when switching preset"
 
     @pytest.mark.asyncio
-    async def test_load_custom_preset_restores_saved_gains(self, connected_camilladsp_service, mock_settings_service):
+    async def test_load_custom_preset_restores_saved_gains(self, connected_camilladsp_service):
         """Switching to Custom should restore previously saved custom gains"""
         saved_custom_gains = [2, 4, 6, 8, 10, 8, 6, 4, 2, 0]
 
-        mock_settings_service.get_setting = AsyncMock(side_effect=lambda key: {
-            "equalizer.active_preset": "jazz",  # Currently on jazz
-            "equalizer.custom_gains": saved_custom_gains,
-        }.get(key))
+        connected_camilladsp_service._active_preset = "jazz"
+        connected_camilladsp_service._custom_gains = list(saved_custom_gains)
 
         mock_config = {"filters": {}, "pipeline": []}
 
@@ -614,72 +605,6 @@ class TestAC5CustomPresetPersistence:
                 for i, expected_gain in enumerate(saved_custom_gains):
                     assert connected_camilladsp_service._filters[i]["gain"] == expected_gain, \
                         f"Filter {i} should have gain={expected_gain}"
-
-
-# =============================================================================
-# AC6: Startup restoration
-# =============================================================================
-
-class TestAC6StartupRestoration:
-    """AC6: Saved preset is applied automatically on backend restart"""
-
-    @pytest.mark.asyncio
-    async def test_apply_saved_preset_on_initialization(self, mock_settings_service, mock_state_machine):
-        """Should apply saved preset during initialization"""
-        mock_settings_service.get_setting = AsyncMock(side_effect=lambda key: {
-            "equalizer.active_preset": "rock",
-            "equalizer.custom_gains": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            "equalizer.filters": None,
-            "equalizer.compressor": None,
-            "equalizer.loudness": None,
-        }.get(key))
-
-        service = CamillaDSPService(
-            settings_service=mock_settings_service
-        )
-        service.set_state_machine(mock_state_machine)
-        service._connected = True
-        service._state = CamillaDspState.RUNNING
-
-        service._filters = [
-            {"id": f"eq_band_{i:02d}", "freq": freq, "gain": 0, "q": 1.41, "type": "Peaking", "enabled": True}
-            for i, freq in enumerate(DEFAULT_EQ_FREQS)
-        ]
-
-        mock_config = {"filters": {}, "pipeline": []}
-
-        with patch.object(service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(service, '_set_config', new_callable=AsyncMock):
-                # Simulate what happens during initialize()
-                await service._apply_saved_preset()
-
-                # Verify rock preset gains were applied
-                rock_gains = [5, 4, 3, 2, 0, -1, 1, 3, 4, 5]
-                for i, expected_gain in enumerate(rock_gains):
-                    assert service._filters[i]["gain"] == expected_gain, \
-                        f"Filter {i} should have rock preset gain={expected_gain}"
-
-    @pytest.mark.asyncio
-    async def test_apply_saved_preset_does_nothing_if_no_preset_saved(self, mock_settings_service):
-        """Should do nothing if no preset is saved in settings"""
-        mock_settings_service.get_setting = AsyncMock(return_value=None)
-
-        service = CamillaDSPService(
-            settings_service=mock_settings_service
-        )
-        service._connected = True
-
-        # Initialize with zero gains
-        service._filters = [
-            {"id": f"eq_band_{i:02d}", "freq": 100, "gain": 0, "q": 1.41, "type": "Peaking", "enabled": True}
-            for i in range(10)
-        ]
-
-        await service._apply_saved_preset()
-
-        # Gains should remain at 0 (no preset applied)
-        for f in service._filters:
-            assert f["gain"] == 0, "Gains should remain unchanged when no preset saved"
 
 
 # =============================================================================

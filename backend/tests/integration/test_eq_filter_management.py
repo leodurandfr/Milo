@@ -120,19 +120,15 @@ class TestAC1FilterParameterUpdate:
                 assert filter_00["q"] == 2.0
 
     @pytest.mark.asyncio
-    async def test_set_filter_persists_to_settings(self, connected_camilladsp_service, mock_settings_service):
-        """Should persist filter changes to settings service"""
+    async def test_set_filter_persists_to_settings(self, connected_camilladsp_service):
+        """Should schedule a persist to equalizer.json after a filter change."""
         mock_config = {"filters": {"eq_band_00": {"type": "Biquad", "parameters": {"type": "Peaking", "freq": 31, "gain": 0, "q": 1.41}}}}
 
         with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
             with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
-                await connected_camilladsp_service.set_filter("eq_band_00", freq=100, gain=3.0, q=1.41)
-
-                # Verify settings were saved
-                mock_settings_service.set_setting.assert_called()
-                # Find the call that saves filters
-                filter_calls = [c for c in mock_settings_service.set_setting.call_args_list if c[0][0] == "equalizer.filters"]
-                assert len(filter_calls) >= 1
+                with patch.object(connected_camilladsp_service, '_schedule_persist') as mock_persist:
+                    await connected_camilladsp_service.set_filter("eq_band_00", freq=100, gain=3.0, q=1.41)
+                    mock_persist.assert_called()
 
 
 # =============================================================================

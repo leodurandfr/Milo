@@ -293,7 +293,7 @@ class TestAudioRoutingService:
 
         assert result is True
         assert routing_service.equalizer_effects_enabled is True
-        mock_settings_service.set_setting.assert_called_with('equalizer.effects_enabled', True)
+        mock_settings_service.set_setting.assert_called_with('routing.equalizer_effects_enabled', True)
 
     @pytest.mark.asyncio
     async def test_set_equalizer_effects_enabled_with_source_restart(self, routing_service, mock_source, mock_settings_service):
