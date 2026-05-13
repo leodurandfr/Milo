@@ -30,20 +30,16 @@ class SourceState(Enum):
 @dataclass
 class SystemAudioState:
     """
-    Complete audio system state combining:
-    - Active source
-    - Operational state of the active source
-    - Associated metadata
-    - Audio routing state (multiroom_enabled flag)
-    - equalizer effects state (equalizer, compressor, loudness enabled)
+    Source-scoped audio state. Global feature flags (`multiroom_enabled`,
+    `equalizer_effects_enabled`) are owned by their respective services
+    (AudioRoutingService, CamillaDSPService) and merged into the wire payload
+    by AudioStateMachine.broadcast_event.
     """
     active_source: AudioSource = AudioSource.NONE
     source_state: SourceState = SourceState.WAITING
     transitioning: bool = False
     metadata: Dict[str, Any] = field(default_factory=dict)
     error: Optional[str] = None
-    multiroom_enabled: bool = False
-    equalizer_effects_enabled: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert state to dictionary for serialization."""
@@ -53,7 +49,5 @@ class SystemAudioState:
             "transitioning": self.transitioning,
             "metadata": self.metadata,
             "error": self.error,
-            "multiroom_enabled": self.multiroom_enabled,
-            "equalizer_effects_enabled": self.equalizer_effects_enabled
         }
 

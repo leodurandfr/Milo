@@ -206,11 +206,12 @@ class SnapclientEnv:
 
 class AudioRoutingService:
     """
-    Audio routing service - UNIFIED version
+    Audio routing service.
 
-    IMPORTANT: This service no longer has its own state. It directly uses
-    state_machine.system_state as the single source of truth for multiroom_enabled
-    and equalizer_effects_enabled. This eliminates desynchronization risks.
+    Owns `multiroom_enabled` as in-memory state (loaded from settings at init).
+    `equalizer_effects_enabled` is owned by CamillaDSPService and read through
+    a property. The state machine reads both via these accessors when
+    aggregating `full_state` for source/system broadcasts.
     """
 
     def __init__(self, get_source_callback: Optional[Callable] = None, settings_service=None, systemd_manager=None):
@@ -225,6 +226,9 @@ class AudioRoutingService:
         self.state_machine = None
         self.camilladsp_service = None
         self.volume_service = None
+
+        # Owned state: multiroom on/off. Loaded from settings in _detect_initial_state.
+        self._multiroom_enabled: bool = False
 
         # Lock to guarantee atomicity of routing operations
         self._routing_lock = asyncio.Lock()
@@ -271,44 +275,33 @@ class AudioRoutingService:
             return value.lower() in ('true', '1', 'yes', 'on', 'enabled')
         return bool(value)
 
-    # === Properties to access unified state (state_machine.system_state) ===
+    # === State accessors ===
+    # multiroom_enabled is owned here. equalizer_effects_enabled is owned by
+    # CamillaDSPService — we proxy reads/writes so AudioRoutingService remains
+    # the single coordination point for both flags from the routing flows.
 
     async def _get_multiroom_enabled(self) -> bool:
-        """Read multiroom state (safe in asyncio single-threaded)."""
-        if not self.state_machine:
-            return False
-        return self.state_machine.system_state.multiroom_enabled
+        return self._multiroom_enabled
 
-    async def _set_multiroom_state(self, value: bool, silent: bool = True) -> None:
-        """Set multiroom state via state_machine public method."""
-        if self.state_machine:
-            await self.state_machine.update_multiroom_state(value, silent=silent)
+    async def _set_multiroom_state(self, value: bool) -> None:
+        self._multiroom_enabled = value
 
     async def _get_equalizer_effects_enabled(self) -> bool:
-        """Read equalizer effects state (safe in asyncio single-threaded)."""
-        if not self.state_machine:
-            return False
-        return self.state_machine.system_state.equalizer_effects_enabled
+        return self.equalizer_effects_enabled
 
-    async def _set_equalizer_effects_state(self, value: bool, silent: bool = True) -> None:
-        """Set equalizer effects state via state_machine public method."""
-        if self.state_machine:
-            await self.state_machine.update_equalizer_effects_state(value, silent=silent)
+    async def _set_equalizer_effects_state(self, value: bool) -> None:
+        if self.camilladsp_service:
+            self.camilladsp_service.set_effects_enabled(value)
 
-    # Synchronous properties for compatibility (read-only, may be slightly out of sync)
     @property
     def multiroom_enabled(self) -> bool:
-        """Accesses multiroom state (FAST READ - may be slightly out of sync)"""
-        if not self.state_machine:
-            return False
-        return self.state_machine.system_state.multiroom_enabled
+        return self._multiroom_enabled
 
     @property
     def equalizer_effects_enabled(self) -> bool:
-        """Accesses equalizer effects state (FAST READ - may be slightly out of sync)"""
-        if not self.state_machine:
+        if not self.camilladsp_service:
             return False
-        return self.state_machine.system_state.equalizer_effects_enabled
+        return self.camilladsp_service.effects_enabled
 
     async def initialize(self) -> None:
         """Initializes service state"""
@@ -320,17 +313,15 @@ class AudioRoutingService:
         try:
             self.logger.info("Initializing routing state with persistence...")
 
-            # Load state from SettingsService
+            # Load multiroom_enabled from settings (this service owns it).
+            # equalizer_effects_enabled is loaded by CamillaDSPService itself.
             if self.settings_service:
                 multiroom = await self.settings_service.get_setting('routing.multiroom_enabled')
-                equalizer_effects = await self.settings_service.get_setting('equalizer.effects_enabled')
-                await self._set_multiroom_state(self._to_bool(multiroom))
-                await self._set_equalizer_effects_state(self._to_bool(equalizer_effects))
+                self._multiroom_enabled = self._to_bool(multiroom)
                 self.logger.info(f"Loaded state from settings: multiroom={self.multiroom_enabled}, equalizer_effects={self.equalizer_effects_enabled}")
             else:
                 self.logger.warning("SettingsService not available, using defaults")
-                await self._set_multiroom_state(False)
-                await self._set_equalizer_effects_state(False)
+                self._multiroom_enabled = False
 
             await self._update_systemd_environment()
             await self._sync_snapcast_state()
@@ -379,8 +370,14 @@ class AudioRoutingService:
             connected = await self.camilladsp_service.connect()
             if connected:
                 self.logger.info("Backend connected to CamillaDSP daemon")
-                current_equalizer_effects = await self._get_equalizer_effects_enabled()
-                if current_equalizer_effects:
+                # Read directly from settings: routing.initialize() and
+                # camilladsp.initialize() run concurrently in init_async, so
+                # camilladsp._effects_enabled may not yet be loaded from its
+                # own _load_saved_config when we get here.
+                effects_setting = await self.settings_service.get_setting('equalizer.effects_enabled') if self.settings_service else False
+                effects_enabled = self._to_bool(effects_setting)
+                self.camilladsp_service.set_effects_enabled(effects_enabled)
+                if effects_enabled:
                     self.logger.info("Equalizer effects enabled, restoring from settings")
                     await self.camilladsp_service.restore_effects()
                 else:
@@ -504,9 +501,16 @@ class AudioRoutingService:
             # PHASE 3 — BEST EFFORT
             await self._post_transition_setup_best_effort(enabled)
 
-            # Final non-silent broadcast (commit was silent)
+            # Final state broadcast — full_state aggregation reads multiroom_enabled
+            # from this service's property so the wire payload is unchanged.
             if self.state_machine:
-                await self.state_machine.update_multiroom_state(enabled)
+                await self.state_machine.broadcast_event("system", "state_changed", {
+                    "old_state": old_state,
+                    "new_state": enabled,
+                    "multiroom_changed": True,
+                    "multiroom_enabled": enabled,
+                    "source": "routing",
+                })
 
             self.logger.info(f"Multiroom transition complete: {enabled}")
             return True
@@ -699,9 +703,15 @@ class AudioRoutingService:
             self._get_equalizer_effects_enabled, self._set_equalizer_effects_state,
             enabled, "equalizer_effects", body,
         )
-        # Broadcast final state after successful transition
+        # Broadcast final state after successful transition.
+        # full_state aggregation reads equalizer_effects_enabled from camilladsp.
         if success and self.state_machine:
-            await self.state_machine.update_equalizer_effects_state(enabled)
+            await self.state_machine.broadcast_event("system", "state_changed", {
+                "old_state": not enabled,
+                "new_state": enabled,
+                "equalizer_effects_changed": True,
+                "source": "equalizer",
+            })
         return success
 
     async def _update_systemd_environment(self) -> None:

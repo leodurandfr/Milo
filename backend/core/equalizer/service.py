@@ -97,6 +97,11 @@ class CamillaDSPService:
             "mute": False
         }
 
+        # Owned state: equalizer effects on/off. Loaded from settings in
+        # _load_saved_config. Read by AudioStateMachine.broadcast_event when
+        # aggregating full_state, and by AudioRoutingService via property.
+        self._effects_enabled: bool = False
+
     def set_state_machine(self, state_machine) -> None:
         self.state_machine = state_machine
 
@@ -125,6 +130,20 @@ class CamillaDSPService:
     @property
     def connected(self) -> bool:
         return self._connected and self._client is not None
+
+    @property
+    def effects_enabled(self) -> bool:
+        """Whether equalizer effects (EQ, compressor, loudness) are active."""
+        return self._effects_enabled
+
+    def set_effects_enabled(self, value: bool) -> None:
+        """Update the in-memory effects-enabled cache.
+
+        AudioRoutingService is the orchestrator: it calls bypass_effects/
+        restore_effects and persists to settings.json. This setter only updates
+        the cache so the broadcaster (AudioStateMachine) reads the right value.
+        """
+        self._effects_enabled = bool(value)
 
     async def wait_for_connection(self, timeout: float = 10.0) -> bool:
         """
@@ -261,12 +280,7 @@ class CamillaDSPService:
                 await self._on_reconnect_callback()
 
             # Check if equalizer effects are enabled or bypassed
-            effects_enabled = (
-                self.state_machine.system_state.equalizer_effects_enabled
-                if self.state_machine else False
-            )
-
-            if effects_enabled:
+            if self._effects_enabled:
                 self.logger.info("Reconnected: restoring equalizer effects from settings")
                 await self.restore_effects()
             else:
@@ -1022,6 +1036,12 @@ class CamillaDSPService:
         """Load saved equalizer configuration from settings"""
         if not self.settings_service:
             return
+
+        # Load effects-enabled flag (this service owns it)
+        saved_effects_enabled = await self.settings_service.get_setting("equalizer.effects_enabled")
+        if saved_effects_enabled is not None:
+            self._effects_enabled = bool(saved_effects_enabled)
+            self.logger.info(f"Loaded saved effects_enabled: {self._effects_enabled}")
 
         # Load filters
         saved_filters = await self.settings_service.get_setting("equalizer.filters")

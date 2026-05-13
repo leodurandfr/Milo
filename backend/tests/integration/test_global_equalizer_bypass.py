@@ -311,16 +311,14 @@ class TestAC3ZonePropagation:
 
         # Set up state_machine mock
         mock_sm = Mock()
-        mock_sm.system_state = Mock()
-        mock_sm.system_state.equalizer_effects_enabled = False
         mock_sm.broadcast_event = AsyncMock()
-        mock_sm.update_equalizer_effects_state = AsyncMock(
-            side_effect=lambda v, silent=False: setattr(mock_sm.system_state, 'equalizer_effects_enabled', v)
-        )
         routing.set_state_machine(mock_sm)
 
-        # Mock camilladsp_service
+        # Mock camilladsp_service — owns effects_enabled cache + setter
         mock_camilladsp = Mock()
+        mock_camilladsp._effects_enabled = False
+        type(mock_camilladsp).effects_enabled = property(lambda self: self._effects_enabled)
+        mock_camilladsp.set_effects_enabled = lambda v: setattr(mock_camilladsp, '_effects_enabled', bool(v))
         mock_camilladsp.bypass_effects = AsyncMock(return_value=True)
         mock_camilladsp.restore_effects = AsyncMock(return_value=True)
         routing.set_camilladsp_service(mock_camilladsp)
@@ -546,42 +544,32 @@ class TestAC6StateSync:
 
     @pytest.mark.asyncio
     async def test_routing_service_applies_state_on_init(self):
-        """Routing service should apply equalizer_effects_enabled on initialization
+        """Routing service should apply equalizer effects state on initialization.
 
-        This test verifies that during _detect_initial_state(), the routing service
-        calls restore_effects() when equalizer.effects_enabled is True in settings, or
-        bypass_effects() when it's False.
+        During _detect_initial_state(), routing reads `equalizer.effects_enabled`
+        directly from settings (because camilladsp.initialize() runs concurrently
+        and may not have loaded the flag yet), pushes the value into camilladsp's
+        cache, then calls restore_effects() or bypass_effects() accordingly.
         """
         from backend.core.multiroom.routing import AudioRoutingService
 
         mock_settings = Mock()
         mock_settings.get_setting = AsyncMock(side_effect=lambda key: {
             "routing.multiroom_enabled": False,
-            "equalizer.effects_enabled": True,  # Equalizer effects enabled in settings
-            "equalizer.enabled": None,
+            "equalizer.effects_enabled": True,
         }.get(key))
         mock_settings.set_setting = AsyncMock()
 
         routing = AudioRoutingService(settings_service=mock_settings)
 
-        # Set up state_machine mock
         mock_sm = Mock()
-        mock_sm.system_state = Mock()
-        mock_sm.system_state.multiroom_enabled = False
-        mock_sm.system_state.equalizer_effects_enabled = True  # Match settings
         mock_sm.broadcast_event = AsyncMock()
-        mock_sm.update_multiroom_state = AsyncMock(
-            side_effect=lambda v, silent=False: setattr(mock_sm.system_state, 'multiroom_enabled', v)
-        )
-        mock_sm.update_equalizer_effects_state = AsyncMock(
-            side_effect=lambda v, silent=False: setattr(mock_sm.system_state, 'equalizer_effects_enabled', v)
-        )
         routing.set_state_machine(mock_sm)
 
-        # Mock camilladsp_service (must not be connected yet for connect to succeed)
         mock_camilladsp = Mock()
-        mock_camilladsp.connected = False  # Not connected initially
-        mock_camilladsp.connect = AsyncMock(return_value=True)  # Connect succeeds
+        mock_camilladsp.connected = False
+        mock_camilladsp.connect = AsyncMock(return_value=True)
+        mock_camilladsp.set_effects_enabled = Mock()
         mock_camilladsp.bypass_effects = AsyncMock(return_value=True)
         mock_camilladsp.restore_effects = AsyncMock(return_value=True)
         routing.set_camilladsp_service(mock_camilladsp)
@@ -595,8 +583,9 @@ class TestAC6StateSync:
         # Run initialization
         await routing._detect_initial_state()
 
-        # connect() should be called, then restore_effects() since equalizer.effects_enabled = True
+        # connect() then push the setting into camilladsp, then restore_effects()
         mock_camilladsp.connect.assert_called_once()
+        mock_camilladsp.set_effects_enabled.assert_called_once_with(True)
         mock_camilladsp.restore_effects.assert_called_once()
 
 
@@ -642,16 +631,14 @@ class TestDspEnabledAPI:
 
         # Set up state_machine mock
         mock_sm = Mock()
-        mock_sm.system_state = Mock()
-        mock_sm.system_state.equalizer_effects_enabled = True  # Currently enabled
         mock_sm.broadcast_event = AsyncMock()
-        mock_sm.update_equalizer_effects_state = AsyncMock(
-            side_effect=lambda v, silent=False: setattr(mock_sm.system_state, 'equalizer_effects_enabled', v)
-        )
         routing.set_state_machine(mock_sm)
 
-        # Mock camilladsp_service
+        # Mock camilladsp_service — owns effects_enabled cache + setter, currently enabled
         mock_camilladsp = Mock()
+        mock_camilladsp._effects_enabled = True
+        type(mock_camilladsp).effects_enabled = property(lambda self: self._effects_enabled)
+        mock_camilladsp.set_effects_enabled = lambda v: setattr(mock_camilladsp, '_effects_enabled', bool(v))
         mock_camilladsp.bypass_effects = AsyncMock(return_value=True)
         mock_camilladsp.restore_effects = AsyncMock(return_value=True)
         routing.set_camilladsp_service(mock_camilladsp)
