@@ -126,8 +126,6 @@ def mock_state_machine_for_ws(mock_volume_service):
         transitioning=False,
         metadata={},
         error=None,
-        multiroom_enabled=False,
-        equalizer_effects_enabled=True
     )
 
     # Methods
@@ -138,8 +136,6 @@ def mock_state_machine_for_ws(mock_volume_service):
         "transitioning": False,
         "metadata": {},
         "error": None,
-        "multiroom_enabled": False,
-        "equalizer_effects_enabled": True
     })
     sm.broadcast_event = AsyncMock()
 
@@ -866,8 +862,6 @@ class TestReconnection:
             "transitioning": False,
             "metadata": {"station": "Test FM"},
             "error": None,
-            "multiroom_enabled": False,
-            "equalizer_effects_enabled": True
         })
 
         # Reconnect

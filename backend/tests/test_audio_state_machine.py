@@ -200,24 +200,6 @@ class TestSourceStateUpdate:
         assert state_machine.system_state.error == "Connection failed"
 
 
-class TestMultiroomAndEqualizer:
-    """Test multiroom and Equalizer state updates."""
-
-    @pytest.mark.asyncio
-    async def test_update_multiroom_state(self, state_machine):
-        """Test updating multiroom state."""
-        await state_machine.update_multiroom_state(True)
-
-        assert state_machine.system_state.multiroom_enabled is True
-
-    @pytest.mark.asyncio
-    async def test_update_equalizer_effects_state(self, state_machine):
-        """Test updating Equalizer effects state."""
-        await state_machine.update_equalizer_effects_state(True)
-
-        assert state_machine.system_state.equalizer_effects_enabled is True
-
-
 class TestWebSocketBroadcasting:
     """Test WebSocket broadcasting via ws_manager."""
 
@@ -265,6 +247,28 @@ class TestWebSocketBroadcasting:
 
         call_args = mock_manager.broadcast_dict.call_args[0][0]
         assert "full_state" not in call_args["data"]
+
+    @pytest.mark.asyncio
+    async def test_broadcast_full_state_aggregates_flags_from_services(self, state_machine):
+        """Source/system events must merge multiroom_enabled and
+        equalizer_effects_enabled into full_state from their owning services."""
+        mock_manager = Mock()
+        mock_manager.broadcast_dict = AsyncMock()
+        state_machine.ws_manager = mock_manager
+
+        # Wire stand-in services exposing the two flag properties
+        routing = Mock()
+        routing.multiroom_enabled = True
+        equalizer = Mock()
+        equalizer.effects_enabled = False
+        state_machine.routing_service = routing
+        state_machine.equalizer_service = equalizer
+
+        await state_machine.broadcast_event("source", "state_changed", {"source": "radio"})
+
+        full_state = mock_manager.broadcast_dict.call_args[0][0]["data"]["full_state"]
+        assert full_state["multiroom_enabled"] is True
+        assert full_state["equalizer_effects_enabled"] is False
 
     @pytest.mark.asyncio
     async def test_transition_broadcasts_to_websocket(self, state_machine, mock_source):

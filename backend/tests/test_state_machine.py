@@ -197,20 +197,6 @@ class TestAudioStateMachine:
         assert state_machine.system_state.source_state == old_state
 
     @pytest.mark.asyncio
-    async def test_update_multiroom_state(self, state_machine):
-        """Multiroom state update test"""
-        await state_machine.update_multiroom_state(True)
-
-        assert state_machine.system_state.multiroom_enabled is True
-
-    @pytest.mark.asyncio
-    async def test_update_equalizer_effects_state(self, state_machine):
-        """Equalizer effects state update test"""
-        await state_machine.update_equalizer_effects_state(True)
-
-        assert state_machine.system_state.equalizer_effects_enabled is True
-
-    @pytest.mark.asyncio
     async def test_broadcast_event(self, state_machine, mock_ws_manager):
         """Event broadcast test"""
         await state_machine.broadcast_event("test", "test_event", {"data": "value"})

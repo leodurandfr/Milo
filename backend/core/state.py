@@ -52,9 +52,12 @@ class AudioStateMachine:
         self._last_activity_time: float = monotonic()
         self._inactivity_monitor_task: Optional[asyncio.Task] = None
 
-        # Set after creation in dependencies.py (circular dependency resolution)
+        # Set after creation in dependencies.py (circular dependency resolution).
+        # routing_service / equalizer_service expose multiroom_enabled and
+        # effects_enabled, which broadcast_event aggregates into full_state.
         self.ws_manager = None
         self.routing_service = None
+        self.equalizer_service = None
 
     def register_source(self, source: AudioSource, instance: BaseAudioSource) -> None:
         """Register an audio source implementation."""
@@ -79,8 +82,21 @@ class AudioStateMachine:
         return SourceState.WAITING
 
     def get_current_state(self) -> Dict[str, Any]:
-        """Return current system state as dict."""
-        return self.system_state.to_dict()
+        """Return current system state as dict.
+
+        Mirrors the aggregation in `broadcast_event`: pulls multiroom_enabled
+        from routing_service and equalizer_effects_enabled from equalizer_service
+        so the wire payload (notably the initial_state on WS connect) carries
+        both global flags.
+        """
+        state = self.system_state.to_dict()
+        state["multiroom_enabled"] = (
+            self.routing_service.multiroom_enabled if self.routing_service else False
+        )
+        state["equalizer_effects_enabled"] = (
+            self.equalizer_service.effects_enabled if self.equalizer_service else False
+        )
+        return state
 
     async def transition_to_source(
         self,
@@ -243,47 +259,6 @@ class AudioStateMachine:
             "metadata": metadata
         })
 
-    async def update_multiroom_state(self, enabled: bool, silent: bool = False) -> None:
-        """Update multiroom state.
-
-        Args:
-            enabled: New multiroom state
-            silent: If True, skip broadcasting (used during transitions or startup
-                    where an intermediate state should not be exposed to the frontend)
-        """
-        async with self._state_lock:
-            old_state = self.system_state.multiroom_enabled
-            self.system_state.multiroom_enabled = enabled
-
-        if not silent:
-            await self.broadcast_event("system", "state_changed", {
-                "old_state": old_state,
-                "new_state": enabled,
-                "multiroom_changed": True,
-                "multiroom_enabled": enabled,
-                "source": "routing"
-            })
-
-    async def update_equalizer_effects_state(self, enabled: bool, silent: bool = False) -> None:
-        """Update equalizer effects state.
-
-        Args:
-            enabled: New equalizer effects state
-            silent: If True, skip broadcasting (used during transitions or startup
-                    where an intermediate state should not be exposed to the frontend)
-        """
-        async with self._state_lock:
-            old_state = self.system_state.equalizer_effects_enabled
-            self.system_state.equalizer_effects_enabled = enabled
-
-        if not silent:
-            await self.broadcast_event("system", "state_changed", {
-                "old_state": old_state,
-                "new_state": enabled,
-                "equalizer_effects_changed": True,
-                "source": "equalizer"
-            })
-
     @handle_errors(default=False, level='warning')
     async def refresh_active_metadata(self) -> bool:
         """Refresh metadata from the active source."""
@@ -442,7 +417,7 @@ class AudioStateMachine:
 
         event_payload = dict(data)
         if include_full_state and category in self._FULL_STATE_CATEGORIES:
-            event_payload["full_state"] = self.system_state.to_dict()
+            event_payload["full_state"] = self.get_current_state()
 
         await self.ws_manager.broadcast_dict({
             "category": category,

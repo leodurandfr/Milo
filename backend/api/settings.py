@@ -416,10 +416,7 @@ def create_settings_router(
                         if not success:
                             raise ValueError("Failed to stop milo-snapclient-multiroom.service")
 
-                        # 5. Notify the frontend via WebSocket
-                        operations_log.append("Broadcasting multiroom state update")
-                        logger.info("Broadcasting multiroom state update to frontend")
-                        await state_machine.update_multiroom_state(False)
+                        # set_multiroom_enabled already broadcast the new state.
 
                     # === EQUALIZER ===
                     elif app == 'equalizer':
@@ -475,10 +472,7 @@ def create_settings_router(
                         if not success:
                             raise ValueError("Failed to start milo-snapclient-multiroom.service")
 
-                        # 5. Notify the frontend via WebSocket
-                        operations_log.append("Broadcasting multiroom state update")
-                        logger.info("Broadcasting multiroom state update to frontend")
-                        await state_machine.update_multiroom_state(True)
+                        # set_multiroom_enabled already broadcast the new state.
 
                     # === EQUALIZER ===
                     elif app == 'equalizer':

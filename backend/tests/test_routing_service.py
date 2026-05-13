@@ -9,6 +9,26 @@ from backend.core.multiroom import AudioRoutingService
 from backend.core.models.audio_state import AudioSource
 
 
+class _CamillaStub:
+    """Lightweight stub for CamillaDSPService used in routing tests.
+
+    Mimics the effects_enabled property + set_effects_enabled cache writer
+    surface that AudioRoutingService talks to.
+    """
+
+    def __init__(self, enabled: bool = False):
+        self._effects_enabled = enabled
+        self.bypass_effects = AsyncMock(return_value=True)
+        self.restore_effects = AsyncMock(return_value=True)
+
+    @property
+    def effects_enabled(self) -> bool:
+        return self._effects_enabled
+
+    def set_effects_enabled(self, value: bool) -> None:
+        self._effects_enabled = bool(value)
+
+
 class TestAudioRoutingService:
     """Tests for the audio routing service"""
 
@@ -33,9 +53,10 @@ class TestAudioRoutingService:
         # Set up state machine (normally done via set_state_machine())
         mock_state_machine = Mock()
         mock_state_machine._transition_lock = asyncio.Lock()
-        mock_state_machine.update_multiroom_state = AsyncMock()
-        mock_state_machine.update_equalizer_effects_state = AsyncMock()
+        mock_state_machine.broadcast_event = AsyncMock()
         service.state_machine = mock_state_machine
+        # Wire a camilladsp stub so equalizer_effects_enabled property works
+        service.camilladsp_service = _CamillaStub()
         return service
 
     def test_initialization(self, routing_service):
@@ -103,19 +124,15 @@ class TestAudioRoutingService:
         assert routing_service.state_machine == mock_sm
 
     def test_get_state(self, routing_service):
-        """State retrieval test - now returns a dict"""
-        # Add a mock state_machine
-        mock_sm = Mock()
-        mock_sm.system_state = Mock()
-        mock_sm.system_state.multiroom_enabled = False
-        mock_sm.system_state.equalizer_effects_enabled = False
-        routing_service.set_state_machine(mock_sm)
+        """State retrieval test - returns dict reading from owned cache + camilladsp"""
+        routing_service._multiroom_enabled = False
+        routing_service.camilladsp_service = _CamillaStub(enabled=False)
 
         state = routing_service.get_state()
 
         assert isinstance(state, dict)
-        assert 'multiroom_enabled' in state
-        assert 'equalizer_effects_enabled' in state
+        assert state['multiroom_enabled'] is False
+        assert state['equalizer_effects_enabled'] is False
 
     @pytest.mark.asyncio
     async def test_initialize_with_settings(self, routing_service, mock_settings_service):
@@ -123,24 +140,12 @@ class TestAudioRoutingService:
         # Reset the flag
         routing_service._initial_detection_done = False
 
-        # Create a mock state_machine with AsyncMock for public update methods
-        mock_sm = Mock()
-        mock_sm.system_state = Mock()
-        mock_sm.system_state.multiroom_enabled = False
-        mock_sm.system_state.equalizer_effects_enabled = False
-        mock_sm.update_multiroom_state = AsyncMock(
-            side_effect=lambda v, silent=False: setattr(mock_sm.system_state, 'multiroom_enabled', v)
-        )
-        mock_sm.update_equalizer_effects_state = AsyncMock(
-            side_effect=lambda v, silent=False: setattr(mock_sm.system_state, 'equalizer_effects_enabled', v)
-        )
-        routing_service.set_state_machine(mock_sm)
-
-        # Use AsyncMock with side_effect for async method
+        # Use AsyncMock with side_effect for async method.
+        # Only routing.multiroom_enabled is loaded by routing_service now;
+        # equalizer.effects_enabled is loaded by CamillaDSPService itself.
         async def get_setting_side_effect(key):
             return {
                 'routing.multiroom_enabled': True,
-                'equalizer.effects_enabled': False
             }.get(key)
 
         mock_settings_service.get_setting = AsyncMock(side_effect=get_setting_side_effect)
@@ -149,8 +154,7 @@ class TestAudioRoutingService:
             with patch.object(routing_service, 'get_snapcast_status', new_callable=AsyncMock, return_value={"multiroom_available": False}):
                 await routing_service.initialize()
 
-        assert mock_sm.system_state.multiroom_enabled is True
-        assert mock_sm.system_state.equalizer_effects_enabled is False
+        assert routing_service.multiroom_enabled is True
 
     @pytest.mark.asyncio
     async def test_initialize_without_settings_service(self):
@@ -168,11 +172,7 @@ class TestAudioRoutingService:
     @pytest.mark.asyncio
     async def test_set_multiroom_enabled_already_enabled(self, routing_service):
         """set_multiroom_enabled test when already in desired state (no-op)"""
-        mock_sm = Mock()
-        mock_sm.system_state = Mock()
-        mock_sm.system_state.multiroom_enabled = True
-        mock_sm.update_multiroom_state = AsyncMock()
-        routing_service.set_state_machine(mock_sm)
+        routing_service._multiroom_enabled = True
 
         result = await routing_service.set_multiroom_enabled(True)
 
@@ -181,14 +181,7 @@ class TestAudioRoutingService:
     @pytest.mark.asyncio
     async def test_set_multiroom_enabled_success(self, routing_service, mock_settings_service):
         """Successful multiroom activation test"""
-        mock_state_machine = Mock()
-        mock_state_machine.system_state = Mock()
-        mock_state_machine.system_state.multiroom_enabled = False
-        mock_state_machine.broadcast_event = AsyncMock()
-        mock_state_machine.update_multiroom_state = AsyncMock(
-            side_effect=lambda v, silent=False: setattr(mock_state_machine.system_state, 'multiroom_enabled', v)
-        )
-        routing_service.set_state_machine(mock_state_machine)
+        routing_service._multiroom_enabled = False
 
         with patch('backend.core.multiroom.routing.RoutingEnv.regenerate'):
             with patch.object(routing_service, '_apply_transition', new_callable=AsyncMock):
@@ -196,21 +189,18 @@ class TestAudioRoutingService:
                     result = await routing_service.set_multiroom_enabled(True)
 
         assert result is True
-        assert mock_state_machine.system_state.multiroom_enabled is True
+        assert routing_service.multiroom_enabled is True
         # settings.json is the FIRST write in _commit_state — no longer the LAST
         mock_settings_service.set_setting.assert_called_with('routing.multiroom_enabled', True)
+        # Final state broadcast carries multiroom_enabled in payload
+        broadcast_calls = [c for c in routing_service.state_machine.broadcast_event.call_args_list
+                           if c.args[:2] == ("system", "state_changed")]
+        assert any(c.args[2].get("multiroom_enabled") is True for c in broadcast_calls)
 
     @pytest.mark.asyncio
     async def test_set_multiroom_enabled_failure_rollback(self, routing_service, mock_settings_service):
         """Apply-phase failure test with full state + settings + services rollback (symmetry)."""
-        mock_sm = Mock()
-        mock_sm.system_state = Mock()
-        mock_sm.system_state.multiroom_enabled = False
-        mock_sm.broadcast_event = AsyncMock()
-        mock_sm.update_multiroom_state = AsyncMock(
-            side_effect=lambda v, silent=False: setattr(mock_sm.system_state, 'multiroom_enabled', v)
-        )
-        routing_service.set_state_machine(mock_sm)
+        routing_service._multiroom_enabled = False
 
         # Track _apply_transition calls so we can verify rollback symmetry:
         # call 1 with target=True must raise; call 2 with target=False must run.
@@ -228,8 +218,8 @@ class TestAudioRoutingService:
                     result = await routing_service.set_multiroom_enabled(True)
 
         assert result is False
-        # State machine reverted to False
-        assert mock_sm.system_state.multiroom_enabled is False
+        # Owned cache reverted to False
+        assert routing_service.multiroom_enabled is False
         # _apply_transition called twice: target then rollback to old state
         assert apply_calls == [True, False]
         # routing.env was regenerated to True (commit) AND back to False (rollback)
@@ -243,7 +233,7 @@ class TestAudioRoutingService:
         # PHASE 3 must be skipped on rollback
         mock_best_effort.assert_not_called()
         # multiroom_error event was broadcast
-        error_events = [c for c in mock_sm.broadcast_event.call_args_list
+        error_events = [c for c in routing_service.state_machine.broadcast_event.call_args_list
                         if c.args[:2] == ("routing", "multiroom_error")]
         assert len(error_events) == 1
 
@@ -252,14 +242,7 @@ class TestAudioRoutingService:
         self, routing_service, mock_settings_service
     ):
         """PHASE 3 (post_transition WS/volume) failure must not fail the transition."""
-        mock_sm = Mock()
-        mock_sm.system_state = Mock()
-        mock_sm.system_state.multiroom_enabled = False
-        mock_sm.broadcast_event = AsyncMock()
-        mock_sm.update_multiroom_state = AsyncMock(
-            side_effect=lambda v, silent=False: setattr(mock_sm.system_state, 'multiroom_enabled', v)
-        )
-        routing_service.set_state_machine(mock_sm)
+        routing_service._multiroom_enabled = False
 
         # Wire a WS service that raises on start_connection
         ws_service = Mock()
@@ -274,7 +257,7 @@ class TestAudioRoutingService:
 
         assert result is True
         # State committed, ready event still attempted, no rollback
-        assert mock_sm.system_state.multiroom_enabled is True
+        assert routing_service.multiroom_enabled is True
         mock_settings_service.set_setting.assert_called_with('routing.multiroom_enabled', True)
 
     @pytest.mark.asyncio
@@ -283,14 +266,6 @@ class TestAudioRoutingService:
         flip _initial_detection_done to True, so subsequent calls retry."""
         # Force _initial_detection_done back to False (fixture sets True)
         routing_service._initial_detection_done = False
-
-        mock_sm = Mock()
-        mock_sm.system_state = Mock()
-        mock_sm.system_state.multiroom_enabled = False
-        mock_sm.system_state.equalizer_effects_enabled = False
-        mock_sm.update_multiroom_state = AsyncMock()
-        mock_sm.update_equalizer_effects_state = AsyncMock()
-        routing_service.set_state_machine(mock_sm)
 
         # Make the very first settings read raise — covers a transient I/O fault
         mock_settings_service.get_setting = AsyncMock(side_effect=RuntimeError("settings boom"))
@@ -303,11 +278,7 @@ class TestAudioRoutingService:
     @pytest.mark.asyncio
     async def test_set_equalizer_effects_enabled_already_enabled(self, routing_service):
         """set_equalizer_effects_enabled test when already in desired state (no-op)"""
-        mock_sm = Mock()
-        mock_sm.system_state = Mock()
-        mock_sm.system_state.equalizer_effects_enabled = True
-        mock_sm.update_equalizer_effects_state = AsyncMock()
-        routing_service.set_state_machine(mock_sm)
+        routing_service.camilladsp_service = _CamillaStub(enabled=True)
 
         result = await routing_service.set_equalizer_effects_enabled(True)
 
@@ -316,32 +287,18 @@ class TestAudioRoutingService:
     @pytest.mark.asyncio
     async def test_set_equalizer_effects_enabled_success(self, routing_service, mock_settings_service):
         """Successful Equalizer effects activation test"""
-        mock_sm = Mock()
-        mock_sm.system_state = Mock()
-        mock_sm.system_state.equalizer_effects_enabled = False
-        mock_sm.broadcast_event = AsyncMock()
-        mock_sm.update_equalizer_effects_state = AsyncMock(
-            side_effect=lambda v, silent=False: setattr(mock_sm.system_state, 'equalizer_effects_enabled', v)
-        )
-        routing_service.set_state_machine(mock_sm)
+        routing_service.camilladsp_service = _CamillaStub(enabled=False)
 
         result = await routing_service.set_equalizer_effects_enabled(True)
 
         assert result is True
-        assert mock_sm.system_state.equalizer_effects_enabled is True
+        assert routing_service.equalizer_effects_enabled is True
         mock_settings_service.set_setting.assert_called_with('equalizer.effects_enabled', True)
 
     @pytest.mark.asyncio
     async def test_set_equalizer_effects_enabled_with_source_restart(self, routing_service, mock_source, mock_settings_service):
         """Equalizer effects activation test with active source restart"""
-        mock_sm = Mock()
-        mock_sm.system_state = Mock()
-        mock_sm.system_state.equalizer_effects_enabled = False
-        mock_sm.broadcast_event = AsyncMock()
-        mock_sm.update_equalizer_effects_state = AsyncMock(
-            side_effect=lambda v, silent=False: setattr(mock_sm.system_state, 'equalizer_effects_enabled', v)
-        )
-        routing_service.set_state_machine(mock_sm)
+        routing_service.camilladsp_service = _CamillaStub(enabled=False)
         routing_service.set_source_callback(lambda source: mock_source if source == AudioSource.SPOTIFY else None)
 
         result = await routing_service.set_equalizer_effects_enabled(True, active_source=AudioSource.SPOTIFY)
@@ -353,11 +310,7 @@ class TestAudioRoutingService:
     @pytest.mark.asyncio
     async def test_update_systemd_environment_validation(self, routing_service):
         """Environment file writing test"""
-        mock_sm = Mock()
-        mock_sm.system_state = Mock()
-        mock_sm.system_state.multiroom_enabled = True
-        mock_sm.system_state.equalizer_effects_enabled = False
-        routing_service.set_state_machine(mock_sm)
+        routing_service._multiroom_enabled = True
 
         # NEW: test file writing instead of sudo
         # Use mock_open from unittest.mock which supports fileno()
@@ -375,11 +328,7 @@ class TestAudioRoutingService:
     @pytest.mark.asyncio
     async def test_update_systemd_environment_file_content(self, routing_service):
         """Environment file content writing test"""
-        mock_sm = Mock()
-        mock_sm.system_state = Mock()
-        mock_sm.system_state.multiroom_enabled = True
-        mock_sm.system_state.equalizer_effects_enabled = True
-        routing_service.set_state_machine(mock_sm)
+        routing_service._multiroom_enabled = True
 
         # Test file content
         from unittest.mock import mock_open as create_mock_open

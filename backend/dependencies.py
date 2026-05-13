@@ -304,6 +304,10 @@ def initialize_services() -> None:
     # 2.5 - state_machine ← routing_service (circular reference)
     state_machine.routing_service = routing_service
 
+    # 2.5b - state_machine ← camilladsp_service (read effects_enabled when
+    # aggregating full_state for source/system broadcasts)
+    state_machine.equalizer_service = camilladsp_service
+
     # (crossover_service, equalizer_settings_sync_service, equalizer_client_proxy_service
     # are wired directly to their consumers — no longer stored on state_machine)
 
