@@ -11,10 +11,10 @@ Two mutually-exclusive read modes — guarded by an asyncio.Lock — are exposed
 
 - **runtime**: filter EV_KEY events to dispatch volume / play-pause / track,
   and resolve MENU clicks. At resolution time (400 ms after the first press)
-  the resolver branches on whether MENU is still held: held → screen sleep,
-  released with 1 tap → cycle next audio source in dock order, released
-  with 2+ taps → transition to NONE. Active whenever the controller is
-  enabled and a remote is paired.
+  the resolver branches on whether MENU is still held: held → transition to
+  NONE + screen sleep, released with 1 tap → cycle next audio source in
+  dock order, released with 2+ taps → transition to NONE. Active whenever
+  the controller is enabled and a remote is paired.
 - **pairing**: filter EV_MSC/MSC_SCAN to capture one valid Apple scancode,
   extract its device_id, then regenerate the keymap so only that remote is
   recognized going forward. Bounded by a timeout.
@@ -356,6 +356,7 @@ class IrRemoteController:
             self._menu_click_count = 0
             self._menu_click_timer = None
             if held:
+                await self.state_machine.transition_to_source(AudioSource.NONE)
                 await self.screen_controller.force_sleep()
             elif count >= 2:
                 await self.state_machine.transition_to_source(AudioSource.NONE)
