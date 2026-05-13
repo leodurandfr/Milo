@@ -2,6 +2,7 @@
 Description=Snapcast Server for Milo Multiroom
 After=network-online.target
 Wants=network-online.target
+PartOf=milo-backend.service
 
 [Service]
 Type=simple
@@ -12,5 +13,5 @@ Restart=on-failure
 RestartSec=5
 MemoryMax=256M
 
-[Install]
-WantedBy=multi-user.target
+# Lifecycle: started/stopped exclusively by AudioRoutingService._sync_snapcast_state
+# based on settings.routing.multiroom_enabled. Intentionally not WantedBy any target.

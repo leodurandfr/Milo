@@ -12,6 +12,16 @@ from typing import Dict, Any
 from backend.config.constants import DEFAULT_VOLUME_DB, VALID_DOCK_APPS, AUDIO_SOURCE_APPS, UTILITY_DOCK_APPS, DEFAULT_DOCK_APPS, SETTINGS_FILE, VALID_LANGUAGES
 from backend.shared.decorators import handle_errors
 
+
+class SettingsWriteError(RuntimeError):
+    """Raised when persisting settings to disk fails.
+
+    Use the strict write APIs (e.g. ``set_setting_strict``) from code paths
+    that must not silently desync — they raise this instead of swallowing
+    the failure.
+    """
+
+
 class SettingsService:
     """Simplified settings manager with support for 0 = disabled"""
 
@@ -313,16 +323,34 @@ class SettingsService:
         return validated
 
     def get_setting_sync(self, key_path: str) -> Any:
-        """Gets a setting by path (SYNCHRONOUS - uses cache or blocking load)"""
+        """Get a setting by path (SYNCHRONOUS — bootstrap and sync property reads only).
+
+        Prefer the async ``get_setting`` from runtime code. After Phase 4 of
+        the multiroom-desync plan, the legitimate callers are:
+
+        * ``AudioRoutingService.regenerate_env_files`` — derives the three
+          env-file artifacts from settings during boot (event loop not yet
+          running) and during ``_detect_initial_state``.
+        * ``AudioRoutingService.multiroom_enabled`` property — hot-path
+          sync read used by the state machine when aggregating ``full_state``
+          for source/system events.
+        * ``PodcastSource.__init__`` — credential read at construction time
+          (cache is already populated by the bootstrap helper).
+
+        Loaded data is run through ``_validate_and_merge`` before caching
+        so missing keys (e.g. older installs without a ``routing`` block)
+        resolve to validated defaults rather than ``None``.
+        """
         if not self._cache:
-            # Load synchronously if needed (blocking but rare)
             try:
                 if os.path.exists(self.settings_file):
                     with open(self.settings_file, 'r', encoding='utf-8') as f:
-                        self._cache = json.load(f)
+                        raw = json.load(f)
+                    self._cache = self._validate_and_merge(raw)
                 else:
                     self._cache = self.defaults.copy()
-            except Exception:
+            except Exception as e:
+                self.logger.warning(f"get_setting_sync fallback to defaults: {e}")
                 self._cache = self.defaults.copy()
 
         try:
@@ -360,7 +388,12 @@ class SettingsService:
 
     @handle_errors(default=False)
     async def set_setting(self, key_path: str, value: Any) -> bool:
-        """Sets a setting atomically and invalidates cache (async)"""
+        """Sets a setting atomically and invalidates cache (async).
+
+        Lossy variant: swallows exceptions and returns ``False`` on failure.
+        Use :meth:`set_setting_strict` from code paths that must not silently
+        desync (e.g. multiroom transition).
+        """
         async with self._file_lock:
             settings = await self._read_locked()
 
@@ -379,6 +412,32 @@ class SettingsService:
             self._cache = None
 
         return success
+
+    async def set_setting_strict(self, key_path: str, value: Any) -> None:
+        """Set a setting atomically; raise on disk-write failure.
+
+        Failure-loud variant of :meth:`set_setting` for code paths where a
+        silently-swallowed write would leave the system in a split-brain
+        state (settings.json vs derived artifacts vs in-memory caches).
+        """
+        async with self._file_lock:
+            settings = await self._read_locked()
+
+            keys = key_path.split('.')
+            current = settings
+            for key in keys[:-1]:
+                if key not in current:
+                    current[key] = {}
+                current = current[key]
+
+            current[keys[-1]] = value
+
+            success = await self._write_locked(settings)
+
+        if not success:
+            raise SettingsWriteError(f"Failed to persist setting '{key_path}'")
+
+        self._cache = None
 
     @handle_errors(default=False)
     async def delete_setting(self, key_path: str) -> bool:

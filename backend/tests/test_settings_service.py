@@ -7,7 +7,7 @@ import json
 import os
 import tempfile
 from unittest.mock import patch
-from backend.core.settings import SettingsService
+from backend.core.settings import SettingsService, SettingsWriteError
 
 
 class TestSettingsService:
@@ -402,3 +402,144 @@ class TestSettingsService:
             result = await service.save_settings({'language': 'french'})
 
             assert result is False
+
+    # ------------------------------------------------------------------ #
+    # Phase 1 — failure-loud writes and validated sync reads             #
+    # ------------------------------------------------------------------ #
+
+    @pytest.mark.asyncio
+    async def test_set_setting_strict_persists_value(self, service):
+        """set_setting_strict succeeds on a normal write and clears the cache."""
+        service._cache = service.defaults.copy()
+
+        await service.set_setting_strict('language', 'spanish')
+
+        assert service._cache is None
+        assert await service.get_setting('language') == 'spanish'
+
+    @pytest.mark.asyncio
+    async def test_set_setting_strict_raises_on_disk_failure(self, service):
+        """set_setting_strict raises SettingsWriteError when the disk write fails."""
+        await service.save_settings(service.defaults)
+
+        async def fake_write_locked(_settings):
+            return False
+
+        with patch.object(service, '_write_locked', side_effect=fake_write_locked):
+            with pytest.raises(SettingsWriteError):
+                await service.set_setting_strict(
+                    'routing.multiroom_enabled', True
+                )
+
+        # File on disk must still hold the pre-write value
+        with open(service.settings_file, 'r') as f:
+            on_disk = json.load(f)
+        assert on_disk['routing']['multiroom_enabled'] is False
+
+    @pytest.mark.asyncio
+    async def test_set_setting_strict_does_not_mutate_cache_on_failure(self, service):
+        """A failed strict write must not leave a partially-updated cache."""
+        await service.save_settings(service.defaults)
+        # Pre-populate the cache via a normal read.
+        await service.get_setting('routing.multiroom_enabled')
+        cache_before = service._cache
+
+        async def fake_write_locked(_settings):
+            return False
+
+        with patch.object(service, '_write_locked', side_effect=fake_write_locked):
+            with pytest.raises(SettingsWriteError):
+                await service.set_setting_strict(
+                    'routing.multiroom_enabled', True
+                )
+
+        # _write_locked failed before the post-write `self._cache = None`,
+        # so the cache should still hold the old, consistent state.
+        assert service._cache is cache_before
+        assert service._cache['routing']['multiroom_enabled'] is False
+
+    def test_get_setting_sync_validates_missing_keys(self, service, temp_settings_file):
+        """Bootstrap reads of legacy files without a `routing` block must
+        return the validated default (False) — not None.
+
+        This guards against Defect 5 in the multiroom-state-desync plan:
+        an unvalidated cache fill that propagated `None` into
+        RoutingEnv.regenerate.
+        """
+        # Write a legacy-shaped settings.json missing the `routing` block.
+        legacy_settings = {'language': 'english'}
+        with open(temp_settings_file, 'w') as f:
+            json.dump(legacy_settings, f)
+
+        service._cache = None
+
+        value = service.get_setting_sync('routing.multiroom_enabled')
+
+        assert value is False
+
+    @pytest.mark.asyncio
+    async def test_get_setting_sync_followed_by_get_setting_is_consistent(
+        self, service, temp_settings_file
+    ):
+        """get_setting_sync must not poison the cache for subsequent
+        async reads. The cache must hold validated data either way.
+        """
+        legacy_settings = {'language': 'english'}
+        with open(temp_settings_file, 'w') as f:
+            json.dump(legacy_settings, f)
+
+        service._cache = None
+
+        sync_value = service.get_setting_sync('routing.multiroom_enabled')
+        async_value = await service.get_setting('routing.multiroom_enabled')
+
+        assert sync_value is False
+        assert async_value is False
+
+    @pytest.mark.asyncio
+    async def test_get_setting_sync_corrupt_file_falls_back_to_defaults(
+        self, service, temp_settings_file
+    ):
+        """Corrupted JSON during bootstrap must not crash and must yield
+        validated defaults (not a None-poisoned cache).
+        """
+        with open(temp_settings_file, 'w') as f:
+            f.write('{"invalid json')
+
+        service._cache = None
+
+        value = service.get_setting_sync('routing.multiroom_enabled')
+
+        assert value is False
+
+    @pytest.mark.asyncio
+    async def test_delete_setting_returns_false_on_disk_failure(self, service):
+        """delete_setting swallows write failures and returns False.
+
+        Documents the *current* lossy semantics — equalizer callers do not
+        rely on the strict variant, so this is acceptable for now. If a
+        critical-path caller of delete_setting appears, mirror set_setting
+        and add a `delete_setting_strict` instead.
+        """
+        await service.save_settings(service.defaults)
+
+        async def fake_write_locked(_settings):
+            return False
+
+        with patch.object(service, '_write_locked', side_effect=fake_write_locked):
+            result = await service.delete_setting('routing.multiroom_enabled')
+
+        assert result is False
+        # File on disk must still hold the pre-call value
+        with open(service.settings_file, 'r') as f:
+            on_disk = json.load(f)
+        assert 'multiroom_enabled' in on_disk['routing']
+
+    @pytest.mark.asyncio
+    async def test_delete_setting_missing_key_is_noop(self, service):
+        """Deleting a key that doesn't exist is a successful no-op."""
+        await service.save_settings(service.defaults)
+
+        result = await service.delete_setting('nonexistent.key')
+
+        assert result is True

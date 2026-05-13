@@ -112,8 +112,16 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine, cam
                         if snapclient_fragments is not None:
                             await settings_service.set_setting('multiroom.snapclient_fragments', snapclient_fragments)
 
-                    # Regenerate snapclient.env from the just-saved settings
-                    SnapclientEnv.regenerate(settings_service)
+                    # Resolve effective fragments value: explicit if provided,
+                    # otherwise re-read from settings (async), otherwise default.
+                    effective_fragments = snapclient_fragments
+                    if effective_fragments is None and settings_service:
+                        effective_fragments = await settings_service.get_setting('multiroom.snapclient_fragments')
+                    if effective_fragments is None:
+                        effective_fragments = DEFAULT_SNAPCLIENT_CONFIG['fragments']
+
+                    # Regenerate snapclient.env with the resolved values
+                    SnapclientEnv.regenerate(snapclient_buffer_time, effective_fragments)
 
                     # Restart local snapclient to apply new buffer settings
                     if routing_service and routing_service.service_manager:
@@ -123,14 +131,7 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine, cam
                         except Exception as e:
                             logger.error(f"Failed to restart local snapclient: {e}")
 
-                    # Propagate to remote clients (fire-and-forget). Read fragments
-                    # back from settings so a buffer-only update doesn't reset
-                    # remotes to the hardcoded default.
-                    effective_fragments = snapclient_fragments
-                    if effective_fragments is None and settings_service:
-                        effective_fragments = settings_service.get_setting_sync('multiroom.snapclient_fragments')
-                    if effective_fragments is None:
-                        effective_fragments = DEFAULT_SNAPCLIENT_CONFIG['fragments']
+                    # Propagate to remote clients (fire-and-forget)
                     asyncio.create_task(
                         _push_snapclient_config_to_remotes(snapclient_buffer_time, effective_fragments)
                     )

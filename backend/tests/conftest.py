@@ -59,10 +59,35 @@ def mock_source():
 
 @pytest.fixture
 def mock_settings_service():
-    """Mock of SettingsService"""
+    """Mock of SettingsService — stateful for routing-style read-after-write tests.
+
+    Reads via ``get_setting`` / ``get_setting_sync`` and writes via
+    ``set_setting`` / ``set_setting_strict`` share an in-memory dict at
+    ``service._storage``. Tests that need a starting value seed
+    ``_storage`` directly (or override any of the mocks). Other tests that
+    only assert call signatures continue to work unchanged — the mocks are
+    still AsyncMock/Mock so ``assert_called_with`` etc. remain available.
+    """
     service = Mock()
-    service.get_setting = AsyncMock(return_value=None)
-    service.set_setting = AsyncMock(return_value=True)
+    service._storage: dict = {}
+
+    def _get_sync(key):
+        return service._storage.get(key)
+
+    async def _get_async(key):
+        return service._storage.get(key)
+
+    async def _set_async(key, value):
+        service._storage[key] = value
+        return True
+
+    async def _set_strict(key, value):
+        service._storage[key] = value
+
+    service.get_setting_sync = Mock(side_effect=_get_sync)
+    service.get_setting = AsyncMock(side_effect=_get_async)
+    service.set_setting = AsyncMock(side_effect=_set_async)
+    service.set_setting_strict = AsyncMock(side_effect=_set_strict)
     service.load_settings = AsyncMock(return_value={})
     service.save_settings = AsyncMock(return_value=True)
     return service

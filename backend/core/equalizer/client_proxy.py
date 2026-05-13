@@ -164,7 +164,7 @@ class EqualizerClientProxyService:
         # Check if multiroom is disabled - skip remote client requests
         if not skip_multiroom_check:
             try:
-                if self.routing_service and not await self.routing_service._get_multiroom_enabled():
+                if self.routing_service and not self.routing_service.multiroom_enabled:
                     self.logger.warning(f"Skipping proxy request to {hostname} - multiroom is disabled")
                     raise HTTPException(
                         status_code=503,
