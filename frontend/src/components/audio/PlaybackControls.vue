@@ -32,7 +32,7 @@ const onNext = () => emit('next');
 <style scoped>
 .controls {
   background: var(--color-background);
-  border-radius: var(--radius-07);
+  border-radius: var(--radius-06);
   display: flex;
   justify-content: space-evenly;
   align-items: center;

@@ -300,7 +300,7 @@ const artworkUrl = computed(() => persistentMetadata.value.album_art_url || plac
   z-index: 3;
   width: 100%;
   height: 100%;
-  border-radius: var(--radius-07);
+  border-radius: var(--radius-04);
   overflow: hidden;
   box-shadow: 0px 0px 96px 0px #0000000d;
   pointer-events: none;
