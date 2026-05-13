@@ -15,7 +15,10 @@ from typing import Dict, Any, Optional
 import aiohttp
 
 from backend.core.multiroom.models import ReconnectionContext
-from backend.core.multiroom.client_registry import ClientRegistryService
+from backend.core.multiroom.client_registry import (
+    ClientRegistryService,
+    REGISTRY_EVENT_TYPE_MAP,
+)
 from backend.config.constants import CLIENT_API_PORT, DEFAULT_VOLUME_DB, get_client_display_name
 
 
@@ -208,8 +211,18 @@ class SnapcastWebSocketService:
     # === Service setters (circular dependency resolution) ===
 
     def set_registry(self, registry) -> None:
-        """Set ClientRegistryService dependency."""
+        """Set ClientRegistryService dependency and own its broadcast.
+
+        The registry is a pure store; this service is responsible for
+        translating its events into "multiroom" WebSocket broadcasts.
+        """
         self._registry = registry
+        registry.subscribe(self._broadcast_registry_event)
+
+    async def _broadcast_registry_event(self, event_type: str, data: Dict[str, Any]) -> None:
+        """Forward a registry event as a multiroom WebSocket broadcast."""
+        mapped_type = REGISTRY_EVENT_TYPE_MAP.get(event_type, event_type.lower())
+        await self.state_machine.broadcast_event("multiroom", mapped_type, data)
 
     def set_snapcast_service(self, service) -> None:
         """Set SnapcastService dependency."""

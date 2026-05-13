@@ -7,6 +7,22 @@ from unittest.mock import Mock, AsyncMock
 from backend.core.models.audio_state import SourceState
 
 
+def attach_registry_broadcaster(registry, state_machine) -> None:
+    """Forward ClientRegistryService events to state_machine.broadcast_event.
+
+    Mirrors what SnapcastWebSocketService.set_registry does in production —
+    the registry itself is a pure store, so tests that previously relied on
+    `registry.set_state_machine(state_machine)` use this helper instead.
+    """
+    from backend.core.multiroom.client_registry import REGISTRY_EVENT_TYPE_MAP
+
+    async def _forward(event_type: str, data: dict) -> None:
+        mapped_type = REGISTRY_EVENT_TYPE_MAP.get(event_type, event_type.lower())
+        await state_machine.broadcast_event("multiroom", mapped_type, data)
+
+    registry.subscribe(_forward)
+
+
 
 @pytest.fixture
 def mock_ws_manager():

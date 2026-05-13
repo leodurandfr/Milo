@@ -12,6 +12,7 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+from backend.tests.conftest import attach_registry_broadcaster
 from backend.core.volume.state import DEFAULT_VOLUME_DB
 from backend.core.models.volume import VolumeConfig
 from backend.core.multiroom.models import ReconnectionContext
@@ -545,7 +546,7 @@ class TestReconnectionContextDetectionIntegration:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         # Register clients and create zone
         await registry.register_client("local", "Main", "127.0.0.1")
@@ -582,7 +583,7 @@ class TestReconnectionContextDetectionIntegration:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         # Register clients and create zone
         await registry.register_client("local", "Main", "127.0.0.1")
@@ -620,7 +621,7 @@ class TestReconnectionContextDetectionIntegration:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         # Register standalone clients (no zones)
         await registry.register_client("local", "Main", "127.0.0.1")
@@ -656,7 +657,7 @@ class TestReconnectionContextDetectionIntegration:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         # Register standalone clients (no zones)
         await registry.register_client("local", "Main", "127.0.0.1")
@@ -690,7 +691,7 @@ class TestReconnectionContextDetectionIntegration:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         # Setup mock snapcast service
         mock_snapcast = AsyncMock()
@@ -747,7 +748,7 @@ class TestReconnectionContextDetectionIntegration:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         # Register 3 clients
         await registry.register_client("local", "Main", "127.0.0.1")
@@ -856,7 +857,7 @@ class TestInZoneReconnectionSyncIntegration:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         # Register clients with volumes
         await registry.register_client("client-1", "Client 1", "192.168.1.1")
@@ -919,7 +920,7 @@ class TestInZoneReconnectionSyncIntegration:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         # Register clients
         await registry.register_client("client-1", "Client 1", "192.168.1.1")
@@ -1011,7 +1012,7 @@ class TestInZoneReconnectionSyncIntegration:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         # Register client in zone
         await registry.register_client("client-1", "Client 1", "192.168.1.1")
@@ -1163,7 +1164,7 @@ class TestAC4SyncTimeCompliance:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         # Register clients in zone
         await registry.register_client("client-1", "Client 1", "192.168.1.1")
@@ -1222,7 +1223,7 @@ class TestAC4SyncTimeCompliance:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         # Register clients and create zone with Equalizer settings
         await registry.register_client("client-1", "Client 1", "192.168.1.1")
@@ -1330,7 +1331,7 @@ class TestAC6PendingSettingsQueue:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        registry.set_state_machine(mock_state_machine_with_crossover)
+        attach_registry_broadcaster(registry, mock_state_machine_with_crossover)
 
         # Register client with IP
         await registry.register_client("client-1", "Client 1", "192.168.1.100")
@@ -1385,7 +1386,7 @@ class TestAC6PendingSettingsQueue:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        registry.set_state_machine(mock_state_machine_with_crossover)
+        attach_registry_broadcaster(registry, mock_state_machine_with_crossover)
 
         # Register clients
         await registry.register_client("client-1", "Client 1", "192.168.1.100")
@@ -1437,7 +1438,7 @@ class TestAC6PendingSettingsQueue:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        registry.set_state_machine(mock_state_machine_with_crossover)
+        attach_registry_broadcaster(registry, mock_state_machine_with_crossover)
 
         # Register clients
         await registry.register_client("client-1", "Client 1", "192.168.1.100")
@@ -1508,7 +1509,7 @@ class TestAC6PendingSettingsQueue:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        registry.set_state_machine(sm)
+        attach_registry_broadcaster(registry, sm)
 
         # Register clients
         await registry.register_client("client-1", "Client 1", "192.168.1.100")
@@ -1611,7 +1612,7 @@ class TestStandaloneReconnectionSyncIntegration:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         # Register standalone clients with volumes (no zone)
         await registry.register_client("client-1", "Client 1", "192.168.1.1")
@@ -1673,7 +1674,7 @@ class TestStandaloneReconnectionSyncIntegration:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         # Register standalone clients (no zone)
         await registry.register_client("client-1", "Client 1", "192.168.1.1")
@@ -1844,7 +1845,7 @@ class TestStandaloneReconnectionSyncIntegration:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         # Register standalone clients with explicit MAC-based mac_ids
         await registry.register_client("local-main", "Main", "192.168.1.10")
@@ -1896,7 +1897,7 @@ class TestStandaloneReconnectionSyncIntegration:
             settings_service=mock_settings_service
         )
         await registry.initialize()
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         # Register standalone clients with explicit MAC-based mac_ids
         await registry.register_client("local-main", "Main", "192.168.1.10")

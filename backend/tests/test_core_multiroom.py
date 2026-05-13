@@ -13,6 +13,7 @@ import pytest
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from backend.tests.conftest import attach_registry_broadcaster
 from backend.core.multiroom.models import (
     Client,
     Zone,
@@ -2160,7 +2161,7 @@ class TestSnapcastClientDetection:
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         await registry.initialize()
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
@@ -2209,7 +2210,7 @@ class TestSnapcastClientDetection:
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         await registry.initialize()
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
@@ -2241,7 +2242,7 @@ class TestSnapcastClientDetection:
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         await registry.initialize()
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         # First register and connect a client (using MAC as mac_id)
         await registry.register_client("aa:bb:cc:dd:ee:ff", "Test Speaker", "192.168.1.100")
@@ -2275,7 +2276,7 @@ class TestSnapcastClientDetection:
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         await registry.initialize()
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         await registry.register_client("aa:bb:cc:dd:ee:ff", "Test Speaker", "192.168.1.100")
         await registry.set_client_online("aa:bb:cc:dd:ee:ff", True)
@@ -2313,7 +2314,7 @@ class TestSnapcastClientDetection:
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         await registry.initialize()
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
@@ -2365,7 +2366,7 @@ class TestSnapcastClientDetection:
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         await registry.initialize()
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
@@ -2392,7 +2393,7 @@ class TestSnapcastClientDetection:
     async def test_registry_event_format(self, registry, mock_state_machine):
         """AC4: Registry events follow specified format with category, type, and data."""
         await registry.initialize()
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         await registry.register_client("test-client", "Test", "192.168.1.100")
 
@@ -2411,7 +2412,7 @@ class TestSnapcastClientDetection:
     async def test_set_client_online_event_format(self, registry, mock_state_machine):
         """AC4: set_client_online emits event with correct format."""
         await registry.initialize()
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         await registry.register_client("test-client", "Test", "192.168.1.100")
         mock_state_machine.broadcast_event.reset_mock()
@@ -2432,7 +2433,7 @@ class TestSnapcastClientDetection:
     async def test_set_client_offline_event_format(self, registry, mock_state_machine):
         """AC4: set_client_online(False) emits client_disconnected event."""
         await registry.initialize()
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         await registry.register_client("test-client", "Test", "192.168.1.100")
         await registry.set_client_online("test-client", True)
@@ -2483,7 +2484,7 @@ class TestSnapcastClientDetection:
         import asyncio
 
         await registry.initialize()
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         # Measure time for registration (should be fast due to async)
         start = asyncio.get_running_loop().time()
@@ -2492,6 +2493,47 @@ class TestSnapcastClientDetection:
 
         # Registration + event emission should be fast (< 50ms)
         assert (end - start) < 0.05
+
+    @pytest.mark.asyncio
+    async def test_registry_does_not_call_broadcast_directly(self, registry, mock_state_machine):
+        """Phase 2 R2: Registry is a pure store - mutations must NOT broadcast.
+
+        Broadcasting is owned by SnapcastWebSocketService (or another caller).
+        The registry should expose no state_machine reference and never call
+        state_machine.broadcast_event itself.
+        """
+        from backend.core.multiroom.models import EqualizerSettings
+
+        await registry.initialize()
+
+        # No state_machine wiring at all — the registry must not need it.
+        assert not hasattr(registry, "set_state_machine"), \
+            "Registry must not expose set_state_machine"
+        assert not hasattr(registry, "_state_machine"), \
+            "Registry must not store a state_machine reference"
+
+        # Exercise every public mutation that emits a registry event.
+        await registry.register_client("aa:bb:cc:dd:ee:01", "A", "192.168.1.10")
+        await registry.register_client("aa:bb:cc:dd:ee:02", "B", "192.168.1.11")
+        await registry.register_client("aa:bb:cc:dd:ee:03", "C", "192.168.1.12")
+        await registry.set_client_online("aa:bb:cc:dd:ee:01", True)
+        await registry.update_client("aa:bb:cc:dd:ee:01", name="A2")
+        await registry.update_speaker_type("aa:bb:cc:dd:ee:01", "subwoofer")
+        await registry.update_volume("aa:bb:cc:dd:ee:01", volume_db=-30.0, mute=True)
+        await registry.set_standalone_equalizer(
+            "aa:bb:cc:dd:ee:03", EqualizerSettings.default_for_zone()
+        )
+        await registry.create_zone(
+            "z1", "Zone 1", ["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"]
+        )
+        await registry.update_zone("z1", name="Zone 1 Renamed")
+        await registry.set_zone_equalizer("z1", EqualizerSettings.default_for_zone())
+        await registry.remove_client_from_zone("z1", "aa:bb:cc:dd:ee:02")
+        await registry.delete_zone("z1")
+        await registry.unregister_client("aa:bb:cc:dd:ee:01")
+
+        # state_machine never touched.
+        mock_state_machine.broadcast_event.assert_not_called()
 
 
 # =============================================================================

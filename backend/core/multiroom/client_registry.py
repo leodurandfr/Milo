@@ -27,8 +27,10 @@ from backend.core.multiroom.models import (
     DEFAULT_CROSSOVER_FREQUENCIES,
 )
 
-# Map registry event types to standardized multiroom WebSocket event types
-_EVENT_TYPE_MAP = {
+# Map registry event types to standardized multiroom WebSocket event types.
+# Kept exported so external broadcasters (e.g. SnapcastWebSocketService) can
+# translate registry events into wire-level "multiroom" categories.
+REGISTRY_EVENT_TYPE_MAP = {
     RegistryEventType.CLIENT_CONNECTED: "client_state_changed",
     RegistryEventType.CLIENT_DISCONNECTED: "client_state_changed",
     RegistryEventType.CLIENT_UPDATED: "client_state_changed",
@@ -51,7 +53,7 @@ class ClientRegistryService:
     - Track all clients with complete metadata
     - Manage zone configuration and equalizer settings
     - Track online/offline status (single source)
-    - Emit events on state changes
+    - Notify subscribers on state changes (broadcasting is owned by callers)
     - Persist configuration to settings
     - Manage standalone equalizer settings
     """
@@ -59,7 +61,6 @@ class ClientRegistryService:
     def __init__(self, settings_service=None):
         self.logger = logging.getLogger(__name__)
         self._settings_service = settings_service
-        self._state_machine = None
 
         # Core state - protected by lock
         self._clients: Dict[str, Client] = {}
@@ -67,14 +68,10 @@ class ClientRegistryService:
         self._standalone_equalizer: Dict[str, EqualizerSettings] = {}
         self._lock = asyncio.Lock()
 
-        # Subscriber callbacks for local event handling
+        # Subscriber callbacks for event handling (incl. WebSocket broadcasting)
         self._subscribers: List[Callable[[str, Dict], Awaitable[None]]] = []
 
         self._initialized = False
-
-    def set_state_machine(self, state_machine) -> None:
-        """Set state machine for event broadcasting."""
-        self._state_machine = state_machine
 
     async def initialize(self) -> bool:
         """Load persisted state from settings."""
@@ -1070,19 +1067,13 @@ class ClientRegistryService:
         """Subscribe to registry events."""
         self._subscribers.append(callback)
 
-    @staticmethod
-    def _map_event_type(event_type: str) -> str:
-        """Map registry event type to standardized multiroom WebSocket event type."""
-        return _EVENT_TYPE_MAP.get(event_type, event_type.lower())
-
     async def _emit_event(self, event_type: str, data: Dict[str, Any]) -> None:
-        """Broadcast event via WebSocket and notify local subscribers."""
-        mapped_type = self._map_event_type(event_type)
+        """Notify all subscribers of a registry state change.
 
-        if self._state_machine:
-            await self._state_machine.broadcast_event("multiroom", mapped_type, data)
-
-        # Notify local subscribers
+        The registry itself does no IO here; subscribers (including the
+        WebSocket broadcaster wired in SnapcastWebSocketService) decide how
+        to react.
+        """
         for callback in self._subscribers:
             try:
                 await callback(event_type, data)

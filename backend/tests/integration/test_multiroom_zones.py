@@ -9,6 +9,7 @@ import pytest
 import asyncio
 from unittest.mock import Mock, AsyncMock
 
+from backend.tests.conftest import attach_registry_broadcaster
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.volume.state import VolumeStateStore
 from backend.core.models.volume import VolumeConfig
@@ -72,7 +73,7 @@ async def registry_service(mock_settings_service, mock_state_machine):
     service = ClientRegistryService(
         settings_service=mock_settings_service
     )
-    service.set_state_machine(mock_state_machine)
+    attach_registry_broadcaster(service, mock_state_machine)
     await service.initialize()
     return service
 
