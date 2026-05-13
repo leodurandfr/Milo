@@ -39,7 +39,7 @@ Milō is built around a client-server architecture with real-time synchronizatio
 - **Core**: Domain models, state machine, services (volume, DSP, multiroom, settings)
 - **Sources**: Self-contained audio source modules (spotify, airplay, radio, etc.)
 - **API**: REST endpoints + WebSocket server
-- **Hardware**: Hardware controllers (rotary encoder, screen)
+- **Hardware**: Hardware controllers (rotary encoder, IR remote, BT remote, screen)
 
 **Key components:**
 - `AudioStateMachine`: Single source of truth for system state
@@ -259,6 +259,27 @@ Sources are strictly contiguous in slots 1..7; DSP is isolated in slot 0 so addi
 - Software debouncing (10ms)
 - Configurable volume step adjustment
 
+### IR remote — Apple Remote A1156 (optional)
+
+**Hardware:** TSOP4838 IR receiver, VS → 3V3, GND → GND, OUT → GPIO17 (configurable from the Hardware settings page; persisted in `hardware.json` under `hardware.ir_remote.gpio_pin`).
+
+**Decoding chain:**
+```
+TSOP4838 pulses → gpio-ir overlay → /dev/lirc0
+                                   → rc-core NEC decoder
+                                   → /dev/input/eventN (EV_MSC + EV_KEY)
+```
+
+**Pairing model:** the user runs an in-app wizard that listens for `EV_MSC/MSC_SCAN`, extracts the Apple Remote's `device_id` byte from the 32-bit scancode (`0x87EE DD CC`), and writes `/etc/rc_keymaps/milo-apple-remote.toml` containing only that `device_id` — strict filtering ignores any other Apple Remote in range. Both parity variants of each command byte are emitted so the keymap survives a user-side `Menu+Play` device_id roll without re-pairing.
+
+**Runtime:** `IrRemoteController` listens for `EV_KEY` (the wizard listens for `EV_MSC`; the two modes are mutually exclusive via an `asyncio.Lock`). Volume ± share `VolumeAccumulator` with the rotary encoder. Track Next/Prev/Play-Pause go through the public `PlaybackDispatcher.dispatch_*` methods. The Menu button resolves at T+400 ms: hold → `screen.force_sleep()`, 1-click → cycle to the next dock-ordered audio source, 2+ clicks → `transition_to_source(NONE)`. Volume buttons hold-to-repeat at the same cadence as the `Dock.vue` long-press.
+
+### Bluetooth remote — ANTICATER VK1 Mini (optional)
+
+**Discovery:** persistent D-Bus BlueZ listener for instant reconnect, periodic discovery+pair, on-demand battery read.
+
+**Runtime:** evdev `EV_KEY` listener on the BlueZ-created `/dev/input/eventN`. Shares `VolumeAccumulator` + `PlaybackDispatcher` with the rotary encoder. SW button uses the same multi-click resolver (1=play/pause, 2=next, 3=prev) as the rotary; no hold gesture.
+
 ### Touch screen (optional)
 
 **Support:**
@@ -285,14 +306,13 @@ Sources are strictly contiguous in slots 1..7; DSP is isolated in slot 0 so addi
 }
 ```
 
-**hardware.json** - Hardware configuration (screen type and resolution):
+**hardware.json** - Hardware configuration (screen, rotary encoder, IR remote):
 ```json
 {
-  "screen": {
-    "waveshare_7_usb": {
-      "resolution": "1024x600"
-    }
-  }
+  "audio":  { "id": "hifiberry_amp4pro", ... },
+  "screen": { "type": "waveshare_8_dsi", "resolution": "1280x800" },
+  "rotary_encoder": { "enabled": true,  "clk_pin": 22, "dt_pin": 27, "sw_pin": 23 },
+  "ir_remote":      { "enabled": false, "gpio_pin": 17 }
 }
 ```
 
@@ -366,6 +386,7 @@ milo-mac                  # Mac receiver (ROC)
 milo-radio                # Radio player (mpv)
 milo-snapserver-multiroom # Snapcast server (started/stopped by AudioRoutingService — no WantedBy)
 milo-snapclient-multiroom # Local snapcast client (started/stopped by AudioRoutingService — no WantedBy)
+milo-ir-keytable          # Boot oneshot: enable NEC decoding + reload paired Apple Remote keymap
 ```
 
 **Dependencies:**

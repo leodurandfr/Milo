@@ -134,7 +134,7 @@ backend/
 ├── api/                       # REST API routes
 │   ├── audio.py, dsp.py, volume.py, settings.py, etc.
 │   └── models.py             # Pydantic models
-├── hardware/                  # Hardware controllers (rotary, screen)
+├── hardware/                  # Hardware controllers (rotary, IR remote, BT remote, screen)
 ├── ws/                 # WebSocket server + manager
 ├── shared/                    # Shared utilities (MpvController)
 ├── config/constants.py        # Centralized constants
@@ -533,6 +533,7 @@ All components managed by systemd:
 - `milo-podcast` - mpv podcast player (separate from radio)
 - `milo-camilladsp` - CamillaDSP audio processing
 - `milo-snapserver-multiroom` + `milo-snapclient-multiroom` - Multiroom audio (no `WantedBy` — lifecycle owned exclusively by `AudioRoutingService._sync_snapcast_state`, gated on `settings.routing.multiroom_enabled`)
+- `milo-ir-keytable` - Boot-time oneshot: enables NEC decoding on the rc-core device and reloads the paired Apple Remote keymap (TSOP4838 → GPIO17 → `gpio-ir` overlay → rc-core → evdev). See [docs/plans/remote-controls.md](docs/plans/remote-controls.md) for the pairing flow rationale.
 - `milo-kiosk` - Chromium kiosk mode for touchscreen
 - `milo-disable-wifi-power-management` - WiFi power management optimization
 - `milo-readiness` - System readiness check
