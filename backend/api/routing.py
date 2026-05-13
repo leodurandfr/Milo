@@ -22,7 +22,7 @@ def create_routing_router(routing_service, state_machine):
         try:
             multiroom_enabled = request.enabled
 
-            current_state = await state_machine.get_current_state()
+            current_state = state_machine.get_current_state()
             active_source = None
 
             if current_state["active_source"] != "none":

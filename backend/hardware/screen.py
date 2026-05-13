@@ -197,7 +197,7 @@ class ScreenController:
         """Monitors source state"""
         while self.running:
             try:
-                system_state = await self.state_machine.get_current_state()
+                system_state = self.state_machine.get_current_state()
                 new_state = system_state.get("source_state", "waiting")
 
                 if self.current_source_state != "active" and new_state == "active":

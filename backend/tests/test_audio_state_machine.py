@@ -37,10 +37,9 @@ def mock_source():
 class TestAudioStateMachineBasics:
     """Test basic state machine operations."""
 
-    @pytest.mark.asyncio
-    async def test_initial_state(self, state_machine):
+    def test_initial_state(self, state_machine):
         """Test initial state is NONE with WAITING."""
-        state = await state_machine.get_current_state()
+        state = state_machine.get_current_state()
         assert state["active_source"] == "none"
         assert state["source_state"] == "waiting"
         assert state["transitioning"] is False
@@ -331,10 +330,9 @@ class TestEmergencyStop:
 class TestGetCurrentState:
     """Test get_current_state method."""
 
-    @pytest.mark.asyncio
-    async def test_get_current_state_async(self, state_machine):
+    def test_get_current_state_returns_dict(self, state_machine):
         """Test get_current_state returns state dict."""
-        state = await state_machine.get_current_state()
+        state = state_machine.get_current_state()
 
         assert isinstance(state, dict)
         assert "active_source" in state

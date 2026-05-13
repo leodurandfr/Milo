@@ -154,7 +154,7 @@ class TestWebSocketServer:
     def mock_state_machine(self):
         """State machine mock"""
         sm = Mock()
-        sm.get_current_state = AsyncMock(return_value={
+        sm.get_current_state = Mock(return_value={
             "active_source": "none",
             "source_state": "inactive",
             "metadata": {},
@@ -232,7 +232,7 @@ class TestWebSocketServer:
         """Test that initial state is properly sent"""
         from fastapi import WebSocketDisconnect
 
-        mock_state_machine.get_current_state = AsyncMock(return_value={
+        mock_state_machine.get_current_state = Mock(return_value={
             "active_source": "spotify",
             "source_state": "connected",
             "metadata": {"title": "Test Song"},
@@ -306,7 +306,7 @@ class TestWebSocketIntegration:
         # Create real objects
         manager = WebSocketManager()
         state_machine = Mock()
-        state_machine.get_current_state = AsyncMock(return_value={
+        state_machine.get_current_state = Mock(return_value={
             "active_source": "bluetooth",
             "source_state": "connected",
             "metadata": {"device_name": "iPhone"},

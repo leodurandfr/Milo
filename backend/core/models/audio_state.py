@@ -1,9 +1,9 @@
-# backend/domain/audio_state.py
+# backend/core/models/audio_state.py
 """
 Unified audio system state model with multiroom support.
 """
 from enum import Enum
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Dict, Any
 
 
@@ -40,14 +40,10 @@ class SystemAudioState:
     active_source: AudioSource = AudioSource.NONE
     source_state: SourceState = SourceState.WAITING
     transitioning: bool = False
-    metadata: Dict[str, Any] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
     error: Optional[str] = None
     multiroom_enabled: bool = False
     equalizer_effects_enabled: bool = False
-
-    def __post_init__(self):
-        if self.metadata is None:
-            self.metadata = {}
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert state to dictionary for serialization."""

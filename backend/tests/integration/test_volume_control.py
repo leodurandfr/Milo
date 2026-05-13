@@ -688,6 +688,10 @@ class TestVolumePersistence:
             )
             await service.initialize()
 
+            # Simulate the registry CLIENT_CONNECTED event for the local client
+            # so the state store knows which mac_id to write under.
+            service._state_store._local_mac_id = "local"
+
             # Set volume
             await service.set_volume_db(-42.0)
 
@@ -700,9 +704,10 @@ class TestVolumePersistence:
             with open(temp_storage_path) as f:
                 data = json.load(f)
 
-            assert "local_volume_db" in data or "clients" in data
+            assert "clients" in data
+            assert "local_mac_id" in data
             # Volume should be in clients dict
-            if "clients" in data and "local" in data["clients"]:
+            if "local" in data["clients"]:
                 assert data["clients"]["local"]["volume_db"] == -42.0
 
             await service.cleanup()
@@ -726,7 +731,7 @@ class TestVolumePersistence:
         # Create persistence file with known volume
         persist_data = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "local_volume_db": -35.0,
+            "local_mac_id": "local",
             "clients": {
                 "local": {"volume_db": -35.0, "mute": False}
             }
@@ -760,9 +765,10 @@ class TestVolumePersistence:
             await store.initialize()
 
             # Check restored volume
-            assert store._local_volume_db == -35.0
+            assert store._local_mac_id == "local"
             assert 'local' in store._clients
             assert store._clients['local'].volume_db == -35.0
+            assert store.local_volume_db == -35.0
 
     @pytest.mark.asyncio
     async def test_persistence_format_valid(
@@ -822,6 +828,10 @@ class TestVolumePersistence:
             )
             await service.initialize()
 
+            # Simulate the registry CLIENT_CONNECTED event for the local client
+            # so the state store knows which mac_id to write under.
+            service._state_store._local_mac_id = "local"
+
             await service.set_volume_db(-28.0)
 
             # Flush debounced persistence
@@ -836,8 +846,9 @@ class TestVolumePersistence:
             assert "timestamp" in data
             assert isinstance(data["timestamp"], str)
 
-            # Should have clients or local_volume_db
-            assert "clients" in data or "local_volume_db" in data
+            # Should always carry the clients dict and the local mac_id key
+            assert "clients" in data
+            assert "local_mac_id" in data
 
             # Timestamp should be valid ISO format
             try:
@@ -866,7 +877,7 @@ class TestVolumePersistence:
         old_time = datetime.now(timezone.utc) - timedelta(days=8)
         persist_data = {
             "timestamp": old_time.isoformat(),
-            "local_volume_db": -45.0,
+            "local_mac_id": "local",
             "clients": {
                 "local": {"volume_db": -45.0, "mute": False}
             }
@@ -881,7 +892,9 @@ class TestVolumePersistence:
             await store.initialize()
 
             # Stale data should be ignored, use default
-            assert store._local_volume_db == DEFAULT_VOLUME_DB
+            assert store.local_volume_db == DEFAULT_VOLUME_DB
+            assert store._local_mac_id is None
+            assert store._clients == {}
 
 
 # ==============================================================================
@@ -1600,7 +1613,7 @@ class TestStartupVolumeIntegration:
         # Create persisted volume file with DIFFERENT volume
         persist_data = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "local_volume_db": -50.0,  # Different from startup_volume
+            "local_mac_id": "local",  # Persisted local volume different from startup_volume
             "clients": {
                 "local": {"volume_db": -50.0, "mute": False}
             }
@@ -1676,7 +1689,7 @@ class TestStartupVolumeIntegration:
         # Create persisted volume file (also matches startup_volume_db)
         persist_data = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "local_volume_db": persisted_volume,
+            "local_mac_id": "local",
             "clients": {
                 "local": {"volume_db": persisted_volume, "mute": False}
             }
@@ -1749,7 +1762,7 @@ class TestStartupVolumeIntegration:
         old_time = datetime.now(timezone.utc) - timedelta(days=8)
         persist_data = {
             "timestamp": old_time.isoformat(),
-            "local_volume_db": -50.0,  # Should be ignored
+            "local_mac_id": "local",  # Stale data — should be ignored entirely
             "clients": {
                 "local": {"volume_db": -50.0, "mute": False}
             }
@@ -1771,7 +1784,8 @@ class TestStartupVolumeIntegration:
             await service.initialize()
 
             # Assert: Stale data was ignored - state store uses DEFAULT_VOLUME_DB
-            assert service._state_store._local_volume_db == DEFAULT_VOLUME_DB
+            assert service._state_store.local_volume_db == DEFAULT_VOLUME_DB
+            assert service._state_store._local_mac_id is None
 
             # Assert: Equalizer was NOT set to stale volume (-50dB)
             calls = mock_camilladsp_service.set_volume.call_args_list

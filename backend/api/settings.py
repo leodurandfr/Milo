@@ -389,7 +389,7 @@ def create_settings_router(
                     # === MULTIROOM ===
                     elif app == 'multiroom':
                         # 1. Get the active source to restart the source
-                        current_state = await state_machine.get_current_state()
+                        current_state = state_machine.get_current_state()
                         active_source = None
                         if current_state["active_source"] != "none":
                             try:
@@ -424,7 +424,7 @@ def create_settings_router(
                     # === EQUALIZER ===
                     elif app == 'equalizer':
                         # Get the active source to restart the source
-                        current_state = await state_machine.get_current_state()
+                        current_state = state_machine.get_current_state()
                         active_source = None
                         if current_state["active_source"] != "none":
                             try:
@@ -448,7 +448,7 @@ def create_settings_router(
                     # === MULTIROOM ===
                     elif app == 'multiroom':
                         # 1. Get the active source to restart the source
-                        current_state = await state_machine.get_current_state()
+                        current_state = state_machine.get_current_state()
                         active_source = None
                         if current_state["active_source"] != "none":
                             try:
@@ -483,7 +483,7 @@ def create_settings_router(
                     # === EQUALIZER ===
                     elif app == 'equalizer':
                         # Get the active source to restart the source
-                        current_state = await state_machine.get_current_state()
+                        current_state = state_machine.get_current_state()
                         active_source = None
                         if current_state["active_source"] != "none":
                             try:

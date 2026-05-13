@@ -132,7 +132,7 @@ def mock_state_machine_for_ws(mock_volume_service):
 
     # Methods
     sm.refresh_active_metadata = AsyncMock()
-    sm.get_current_state = AsyncMock(return_value={
+    sm.get_current_state = Mock(return_value={
         "active_source": "none",
         "source_state": "waiting",
         "transitioning": False,
@@ -860,7 +860,7 @@ class TestReconnection:
         assert initial_state_1["data"]["full_state"]["active_source"] == "none"
 
         # Simulate state change while "disconnected"
-        mock_state_machine_for_ws.get_current_state = AsyncMock(return_value={
+        mock_state_machine_for_ws.get_current_state = Mock(return_value={
             "active_source": "radio",
             "source_state": "connected",
             "transitioning": False,

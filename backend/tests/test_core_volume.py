@@ -243,8 +243,8 @@ class TestVolumeStateStore:
         assert MIN_VOLUME_DB == -80.0
         assert MAX_VOLUME_DB == 0.0
         assert DEFAULT_VOLUME_DB == -45.0
-        # Verify initial local volume uses default
-        assert state_store._local_volume_db == DEFAULT_VOLUME_DB
+        # Without a known local mac_id, local_volume_db reports the default.
+        assert state_store.local_volume_db == DEFAULT_VOLUME_DB
 
     def test_clamp_db(self, state_store):
         """Test dB clamping delegates to VolumeConfig."""
@@ -260,9 +260,81 @@ class TestVolumeStateStore:
         assert store._clamp_db(5.0) == 0.0      # MAX_VOLUME_DB
 
     def test_set_local_volume(self, state_store):
-        """Test setting local volume."""
+        """Test setting local volume writes to the local client entry."""
+        state_store._local_mac_id = "aa:bb:cc:dd:ee:ff"
         state_store.set_local_volume(-25.0)
-        assert state_store._local_volume_db == -25.0
+        assert state_store.local_volume_db == -25.0
+        assert state_store._clients["aa:bb:cc:dd:ee:ff"].volume_db == -25.0
+
+    @pytest.mark.asyncio
+    async def test_local_client_mac_change_migrates_volume(self, state_store):
+        """When the local client MAC changes between sessions, the persisted
+        volume/mute is migrated from the old MAC entry to the new one."""
+        from backend.core.multiroom.models import RegistryEventType
+
+        # Simulate previous session: local client was MAC X with -30 dB, muted.
+        old_mac = "aa:bb:cc:dd:ee:ff"
+        new_mac = "11:22:33:44:55:66"
+        state_store._local_mac_id = old_mac
+        state_store._clients[old_mac] = ClientVolume(
+            volume_db=-30.0, offset_db=0.0, mute=True, available=False,
+        )
+
+        # Local client reconnects with a different MAC (network card swap).
+        await state_store._handle_registry_event(
+            RegistryEventType.CLIENT_CONNECTED,
+            {"mac_id": new_mac, "client": {"ip": "127.0.0.1"}},
+        )
+
+        # Old entry is gone, new entry carries the migrated volume + mute.
+        assert old_mac not in state_store._clients
+        assert new_mac in state_store._clients
+        assert state_store._clients[new_mac].volume_db == -30.0
+        assert state_store._clients[new_mac].mute is True
+        assert state_store._local_mac_id == new_mac
+        assert state_store.local_volume_db == -30.0
+
+    @pytest.mark.asyncio
+    async def test_local_client_same_mac_no_migration(self, state_store):
+        """When the local client reconnects with the same MAC, no migration
+        runs and the persisted volume is preserved as-is."""
+        from backend.core.multiroom.models import RegistryEventType
+
+        mac = "aa:bb:cc:dd:ee:ff"
+        state_store._local_mac_id = mac
+        state_store._clients[mac] = ClientVolume(
+            volume_db=-30.0, offset_db=0.0, mute=False, available=False,
+        )
+
+        await state_store._handle_registry_event(
+            RegistryEventType.CLIENT_CONNECTED,
+            {"mac_id": mac, "client": {"ip": "127.0.0.1"}},
+        )
+
+        assert mac in state_store._clients
+        assert state_store._clients[mac].volume_db == -30.0
+        assert state_store._local_mac_id == mac
+        # Availability flips to True via set_client_availability path
+        assert state_store._clients[mac].available is True
+
+    @pytest.mark.asyncio
+    async def test_local_client_first_connect_no_migration(self, state_store):
+        """First-ever local client connection (no persisted mac_id): MAC is
+        cached and a fresh default entry is auto-registered."""
+        from backend.core.multiroom.models import RegistryEventType
+
+        mac = "aa:bb:cc:dd:ee:ff"
+        assert state_store._local_mac_id is None
+        assert state_store._clients == {}
+
+        await state_store._handle_registry_event(
+            RegistryEventType.CLIENT_CONNECTED,
+            {"mac_id": mac, "client": {"ip": "127.0.0.1"}},
+        )
+
+        assert state_store._local_mac_id == mac
+        assert mac in state_store._clients
+        assert state_store._clients[mac].volume_db == DEFAULT_VOLUME_DB
 
     def test_set_volume_config(self, mock_settings):
         """Test setting VolumeConfig updates clamping behavior."""

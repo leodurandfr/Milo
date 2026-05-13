@@ -30,7 +30,7 @@ class TestSettingsRoutes:
         sm.system_state.active_source = Mock()
         sm.system_state.active_source.value = "none"
         sm.transition_to_source = AsyncMock(return_value=True)
-        sm.get_current_state = AsyncMock(return_value={"active_source": "none"})
+        sm.get_current_state = Mock(return_value={"active_source": "none"})
         sm.get_source = Mock(return_value=None)
         sm.update_multiroom_state = AsyncMock()
         sm.update_equalizer_state = AsyncMock()

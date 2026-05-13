@@ -21,7 +21,7 @@ def create_health_router(state_machine, routing_service, snapcast_service,
         }
 
         try:
-            state = await state_machine.get_current_state()
+            state = state_machine.get_current_state()
             checks["services"]["state_machine"] = {
                 "healthy": True,
                 "active_source": state.get("active_source"),
@@ -99,7 +99,7 @@ def create_health_router(state_machine, routing_service, snapcast_service,
         Returns the same data as the WebSocket initial_state event,
         for browsers that don't support WebSocket (e.g., macOS captive portal).
         """
-        current_state = await state_machine.get_current_state()
+        current_state = state_machine.get_current_state()
 
         setup_completed = bool(await settings_service.get_setting("setup_completed"))
         hotspot_active = wifi_service.hotspot_active
