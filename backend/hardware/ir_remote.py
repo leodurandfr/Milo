@@ -356,8 +356,12 @@ class IrRemoteController:
             self._menu_click_count = 0
             self._menu_click_timer = None
             if held:
-                await self.state_machine.transition_to_source(AudioSource.NONE)
+                # Sleep first so the screen-off feedback is immediate; the
+                # source transition (slower — stops systemd units) runs
+                # after. Transitioning to NONE never wakes the screen
+                # because the wake path only fires on source_state="active".
                 await self.screen_controller.force_sleep()
+                await self.state_machine.transition_to_source(AudioSource.NONE)
             elif count >= 2:
                 await self.state_machine.transition_to_source(AudioSource.NONE)
             elif count == 1:
