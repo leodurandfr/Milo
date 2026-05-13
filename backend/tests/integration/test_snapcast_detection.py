@@ -14,6 +14,7 @@ import pytest
 import time
 from unittest.mock import AsyncMock, MagicMock
 
+from backend.tests.conftest import attach_registry_broadcaster
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.websocket import SnapcastWebSocketService
 from backend.core.multiroom.models import (
@@ -112,7 +113,7 @@ class TestSnapcastDetectionIntegration:
 
         AC1: Client connection detection triggers registry update and event broadcast.
         """
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         mac_addr = "aa:bb:cc:dd:ee:01"
 
@@ -163,7 +164,7 @@ class TestSnapcastDetectionIntegration:
 
         AC2: Client disconnection detection triggers offline status and event broadcast.
         """
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         mac_addr = "aa:bb:cc:dd:ee:02"
 
@@ -218,7 +219,7 @@ class TestSnapcastDetectionIntegration:
 
         AC3: New unknown client is auto-registered with specified defaults.
         """
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         mac_addr = "aa:bb:cc:dd:ee:03"
 
@@ -267,7 +268,7 @@ class TestSnapcastDetectionIntegration:
 
         Note: This test verifies the processing time, not network latency.
         """
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         mac_addr = "aa:bb:cc:dd:ee:04"
 
@@ -299,7 +300,7 @@ class TestSnapcastDetectionIntegration:
         """
         Test disconnect event timing within 100ms.
         """
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         mac_addr = "aa:bb:cc:dd:ee:05"
 
@@ -334,7 +335,7 @@ class TestSnapcastDetectionIntegration:
         self, registry, mock_state_machine, ws_service
     ):
         """Test multiple clients connecting in sequence."""
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         clients_data = [
             ("milo-client-1", "Speaker 1", "192.168.1.101", "aa:bb:cc:dd:01:01"),
@@ -368,7 +369,7 @@ class TestSnapcastDetectionIntegration:
         self, registry, mock_state_machine, ws_service
     ):
         """Test rapid connect/disconnect cycles don't cause issues."""
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         hostname = "milo-client-rapid"
         ip = "192.168.1.199"
@@ -412,7 +413,7 @@ class TestSnapcastDetectionIntegration:
         self, registry, mock_state_machine, ws_service
     ):
         """Test local client (127.0.0.1) is handled correctly."""
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         # Read the actual local MAC that compute_mac_id will return
         local_mac = ClientRegistryService.compute_mac_id("milo", "127.0.0.1", "")
@@ -455,7 +456,7 @@ class TestSnapcastDetectionIntegration:
             }
         }
         """
-        registry.set_state_machine(mock_state_machine)
+        attach_registry_broadcaster(registry, mock_state_machine)
 
         mac_addr = "aa:bb:cc:dd:ee:07"
 

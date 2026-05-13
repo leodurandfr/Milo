@@ -12,6 +12,7 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from backend.tests.conftest import attach_registry_broadcaster
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.websocket import SnapcastWebSocketService
 from backend.core.multiroom.models import ReconnectionContext
@@ -70,7 +71,7 @@ async def _setup_registry(settings_service, state_machine, clients, zones=None):
     """
     registry = ClientRegistryService(settings_service=settings_service)
     await registry.initialize()
-    registry.set_state_machine(state_machine)
+    attach_registry_broadcaster(registry, state_machine)
 
     for mac_id, name, ip, volume_db, online in clients:
         await registry.register_client(mac_id, name, ip)
