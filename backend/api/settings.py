@@ -388,7 +388,7 @@ def create_settings_router(
 
                     # === MULTIROOM ===
                     elif app == 'multiroom':
-                        # 1. Get the active source to restart the source
+                        # Get the active source for source restart
                         current_state = state_machine.get_current_state()
                         active_source = None
                         if current_state["active_source"] != "none":
@@ -397,26 +397,11 @@ def create_settings_router(
                             except ValueError:
                                 pass
 
-                        # 2. Disable routing (automatically restarts the source in direct mode)
+                        # set_multiroom_enabled owns the full transition: source restart,
+                        # snapcast stop, settings + routing.env writes, and broadcast.
                         operations_log.append("Disabling multiroom routing and switching to direct mode")
                         logger.info(f"Disabling multiroom routing for active source: {active_source.value if active_source else 'none'}")
                         await routing_service.set_multiroom_enabled(False, active_source)
-
-                        # 3. Stop snapserver
-                        operations_log.append("Stopping milo-snapserver-multiroom.service")
-                        logger.info("Stopping milo-snapserver-multiroom.service")
-                        success = await systemd_manager.stop("milo-snapserver-multiroom.service")
-                        if not success:
-                            raise ValueError("Failed to stop milo-snapserver-multiroom.service")
-
-                        # 4. Stop snapclient
-                        operations_log.append("Stopping milo-snapclient-multiroom.service")
-                        logger.info("Stopping milo-snapclient-multiroom.service")
-                        success = await systemd_manager.stop("milo-snapclient-multiroom.service")
-                        if not success:
-                            raise ValueError("Failed to stop milo-snapclient-multiroom.service")
-
-                        # set_multiroom_enabled already broadcast the new state.
 
                     # === EQUALIZER ===
                     elif app == 'equalizer':
@@ -444,7 +429,7 @@ def create_settings_router(
 
                     # === MULTIROOM ===
                     elif app == 'multiroom':
-                        # 1. Get the active source to restart the source
+                        # Get the active source for source restart
                         current_state = state_machine.get_current_state()
                         active_source = None
                         if current_state["active_source"] != "none":
@@ -453,26 +438,11 @@ def create_settings_router(
                             except ValueError:
                                 pass
 
-                        # 2. Enable routing (automatically restarts the source in multiroom mode)
+                        # set_multiroom_enabled owns the full transition: source restart,
+                        # snapcast start, settings + routing.env writes, and broadcast.
                         operations_log.append("Enabling multiroom routing and switching to multiroom mode")
                         logger.info(f"Enabling multiroom routing for active source: {active_source.value if active_source else 'none'}")
                         await routing_service.set_multiroom_enabled(True, active_source)
-
-                        # 3. Start snapserver
-                        operations_log.append("Starting milo-snapserver-multiroom.service")
-                        logger.info("Starting milo-snapserver-multiroom.service")
-                        success = await systemd_manager.start("milo-snapserver-multiroom.service")
-                        if not success:
-                            raise ValueError("Failed to start milo-snapserver-multiroom.service")
-
-                        # 4. Start snapclient
-                        operations_log.append("Starting milo-snapclient-multiroom.service")
-                        logger.info("Starting milo-snapclient-multiroom.service")
-                        success = await systemd_manager.start("milo-snapclient-multiroom.service")
-                        if not success:
-                            raise ValueError("Failed to start milo-snapclient-multiroom.service")
-
-                        # set_multiroom_enabled already broadcast the new state.
 
                     # === EQUALIZER ===
                     elif app == 'equalizer':
@@ -1226,8 +1196,8 @@ def create_settings_router(
             if not success:
                 raise HTTPException(status_code=500, detail="Failed to save Mac ROC settings")
 
-            # Regenerate mac.env from the just-saved settings
-            MacEnv.regenerate(settings)
+            # Regenerate mac.env from the just-saved config
+            MacEnv.regenerate(mac_config)
 
             # Restart milo-mac.service to apply changes
             restart_success = await systemd_manager.restart("milo-mac.service")

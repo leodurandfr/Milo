@@ -95,25 +95,10 @@ class SnapcastWebSocketService:
             self.session = aiohttp.ClientSession()
             self.running = True
 
-            # Check initial multiroom state from SETTINGS (most reliable at boot time)
-            multiroom_state = False
-
-            if self.settings_service:
-                multiroom_state = await self.settings_service.get_setting("routing.multiroom_enabled") or False
-                if multiroom_state:
-                    self.logger.info("Multiroom enabled from settings")
-
-            # Fallback: check routing_service state
-            if not multiroom_state and self.routing_service:
-                routing_state = self.routing_service.get_state()
-                multiroom_state = routing_state.get('multiroom_enabled', False)
-
-            # Final fallback: check systemd services
-            if not multiroom_state and self.routing_service:
-                snapcast_status = await self.routing_service.get_snapcast_status()
-                multiroom_state = snapcast_status.get("multiroom_available", False)
-                if multiroom_state:
-                    self.logger.info("Multiroom detected from systemd services (fallback)")
+            # Single source of truth: AudioRoutingService.multiroom_enabled
+            # (settings-backed since Phase 3). No fallback chain needed — the
+            # routing service IS the authority on whether multiroom is on.
+            multiroom_state = bool(self.routing_service.multiroom_enabled) if self.routing_service else False
 
             self.should_connect = multiroom_state
 

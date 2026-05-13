@@ -237,6 +237,15 @@ enable_services() {
     # - milo-snapclient-multiroom.service
     # These services should NOT be "enabled" at boot
 
+    # Defensive disable: snapcast units shipped before 2026-05 carried
+    # WantedBy=multi-user.target. If a previous install enabled them, leftover
+    # symlinks in /etc/systemd/system/multi-user.target.wants/ would still cause
+    # them to start at boot and produce the state desync class fixed in
+    # docs/plans/multiroom-state-desync.md. Newer unit files have no [Install]
+    # section, but the symlinks persist until explicitly removed.
+    sudo systemctl disable milo-snapserver-multiroom.service 2>/dev/null || true
+    sudo systemctl disable milo-snapclient-multiroom.service 2>/dev/null || true
+
     log_success "Automatic startup configured"
 }
 

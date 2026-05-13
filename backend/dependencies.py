@@ -387,12 +387,7 @@ def initialize_services() -> None:
     # If they start before routing_service.initialize() completes (which runs
     # in async init_async), they would read stale values. Pre-writing here
     # guarantees the three env files match settings.json before any service starts.
-    from backend.core.multiroom.routing import RoutingEnv, MacEnv, SnapclientEnv
-    settings_service = get_service("settings_service")
-    _multiroom = settings_service.get_setting_sync('routing.multiroom_enabled')
-    RoutingEnv.regenerate(bool(_multiroom))
-    MacEnv.regenerate(settings_service)
-    SnapclientEnv.regenerate(settings_service)
+    routing_service.regenerate_env_files()
 
     # =========================================================================
     # STEP 4: Parallel async initialization

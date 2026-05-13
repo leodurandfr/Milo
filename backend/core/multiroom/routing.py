@@ -94,18 +94,16 @@ class MacEnv:
     PATH = "/var/lib/milo/mac.env"
 
     @staticmethod
-    def regenerate(settings_service) -> None:
-        """Regenerate mac.env from the `mac` section of settings.json.
+    def regenerate(mac_config: Optional[Dict[str, Any]]) -> None:
+        """Regenerate mac.env from a pre-loaded `mac` config dict.
 
-        Reads settings each call (no class cache). Validates and clamps values
-        to allowed ranges. Falls back to DEFAULT_ROC_CONFIG when settings are
-        missing.
+        Pure function: validates and clamps values to allowed ranges, falls
+        back to DEFAULT_ROC_CONFIG when fields are missing. The caller owns
+        the settings read (consolidated in
+        AudioRoutingService.regenerate_env_files since Phase 4).
         """
         logger = logging.getLogger(__name__)
 
-        mac_config = None
-        if settings_service:
-            mac_config = settings_service.get_setting_sync("mac")
         if not isinstance(mac_config, dict):
             mac_config = {}
 
@@ -155,23 +153,20 @@ class SnapclientEnv:
     PATH = "/var/lib/milo/snapclient.env"
 
     @staticmethod
-    def regenerate(settings_service) -> None:
-        """Regenerate snapclient.env from the `multiroom.*` keys of settings.json.
+    def regenerate(buffer_time: Any, fragments: Any) -> None:
+        """Regenerate snapclient.env from pre-loaded buffer_time / fragments values.
 
-        Reads settings each call (no class cache). Validates and clamps values.
+        Pure function: validates and clamps inputs, falls back to
+        DEFAULT_SNAPCLIENT_CONFIG when either is None. The caller owns the
+        settings read (consolidated in
+        AudioRoutingService.regenerate_env_files since Phase 4).
         """
         logger = logging.getLogger(__name__)
 
-        buffer_time = DEFAULT_SNAPCLIENT_CONFIG["buffer_time"]
-        fragments = DEFAULT_SNAPCLIENT_CONFIG["fragments"]
-
-        if settings_service:
-            raw_buffer = settings_service.get_setting_sync("multiroom.snapclient_buffer_time")
-            if raw_buffer is not None:
-                buffer_time = raw_buffer
-            raw_fragments = settings_service.get_setting_sync("multiroom.snapclient_fragments")
-            if raw_fragments is not None:
-                fragments = raw_fragments
+        if buffer_time is None:
+            buffer_time = DEFAULT_SNAPCLIENT_CONFIG["buffer_time"]
+        if fragments is None:
+            fragments = DEFAULT_SNAPCLIENT_CONFIG["fragments"]
 
         try:
             buffer_time = int(buffer_time)
@@ -208,10 +203,11 @@ class AudioRoutingService:
     """
     Audio routing service.
 
-    Owns `multiroom_enabled` as in-memory state (loaded from settings at init).
-    `equalizer_effects_enabled` is owned by CamillaDSPService and read through
-    a property. The state machine reads both via these accessors when
-    aggregating `full_state` for source/system broadcasts.
+    `multiroom_enabled` is read directly from settings.json on every access
+    (no in-memory cache). `equalizer_effects_enabled` is owned by
+    CamillaDSPService and read through a property. The state machine reads
+    both via these accessors when aggregating `full_state` for source/system
+    broadcasts.
     """
 
     def __init__(self, get_source_callback: Optional[Callable] = None, settings_service=None, systemd_manager=None):
@@ -226,9 +222,6 @@ class AudioRoutingService:
         self.state_machine = None
         self.camilladsp_service = None
         self.volume_service = None
-
-        # Owned state: multiroom on/off. Loaded from settings in _detect_initial_state.
-        self._multiroom_enabled: bool = False
 
         # Lock to guarantee atomicity of routing operations
         self._routing_lock = asyncio.Lock()
@@ -276,15 +269,9 @@ class AudioRoutingService:
         return bool(value)
 
     # === State accessors ===
-    # multiroom_enabled is owned here. equalizer_effects_enabled is owned by
-    # CamillaDSPService — we proxy reads/writes so AudioRoutingService remains
-    # the single coordination point for both flags from the routing flows.
-
-    async def _get_multiroom_enabled(self) -> bool:
-        return self._multiroom_enabled
-
-    async def _set_multiroom_state(self, value: bool) -> None:
-        self._multiroom_enabled = value
+    # multiroom_enabled reads directly from settings.json (single source of
+    # truth, no cache). equalizer_effects_enabled is owned by CamillaDSPService
+    # — we proxy reads/writes through a get/set pair for _guarded_simple_toggle.
 
     async def _get_equalizer_effects_enabled(self) -> bool:
         return self.equalizer_effects_enabled
@@ -295,7 +282,15 @@ class AudioRoutingService:
 
     @property
     def multiroom_enabled(self) -> bool:
-        return self._multiroom_enabled
+        """Read multiroom enabled state from settings.json (sync, cache-backed).
+
+        SettingsService.get_setting_sync returns a validated cached dict (Phase 1
+        ensures the cache is populated through _validate_and_merge), so this is
+        a hot-path dict lookup, not a disk read.
+        """
+        if not self.settings_service:
+            return False
+        return self._to_bool(self.settings_service.get_setting_sync('routing.multiroom_enabled'))
 
     @property
     def equalizer_effects_enabled(self) -> bool:
@@ -309,53 +304,82 @@ class AudioRoutingService:
             await self._detect_initial_state()
 
     async def _detect_initial_state(self):
-        """Initializes and detects initial state"""
+        """Reconcile derived artifacts and live state to match settings.json.
+
+        Source of truth is settings.routing.multiroom_enabled (read via the
+        property). This pass:
+          1. Warms the settings cache via async load.
+          2. Re-derives routing/mac/snapclient env files from settings
+             (idempotent — bootstrap also wrote them in dependencies.py).
+          3. Reconciles snapcast systemd state.
+          4. Ensures CamillaDSP is running.
+
+        Leaves _initial_detection_done = False on failure so the next caller
+        retries detection.
+        """
         try:
             self.logger.info("Initializing routing state with persistence...")
 
-            # Load multiroom_enabled from settings (this service owns it).
-            # equalizer_effects_enabled is loaded by CamillaDSPService itself.
+            # Warm the settings cache via async load. The validated dict
+            # populated here backs every subsequent sync get_setting_sync call
+            # (notably regenerate_env_files() below).
             if self.settings_service:
-                multiroom = await self.settings_service.get_setting('routing.multiroom_enabled')
-                self._multiroom_enabled = self._to_bool(multiroom)
-                self.logger.info(f"Loaded state from settings: multiroom={self.multiroom_enabled}, equalizer_effects={self.equalizer_effects_enabled}")
+                await self.settings_service.get_setting('routing.multiroom_enabled')
             else:
-                self.logger.warning("SettingsService not available, using defaults")
-                self._multiroom_enabled = False
+                self.logger.warning("SettingsService not available, multiroom will read False")
 
-            await self._update_systemd_environment()
+            self.logger.info(
+                f"Loaded state from settings: multiroom={self.multiroom_enabled}, "
+                f"equalizer_effects={self.equalizer_effects_enabled}"
+            )
+
+            self.regenerate_env_files()
             await self._sync_snapcast_state()
             await self._initialize_camilladsp()
 
             self._initial_detection_done = True
-            self.logger.info(f"Routing initialized: multiroom={self.multiroom_enabled}, equalizer_effects={self.equalizer_effects_enabled}")
+            self.logger.info(
+                f"Routing initialized: multiroom={self.multiroom_enabled}, "
+                f"equalizer_effects={self.equalizer_effects_enabled}"
+            )
 
             if self.multiroom_enabled:
                 asyncio.create_task(self._delayed_multiroom_sync())
 
         except Exception as e:
-            # Do NOT reset multiroom/equalizer state here — routing.env was already
-            # written correctly from settings.json above. Resetting would overwrite
-            # MILO_MODE=multiroom with MILO_MODE=direct, causing ALSA device conflicts.
-            #
-            # Leave _initial_detection_done = False so a transient init failure can
-            # be retried on the next caller (e.g., set_multiroom_enabled).
+            # Leave _initial_detection_done = False so a transient init failure
+            # can be retried on the next caller (e.g., set_multiroom_enabled).
             self.logger.error(f"Error during initial state detection: {e}")
 
     async def _sync_snapcast_state(self) -> None:
-        """Reconcile running Snapcast services with persisted multiroom state."""
+        """Reconcile running Snapcast services with persisted multiroom state.
+
+        Sole authoritative entry point for starting/stopping snapserver and
+        snapclient. Source of truth: settings.routing.multiroom_enabled
+        (mirrored in self.multiroom_enabled). Snapcast units carry no
+        [Install] section, so they only run when this reconcile starts them.
+        """
         snapcast_status = await self.get_snapcast_status()
+        server_running = snapcast_status.get("server_active", False)
+        client_running = snapcast_status.get("client_active", False)
         services_running = snapcast_status.get("multiroom_available", False)
+        target_mode = "multiroom" if self.multiroom_enabled else "direct"
+
+        self.logger.info(
+            f"SNAPCAST_RECONCILE: source_of_truth=settings.routing.multiroom_enabled={self.multiroom_enabled} "
+            f"(target={target_mode}); observed snapserver={server_running}, snapclient={client_running}"
+        )
 
         if self.multiroom_enabled and not services_running:
-            self.logger.info("Persisted state requires multiroom, starting snapcast services")
-            await self._start_snapcast()
-        elif not self.multiroom_enabled and services_running:
-            self.logger.info("Persisted state requires direct mode, stopping snapcast services")
-            await self._stop_snapcast()
+            self.logger.info("SNAPCAST_RECONCILE: starting snapcast services")
+            started = await self._start_snapcast()
+            self.logger.info(f"SNAPCAST_RECONCILE: start result={started}")
+        elif not self.multiroom_enabled and (server_running or client_running):
+            self.logger.info("SNAPCAST_RECONCILE: stopping snapcast services")
+            stopped = await self._stop_snapcast()
+            self.logger.info(f"SNAPCAST_RECONCILE: stop result={stopped}")
         else:
-            mode = "multiroom" if self.multiroom_enabled else "direct"
-            self.logger.info(f"Snapcast services already in correct state for {mode} mode")
+            self.logger.info(f"SNAPCAST_RECONCILE: already coherent for {target_mode} mode, no action")
 
     async def _initialize_camilladsp(self) -> None:
         """Ensure CamillaDSP systemd service is running.
@@ -382,7 +406,7 @@ class AudioRoutingService:
         await asyncio.sleep(3.0)
 
         # Check multiroom is still enabled
-        if not await self._get_multiroom_enabled():
+        if not self.multiroom_enabled:
             self.logger.info(f"[{time.time():.3f}] DELAYED_SYNC: Multiroom disabled, skipping sync")
             return
 
@@ -407,7 +431,7 @@ class AudioRoutingService:
 
         Used by lightweight togglers (e.g. equalizer effects) where there is no
         service start/stop and no source restart. The multiroom transition has
-        its own three-phase machinery in `set_multiroom_enabled`.
+        its own idempotent reconcile flow in `set_multiroom_enabled`.
 
         Args:
             get_fn: async () -> bool — read current state
@@ -437,60 +461,51 @@ class AudioRoutingService:
                 return False
 
     async def set_multiroom_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
-        """Enable/disable multiroom mode using a 3-phase transition.
+        """Enable/disable multiroom mode via idempotent reconcile.
 
-        PHASE 1 — COMMIT: settings.json + state machine + routing.env. If any
-                          sub-step fails, revert all three together.
-        PHASE 2 — APPLY:  stop source, start/stop snapcast, restart source. On
-                          failure, revert phase 1 AND services back to old state.
-        PHASE 3 — BEST EFFORT: WS connection, volume push, ready broadcast.
-                          Never fails the transition; just logs warnings.
+        No phased commit, no rollback. Each step is either idempotent or a
+        single atomic write:
+          1. Pre-broadcast (UI loading state).
+          2. `_apply_transition`: stop source → reconcile snapcast → write
+             routing.env (derived) → start source (best-effort).
+          3. Persist settings (strict; raises on disk failure).
+          4. Post-transition best-effort (WS, volume sync, ready broadcast).
+
+        On any exception: log + broadcast `multiroom_error`, return False.
+        The system is in either old-consistent or new-consistent state;
+        next backend boot re-reconciles via `_detect_initial_state` and
+        `_sync_snapcast_state`. There is no rollback path.
+
+        routing.env is regenerated before settings is persisted so the source
+        unit restarted inside `_apply_transition` picks up the new MILO_MODE.
+        If settings persist fails afterwards, the next boot re-derives
+        routing.env from the (still-old) settings.
         """
         if not self._initial_detection_done:
             await self._detect_initial_state()
 
         async with self._routing_lock:
-            if self.multiroom_enabled == enabled:
+            old_state = self.multiroom_enabled
+            if old_state == enabled:
                 self.logger.info(f"multiroom already {'enabled' if enabled else 'disabled'}")
                 return True
 
-            old_state = self.multiroom_enabled
-            self.logger.info(f"Changing multiroom to {enabled}")
+            self.logger.info(f"Reconciling multiroom {old_state} → {enabled}")
 
-            # PHASE 1 — COMMIT
-            try:
-                await self._commit_state(enabled)
-            except Exception as e:
-                self.logger.error(f"PHASE 1 commit failed: {e}; reverting to {old_state}")
-                try:
-                    await self._commit_state(old_state)
-                except Exception as e2:
-                    self.logger.error(f"PHASE 1 commit revert ALSO failed: {e2}")
-                await self._broadcast_error(enabled)
-                return False
-
-            # PHASE 2 — APPLY (with symmetric rollback)
             try:
                 await self._broadcast_transition_event(enabled)
                 await self._apply_transition(enabled, active_source)
+                if self.settings_service:
+                    await self.settings_service.set_setting_strict(
+                        'routing.multiroom_enabled', enabled
+                    )
             except Exception as e:
-                self.logger.error(f"PHASE 2 apply failed: {e}; rolling back")
-                try:
-                    await self._apply_transition(old_state, active_source)
-                except Exception as e2:
-                    self.logger.error(f"PHASE 2 rollback ALSO failed: {e2}")
-                try:
-                    await self._commit_state(old_state)
-                except Exception as e3:
-                    self.logger.error(f"PHASE 2 commit-revert ALSO failed: {e3}")
+                self.logger.error(f"multiroom transition failed: {e}")
                 await self._broadcast_error(enabled)
                 return False
 
-            # PHASE 3 — BEST EFFORT
             await self._post_transition_setup_best_effort(enabled)
 
-            # Final state broadcast — full_state aggregation reads multiroom_enabled
-            # from this service's property so the wire payload is unchanged.
             if self.state_machine:
                 await self.state_machine.broadcast_event("system", "state_changed", {
                     "old_state": old_state,
@@ -503,26 +518,20 @@ class AudioRoutingService:
             self.logger.info(f"Multiroom transition complete: {enabled}")
             return True
 
-    async def _commit_state(self, enabled: bool) -> None:
-        """PHASE 1: persist target state across all 3 layers atomically.
-
-        Order matters: persistent disk first (so it survives a crash before the
-        in-memory state mutates), in-memory next, artifact (routing.env) last.
-        Raises if any sub-step fails — caller decides whether to revert.
-        """
-        if self.settings_service:
-            await self.settings_service.set_setting('routing.multiroom_enabled', enabled)
-        await self._set_multiroom_state(enabled)
-        RoutingEnv.regenerate(enabled)
-
     async def _apply_transition(self, enabled: bool, active_source: AudioSource = None) -> None:
-        """PHASE 2: stop source, toggle snapcast services, restart source.
+        """Stop source, reconcile snapcast, regenerate routing.env, restart source.
 
         Acquires `state_machine._transition_lock` to prevent concurrent source
         lifecycle operations with `transition_to_source()`. Lock order is
         always: `_routing_lock` (held by caller) → `_transition_lock`.
 
-        Raises on failure; caller catches and rolls back.
+        Snapcast reconcile is idempotent. routing.env is regenerated AFTER
+        snapcast settles and BEFORE the source restart so systemd sees the new
+        MILO_MODE when it starts the source unit. Source start is best-effort
+        — a failing source no longer fails the whole transition.
+
+        Raises only when snapcast services fail to start (multiroom→enabled)
+        or when the state machine is unavailable.
         """
         if not self.state_machine:
             raise RuntimeError("State machine not available for routing transition")
@@ -549,38 +558,44 @@ class AudioRoutingService:
                 await source_instance.stop()
                 await asyncio.sleep(0.5)  # Wait for ALSA to release
 
-            # Step 3: Start/stop Snapcast services based on target mode
+            # Step 3: Reconcile snapcast services to target (idempotent).
+            # Both branches raise on failure — a silent stop would leave
+            # snapclient holding the ALSA loopback while routing.env flips to
+            # direct, recreating the 2026-05-13 desync.
             if enabled:
                 self.logger.info("Starting snapcast services")
-                snapcast_success = await self._start_snapcast()
-                if not snapcast_success:
-                    # Best-effort: restart source so the system isn't left silent.
-                    # The caller will see the raise and run rollback anyway.
-                    if source_instance:
-                        self.logger.info(f"Snapcast failed, restarting source {active_source.value}")
-                        try:
-                            await source_instance.start()
-                        except Exception as e:
-                            self.logger.warning(f"Source recovery start failed: {e}")
+                if not await self._start_snapcast():
                     raise RuntimeError("Failed to start snapcast services")
             else:
-                await self._stop_snapcast()
+                self.logger.info("Stopping snapcast services")
+                if not await self._stop_snapcast():
+                    raise RuntimeError("Failed to stop snapcast services")
 
-            # Step 4: Restart source with new routing
+            # Step 4: Regenerate routing.env so source unit picks up new MILO_MODE
+            RoutingEnv.regenerate(enabled)
+
+            # Step 5: Restart source with new routing — best-effort.
+            # A source failure here doesn't fail the transition; the multiroom
+            # mode is correctly set and the user can retry source playback.
             if source_instance:
                 self.logger.info(f"Starting source {active_source.value} for {target_mode} mode")
-                start_success = await source_instance.start()
-                if not start_success:
-                    raise RuntimeError(
-                        f"Source {active_source.value} start failed after {target_mode} transition"
+                try:
+                    if not await source_instance.start():
+                        self.logger.warning(
+                            f"Source {active_source.value} start returned False after "
+                            f"{target_mode} transition (transition still considered successful)"
+                        )
+                except Exception as e:
+                    self.logger.warning(
+                        f"Source start failed after {target_mode} transition (non-fatal): {e}"
                     )
 
     async def _post_transition_setup_best_effort(self, enabled: bool) -> None:
-        """PHASE 3: WebSocket lifecycle, volume sync, and ready broadcast.
+        """Post-transition: WebSocket lifecycle, volume sync, and ready broadcast.
 
         Every step is wrapped in try/except — failures are logged as warnings
-        and never fail the transition. Settings persistence has already happened
-        in `_commit_state`.
+        and never fail the transition. Settings + routing.env have already
+        been committed by the caller.
         """
         # WebSocket connection lifecycle + readiness wait
         try:
@@ -702,9 +717,38 @@ class AudioRoutingService:
             })
         return success
 
-    async def _update_systemd_environment(self) -> None:
-        """Regenerate routing.env to reflect the current multiroom state."""
-        RoutingEnv.regenerate(self.multiroom_enabled)
+    def regenerate_env_files(self) -> None:
+        """Re-derive all three env files (routing/mac/snapclient) from settings.
+
+        Sole entry point for the boot-time env-file write and for the
+        `_detect_initial_state` reconcile pass. Reads `settings_service`
+        synchronously (via `get_setting_sync`, which Phase 1 made
+        validation-strict) and passes the extracted values to each pure
+        env writer.
+
+        This is the consolidation point S2/S5 from the desync plan:
+        - Only `regenerate_env_files` (and the podcast constructor) call
+          `get_setting_sync`. Every other reader goes async.
+        - Multiroom-only transitions still call `RoutingEnv.regenerate(enabled)`
+          directly from `_apply_transition` (targeted single-file write —
+          mac.env / snapclient.env are unchanged by a mode toggle).
+        """
+        if not self.settings_service:
+            RoutingEnv.regenerate(False)
+            MacEnv.regenerate(None)
+            SnapclientEnv.regenerate(None, None)
+            return
+
+        multiroom = self._to_bool(
+            self.settings_service.get_setting_sync('routing.multiroom_enabled')
+        )
+        mac_config = self.settings_service.get_setting_sync('mac')
+        buffer_time = self.settings_service.get_setting_sync('multiroom.snapclient_buffer_time')
+        fragments = self.settings_service.get_setting_sync('multiroom.snapclient_fragments')
+
+        RoutingEnv.regenerate(multiroom)
+        MacEnv.regenerate(mac_config)
+        SnapclientEnv.regenerate(buffer_time, fragments)
 
     @handle_errors(default=False)
     async def _start_snapcast(self) -> bool:
@@ -729,11 +773,23 @@ class AudioRoutingService:
         success = await self.service_manager.start(self.snapclient_service)
         return success
 
-    @handle_errors(default=None)
-    async def _stop_snapcast(self) -> None:
-        """Stops snapcast services"""
-        await self.service_manager.stop(self.snapclient_service)
-        await self.service_manager.stop(self.snapserver_service)
+    async def _stop_snapcast(self) -> bool:
+        """Stop snapcast services. Returns True iff both stopped cleanly.
+
+        Symmetric to ``_start_snapcast``: returns bool, never swallows.
+        A silent failure here would leave snapclient holding ``hw:Loopback,0,0``
+        via the camilladsp plug while ``routing.env=direct`` redirected
+        ``milo_roc`` to the same device — the original 2026-05-13 incident
+        class. Caller is expected to raise on False so the transition does
+        not persist a half-applied state.
+        """
+        client_ok = await self.service_manager.stop(self.snapclient_service)
+        server_ok = await self.service_manager.stop(self.snapserver_service)
+        if not (client_ok and server_ok):
+            self.logger.error(
+                f"snapcast stop incomplete: client_ok={client_ok}, server_ok={server_ok}"
+            )
+        return client_ok and server_ok
 
     def get_state(self) -> Dict[str, bool]:
         """

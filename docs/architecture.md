@@ -297,7 +297,7 @@ Sources are strictly contiguous in slots 1..7; DSP is isolated in slot 0 so addi
 ```
 
 **radio_data.json** - Radio favorites and custom stations
-**routing.env** - ALSA routing environment variables (auto-generated from settings.json)
+**routing.env** - Derived artifact of `settings.routing.multiroom_enabled`. Holds `MILO_MODE=direct|multiroom`. Read by every source systemd unit via `EnvironmentFile=` and by `/etc/asound.conf` via `@func getenv vars [ MILO_MODE ]` for `milo_*` alias resolution. Regenerated exclusively by `AudioRoutingService` whenever the setting changes.
 **last_volume.json** - Last saved volume for restoration
 
 **Integrity protection:**
@@ -364,13 +364,15 @@ milo-bluealsa             # Bluetooth daemon
 milo-bluealsa-aplay       # Bluetooth player
 milo-mac                  # Mac receiver (ROC)
 milo-radio                # Radio player (mpv)
-milo-snapserver-multiroom # Snapcast server
-milo-snapclient-multiroom # Local snapcast client
+milo-snapserver-multiroom # Snapcast server (started/stopped by AudioRoutingService — no WantedBy)
+milo-snapclient-multiroom # Local snapcast client (started/stopped by AudioRoutingService — no WantedBy)
 ```
 
 **Dependencies:**
 - All sources `BindsTo=milo-backend` (stop if backend stops)
 - Automatic restart on error
+
+**Multiroom lifecycle:** Snapserver and snapclient units do **not** auto-start at boot. `AudioRoutingService._sync_snapcast_state` is the only writer: it reads `settings.routing.multiroom_enabled` and reconciles both units accordingly during backend init and after every multiroom toggle. This avoids the desync class where snapcast could run while the backend believed it was in direct mode (which holds `hw:Loopback,0,0` and produces `Device or resource busy` on other sources).
 
 ## Security
 
