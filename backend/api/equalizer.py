@@ -70,7 +70,7 @@ def create_equalizer_router(
         """Get equalizer effects enabled state from settings (EQ, compressor, loudness)"""
         try:
             if settings_service:
-                enabled = await settings_service.get_setting("equalizer.effects_enabled")
+                enabled = await settings_service.get_setting("routing.equalizer_effects_enabled")
                 return {"enabled": enabled if enabled is not None else True}
             return {"enabled": True}
         except Exception as e:
@@ -256,9 +256,7 @@ def create_equalizer_router(
         """Save current filter gains as the custom preset and activate it."""
         async with api_error_handler("Error saving custom preset", logger):
             await camilladsp_service._save_custom_gains()
-
-            if settings_service:
-                await settings_service.set_setting("equalizer.active_preset", "custom")
+            await camilladsp_service.set_active_preset("custom")
 
             return {"status": "success", "preset_id": "custom"}
 

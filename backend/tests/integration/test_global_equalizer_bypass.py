@@ -181,35 +181,36 @@ class TestAC2RestoreEffects:
     """AC2: Toggle enables restore_effects() → restore all Equalizer from settings"""
 
     @pytest.mark.asyncio
-    async def test_restore_loads_eq_filters_from_settings(self, connected_camilladsp_with_effects, mock_settings_service):
-        """Should restore EQ filters from eq.filters settings"""
+    async def test_restore_loads_eq_filters_from_settings(self, connected_camilladsp_with_effects):
+        """Should restore EQ filters from in-memory persisted state."""
         saved_filters = [
             {"id": "eq_band_00", "freq": 32, "gain": 3, "q": 1.41, "type": "Peaking", "enabled": True},
             {"id": "eq_band_01", "freq": 64, "gain": -2, "q": 1.41, "type": "Peaking", "enabled": True},
         ]
-
-        mock_settings_service.get_setting = AsyncMock(side_effect=lambda key: {
-            "equalizer.filters": saved_filters,
-            "equalizer.compressor": {"enabled": True, "threshold": -25, "ratio": 6},
-            "equalizer.loudness": {"enabled": True, "high_boost": 8}
-        }.get(key))
+        connected_camilladsp_with_effects._filters = list(saved_filters)
+        connected_camilladsp_with_effects._compressor.update({"enabled": True, "threshold": -25, "ratio": 6})
+        connected_camilladsp_with_effects._loudness.update({"enabled": True, "high_boost": 8})
 
         mock_config = {"filters": {}, "processors": {}, "pipeline": []}
 
+        applied_filters: list = []
+
+        async def fake_set_filter(filter_id, freq, gain, q, filter_type="Peaking", **kwargs):
+            applied_filters.append(filter_id)
+            return True
+
         with patch.object(connected_camilladsp_with_effects, '_get_config', new_callable=AsyncMock, return_value=mock_config):
             with patch.object(connected_camilladsp_with_effects, '_set_config', new_callable=AsyncMock):
-                result = await connected_camilladsp_with_effects.restore_effects()
+                with patch.object(connected_camilladsp_with_effects, 'set_filter', side_effect=fake_set_filter):
+                    result = await connected_camilladsp_with_effects.restore_effects()
 
-                assert result is True
-                # Verify get_setting was called for eq.filters
-                filter_calls = [c for c in mock_settings_service.get_setting.call_args_list
-                               if c[0][0] == "equalizer.filters"]
-                assert len(filter_calls) >= 1
+                    assert result is True
+                    assert applied_filters == ["eq_band_00", "eq_band_01"]
 
     @pytest.mark.asyncio
-    async def test_restore_loads_compressor_from_settings(self, connected_camilladsp_with_effects, mock_settings_service):
-        """Should restore compressor settings from eq.compressor"""
-        saved_compressor = {
+    async def test_restore_loads_compressor_from_settings(self, connected_camilladsp_with_effects):
+        """Should restore compressor settings from in-memory persisted state."""
+        connected_camilladsp_with_effects._compressor = {
             "enabled": True,
             "threshold": -25,
             "ratio": 6,
@@ -217,15 +218,8 @@ class TestAC2RestoreEffects:
             "release": 150,
             "makeup_gain": 5
         }
-
-        mock_settings_service.get_setting = AsyncMock(side_effect=lambda key: {
-            "equalizer.filters": [],
-            "equalizer.compressor": saved_compressor,
-            "equalizer.loudness": {"enabled": False}
-        }.get(key))
-
-        # Start with compressor disabled (as if bypassed)
-        connected_camilladsp_with_effects._compressor["enabled"] = False
+        connected_camilladsp_with_effects._loudness = {"enabled": False, "high_boost": 5.0, "low_boost": 8.0}
+        connected_camilladsp_with_effects._filters = []
 
         mock_config = {"filters": {}, "processors": {}, "pipeline": []}
 
@@ -238,22 +232,15 @@ class TestAC2RestoreEffects:
                 assert connected_camilladsp_with_effects._compressor["threshold"] == -25
 
     @pytest.mark.asyncio
-    async def test_restore_loads_loudness_from_settings(self, connected_camilladsp_with_effects, mock_settings_service):
-        """Should restore loudness settings from eq.loudness"""
-        saved_loudness = {
+    async def test_restore_loads_loudness_from_settings(self, connected_camilladsp_with_effects):
+        """Should restore loudness settings from in-memory persisted state."""
+        connected_camilladsp_with_effects._loudness = {
             "enabled": True,
-                        "low_boost": 10,
+            "low_boost": 10,
             "high_boost": 8
         }
-
-        mock_settings_service.get_setting = AsyncMock(side_effect=lambda key: {
-            "equalizer.filters": [],
-            "equalizer.compressor": {"enabled": False},
-            "equalizer.loudness": saved_loudness
-        }.get(key))
-
-        # Start with loudness disabled (as if bypassed)
-        connected_camilladsp_with_effects._loudness["enabled"] = False
+        connected_camilladsp_with_effects._compressor = {"enabled": False, "threshold": -20.0, "ratio": 4.0, "attack": 10.0, "release": 100.0, "makeup_gain": 0.0}
+        connected_camilladsp_with_effects._filters = []
 
         mock_config = {"filters": {}, "processors": {}, "pipeline": []}
 
@@ -543,20 +530,20 @@ class TestAC6StateSync:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_routing_service_applies_state_on_init(self):
-        """Routing service should apply equalizer effects state on initialization.
+    async def test_routing_does_not_duplicate_restore_on_init(self):
+        """Routing should NOT call restore_effects/bypass_effects during init.
 
-        During _detect_initial_state(), routing reads `equalizer.effects_enabled`
-        directly from settings (because camilladsp.initialize() runs concurrently
-        and may not have loaded the flag yet), pushes the value into camilladsp's
-        cache, then calls restore_effects() or bypass_effects() accordingly.
+        That work is owned by CamillaDSPService._connection_loop, which runs
+        after _load_saved_config has populated the in-memory state. Letting
+        routing race ahead with a stale snapshot was the source of the
+        post-restart "bars at 0" bug.
         """
         from backend.core.multiroom.routing import AudioRoutingService
 
         mock_settings = Mock()
         mock_settings.get_setting = AsyncMock(side_effect=lambda key: {
             "routing.multiroom_enabled": False,
-            "equalizer.effects_enabled": True,
+            "routing.equalizer_effects_enabled": True,
         }.get(key))
         mock_settings.set_setting = AsyncMock()
 
@@ -580,13 +567,12 @@ class TestAC6StateSync:
         routing.service_manager.start = AsyncMock(return_value=True)
         routing.service_manager.stop = AsyncMock()
 
-        # Run initialization
         await routing._detect_initial_state()
 
-        # connect() then push the setting into camilladsp, then restore_effects()
-        mock_camilladsp.connect.assert_called_once()
-        mock_camilladsp.set_effects_enabled.assert_called_once_with(True)
-        mock_camilladsp.restore_effects.assert_called_once()
+        mock_camilladsp.connect.assert_not_called()
+        mock_camilladsp.set_effects_enabled.assert_not_called()
+        mock_camilladsp.restore_effects.assert_not_called()
+        mock_camilladsp.bypass_effects.assert_not_called()
 
 
 # =============================================================================
@@ -648,4 +634,4 @@ class TestDspEnabledAPI:
 
         assert result is True
         mock_camilladsp.bypass_effects.assert_called_once()
-        mock_settings.set_setting.assert_any_call('equalizer.effects_enabled', False)
+        mock_settings.set_setting.assert_any_call('routing.equalizer_effects_enabled', False)

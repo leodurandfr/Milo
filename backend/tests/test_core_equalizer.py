@@ -323,9 +323,13 @@ class TestCamillaDSPService:
 
     @pytest.mark.asyncio
     async def test_get_filters_disconnected(self, camilladsp_service):
-        """Should return empty list when disconnected"""
+        """Should return the in-memory default bands when disconnected."""
         filters = await camilladsp_service.get_filters()
-        assert filters == []
+        # 10 default flat bands are initialized in __init__ so the API never
+        # returns an empty list during the post-restart sync window.
+        assert len(filters) == 10
+        assert all(f["gain"] == 0.0 for f in filters)
+        assert [f["id"] for f in filters] == [f"eq_band_{i:02d}" for i in range(10)]
 
     @pytest.mark.asyncio
     async def test_set_filter_disconnected(self, camilladsp_service):

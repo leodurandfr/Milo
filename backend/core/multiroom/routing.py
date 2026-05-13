@@ -358,33 +358,21 @@ class AudioRoutingService:
             self.logger.info(f"Snapcast services already in correct state for {mode} mode")
 
     async def _initialize_camilladsp(self) -> None:
-        """Ensure CamillaDSP is running, connected, and effects state is applied."""
-        # CamillaDSP ALWAYS runs - volume is always controlled via DSP
+        """Ensure CamillaDSP systemd service is running.
+
+        Connection + effect restore are owned by CamillaDSPService's own
+        _connection_loop (driven by initialize()), which runs strictly after
+        _load_saved_config() has populated _filters from equalizer.json.
+        Doing the restore here would race with _load_saved_config and could
+        push stale (default-zero) gains to the daemon if camilladsp was
+        already up (PartOf= cycles it with milo-backend, so the sleep below
+        is skipped).
+        """
         camilladsp_running = await self.service_manager.is_active("milo-camilladsp.service")
         if not camilladsp_running:
             self.logger.info("Starting CamillaDSP service (always required for volume control)")
             await self.service_manager.start("milo-camilladsp.service")
             await asyncio.sleep(1.0)  # Give daemon time to start
-
-        if self.camilladsp_service and not self.camilladsp_service.connected:
-            connected = await self.camilladsp_service.connect()
-            if connected:
-                self.logger.info("Backend connected to CamillaDSP daemon")
-                # Read directly from settings: routing.initialize() and
-                # camilladsp.initialize() run concurrently in init_async, so
-                # camilladsp._effects_enabled may not yet be loaded from its
-                # own _load_saved_config when we get here.
-                effects_setting = await self.settings_service.get_setting('equalizer.effects_enabled') if self.settings_service else False
-                effects_enabled = self._to_bool(effects_setting)
-                self.camilladsp_service.set_effects_enabled(effects_enabled)
-                if effects_enabled:
-                    self.logger.info("Equalizer effects enabled, restoring from settings")
-                    await self.camilladsp_service.restore_effects()
-                else:
-                    self.logger.info("Equalizer effects disabled, bypassing all effects")
-                    await self.camilladsp_service.bypass_effects()
-            else:
-                self.logger.warning("Failed to connect to CamillaDSP daemon on startup")
 
     @handle_errors(default=None)
     async def _delayed_multiroom_sync(self):
@@ -694,7 +682,7 @@ class AudioRoutingService:
                 })
 
             if self.settings_service:
-                await self.settings_service.set_setting('equalizer.effects_enabled', enabled)
+                await self.settings_service.set_setting('routing.equalizer_effects_enabled', enabled)
 
             self.logger.info(f"Equalizer effects {'enabled' if enabled else 'bypassed'}")
             return True

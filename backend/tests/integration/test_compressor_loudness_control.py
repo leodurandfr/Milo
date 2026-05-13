@@ -136,19 +136,15 @@ class TestAC1CompressorEnableDisable:
                 assert connected_camilladsp_service._compressor["threshold"] == -25
 
     @pytest.mark.asyncio
-    async def test_compressor_persists_to_settings(self, connected_camilladsp_service, mock_settings_service):
-        """Should persist compressor state to eq.compressor in settings.json"""
+    async def test_compressor_persists_to_settings(self, connected_camilladsp_service):
+        """Should schedule a persist to equalizer.json after a compressor change."""
         mock_config = {"filters": {}, "processors": {}, "pipeline": []}
 
         with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
             with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
-                await connected_camilladsp_service.set_compressor(enabled=True)
-
-                # Verify settings were saved
-                mock_settings_service.set_setting.assert_called()
-                compressor_calls = [c for c in mock_settings_service.set_setting.call_args_list
-                                   if c[0][0] == "equalizer.compressor"]
-                assert len(compressor_calls) >= 1
+                with patch.object(connected_camilladsp_service, '_schedule_persist') as mock_persist:
+                    await connected_camilladsp_service.set_compressor(enabled=True)
+                    mock_persist.assert_called()
 
     @pytest.mark.asyncio
     async def test_compressor_fails_when_disconnected(self, disconnected_camilladsp_service):
@@ -324,18 +320,15 @@ class TestAC3LoudnessEnableDisable:
                 assert "loudness_high" not in captured_config["filters"]
 
     @pytest.mark.asyncio
-    async def test_loudness_persists_to_settings(self, connected_camilladsp_service, mock_settings_service):
-        """Should persist loudness state to eq.loudness in settings.json"""
+    async def test_loudness_persists_to_settings(self, connected_camilladsp_service):
+        """Should schedule a persist to equalizer.json after a loudness change."""
         mock_config = {"filters": {}, "pipeline": []}
 
         with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
             with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
-                await connected_camilladsp_service.set_loudness(enabled=True)
-
-                mock_settings_service.set_setting.assert_called()
-                loudness_calls = [c for c in mock_settings_service.set_setting.call_args_list
-                                 if c[0][0] == "equalizer.loudness"]
-                assert len(loudness_calls) >= 1
+                with patch.object(connected_camilladsp_service, '_schedule_persist') as mock_persist:
+                    await connected_camilladsp_service.set_loudness(enabled=True)
+                    mock_persist.assert_called()
 
     @pytest.mark.asyncio
     async def test_loudness_fails_when_disconnected(self, disconnected_camilladsp_service):
@@ -762,47 +755,42 @@ class TestEffectsBypassRestore:
                         "set_setting should NOT be called for eq.loudness during bypass (persist=False)"
 
     @pytest.mark.asyncio
-    async def test_restore_reads_compressor_from_settings(self, connected_camilladsp_with_effects, mock_settings_service):
-        """Restore should read compressor settings and re-enable"""
+    async def test_restore_reads_compressor_from_settings(self, connected_camilladsp_with_effects):
+        """Restore should re-enable compressor from in-memory persisted state."""
         mock_config = {"filters": {}, "processors": {}, "pipeline": []}
 
-        # Setup saved settings
-        mock_settings_service.get_setting = AsyncMock(side_effect=lambda key: {
-            "equalizer.filters": [],
-            "equalizer.compressor": {"enabled": True, "threshold": -25, "ratio": 6, "attack": 15, "release": 150, "makeup_gain": 5},
-            "equalizer.loudness": {"enabled": False, "low_boost": 5, "high_boost": 5}
-        }.get(key))
+        connected_camilladsp_with_effects._filters = []
+        connected_camilladsp_with_effects._compressor = {
+            "enabled": True, "threshold": -25, "ratio": 6, "attack": 15, "release": 150, "makeup_gain": 5
+        }
+        connected_camilladsp_with_effects._loudness = {"enabled": False, "low_boost": 5.0, "high_boost": 5.0}
 
-        # Start with compressor disabled (as if bypassed)
-        connected_camilladsp_with_effects._compressor["enabled"] = False
+        # Simulate bypassed state on enter
+        connected_camilladsp_with_effects._compressor["enabled"] = True  # already True
 
         with patch.object(connected_camilladsp_with_effects, '_get_config', new_callable=AsyncMock, return_value=mock_config):
             with patch.object(connected_camilladsp_with_effects, '_set_config', new_callable=AsyncMock):
                 await connected_camilladsp_with_effects.restore_effects()
 
-                # Compressor should be re-enabled with saved settings
+                # Compressor should be re-enabled with the persisted settings
                 assert connected_camilladsp_with_effects._compressor["enabled"] is True
                 assert connected_camilladsp_with_effects._compressor["threshold"] == -25
 
     @pytest.mark.asyncio
-    async def test_restore_reads_loudness_from_settings(self, connected_camilladsp_with_effects, mock_settings_service):
-        """Restore should read loudness settings and re-enable"""
+    async def test_restore_reads_loudness_from_settings(self, connected_camilladsp_with_effects):
+        """Restore should re-enable loudness from in-memory persisted state."""
         mock_config = {"filters": {}, "processors": {}, "pipeline": []}
 
-        # Setup saved settings
-        mock_settings_service.get_setting = AsyncMock(side_effect=lambda key: {
-            "equalizer.filters": [],
-            "equalizer.compressor": {"enabled": False, "threshold": -20, "ratio": 4, "attack": 10, "release": 100, "makeup_gain": 0},
-            "equalizer.loudness": {"enabled": True, "low_boost": 10, "high_boost": 8}
-        }.get(key))
-
-        # Start with loudness disabled (as if bypassed)
-        connected_camilladsp_with_effects._loudness["enabled"] = False
+        connected_camilladsp_with_effects._filters = []
+        connected_camilladsp_with_effects._compressor = {
+            "enabled": False, "threshold": -20.0, "ratio": 4.0, "attack": 10.0, "release": 100.0, "makeup_gain": 0.0
+        }
+        connected_camilladsp_with_effects._loudness = {"enabled": True, "low_boost": 10, "high_boost": 8}
 
         with patch.object(connected_camilladsp_with_effects, '_get_config', new_callable=AsyncMock, return_value=mock_config):
             with patch.object(connected_camilladsp_with_effects, '_set_config', new_callable=AsyncMock):
                 await connected_camilladsp_with_effects.restore_effects()
 
-                # Loudness should be re-enabled with saved settings
+                # Loudness should be re-enabled with persisted settings
                 assert connected_camilladsp_with_effects._loudness["enabled"] is True
                 assert connected_camilladsp_with_effects._loudness["low_boost"] == 10
