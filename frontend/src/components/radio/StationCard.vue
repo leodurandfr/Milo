@@ -6,6 +6,7 @@
       :src="getFaviconUrl(station.favicon)"
       :fallback-name="station.name"
       :alt="station.name"
+      priority="high"
       :class="['station-image', { playing: isPlaying, loading: isLoading }]"
     >
       <transition name="loading-fade">
@@ -15,14 +16,15 @@
       </transition>
     </LazyImage>
 
-    <!-- Skeleton overlay (on top, fades out when loaded) -->
+    <!-- Skeleton overlay: hides the placeholder/favicon until content is
+         ready, then fades out. Shown for every station (favicon or not) so
+         the SVG fallback never "pops" into view. -->
     <transition name="content-fade">
       <SkeletonStationCard
-        v-if="!lazyImg?.imageLoaded && !lazyImg?.imageError && station.favicon"
+        v-if="!contentReady"
         class="skeleton-overlay"
       />
     </transition>
-
   </div>
 
   <!-- "card" variant: Horizontal layout for lists -->
@@ -34,6 +36,7 @@
       :src="getFaviconUrl(station.favicon)"
       :fallback-name="station.name"
       :alt="station.name"
+      lazy
       class="station-logo"
     >
       <transition name="loading-fade">
@@ -57,7 +60,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { getTranslatedCountryName } from '@/constants/countries';
 import { getTranslatedGenreName } from '@/constants/musicGenres';
@@ -91,6 +94,29 @@ const props = defineProps({
 defineEmits(['click', 'play']);
 
 const lazyImg = ref(null);
+const contentReady = ref(false);
+
+// The skeleton overlay covers everything until we know what the final visible
+// content is. Three paths to "ready":
+//   - favicon loaded successfully → favicon visible
+//   - favicon errored             → SVG fallback visible
+//   - no favicon URL at all       → SVG fallback visible
+// In all paths the flip to `contentReady` is deferred via requestAnimationFrame
+// so the skeleton is painted at full opacity once before its leave transition
+// starts — without this, a cached favicon (synchronous imageLoaded=true) would
+// skip the skeleton paint entirely and the leave animation would not show.
+function markReady() {
+  requestAnimationFrame(() => { contentReady.value = true; });
+}
+
+onMounted(() => {
+  if (!props.station.favicon) markReady();
+});
+
+watch(
+  () => lazyImg.value?.imageLoaded || lazyImg.value?.imageError,
+  (settled) => { if (settled) markReady(); }
+);
 
 // Computed metadata for card variant: country + genre
 const cardMetadata = computed(() => {
@@ -139,16 +165,12 @@ const cardMetadata = computed(() => {
   --shimmer-highlight: var(--color-background-neutral);
 }
 
-/* Transition animations */
-.content-fade-enter-active {
-  transition: opacity var(--transition-normal);
-}
-
+/* Skeleton overlay fade-out — leave-only; the skeleton is mounted at full
+   opacity on first paint, then fades when content is ready. */
 .content-fade-leave-active {
   transition: opacity var(--transition-normal-leave);
 }
 
-.content-fade-enter-from,
 .content-fade-leave-to {
   opacity: 0;
 }

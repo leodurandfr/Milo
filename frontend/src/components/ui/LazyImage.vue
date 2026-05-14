@@ -1,5 +1,22 @@
 <template>
   <div class="lazy-image">
+    <!-- Baseline layer: SVG generated from name, or static image fallback.
+         Always mounted at opacity 1 — the parent's skeleton overlay sits on
+         top until either this layer or the favicon below it is the final
+         visible. -->
+    <div
+      v-if="fallbackName"
+      class="lazy-image-placeholder"
+      v-html="resolvedFallbackSvg"
+    />
+    <img
+      v-else-if="fallback"
+      :src="fallback"
+      class="lazy-image-placeholder"
+      alt=""
+    />
+
+    <!-- Real image layer: fades in over the placeholder once loaded. -->
     <img
       v-if="src && !imageError"
       ref="imgRef"
@@ -7,24 +24,13 @@
       :alt="alt"
       class="lazy-image-main"
       :class="{ loaded: imageLoaded }"
-      loading="lazy"
+      :loading="lazy ? 'lazy' : 'eager'"
+      :fetchpriority="priority"
       decoding="async"
       @load="handleImageLoad"
       @error="handleImageError"
-      @transitionend="handleTransitionEnd"
     />
-    <!-- Fallback stays mounted until the favicon's opacity fade completes (transitionend) -->
-    <div
-      v-if="!fadeComplete && fallbackName"
-      class="lazy-image-placeholder"
-      v-html="resolvedFallbackSvg"
-    />
-    <img
-      v-else-if="!fadeComplete && fallback"
-      :src="fallback"
-      class="lazy-image-placeholder"
-      alt=""
-    />
+
     <slot />
   </div>
 </template>
@@ -52,19 +58,29 @@ const props = defineProps({
   alt: {
     type: String,
     default: ''
+  },
+  // Browser fetch-priority hint. Use 'high' for above-the-fold critical images.
+  priority: {
+    type: String,
+    default: 'auto'
+  },
+  // Defer the fetch until the image nears the viewport. Default is eager so
+  // small or above-the-fold grids load immediately; long scrollable lists
+  // should opt in explicitly.
+  lazy: {
+    type: Boolean,
+    default: false
   }
 })
 
 const imgRef = ref(null)
 const imageLoaded = ref(false)
 const imageError = ref(false)
-const fadeComplete = ref(false)
 
 const MIN_IMAGE_SIZE = 8
 
-// Resolve the SVG markup lazily — generation runs only when the fallback is actually rendered
 const resolvedFallbackSvg = computed(() => {
-  if (fadeComplete.value || !props.fallbackName) return ''
+  if (!props.fallbackName) return ''
   return generateStationAvatarSvg(props.fallbackName)
 })
 
@@ -81,28 +97,18 @@ function handleImageError() {
   imageError.value = true
 }
 
-function handleTransitionEnd(e) {
-  if (e.propertyName === 'opacity' && imageLoaded.value) {
-    fadeComplete.value = true
-  }
-}
-
-// Reset state on src change so the new image gets its own fade-in over the fallback
 watch(() => props.src, () => {
   imageLoaded.value = false
   imageError.value = false
-  fadeComplete.value = false
 })
 
-// Handle browser-cached images that complete before Vue mounts.
-// We can't rely on a transitionend event here (the transition may never run
-// in the same tick as the initial paint), so skip the fade and unmount the
-// fallback immediately by flipping fadeComplete alongside imageLoaded.
+// Browser-cached images may complete before Vue mounts. Flip imageLoaded so
+// the parent's skeleton overlay can dismiss on first paint instead of waiting
+// for a `load` event that won't fire.
 onMounted(() => {
   const img = imgRef.value
   if (img?.complete && img.naturalHeight >= MIN_IMAGE_SIZE && img.naturalWidth >= MIN_IMAGE_SIZE) {
     imageLoaded.value = true
-    fadeComplete.value = true
   }
 })
 
@@ -128,9 +134,10 @@ img.lazy-image-placeholder {
   object-fit: cover;
 }
 
-/* Main image fades in over the fallback; the fallback stays mounted until
-   transitionend, then unmounts. The fallback bleeds through during the ramp
-   — accepted trade-off for a softer transition. */
+.lazy-image-placeholder {
+  z-index: 0;
+}
+
 .lazy-image-main {
   opacity: 0;
   transition: opacity 200ms ease-out;
@@ -139,10 +146,5 @@ img.lazy-image-placeholder {
 
 .lazy-image-main.loaded {
   opacity: 1;
-}
-
-.lazy-image-placeholder {
-  opacity: 1;
-  z-index: 0;
 }
 </style>

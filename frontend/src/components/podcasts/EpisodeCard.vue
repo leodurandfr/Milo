@@ -4,6 +4,7 @@
       :src="episode.image_url || episode.podcast?.image_url"
       :fallback="episodePlaceholder"
       :alt="episode.name"
+      lazy
       class="card-image"
     />
 
