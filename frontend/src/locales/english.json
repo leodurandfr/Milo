@@ -327,7 +327,7 @@
     "disconnected": "Disconnected",
     "notConnected": "Not connected",
     "preferredNetwork": "Preferred network",
-    "wifiDescription": "The preferred network connection activates automatically when Ethernet is disconnected.",
+    "wifiDescription": "The preferred WiFi network stays connected at all times and takes over if Ethernet becomes unavailable.",
     "otherNetworks": "Other WiFi networks",
     "noNetworks": "No networks detected",
     "password": "Password",
@@ -339,10 +339,10 @@
     "saveFailed": "Failed to save network",
     "forget": "Forget",
     "refresh": "Refresh",
-    "ready": "Ready",
     "wifiNetworks": "WiFi networks",
     "wifiCountry": "WiFi country",
-    "selectCountry": "Select your country"
+    "selectCountry": "Select your country",
+    "ready": "Ready"
   },
   "applications": {
     "features": "Features"

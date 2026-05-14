@@ -327,7 +327,7 @@
     "disconnected": "Déconnecté",
     "notConnected": "Non connecté",
     "preferredNetwork": "Réseau de préférence",
-    "wifiDescription": "La connexion avec le réseau de préférence s'active automatiquement lorsque l'Ethernet est déconnecté.",
+    "wifiDescription": "Le réseau WiFi de préférence reste connecté en permanence et prend le relais si l'Ethernet devient indisponible.",
     "otherNetworks": "Autres réseaux WiFi",
     "noNetworks": "Aucun réseau détecté",
     "password": "Mot de passe",
@@ -339,10 +339,10 @@
     "saveFailed": "Échec de l'enregistrement du réseau",
     "forget": "Oublier",
     "refresh": "Actualiser",
-    "ready": "Prêt",
     "wifiNetworks": "Réseaux WiFi",
     "wifiCountry": "Pays WiFi",
-    "selectCountry": "Choisissez votre pays"
+    "selectCountry": "Choisissez votre pays",
+    "ready": "Prêt"
   },
   "applications": {
     "features": "Fonctionnalités"

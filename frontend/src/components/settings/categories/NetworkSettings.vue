@@ -258,17 +258,13 @@ const showWifiCard = computed(() =>
   status.value.wifi_enabled && !!wifiDisplaySsid.value
 );
 
-const wifiBadgeClass = computed(() => {
-  if (status.value.ethernet.connected) return 'connection-badge--ready';
-  if (status.value.wifi.connected) return 'connection-badge--connected';
-  return 'connection-badge--disconnected';
-});
+const wifiBadgeClass = computed(() =>
+  status.value.wifi.connected ? 'connection-badge--connected' : 'connection-badge--disconnected'
+);
 
-const wifiBadgeLabel = computed(() => {
-  if (status.value.ethernet.connected) return t('network.ready');
-  if (status.value.wifi.connected) return t('network.connected');
-  return t('network.disconnected');
-});
+const wifiBadgeLabel = computed(() =>
+  status.value.wifi.connected ? t('network.connected') : t('network.notConnected')
+);
 
 // === WiFi row expand/collapse (MultiroomItem pattern) ===
 const wifiWrapperRef = ref(null);
@@ -436,11 +432,6 @@ onUnmounted(() => {
 .connection-badge--connected {
   background: color-mix(in srgb, var(--color-success) 16%, transparent);
   color: var(--color-success);
-}
-
-.connection-badge--ready {
-  background: color-mix(in srgb, var(--color-brand) 16%, transparent);
-  color: var(--color-brand);
 }
 
 .connection-badge--disconnected {

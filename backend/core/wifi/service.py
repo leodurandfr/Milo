@@ -108,6 +108,19 @@ class WifiService:
             wifi=wifi,
         )
 
+    async def refresh_and_broadcast_status(self) -> None:
+        """Re-read network status and broadcast it via WS.
+
+        Triggered by the NM dispatcher on physical link changes so the UI sees
+        cable plug/unplug in real time without polling.
+        """
+        status = await self.get_network_status()
+        await self.state_machine.broadcast_event(
+            category="wifi",
+            event_type="status_changed",
+            data=status.model_dump(),
+        )
+
     async def get_wifi_enabled(self) -> bool:
         """Check if WiFi radio is enabled."""
         rc, stdout, _ = await self._run_nmcli("radio", "wifi")
