@@ -398,6 +398,7 @@ export const useRadioStore = defineStore('radio', () => {
       formData.append('name', stationData.name);
       formData.append('url', stationData.url);
       formData.append('country', stationData.country || '');
+      formData.append('countrycode', stationData.countrycode || '');
       formData.append('genre', stationData.genre || '');
       formData.append('bitrate', stationData.bitrate || 0);
       formData.append('codec', stationData.codec || '');

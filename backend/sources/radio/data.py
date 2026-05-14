@@ -483,6 +483,7 @@ class StationDataService:
         name: str,
         url: str,
         country: str = "",
+        countrycode: str = "",
         genre: str = "",
         image_filename: str = "",
         bitrate: int = 0,
@@ -502,6 +503,7 @@ class StationDataService:
                 "name": name.strip(),
                 "url": url.strip(),
                 "country": country.strip(),
+                "countrycode": countrycode.strip().upper(),
                 "genre": genre.strip(),
                 "favicon": favicon_url,
                 "image_filename": image_filename,
@@ -544,68 +546,6 @@ class StationDataService:
             await self.remove_favorite(station_id)
 
         return success
-
-    async def update_custom_station(
-        self,
-        station_id: str,
-        name: str,
-        url: str,
-        country: str = "",
-        genre: str = "",
-        image_filename: Optional[str] = None,
-        remove_image: bool = False,
-        shazam_enabled: bool = True
-    ) -> Dict[str, Any]:
-        """Update an existing custom station."""
-        if not station_id or not station_id.startswith("custom_"):
-            return {"success": False, "error": "Invalid custom station ID"}
-
-        if not name or not url:
-            return {"success": False, "error": "name and url required"}
-
-        try:
-            old_station = self._manual_stations.get(station_id)
-            if not old_station:
-                return {"success": False, "error": "Manual station not found"}
-
-            old_image_filename = old_station.get('image_filename', '')
-            new_image_filename = image_filename if image_filename else old_image_filename
-
-            if remove_image and old_image_filename:
-                await self.image_manager.delete_image(old_image_filename)
-                new_image_filename = ''
-            elif image_filename and image_filename != old_image_filename:
-                if old_image_filename:
-                    await self.image_manager.delete_image(old_image_filename)
-
-            favicon_url = f"/api/radio/images/{new_image_filename}" if new_image_filename else ""
-
-            updated_station = {
-                "id": station_id,
-                "name": name.strip(),
-                "url": url.strip(),
-                "country": country.strip(),
-                "genre": genre.strip(),
-                "favicon": favicon_url,
-                "image_filename": new_image_filename,
-                "bitrate": old_station.get('bitrate', 0),
-                "codec": old_station.get('codec', ''),
-                "is_custom": True,
-                "shazam_enabled": shazam_enabled,
-                "votes": 0,
-                "clickcount": 0,
-                "score": 0,
-                "source_station_id": old_station.get('source_station_id', '')
-            }
-
-            self._manual_stations[station_id] = updated_station
-            success = await self._save()
-
-            return {"success": success, "station": updated_station}
-
-        except Exception as e:
-            self.logger.error(f"Error updating custom station: {e}")
-            return {"success": False, "error": str(e)}
 
     async def update_favorite_image(self, station_id: str, image_filename: str) -> bool:
         """Update image of a favorite station."""
@@ -659,6 +599,7 @@ class StationDataService:
         name: str,
         url: str,
         country: str = "",
+        countrycode: str = "",
         genre: str = "",
         codec: str = "",
         bitrate: int = 0,
@@ -691,6 +632,7 @@ class StationDataService:
                 "name": name.strip(),
                 "url": url.strip(),
                 "country": country.strip(),
+                "countrycode": countrycode.strip().upper(),
                 "genre": genre.strip(),
                 "favicon": favicon_url,
                 "image_filename": final_image_filename,
