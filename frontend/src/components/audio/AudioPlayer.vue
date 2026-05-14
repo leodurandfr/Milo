@@ -261,10 +261,26 @@ const playerStyle = computed(() => {
   border-radius: var(--radius-04);
   object-fit: cover;
   background: var(--color-background-neutral);
-  /* Required for the inline-SVG fallback: <img> content is clipped by
-     border-radius natively, but a <div v-html=svg> wrapper needs overflow
-     hidden to clip the inner <svg> to the rounded corners. */
+  /* Clip the inline-SVG fallback to the rounded corners. (For <img>, content
+     is clipped natively by border-radius — this matters only for the <div>
+     wrapper case.) */
   overflow: hidden;
+  /* In the parent flex column, flex-shrink: 1 (default) lets aspect-ratio be
+     overridden when vertical space is tight; pinning it preserves the 1:1
+     box for both <img> (which has intrinsic size) and the <div v-html=svg>
+     wrapper (whose content is the SVG sized below). */
+  flex-shrink: 0;
+}
+
+/* Inline-SVG fallback: let the SVG sit in normal flow with width:100% and
+   height derived from its 1024×1024 viewBox (height: auto). This gives the
+   wrapper a real, square content height — no circular dependency with the
+   wrapper's aspect-ratio (which would otherwise fall back to the SVG default
+   300×150 / ~1.94:1 box). */
+.player-artwork :deep(svg) {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 
 .player-artwork.placeholder {
