@@ -598,7 +598,7 @@
   },
   "irRemoteSettings": {
     "step": "प्रति प्रेस वॉल्यूम चरण",
-    "unpair": "इस रिमोट को अनपेयर करें",
+    "unpair": "अनपेयर करें",
     "hardwareDisabledTitle": "इन्फ्रारेड रिसीवर निष्क्रिय",
     "hardwareDisabledDetails": "रिमोट को पेयर करने के लिए हार्डवेयर सेटिंग्स में इन्फ्रारेड रिसीवर सक्षम करें।",
     "openHardwareSettings": "हार्डवेयर सेटिंग्स खोलें",

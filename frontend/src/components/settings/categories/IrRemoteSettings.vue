@@ -14,6 +14,7 @@
     <!-- Paired: regular settings -->
     <ToggleSection
       v-else-if="settingsStore.irRemote.paired"
+      heading="3"
       :enabled="settingsStore.irRemote.enabled"
       @change="handleToggle"
     >
@@ -25,6 +26,7 @@
       </template>
       <template #actions>
         <Button
+          class="unpair-button unpair-button--desktop"
           variant="background-strong"
           size="small"
           :loading="unpairing"
@@ -43,6 +45,17 @@
           @input="debouncedUpdate('ir-remote-steps', 'ir-remote-steps', { step_ir_remote_db: $event })"
         />
       </SettingItem>
+
+      <Button
+        class="unpair-button unpair-button--mobile"
+        variant="background-strong"
+        size="small"
+        :loading="unpairing"
+        :disabled="unpairing"
+        @click="handleUnpair"
+      >
+        {{ t('irRemoteSettings.unpair') }}
+      </Button>
     </ToggleSection>
 
     <!-- Not paired: wizard -->
@@ -284,6 +297,7 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: var(--space-02);
+  vertical-align: top;
 }
 
 .ir-remote-status__dot {
@@ -292,5 +306,22 @@ onUnmounted(() => {
   height: 8px;
   border-radius: 50%;
   background: var(--color-success);
+}
+
+/* Desktop: button lives in the header actions slot. Mobile: full-width below the slider. */
+.unpair-button--mobile {
+  display: none;
+}
+
+@media (max-aspect-ratio: 4/3) {
+  .unpair-button--desktop {
+    display: none;
+  }
+
+  .unpair-button--mobile {
+    display: flex;
+    width: 100%;
+    margin-top: var(--space-04);
+  }
 }
 </style>

@@ -598,7 +598,7 @@
   },
   "irRemoteSettings": {
     "step": "Lautstärkeschritt pro Tastendruck",
-    "unpair": "Diese Fernbedienung entkoppeln",
+    "unpair": "Entkoppeln",
     "hardwareDisabledTitle": "Infrarot-Empfänger deaktiviert",
     "hardwareDisabledDetails": "Aktiviere den Infrarot-Empfänger in den Hardware-Einstellungen, um eine Fernbedienung zu koppeln.",
     "openHardwareSettings": "Hardware-Einstellungen öffnen",

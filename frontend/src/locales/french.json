@@ -600,7 +600,7 @@
   },
   "irRemoteSettings": {
     "step": "Variation du volume par appui",
-    "unpair": "Désappairer cette télécommande",
+    "unpair": "Désappairer",
     "hardwareDisabledTitle": "Récepteur infrarouge désactivé",
     "hardwareDisabledDetails": "Activez le récepteur infrarouge dans les réglages matériel pour pouvoir appairer une télécommande.",
     "openHardwareSettings": "Ouvrir les réglages matériel",

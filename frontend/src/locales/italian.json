@@ -598,7 +598,7 @@
   },
   "irRemoteSettings": {
     "step": "Passo volume per pressione",
-    "unpair": "Disaccoppia questo telecomando",
+    "unpair": "Disaccoppia",
     "hardwareDisabledTitle": "Ricevitore infrarossi disattivato",
     "hardwareDisabledDetails": "Attiva il ricevitore infrarossi nelle impostazioni hardware per accoppiare un telecomando.",
     "openHardwareSettings": "Apri impostazioni hardware",

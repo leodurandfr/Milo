@@ -2,21 +2,19 @@
 <template>
   <SettingsContainer>
     <ToggleSection
+      heading="3"
       :enabled="settingsStore.btRemote.enabled"
       @change="handleBtRemoteToggle"
     >
       <template #title>
         <span class="bt-remote-status">
           <span class="bt-remote-status__dot" :class="{ 'is-connected': btRemoteConnected }" />
-          {{ btRemoteConnected ? t('btRemoteSettings.connected') : t('btRemoteSettings.notConnected') }}
-          <span
+          <span class="bt-remote-status__label">{{ btRemoteConnected ? t('btRemoteSettings.connected') : t('btRemoteSettings.notConnected') }}<span
             v-if="btRemoteConnected && settingsStore.btRemote.battery_percentage !== null"
             class="bt-remote-status__battery"
             :class="{ 'is-low': settingsStore.btRemote.battery_percentage < 20 }"
             :title="settingsStore.btRemote.battery_percentage < 20 ? t('btRemoteSettings.batteryLow') : undefined"
-          >
-            · {{ settingsStore.btRemote.battery_percentage }}%
-          </span>
+          > · {{ settingsStore.btRemote.battery_percentage }}%</span></span>
         </span>
       </template>
       <template v-if="!btRemoteConnected" #actions>
@@ -97,6 +95,7 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: var(--space-02);
+  vertical-align: top;
 }
 
 .bt-remote-status__dot {

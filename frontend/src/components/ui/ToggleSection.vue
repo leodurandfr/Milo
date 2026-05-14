@@ -4,9 +4,9 @@
   <SettingsSection :class="{ 'toggle-section--has-content': hasContent }">
     <template #header>
       <div class="toggle-section-header">
-        <h2 class="heading-2">
+        <component :is="`h${heading}`" :class="`heading-${heading}`">
           <slot name="title">{{ title }}</slot>
-        </h2>
+        </component>
         <div v-if="slots.actions" class="toggle-section-header__actions">
           <slot name="actions" />
         </div>
@@ -29,7 +29,8 @@ import SettingsSection from '@/components/settings/SettingsSection.vue';
 
 const props = defineProps({
   title: { type: String, default: '' },
-  enabled: { type: Boolean, required: true }
+  enabled: { type: Boolean, required: true },
+  heading: { type: [String, Number], default: 2, validator: (v) => ['2', '3', 2, 3].includes(v) }
 });
 
 const emit = defineEmits(['change']);
@@ -94,7 +95,8 @@ function handleToggle(newEnabled) {
   gap: var(--space-04);
 }
 
-.toggle-section-header > .heading-2 {
+.toggle-section-header > .heading-2,
+.toggle-section-header > .heading-3 {
   margin-right: auto;
   min-width: 0;
 }

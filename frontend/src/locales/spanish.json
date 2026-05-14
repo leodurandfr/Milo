@@ -598,7 +598,7 @@
   },
   "irRemoteSettings": {
     "step": "Paso de volumen por pulsación",
-    "unpair": "Desemparejar este mando",
+    "unpair": "Desemparejar",
     "hardwareDisabledTitle": "Receptor infrarrojo desactivado",
     "hardwareDisabledDetails": "Activa el receptor infrarrojo en los ajustes de hardware para emparejar un mando.",
     "openHardwareSettings": "Abrir ajustes de hardware",
