@@ -9,24 +9,10 @@ import { usePodcastStore } from '@/stores/podcastStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useI18n } from '@/services/i18n';
 import { formatDeviceNames } from '@/utils/deviceName';
-import { generateStationAvatar } from '@/utils/stationAvatar';
+import { getFaviconUrl } from '@/utils/faviconUrl';
 
 /** Minimum ms between activity event processing. */
 const ACTIVITY_THROTTLE_MS = 500;
-
-/**
- * Resolve a radio station favicon through the backend proxy to avoid CORS.
- * Custom-uploaded images already have an internal path and are returned as-is.
- *
- * @param {Object|null} station
- * @returns {string|null}
- */
-function stationArtworkUrl(station) {
-  const favicon = station?.favicon;
-  if (!favicon) return null;
-  if (favicon.startsWith('/api/radio/images/')) return favicon;
-  return `/api/radio/favicon?url=${encodeURIComponent(favicon)}`;
-}
 
 /**
  * Manages the audio screensaver lifecycle: visibility, inactivity timer,
@@ -123,7 +109,9 @@ export function useScreensaver() {
       const station = radioStore.currentStation;
       const track = radioStore.trackInfo;
 
-      const stationArt = stationArtworkUrl(station) || generateStationAvatar(station?.name);
+      // Favicon URL only — AudioScreensaver renders the inline SVG fallback
+      // from `stationName` so the avatar font cascades correctly.
+      const stationArt = getFaviconUrl(station?.favicon);
 
       if (track) {
         return {

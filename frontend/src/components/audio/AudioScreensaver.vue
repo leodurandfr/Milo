@@ -6,11 +6,14 @@
       <!-- Full-screen blurred background -->
       <div class="artwork-background">
         <img v-if="displayArtwork" :src="displayArtwork" alt="" class="background-image" />
+        <div v-else-if="fallbackSvg" v-html="fallbackSvg" class="background-image" />
       </div>
 
-      <!-- Centered blur halo (positioned relative to overlay) -->
+      <!-- Centered blur halo. Heavy blur + 0.12 opacity make the font of the
+           SVG fallback effectively invisible, so encoding it as a data URL for
+           CSS background-image is fine here (no font-cascade requirement). -->
       <div class="album-art-blur"
-        :style="{ backgroundImage: displayArtwork ? `url(${displayArtwork})` : 'none' }">
+        :style="{ backgroundImage: haloUrl ? `url(${haloUrl})` : 'none' }">
       </div>
 
       <!-- Main content: full-width horizontal layout -->
@@ -21,6 +24,7 @@
             <div class="album-art">
               <img v-if="displayArtwork" :src="displayArtwork" :alt="title"
                 @load="handleArtworkLoad" @error="artworkError = true" />
+              <div v-else-if="fallbackSvg" v-html="fallbackSvg" :aria-label="title" class="album-art-fallback" />
             </div>
           </div>
         </div>
@@ -54,7 +58,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
-import { generateStationAvatar } from '@/utils/stationAvatar';
+import { generateStationAvatarSvg } from '@/utils/stationAvatar';
 
 const props = defineProps({
   isVisible: {
@@ -111,9 +115,20 @@ function handleArtworkLoad(e) {
   }
 }
 
-const displayArtwork = computed(() => {
-  if (props.artwork && !artworkError.value) return props.artwork;
-  return generateStationAvatar(props.stationName || props.title) || null;
+const displayArtwork = computed(() =>
+  props.artwork && !artworkError.value ? props.artwork : null
+);
+const fallbackSvg = computed(() => {
+  const name = props.stationName || props.title;
+  return name ? generateStationAvatarSvg(name) : '';
+});
+// CSS background-image needs a URL, not raw markup — encode the inline SVG
+// just for the halo. Safe here because the heavy blur + low opacity hide any
+// font-cascade difference.
+const haloUrl = computed(() => {
+  if (displayArtwork.value) return displayArtwork.value;
+  if (fallbackSvg.value) return `data:image/svg+xml;utf8,${encodeURIComponent(fallbackSvg.value)}`;
+  return null;
 });
 const showBottomBar = computed(() => !!props.stationName);
 
@@ -281,10 +296,16 @@ watch(() => props.isVisible, (visible) => {
   pointer-events: none;
 }
 
-.album-art img {
+.album-art img,
+.album-art .album-art-fallback {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+/* Inline-SVG fallback fills its wrapper like the real artwork. */
+.album-art-fallback {
+  display: block;
 }
 
 /* Content Section */
