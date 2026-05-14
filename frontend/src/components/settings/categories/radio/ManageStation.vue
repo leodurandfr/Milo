@@ -40,9 +40,12 @@
             @change="handleFileSelect" class="file-input" />
 
           <div class="favicon-preview">
-            <img v-if="imagePreview" :src="imagePreview" alt="Aperçu" class="favicon-img" />
-            <img v-else-if="currentImageUrl" :src="currentImageUrl" alt="Image actuelle" class="favicon-img" />
-            <img v-else :src="generateStationAvatar(formData.name || 'Radio')" alt="Station sans image" class="favicon-img" />
+            <LazyImage
+              :src="imagePreview || getFaviconUrl(currentImageUrl)"
+              :fallback-name="formData.name || 'Radio'"
+              :alt="t('radio.manageStation.image')"
+              class="favicon-img"
+            />
           </div>
         </div>
       </div>
@@ -120,7 +123,8 @@ import Dropdown from '@/components/ui/Dropdown.vue';
 import InputText from '@/components/ui/InputText.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
-import { generateStationAvatar } from '@/utils/stationAvatar';
+import LazyImage from '@/components/ui/LazyImage.vue';
+import { getFaviconUrl } from '@/utils/faviconUrl';
 import axios from 'axios';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 
@@ -534,7 +538,6 @@ async function handleAddSubmit() {
 .favicon-img {
   width: 76px;
   height: 76px;
-  object-fit: cover;
   border-radius: var(--radius-03);
   background: var(--color-background-strong);
 }

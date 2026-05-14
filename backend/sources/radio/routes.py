@@ -550,12 +550,29 @@ async def get_favicon_proxy(url: str = Query(..., description="Favicon URL to pr
         if not url.startswith(('http://', 'https://')):
             return Response(status_code=204, headers=cors_headers)
 
+        # Browser-like header set: many station hosts sit behind a WAF
+        # (Akamai, Cloudflare) that rejects requests with only a bare
+        # `User-Agent`. We mirror the headers a real <img> request carries
+        # (Accept image/*, sec-fetch-*, Accept-Language/Encoding) so favicons
+        # protected by header-fingerprinting reach us instead of 403'ing.
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 url,
                 timeout=aiohttp.ClientTimeout(total=5),
                 allow_redirects=True,
-                headers={'User-Agent': 'Milo/1.0'}
+                headers={
+                    'User-Agent': (
+                        'Mozilla/5.0 (X11; Linux aarch64) '
+                        'AppleWebKit/537.36 (KHTML, like Gecko) '
+                        'Chrome/120.0.0.0 Safari/537.36'
+                    ),
+                    'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept-Encoding': 'gzip, deflate',
+                    'Sec-Fetch-Dest': 'image',
+                    'Sec-Fetch-Mode': 'no-cors',
+                    'Sec-Fetch-Site': 'cross-site',
+                },
             ) as resp:
                 if resp.status != 200:
                     return Response(status_code=204, headers=cors_headers)
