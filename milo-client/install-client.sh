@@ -164,7 +164,7 @@ main() {
 
     # Network
     configure_avahi
-    configure_network_priority
+    configure_network_dispatcher
 
     # Cleanup non-interactive apt overrides (must happen after all apt calls)
     sudo rm -f /etc/apt/apt.conf.d/local
