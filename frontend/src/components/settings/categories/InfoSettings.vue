@@ -258,6 +258,11 @@ onUnmounted(() => {
   text-align: right;
 }
 
+.info-credits {
+  flex-direction: column;
+  gap: var(--space-01)
+}
+
 .bar-container {
   width: 100%;
   height: 6px;
