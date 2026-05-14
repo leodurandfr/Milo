@@ -169,7 +169,8 @@ app.include_router(routing_router)
 snapcast_router = create_snapcast_router(
     routing_service, snapcast_service, state_machine,
     camilladsp_service=camilladsp_service, proxy_service=equalizer_proxy_service,
-    settings_service=settings_service
+    settings_service=settings_service,
+    client_registry_service=client_registry_service,
 )
 app.include_router(snapcast_router)
 
