@@ -56,6 +56,14 @@ disable_eee() {
     fi
 }
 
+# Notify the backend that network state changed so it can re-read NM and
+# broadcast the new status over WebSocket (drives the live UI refresh).
+# Fire-and-forget: never block the dispatcher on backend availability.
+notify_backend() {
+    curl -fs --max-time 2 -X POST \
+        http://127.0.0.1:8000/api/wifi/status/refresh >/dev/null 2>&1 &
+}
+
 # Update Avahi interface - writes to state file then restarts Avahi
 set_avahi_interface() {
     local interface="$1"
@@ -96,9 +104,11 @@ case "$INTERFACE" in
             up)
                 disable_eee eth0
                 apply_avahi_target
+                notify_backend
                 ;;
             down)
                 apply_avahi_target
+                notify_backend
                 ;;
         esac
         ;;
@@ -106,6 +116,7 @@ case "$INTERFACE" in
         case "$ACTION" in
             up|down)
                 apply_avahi_target
+                notify_backend
                 ;;
         esac
         ;;

@@ -35,6 +35,19 @@ export async function preloadWifiStatus() {
 }
 
 /**
+ * WS handler for `wifi.status_changed` events broadcast by the backend on
+ * physical link changes (cable plug/unplug, WiFi associate/dissociate).
+ * Updates the shared module-level status so any mounted NetworkSettings
+ * view reflects the new state in real time.
+ */
+export function handleWifiStatusChanged(event) {
+  if (event?.data) {
+    _status.value = event.data;
+    _statusLoaded = true;
+  }
+}
+
+/**
  * Composable for WiFi state and API interactions.
  * Shared state is module-level (singleton); UI state is per-instance.
  */

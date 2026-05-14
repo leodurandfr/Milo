@@ -27,6 +27,17 @@ def create_wifi_router(wifi_service):
             status = await wifi_service.get_network_status()
             return {"status": "success", "data": status.model_dump()}
 
+    @router.post("/status/refresh")
+    async def refresh_network_status():
+        """Re-read NM state and broadcast the current network status.
+
+        Called by the NM dispatcher on every eth0/wlan0 up/down event so the
+        UI reflects physical link changes (cable plug/unplug) in real time.
+        """
+        async with api_error_handler("Network status refresh", logger):
+            await wifi_service.refresh_and_broadcast_status()
+            return {"status": "success"}
+
     @router.post("/connect")
     async def connect_to_network(request: WifiConnectRequest):
         """Connect to a WiFi network."""

@@ -325,7 +325,7 @@
     "disconnected": "Desconectado",
     "notConnected": "Não conectado",
     "preferredNetwork": "Rede preferida",
-    "wifiDescription": "A conexão com a rede preferida é ativada automaticamente quando a Ethernet é desconectada.",
+    "wifiDescription": "A rede WiFi preferida permanece conectada permanentemente e assume quando a Ethernet não estiver disponível.",
     "otherNetworks": "Outras redes WiFi",
     "noNetworks": "Nenhuma rede detectada",
     "password": "Senha",
@@ -334,13 +334,13 @@
     "connectFailed": "Falha na conexão",
     "forget": "Esquecer",
     "refresh": "Atualizar",
-    "ready": "Pronto",
     "wifiNetworks": "Redes WiFi",
     "wifiCountry": "País WiFi",
     "selectCountry": "Selecione seu país",
     "save": "Guardar",
     "saving": "A guardar...",
-    "saveFailed": "Falha ao guardar a rede"
+    "saveFailed": "Falha ao guardar a rede",
+    "ready": "Pronto"
   },
   "applications": {
     "features": "Funcionalidades"

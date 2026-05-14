@@ -325,7 +325,7 @@
     "disconnected": "डिस्कनेक्टेड",
     "notConnected": "कनेक्ट नहीं है",
     "preferredNetwork": "पसंदीदा नेटवर्क",
-    "wifiDescription": "ईथरनेट डिस्कनेक्ट होने पर पसंदीदा नेटवर्क कनेक्शन स्वचालित रूप से सक्रिय हो जाता है।",
+    "wifiDescription": "पसंदीदा वाई-फ़ाई नेटवर्क हर समय जुड़ा रहता है और ईथरनेट उपलब्ध न होने पर कार्यभार संभालता है।",
     "otherNetworks": "अन्य WiFi नेटवर्क",
     "noNetworks": "कोई नेटवर्क नहीं मिला",
     "password": "पासवर्ड",
@@ -334,13 +334,13 @@
     "connectFailed": "कनेक्शन विफल",
     "forget": "भूल जाएं",
     "refresh": "रीफ़्रेश",
-    "ready": "तैयार",
     "wifiNetworks": "WiFi नेटवर्क",
     "wifiCountry": "WiFi देश",
     "selectCountry": "अपना देश चुनें",
     "save": "सहेजें",
     "saving": "सहेज रहे हैं...",
-    "saveFailed": "नेटवर्क सहेजने में विफल"
+    "saveFailed": "नेटवर्क सहेजने में विफल",
+    "ready": "तैयार"
   },
   "applications": {
     "features": "सुविधाएं"

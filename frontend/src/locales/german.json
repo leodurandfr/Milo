@@ -325,7 +325,7 @@
     "disconnected": "Getrennt",
     "notConnected": "Nicht verbunden",
     "preferredNetwork": "Bevorzugtes Netzwerk",
-    "wifiDescription": "Die Verbindung zum bevorzugten Netzwerk wird automatisch aktiviert, wenn Ethernet getrennt wird.",
+    "wifiDescription": "Das bevorzugte WLAN-Netzwerk bleibt dauerhaft verbunden und übernimmt, wenn Ethernet nicht verfügbar ist.",
     "otherNetworks": "Andere WLAN-Netzwerke",
     "noNetworks": "Keine Netzwerke erkannt",
     "password": "Passwort",
@@ -334,13 +334,13 @@
     "connectFailed": "Verbindung fehlgeschlagen",
     "forget": "Vergessen",
     "refresh": "Aktualisieren",
-    "ready": "Bereit",
     "wifiNetworks": "WLAN-Netzwerke",
     "wifiCountry": "WLAN-Land",
     "selectCountry": "Wähle dein Land",
     "save": "Speichern",
     "saving": "Speichern...",
-    "saveFailed": "Netzwerk konnte nicht gespeichert werden"
+    "saveFailed": "Netzwerk konnte nicht gespeichert werden",
+    "ready": "Bereit"
   },
   "applications": {
     "features": "Funktionen"

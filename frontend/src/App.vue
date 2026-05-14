@@ -107,6 +107,7 @@ import useWebSocket from '@/services/websocket';
 import { logger } from '@/services/logger';
 import { useScreenActivity } from '@/composables/useScreenActivity';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
+import { handleWifiStatusChanged } from '@/composables/useWifi';
 
 // === Constants ===
 const BOOT_TIMEOUT_MS = 2000;        // Show "connecting" after 2s (roughly when attempt 2 starts)
@@ -475,6 +476,10 @@ onMounted(async () => {
         if (!event.data.sleeping) wakeInProgress = false;
       }
     }),
+    // Live network status updates (cable plug/unplug, wifi associate/dissociate).
+    // Backend's WifiService broadcasts this whenever the NM dispatcher signals
+    // a physical link change, so NetworkSettings shows the new state instantly.
+    on('wifi', 'status_changed', handleWifiStatusChanged),
     // Routing transition events - centralized in multiroomStore
     on('routing', 'multiroom_enabling', (event) => multiroomStore.handleRoutingEvent(event)),
     on('routing', 'multiroom_disabling', (event) => multiroomStore.handleRoutingEvent(event)),
