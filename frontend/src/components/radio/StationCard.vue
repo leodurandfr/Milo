@@ -64,6 +64,7 @@ import { getTranslatedGenreName } from '@/constants/musicGenres';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
 import SkeletonStationCard from './SkeletonStationCard.vue';
+import { getFaviconUrl } from '@/utils/faviconUrl';
 
 const { getCurrentLanguage } = useI18n();
 
@@ -115,22 +116,6 @@ const cardMetadata = computed(() => {
   // Neither - return empty string
   return '';
 });
-
-function getFaviconUrl(faviconUrl) {
-  // No favicon
-  if (!faviconUrl) {
-    return '';
-  }
-
-  // Local image already hosted by the backend
-  if (faviconUrl.startsWith('/api/radio/images/')) {
-    return faviconUrl;
-  }
-
-  // External image: use backend proxy to avoid CORS
-  return `/api/radio/favicon?url=${encodeURIComponent(faviconUrl)}`;
-}
-
 
 </script>
 
