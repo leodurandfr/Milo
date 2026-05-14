@@ -600,7 +600,7 @@
   },
   "irRemoteSettings": {
     "step": "Volume step per click",
-    "unpair": "Unpair this remote",
+    "unpair": "Unpair",
     "hardwareDisabledTitle": "Infrared receiver disabled",
     "hardwareDisabledDetails": "Enable the infrared receiver in the hardware settings to pair a remote.",
     "openHardwareSettings": "Open hardware settings",

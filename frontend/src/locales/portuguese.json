@@ -598,7 +598,7 @@
   },
   "irRemoteSettings": {
     "step": "Incremento de volume por toque",
-    "unpair": "Desemparelhar este comando",
+    "unpair": "Desemparelhar",
     "hardwareDisabledTitle": "Recetor de infravermelhos desativado",
     "hardwareDisabledDetails": "Ative o recetor de infravermelhos nas definições de hardware para emparelhar um comando.",
     "openHardwareSettings": "Abrir definições de hardware",

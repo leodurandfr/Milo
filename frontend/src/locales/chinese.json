@@ -598,7 +598,7 @@
   },
   "irRemoteSettings": {
     "step": "每次按键的音量步进",
-    "unpair": "取消配对此遥控器",
+    "unpair": "取消配对",
     "hardwareDisabledTitle": "红外接收器已禁用",
     "hardwareDisabledDetails": "在硬件设置中启用红外接收器以配对遥控器。",
     "openHardwareSettings": "打开硬件设置",
