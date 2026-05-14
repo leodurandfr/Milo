@@ -2,7 +2,7 @@
   <!-- Card variant (default) -->
   <div v-if="variant === 'card'" class="podcast-card variant-card"
     :class="{ 'is-subscribed': isSubscribed, clickable, contrast }" @click="handleCardClick">
-    <LazyImage :src="podcast.image_url" :fallback="podcastPlaceholder" :alt="podcast.name" class="card-image">
+    <LazyImage :src="podcast.image_url" :fallback="podcastPlaceholder" :alt="podcast.name" lazy class="card-image">
       <div v-if="isLoading" class="card-loading-overlay">
         <LoadingSpinner :size="48" />
       </div>
@@ -28,7 +28,7 @@
   <!-- Row variant -->
   <div v-else class="podcast-card variant-row" :class="{ 'is-subscribed': isSubscribed, clickable, contrast }"
     @click="handleCardClick">
-    <LazyImage :src="podcast.image_url" :fallback="podcastPlaceholder" :alt="podcast.name" class="row-image">
+    <LazyImage :src="podcast.image_url" :fallback="podcastPlaceholder" :alt="podcast.name" lazy class="row-image">
       <div v-if="isLoading" class="card-loading-overlay">
         <LoadingSpinner :size="32" />
       </div>
