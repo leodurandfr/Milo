@@ -5,9 +5,13 @@
       <div class="remote-list">
         <ListItemButton
           variant="background"
+          icon-variant="standard"
           action="caret"
           @click="$emit('open-bt-remote')"
         >
+          <template #icon>
+            <SvgIcon name="bluetooth" :size="28" />
+          </template>
           <template #title>
             <div class="remote-title">
               <span>{{ t('remoteControls.btRemote') }}</span>
@@ -21,9 +25,13 @@
 
         <ListItemButton
           variant="background"
+          icon-variant="standard"
           action="caret"
           @click="$emit('open-ir-remote')"
         >
+          <template #icon>
+            <SvgIcon name="infrared" :size="28" />
+          </template>
           <template #title>
             <div class="remote-title">
               <span>{{ t('remoteControls.irRemote') }}</span>
@@ -47,6 +55,7 @@ import { useHardwareConfig } from '@/composables/useHardwareConfig';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
+import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 defineEmits(['open-bt-remote', 'open-ir-remote']);
 
@@ -80,7 +89,8 @@ const irStatusText = computed(() => {
 });
 
 const irDotClass = computed(() => {
-  if (!irHardwareEnabled.value || !settingsStore.irRemote.paired) return 'remote-title__dot--off';
+  if (!irHardwareEnabled.value) return 'remote-title__dot--off';
+  if (!settingsStore.irRemote.paired) return 'remote-title__dot--idle';
   return 'remote-title__dot--ok';
 });
 

@@ -67,6 +67,8 @@ import keyboardDeleteIcon from '@/assets/icons/keyboard/delete.svg?raw'
 import networkIcon from '@/assets/icons/network.svg?raw'
 import ejectIcon from '@/assets/icons/eject.svg?raw'
 import trashIcon from '@/assets/icons/trash.svg?raw'
+import bluetoothIcon from '@/assets/icons/bluetooth.svg?raw'
+import infraredIcon from '@/assets/icons/infrared.svg?raw'
 
 const icons = {
   play: playIcon,
@@ -113,7 +115,9 @@ const icons = {
   keyboardDelete: keyboardDeleteIcon,
   network: networkIcon,
   eject: ejectIcon,
-  trash: trashIcon
+  trash: trashIcon,
+  bluetooth: bluetoothIcon,
+  infrared: infraredIcon
 }
 
 const props = defineProps({
