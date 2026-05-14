@@ -29,8 +29,8 @@
                 <template #icon>
                   <img :src="rebootIcon" alt="Restart" />
                 </template>
-                <template #title>
-                  <span class="power-text-crossfade">
+                <template #title="{ headingClass }">
+                  <span class="power-text-crossfade" :class="headingClass">
                     <span class="power-text" :class="{ 'power-text--active': !confirmRestart && !restartInProgress }">{{ t('settings.restart') }}</span>
                     <span class="power-text" :class="{ 'power-text--active': confirmRestart && !restartInProgress }">{{ t('settings.confirmRestart') }}</span>
                     <span class="power-text power-text--light" :class="{ 'power-text--active': restartInProgress }">{{ t('settings.restartInProgress') }}</span>
@@ -41,8 +41,8 @@
                 <template #icon>
                   <img :src="shutdownIcon" alt="Shutdown" />
                 </template>
-                <template #title>
-                  <span class="power-text-crossfade">
+                <template #title="{ headingClass }">
+                  <span class="power-text-crossfade" :class="headingClass">
                     <span class="power-text" :class="{ 'power-text--active': !confirmShutdown && !shutdownInProgress }">{{ t('settings.shutdown') }}</span>
                     <span class="power-text" :class="{ 'power-text--active': confirmShutdown && !shutdownInProgress }">{{ t('settings.confirmShutdown') }}</span>
                     <span class="power-text power-text--light" :class="{ 'power-text--active': shutdownInProgress }">{{ t('settings.shutdownInProgress') }}</span>

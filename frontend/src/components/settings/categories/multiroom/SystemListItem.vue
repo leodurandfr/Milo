@@ -6,23 +6,23 @@
         <SvgIcon :name="speakerIcon" :size="28" />
       </div>
     </template>
-    <template #title>
-      <div class="speaker-title">
-        <span :class="{ 'text-secondary': !online }">{{ name }}</span>
-        <span class="text-mono-small speaker-title__meta" :class="metaClass">
-          <SvgIcon
-            v-if="discoverySource === 'ethernet'"
-            name="network"
-            :size="16"
-            class="discovery-badge" />
-          <WifiSignal
-            v-else-if="discoverySource === 'wifi'"
-            :signal="signal ?? 100"
-            :size="16"
-            class="discovery-badge" />
-          <span>{{ metaText }}</span>
-        </span>
-      </div>
+    <template #title="{ headingClass }">
+      <span :class="[headingClass, { 'text-secondary': !online }]">{{ name }}</span>
+    </template>
+    <template #subtitle>
+      <span class="text-mono-small speaker-meta" :class="metaClass">
+        <SvgIcon
+          v-if="discoverySource === 'ethernet'"
+          name="network"
+          :size="16"
+          class="discovery-badge" />
+        <WifiSignal
+          v-else-if="discoverySource === 'wifi'"
+          :signal="signal ?? 100"
+          :size="16"
+          class="discovery-badge" />
+        <span>{{ metaText }}</span>
+      </span>
     </template>
   </ListItemButton>
 </template>
@@ -108,7 +108,7 @@ const metaText = computed(() => {
 });
 
 const metaClass = computed(() => ({
-  'speaker-title__meta--configuring': props.statusVariant === 'configuring'
+  'speaker-meta--configuring': props.statusVariant === 'configuring'
 }));
 </script>
 
@@ -124,19 +124,14 @@ const metaClass = computed(() => ({
   opacity: 0.6;
 }
 
-.speaker-title {
-  display: flex;
-  flex-direction: column;
-}
-
-.speaker-title__meta {
+.speaker-meta {
   display: inline-flex;
   align-items: center;
   gap: var(--space-01);
   color: var(--color-text-secondary);
 }
 
-.speaker-title__meta--configuring {
+.speaker-meta--configuring {
   color: var(--color-brand);
 }
 

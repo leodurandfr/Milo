@@ -7,14 +7,9 @@
     <div class="station-action-menu-region"
       :class="{ 'station-action-menu-region--open': showActionMenu && actionIcon }">
       <div class="station-action-menu-items">
-        <ListItemButton v-if="actionIcon" @click="$emit('confirm-action')">
+        <ListItemButton v-if="actionIcon" :title="actionTitle" @click="$emit('confirm-action')">
           <template #icon>
             <SvgIcon :name="actionIcon" :size="40" />
-          </template>
-          <template #title>
-            {{ actionIcon === 'arrowCounterClockwise'
-                ? t('radio.manageStation.confirmRestore')
-                : t('radio.manageStation.confirmDelete') }}
           </template>
         </ListItemButton>
       </div>
@@ -154,6 +149,12 @@ const actionIcon = computed(() => {
   if (props.station._canDelete) return 'trash';
   return null;
 });
+
+const actionTitle = computed(() =>
+  actionIcon.value === 'arrowCounterClockwise'
+    ? t('radio.manageStation.confirmRestore')
+    : t('radio.manageStation.confirmDelete')
+);
 
 const { t, getCurrentLanguage } = useI18n();
 const radioStore = useRadioStore();

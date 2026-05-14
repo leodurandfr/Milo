@@ -441,6 +441,8 @@ These are auto-generated in `/var/lib/milo/routing.env` based on settings.json.
 
 **CSS**: Use design tokens (`var(--color-*)`, `var(--space-*)`, `var(--radius-*)`) instead of hardcoded values.
 
+**Typography**: Apply text styles via the design-system utility classes (`heading-1`…`heading-4`, `text-body`, `text-mono`, `text-mono-small`, `display-1`) defined in `frontend/src/assets/styles/design-system.css`. Do NOT redeclare `font-family`, `font-size`, `line-height`, `letter-spacing`, or `font-weight` in scoped component CSS to mimic an existing style — compose the utility class on the element instead (e.g. `class="my-block__title heading-3"`). Scoped CSS should only handle layout, color, and component-specific spacing.
+
 **Code style**: All `.js` files use semicolons. Constants files use camelCase naming (`audioPlayer.js`, `musicGenres.js`).
 
 **WS event handling**: WebSocket events should be handled in Pinia stores, not in Vue components directly. Components react to store state changes.

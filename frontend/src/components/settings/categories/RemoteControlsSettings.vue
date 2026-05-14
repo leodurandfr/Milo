@@ -7,19 +7,17 @@
           variant="background"
           icon-variant="standard"
           action="caret"
+          :title="t('remoteControls.btRemote')"
           @click="$emit('open-bt-remote')"
         >
           <template #icon>
             <SvgIcon name="bluetooth" :size="28" />
           </template>
-          <template #title>
-            <div class="remote-title">
-              <span>{{ t('remoteControls.btRemote') }}</span>
-              <span class="remote-title__meta text-mono-small">
-                <span class="remote-title__dot" :class="btDotClass" />
-                {{ btStatusText }}
-              </span>
-            </div>
+          <template #subtitle>
+            <span class="remote-meta text-mono-small">
+              <span class="remote-dot" :class="btDotClass" />
+              {{ btStatusText }}
+            </span>
           </template>
         </ListItemButton>
 
@@ -27,19 +25,17 @@
           variant="background"
           icon-variant="standard"
           action="caret"
+          :title="t('remoteControls.irRemote')"
           @click="$emit('open-ir-remote')"
         >
           <template #icon>
             <SvgIcon name="infrared" :size="28" />
           </template>
-          <template #title>
-            <div class="remote-title">
-              <span>{{ t('remoteControls.irRemote') }}</span>
-              <span class="remote-title__meta text-mono-small">
-                <span class="remote-title__dot" :class="irDotClass" />
-                {{ irStatusText }}
-              </span>
-            </div>
+          <template #subtitle>
+            <span class="remote-meta text-mono-small">
+              <span class="remote-dot" :class="irDotClass" />
+              {{ irStatusText }}
+            </span>
           </template>
         </ListItemButton>
       </div>
@@ -77,9 +73,9 @@ const btStatusText = computed(() => {
 
 const btDotClass = computed(() => {
   const bt = settingsStore.btRemote;
-  if (!bt.enabled) return 'remote-title__dot--off';
-  if (bt.connected) return 'remote-title__dot--ok';
-  return 'remote-title__dot--idle';
+  if (!bt.enabled) return 'remote-dot--off';
+  if (bt.connected) return 'remote-dot--ok';
+  return 'remote-dot--idle';
 });
 
 const irStatusText = computed(() => {
@@ -89,9 +85,9 @@ const irStatusText = computed(() => {
 });
 
 const irDotClass = computed(() => {
-  if (!irHardwareEnabled.value) return 'remote-title__dot--off';
-  if (!settingsStore.irRemote.paired) return 'remote-title__dot--idle';
-  return 'remote-title__dot--ok';
+  if (!irHardwareEnabled.value) return 'remote-dot--off';
+  if (!settingsStore.irRemote.paired) return 'remote-dot--idle';
+  return 'remote-dot--ok';
 });
 
 onMounted(() => {
@@ -107,36 +103,29 @@ onMounted(() => {
   gap: var(--space-01);
 }
 
-.remote-title {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  text-align: left;
-}
-
-.remote-title__meta {
+.remote-meta {
   display: inline-flex;
   align-items: center;
   gap: var(--space-01);
   color: var(--color-text-secondary);
 }
 
-.remote-title__dot {
+.remote-dot {
   display: inline-block;
   width: 8px;
   height: 8px;
   border-radius: 50%;
 }
 
-.remote-title__dot--off {
+.remote-dot--off {
   background: var(--color-background-medium-16);
 }
 
-.remote-title__dot--idle {
+.remote-dot--idle {
   background: var(--color-error);
 }
 
-.remote-title__dot--ok {
+.remote-dot--ok {
   background: var(--color-success);
 }
 </style>
