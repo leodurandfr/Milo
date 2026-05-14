@@ -45,36 +45,33 @@ class PodcastDataService:
         try:
             if os.path.exists(self._data_file):
                 ensured_data = None
-                needs_migration = False
+                needs_save = False
 
                 async with self._file_lock:
                     async with aiofiles.open(self._data_file, 'r', encoding='utf-8') as f:
                         data = json.loads(await f.read())
-                        ensured_data, needs_migration = self._ensure_structure(data)
+                        ensured_data, needs_save = self._ensure_structure(data)
 
                 # Save outside the lock to avoid deadlock
-                if needs_migration:
-                    self._logger.info("Saving migrated data to disk")
+                if needs_save:
                     await self.save_data(ensured_data)
 
                 return ensured_data
             else:
                 self._logger.info("podcast_data.json not found, creating new file")
-                default_data, _ = self._get_default_structure()
+                default_data = self._get_default_structure()
                 await self.save_data(default_data)
                 return default_data
 
         except json.JSONDecodeError as e:
             self._logger.error(f"JSON error in podcast_data.json: {e}")
-            data, _ = self._get_default_structure()
-            return data
+            return self._get_default_structure()
         except Exception as e:
             self._logger.error(f"Error loading podcast_data.json: {e}")
-            data, _ = self._get_default_structure()
-            return data
+            return self._get_default_structure()
 
-    def _get_default_structure(self):
-        """Get default data structure. Returns (data, needs_migration)."""
+    def _get_default_structure(self) -> Dict[str, Any]:
+        """Get default data structure."""
         return {
             "subscriptions": [],
             "playback_progress": {},
@@ -86,89 +83,33 @@ class PodcastDataService:
                 "safe_mode": False,
                 "playback_speed": 1.0
             }
-        }, False
+        }
 
     def _ensure_structure(self, data: Dict[str, Any]):
-        """Ensure all required keys exist in data. Returns (data, needs_migration)."""
-        defaults, _ = self._get_default_structure()
-        needs_migration = False
+        """Fill missing top-level keys with defaults. Returns (data, needs_save)."""
+        defaults = self._get_default_structure()
+        needs_save = False
 
         data.setdefault('subscriptions', defaults['subscriptions'])
         data.setdefault('playback_progress', defaults['playback_progress'])
 
-        # Migrate cache structure if needed
         if 'cache' not in data:
             data['cache'] = defaults['cache']
-            needs_migration = True
-            # Migrate old episode_cache
-            if 'episode_cache' in data:
-                data['cache']['episodes'] = data.pop('episode_cache')
+            needs_save = True
         else:
             data['cache'].setdefault('episodes', {})
             data['cache'].setdefault('podcasts', {})
 
-        # Ensure settings exist
         if 'settings' not in data:
             data['settings'] = defaults['settings']
-            needs_migration = True
+            needs_save = True
         else:
             for key, value in defaults['settings'].items():
                 if key not in data['settings']:
                     data['settings'][key] = value
-                    needs_migration = True
+                    needs_save = True
 
-        # Migrate camelCase keys to snake_case
-        needs_migration = self._migrate_camel_to_snake(data) or needs_migration
-
-        return data, needs_migration
-
-    @staticmethod
-    def _migrate_camel_to_snake(data: Dict[str, Any]) -> bool:
-        """Migrate camelCase keys to snake_case. Returns True if any migration occurred."""
-        migrated = False
-
-        # Settings keys
-        settings = data.get('settings', {})
-        for old, new in [('safeMode', 'safe_mode'), ('playbackSpeed', 'playback_speed')]:
-            if old in settings:
-                settings[new] = settings.pop(old)
-                migrated = True
-
-        # Subscription keys
-        sub_renames = {
-            'imageUrl': 'image_url',
-            'childrenHash': 'children_hash',
-            'addedAt': 'added_at',
-            'lastChecked': 'last_checked',
-        }
-        for sub in data.get('subscriptions', []):
-            for old, new in sub_renames.items():
-                if old in sub:
-                    sub[new] = sub.pop(old)
-                    migrated = True
-
-        # Playback progress keys
-        progress_renames = {
-            'lastPlayed': 'last_played',
-            'podcastUuid': 'podcast_uuid',
-            'episodeName': 'episode_name',
-            'podcastName': 'podcast_name',
-            'imageUrl': 'image_url',
-            'episodeUuid': 'episode_uuid',
-        }
-        for progress in data.get('playback_progress', {}).values():
-            for old, new in progress_renames.items():
-                if old in progress:
-                    progress[new] = progress.pop(old)
-                    migrated = True
-
-        # Cache entry keys
-        for entry in data.get('cache', {}).get('episodes', {}).values():
-            if 'cachedAt' in entry:
-                entry['cached_at'] = entry.pop('cachedAt')
-                migrated = True
-
-        return migrated
+        return data, needs_save
 
     @handle_errors(default=False)
     async def save_data(self, data: Dict[str, Any]) -> bool:

@@ -265,7 +265,6 @@ The Podcast source demonstrates several advanced patterns:
 
 **Data Persistence**:
 - `podcast_data.json` - Subscriptions, favorites, playback progress, user preferences (all keys `snake_case`)
-- Automatic migration from legacy `camelCase` keys on load (in `PodcastDataService._migrate_keys()`)
 - Episode metadata caching to reduce API calls
 - Full episode objects stored for offline UI rendering
 
@@ -582,23 +581,23 @@ When generating or modifying code in this repository, please follow these rules:
 
 ### 2. No Migration / Fallback Code (Keep the codebase OPTIMIZED)
 
-The codebase must stay **clean, optimized and free of legacy / transitional layers**.
+The codebase must stay **clean, optimized and free of legacy / transitional layers**. This is a fixed-purpose appliance — there is no legacy fleet to protect.
 
 When refactoring or adding features:
 
-- **Do NOT introduce or keep migration / fallback code paths** for old implementations, unless explicitly requested in an issue.
-  - No duplicated “old” and “new” versions of the same logic.
-  - No compatibility shims that keep unused APIs alive “just in case”.
+- **Do NOT introduce or keep migration / fallback code paths** for old implementations.
+  - No duplicated "old" and "new" versions of the same logic.
+  - No compatibility shims that keep unused APIs alive "just in case".
   - No feature flags whose only purpose is to keep legacy behavior around.
-- If a data/model/API change is needed:
-  - Implement the **new, final version** directly.
-  - Migrate existing data if required.
-  - **Remove any temporary migration helpers** once the change is applied.
+  - No `if old_key in data` / `data.get("legacy_field") or data.get("new_field")` branches to absorb older stored shapes.
+  - No version detection on persisted files (`if version < N: migrate(...)`).
+- **Persisted user data is NOT a constraint.** When a schema change is required for files in `/var/lib/milo/` (`radio_data.json`, `podcast_data.json`, `settings.json`, …), implement the **new shape directly**. It is acceptable to require the user to delete the affected file(s) and start fresh — call this out in the commit message. Do NOT write auto-migration helpers, key-renaming loops, or "if missing field, fall back to cache" branches.
+- **Remove dead code on sight** while refactoring: unused functions, dead routes, orphaned helpers, abandoned data-layer methods that no route calls anymore. Don't leave them "in case someone wires them up later" — they will rot.
 - Always prefer:
   - A **single, optimized code path** over multiple conditional branches for legacy behavior.
-  - Clear, simple refactors over incremental “layer on top of legacy” patches.
+  - Clear, simple refactors over incremental "layer on top of legacy" patches.
 
-In short: **keep the codebase OPTIM** (simple, efficient, modern) and avoid accumulating backward-compatibility or migration baggage.
+In short: **keep the codebase OPTIM** (simple, efficient, modern). Backward-compatibility baggage — for code OR for persisted data — is never warranted unless the user explicitly asks for it.
 
 ### 3. Dev-Only Symptoms vs. Production Bugs
 

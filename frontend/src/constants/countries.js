@@ -102,7 +102,7 @@ export function countryOptions(language, apiCountries, allCountriesLabel) {
     }
   }
 
-  const options = [{ label: allCountriesLabel, value: '' }];
-  translated.forEach(({ label, value }) => options.push({ label, value }));
+  const options = [{ label: allCountriesLabel, value: '', iso: '' }];
+  translated.forEach(({ label, value, iso }) => options.push({ label, value, iso }));
   return options;
 }

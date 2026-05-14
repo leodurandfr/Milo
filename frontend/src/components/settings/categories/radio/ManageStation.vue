@@ -60,7 +60,7 @@
       <div class="form-row">
         <div class="form-group">
           <label class="text-mono">{{ t('radio.manageStation.country') }}</label>
-          <Dropdown v-model="formData.country" :options="countryOptions" :placeholder="t('radio.manageStation.selectCountry')" />
+          <Dropdown v-model="formData.countrycode" :options="countryOptions" :placeholder="t('radio.manageStation.selectCountry')" />
         </div>
 
         <div class="form-group">
@@ -175,12 +175,20 @@ const availableCountries = ref([]);
 const formData = reactive({
   name: '',
   url: '',
-  country: '',
+  countrycode: '',
   genre: '',
   codec: '',
   bitrate: '',
   shazam_enabled: true
 });
+
+// Resolve the ISO-3166-1 alpha-2 code to the RadioBrowser country name so the
+// `country` field stays consistent with stations coming from the API.
+function countryNameForIso(iso) {
+  if (!iso) return '';
+  const match = availableCountries.value.find(c => (c.iso_3166_1 || '').toUpperCase() === iso.toUpperCase());
+  return match?.name || '';
+}
 
 const isEditMode = computed(() => props.mode === 'edit');
 
@@ -207,7 +215,9 @@ const countryOptions = computed(() => {
     return [{ label: t('radio.manageStation.loading'), value: '' }];
   }
   const translatedOptions = createCountryOptions(getCurrentLanguage(), availableCountries.value, '');
-  return translatedOptions.slice(1);
+  // Bind to ISO so the country name and the translation stay in sync regardless
+  // of UI language (Intl.DisplayNames translates from ISO at render time).
+  return translatedOptions.slice(1).map(opt => ({ label: opt.label, value: opt.iso }));
 });
 
 // === Form initialization ===
@@ -220,7 +230,7 @@ function initializeForm() {
   if (props.station && isEditMode.value) {
     formData.name = props.station.name || '';
     formData.url = props.station.url || props.station.url_resolved || '';
-    formData.country = props.station.country || '';
+    formData.countrycode = (props.station.countrycode || '').toUpperCase();
     formData.genre = props.station.genre || '';
     formData.codec = props.station.codec || '';
     formData.bitrate = String(props.station.bitrate || '');
@@ -232,7 +242,7 @@ function initializeForm() {
   } else {
     formData.name = '';
     formData.url = '';
-    formData.country = '';
+    formData.countrycode = '';
     formData.genre = '';
     formData.codec = '';
     formData.bitrate = '';
@@ -288,7 +298,8 @@ async function saveEdit() {
     formDataToSend.append('station_id', props.station.id);
     formDataToSend.append('name', formData.name.trim());
     formDataToSend.append('url', formData.url.trim());
-    formDataToSend.append('country', formData.country);
+    formDataToSend.append('country', countryNameForIso(formData.countrycode));
+    formDataToSend.append('countrycode', formData.countrycode);
     formDataToSend.append('genre', formData.genre);
     formDataToSend.append('codec', formData.codec);
     formDataToSend.append('bitrate', parseInt(formData.bitrate, 10) || 0);
@@ -335,7 +346,7 @@ watch([
 
 // Toggle / dropdown / file: instant
 watch([
-  () => formData.country,
+  () => formData.countrycode,
   () => formData.shazam_enabled,
 ], () => triggerSave({ instant: true }));
 
@@ -418,7 +429,8 @@ async function handleAddSubmit() {
     const stationData = {
       name: formData.name.trim(),
       url: formData.url.trim(),
-      country: formData.country,
+      country: countryNameForIso(formData.countrycode),
+      countrycode: formData.countrycode,
       genre: formData.genre,
       bitrate: parseInt(formData.bitrate, 10) || 0,
       codec: formData.codec,
