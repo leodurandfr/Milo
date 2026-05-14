@@ -1,12 +1,11 @@
 // Generates a deterministic SVG avatar for radio stations without a favicon.
 // Uses Space Mono Bold with a pastel background and vivid text color derived from the station name.
 //
-// Two output forms:
-//   generateStationAvatarSvg(name) → raw SVG string, intended for inline rendering (v-html).
-//   generateStationAvatar(name)    → data URL, for use as <img src> or CSS background-image.
-//
-// Prefer the inline form when possible: it paints in the same frame as the host DOM,
-// inherits @font-face from the document, and skips the browser's image decode pipeline.
+// Only the inline form is exported: SVGs loaded via <img src=data:...> render in
+// an isolated context and do NOT inherit document @font-face, so they would fall
+// back to the system monospace and break visual parity with the rest of the app.
+// Consumers must render the returned markup via v-html (e.g. LazyImage,
+// AudioPlayer, AudioScreensaver).
 
 const VIEW = 1024;
 const FONT_FAMILY = "'Space Mono Bold', 'Space Mono Regular', monospace";
@@ -120,14 +119,4 @@ function getSvg(name) {
 export function generateStationAvatarSvg(name) {
   if (!name) return '';
   return getSvg(name);
-}
-
-/**
- * Returns the avatar as a data URL — for <img src> or CSS background-image.
- * Note: SVGs loaded via <img> do NOT inherit document fonts, so text may
- * render with the system monospace fallback rather than Space Mono Bold.
- */
-export function generateStationAvatar(name) {
-  if (!name) return '';
-  return `data:image/svg+xml;utf8,${encodeURIComponent(getSvg(name))}`;
 }

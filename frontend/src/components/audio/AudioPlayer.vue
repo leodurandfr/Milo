@@ -5,12 +5,15 @@
       <!-- Background image - heavily zoomed and blurred -->
       <div class="player-art-background">
         <img v-if="validArtwork" :src="validArtwork" alt="" class="background-image" />
+        <div v-else-if="fallbackSvg" v-html="fallbackSvg" class="background-image" />
         <img v-else-if="placeholderArtwork" :src="placeholderArtwork" alt="" class="background-image" />
       </div>
 
       <div class="player-content">
-        <!-- Artwork: falls back to placeholderArtwork on load error (e.g. proxy 204) -->
+        <!-- Artwork: falls back to inline-SVG avatar (font-aware) when no valid artwork,
+             then to placeholderArtwork for sources that ship a static image (e.g. podcasts). -->
         <img v-if="validArtwork" :src="validArtwork" :alt="title" class="player-artwork" @load="handleArtworkLoad" @error="artworkError = true" />
+        <div v-else-if="fallbackSvg" v-html="fallbackSvg" class="player-artwork" :aria-label="title" />
         <img v-else :src="placeholderArtwork" :alt="title" class="player-artwork placeholder" />
 
         <!-- Info section with slot for flexible content -->
@@ -45,6 +48,7 @@ import { computed, ref, watch } from 'vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import episodePlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
 import { useIsMobile } from '@/composables/useIsMobile'
+import { generateStationAvatarSvg } from '@/utils/stationAvatar'
 
 const { isMobile } = useIsMobile()
 
@@ -75,11 +79,24 @@ const props = defineProps({
   },
 
   /**
-   * Placeholder artwork when no image is available
+   * Placeholder artwork URL — used when no valid artwork and no fallbackName.
+   * Sources with a deterministic name (radio stations) should pass fallbackName
+   * instead so the avatar is generated inline with the correct font; this prop
+   * stays for sources that ship a static placeholder asset (e.g. podcasts).
    */
   placeholderArtwork: {
     type: String,
     default: episodePlaceholder
+  },
+
+  /**
+   * Name used to generate an inline SVG avatar when no valid artwork loads.
+   * Inline rendering (v-html) inherits document @font-face — using an <img>
+   * data URL would lose Space Mono Bold and fall back to the system monospace.
+   */
+  fallbackName: {
+    type: String,
+    default: null
   },
 
   /**
@@ -126,11 +143,12 @@ const props = defineProps({
 
 defineEmits(['toggle-play', 'after-hide'])
 
-// Artwork validation — falls back to placeholderArtwork on error or tiny image (e.g. 1x1 tracking pixel)
+// Artwork validation — falls back to inline SVG / placeholder on error or tiny image (e.g. 1x1 tracking pixel)
 const MIN_IMAGE_SIZE = 8
 const artworkError = ref(false)
 watch(() => props.artwork, () => { artworkError.value = false })
 const validArtwork = computed(() => props.artwork && !artworkError.value ? props.artwork : null)
+const fallbackSvg = computed(() => props.fallbackName ? generateStationAvatarSvg(props.fallbackName) : '')
 
 function handleArtworkLoad(e) {
   if (e.target.naturalWidth < MIN_IMAGE_SIZE || e.target.naturalHeight < MIN_IMAGE_SIZE) {
@@ -243,6 +261,10 @@ const playerStyle = computed(() => {
   border-radius: var(--radius-04);
   object-fit: cover;
   background: var(--color-background-neutral);
+  /* Required for the inline-SVG fallback: <img> content is clipped by
+     border-radius natively, but a <div v-html=svg> wrapper needs overflow
+     hidden to clip the inner <svg> to the rounded corners. */
+  overflow: hidden;
 }
 
 .player-artwork.placeholder {
