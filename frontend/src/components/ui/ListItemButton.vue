@@ -8,10 +8,15 @@
       <slot name="icon"></slot>
     </div>
 
-    <!-- Title -->
-    <span class="list-item-button__title heading-3" :class="{ 'list-item-button__title--inactive': isActionInactive }">
-      <slot name="title">{{ title }}</slot>
-    </span>
+    <!-- Title (+ optional subtitle) -->
+    <div class="list-item-button__text" :class="{ 'list-item-button__text--stacked': hasSubtitle }">
+      <slot name="title" :heading-class="titleHeadingClass">
+        <span :class="['list-item-button__title', titleHeadingClass, { 'list-item-button__title--inactive': isActionInactive }]">{{ title }}</span>
+      </slot>
+      <slot v-if="hasSubtitle" name="subtitle">
+        <span class="list-item-button__subtitle text-body">{{ subtitle }}</span>
+      </slot>
+    </div>
 
     <!-- Right-side action -->
     <div v-if="action !== 'none'" class="list-item-button__action">
@@ -24,13 +29,17 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, useSlots } from 'vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import Radio from '@/components/ui/Radio.vue';
 
 const props = defineProps({
   title: {
+    type: String,
+    default: ''
+  },
+  subtitle: {
     type: String,
     default: ''
   },
@@ -66,8 +75,15 @@ const props = defineProps({
 
 const emit = defineEmits(['click', 'update:modelValue']);
 
+const slots = useSlots();
+
 // Press state for action button animation
 const actionPressed = ref(false);
+
+const hasSubtitle = computed(() => Boolean(props.subtitle) || Boolean(slots.subtitle));
+
+// Title shrinks to heading-4 when a subtitle is shown, otherwise heading-3
+const titleHeadingClass = computed(() => (hasSubtitle.value ? 'heading-4' : 'heading-3'));
 
 // Text is inactive (secondary color) when toggle/radio action is OFF
 const isActionInactive = computed(() => {
@@ -119,7 +135,7 @@ function handleClick(event) {
   cursor: not-allowed;
 }
 
-.list-item-button:disabled .list-item-button__title {
+.list-item-button:disabled .list-item-button__text {
   color: var(--color-text-light);
 }
 
@@ -166,21 +182,36 @@ function handleClick(event) {
   height: 28px;
 }
 
-/* Title */
-.list-item-button__title {
+/* Text block (title + optional subtitle) */
+.list-item-button__text {
   flex: 1;
   min-height: 40px;
   display: flex;
   align-items: center;
   gap: var(--space-01);
   color: var(--color-text);
-  transition: color var(--transition-fast);
 }
 
+/* Stacked layout when a subtitle is present */
+.list-item-button__text--stacked {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+}
+
+.list-item-button__title {
+  transition: color var(--transition-fast);
+}
 
 /* Inactive text (toggle/radio OFF) */
 .list-item-button__title--inactive {
   color: var(--color-text-secondary);
+}
+
+.list-item-button__subtitle {
+  color: var(--color-text-secondary);
+  text-align: left;
 }
 
 /* Right action */
@@ -214,7 +245,7 @@ function handleClick(event) {
     border-radius: var(--radius-04);
   }
 
-  .list-item-button__title {
+  .list-item-button__text {
     min-height: 32px;
   }
 
