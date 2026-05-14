@@ -67,7 +67,7 @@ EOF
 
     sudo systemctl restart avahi-daemon
 
-    # Install unified NetworkManager dispatcher for WiFi/Ethernet priority and Avahi
+    # Install NetworkManager dispatcher (Avahi mDNS interface selection)
     log_info "Installing network dispatcher..."
     sudo cp "$MILO_APP_DIR/rootfs/etc/NetworkManager/dispatcher.d/90-milo-network" /etc/NetworkManager/dispatcher.d/
     sudo chmod 755 /etc/NetworkManager/dispatcher.d/90-milo-network

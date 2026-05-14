@@ -49,10 +49,9 @@ configure_avahi() {
     log_success "Avahi configured"
 }
 
-configure_network_priority() {
-    log_info "Configuring network priority (ethernet over wifi)..."
+configure_network_dispatcher() {
+    log_info "Installing NetworkManager dispatcher (Avahi interface selection)..."
 
-    # Install unified NetworkManager dispatcher for WiFi/Ethernet priority and Avahi
     sudo cp "$MILO_CLIENT_ROOTFS_DIR/etc/NetworkManager/dispatcher.d/90-milo-network" /etc/NetworkManager/dispatcher.d/
     sudo chmod 755 /etc/NetworkManager/dispatcher.d/90-milo-network
 
@@ -60,19 +59,12 @@ configure_network_priority() {
     sudo rm -f /etc/NetworkManager/dispatcher.d/98-wifi-eth0-priority
     sudo rm -f /etc/NetworkManager/dispatcher.d/99-avahi-interface
 
-    # If currently connected via both ethernet and wifi, disconnect wifi now
-    if ip addr show eth0 2>/dev/null | grep -q "inet " && \
-       nmcli device status | grep -q "^wlan0.*connected"; then
-        log_info "Disconnecting WiFi (ethernet is available)..."
-        nmcli device disconnect wlan0 || true
-    fi
-
-    log_success "Network priority configured"
+    log_success "Network dispatcher installed"
 }
 
 # Run all steps if executed standalone
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     configure_avahi
-    configure_network_priority
+    configure_network_dispatcher
     log_success "Network configuration complete"
 fi

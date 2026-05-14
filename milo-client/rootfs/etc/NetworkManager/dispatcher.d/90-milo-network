@@ -1,17 +1,17 @@
 #!/bin/bash
-# Milo Network Manager - Unified WiFi/Ethernet management
+# Milo Client Network Manager - Avahi mDNS interface selection
 #
-# Handles:
-# - Ethernet priority over WiFi (disconnects WiFi when Ethernet is up)
-# - Avahi mDNS interface management (switches to active interface)
+# Keeps both eth0 and wlan0 connected at all times; selects which interface
+# Avahi advertises milo-client*.local on. Single-interface advertising avoids
+# the self-loop hostname conflict without sacrificing WiFi as a fallback when
+# ethernet fails.
 #
 # Avahi config is reset to eth0 at every boot via systemd ExecStartPre.
-# This dispatcher only handles runtime changes (cable plug/unplug).
+# This dispatcher only handles runtime changes (cable plug/unplug, WiFi events).
 #
-# Scenarios:
-# - Ethernet only: Avahi uses eth0
-# - WiFi only: Avahi uses wlan0
-# - Both: Ethernet prioritized, WiFi disconnected, Avahi uses eth0
+# Selection rules (in priority order):
+# - eth0 has an IPv4 address: Avahi on eth0  (ethernet preferred)
+# - else:                     Avahi on wlan0 (WiFi fallback)
 
 INTERFACE=$1
 ACTION=$2
@@ -22,14 +22,9 @@ get_avahi_interface() {
     grep "^allow-interfaces=" "$AVAHI_CONF" 2>/dev/null | cut -d= -f2
 }
 
-# Check if interface has an IP address
+# Check if interface has an IPv4 address
 has_ip() {
-    ip addr show "$1" 2>/dev/null | grep -q "inet "
-}
-
-# Check if eth0 has carrier (cable connected) - means it's connecting or connected
-eth0_has_carrier() {
-    [ "$(cat /sys/class/net/eth0/carrier 2>/dev/null)" = "1" ]
+    ip -4 addr show "$1" 2>/dev/null | grep -q "inet "
 }
 
 # Disable Energy Efficient Ethernet on a wired interface.
@@ -60,43 +55,33 @@ set_avahi_interface() {
     systemctl restart avahi-daemon.service
 }
 
+# Decide and apply the correct Avahi interface for the current network state.
+apply_avahi_target() {
+    if has_ip eth0; then
+        set_avahi_interface "eth0"
+    elif has_ip wlan0; then
+        set_avahi_interface "wlan0"
+    fi
+    # If neither interface has an IP, leave the state alone — Avahi will pick
+    # up the right one on the next up event.
+}
+
 case "$INTERFACE" in
     eth0)
         case "$ACTION" in
             up)
-                # Ethernet is now up - this is the preferred interface
-
-                # 0. Disable EEE to keep the audio link awake (Snapcast)
                 disable_eee eth0
-
-                # 1. Disconnect WiFi to avoid conflicts
-                if nmcli device status 2>/dev/null | grep -q "^wlan0.*connected"; then
-                    nmcli device disconnect wlan0 2>/dev/null
-                fi
-
-                # 2. Ensure Avahi uses eth0
-                set_avahi_interface "eth0"
+                apply_avahi_target
                 ;;
             down)
-                # Ethernet went down - failover to WiFi if available
-                if has_ip wlan0; then
-                    set_avahi_interface "wlan0"
-                fi
+                apply_avahi_target
                 ;;
         esac
         ;;
     wlan0)
         case "$ACTION" in
-            up)
-                # WiFi is now up - only use it if eth0 is not available
-                # Check both IP AND carrier (cable connected = eth0 is coming up)
-                if has_ip eth0 || eth0_has_carrier; then
-                    # Ethernet is active or coming up - disconnect WiFi
-                    nmcli device disconnect wlan0 2>/dev/null
-                else
-                    # Ethernet not available - use WiFi
-                    set_avahi_interface "wlan0"
-                fi
+            up|down)
+                apply_avahi_target
                 ;;
         esac
         ;;
