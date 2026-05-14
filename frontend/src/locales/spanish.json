@@ -32,9 +32,9 @@
     "confirmShutdown": "Confirmar apagado",
     "restartInProgress": "Reiniciando...",
     "shutdownInProgress": "Apagando...",
-    "remoteControls": "Remote controls",
-    "btRemote": "Bluetooth remote",
-    "irRemote": "IR remote"
+    "remoteControls": "Mandos a distancia",
+    "btRemote": "Mando Bluetooth",
+    "irRemote": "Mando IR"
   },
   "audioSources": {
     "title": "Fuentes de audio",
@@ -44,7 +44,7 @@
     "podcasts": "Podcasts",
     "airplay": "AirPlay",
     "macOS": "Receptor macOS",
-    "multiroom": "Multiroom",
+    "multiroom": "Multizona",
     "cd": "Reproductor de CD",
     "cdSource": {
       "unknownAlbum": "Álbum desconocido",
@@ -72,14 +72,14 @@
     }
   },
   "multiroom": {
-    "disabled": "El multiroom no está activado",
-    "starting": "Iniciando Multiroom",
+    "disabled": "Multizona no está activada",
+    "starting": "Iniciando Multizona",
     "zonesAndSystems": "Sistemas de audio",
     "individualSystems": "Sistemas individuales",
     "loadingSystems": "Cargando sistemas...",
     "noSystems": "Ningún sistema conectado",
-    "restarting": "Reiniciando multiroom...",
-    "error": "Error al activar multiroom",
+    "restarting": "Reiniciando Multizona...",
+    "error": "Error al activar Multizona",
     "editSystem": "Modificar el sistema de audio",
     "systemNameMain": "Nombre del sistema principal",
     "systemNameRemote": "Nombre del sistema remoto",
@@ -577,45 +577,45 @@
     }
   },
   "remoteControls": {
-    "btRemote": "Bluetooth Remote",
-    "irRemote": "IR Remote",
+    "btRemote": "Mando Bluetooth",
+    "irRemote": "Mando IR",
     "status": {
-      "disabled": "Disabled",
-      "connected": "Connected",
-      "notConnected": "Not connected",
+      "disabled": "Desactivado",
+      "connected": "Conectado",
+      "notConnected": "No conectado",
       "notPaired": "No emparejado",
       "paired": "Emparejado",
       "hardwareDisabled": "Receptor infrarrojo desactivado"
     }
   },
   "btRemoteSettings": {
-    "connected": "Connected",
-    "notConnected": "Not connected",
-    "discover": "Search",
-    "discovering": "Searching...",
-    "batteryLow": "Battery low",
-    "step": "Volume step per click"
+    "connected": "Conectado",
+    "notConnected": "No conectado",
+    "discover": "Buscar",
+    "discovering": "Buscando...",
+    "batteryLow": "Batería baja",
+    "step": "Paso de volumen por clic"
   },
   "irRemoteSettings": {
-    "step": "Volume step per click",
-    "unpair": "Unpair this remote",
+    "step": "Paso de volumen por pulsación",
+    "unpair": "Desemparejar este mando",
     "hardwareDisabledTitle": "Receptor infrarrojo desactivado",
     "hardwareDisabledDetails": "Activa el receptor infrarrojo en los ajustes de hardware para emparejar un mando.",
     "openHardwareSettings": "Abrir ajustes de hardware",
     "wizard": {
-      "idleTitle": "Pair your Apple Remote",
-      "idleDetails": "Press the button below, then press any key on your Apple Remote.",
-      "waitingTitle": "Press any button on your remote...",
-      "waitingDetails": "{seconds}s remaining",
-      "timeoutTitle": "No remote detected",
-      "timeoutDetails": "Check the receiver wiring and try again.",
-      "unsupportedTitle": "Unsupported remote",
-      "unsupportedDetails": "Milō only supports the Apple Remote (1st gen).",
-      "errorTitle": "Pairing failed",
-      "errorDetails": "An unexpected error occurred. Please try again.",
-      "startCta": "Pair this remote",
-      "cancelCta": "Cancel",
-      "retryCta": "Try again"
+      "idleTitle": "Empareja tu Apple Remote",
+      "idleDetails": "Pulsa el botón siguiente y, después, cualquier tecla de tu Apple Remote.",
+      "waitingTitle": "Pulsa cualquier botón del mando...",
+      "waitingDetails": "Quedan {seconds} s",
+      "timeoutTitle": "No se detectó ningún mando",
+      "timeoutDetails": "Comprueba el cableado del receptor y vuelve a intentarlo.",
+      "unsupportedTitle": "Mando no compatible",
+      "unsupportedDetails": "Milō solo es compatible con el Apple Remote (1ª gen).",
+      "errorTitle": "Error al emparejar",
+      "errorDetails": "Se ha producido un error inesperado. Inténtalo de nuevo.",
+      "startCta": "Emparejar este mando",
+      "cancelCta": "Cancelar",
+      "retryCta": "Reintentar"
     }
   }
 }

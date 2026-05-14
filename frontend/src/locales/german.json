@@ -32,9 +32,9 @@
     "confirmShutdown": "Ausschalten bestätigen",
     "restartInProgress": "Neustart läuft...",
     "shutdownInProgress": "Wird ausgeschaltet...",
-    "remoteControls": "Remote controls",
-    "btRemote": "Bluetooth remote",
-    "irRemote": "IR remote"
+    "remoteControls": "Fernbedienungen",
+    "btRemote": "Bluetooth-Fernbedienung",
+    "irRemote": "IR-Fernbedienung"
   },
   "audioSources": {
     "title": "Audioquellen",
@@ -577,45 +577,45 @@
     }
   },
   "remoteControls": {
-    "btRemote": "Bluetooth Remote",
-    "irRemote": "IR Remote",
+    "btRemote": "Bluetooth-Fernbedienung",
+    "irRemote": "IR-Fernbedienung",
     "status": {
-      "disabled": "Disabled",
-      "connected": "Connected",
-      "notConnected": "Not connected",
+      "disabled": "Deaktiviert",
+      "connected": "Verbunden",
+      "notConnected": "Nicht verbunden",
       "notPaired": "Nicht gekoppelt",
       "paired": "Gekoppelt",
       "hardwareDisabled": "Infrarot-Empfänger deaktiviert"
     }
   },
   "btRemoteSettings": {
-    "connected": "Connected",
-    "notConnected": "Not connected",
-    "discover": "Search",
-    "discovering": "Searching...",
-    "batteryLow": "Battery low",
-    "step": "Volume step per click"
+    "connected": "Verbunden",
+    "notConnected": "Nicht verbunden",
+    "discover": "Suchen",
+    "discovering": "Suche...",
+    "batteryLow": "Akku schwach",
+    "step": "Lautstärkeschritt pro Klick"
   },
   "irRemoteSettings": {
-    "step": "Volume step per click",
-    "unpair": "Unpair this remote",
+    "step": "Lautstärkeschritt pro Tastendruck",
+    "unpair": "Diese Fernbedienung entkoppeln",
     "hardwareDisabledTitle": "Infrarot-Empfänger deaktiviert",
     "hardwareDisabledDetails": "Aktiviere den Infrarot-Empfänger in den Hardware-Einstellungen, um eine Fernbedienung zu koppeln.",
     "openHardwareSettings": "Hardware-Einstellungen öffnen",
     "wizard": {
-      "idleTitle": "Pair your Apple Remote",
-      "idleDetails": "Press the button below, then press any key on your Apple Remote.",
-      "waitingTitle": "Press any button on your remote...",
-      "waitingDetails": "{seconds}s remaining",
-      "timeoutTitle": "No remote detected",
-      "timeoutDetails": "Check the receiver wiring and try again.",
-      "unsupportedTitle": "Unsupported remote",
-      "unsupportedDetails": "Milō only supports the Apple Remote (1st gen).",
-      "errorTitle": "Pairing failed",
-      "errorDetails": "An unexpected error occurred. Please try again.",
-      "startCta": "Pair this remote",
-      "cancelCta": "Cancel",
-      "retryCta": "Try again"
+      "idleTitle": "Apple Remote koppeln",
+      "idleDetails": "Tippe auf die Schaltfläche unten und drücke dann eine beliebige Taste auf deinem Apple Remote.",
+      "waitingTitle": "Drücke eine beliebige Taste auf der Fernbedienung...",
+      "waitingDetails": "Noch {seconds} s",
+      "timeoutTitle": "Keine Fernbedienung erkannt",
+      "timeoutDetails": "Überprüfe die Verkabelung des Empfängers und versuche es erneut.",
+      "unsupportedTitle": "Nicht unterstützte Fernbedienung",
+      "unsupportedDetails": "Milō unterstützt nur das Apple Remote (1. Generation).",
+      "errorTitle": "Kopplung fehlgeschlagen",
+      "errorDetails": "Ein unerwarteter Fehler ist aufgetreten. Bitte versuche es erneut.",
+      "startCta": "Diese Fernbedienung koppeln",
+      "cancelCta": "Abbrechen",
+      "retryCta": "Erneut versuchen"
     }
   }
 }

@@ -32,9 +32,9 @@
     "confirmShutdown": "确认关机",
     "restartInProgress": "正在重启...",
     "shutdownInProgress": "正在关机...",
-    "remoteControls": "Remote controls",
-    "btRemote": "Bluetooth remote",
-    "irRemote": "IR remote"
+    "remoteControls": "遥控器",
+    "btRemote": "蓝牙遥控器",
+    "irRemote": "红外遥控器"
   },
   "audioSources": {
     "title": "音频源",
@@ -44,7 +44,7 @@
     "podcasts": "播客",
     "airplay": "AirPlay",
     "macOS": "macOS 接收器",
-    "multiroom": "Multiroom",
+    "multiroom": "多房间",
     "cd": "CD播放器",
     "cdSource": {
       "unknownAlbum": "未知专辑",
@@ -577,45 +577,45 @@
     }
   },
   "remoteControls": {
-    "btRemote": "Bluetooth Remote",
-    "irRemote": "IR Remote",
+    "btRemote": "蓝牙遥控器",
+    "irRemote": "红外遥控器",
     "status": {
-      "disabled": "Disabled",
-      "connected": "Connected",
-      "notConnected": "Not connected",
+      "disabled": "已禁用",
+      "connected": "已连接",
+      "notConnected": "未连接",
       "notPaired": "未配对",
       "paired": "已配对",
       "hardwareDisabled": "红外接收器已禁用"
     }
   },
   "btRemoteSettings": {
-    "connected": "Connected",
-    "notConnected": "Not connected",
-    "discover": "Search",
-    "discovering": "Searching...",
-    "batteryLow": "Battery low",
-    "step": "Volume step per click"
+    "connected": "已连接",
+    "notConnected": "未连接",
+    "discover": "搜索",
+    "discovering": "搜索中...",
+    "batteryLow": "电量低",
+    "step": "每次点击的音量步进"
   },
   "irRemoteSettings": {
-    "step": "Volume step per click",
-    "unpair": "Unpair this remote",
+    "step": "每次按键的音量步进",
+    "unpair": "取消配对此遥控器",
     "hardwareDisabledTitle": "红外接收器已禁用",
     "hardwareDisabledDetails": "在硬件设置中启用红外接收器以配对遥控器。",
     "openHardwareSettings": "打开硬件设置",
     "wizard": {
-      "idleTitle": "Pair your Apple Remote",
-      "idleDetails": "Press the button below, then press any key on your Apple Remote.",
-      "waitingTitle": "Press any button on your remote...",
-      "waitingDetails": "{seconds}s remaining",
-      "timeoutTitle": "No remote detected",
-      "timeoutDetails": "Check the receiver wiring and try again.",
-      "unsupportedTitle": "Unsupported remote",
-      "unsupportedDetails": "Milō only supports the Apple Remote (1st gen).",
-      "errorTitle": "Pairing failed",
-      "errorDetails": "An unexpected error occurred. Please try again.",
-      "startCta": "Pair this remote",
-      "cancelCta": "Cancel",
-      "retryCta": "Try again"
+      "idleTitle": "配对您的 Apple Remote",
+      "idleDetails": "按下方按钮，然后按下 Apple Remote 上的任意键。",
+      "waitingTitle": "请按下遥控器上的任意按钮...",
+      "waitingDetails": "剩余 {seconds} 秒",
+      "timeoutTitle": "未检测到遥控器",
+      "timeoutDetails": "请检查接收器接线后重试。",
+      "unsupportedTitle": "不支持的遥控器",
+      "unsupportedDetails": "Milō 仅支持 Apple Remote（第一代）。",
+      "errorTitle": "配对失败",
+      "errorDetails": "发生意外错误，请重试。",
+      "startCta": "配对此遥控器",
+      "cancelCta": "取消",
+      "retryCta": "重试"
     }
   }
 }
