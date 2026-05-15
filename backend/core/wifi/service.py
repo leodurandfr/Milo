@@ -1,12 +1,32 @@
 """
-WiFi management service using NetworkManager (nmcli).
+WiFi / network management service using NetworkManager.
 
-Provides async methods for scanning, connecting, forgetting, and querying
-WiFi networks. All nmcli calls use asyncio.create_subprocess_exec.
+Action paths (scan, connect, save, forget, hotspot, set_country) run through
+nmcli — their D-Bus equivalents would require a PolicyKit dance and are far
+more verbose. Status *change* triggers come from a direct NM D-Bus
+subscription so the UI sees physical link / DHCP / WiFi roam events the
+moment NM has them, with no polling and no race against DHCP lease
+completion.
+
+Three subscription tiers (eth0 + wlan0):
+  1. Device.PropertiesChanged (base interface) — eth0 + wlan0
+     Watches State, Ip4Config, ActiveConnection.
+  2. Device.Wireless.PropertiesChanged — wlan0 only
+     Watches ActiveAccessPoint (associate / roam / dissociate).
+  3. AccessPoint.PropertiesChanged on the currently active AP — wlan0
+     Watches Strength (live signal). Re-anchored when ActiveAccessPoint
+     changes so we never leak handlers across roams.
+
+Fails open: if NM D-Bus is unavailable (dev environment, NM stopped),
+initialize() logs and returns False. The existing nmcli-based status path
+keeps working — just without live updates.
 """
 import asyncio
 import logging
 from typing import List, Optional, Tuple
+
+from dbus_next.aio import MessageBus
+from dbus_next.constants import BusType
 
 from backend.core.wifi.models import (
     WifiNetwork, WifiConnectionStatus, EthernetStatus,
@@ -19,11 +39,28 @@ from backend.core.wifi.models import (
 # scanner deduplicates by SSID and only one of them is adoptable at a time.
 HOTSPOT_NAME = "Milō"
 
+NM_SERVICE = "org.freedesktop.NetworkManager"
+NM_PATH = "/org/freedesktop/NetworkManager"
+NM_IFACE = "org.freedesktop.NetworkManager"
+NM_DEVICE_IFACE = "org.freedesktop.NetworkManager.Device"
+NM_DEVICE_WIRELESS_IFACE = "org.freedesktop.NetworkManager.Device.Wireless"
+NM_ACCESS_POINT_IFACE = "org.freedesktop.NetworkManager.AccessPoint"
+NM_IP4_CONFIG_IFACE = "org.freedesktop.NetworkManager.IP4Config"
+DBUS_PROPERTIES_IFACE = "org.freedesktop.DBus.Properties"
+
+# Base-Device properties whose change should force a status re-broadcast.
+_DEVICE_BASE_PROPS = {"State", "Ip4Config", "ActiveConnection"}
+# IP4Config properties whose change should force a re-broadcast. NM updates
+# these in place when DHCP completes, without re-emitting Device.Ip4Config
+# PropertiesChanged, so we must subscribe to the IP4Config object itself.
+_IP4_CONFIG_PROPS = {"AddressData", "Addresses"}
+
 
 class WifiService:
-    """WiFi management service wrapping nmcli commands."""
+    """WiFi management service wrapping nmcli + NetworkManager D-Bus."""
 
     WIFI_INTERFACE = "wlan0"
+    SIGNAL_DEBOUNCE_S = 1.5  # coalesce Strength bursts during roaming
 
     def __init__(self, state_machine, settings_service):
         self.logger = logging.getLogger(__name__)
@@ -32,6 +69,38 @@ class WifiService:
         self._hotspot_active: bool = False
         self._connect_lock = asyncio.Lock()
         self.hotspot_con_name: str = HOTSPOT_NAME
+
+        # D-Bus state
+        self._bus: Optional[MessageBus] = None
+        # Cached wlan0 proxy — reused to read ActiveAccessPoint between events.
+        self._wlan_proxy = None
+        # iface_name → (properties_iface, handler), tier 1 (base Device)
+        self._device_listeners: dict = {}
+        # iface_name → device proxy (used to re-read Ip4Config path on demand)
+        self._device_proxies: dict = {}
+        # Tier 1b — per-device IP4Config listener, re-anchored when
+        # Device.Ip4Config path changes. Required because NM updates
+        # IP4Config.Addresses in place on DHCP lease without bubbling a
+        # fresh Device.Ip4Config PropertiesChanged signal.
+        self._ip4_path: dict = {}
+        self._ip4_listener: dict = {}
+        # (properties_iface, handler) on wlan0, tier 2 (Device.Wireless)
+        self._wireless_listener: Optional[Tuple] = None
+        # Tier 3 — re-anchored each time ActiveAccessPoint changes path.
+        # _ap_proxy is also read on every status refresh for live SSID +
+        # Strength (avoids `nmcli dev wifi` which can stall on scans).
+        self._ap_path: Optional[str] = None
+        self._ap_proxy = None
+        self._ap_listener: Optional[Tuple] = None
+        # Broadcast plumbing
+        self._last_broadcast: Optional[NetworkStatus] = None
+        self._broadcast_lock = asyncio.Lock()
+        # Serializes listener mutations to avoid leaks when path changes bounce.
+        self._listener_setup_lock = asyncio.Lock()
+        self._signal_debounce_task: Optional[asyncio.Task] = None
+        # Holds strong refs to fire-and-forget tasks (CPython can otherwise GC
+        # a pending task that has no external reference).
+        self._pending_tasks: set = set()
 
     @property
     def hotspot_active(self) -> bool:
@@ -106,19 +175,6 @@ class WifiService:
             wifi_enabled=wifi_enabled,
             ethernet=ethernet,
             wifi=wifi,
-        )
-
-    async def refresh_and_broadcast_status(self) -> None:
-        """Re-read network status and broadcast it via WS.
-
-        Triggered by the NM dispatcher on physical link changes so the UI sees
-        cable plug/unplug in real time without polling.
-        """
-        status = await self.get_network_status()
-        await self.state_machine.broadcast_event(
-            category="wifi",
-            event_type="status_changed",
-            data=status.model_dump(),
         )
 
     async def get_wifi_enabled(self) -> bool:
@@ -544,24 +600,15 @@ class WifiService:
         if not connection or connection == HOTSPOT_NAME or not ip_address:
             return WifiConnectionStatus(connected=False, saved_ssid=saved)
 
-        # Get actual SSID and signal from active wifi connection
-        ssid = connection[5:] if connection.startswith("milo-") else connection
-        signal = None
-
-        rc2, stdout2, _ = await self._run_nmcli(
-            "-t", "-f", "active,ssid,signal", "dev", "wifi"
-        )
-
-        if rc2 == 0:
-            for line in stdout2.split("\n"):
-                fields = _parse_nmcli_line(line)
-                if len(fields) >= 3 and fields[0] == "yes":
-                    ssid = fields[1] or ssid
-                    try:
-                        signal = int(fields[2])
-                    except ValueError:
-                        pass
-                    break
+        # Read live SSID + Strength directly from the cached AP D-Bus proxy.
+        # `nmcli dev wifi` was the old source here, but its default --rescan auto
+        # could stall the refresh for several seconds during an implicit scan,
+        # which serialised behind every NM PropertiesChanged event.
+        ssid, signal = await self._read_active_ap_info()
+        if not ssid:
+            # Fail-open: D-Bus init didn't take, or AP not yet anchored.
+            # Derive a usable SSID from the milo-prefixed connection name.
+            ssid = connection[5:] if connection.startswith("milo-") else connection
 
         return WifiConnectionStatus(
             connected=True,
@@ -622,6 +669,323 @@ class WifiService:
         )
         if rc != 0:
             self.logger.debug("Hotspot profile cleanup (rc=%d): %s", rc, stderr)
+
+    # =========================================================================
+    # NetworkManager D-Bus subscription (live status updates)
+    # =========================================================================
+
+    async def initialize(self) -> bool:
+        """Connect to NM via D-Bus, subscribe to the three tiers, prime cache.
+
+        Returns True if at least the system bus connection succeeded. Even
+        when individual interfaces are missing (e.g. boards without wlan0),
+        we still consider initialize() successful as long as the bus came up.
+        Fails open: if NM is unavailable, returns False and live updates are
+        disabled. The nmcli-based read path keeps working.
+        """
+        try:
+            self._bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+
+            await self._subscribe_device_base("eth0")
+            await self._subscribe_device_base(self.WIFI_INTERFACE)
+            await self._subscribe_wireless()
+            await self._reanchor_active_ap()
+            await self._refresh_and_broadcast()
+
+            self.logger.info(
+                "WiFi service ready (devices=%s, wireless=%s, ap=%s)",
+                list(self._device_listeners),
+                "yes" if self._wireless_listener else "no",
+                self._ap_path or "none",
+            )
+            return True
+        except Exception as exc:
+            self.logger.warning(
+                "NetworkManager D-Bus unavailable, WiFi status will lack live updates: %s",
+                exc,
+            )
+            await self.cleanup()
+            return False
+
+    def _schedule(self, coro) -> asyncio.Task:
+        """Fire-and-forget a coroutine while keeping a strong ref until done."""
+        task = asyncio.create_task(coro)
+        self._pending_tasks.add(task)
+        task.add_done_callback(self._pending_tasks.discard)
+        return task
+
+    async def cleanup(self) -> None:
+        """Detach every listener and disconnect the bus. Idempotent."""
+        pending = list(self._pending_tasks)
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        self._signal_debounce_task = None
+
+        await self._detach_ap_listener()
+
+        if self._wireless_listener is not None:
+            properties_iface, handler = self._wireless_listener
+            try:
+                properties_iface.off_properties_changed(handler)
+            except Exception:
+                pass
+            self._wireless_listener = None
+
+        for iface_name in list(self._ip4_listener):
+            await self._detach_ip4(iface_name)
+        self._ip4_path.clear()
+
+        for _, (properties_iface, handler) in self._device_listeners.items():
+            try:
+                properties_iface.off_properties_changed(handler)
+            except Exception:
+                pass
+        self._device_listeners.clear()
+        self._device_proxies.clear()
+
+        self._wlan_proxy = None
+
+        if self._bus is not None:
+            try:
+                self._bus.disconnect()
+            except Exception:
+                pass
+            self._bus = None
+
+    async def _resolve_device_path(self, iface_name: str) -> Optional[str]:
+        """Ask NM for the D-Bus object path of a given network interface."""
+        try:
+            introspect = await self._bus.introspect(NM_SERVICE, NM_PATH)
+            nm_proxy = self._bus.get_proxy_object(NM_SERVICE, NM_PATH, introspect)
+            nm_iface = nm_proxy.get_interface(NM_IFACE)
+            return await nm_iface.call_get_device_by_ip_iface(iface_name)
+        except Exception as exc:
+            self.logger.debug("NM device lookup for %s failed: %s", iface_name, exc)
+            return None
+
+    # ---- Tier 1: base Device interface (eth0 + wlan0) ----
+
+    async def _subscribe_device_base(self, iface_name: str) -> None:
+        path = await self._resolve_device_path(iface_name)
+        if not path:
+            self.logger.info(
+                "Skipping NM D-Bus subscription for %s (interface not present)",
+                iface_name,
+            )
+            return
+
+        introspect = await self._bus.introspect(NM_SERVICE, path)
+        proxy = self._bus.get_proxy_object(NM_SERVICE, path, introspect)
+        properties_iface = proxy.get_interface(DBUS_PROPERTIES_IFACE)
+        handler = self._make_device_base_handler(iface_name)
+        properties_iface.on_properties_changed(handler)
+        self._device_listeners[iface_name] = (properties_iface, handler)
+        self._device_proxies[iface_name] = proxy
+
+        if iface_name == self.WIFI_INTERFACE:
+            self._wlan_proxy = proxy
+
+        # Anchor the IP4Config listener so DHCP-lease updates surface as events.
+        await self._reanchor_ip4(iface_name)
+
+    def _make_device_base_handler(self, iface_name: str):
+        def _handler(iface: str, changed: dict, _invalidated: list) -> None:
+            if iface != NM_DEVICE_IFACE:
+                return
+            if not (changed.keys() & _DEVICE_BASE_PROPS):
+                return
+            if "Ip4Config" in changed:
+                self._schedule(self._reanchor_ip4(iface_name))
+            self._schedule(self._refresh_and_broadcast())
+        return _handler
+
+    # ---- Tier 1b: IP4Config object (re-anchored on Device.Ip4Config change) ----
+
+    async def _reanchor_ip4(self, iface_name: str) -> None:
+        """Re-attach the IP4Config listener if Device.Ip4Config path changed."""
+        proxy = self._device_proxies.get(iface_name)
+        if proxy is None:
+            return
+        async with self._listener_setup_lock:
+            try:
+                device_iface = proxy.get_interface(NM_DEVICE_IFACE)
+                new_path = await device_iface.get_ip4_config()
+            except Exception as exc:
+                self.logger.debug("Failed to read %s Ip4Config path: %s", iface_name, exc)
+                return
+
+            if new_path == self._ip4_path.get(iface_name):
+                return
+
+            await self._detach_ip4(iface_name)
+            self._ip4_path[iface_name] = new_path
+
+            if new_path and new_path != "/":
+                await self._attach_ip4(iface_name, new_path)
+
+        # Path change is itself a status change — refresh now.
+        self._schedule(self._refresh_and_broadcast())
+
+    async def _attach_ip4(self, iface_name: str, path: str) -> None:
+        try:
+            introspect = await self._bus.introspect(NM_SERVICE, path)
+            proxy = self._bus.get_proxy_object(NM_SERVICE, path, introspect)
+            properties_iface = proxy.get_interface(DBUS_PROPERTIES_IFACE)
+            handler = self._make_ip4_handler(iface_name)
+            properties_iface.on_properties_changed(handler)
+            self._ip4_listener[iface_name] = (properties_iface, handler)
+        except Exception as exc:
+            self.logger.debug("Failed to attach IP4 listener for %s at %s: %s", iface_name, path, exc)
+
+    async def _detach_ip4(self, iface_name: str) -> None:
+        listener = self._ip4_listener.pop(iface_name, None)
+        if listener is None:
+            return
+        properties_iface, handler = listener
+        try:
+            properties_iface.off_properties_changed(handler)
+        except Exception:
+            pass
+
+    def _make_ip4_handler(self, iface_name: str):
+        def _handler(iface: str, changed: dict, _invalidated: list) -> None:
+            if iface != NM_IP4_CONFIG_IFACE:
+                return
+            if not (changed.keys() & _IP4_CONFIG_PROPS):
+                return
+            self._schedule(self._refresh_and_broadcast())
+        return _handler
+
+    # ---- Tier 2: Device.Wireless (wlan0 only) ----
+
+    async def _subscribe_wireless(self) -> None:
+        if self._wlan_proxy is None:
+            return
+        properties_iface = self._wlan_proxy.get_interface(DBUS_PROPERTIES_IFACE)
+        properties_iface.on_properties_changed(self._on_wireless_props_changed)
+        self._wireless_listener = (properties_iface, self._on_wireless_props_changed)
+
+    def _on_wireless_props_changed(self, iface: str, changed: dict, _invalidated: list) -> None:
+        if iface != NM_DEVICE_WIRELESS_IFACE:
+            return
+        if "ActiveAccessPoint" not in changed:
+            return
+        self._schedule(self._reanchor_active_ap())
+
+    # ---- Tier 3: AccessPoint (re-anchored on AP change) ----
+
+    async def _read_active_ap_path(self) -> Optional[str]:
+        if self._wlan_proxy is None:
+            return None
+        try:
+            wireless_iface = self._wlan_proxy.get_interface(NM_DEVICE_WIRELESS_IFACE)
+            return await wireless_iface.get_active_access_point()
+        except Exception as exc:
+            self.logger.debug("Failed to read ActiveAccessPoint: %s", exc)
+            return None
+
+    async def _reanchor_active_ap(self) -> None:
+        """Detach old AP listener (if any), attach to the new ActiveAccessPoint."""
+        async with self._listener_setup_lock:
+            new_path = await self._read_active_ap_path()
+            if new_path == self._ap_path:
+                return
+
+            await self._detach_ap_listener()
+            self._ap_path = new_path
+
+            if new_path and new_path != "/":
+                await self._attach_ap_listener(new_path)
+
+        # AP change is itself a status change — refresh now.
+        self._schedule(self._refresh_and_broadcast())
+
+    async def _attach_ap_listener(self, path: str) -> None:
+        try:
+            introspect = await self._bus.introspect(NM_SERVICE, path)
+            proxy = self._bus.get_proxy_object(NM_SERVICE, path, introspect)
+            properties_iface = proxy.get_interface(DBUS_PROPERTIES_IFACE)
+            properties_iface.on_properties_changed(self._on_ap_props_changed)
+            self._ap_proxy = proxy
+            self._ap_listener = (properties_iface, self._on_ap_props_changed)
+        except Exception as exc:
+            self.logger.debug("Failed to attach AP listener at %s: %s", path, exc)
+            self._ap_proxy = None
+            self._ap_listener = None
+
+    async def _detach_ap_listener(self) -> None:
+        self._ap_proxy = None
+        if self._ap_listener is None:
+            return
+        properties_iface, handler = self._ap_listener
+        try:
+            properties_iface.off_properties_changed(handler)
+        except Exception:
+            pass
+        self._ap_listener = None
+
+    async def _read_active_ap_info(self) -> Tuple[Optional[str], Optional[int]]:
+        """Return (ssid, strength) from the cached AP proxy. (None, None) on miss."""
+        if self._ap_proxy is None:
+            return None, None
+        try:
+            ap_iface = self._ap_proxy.get_interface(NM_ACCESS_POINT_IFACE)
+            ssid_bytes, strength = await asyncio.gather(
+                ap_iface.get_ssid(),
+                ap_iface.get_strength(),
+            )
+            ssid = bytes(ssid_bytes).decode("utf-8", errors="replace") or None
+            return ssid, int(strength)
+        except Exception as exc:
+            self.logger.debug("Failed to read AP info: %s", exc)
+            return None, None
+
+    def _on_ap_props_changed(self, iface: str, changed: dict, _invalidated: list) -> None:
+        if iface != NM_ACCESS_POINT_IFACE:
+            return
+        if "Strength" not in changed:
+            return
+
+        # Debounce: coalesce Strength bursts (RSSI sampling, roaming) into
+        # one refresh. connected/Ip4Config events stay un-debounced — they
+        # surface immediately via the tier-1 path.
+        if self._signal_debounce_task and not self._signal_debounce_task.done():
+            self._signal_debounce_task.cancel()
+        self._signal_debounce_task = self._schedule(self._debounced_refresh())
+
+    async def _debounced_refresh(self) -> None:
+        try:
+            await asyncio.sleep(self.SIGNAL_DEBOUNCE_S)
+            await self._refresh_and_broadcast()
+        except asyncio.CancelledError:
+            pass
+
+    async def _refresh_and_broadcast(self) -> None:
+        """Re-read full network status and broadcast it, dedup against last sent.
+
+        The WS broadcast runs OUTSIDE the lock: a slow client would otherwise
+        keep the lock held while D-Bus signal handlers pile up new refresh
+        tasks behind it.
+        """
+        async with self._broadcast_lock:
+            try:
+                status = await self.get_network_status()
+            except Exception as exc:
+                self.logger.error("Failed to read network status for broadcast: %s", exc)
+                return
+
+            if status == self._last_broadcast:
+                return
+
+            self._last_broadcast = status
+
+        await self.state_machine.broadcast_event(
+            category="wifi",
+            event_type="status_changed",
+            data=status.model_dump(),
+        )
 
     # =========================================================================
     # Private helpers

@@ -138,6 +138,7 @@ async def lifespan(app: FastAPI):
         await bt_remote_controller.cleanup()
         await ir_remote_controller.cleanup()
         await get_service("connectivity_service").cleanup()
+        await wifi_service.cleanup()
         logger.info("Cleanup completed")
     except Exception as e:
         logger.error(f"Cleanup error: {e}")
