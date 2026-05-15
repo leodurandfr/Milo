@@ -16,16 +16,22 @@ Milō is built around a client-server architecture with real-time synchronizatio
 ┌────────────────────▼────────────────────────────────────────────┐
 │                  Backend (Python FastAPI)                       │
 │                State machine + Audio routing                    │
-└───────┬────────────────┬─────────────┬────────────┬────────────┘
-        │                │             │            │
-  ┌─────▼───────┐ ┌──────▼──────┐ ┌────▼────┐ ┌─────▼──────┐
-  │   Spotify   │ │  Bluetooth  │ │   Mac   │ │   Radio    │
-  │ (librespot) │ │   (bluez)   │ │  (roc)  │ │   (mpv)    │
-  └─────────────┘ └─────────────┘ └─────────┘ └────────────┘
-         │               │             │            │
-         └───────────────┴─────────────┴────────────┘
+└──┬──────┬─────────┬──────────┬────────┬───────┬────────┬───────┘
+   │      │         │          │        │       │        │
+ ┌─▼──┐ ┌─▼──────┐ ┌▼─────┐ ┌──▼─┐ ┌────▼──┐ ┌──▼────┐ ┌─▼─┐
+ │Spo-│ │AirPlay │ │Blue- │ │Mac │ │Radio  │ │Podcast│ │CD │
+ │tify│ │(shair- │ │tooth │ │(roc│ │(mpv)  │ │(mpv)  │ │   │
+ │    │ │ port)  │ │(bluez│ │)   │ │       │ │       │ │   │
+ └─┬──┘ └────┬───┘ └──┬───┘ └─┬──┘ └───┬───┘ └───┬───┘ └─┬─┘
+   └────────┴────────┴───────┴───────┴───────┴────────┘
                               │
-                    ┌─────────▼─────────┐
+                              ▼
+                    ┌───────────────────┐
+                    │   CamillaDSP      │
+                    │ (volume + EQ/DSP) │
+                    └─────────┬─────────┘
+                              ▼
+                    ┌───────────────────┐
                     │  Audio Amplifier  │
                     │    (HiFiBerry)    │
                     └───────────────────┘
@@ -143,6 +149,63 @@ User Action → API Call → Backend Update → WebSocket Event → Store Update
 - API Endpoint: https://all.api.radio-browser.info/json
 - Cache duration: 60 minutes
 - Max image size: 10MB (JPG, PNG, WEBP, GIF)
+
+### 5. Podcasts (mpv + Taddy API)
+
+**What is it?**
+- Podcast streaming via mpv media player
+- Discovery via Taddy GraphQL API (charts, search, episode metadata)
+- [**Go to Taddy API**](https://taddy.org/developers)
+
+**How does it work?**
+- Reuses the `MpvController` shared with the Radio source (separate mpv instance)
+- Taddy API provides search, charts, and episode listings (60min cache)
+- Playback progress is saved every 10s and resumed on next launch (if > 10s in)
+- Speed control (0.5x–2x) and seek supported
+
+**Configuration:**
+- Service: milo-podcast.service (mpv)
+- IPC Socket: /run/milo/podcast-ipc.sock
+- Audio output: ALSA (milo_podcast)
+- Data: `/var/lib/milo/podcast_data.json` (subscriptions, favorites, progress, preferences)
+
+### 6. AirPlay 2 (shairport-sync + NQPTP)
+
+**What is it?**
+- AirPlay 2 receiver — any Apple device can stream to Milō
+- Metadata pipe for track info and cover art
+- [**Go to shairport-sync repository**](https://github.com/mikebrady/shairport-sync)
+
+**How does it work?**
+- `shairport-sync` announces Milō as an AirPlay 2 receiver via mDNS
+- NQPTP daemon provides precision timing required by AirPlay 2
+- Metadata (title, artist, album, artwork, device name) is read from the
+  named pipe `/tmp/shairport-sync-metadata` by `MetadataReader`
+- Artwork arrives as binary JPEG/PNG (PICT items)
+- No remote playback control (AirPlay 2 protocol limitation) — controls are
+  hidden in the UI; the source bar shows the connected device name
+
+**Configuration:**
+- Service: milo-airplay.service (shairport-sync)
+- Metadata pipe: /tmp/shairport-sync-metadata
+- Audio output: ALSA (milo_airplay)
+- Visible name: "Milō"
+
+### 7. CD Player (libdiscid + MusicBrainz)
+
+**What is it?**
+- Optical CD playback for USB CD drives
+- Automatic disc identification via MusicBrainz (TOC lookup)
+
+**How does it work?**
+- USB CD drive detected via udev rules
+- `libdiscid` computes the disc TOC; queries MusicBrainz for metadata
+- Track-by-track playback with metadata + cover art caching
+
+**Configuration:**
+- Service: milo-cd.service
+- Audio output: ALSA (milo_cd)
+- Data: `/var/lib/milo/cd_data.json` (TOC cache), `cd_covers/` (cover art)
 
 ## Multiroom (Snapcast)
 
@@ -347,18 +410,25 @@ Backend State Change → WebSocketManager → All connected clients
 
 ### Message format
 
+Wire format: `{ category, type, origin, data, timestamp }`. The `origin` field
+is derived from `data["source"]` (falling back to `category`).
+
 ```json
 {
   "category": "source",
   "type": "state_changed",
-  "source": "librespot",
+  "origin": "spotify",
   "data": {
-    "full_state": { ... },  // Complete system state
-    "metadata": { ... }      // Specific metadata
+    "source": "spotify",
+    "metadata": { ... }
   },
   "timestamp": 1234567890
 }
 ```
+
+Event categories: `source`, `system`, `routing`, `equalizer`, `multiroom`,
+`settings`, `volume`, `programs`. Callers using category `source` **must**
+include a `"source"` field in `data` so the manager can populate `origin`.
 
 ### Disconnection handling
 
@@ -377,16 +447,21 @@ Backend State Change → WebSocketManager → All connected clients
 All components are managed by systemd:
 
 ```bash
-milo-backend              # FastAPI backend
-milo-frontend             # Frontend (npm preview)
+milo-backend              # FastAPI backend (nginx serves frontend/dist/ — no frontend service)
 milo-spotify              # Spotify Connect (go-librespot)
+milo-airplay              # AirPlay 2 (shairport-sync + NQPTP)
 milo-bluealsa             # Bluetooth daemon
 milo-bluealsa-aplay       # Bluetooth player
 milo-mac                  # Mac receiver (ROC)
 milo-radio                # Radio player (mpv)
+milo-podcast              # Podcast player (mpv, separate instance from radio)
+milo-cd                   # CD player
+milo-camilladsp           # CamillaDSP audio processing (always in path for volume)
 milo-snapserver-multiroom # Snapcast server (started/stopped by AudioRoutingService — no WantedBy)
 milo-snapclient-multiroom # Local snapcast client (started/stopped by AudioRoutingService — no WantedBy)
 milo-ir-keytable          # Boot oneshot: enable NEC decoding + reload paired Apple Remote keymap
+milo-kiosk                # Chromium kiosk (touchscreen)
+milo-readiness            # System readiness check
 ```
 
 **Dependencies:**

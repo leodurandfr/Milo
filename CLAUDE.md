@@ -250,7 +250,7 @@ The Podcast source demonstrates several advanced patterns:
 - Reuses `MpvController` from Radio source for consistency
 - Systemd service: `milo-podcast.service` (separate instance of mpv)
 - IPC socket: `/run/milo/podcast-ipc.sock`
-- Playback states: `INACTIVE` (stopped) → `READY` (service running, idle) → `CONNECTED` (episode playing)
+- Source states: `STARTING` (service starting) → `WAITING` (service running, idle) → `ACTIVE` (episode playing)
 
 **Progress Tracking & Resume**:
 - `PodcastDataService` manages playback progress persistence
@@ -351,7 +351,7 @@ The AirPlay source (`backend/sources/airplay/`) provides AirPlay 2 support via s
 
 ```python
 # ✅ Correct
-await state_machine.update_source_state(source, SourceState.READY, metadata)
+await state_machine.update_source_state(source, SourceState.ACTIVE, metadata)
 
 # ❌ Wrong - bypasses locks and broadcasting
 state_machine._state.active_source = source
@@ -491,7 +491,7 @@ These are auto-generated in `/var/lib/milo/routing.env` based on settings.json.
 - `pytest backend/tests/test_alsa_routing.py` — pytest wrapper around the static checks; auto-skips off-Pi.
 
 **Multiroom state-coherence smoke test (Pi only):**
-- `bash scripts/test-multiroom-desync.sh` — toggles multiroom 20 times via `PUT /api/routing/multiroom` and asserts after each toggle that `settings.routing.multiroom_enabled`, `routing.env` `MILO_MODE`, and the `milo-snapserver-multiroom` / `milo-snapclient-multiroom` units all agree. Catches the desync class fixed in `docs/plans/multiroom-state-desync.md`.
+- `bash scripts/test-multiroom-desync.sh` — toggles multiroom 20 times via `PUT /api/routing/multiroom` and asserts after each toggle that `settings.routing.multiroom_enabled`, `routing.env` `MILO_MODE`, and the `milo-snapserver-multiroom` / `milo-snapclient-multiroom` units all agree.
 - `sudo bash scripts/test-multiroom-desync.sh --kill-test` — additionally `kill -9`s the backend mid-toggle and asserts the system reconciles to `settings.json` on restart.
 
 **Frontend (Vitest):**
@@ -546,7 +546,7 @@ All components managed by systemd:
 - `milo-podcast` - mpv podcast player (separate from radio)
 - `milo-camilladsp` - CamillaDSP audio processing
 - `milo-snapserver-multiroom` + `milo-snapclient-multiroom` - Multiroom audio (no `WantedBy` — lifecycle owned exclusively by `AudioRoutingService._sync_snapcast_state`, gated on `settings.routing.multiroom_enabled`)
-- `milo-ir-keytable` - Boot-time oneshot: enables NEC decoding on the rc-core device and reloads the paired Apple Remote keymap (TSOP4838 → GPIO17 → `gpio-ir` overlay → rc-core → evdev). See [docs/plans/remote-controls.md](docs/plans/remote-controls.md) for the pairing flow rationale.
+- `milo-ir-keytable` - Boot-time oneshot: enables NEC decoding on the rc-core device and reloads the paired Apple Remote keymap (TSOP4838 → GPIO17 → `gpio-ir` overlay → rc-core → evdev).
 - `milo-kiosk` - Chromium kiosk mode for touchscreen
 - `milo-disable-wifi-power-management` - WiFi power management optimization
 - `milo-readiness` - System readiness check
