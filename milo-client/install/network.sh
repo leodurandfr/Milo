@@ -22,21 +22,12 @@ fi
 configure_avahi() {
     log_info "Configuring Avahi (mDNS)..."
 
-    # Determine active interface (eth0 preferred, wlan0 as fallback)
-    local active_iface="eth0"
-    if ! ip addr show eth0 2>/dev/null | grep -q 'inet '; then
-        if ip addr show wlan0 2>/dev/null | grep -q 'inet '; then
-            active_iface="wlan0"
-            log_info "eth0 not available, using wlan0 for mDNS"
-        fi
-    fi
+    # Install Avahi config (eth0 allowed, wlan0 denied by default).
+    # Dispatcher flips both keys at runtime if eth0 becomes unavailable.
+    sudo cp "$MILO_CLIENT_ROOTFS_DIR/etc/avahi/avahi-daemon.conf" /etc/avahi/avahi-daemon.conf
 
-    # Copy and process Avahi config template
-    sudo cp "$MILO_CLIENT_ROOTFS_DIR/etc/avahi/avahi-daemon.conf.template" /etc/avahi/avahi-daemon.conf
-    sudo sed -i "s/__ALLOW_IFACE__/$active_iface/" /etc/avahi/avahi-daemon.conf
-
-    # Install systemd override to reset Avahi config to eth0 on every boot
-    # Prevents stale wlan0 config from causing mDNS conflicts
+    # Install systemd override that resets allow/deny-interfaces to ethernet
+    # defaults on every Avahi start.
     log_info "Installing Avahi boot reset override..."
     sudo mkdir -p /etc/systemd/system/avahi-daemon.service.d
     sudo cp "$MILO_CLIENT_SYSTEM_DIR/avahi-daemon-override.conf" \

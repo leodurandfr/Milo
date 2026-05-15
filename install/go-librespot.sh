@@ -33,6 +33,11 @@ install_go_librespot() {
     sudo mkdir -p "$MILO_DATA_DIR/go-librespot"
     sudo chown -R "$MILO_USER:audio" "$MILO_DATA_DIR/go-librespot"
 
+    # zeroconf_backend=avahi: delegate Spotify Connect mDNS registration to
+    # the system Avahi daemon over D-Bus. Without it, go-librespot ships its
+    # own embedded mDNS responder that ignores Avahi's allow-interfaces and
+    # broadcasts on every interface — racing Avahi and causing the milo.local
+    # → milo-2.local rename whenever wlan0's DHCP lease rolls over.
     sudo tee "$MILO_DATA_DIR/go-librespot/config.yml" > /dev/null << 'EOF'
 device_name: "Milō"
 device_type: "speaker"
@@ -42,6 +47,8 @@ audio_backend: "alsa"
 audio_device: "milo_spotify"
 
 external_volume: true
+
+zeroconf_backend: avahi
 
 server:
   enabled: true

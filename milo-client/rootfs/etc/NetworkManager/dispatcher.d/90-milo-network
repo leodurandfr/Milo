@@ -17,11 +17,6 @@ INTERFACE=$1
 ACTION=$2
 AVAHI_CONF="/etc/avahi/avahi-daemon.conf"
 
-# Get current Avahi interface configuration
-get_avahi_interface() {
-    grep "^allow-interfaces=" "$AVAHI_CONF" 2>/dev/null | cut -d= -f2
-}
-
 # Check if interface has an IPv4 address
 has_ip() {
     ip -4 addr show "$1" 2>/dev/null | grep -q "inet "
@@ -40,16 +35,32 @@ disable_eee() {
     fi
 }
 
-# Update Avahi interface - only restarts if config actually changes
+# Update Avahi allow/deny-interfaces - only restarts if config actually changes.
+# Both keys are written together: Avahi 0.8 ignores allow-interfaces for
+# interfaces that appear dynamically, so deny-interfaces is what keeps the
+# daemon strictly mono-interface (and prevents self-loop renames).
 set_avahi_interface() {
     local interface="$1"
-    local current
-    current=$(get_avahi_interface)
+    local deny
+    case "$interface" in
+        eth0)  deny=wlan0 ;;
+        wlan0) deny=eth0  ;;
+        *)     return 1   ;;
+    esac
 
-    # Skip if already configured correctly
-    [ "$current" = "$interface" ] && return 0
+    # Skip only if BOTH keys are already correct — checking allow alone would
+    # miss drift on deny (the more critical key for runtime enforcement).
+    local current_allow current_deny
+    current_allow=$(grep "^allow-interfaces=" "$AVAHI_CONF" 2>/dev/null | cut -d= -f2)
+    current_deny=$(grep "^deny-interfaces=" "$AVAHI_CONF" 2>/dev/null | cut -d= -f2)
+    [ "$current_allow" = "$interface" ] && [ "$current_deny" = "$deny" ] && return 0
 
     sed -i "s/^allow-interfaces=.*/allow-interfaces=$interface/" "$AVAHI_CONF"
+    if grep -q "^deny-interfaces=" "$AVAHI_CONF"; then
+        sed -i "s/^deny-interfaces=.*/deny-interfaces=$deny/" "$AVAHI_CONF"
+    else
+        sed -i "/^allow-interfaces=/a deny-interfaces=$deny" "$AVAHI_CONF"
+    fi
 
     # Restart Avahi to apply changes
     systemctl restart avahi-daemon.service
