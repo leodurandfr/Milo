@@ -235,9 +235,9 @@ class SettingsService:
         mac_input = settings.get('mac', {})
         if mac_input:
             validated['mac'] = {
-                'target_latency_ms': max(5, min(500, int(mac_input.get('target_latency_ms', 200)))),
+                'target_latency_ms': max(20, min(500, int(mac_input.get('target_latency_ms', 50)))),
                 'latency_profile': mac_input.get('latency_profile', 'responsive') if mac_input.get('latency_profile') in ['responsive', 'gradual', 'intact'] else 'responsive',
-                'frame_length_ms': mac_input.get('frame_length_ms', 7) if mac_input.get('frame_length_ms') in [2, 4, 7, 8, 12] else 7
+                'frame_length_ms': mac_input.get('frame_length_ms', 4) if mac_input.get('frame_length_ms') in [2, 4, 6, 8, 10, 12] else 4
             }
 
         # Equalizer (saved_bands) - Preserve equalizer section without strict validation

@@ -368,7 +368,7 @@ class EqualizerPresetRequest(BaseModel):
 # =============================================================================
 
 ROC_LATENCY_PROFILES = Literal['responsive', 'gradual', 'intact']
-ROC_FRAME_LENGTHS = Literal[2, 4, 7, 8, 12]
+ROC_FRAME_LENGTHS = Literal[2, 4, 6, 8, 10, 12]
 
 
 class RadioSettingsRequest(BaseModel):
@@ -439,9 +439,9 @@ class HardwareConfigRequest(BaseModel):
 
 class MacRocConfigRequest(BaseModel):
     """Mac ROC streaming configuration request"""
-    target_latency_ms: int = Field(default=200, ge=5, le=500, description="Target latency in milliseconds")
+    target_latency_ms: int = Field(default=50, ge=20, le=500, description="Target latency in milliseconds")
     latency_profile: ROC_LATENCY_PROFILES = Field(default='responsive', description="Latency tuning profile")
-    frame_length_ms: ROC_FRAME_LENGTHS = Field(default=7, description="Internal frame length in milliseconds")
+    frame_length_ms: ROC_FRAME_LENGTHS = Field(default=4, description="Internal frame length in milliseconds")
 
 
 # =============================================================================

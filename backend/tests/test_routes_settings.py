@@ -464,7 +464,7 @@ class TestSettingsRoutes:
     def test_get_mac_roc(self, client):
         """Test GET /mac-roc"""
         client._mock_settings.get_setting = AsyncMock(return_value={
-            "target_latency_ms": 200, "latency_profile": "responsive", "frame_length_ms": 7
+            "target_latency_ms": 200, "latency_profile": "responsive", "frame_length_ms": 6
         })
         response = client.get("/api/settings/mac-roc")
         assert response.status_code == 200
@@ -475,7 +475,7 @@ class TestSettingsRoutes:
         response = client.put("/api/settings/mac-roc", json={
             "target_latency_ms": 100,
             "latency_profile": "responsive",
-            "frame_length_ms": 7
+            "frame_length_ms": 6
         })
         assert response.status_code == 200
 
@@ -484,7 +484,7 @@ class TestSettingsRoutes:
         response = client.put("/api/settings/mac-roc", json={
             "target_latency_ms": 1000,
             "latency_profile": "responsive",
-            "frame_length_ms": 7
+            "frame_length_ms": 6
         })
         assert response.status_code == 422
 

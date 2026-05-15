@@ -15,6 +15,7 @@
         <ButtonGroup
           :model-value="config.ui_scale"
           :options="uiScalePresets"
+          mobile-layout="grid-3"
           @change="setUiScale"
         />
       </SettingItem>
@@ -141,7 +142,8 @@ const uiScalePresets = [
   { value: 0.95, label: '95%' },
   { value: 1.0, label: '100%' },
   { value: 1.05, label: '105%' },
-  { value: 1.1, label: '110%' }
+  { value: 1.1, label: '110%' },
+  { value: 1.15, label: '115%' }
 ];
 
 function setUiScale(value) {

@@ -48,7 +48,8 @@ const autoDisconnectPresets = computed(() => [
   { value: 120, label: t('time.2min') },
   { value: 300, label: t('time.5min') },
   { value: 600, label: t('time.10min') },
-  { value: 1800, label: t('time.30min') }
+  { value: 1800, label: t('time.30min') },
+  { value: 3600, label: t('time.1h') }
 ]);
 
 function syncFromStore() {

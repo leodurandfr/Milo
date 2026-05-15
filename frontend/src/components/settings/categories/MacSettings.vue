@@ -3,11 +3,10 @@
   <SettingsContainer>
     <!-- Latency Section -->
     <SettingsSection :title="t('macSettings.latency')">
-      <!-- Target Latency Slider (5-500ms) -->
       <SettingItem :label="t('macSettings.targetLatency')">
         <RangeSlider
           v-model="config.target_latency_ms"
-          :min="5"
+          :min="20"
           :max="500"
           :step="5"
           value-unit="ms"
@@ -29,6 +28,7 @@
         <ButtonGroup
           :model-value="config.frame_length_ms"
           :options="frameLengthOptions"
+          mobile-layout="grid-3"
           @change="handleFrameLengthChange"
         />
       </SettingItem>
@@ -65,14 +65,14 @@ const settingsStore = useSettingsStore();
 
 // Local config for immediate UI responsiveness
 const config = ref({
-  target_latency_ms: 10,
+  target_latency_ms: 50,
   latency_profile: 'responsive',
   frame_length_ms: 4
 });
 
 // Original config to detect changes (synced from store)
 const originalConfig = ref({
-  target_latency_ms: 10,
+  target_latency_ms: 50,
   latency_profile: 'responsive',
   frame_length_ms: 4
 });
@@ -90,8 +90,9 @@ const profileOptions = computed(() => [
 const frameLengthOptions = [
   { label: '2ms', value: 2 },
   { label: '4ms', value: 4 },
-  { label: '7ms', value: 7 },
+  { label: '6ms', value: 6 },
   { label: '8ms', value: 8 },
+  { label: '10ms', value: 10 },
   { label: '12ms', value: 12 }
 ];
 

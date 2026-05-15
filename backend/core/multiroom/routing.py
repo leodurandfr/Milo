@@ -23,12 +23,12 @@ from backend.shared.decorators import handle_errors
 # =============================================================================
 
 ALLOWED_LATENCY_PROFILES = frozenset(["responsive", "gradual", "intact"])
-ALLOWED_FRAME_LENGTHS = frozenset([2, 4, 7, 8, 12])
+ALLOWED_FRAME_LENGTHS = frozenset([2, 4, 6, 8, 10, 12])
 
 DEFAULT_ROC_CONFIG = {
-    "target_latency_ms": 200,
+    "target_latency_ms": 50,
     "latency_profile": "responsive",
-    "frame_length_ms": 7,
+    "frame_length_ms": 4,
 }
 
 DEFAULT_SNAPCLIENT_CONFIG = {
@@ -115,7 +115,7 @@ class MacEnv:
             target_latency = int(target_latency)
         except (TypeError, ValueError):
             target_latency = DEFAULT_ROC_CONFIG["target_latency_ms"]
-        target_latency = max(5, min(500, target_latency))
+        target_latency = max(20, min(500, target_latency))
 
         if latency_profile not in ALLOWED_LATENCY_PROFILES:
             latency_profile = DEFAULT_ROC_CONFIG["latency_profile"]

@@ -137,7 +137,7 @@ class TestMacEnv:
     def test_regenerate_clamps_target_latency_low(self, env_paths):
         MacEnv.regenerate({"target_latency_ms": 1})
         content = _read(env_paths["mac"])
-        assert "ROC_TARGET_LATENCY=5ms" in content
+        assert "ROC_TARGET_LATENCY=20ms" in content
 
     def test_regenerate_rejects_invalid_profile(self, env_paths):
         MacEnv.regenerate({"latency_profile": "bogus"})
@@ -165,7 +165,7 @@ class TestMacEnv:
         mac_config = {
             "target_latency_ms": 150,
             "latency_profile": "responsive",
-            "frame_length_ms": 7,
+            "frame_length_ms": 6,
         }
         MacEnv.regenerate(mac_config)
         first = _read(env_paths["mac"])
