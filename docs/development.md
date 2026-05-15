@@ -61,16 +61,18 @@ backend/
 │   ├── systemd.py            # SystemdServiceManager
 │   ├── volume/               # Volume service + handlers
 │   ├── dsp/                  # CamillaDSP service + proxy + sync
-│   └── multiroom/            # Snapcast + routing + crossover
+│   ├── multiroom/            # Snapcast + routing + crossover
+│   └── updates/              # Update + version services
 ├── sources/                   # Audio source implementations
 │   ├── spotify/              # SpotifySource + routes
 │   ├── airplay/              # AirPlaySource + metadata_reader + routes
 │   ├── bluetooth/            # BluetoothSource + routes
 │   ├── mac/                  # MacSource + routes
 │   ├── radio/                # RadioSource + routes + browser_api
-│   └── podcast/              # PodcastSource + routes + taddy_api
+│   ├── podcast/              # PodcastSource + routes + taddy_api
+│   └── cd/                   # CDSource + routes
 ├── api/                       # REST API routes
-├── hardware/                  # Hardware controllers (rotary, screen)
+├── hardware/                  # Hardware controllers (rotary, IR remote, BT remote, screen)
 ├── ws/                        # WebSocket server + manager
 ├── shared/                    # Shared utilities (MpvController)
 ├── config/constants.py        # Centralized constants
@@ -89,20 +91,38 @@ backend/
 ```
 frontend/src/
 ├── components/
-│   ├── audio/                # Audio source components
-│   ├── equalizer/            # Equalizer interface
-│   ├── snapcast/             # Multiroom controls
-│   ├── settings/             # System settings
-│   ├── navigation/           # Navigation
-│   └── ui/                   # Reusable UI components
+│   ├── audio/                # Shared audio player + screensaver + source layout
+│   ├── airplay/              # AirPlay source UI
+│   ├── cd/                   # CD source UI
+│   ├── equalizer/            # Equalizer / DSP controls
+│   ├── multiroom/            # Multiroom (Snapcast) controls
+│   ├── navigation/           # Navigation stack
+│   ├── network/              # Network / WiFi settings
+│   ├── podcasts/             # Podcast source UI
+│   ├── radio/                # Radio source UI
+│   ├── settings/             # System settings (nested categories)
+│   ├── setup/                # First-boot setup wizard
+│   ├── spotify/              # Spotify source UI
+│   ├── system/               # System-level UI (info, update)
+│   └── ui/                   # Reusable UI primitives
 ├── stores/                   # Pinia stores
-│   ├── unifiedAudioStore.js  # Audio state (WebSocket sync)
-│   └── settingsStore.js      # Settings
+│   ├── unifiedAudioStore.js  # Central audio state (WebSocket-synced)
+│   ├── settingsStore.js      # Settings
+│   ├── equalizerStore.js     # CamillaDSP state
+│   ├── multiroomStore.js     # Multiroom state
+│   ├── snapcastStore.js      # Snapcast server config
+│   ├── radioStore.js         # Radio stations + playback
+│   ├── podcastStore.js       # Podcasts + playback progress
+│   ├── cdStore.js            # CD playback
+│   ├── discoveryStore.js     # mDNS discovery
+│   └── systemStore.js        # System info / updates
+├── composables/              # Vue composables (useSourceProgress, useVolumeThrottle, ...)
 ├── services/
-│   ├── websocket.js          # WebSocket client
+│   ├── websocket.js          # WebSocket client (auto-reconnect)
+│   ├── apiCall.js            # Wrapped fetch helper for stores
 │   └── i18n.js               # Internationalization
 ├── assets/styles/
-│   └── design-system.css     # CSS variables
+│   └── design-system.css     # CSS variables + typography utilities
 └── views/
     └── MainView.vue          # Main view (SPA)
 ```
@@ -138,14 +158,19 @@ frontend/src/
 
 ### WebSocket event format
 
+Wire format: `{ category, type, origin, data, timestamp }`. `origin` is
+derived from `data["source"]` (falling back to `category`). When using
+category `source`, you **must** include `"source"` in `data`.
+
 ```javascript
 {
-  "category": "source",          // source, system, routing, equalizer
-  "type": "state_changed",       // event type
-  "source": "librespot",         // AudioSource
+  "category": "source",          // source | system | routing | equalizer |
+                                 // multiroom | settings | volume | programs
+  "type": "state_changed",
+  "origin": "spotify",           // populated from data.source
   "data": {
-    "full_state": { ... },       // Complete system state
-    "metadata": { ... }          // Specific data
+    "source": "spotify",
+    "metadata": { ... }
   },
   "timestamp": 1234567890
 }
@@ -157,13 +182,19 @@ frontend/src/
 
 `backend/core/models/audio_state.py`:
 ```python
-class AudioSource(str, Enum):
-    LIBRESPOT = "librespot"
+class AudioSource(Enum):
+    NONE = "none"
+    SPOTIFY = "spotify"
     BLUETOOTH = "bluetooth"
-    ROC = "roc"
     RADIO = "radio"
+    PODCAST = "podcast"
+    AIRPLAY = "airplay"
+    MAC = "mac"
+    CD = "cd"
     MY_SOURCE = "my_source"  # ← Add here
 ```
+
+`SourceState` values: `STARTING`, `WAITING`, `ACTIVE`, `ERROR`.
 
 ### 2. Create the source
 
@@ -184,19 +215,16 @@ class MySource(BaseAudioSource):
 
     async def start(self):
         """Start the service (systemctl start, etc.)"""
-        # Notify state change
+        # Notify state change — WAITING = service up, no client connected yet
         await self.state_machine.update_source_state(
             self.source,
-            SourceState.READY
+            SourceState.WAITING
         )
         return True
 
     async def stop(self):
-        """Stop the service"""
-        await self.state_machine.update_source_state(
-            self.source,
-            SourceState.INACTIVE
-        )
+        """Stop the service — the state machine sets the source to NONE
+        when this source is no longer active."""
         return True
 
     async def get_status(self):
@@ -386,6 +414,19 @@ async def test_source_initialization():
     assert source.source == AudioSource.MY_SOURCE
 ```
 
+### Smoke tests (Pi only)
+
+```bash
+# Static ALSA routing check (subdevice layout, CamillaDSP capture, snapserver sources)
+bash scripts/test-alsa-routing.sh
+bash scripts/test-alsa-routing.sh --with-live   # + non-destructive aplay open per alias
+
+# Multiroom state-coherence — toggles multiroom 20× and asserts settings.json,
+# routing.env, and the snapserver/snapclient units stay in agreement.
+bash scripts/test-multiroom-desync.sh
+sudo bash scripts/test-multiroom-desync.sh --kill-test   # + kill -9 mid-toggle
+```
+
 ### Frontend (Vitest)
 
 ```bash
@@ -501,8 +542,7 @@ cd frontend
 npm run build
 # → frontend/dist/
 
-# Frontend is served by npm preview via systemd
-# See milo-frontend.service
+# nginx serves the static dist/ directly — there is no milo-frontend service.
 ```
 
 ### Creating a release
@@ -526,11 +566,10 @@ source venv/bin/activate
 pip install -r requirements.txt
 sudo systemctl restart milo-backend
 
-# Frontend
+# Frontend (no service to restart — nginx serves the new dist/ as soon as it lands)
 cd frontend
 npm install
 npm run build
-sudo systemctl restart milo-frontend
 ```
 
 ## Debugging
