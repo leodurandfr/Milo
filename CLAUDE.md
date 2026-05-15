@@ -504,11 +504,23 @@ All persistent data in `/var/lib/milo/`:
 
 - `settings.json` - Central settings (language, volume, screen, routing, dock)
 - `hardware.json` - Hardware configuration (screen type/resolution)
+- `last_volume.json` - Last volume for restoration
 - `radio_data.json` - Radio favorites and custom stations
 - `radio_images/` - Uploaded station images
 - `podcast_data.json` - Podcast subscriptions, favorites, playback progress, and user preferences
+- `cd_data.json` - CD disc metadata cache (TOC, MusicBrainz lookups)
+- `cd_covers/` - CD cover art cache
+- `equalizer.json` - Equalizer state: filters, active preset, custom gains, compressor, loudness, mono (atomic writes, debounced)
+- `client_equalizer.json` - Per-client equalizer state for remote multiroom clients (keyed by `mac_id`)
+- `pending_clients.json` - Multiroom clients awaiting approval
 - `routing.env` - ALSA routing environment variables (auto-generated)
-- `last_volume.json` - Last volume for restoration
+- `mac.env` - ROC receiver env vars consumed by `milo-mac` (auto-generated)
+- `snapclient.env` - Snapclient env vars consumed by `milo-snapclient-multiroom` (auto-generated)
+- `app-version` - Installed app version marker (written at install time)
+- `shairport-sync-version` - Shairport-sync version marker (written by update flow)
+- `avahi-interface` - Active network interface for mDNS (written by NetworkManager dispatcher)
+- `camilladsp/` - CamillaDSP config directory (`config.yml`, `configs/`, `coeffs/`)
+- `go-librespot/` - go-librespot config + runtime state (`config.yml`, `state.json`, `lockfile`)
 - `errors.log` - Persisted backend + frontend errors
 - `backups/` - Binary backups during updates
 
