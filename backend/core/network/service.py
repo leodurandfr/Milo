@@ -1,5 +1,5 @@
 """
-WiFi / network management service using NetworkManager.
+Network management service (Ethernet + WiFi) using NetworkManager.
 
 Action paths (scan, connect, save, forget, hotspot, set_country) run through
 nmcli — their D-Bus equivalents would require a PolicyKit dance and are far
@@ -28,7 +28,7 @@ from typing import List, Optional, Tuple
 from dbus_next.aio import MessageBus
 from dbus_next.constants import BusType
 
-from backend.core.wifi.models import (
+from backend.core.network.models import (
     WifiNetwork, WifiConnectionStatus, EthernetStatus,
     NetworkStatus, SavedNetwork,
 )
@@ -56,8 +56,8 @@ _DEVICE_BASE_PROPS = {"State", "Ip4Config", "ActiveConnection"}
 _IP4_CONFIG_PROPS = {"AddressData", "Addresses"}
 
 
-class WifiService:
-    """WiFi management service wrapping nmcli + NetworkManager D-Bus."""
+class NetworkService:
+    """Network management service (Ethernet + WiFi) wrapping nmcli + NetworkManager D-Bus."""
 
     WIFI_INTERFACE = "wlan0"
     SIGNAL_DEBOUNCE_S = 1.5  # coalesce Strength bursts during roaming
@@ -276,8 +276,8 @@ class WifiService:
             error_msg = stderr or "Failed to create connection profile"
             self.logger.error("Failed to create WiFi profile for '%s': %s", ssid, error_msg)
             await self.state_machine.broadcast_event(
-                category="wifi",
-                event_type="connect_failed",
+                category="network",
+                event_type="wifi_connect_failed",
                 data={"ssid": ssid, "error": error_msg},
             )
             raise RuntimeError(f"WiFi connection failed: {error_msg}")
@@ -288,8 +288,8 @@ class WifiService:
             )
         except asyncio.TimeoutError:
             await self.state_machine.broadcast_event(
-                category="wifi",
-                event_type="connect_failed",
+                category="network",
+                event_type="wifi_connect_failed",
                 data={"ssid": ssid, "error": "Connection timed out"},
             )
             raise RuntimeError(f"WiFi connection to '{ssid}' timed out")
@@ -298,8 +298,8 @@ class WifiService:
             error_msg = stderr or "Connection failed"
             self.logger.error("WiFi connection to '%s' failed: %s", ssid, error_msg)
             await self.state_machine.broadcast_event(
-                category="wifi",
-                event_type="connect_failed",
+                category="network",
+                event_type="wifi_connect_failed",
                 data={"ssid": ssid, "error": error_msg},
             )
             raise RuntimeError(f"WiFi connection failed: {error_msg}")
@@ -309,8 +309,8 @@ class WifiService:
         status = await self.get_network_status()
 
         await self.state_machine.broadcast_event(
-            category="wifi",
-            event_type="connected",
+            category="network",
+            event_type="wifi_connected",
             data=status.model_dump(),
         )
 
@@ -322,8 +322,8 @@ class WifiService:
         self.logger.info("Forgot WiFi network: %s", ssid)
 
         await self.state_machine.broadcast_event(
-            category="wifi",
-            event_type="network_forgotten",
+            category="network",
+            event_type="wifi_forgotten",
             data={"ssid": ssid},
         )
 
@@ -693,7 +693,7 @@ class WifiService:
             await self._refresh_and_broadcast()
 
             self.logger.info(
-                "WiFi service ready (devices=%s, wireless=%s, ap=%s)",
+                "Network service ready (devices=%s, wireless=%s, ap=%s)",
                 list(self._device_listeners),
                 "yes" if self._wireless_listener else "no",
                 self._ap_path or "none",
@@ -701,7 +701,7 @@ class WifiService:
             return True
         except Exception as exc:
             self.logger.warning(
-                "NetworkManager D-Bus unavailable, WiFi status will lack live updates: %s",
+                "NetworkManager D-Bus unavailable, network status will lack live updates: %s",
                 exc,
             )
             await self.cleanup()
@@ -982,7 +982,7 @@ class WifiService:
             self._last_broadcast = status
 
         await self.state_machine.broadcast_event(
-            category="wifi",
+            category="network",
             event_type="status_changed",
             data=status.model_dump(),
         )

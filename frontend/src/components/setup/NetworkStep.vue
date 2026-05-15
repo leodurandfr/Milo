@@ -60,7 +60,7 @@
 <script setup>
 import { computed, onMounted, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
-import { useWifi } from '@/composables/useWifi';
+import { useNetwork } from '@/composables/useNetwork';
 import WifiSignal from '@/components/settings/categories/wifi/WifiSignal.vue';
 import NetworkSelector from '@/components/network/NetworkSelector.vue';
 import Button from '@/components/ui/Button.vue';
@@ -69,7 +69,7 @@ import SvgIcon from '@/components/ui/SvgIcon.vue';
 const { t } = useI18n();
 
 // Status display state — selection state lives inside NetworkSelector.
-const { status, networks, loading, initialize } = useWifi();
+const { status, networks, loading, initialize } = useNetwork();
 
 const emit = defineEmits(['update:modelValue']);
 

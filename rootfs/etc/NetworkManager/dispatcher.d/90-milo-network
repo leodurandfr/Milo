@@ -8,7 +8,7 @@
 #   2. Disable Energy Efficient Ethernet on eth0 link-up to keep Snapcast
 #      buffers happy.
 #
-# Backend network status is no longer driven from here — WifiService now
+# Backend network status is no longer driven from here — NetworkService now
 # subscribes directly to NetworkManager's D-Bus signals on eth0 + wlan0
 # (State / Ip4Config / ActiveConnection / AP Strength), so the live UI
 # refresh runs without a dispatcher round-trip and without racing DHCP.

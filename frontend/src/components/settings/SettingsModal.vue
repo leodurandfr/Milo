@@ -301,7 +301,7 @@ import HardwareSettings from '@/components/settings/categories/HardwareSettings.
 import UpdateManager from '@/components/settings/categories/UpdateManager.vue';
 import InfoSettings from '@/components/settings/categories/InfoSettings.vue';
 import NetworkSettings from '@/components/settings/categories/NetworkSettings.vue';
-import { preloadWifiStatus } from '@/composables/useWifi';
+import { preloadNetworkStatus } from '@/composables/useNetwork';
 import { preloadHardwareConfig, useHardwareConfig } from '@/composables/useHardwareConfig';
 
 const { screenType } = useHardwareConfig();
@@ -640,8 +640,8 @@ onMounted(async () => {
     radioStore.loadRadioSettingsData();
   }
 
-  // Preload wifi status for instant NetworkSettings rendering (non-blocking)
-  preloadWifiStatus();
+  // Preload network status for instant NetworkSettings rendering (non-blocking)
+  preloadNetworkStatus();
 
   // Preload hardware config for instant HardwareSettings rendering (non-blocking)
   preloadHardwareConfig();

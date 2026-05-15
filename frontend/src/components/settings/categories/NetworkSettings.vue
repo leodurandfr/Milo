@@ -136,7 +136,7 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onUnmounted, inject } from 'vue';
 import { useI18n } from '@/services/i18n';
-import { useWifi } from '@/composables/useWifi';
+import { useNetwork } from '@/composables/useNetwork';
 import { wifiCountryOptions } from '@/constants/wifiCountries';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
@@ -170,7 +170,7 @@ const {
   toggleWifi,
   setCountry,
   initialize,
-} = useWifi();
+} = useNetwork();
 
 // === WiFi country selector (Apply & Reboot pattern from HardwareSettings) ===
 const countryOptions = computed(() => wifiCountryOptions(getCurrentLanguage()));

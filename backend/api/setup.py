@@ -65,7 +65,7 @@ def _atomic_write_json(path, data: dict) -> None:
     os.replace(tmp, path)
 
 
-def create_setup_router(settings_service, hardware_service, systemd_manager, wifi_service):
+def create_setup_router(settings_service, hardware_service, systemd_manager, network_service):
     """Create setup wizard router with injected services."""
     router = APIRouter(prefix="/api/setup", tags=["setup"])
 
@@ -217,7 +217,7 @@ def create_setup_router(settings_service, hardware_service, systemd_manager, wif
                 raise HTTPException(status_code=500, detail=f"Failed to write client role marker: {e}")
 
             try:
-                await wifi_service.save_network(
+                await network_service.save_network(
                     payload.wifi_ssid,
                     payload.wifi_password if payload.wifi_password else None,
                 )
@@ -237,7 +237,7 @@ def create_setup_router(settings_service, hardware_service, systemd_manager, wif
                 except OSError:
                     pass
                 try:
-                    await wifi_service.forget_network(payload.wifi_ssid)
+                    await network_service.forget_network(payload.wifi_ssid)
                 except Exception as e:
                     logger.warning("become-client: failed to roll back wifi profile for '%s': %s", payload.wifi_ssid, e)
                 raise HTTPException(status_code=500, detail="Failed to persist setup_completed flag")

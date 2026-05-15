@@ -22,7 +22,7 @@ const hardwareConfig = ref(null);
 const isLoadingConfig = ref(false);
 /**
  * Pre-load hardware config for instant rendering when HardwareSettings opens.
- * Call from SettingsModal.onMounted() (non-blocking, like preloadWifiStatus).
+ * Call from SettingsModal.onMounted() (non-blocking, like preloadNetworkStatus).
  */
 export async function preloadHardwareConfig() {
   if (hardwareConfig.value || isLoadingConfig.value) return;

@@ -1,6 +1,6 @@
 <!-- frontend/src/components/network/NetworkSelector.vue -->
 <!-- Reusable WiFi network picker: country selector + scan list + password input. -->
-<!-- Owns its selectedSsid/password state via useWifi(); exposes connect/save closures via the `action` slot. -->
+<!-- Owns its selectedSsid/password state via useNetwork(); exposes connect/save closures via the `action` slot. -->
 <template>
   <div class="network-selector">
     <!-- WiFi country selector -->
@@ -74,7 +74,7 @@
 <script setup>
 import { computed, onMounted, watch } from 'vue';
 import { useI18n, i18n } from '@/services/i18n';
-import { useWifi } from '@/composables/useWifi';
+import { useNetwork } from '@/composables/useNetwork';
 import { wifiCountryOptions, LANGUAGE_TO_COUNTRY } from '@/constants/wifiCountries';
 import WifiSignal from '@/components/settings/categories/wifi/WifiSignal.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
@@ -119,7 +119,7 @@ const {
   saveNetwork,
   setCountry,
   initialize,
-} = useWifi();
+} = useNetwork();
 
 const countryOptions = computed(() => wifiCountryOptions(getCurrentLanguage()));
 

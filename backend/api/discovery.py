@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field, field_validator
 from backend.api.route_helpers import api_error_handler
 from backend.core.multiroom.models import SPEAKER_TYPES
 from backend.core.multiroom.wifi_adoption import AdoptionError
-from backend.core.wifi.service import HOTSPOT_NAME
+from backend.core.network.service import HOTSPOT_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,7 @@ _ADOPTION_CLIENT_ERROR_CODES = {
 }
 
 
-def create_discovery_router(wifi_service, wifi_adoption_service):
+def create_discovery_router(network_service, wifi_adoption_service):
     """Create discovery router with injected services."""
     router = APIRouter(prefix="/api/discovery", tags=["discovery"])
 
@@ -75,9 +75,9 @@ def create_discovery_router(wifi_service, wifi_adoption_service):
         result contains at most one adoptable hotspot.
         """
         async with api_error_handler("Discovery wifi speakers", logger):
-            if wifi_service.hotspot_active:
+            if network_service.hotspot_active:
                 return {"status": "success", "data": {"hotspots": []}}
-            networks = await wifi_service.scan_networks()
+            networks = await network_service.scan_networks()
             hotspots = [
                 {"ssid": n.ssid, "signal": n.signal}
                 for n in networks
@@ -97,7 +97,7 @@ def create_discovery_router(wifi_service, wifi_adoption_service):
         credentials entry.
         """
         async with api_error_handler("Discovery server wifi creds", logger):
-            creds = await wifi_service.get_active_wifi_credentials()
+            creds = await network_service.get_active_wifi_credentials()
             if creds is None:
                 return {"status": "success", "data": {"available": False}}
             return {

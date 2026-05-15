@@ -7,7 +7,7 @@ from fastapi import APIRouter
 from typing import Dict, Any
 
 def create_health_router(state_machine, routing_service, snapcast_service,
-                         settings_service, wifi_service):
+                         settings_service, network_service):
     """Creates health check router"""
     router = APIRouter(prefix="/api", tags=["health"])
 
@@ -102,7 +102,7 @@ def create_health_router(state_machine, routing_service, snapcast_service,
         current_state = state_machine.get_current_state()
 
         setup_completed = bool(await settings_service.get_setting("setup_completed"))
-        hotspot_active = wifi_service.hotspot_active
+        hotspot_active = network_service.hotspot_active
 
         return {
             "status": "success",

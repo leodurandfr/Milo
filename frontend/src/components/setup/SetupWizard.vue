@@ -64,7 +64,7 @@ import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useI18n, i18n } from '@/services/i18n';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
 import { useSettingsStore } from '@/stores/settingsStore';
-import { useWifi } from '@/composables/useWifi';
+import { useNetwork } from '@/composables/useNetwork';
 import axios from 'axios';
 import { logger } from '@/services/logger';
 import StepIndicator from './StepIndicator.vue';
@@ -80,7 +80,7 @@ import SvgIcon from '@/components/ui/SvgIcon.vue';
 const { t } = useI18n();
 const { loadHardwareConfig } = useHardwareConfig();
 const settingsStore = useSettingsStore();
-const { country: wifiCountry } = useWifi();
+const { country: wifiCountry } = useNetwork();
 
 const currentStep = ref(0);
 const isApplying = ref(false);
