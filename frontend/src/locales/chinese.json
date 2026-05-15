@@ -6,6 +6,8 @@
   "notification": {
     "connectionLostTitle": "连接丢失",
     "connectionLostDescription": "可用时自动重新连接",
+    "offlineTitle": "无网络连接",
+    "offlineDescription": "在连接恢复之前，Spotify、AirPlay、广播和播客将无法使用。",
     "backendErrorTitle": "系统错误",
     "commandFailed": "命令失败"
   },

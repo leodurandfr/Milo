@@ -133,6 +133,7 @@ main() {
     install_seatd
     install_avahi_nginx
     configure_avahi
+    configure_nm_connectivity
     configure_nginx
 
     # Display & kiosk

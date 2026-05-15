@@ -123,6 +123,7 @@ backend/
 │   ├── volume/               # Volume service + handlers
 │   ├── dsp/                  # CamillaDSP service + proxy + sync
 │   ├── multiroom/            # Snapcast + routing + crossover
+│   ├── connectivity/         # Internet reachability via NetworkManager D-Bus
 │   └── updates/              # Update + version services
 ├── sources/                   # Audio source implementations
 │   ├── spotify/              # SpotifySource + routes
@@ -147,6 +148,7 @@ backend/
 - **Service Registry**: Simple dict-based DI with lazy singleton creation
 - **Async-first**: asyncio everywhere for non-blocking I/O
 - **WebSocket broadcasting**: State changes broadcast via `state_machine.broadcast_event()`
+- **D-Bus via `dbus-next`**: The backend uses `dbus-next` (asyncio-native) for system services that publish over D-Bus. Currently: `org.bluez.AgentManager1` for Bluetooth auto-pairing ([backend/sources/bluetooth/agent.py](backend/sources/bluetooth/agent.py)) and `org.freedesktop.NetworkManager` for event-driven internet connectivity ([backend/core/connectivity/service.py](backend/core/connectivity/service.py)). Prefer D-Bus subscriptions over polling whenever the relevant Linux service publishes events. Always fail open (default to a safe state) when D-Bus is unavailable, so backend still runs in dev environments without the underlying service.
 
 ### Frontend: Vue 3 Composition API
 

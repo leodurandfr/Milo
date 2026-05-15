@@ -160,6 +160,7 @@ def _create_service(name: str) -> Any:
 
         # System utilities
         "hostname_conflict_service": lambda: _import("backend.core.system", "HostnameConflictService")(),
+        "connectivity_service": lambda: _import("backend.core.connectivity", "ConnectivityService")(),
 
         # Update services
         "update_service": lambda: _import("backend.core.updates", "UpdateService")(),
@@ -281,9 +282,11 @@ def initialize_services() -> None:
     multiroom_equalizer_service = get_service("multiroom_equalizer_service")
     pending_clients_service = get_service("pending_clients_service")
     hostname_conflict_service = get_service("hostname_conflict_service")
+    connectivity_service = get_service("connectivity_service")
 
     state_machine.ws_manager = websocket_manager
     hostname_conflict_service.set_state_machine(state_machine)
+    connectivity_service.set_state_machine(state_machine)
 
     # =========================================================================
     # STEP 2: Resolve circular dependencies (CRITICAL ORDER)
@@ -417,7 +420,9 @@ def initialize_services() -> None:
             # CD disc watcher needs early init for auto-detection
             ("cd_source", cd_source.initialize()),
             # mDNS hostname conflict detection (fail-open, never raises)
-            ("hostname_conflict_service", hostname_conflict_service.check())
+            ("hostname_conflict_service", hostname_conflict_service.check()),
+            # Internet connectivity monitoring (D-Bus subscription, fail-open)
+            ("connectivity_service", connectivity_service.initialize())
         ]
 
         results = await asyncio.gather(

@@ -88,6 +88,26 @@ EOF
     log_success "Avahi configured (access via milo.local)"
 }
 
+configure_nm_connectivity() {
+    log_info "Configuring NetworkManager connectivity check..."
+
+    # Drop-in config that enables NM's own connectivity probe. NM hits this
+    # endpoint on interface changes and on the periodic interval, then exposes
+    # the result via the Connectivity D-Bus property the backend subscribes to.
+    sudo mkdir -p /etc/NetworkManager/conf.d
+    sudo tee /etc/NetworkManager/conf.d/99-milo-connectivity.conf > /dev/null << 'EOF'
+[connectivity]
+uri=http://nmcheck.gnome.org/check_network_status.txt
+interval=300
+EOF
+
+    if ! sudo systemctl reload NetworkManager 2>/dev/null; then
+        sudo systemctl restart NetworkManager
+    fi
+
+    log_success "NetworkManager connectivity check enabled"
+}
+
 configure_nginx() {
     log_info "Configuring Nginx..."
 
@@ -172,6 +192,7 @@ EOF
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     install_avahi_nginx
     configure_avahi
+    configure_nm_connectivity
     configure_nginx
     log_success "Network configuration complete"
 fi
