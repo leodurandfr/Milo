@@ -273,8 +273,7 @@
       "intact": "Intact"
     },
     "apply": "Appliquer & Redémarrer",
-    "restarting": "Redémarrage...",
-    "warning": "Une latence basse peut causer des coupures audio sur les réseaux instables."
+    "restarting": "Redémarrage..."
   },
   "podcastSettings": {
     "taddyCredentials": "Identifiants API Taddy",
@@ -329,7 +328,7 @@
     "disconnected": "Déconnecté",
     "notConnected": "Non connecté",
     "preferredNetwork": "Réseau de préférence",
-    "wifiDescription": "Le réseau WiFi de préférence reste connecté en permanence et prend le relais si l'Ethernet devient indisponible.",
+    "wifiDescription": "Le réseau WiFi prend le relais si l'Ethernet n'est pas disponible.",
     "otherNetworks": "Autres réseaux WiFi",
     "noNetworks": "Aucun réseau détecté",
     "password": "Mot de passe",

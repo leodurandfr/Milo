@@ -273,8 +273,7 @@
       "intact": "Intact"
     },
     "apply": "Apply & Restart",
-    "restarting": "Restarting...",
-    "warning": "Lower latency may cause audio dropouts on unstable networks."
+    "restarting": "Restarting..."
   },
   "podcastSettings": {
     "taddyCredentials": "Taddy API credentials",
@@ -329,7 +328,7 @@
     "disconnected": "Disconnected",
     "notConnected": "Not connected",
     "preferredNetwork": "Preferred network",
-    "wifiDescription": "The preferred WiFi network stays connected at all times and takes over if Ethernet becomes unavailable.",
+    "wifiDescription": "WiFi takes over if Ethernet is unavailable.",
     "otherNetworks": "Other WiFi networks",
     "noNetworks": "No networks detected",
     "password": "Password",

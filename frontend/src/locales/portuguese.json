@@ -271,8 +271,7 @@
       "intact": "Intacto"
     },
     "apply": "Aplicar e reiniciar",
-    "restarting": "A reiniciar...",
-    "warning": "Uma latência baixa pode causar cortes de áudio em redes instáveis."
+    "restarting": "A reiniciar..."
   },
   "podcastSettings": {
     "taddyCredentials": "Credenciais da API Taddy",
@@ -327,7 +326,7 @@
     "disconnected": "Desconectado",
     "notConnected": "Não conectado",
     "preferredNetwork": "Rede preferida",
-    "wifiDescription": "A rede WiFi preferida permanece conectada permanentemente e assume quando a Ethernet não estiver disponível.",
+    "wifiDescription": "A rede WiFi assume quando a Ethernet não estiver disponível.",
     "otherNetworks": "Outras redes WiFi",
     "noNetworks": "Nenhuma rede detectada",
     "password": "Senha",

@@ -32,11 +32,6 @@
           @change="handleFrameLengthChange"
         />
       </SettingItem>
-
-      <!-- Warning message -->
-      <p class="warning-text text-mono-small">
-        {{ t('macSettings.warning') }}
-      </p>
     </SettingsSection>
 
     <!-- Apply Button (requires service restart) -->
@@ -164,11 +159,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.warning-text {
-  color: var(--color-text-secondary);
-  margin-top: var(--space-02);
-}
-
 .apply-button-sticky {
   position: sticky;
   bottom: 0;
