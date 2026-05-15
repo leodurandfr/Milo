@@ -335,7 +335,7 @@ class TestPodcastDataService:
     async def test_initial_structure(self):
         """Test initial data structure."""
         service = PodcastDataService()
-        structure, _ = service._get_default_structure()
+        structure = service._get_default_structure()
 
         assert "subscriptions" in structure
         assert "playback_progress" in structure
@@ -362,7 +362,7 @@ class TestPodcastDataService:
     async def test_settings_defaults(self):
         """Test default settings."""
         service = PodcastDataService()
-        structure, _ = service._get_default_structure()
+        structure = service._get_default_structure()
 
         assert structure["settings"]["safe_mode"] is False
         assert structure["settings"]["playback_speed"] == 1.0

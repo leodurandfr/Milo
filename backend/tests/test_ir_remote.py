@@ -284,7 +284,9 @@ class TestMenuHold:
         # Button stays pressed — simulate by NOT clearing _menu_pressed.
         await asyncio.sleep(MENU_CLICK_WINDOW + 0.1)
         controller.screen_controller.force_sleep.assert_awaited_once()
-        controller.state_machine.transition_to_source.assert_not_called()
+        controller.state_machine.transition_to_source.assert_awaited_once_with(
+            AudioSource.NONE
+        )
 
     @pytest.mark.asyncio
     async def test_release_before_window_fires_cycle_not_sleep(self):
@@ -315,7 +317,9 @@ class TestMenuHold:
         # Last press still held at resolution
         await asyncio.sleep(MENU_CLICK_WINDOW + 0.1)
         controller.screen_controller.force_sleep.assert_awaited_once()
-        controller.state_machine.transition_to_source.assert_not_called()
+        controller.state_machine.transition_to_source.assert_awaited_once_with(
+            AudioSource.NONE
+        )
 
     @pytest.mark.asyncio
     async def test_hold_resolver_clears_count_not_pressed_flag(self):
