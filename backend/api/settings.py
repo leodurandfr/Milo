@@ -155,7 +155,7 @@ def create_settings_router(
             },
             "radio_settings": {"shazam_enabled": radio.get('shazam_enabled', True)},
             "mac_roc": {
-                "target_latency_ms": mac.get('target_latency_ms', 10),
+                "target_latency_ms": mac.get('target_latency_ms', 50),
                 "latency_profile": mac.get('latency_profile', 'responsive'),
                 "frame_length_ms": mac.get('frame_length_ms', 4)
             }
@@ -1165,7 +1165,7 @@ def create_settings_router(
         return {
             "status": "success",
             "config": {
-                "target_latency_ms": mac.get("target_latency_ms", 10),
+                "target_latency_ms": mac.get("target_latency_ms", 50),
                 "latency_profile": mac.get("latency_profile", "responsive"),
                 "frame_length_ms": mac.get("frame_length_ms", 4)
             }

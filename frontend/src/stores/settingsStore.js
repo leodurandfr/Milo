@@ -80,7 +80,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
   // === MAC ROC ===
   const macRocSettings = ref({
-    target_latency_ms: 10,
+    target_latency_ms: 50,
     latency_profile: 'responsive',
     frame_length_ms: 4
   });
@@ -224,7 +224,7 @@ export const useSettingsStore = defineStore('settings', () => {
         };
 
         macRocSettings.value = {
-          target_latency_ms: d.mac_roc?.target_latency_ms ?? 10,
+          target_latency_ms: d.mac_roc?.target_latency_ms ?? 50,
           latency_profile: d.mac_roc?.latency_profile ?? 'responsive',
           frame_length_ms: d.mac_roc?.frame_length_ms ?? 4
         };
