@@ -2,73 +2,73 @@
 <template>
   <SettingsSection>
     <div class="info-content">
-    <!-- Header: Icon + Milō OS + Version -->
-    <div class="info-header">
-      <div class="info-icon">
-        <img src="@/assets/app-icons/milo.svg" alt="Milō" />
-      </div>
-      <span class="heading-2">Milō OS</span>
-      <span class="info-version text-mono">
-        <span v-if="showVersionSkeleton" class="skeleton-line shimmer" style="width: 96px"></span>
-        <span v-else-if="miloVersion !== null">Version {{ miloVersion }}</span>
-        <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
-      </span>
-    </div>
-
-    <!-- Info grid: IP + Temperature, CPU + RAM -->
-    <div class="info-grid">
-      <div class="info-item">
-        <span class="info-label text-mono">{{ t('info.ipAddress') }}</span>
-        <span class="info-value text-mono">
-          <span v-if="showIpSkeleton" class="skeleton-line shimmer" style="width: 100px"></span>
-          <span v-else-if="ipAddress !== null">{{ ipAddress }}</span>
+      <!-- Header: Icon + Milō OS + Version -->
+      <div class="info-header">
+        <div class="info-icon">
+          <img src="@/assets/app-icons/milo.svg" alt="Milō" />
+        </div>
+        <span class="heading-2">Milō OS</span>
+        <span class="info-version text-mono">
+          <span v-if="showVersionSkeleton" class="skeleton-line shimmer" style="width: 96px"></span>
+          <span v-else-if="miloVersion !== null">Version {{ miloVersion }}</span>
           <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
         </span>
       </div>
 
-      <div class="info-item">
-        <span class="info-label text-mono">{{ t('info.temperature') }}</span>
-        <span class="info-value text-mono">
-          <span v-if="showTempSkeleton" class="skeleton-line shimmer" style="width: 48px"></span>
-          <span v-else-if="systemTemperature !== null">{{ systemTemperature.toFixed(1) }}°C</span>
-          <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
-        </span>
-      </div>
-
-      <div class="info-item info-item-bar">
-        <div class="info-item-top">
-          <span class="info-label text-mono">{{ t('info.cpu') }}</span>
+      <!-- Info grid: IP + Temperature, CPU + RAM -->
+      <div class="info-grid">
+        <div class="info-item">
+          <span class="info-label text-mono">{{ t('info.ipAddress') }}</span>
           <span class="info-value text-mono">
-            <span v-if="showResourcesSkeleton" class="skeleton-line shimmer" style="width: 36px"></span>
-            <span v-else-if="cpuPercent !== null">{{ cpuPercent }}%</span>
+            <span v-if="showIpSkeleton" class="skeleton-line shimmer" style="width: 100px"></span>
+            <span v-else-if="ipAddress !== null">{{ ipAddress }}</span>
             <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
           </span>
         </div>
-        <div class="bar-container">
-          <div class="bar-fill" :style="{ width: (cpuPercent ?? 0) + '%' }"></div>
-        </div>
-      </div>
 
-      <div class="info-item info-item-bar">
-        <div class="info-item-top">
-          <span class="info-label text-mono">{{ t('info.ram') }}</span>
+        <div class="info-item">
+          <span class="info-label text-mono">{{ t('info.temperature') }}</span>
           <span class="info-value text-mono">
-            <span v-if="showResourcesSkeleton" class="skeleton-line shimmer" style="width: 88px"></span>
-            <span v-else-if="ram !== null">{{ ram.used_mb }} / {{ ram.total_mb }} MB</span>
+            <span v-if="showTempSkeleton" class="skeleton-line shimmer" style="width: 48px"></span>
+            <span v-else-if="systemTemperature !== null">{{ systemTemperature.toFixed(1) }}°C</span>
             <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
           </span>
         </div>
-        <div class="bar-container">
-          <div class="bar-fill" :style="{ width: ramPercent + '%' }"></div>
+
+        <div class="info-item info-item-bar">
+          <div class="info-item-top">
+            <span class="info-label text-mono">{{ t('info.cpu') }}</span>
+            <span class="info-value text-mono">
+              <span v-if="showResourcesSkeleton" class="skeleton-line shimmer" style="width: 36px"></span>
+              <span v-else-if="cpuPercent !== null">{{ cpuPercent }}%</span>
+              <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
+            </span>
+          </div>
+          <div class="bar-container">
+            <div class="bar-fill" :style="{ width: (cpuPercent ?? 0) + '%' }"></div>
+          </div>
+        </div>
+
+        <div class="info-item info-item-bar">
+          <div class="info-item-top">
+            <span class="info-label text-mono">{{ t('info.ram') }}</span>
+            <span class="info-value text-mono">
+              <span v-if="showResourcesSkeleton" class="skeleton-line shimmer" style="width: 88px"></span>
+              <span v-else-if="ram !== null">{{ ram.used_mb }} / {{ ram.total_mb }} MB</span>
+              <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
+            </span>
+          </div>
+          <div class="bar-container">
+            <div class="bar-fill" :style="{ width: ramPercent + '%' }"></div>
+          </div>
         </div>
       </div>
-    </div>
 
-    <!-- Credits -->
-    <div class="info-item info-credits">
-      <span class="info-label text-mono">{{ t('info.designedBy') }}</span>
-      <span class="info-value text-mono">leodurand.com</span>
-    </div>
+      <!-- Credits -->
+      <div class="info-item info-credits">
+        <span class="info-label text-mono">{{ t('info.designedBy') }}</span>
+        <span class="info-value text-mono">leodurand.com</span>
+      </div>
     </div>
   </SettingsSection>
 </template>
@@ -210,7 +210,8 @@ onUnmounted(() => {
 .info-icon {
   width: 72px;
   height: 72px;
-  margin-bottom: var(--space-02); /* 16px total between icon and title: 8px (gap) + 8px (margin) */
+  margin-bottom: var(--space-02);
+  /* 16px total between icon and title: 8px (gap) + 8px (margin) */
 }
 
 .info-icon img {
@@ -258,10 +259,7 @@ onUnmounted(() => {
   text-align: right;
 }
 
-.info-credits {
-  flex-direction: column;
-  gap: var(--space-01)
-}
+
 
 .bar-container {
   width: 100%;
@@ -298,6 +296,11 @@ onUnmounted(() => {
 @media (max-aspect-ratio: 4/3) {
   .info-grid {
     grid-template-columns: 1fr;
+  }
+
+  .info-credits {
+    flex-direction: column;
+    gap: var(--space-01)
   }
 
   .info-icon {
