@@ -94,7 +94,7 @@ function syncFromStore() {
   config.value.limits.min = settingsStore.volumeLimits.min_db;
   config.value.limits.max = settingsStore.volumeLimits.max_db;
   config.value.restore_last_volume = settingsStore.volumeStartup.restore_last_volume;
-  config.value.startup_volume_db = settingsStore.volumeStartup.startup_volume_db;
+  config.value.startup_volume_db = Math.round(settingsStore.volumeStartup.startup_volume_db);
 }
 
 function updateVolumeLimits(limits) {
