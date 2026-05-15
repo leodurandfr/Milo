@@ -35,7 +35,7 @@ from backend.hardware.ir_remote_routes import create_ir_remote_router
 from backend.api.health import create_health_router
 from backend.api.errors import create_errors_router
 from backend.api.setup import create_setup_router
-from backend.api.wifi import create_wifi_router
+from backend.api.network import create_network_router
 from backend.api.discovery import create_discovery_router
 from backend.api.multiroom import create_multiroom_router
 from backend.ws import WebSocketServer
@@ -81,10 +81,10 @@ equalizer_proxy_service = get_service("equalizer_client_proxy_service")
 equalizer_sync_service = get_service("equalizer_settings_sync_service")
 client_registry_service = get_service("client_registry_service")
 equalizer_router_service = get_service("equalizer_router")
-wifi_service = get_service("wifi_service")
+network_service = get_service("network_service")
 wifi_adoption_service = get_service("wifi_adoption_service")
 ws_manager = get_service("websocket_manager")
-websocket_server = WebSocketServer(ws_manager, state_machine, volume_service, settings_service, wifi_service)
+websocket_server = WebSocketServer(ws_manager, state_machine, volume_service, settings_service, network_service)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -114,7 +114,7 @@ async def lifespan(app: FastAPI):
         state_machine.start_inactivity_monitor()
 
         # Activate WiFi hotspot for first-boot setup if no network is available
-        await wifi_service.maybe_start_hotspot(settings_service)
+        await network_service.maybe_start_hotspot(settings_service)
 
         logger.info("Milo backend startup completed with unified settings")
 
@@ -138,7 +138,7 @@ async def lifespan(app: FastAPI):
         await bt_remote_controller.cleanup()
         await ir_remote_controller.cleanup()
         await get_service("connectivity_service").cleanup()
-        await wifi_service.cleanup()
+        await network_service.cleanup()
         logger.info("Cleanup completed")
     except Exception as e:
         logger.error(f"Cleanup error: {e}")
@@ -239,7 +239,7 @@ app.include_router(programs_router)
 
 health_router = create_health_router(
     state_machine, routing_service, snapcast_service,
-    settings_service=settings_service, wifi_service=wifi_service
+    settings_service=settings_service, network_service=network_service
 )
 app.include_router(health_router)
 
@@ -256,13 +256,13 @@ app.include_router(bt_remote_router)
 ir_remote_router = create_ir_remote_router(ir_remote_controller)
 app.include_router(ir_remote_router)
 
-setup_router = create_setup_router(settings_service, hardware_service, systemd_manager, wifi_service)
+setup_router = create_setup_router(settings_service, hardware_service, systemd_manager, network_service)
 app.include_router(setup_router)
 
-wifi_router = create_wifi_router(wifi_service)
-app.include_router(wifi_router)
+network_router = create_network_router(network_service)
+app.include_router(network_router)
 
-discovery_router = create_discovery_router(wifi_service, wifi_adoption_service)
+discovery_router = create_discovery_router(network_service, wifi_adoption_service)
 app.include_router(discovery_router)
 
 app.add_api_websocket_route("/ws", websocket_server.websocket_endpoint)

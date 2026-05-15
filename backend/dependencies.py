@@ -149,13 +149,13 @@ def _create_service(name: str) -> Any:
         ),
         "equalizer_router": lambda: _create_equalizer_router(),
 
-        # WiFi service
-        "wifi_service": lambda: _import("backend.core.wifi", "WifiService")(
+        # Network service (Ethernet + WiFi)
+        "network_service": lambda: _import("backend.core.network", "NetworkService")(
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service")
         ),
         "wifi_adoption_service": lambda: _import("backend.core.multiroom.wifi_adoption", "WifiAdoptionService")(
-            wifi_service=get_service("wifi_service")
+            network_service=get_service("network_service")
         ),
 
         # System utilities
@@ -283,7 +283,7 @@ def initialize_services() -> None:
     pending_clients_service = get_service("pending_clients_service")
     hostname_conflict_service = get_service("hostname_conflict_service")
     connectivity_service = get_service("connectivity_service")
-    wifi_service = get_service("wifi_service")
+    network_service = get_service("network_service")
 
     state_machine.ws_manager = websocket_manager
     hostname_conflict_service.set_state_machine(state_machine)
@@ -424,8 +424,8 @@ def initialize_services() -> None:
             ("hostname_conflict_service", hostname_conflict_service.check()),
             # Internet connectivity monitoring (D-Bus subscription, fail-open)
             ("connectivity_service", connectivity_service.initialize()),
-            # WiFi / network status live updates (NM D-Bus, fail-open)
-            ("wifi_service", wifi_service.initialize())
+            # Network status live updates (Ethernet + WiFi, NM D-Bus, fail-open)
+            ("network_service", network_service.initialize())
         ]
 
         results = await asyncio.gather(

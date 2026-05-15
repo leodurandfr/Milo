@@ -28,7 +28,7 @@ from typing import Optional, Tuple
 
 import aiohttp
 
-from backend.core.wifi.service import HOTSPOT_NAME, _parse_nmcli_line
+from backend.core.network.service import HOTSPOT_NAME, _parse_nmcli_line
 
 
 logger = logging.getLogger(__name__)
@@ -65,8 +65,8 @@ class AdoptionError(Exception):
 class WifiAdoptionService:
     """Orchestrates wifi-based adoption of a fresh Milō speaker."""
 
-    def __init__(self, wifi_service):
-        self.wifi_service = wifi_service
+    def __init__(self, network_service):
+        self.network_service = network_service
         self.logger = logger
         self._lock = asyncio.Lock()
 
@@ -86,7 +86,7 @@ class WifiAdoptionService:
         """
         if ssid != HOTSPOT_NAME:
             raise AdoptionError("invalid_ssid", f"'{ssid}' is not the Milō hotspot SSID")
-        if self.wifi_service.hotspot_active:
+        if self.network_service.hotspot_active:
             raise AdoptionError(
                 "server_in_hotspot_mode",
                 "Cannot adopt while broadcasting the setup hotspot",

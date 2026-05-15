@@ -1,85 +1,89 @@
 """
-WiFi management API routes.
+Network management API routes (Ethernet + WiFi).
+
+Routes:
+  GET /api/network/status         — combined Ethernet + WiFi status
+  WiFi-specific endpoints live under /api/network/wifi/...
 """
 import logging
 from fastapi import APIRouter
 
 from backend.api.route_helpers import api_error_handler
-from backend.core.wifi.models import WifiConnectRequest, WifiRadioRequest, WifiCountryRequest
+from backend.core.network.models import WifiConnectRequest, WifiRadioRequest, WifiCountryRequest
 
 logger = logging.getLogger(__name__)
 
 
-def create_wifi_router(wifi_service):
-    router = APIRouter(prefix="/api/wifi", tags=["wifi"])
-
-    @router.get("/networks")
-    async def scan_networks():
-        """Scan for available WiFi networks."""
-        async with api_error_handler("WiFi scan", logger):
-            networks = await wifi_service.scan_networks()
-            return {"status": "success", "data": [n.model_dump() for n in networks]}
+def create_network_router(network_service):
+    router = APIRouter(prefix="/api/network", tags=["network"])
 
     @router.get("/status")
     async def get_network_status():
-        """Get current network status (ethernet + WiFi)."""
+        """Get current network status (Ethernet + WiFi)."""
         async with api_error_handler("Network status", logger):
-            status = await wifi_service.get_network_status()
+            status = await network_service.get_network_status()
             return {"status": "success", "data": status.model_dump()}
 
-    @router.post("/connect")
+    @router.get("/wifi/networks")
+    async def scan_networks():
+        """Scan for available WiFi networks."""
+        async with api_error_handler("WiFi scan", logger):
+            networks = await network_service.scan_networks()
+            return {"status": "success", "data": [n.model_dump() for n in networks]}
+
+    @router.post("/wifi/connect")
     async def connect_to_network(request: WifiConnectRequest):
         """Connect to a WiFi network."""
         async with api_error_handler("WiFi connect", logger):
-            status = await wifi_service.connect(request.ssid, request.password)
+            status = await network_service.connect(request.ssid, request.password)
             return {"status": "success", "data": status.model_dump()}
 
-    @router.post("/save")
+    @router.post("/wifi/save")
     async def save_network(request: WifiConnectRequest):
         """Save WiFi credentials without connecting (for hotspot setup mode)."""
         async with api_error_handler("WiFi save", logger):
-            await wifi_service.save_network(request.ssid, request.password)
+            await network_service.save_network(request.ssid, request.password)
             return {"status": "success", "data": {"ssid": request.ssid}}
 
-    @router.delete("/saved/{ssid}")
+    @router.delete("/wifi/saved/{ssid}")
     async def forget_network(ssid: str):
         """Forget a saved WiFi network."""
         async with api_error_handler("WiFi forget", logger):
-            await wifi_service.forget_network(ssid)
+            await network_service.forget_network(ssid)
             return {"status": "success"}
 
-    @router.get("/saved")
+    @router.get("/wifi/saved")
     async def get_saved_networks():
         """List saved WiFi networks."""
         async with api_error_handler("WiFi saved networks", logger):
-            networks = await wifi_service.get_saved_networks()
+            networks = await network_service.get_saved_networks()
             return {"status": "success", "data": [n.model_dump() for n in networks]}
 
-    @router.put("/radio")
+    @router.put("/wifi/radio")
     async def set_wifi_radio(request: WifiRadioRequest):
         """Enable or disable WiFi radio."""
         async with api_error_handler("WiFi radio", logger):
-            await wifi_service.set_wifi_enabled(request.enabled)
-            status = await wifi_service.get_network_status()
+            await network_service.set_wifi_enabled(request.enabled)
+            status = await network_service.get_network_status()
             return {"status": "success", "data": status.model_dump()}
 
-    @router.get("/hotspot/status")
+    @router.get("/wifi/hotspot/status")
     async def get_hotspot_status():
         """Return whether the setup hotspot is currently active."""
-        return {"status": "success", "data": {"active": wifi_service.hotspot_active}}
+        return {"status": "success", "data": {"active": network_service.hotspot_active}}
 
-    @router.get("/country")
+    @router.get("/wifi/country")
     async def get_wifi_country():
         """Get the configured WiFi regulatory domain country code."""
         async with api_error_handler("WiFi country get", logger):
-            code = await wifi_service.get_country()
+            code = await network_service.get_country()
             return {"status": "success", "data": {"country_code": code}}
 
-    @router.put("/country")
+    @router.put("/wifi/country")
     async def set_wifi_country(request: WifiCountryRequest):
         """Set the WiFi regulatory domain. Reboot required for full effect."""
         async with api_error_handler("WiFi country set", logger):
-            await wifi_service.set_country(request.country_code)
+            await network_service.set_country(request.country_code)
             return {"status": "success", "data": {"country_code": request.country_code}}
 
     return router

@@ -1,4 +1,4 @@
-// frontend/src/composables/useWifi.js
+// frontend/src/composables/useNetwork.js
 import { ref, computed } from 'vue';
 import axios from 'axios';
 import { logger } from '@/services/logger';
@@ -20,27 +20,27 @@ let _statusLoaded = false;
 let _countryLoaded = false;
 
 /**
- * Pre-load wifi status for instant rendering when NetworkSettings opens.
+ * Pre-load network status for instant rendering when NetworkSettings opens.
  * Call from SettingsModal.onMounted() (non-blocking, like radioStore).
  */
-export async function preloadWifiStatus() {
+export async function preloadNetworkStatus() {
   if (_statusLoaded) return;
   try {
-    const res = await axios.get('/api/wifi/status');
+    const res = await axios.get('/api/network/status');
     _status.value = res.data.data;
     _statusLoaded = true;
   } catch (error) {
-    logger.error('wifi', 'Failed to preload network status', error);
+    logger.error('network', 'Failed to preload network status', error);
   }
 }
 
 /**
- * WS handler for `wifi.status_changed` events broadcast by the backend on
+ * WS handler for `network.status_changed` events broadcast by the backend on
  * physical link changes (cable plug/unplug, WiFi associate/dissociate).
  * Updates the shared module-level status so any mounted NetworkSettings
  * view reflects the new state in real time.
  */
-export function handleWifiStatusChanged(event) {
+export function handleNetworkStatusChanged(event) {
   if (event?.data) {
     _status.value = event.data;
     _statusLoaded = true;
@@ -48,10 +48,10 @@ export function handleWifiStatusChanged(event) {
 }
 
 /**
- * Composable for WiFi state and API interactions.
+ * Composable for combined Ethernet + WiFi state and API interactions.
  * Shared state is module-level (singleton); UI state is per-instance.
  */
-export function useWifi() {
+export function useNetwork() {
   // Shared state (module-level singleton)
   const status = _status;
   const networks = _networks;
@@ -98,50 +98,50 @@ export function useWifi() {
 
   async function loadStatus() {
     try {
-      const res = await axios.get('/api/wifi/status');
+      const res = await axios.get('/api/network/status');
       status.value = res.data.data;
       _statusLoaded = true;
     } catch (error) {
-      logger.error('wifi', 'Failed to load network status', error);
+      logger.error('network', 'Failed to load network status', error);
     }
   }
 
   async function loadCountry() {
     try {
-      const res = await axios.get('/api/wifi/country');
+      const res = await axios.get('/api/network/wifi/country');
       _country.value = res.data.data.country_code || '';
       _countryLoaded = true;
     } catch (error) {
-      logger.error('wifi', 'Failed to load WiFi country', error);
+      logger.error('network', 'Failed to load WiFi country', error);
     }
   }
 
   async function setCountry(code) {
     try {
-      await axios.put('/api/wifi/country', { country_code: code });
+      await axios.put('/api/network/wifi/country', { country_code: code });
       _country.value = code;
     } catch (error) {
-      logger.error('wifi', 'Failed to set WiFi country', error);
+      logger.error('network', 'Failed to set WiFi country', error);
       throw error;
     }
   }
 
   async function loadSavedNetworks() {
     try {
-      const res = await axios.get('/api/wifi/saved');
+      const res = await axios.get('/api/network/wifi/saved');
       savedSsids.value = new Set(res.data.data.map(n => n.ssid));
     } catch (error) {
-      logger.error('wifi', 'Failed to load saved networks', error);
+      logger.error('network', 'Failed to load saved networks', error);
     }
   }
 
   async function scanNetworks() {
     scanning.value = true;
     try {
-      const res = await axios.get('/api/wifi/networks');
+      const res = await axios.get('/api/network/wifi/networks');
       networks.value = res.data.data;
     } catch (error) {
-      logger.error('wifi', 'Failed to scan networks', error);
+      logger.error('network', 'Failed to scan networks', error);
     } finally {
       scanning.value = false;
     }
@@ -152,14 +152,14 @@ export function useWifi() {
     connectError.value = '';
     try {
       const payload = { ssid: network.ssid, password: network.security ? password.value : null };
-      await axios.post('/api/wifi/connect', payload);
+      await axios.post('/api/network/wifi/connect', payload);
       selectedSsid.value = null;
       password.value = '';
       await Promise.all([loadStatus(), scanNetworks(), loadSavedNetworks()]);
     } catch (error) {
       const detail = error.response?.data?.detail;
       connectError.value = detail || (t ? t('network.connectFailed') : 'Connection failed');
-      logger.error('wifi', 'WiFi connection failed', error);
+      logger.error('network', 'WiFi connection failed', error);
     } finally {
       connecting.value = false;
     }
@@ -170,7 +170,7 @@ export function useWifi() {
     connectError.value = '';
     try {
       const payload = { ssid: network.ssid, password: network.security ? password.value : null };
-      await axios.post('/api/wifi/save', payload);
+      await axios.post('/api/network/wifi/save', payload);
       selectedSsid.value = null;
       password.value = '';
       // Update local state to reflect saved SSID without reloading from backend
@@ -181,7 +181,7 @@ export function useWifi() {
     } catch (error) {
       const detail = error.response?.data?.detail;
       connectError.value = detail || (t ? t('network.saveFailed') : 'Save failed');
-      logger.error('wifi', 'WiFi save failed', error);
+      logger.error('network', 'WiFi save failed', error);
     } finally {
       connecting.value = false;
     }
@@ -189,12 +189,12 @@ export function useWifi() {
 
   async function forgetNetwork(ssid) {
     try {
-      await axios.delete(`/api/wifi/saved/${encodeURIComponent(ssid)}`);
+      await axios.delete(`/api/network/wifi/saved/${encodeURIComponent(ssid)}`);
       savedSsids.value.delete(ssid);
       savedSsids.value = new Set(savedSsids.value);
       await loadStatus();
     } catch (error) {
-      logger.error('wifi', 'Failed to forget network', error);
+      logger.error('network', 'Failed to forget network', error);
     }
   }
 
@@ -224,7 +224,7 @@ export function useWifi() {
       scanning.value = true;
     }
     try {
-      const res = await axios.put('/api/wifi/radio', { enabled });
+      const res = await axios.put('/api/network/wifi/radio', { enabled });
       status.value = res.data.data;
       if (enabled) {
         await Promise.all([scanNetworks(), loadSavedNetworks()]);
@@ -232,7 +232,7 @@ export function useWifi() {
     } catch (error) {
       status.value = previous;
       if (enabled) scanning.value = false;
-      logger.error('wifi', 'Failed to toggle WiFi', error);
+      logger.error('network', 'Failed to toggle WiFi', error);
     }
   }
 
