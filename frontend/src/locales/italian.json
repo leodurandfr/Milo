@@ -271,8 +271,7 @@
       "intact": "Intatto"
     },
     "apply": "Applica e riavvia",
-    "restarting": "Riavvio in corso...",
-    "warning": "Una latenza bassa può causare interruzioni audio su reti instabili."
+    "restarting": "Riavvio in corso..."
   },
   "podcastSettings": {
     "taddyCredentials": "Credenziali API Taddy",
@@ -327,7 +326,7 @@
     "disconnected": "Disconnesso",
     "notConnected": "Non connesso",
     "preferredNetwork": "Rete preferita",
-    "wifiDescription": "La rete WiFi preferita rimane sempre connessa e subentra se Ethernet non è disponibile.",
+    "wifiDescription": "La rete WiFi subentra se Ethernet non è disponibile.",
     "otherNetworks": "Altre reti WiFi",
     "noNetworks": "Nessuna rete rilevata",
     "password": "Password",

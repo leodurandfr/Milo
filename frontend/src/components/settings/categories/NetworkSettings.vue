@@ -632,11 +632,6 @@ onUnmounted(() => {
     border-radius: var(--radius-05);
   }
 
-  .wifi-signal {
-    width: 20px;
-    height: 20px;
-  }
-
   .country-row {
     flex-direction: column;
     align-items: stretch;

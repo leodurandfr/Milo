@@ -271,8 +271,7 @@
       "intact": "Intakt"
     },
     "apply": "Anwenden & neu starten",
-    "restarting": "Wird neu gestartet...",
-    "warning": "Eine niedrige Latenz kann bei instabilen Netzwerken zu Audioaussetzern führen."
+    "restarting": "Wird neu gestartet..."
   },
   "podcastSettings": {
     "taddyCredentials": "Taddy API-Anmeldedaten",
@@ -327,7 +326,7 @@
     "disconnected": "Getrennt",
     "notConnected": "Nicht verbunden",
     "preferredNetwork": "Bevorzugtes Netzwerk",
-    "wifiDescription": "Das bevorzugte WLAN-Netzwerk bleibt dauerhaft verbunden und übernimmt, wenn Ethernet nicht verfügbar ist.",
+    "wifiDescription": "WLAN übernimmt, wenn Ethernet nicht verfügbar ist.",
     "otherNetworks": "Andere WLAN-Netzwerke",
     "noNetworks": "Keine Netzwerke erkannt",
     "password": "Passwort",

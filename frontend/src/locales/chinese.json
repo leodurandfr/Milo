@@ -271,8 +271,7 @@
       "intact": "完整"
     },
     "apply": "应用并重启",
-    "restarting": "正在重启...",
-    "warning": "低延迟可能在不稳定的网络上导致音频中断。"
+    "restarting": "正在重启..."
   },
   "podcastSettings": {
     "taddyCredentials": "Taddy API 凭证",
@@ -327,7 +326,7 @@
     "disconnected": "已断开",
     "notConnected": "未连接",
     "preferredNetwork": "首选网络",
-    "wifiDescription": "首选 WiFi 网络始终保持连接，并在以太网不可用时接管。",
+    "wifiDescription": "以太网不可用时由 WiFi 接管。",
     "otherNetworks": "其他 WiFi 网络",
     "noNetworks": "未检测到网络",
     "password": "密码",
