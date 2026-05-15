@@ -283,6 +283,7 @@ def initialize_services() -> None:
     pending_clients_service = get_service("pending_clients_service")
     hostname_conflict_service = get_service("hostname_conflict_service")
     connectivity_service = get_service("connectivity_service")
+    wifi_service = get_service("wifi_service")
 
     state_machine.ws_manager = websocket_manager
     hostname_conflict_service.set_state_machine(state_machine)
@@ -422,7 +423,9 @@ def initialize_services() -> None:
             # mDNS hostname conflict detection (fail-open, never raises)
             ("hostname_conflict_service", hostname_conflict_service.check()),
             # Internet connectivity monitoring (D-Bus subscription, fail-open)
-            ("connectivity_service", connectivity_service.initialize())
+            ("connectivity_service", connectivity_service.initialize()),
+            # WiFi / network status live updates (NM D-Bus, fail-open)
+            ("wifi_service", wifi_service.initialize())
         ]
 
         results = await asyncio.gather(

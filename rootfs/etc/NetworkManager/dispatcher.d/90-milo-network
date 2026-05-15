@@ -1,10 +1,17 @@
 #!/bin/bash
-# Milo Network Manager - Avahi mDNS interface selection
+# Milo Network Manager - Avahi mDNS interface selection + EEE disable
 #
-# Keeps both eth0 and wlan0 connected at all times; selects which interface
-# Avahi advertises milo.local on. Single-interface advertising avoids the
-# self-loop hostname conflict (milo.local -> milo-2.local) without sacrificing
-# WiFi as a fallback when ethernet fails.
+# Two responsibilities:
+#   1. Pick which interface Avahi advertises milo.local on (single-interface
+#      advertising avoids the self-loop hostname conflict
+#      milo.local -> milo-2.local without sacrificing WiFi as a fallback).
+#   2. Disable Energy Efficient Ethernet on eth0 link-up to keep Snapcast
+#      buffers happy.
+#
+# Backend network status is no longer driven from here — WifiService now
+# subscribes directly to NetworkManager's D-Bus signals on eth0 + wlan0
+# (State / Ip4Config / ActiveConnection / AP Strength), so the live UI
+# refresh runs without a dispatcher round-trip and without racing DHCP.
 #
 # Avahi interface state is persisted in AVAHI_STATE_FILE and applied by the
 # avahi-daemon systemd ExecStartPre override on every Avahi start.
@@ -56,14 +63,6 @@ disable_eee() {
     fi
 }
 
-# Notify the backend that network state changed so it can re-read NM and
-# broadcast the new status over WebSocket (drives the live UI refresh).
-# Fire-and-forget: never block the dispatcher on backend availability.
-notify_backend() {
-    curl -fs --max-time 2 -X POST \
-        http://127.0.0.1:8000/api/wifi/status/refresh >/dev/null 2>&1 &
-}
-
 # Update Avahi interface - writes to state file then restarts Avahi
 set_avahi_interface() {
     local interface="$1"
@@ -104,11 +103,9 @@ case "$INTERFACE" in
             up)
                 disable_eee eth0
                 apply_avahi_target
-                notify_backend
                 ;;
             down)
                 apply_avahi_target
-                notify_backend
                 ;;
         esac
         ;;
@@ -116,7 +113,6 @@ case "$INTERFACE" in
         case "$ACTION" in
             up|down)
                 apply_avahi_target
-                notify_backend
                 ;;
         esac
         ;;
