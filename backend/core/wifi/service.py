@@ -484,7 +484,13 @@ class WifiService:
     # =========================================================================
 
     async def _get_ethernet_info(self) -> EthernetStatus:
-        """Return ethernet connection status."""
+        """Return ethernet connection status.
+
+        connected=True requires both an active NM profile AND an IPv4 address,
+        so the badge matches what the Avahi dispatcher uses to advertise on
+        eth0 (`has_ip eth0`). This prevents reporting "connected" during the
+        DHCP activation window when milo.local is not yet resolvable on eth0.
+        """
         rc, stdout, _ = await self._run_nmcli(
             "-t", "-f", "GENERAL.CONNECTION,IP4.ADDRESS",
             "device", "show", "eth0"
@@ -502,9 +508,10 @@ class WifiService:
             elif key.startswith("IP4.ADDRESS"):
                 ip_address = value.split("/")[0] if value and value != "--" else None
 
+        connected = connection is not None and ip_address is not None
         return EthernetStatus(
-            connected=connection is not None,
-            ip_address=ip_address if connection else None,
+            connected=connected,
+            ip_address=ip_address if connected else None,
         )
 
     async def _get_wifi_info(self) -> WifiConnectionStatus:
@@ -530,8 +537,11 @@ class WifiService:
 
         saved = await self._get_saved_ssid()
 
-        # Hotspot's own AP connection is not a real WiFi client connection
-        if not connection or connection == HOTSPOT_NAME:
+        # Hotspot's own AP connection is not a real WiFi client connection.
+        # No IPv4 yet means the profile is mid-activation (DHCP pending); the
+        # Avahi dispatcher won't advertise on wlan0 until `has_ip wlan0` is true,
+        # so report not-connected to keep the badge aligned with reachability.
+        if not connection or connection == HOTSPOT_NAME or not ip_address:
             return WifiConnectionStatus(connected=False, saved_ssid=saved)
 
         # Get actual SSID and signal from active wifi connection
