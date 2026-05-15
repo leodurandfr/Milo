@@ -149,11 +149,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
     isLoading.value = true;
     await apiCall('settings', 'Error loading settings:', async () => {
-      // Single bulk request + podcast status (requires external API call)
-      const [bulkResponse, podcastStatusResponse] = await Promise.all([
-        axios.get('/api/settings/bulk').catch(() => ({ data: null })),
-        axios.get('/api/settings/podcast-credentials/status').catch(() => ({ data: { status: 'error' } }))
-      ]);
+      const bulkResponse = await axios.get('/api/settings/bulk').catch(() => ({ data: null }));
 
       const d = bulkResponse.data;
       if (d) {
@@ -232,13 +228,6 @@ export const useSettingsStore = defineStore('settings', () => {
           latency_profile: d.mac_roc?.latency_profile ?? 'responsive',
           frame_length_ms: d.mac_roc?.frame_length_ms ?? 4
         };
-      }
-
-      // Podcast credentials status (separate — requires external API call)
-      if (podcastStatusResponse.data) {
-        podcastCredentialsStatus.value = podcastStatusResponse.data.status ?? 'error';
-        podcastApiUsage.value = podcastStatusResponse.data.requests_used ?? null;
-        podcastCredentialsValidatedAt.value = podcastStatusResponse.data.credentials_validated_at ?? null;
       }
 
       hasLoaded.value = true;

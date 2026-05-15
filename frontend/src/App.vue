@@ -302,6 +302,16 @@ watch(() => unifiedStore.commandError, (err) => {
   }, 4000);
 });
 
+// Fire Taddy credentials check during the Podcasts source transition (~500ms+).
+// PodcastSource.vue only mounts once `transitioning` clears, so under normal
+// network conditions the status is resolved before its first render.
+watch(() => unifiedStore.systemState.active_source, (newSource) => {
+  if (newSource === 'podcast' &&
+      settingsStore.podcastCredentialsStatus === 'unknown') {
+    settingsStore.refreshPodcastCredentialsStatus();
+  }
+});
+
 // === Sleep shield: wake screen on first touch ===
 let sleepShieldTimeout = null;
 let wakeInProgress = false;

@@ -77,7 +77,6 @@ const localApiKey = ref('');
 const isValidating = ref(false);
 const errorMessage = ref('');
 
-// Read usage from settingsStore (loaded at app startup)
 const requestsUsed = computed(() => settingsStore.podcastApiUsage);
 const credentialsValidatedAt = computed(() => settingsStore.podcastCredentialsValidatedAt);
 

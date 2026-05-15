@@ -627,6 +627,14 @@ onMounted(async () => {
     settingsStore.loadAllSettings()
   ]);
 
+  // Refresh Taddy credentials status (external API call, podcast-only).
+  // Guarded on 'unknown' so we only fetch once per frontend session — subsequent
+  // modal opens reuse the cached status (App.vue watcher may have set it first).
+  if (settingsStore.dockApps.podcast &&
+      settingsStore.podcastCredentialsStatus === 'unknown') {
+    settingsStore.refreshPodcastCredentialsStatus();
+  }
+
   // Preload radio settings data if radio is enabled (non-blocking)
   if (settingsStore.dockApps.radio) {
     radioStore.loadRadioSettingsData();
