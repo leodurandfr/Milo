@@ -137,6 +137,7 @@ async def lifespan(app: FastAPI):
         screen_controller.cleanup()
         await bt_remote_controller.cleanup()
         await ir_remote_controller.cleanup()
+        await get_service("connectivity_service").cleanup()
         logger.info("Cleanup completed")
     except Exception as e:
         logger.error(f"Cleanup error: {e}")
@@ -223,7 +224,8 @@ settings_router = create_settings_router(
 app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
 
 system_router = create_system_router(
-    hostname_conflict_service=get_service("hostname_conflict_service")
+    hostname_conflict_service=get_service("hostname_conflict_service"),
+    connectivity_service=get_service("connectivity_service"),
 )
 app.include_router(system_router, prefix="/api/system", tags=["system"])
 

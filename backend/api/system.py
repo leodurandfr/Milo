@@ -9,7 +9,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def create_system_router(hostname_conflict_service=None):
+def create_system_router(hostname_conflict_service=None, connectivity_service=None):
     router = APIRouter()
 
     async def _delayed_exec(command: str, label: str):
@@ -41,10 +41,13 @@ def create_system_router(hostname_conflict_service=None):
 
     @router.get("/status")
     async def get_system_status():
-        """Return system-level status (currently: hostname conflict detection)."""
-        if hostname_conflict_service is None:
-            return {"status": "success", "data": {"hostname_conflict": False}}
-        return {"status": "success", "data": hostname_conflict_service.get_state()}
+        """Return system-level status (hostname conflict + internet connectivity)."""
+        data = {"hostname_conflict": False, "online": True}
+        if hostname_conflict_service is not None:
+            data.update(hostname_conflict_service.get_state())
+        if connectivity_service is not None:
+            data.update(connectivity_service.get_state())
+        return {"status": "success", "data": data}
 
     @router.post("/recheck-hostname")
     async def recheck_hostname():

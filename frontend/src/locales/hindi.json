@@ -6,6 +6,8 @@
   "notification": {
     "connectionLostTitle": "कनेक्शन खो गया",
     "connectionLostDescription": "उपलब्ध होने पर स्वचालित रूप से पुनः कनेक्ट हो रहा है",
+    "offlineTitle": "कोई इंटरनेट कनेक्शन नहीं",
+    "offlineDescription": "कनेक्शन बहाल होने तक Spotify, AirPlay, रेडियो और पॉडकास्ट काम नहीं करेंगे।",
     "backendErrorTitle": "सिस्टम त्रुटि",
     "commandFailed": "कमांड विफल"
   },

@@ -18,6 +18,8 @@ export const useSystemStore = defineStore('system', () => {
   const expectedName = ref('milo.local');
   const lastChecked = ref(null);
   const rechecking = ref(false);
+  // Default true (fail-open): if the backend hasn't reported yet, don't flash an offline banner.
+  const isOnline = ref(true);
 
   function applyState(state) {
     if (!state) return;
@@ -35,6 +37,9 @@ export const useSystemStore = defineStore('system', () => {
     }
     if (state.last_checked !== undefined) {
       lastChecked.value = state.last_checked;
+    }
+    if (typeof state.online === 'boolean') {
+      isOnline.value = state.online;
     }
   }
 
@@ -66,6 +71,10 @@ export const useSystemStore = defineStore('system', () => {
     applyState(event?.data);
   }
 
+  function handleConnectivityEvent(event) {
+    applyState(event?.data);
+  }
+
   return {
     hostnameConflict,
     advertisedName,
@@ -73,8 +82,10 @@ export const useSystemStore = defineStore('system', () => {
     expectedName,
     lastChecked,
     rechecking,
+    isOnline,
     fetchStatus,
     recheckHostname,
     handleConflictEvent,
+    handleConnectivityEvent,
   };
 });

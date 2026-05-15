@@ -260,27 +260,32 @@ watch(isConnected, (connected) => {
 });
 
 const notificationTitle = computed(() => {
-  // Priority 1: Connection lost (highest priority)
+  // Priority 1: Connection lost (WS to backend down — local UI is stale)
   if (showConnectionLost.value) {
     return t('notification.connectionLostTitle');
   }
-  // Priority 2: System/source errors
+  // Priority 2: Internet offline (most sources need internet to function)
+  if (!systemStore.isOnline) {
+    return t('notification.offlineTitle');
+  }
+  // Priority 3: System/source errors
   return currentError.value?.title || null;
 });
 
 const notificationDetail = computed(() => {
-  // Priority 1: Connection lost description
   if (showConnectionLost.value) {
     return t('notification.connectionLostDescription');
   }
-  // Priority 2: System/source error detail
+  if (!systemStore.isOnline) {
+    return t('notification.offlineDescription');
+  }
   return currentError.value?.detail || null;
 });
 
-// Connection lost is not dismissable (auto-clears on reconnect)
-// System/source errors are dismissable
+// Connection lost and offline auto-resolve when the underlying state changes,
+// so they aren't dismissable. Transient command/system errors are.
 const isNotificationDismissable = computed(() => {
-  return !showConnectionLost.value && currentError.value !== null;
+  return !showConnectionLost.value && systemStore.isOnline && currentError.value !== null;
 });
 
 function dismissNotification() {
@@ -626,6 +631,7 @@ onMounted(async () => {
       }
     }),
     on('system', 'hostname_conflict_changed', (event) => systemStore.handleConflictEvent(event)),
+    on('system', 'connectivity_changed', (event) => systemStore.handleConnectivityEvent(event)),
     // Equalizer events
     on('equalizer', 'filter_changed', (event) => equalizerStore.handleFilterChanged(event)),
     on('equalizer', 'filters_reset', () => equalizerStore.handleFiltersReset()),
@@ -644,12 +650,15 @@ onMounted(async () => {
       equalizerStore.loadStatus();
       // Refresh CD drive status (may have changed during disconnect)
       cdStore.fetchDriveStatus();
+      // Resync system status (hostname conflict + internet connectivity)
+      systemStore.fetchStatus();
     }),
     onVisibilityChange(() => {
       // Refresh stores when tab becomes visible (fixes stale data after background)
       multiroomStore.fetchState();
       equalizerStore.loadStatus();
       cdStore.fetchDriveStatus();
+      systemStore.fetchStatus();
     })
   );
 

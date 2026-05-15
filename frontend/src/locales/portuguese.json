@@ -6,6 +6,8 @@
   "notification": {
     "connectionLostTitle": "Conexão perdida",
     "connectionLostDescription": "Reconectando automaticamente quando disponível",
+    "offlineTitle": "Sem conexão com a Internet",
+    "offlineDescription": "Spotify, AirPlay, Rádio e Podcasts não funcionarão até que a conexão seja restabelecida.",
     "backendErrorTitle": "Erro do sistema",
     "commandFailed": "Comando falhou"
   },
