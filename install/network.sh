@@ -33,12 +33,17 @@ install_avahi_nginx() {
 configure_avahi() {
     log_info "Configuring Avahi (mDNS)..."
 
-    # Copy Avahi config (eth0 default, no deny-interfaces needed)
+    # Copy Avahi config (eth0 allowed, wlan0 denied by default)
     log_info "Installing Avahi config (eth0 default)..."
     sudo cp "$MILO_APP_DIR/rootfs/etc/avahi/avahi-daemon.conf" /etc/avahi/avahi-daemon.conf
 
-    # Install systemd override to reset Avahi config to eth0 on every boot
-    # Prevents stale wlan0 config from causing mDNS conflicts (milo -> milo-2)
+    # Install the helper that rewrites allow-/deny-interfaces from the state
+    # file before every Avahi start (see milo-apply-avahi-iface for the why).
+    log_info "Installing Avahi interface-apply helper..."
+    sudo cp "$MILO_APP_DIR/rootfs/usr/local/bin/milo-apply-avahi-iface" /usr/local/bin/milo-apply-avahi-iface
+    sudo chmod +x /usr/local/bin/milo-apply-avahi-iface
+
+    # Install systemd override that calls the helper at every Avahi start.
     log_info "Installing Avahi boot reset override..."
     sudo mkdir -p /etc/systemd/system/avahi-daemon.service.d
     sudo cp "$MILO_APP_DIR/system/avahi-daemon-override.conf" \
