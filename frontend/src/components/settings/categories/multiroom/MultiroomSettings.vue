@@ -277,7 +277,7 @@ const audioPresets = computed(() => [
   {
     id: 'lan',
     name: t('multiroomSettings.lan'),
-    config: { buffer: 300, codec: 'flac', chunk_ms: 20, snapclient_buffer_time: 80 }
+    config: { buffer: 300, codec: 'flac', chunk_ms: 20, snapclient_buffer_time: 120 }
   },
   {
     id: 'wifi_stable',
