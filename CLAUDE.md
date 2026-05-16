@@ -1,12 +1,10 @@
-
-
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 
-Milō is a multiroom audio system for Raspberry Pi that supports Spotify Connect, AirPlay 2, Bluetooth, Mac streaming (ROC), Internet Radio, and Podcasts. Built with FastAPI (Python) backend and Vue 3 frontend, using ALSA for audio without Pipewire/PulseAudio.
+Milō is a multiroom audio system for Raspberry Pi that supports Spotify Connect, AirPlay 2, Bluetooth, Mac streaming (ROC), Internet Radio, Podcasts, and CD. Built with FastAPI (Python) backend and Vue 3 frontend, using ALSA for audio without Pipewire/PulseAudio.
 
 ## Common Development Commands
 
@@ -58,143 +56,54 @@ sudo systemctl restart milo-backend
 
 # Check service status
 sudo systemctl status milo-backend
-sudo systemctl status milo-spotify
-sudo systemctl status milo-airplay
-sudo systemctl status milo-radio
-sudo systemctl status milo-podcast
 ```
 
 ## Project Structure
 
-```
-milo/
-├── backend/              # FastAPI backend (Python)
-├── frontend/             # Vue 3 frontend
-├── system/               # Systemd service files (.service)
-├── install.sh            # Main installation orchestrator (sources install/*.sh)
-├── install/              # Modular installation scripts (one per component/domain)
-│   ├── common.sh         # Shared helpers (log functions, temp dir cleanup)
-│   ├── base.sh           # Base system (dependencies, hostname, user, app clone)
-│   ├── go-librespot.sh   # Spotify Connect (go-librespot binary)
-│   ├── roc-toolkit.sh    # Mac streaming (roc-toolkit from source)
-│   ├── bluez-alsa.sh     # Bluetooth audio (bluez-alsa from source)
-│   ├── airplay.sh        # AirPlay 2 (nqptp + shairport-sync from source)
-│   ├── snapcast.sh       # Multiroom (Snapcast .deb + snapserver config)
-│   ├── camilladsp.sh     # DSP audio processing (CamillaDSP binary)
-│   ├── alsa.sh           # ALSA loopback + routing configuration
-│   ├── network.sh        # Avahi (mDNS) + Nginx + Chromium
-│   ├── display.sh        # Kiosk (Cage/seatd), Plymouth, cursors, brightness
-│   ├── system.sh         # Udev, polkit, sudoers, systemd services, fan, boot
-│   ├── boot-common.sh    # Shared boot parameters
-│   ├── screen-waveshare-7-usb.sh   # Screen-specific boot config
-│   └── screen-waveshare-8-dsi.sh   # Screen-specific boot config
-├── rootfs/               # Files deployed to system (mirrors target filesystem)
-│   ├── etc/NetworkManager/dispatcher.d/   # Network event scripts
-│   ├── usr/local/bin/                     # System scripts (milo-wait-ready.sh)
-│   └── usr/share/plymouth/themes/milo/    # Boot animation theme
-├── milo-client/          # Satellite client for multiroom
-│   ├── install-client.sh # Client installation orchestrator
-│   ├── install/          # Client-specific install modules
-│   ├── app/              # Client Python application
-│   ├── configs/          # Client configurations (CamillaDSP)
-│   ├── rootfs/           # Client system files
-│   └── system/           # Client systemd services
-└── docs/                 # Documentation
-```
+Top-level layout — run `ls <dir>` to see current contents, do not maintain file enumerations here.
 
-**Directory conventions:**
-- `install/` - Modular install scripts, each standalone or sourced by `install.sh`
-- `milo-client/install/` - Client-specific install modules (same pattern, different paths)
-- `rootfs/` - Files copied to the system at install time, run at boot/runtime
-- `system/` - Systemd unit files
+- `backend/` — FastAPI backend (Python). See **Backend Architecture** below.
+- `frontend/` — Vue 3 frontend.
+- `system/` — Systemd unit files installed to `/etc/systemd/system/`.
+- `install.sh` + `install/` — Main installer (orchestrator) and modular per-component install scripts.
+- `rootfs/` — Files copied verbatim to the target filesystem at install time (mirrors target paths under `etc/`, `usr/`, `var/`).
+- `milo-client/` — Satellite client for multiroom (own installer, app, configs, rootfs, system units).
+- `scripts/` — Repo-level helper / test scripts.
+- `docs/` — Documentation.
 
-## Architecture Overview
+## Backend Architecture
 
-### Backend: Source-Based Architecture
+Source-based architecture under `backend/`:
 
-```
-backend/
-├── core/                      # Core infrastructure
-│   ├── models/               # Domain models (AudioSource, SourceState, SystemAudioState, Volume)
-│   ├── state.py              # AudioStateMachine (single source of truth)
-│   ├── audio_source.py       # AudioSourceProtocol interface
-│   ├── settings.py           # SettingsService
-│   ├── systemd.py            # SystemdServiceManager
-│   ├── volume/               # Volume service + handlers
-│   ├── dsp/                  # CamillaDSP service + proxy + sync
-│   ├── multiroom/            # Snapcast + routing + crossover
-│   ├── connectivity/         # Internet reachability via NetworkManager D-Bus
-│   └── updates/              # Update + version services
-├── sources/                   # Audio source implementations
-│   ├── spotify/              # SpotifySource + routes
-│   ├── airplay/              # AirPlaySource + metadata_reader + routes
-│   ├── mac/                  # MacSource + routes
-│   ├── bluetooth/            # BluetoothSource + routes
-│   ├── radio/                # RadioSource + routes + browser_api + genres
-│   └── podcast/              # PodcastSource + routes + taddy_api
-├── api/                       # REST API routes
-│   ├── audio.py, dsp.py, volume.py, settings.py, etc.
-│   └── models.py             # Pydantic models
-├── hardware/                  # Hardware controllers (rotary, IR remote, BT remote, screen)
-├── ws/                 # WebSocket server + manager
-├── shared/                    # Shared utilities (MpvController)
-├── config/constants.py        # Centralized constants
-└── dependencies.py            # Service Registry (lazy singletons)
-```
+- `core/` — Core infrastructure. Key files: `state.py` (AudioStateMachine — single source of truth), `audio_source.py` (AudioSourceProtocol + BaseAudioSource), `settings.py` (SettingsService), `systemd.py` (SystemdServiceManager). Subpackages: `models/`, `volume/`, `equalizer/`, `multiroom/`, `connectivity/`, `network/`, `system/`, `updates/`.
+- `sources/` — Audio source implementations (one subpackage per source: `spotify/`, `airplay/`, `mac/`, `bluetooth/`, `radio/`, `podcast/`, `cd/`).
+- `api/` — REST API routes + shared Pydantic models (`models.py`) + route helpers (`route_helpers.py`).
+- `hardware/` — Hardware controllers (rotary encoder, IR remote, BT remote, screen).
+- `ws/` — WebSocket server + manager.
+- `shared/` — Shared utilities (e.g. `MpvController`).
+- `config/constants.py` — Centralized constants.
+- `dependencies.py` — Service Registry (lazy singletons).
 
 **Key architectural principles:**
-- **Single Source of Truth**: `AudioStateMachine` manages all audio state
-- **Source-Based**: Each audio source is a self-contained source module
-- **Service Registry**: Simple dict-based DI with lazy singleton creation
-- **Async-first**: asyncio everywhere for non-blocking I/O
-- **WebSocket broadcasting**: State changes broadcast via `state_machine.broadcast_event()`
-- **D-Bus via `dbus-next`**: The backend uses `dbus-next` (asyncio-native) for system services that publish over D-Bus. Currently: `org.bluez.AgentManager1` for Bluetooth auto-pairing ([backend/sources/bluetooth/agent.py](backend/sources/bluetooth/agent.py)) and `org.freedesktop.NetworkManager` for event-driven internet connectivity ([backend/core/connectivity/service.py](backend/core/connectivity/service.py)). Prefer D-Bus subscriptions over polling whenever the relevant Linux service publishes events. Always fail open (default to a safe state) when D-Bus is unavailable, so backend still runs in dev environments without the underlying service.
+- **Single Source of Truth**: `AudioStateMachine` manages all audio state.
+- **Source-Based**: Each audio source is a self-contained module under `sources/`.
+- **Service Registry**: Simple dict-based DI with lazy singleton creation.
+- **Async-first**: asyncio everywhere for non-blocking I/O.
+- **WebSocket broadcasting**: State changes broadcast via `state_machine.broadcast_event()`.
+- **D-Bus via `dbus-next`**: Prefer event-driven D-Bus subscriptions over polling whenever the relevant Linux service publishes events. Currently used for `org.bluez.AgentManager1` (Bluetooth auto-pairing, [backend/sources/bluetooth/agent.py](backend/sources/bluetooth/agent.py)) and `org.freedesktop.NetworkManager` (connectivity, [backend/core/connectivity/service.py](backend/core/connectivity/service.py)). Always fail open (default to a safe state) when D-Bus is unavailable, so the backend still runs in dev environments without the underlying service.
 
-### Frontend: Vue 3 Composition API
+## Frontend Architecture
 
-```
-frontend/src/
-├── components/
-│   ├── audio/         # Shared audio player (AudioPlayer.vue, AudioPlayerFull.vue, PlaybackControls.vue, ConnectProgressBar.vue, AudioScreensaver.vue, AudioSourceLayout.vue, AudioSourceStatus.vue, AudioSourceView.vue)
-│   ├── airplay/       # AirPlay UI (AirPlaySource.vue)
-│   ├── podcasts/      # Podcast-specific UI (PodcastSource.vue, HomeView.vue, etc.)
-│   ├── radio/         # Radio-specific UI (RadioSource.vue)
-│   ├── spotify/       # Spotify UI (SpotifySource.vue)
-│   ├── dsp/           # CamillaDSP controls (parametric EQ, compressor, loudness)
-│   ├── multiroom/     # Multiroom controls (Snapcast management)
-│   ├── navigation/    # Navigation components
-│   ├── settings/      # System settings (SettingsModal.vue, SettingsCategory.vue) with nested categories/:
-│   │                   #   ApplicationsSettings, UpdateManager, PodcastSettings, MultiroomSettings,
-│   │                   #   VolumeSettings, LanguageSettings, ScreenSettings, InfoSettings, SpotifySettings,
-│   │                   #   MacSettings, radio/RadioSettings, radio/ManageStation
-│   └── ui/            # Reusable components
-├── composables/       # Vue composables (useAnimatedHeight, useNavigationStack, etc.)
-├── stores/            # Pinia stores (see below)
-├── services/          # WebSocket client + i18n
-├── locales/           # i18n translations (en.json, fr.json)
-└── views/             # Single page app (MainView.vue)
-```
+Vue 3 + Composition API + Pinia under `frontend/src/`:
 
-**Pinia Stores** (`frontend/src/stores/`):
-- `unifiedAudioStore.js` - Central audio state management
-- `settingsStore.js` - Settings management
-- `equalizerStore.js` - DSP/equalizer state (CamillaDSP)
-- `multiroomStore.js` - Multiroom/Snapcast state
-- `snapcastStore.js` - Snapcast server configuration
-- `podcastStore.js` - Podcast data and playback
-- `radioStore.js` - Radio stations and playback
+- `components/` — One subdirectory per feature/source (`audio/`, `airplay/`, `spotify/`, `radio/`, `podcasts/`, `cd/`, `equalizer/`, `multiroom/`, `network/`, `settings/`, `setup/`, `system/`, `ui/`). The shared full-screen player lives in `components/audio/AudioPlayerFull.vue` and is reused by Spotify (`showControls=true`) and AirPlay (`showControls=false`, no remote control).
+- `composables/` — Vue composables (run `ls frontend/src/composables/` to see current set).
+- `stores/` — Pinia stores. `unifiedAudioStore.js` is the central audio state mirror; other stores are per-feature (`settings`, `equalizer`, `multiroom`, `snapcast`, `podcast`, `radio`, `cd`, `system`, `discovery`).
+- `services/` — WebSocket client, `apiCall()` wrapper, i18n.
+- `locales/` — i18n translations (`en.json`, `fr.json`).
+- `views/` — `MainView.vue` (single-page app) + dev-only style guides.
 
-**Vue Composables** (`frontend/src/composables/`):
-- `useAnimatedHeight.js` - Animation helper for expandable elements
-- `useHardwareConfig.js` - Hardware configuration access
-- `useNavigationStack.js` - Navigation state management
-- `useScreenActivity.js` - Screen activity tracking
-- `useSettingsAPI.js` - Settings API interactions
-- `useSourceProgress.js` - Playback progress tracking with local interpolation and seek
-- `useVirtualKeyboard.js` - Virtual keyboard state
-- `useVolumeThrottle.js` - Volume control throttling
-
-**State synchronization**: Backend state changes → WebSocket event → Pinia store update → Reactive UI update
+**State synchronization**: Backend state changes → WebSocket event → Pinia store update → reactive UI update.
 
 ## Critical Implementation Details
 
@@ -211,11 +120,11 @@ The order in `backend/dependencies.py::initialize_services()` is **CRITICAL** du
 3. **Register sources** in state_machine (BEFORE async init)
 4. **Parallel async initialization** via `asyncio.gather()`
 
-**Do NOT modify this order without understanding the circular dependencies documented in dependencies.py:227-348**
+**Do NOT modify this order without understanding the circular dependencies documented in dependencies.py.**
 
 ### 2. Audio Source Architecture
 
-All audio sources must implement `AudioSourceProtocol` interface:
+All audio sources must implement `AudioSourceProtocol`:
 
 ```python
 class AudioSourceProtocol(Protocol):
@@ -226,126 +135,14 @@ class AudioSourceProtocol(Protocol):
     async def handle_command(self, command: str, data: Dict) -> Dict[str, Any]
 ```
 
-**Base class available**: `BaseAudioSource` in `backend/core/audio_source.py` provides common functionality (state management, systemd control, logging).
+`BaseAudioSource` in `backend/core/audio_source.py` provides common functionality (state management, systemd control, logging).
 
 **Uniform source structure** — Every source in `backend/sources/{source}/` must follow:
 - `__init__.py` — Docstring + `__all__` exporting `Source`, `router`, `setup_{source}_routes`
-- `source.py` — Constructor takes `config`, `state_machine`, `settings_service`, `systemd_manager`
+- `source.py` — Constructor takes `(config, state_machine, settings_service, systemd_manager)`
 - `routes.py` — `logger = logging.getLogger(__name__)` at module level; `logger.error()` before every `raise HTTPException` in except blocks; use `run_source_command()` for playback routes
 
-**Reference implementations**:
-- **Radio source** (`backend/sources/radio/`) - Demonstrates multi-component architecture, external API integration, file uploads, and complex data persistence
-- **Podcast source** (`backend/sources/podcast/`) - Demonstrates external API integration (Taddy API), playback progress tracking with resume functionality, subscription management, and advanced playback controls (speed, seek)
-- **AirPlay source** (`backend/sources/airplay/`) - Demonstrates metadata pipe parsing, binary artwork handling, and external process integration (shairport-sync)
-
-#### Podcast Source Architecture
-
-The Podcast source demonstrates several advanced patterns:
-
-**External API Integration (Taddy GraphQL API)**:
-- `TaddyAPI` class (`taddy_api.py`) handles all GraphQL queries to Taddy API
-- Built-in caching layer with configurable duration (60 minutes default)
-- Language/country mapping logic (including `ITUNES_COUNTRY_TO_TADDY_COUNTRY`) lives in `taddy_api.py`
-- Genre mapping to iTunes RSS feed IDs for charts
-
-**Audio Playback**:
-- Reuses `MpvController` from Radio source for consistency
-- Systemd service: `milo-podcast.service` (separate instance of mpv)
-- IPC socket: `/run/milo/podcast-ipc.sock`
-- Source states: `STARTING` (service starting) → `WAITING` (service running, idle) → `ACTIVE` (episode playing)
-
-**Progress Tracking & Resume**:
-- `PodcastDataService` manages playback progress persistence
-- Automatic progress save every 10 seconds during playback
-- Resume from last position when re-opening episode (if > 10 seconds)
-- Progress cleared when episode completes (within 5 seconds of end)
-
-**Advanced Playback Controls**:
-- **Speed control**: 0.5x, 0.75x, 1.0x, 1.25x, 1.5x, 2.0x (stored in user preferences)
-- **Seek**: Jump to specific timestamp with validation
-- **Buffering detection**: Separate `is_buffering` state during stream loading
-
-**Data Persistence**:
-- `podcast_data.json` - Subscriptions, favorites, playback progress, user preferences (all keys `snake_case`)
-- Episode metadata caching to reduce API calls
-- Full episode objects stored for offline UI rendering
-
-**Frontend Components** (`frontend/src/components/podcasts/`):
-- `PodcastSource.vue` - Main container with navigation
-- `HomeView.vue` - Curated recommendations and charts
-- `SearchView.vue` - Search interface with Taddy API
-- `SubscriptionsView.vue` - User's subscribed podcasts
-- `GenreView.vue` - Browse by genre (mapped to iTunes RSS)
-- `QueueView.vue` - Playback queue management
-- `PodcastCard.vue`, `EpisodeCard.vue` - Reusable components
-- `ProgressBar.vue` - Visual playback progress with seek capability
-- `PodcastDetails.vue`, `EpisodeDetails.vue` - Detail views
-- `SkeletonPodcastCard.vue`, `SkeletonPodcastDetails.vue` - Loading skeletons for podcasts
-- `SkeletonEpisodeCard.vue`, `SkeletonEpisodeDetails.vue` - Loading skeletons for episodes
-
-**API Routes** (`backend/sources/podcast/routes.py`):
-- Search podcasts by query
-- Get trending podcasts by genre/language
-- Get podcast details and episodes
-- Manage subscriptions and favorites
-- Playback controls (play, pause, resume, seek, stop, speed)
-- Progress tracking and retrieval
-
-**Health API Routes** (`backend/api/health.py`):
-- `GET /api/health` - Comprehensive health check with all service statuses
-- `GET /api/ping` - Simple liveness probe for monitoring
-
-**Programs API Routes** (`backend/api/programs.py`):
-- Get current program versions
-- Check for available updates from GitHub
-- Execute program updates (local and satellite devices)
-- Satellite device update coordination (for multi-room setups)
-
-**Key Differences from Radio Source**:
-- External API dependency (Taddy) vs. local station management (Radio)
-- Progress tracking with resume vs. stateless playback
-- Speed control support (not available in Radio)
-- More complex frontend with multiple views and navigation
-
-#### Radio Source Architecture
-
-The Radio source (`backend/sources/radio/`) manages internet radio playback with local station management.
-
-**Frontend Components** (`frontend/src/components/radio/`):
-- `RadioSource.vue` - Main radio interface with station display
-- `FavoritesView.vue` - User's favorite stations
-- `SearchView.vue` - Station search interface (RadioBrowser API)
-- `SkeletonStationCard.vue` - Loading skeleton for stations
-
-#### Spotify Source Architecture
-
-The Spotify source (`backend/sources/spotify/`) integrates with go-librespot for Spotify Connect functionality.
-
-**Frontend**: `SpotifySource.vue` is a thin wrapper around the shared `AudioPlayerFull.vue` component with playback controls enabled.
-
-#### AirPlay Source Architecture
-
-The AirPlay source (`backend/sources/airplay/`) provides AirPlay 2 support via shairport-sync + NQPTP.
-
-**Metadata Pipe**: `MetadataReader` reads the shairport-sync named pipe (`/tmp/shairport-sync-metadata`) for:
-- Track metadata (`core` items: title, artist, album, genre)
-- Artwork (`PICT` code: cover art as JPEG/PNG binary)
-- Play state (`ssnc` items: `pbeg`/`pend` for play/stop)
-- Client name (`snam` code: X-Apple-Client-Name, e.g. "iPhone de Léo")
-
-**Key differences from other sources**:
-- No remote playback control (AirPlay 2 doesn't support it) — `showControls=false`
-- Metadata comes from a named pipe, not an API or IPC socket
-- Artwork is binary data read directly from the pipe
-- Uses `shairport-sync` systemd service (not mpv)
-
-**Frontend**: `AirPlaySource.vue` is a thin wrapper around the shared `AudioPlayerFull.vue` component with controls disabled and a source-bar showing the connected device name instead.
-
-#### Shared Audio Player (AudioPlayerFull.vue)
-
-`AudioPlayerFull.vue` in `frontend/src/components/audio/` is the full-screen player shared by Spotify and AirPlay. It accepts:
-- `source` prop — audio source identifier
-- `showControls` prop — displays `PlaybackControls` + `ConnectProgressBar` when true (Spotify), shows source-bar with icon + device name when false (AirPlay)
+When you need a reference implementation, read the existing sources rather than relying on summaries — they evolve. `radio/` and `podcast/` are the most feature-rich; `airplay/` shows external-process + named-pipe integration; `spotify/` is the minimal shape.
 
 ### 3. State Management Flow
 
@@ -397,27 +194,20 @@ await settings_service.set_setting('volume.alsa_max', 80)
 settings['volume']['alsa_max'] = 80
 ```
 
-Settings are stored in `/var/lib/milo/settings.json` with:
-- Atomic writes via `os.replace()`
-- File locks for concurrent access
-- Automatic backups on corruption
+Settings are stored in `/var/lib/milo/settings.json` with atomic writes (`os.replace()`), file locks, and automatic backups on corruption.
 
 ### 6. ALSA Dynamic Routing
 
-Each audio source has 4 ALSA devices selected via environment variables:
+Each audio source has two ALSA device variants selected via environment variables:
 
 ```
 milo_{source}_direct          # Direct via CamillaDSP to amplifier
 milo_{source}_multiroom       # To Snapcast loopback (DSP applied on each client)
 ```
 
-Selection controlled by:
-- `MILO_MODE=direct` or `multiroom`
+Selection controlled by `MILO_MODE=direct` or `multiroom`, auto-generated in `/var/lib/milo/routing.env` from settings.json.
 
-CamillaDSP is ALWAYS in the audio path for volume control.
-DSP effects (EQ, compressor, loudness) are toggled via `bypass_effects()` / `restore_effects()` in CamillaDSP, not via ALSA routing.
-
-These are auto-generated in `/var/lib/milo/routing.env` based on settings.json.
+CamillaDSP is ALWAYS in the audio path for volume control. DSP effects (EQ, compressor, loudness) are toggled via `bypass_effects()` / `restore_effects()` in CamillaDSP, not via ALSA routing.
 
 ### 7. API Conventions
 
@@ -433,7 +223,7 @@ These are auto-generated in `/var/lib/milo/routing.env` based on settings.json.
 - `run_source_command(source, cmd, data, context)` — Standard wrapper for `source.command()` with success check + HTTP 400/500 error handling. All feature playback routes should use this.
 - `api_error_handler(context, log)` — Async context manager for the common `try/except HTTPException/Exception` pattern.
 
-**Pydantic models**: All models use `snake_case` field names. Shared models live in `backend/api/models.py` (e.g., `ClientUpdateRequest`). Source-specific models live in `backend/sources/{source}/models.py`.
+**Pydantic models**: All models use `snake_case` field names. Shared models live in `backend/api/models.py`. Source-specific models live in `backend/sources/{source}/models.py`.
 
 ### 8. Frontend Conventions
 
@@ -454,22 +244,13 @@ These are auto-generated in `/var/lib/milo/routing.env` based on settings.json.
 ### Adding a New Audio Source
 
 1. **Define enum** in `backend/core/models/audio_state.py::AudioSource`
-2. **Create source module** in `backend/sources/{source}/` with:
-   - `source.py` - Extending `BaseAudioSource`, constructor takes `(config, state_machine, settings_service, systemd_manager)`
-   - `routes.py` - FastAPI routes with `logger = logging.getLogger(__name__)`, `router` with `responses={404: ...}`, playback routes using `run_source_command()`
-   - `models.py` - Pydantic models with `snake_case` fields (if needed)
-   - `__init__.py` - Docstring + `__all__` exporting `Source`, `router`, `setup_{source}_routes`
+2. **Create source module** in `backend/sources/{source}/` following the uniform source structure (see *Audio Source Architecture* above)
 3. **Register in dependencies** (`backend/dependencies.py::_create_service()`)
 4. **Add ALSA devices** in `/etc/asound.conf` with 2 variants (direct via CamillaDSP, multiroom via Snapcast)
 5. **Register source** in `backend/dependencies.py::initialize_services()`
 6. **Register routes** in `backend/main.py`
 7. **Create Vue component** in `frontend/src/components/{source}/`
 8. **Update stores** if needed in `frontend/src/stores/` (use `apiCall()` for API actions, handle WS events in store)
-
-**Reference implementations**:
-- **Radio source** (`backend/sources/radio/`) - Local station management, file uploads, custom stations with image storage
-- **Podcast source** (`backend/sources/podcast/`) - External API integration (Taddy), playback progress tracking with resume, speed control, complex multi-view frontend with navigation
-- **AirPlay source** (`backend/sources/airplay/`) - Metadata pipe parsing, binary artwork, external process integration (shairport-sync)
 
 ### Adding a New Service
 
@@ -496,9 +277,7 @@ These are auto-generated in `/var/lib/milo/routing.env` based on settings.json.
 - `bash scripts/test-multiroom-desync.sh` — toggles multiroom 20 times via `PUT /api/routing/multiroom` and asserts after each toggle that `settings.routing.multiroom_enabled`, `routing.env` `MILO_MODE`, and the `milo-snapserver-multiroom` / `milo-snapclient-multiroom` units all agree.
 - `sudo bash scripts/test-multiroom-desync.sh --kill-test` — additionally `kill -9`s the backend mid-toggle and asserts the system reconciles to `settings.json` on restart.
 
-**Frontend (Vitest):**
-- Not currently configured but structure supports it
-- Would use `@vue/test-utils` for component testing
+**Frontend (Vitest):** not currently configured.
 
 ## Data Persistence Locations
 
@@ -546,12 +325,14 @@ All components managed by systemd:
 - `milo-mac` - Mac streaming (ROC receiver)
 - `milo-radio` - mpv radio player
 - `milo-podcast` - mpv podcast player (separate from radio)
+- `milo-cd` - CD player
 - `milo-camilladsp` - CamillaDSP audio processing
 - `milo-snapserver-multiroom` + `milo-snapclient-multiroom` - Multiroom audio (no `WantedBy` — lifecycle owned exclusively by `AudioRoutingService._sync_snapcast_state`, gated on `settings.routing.multiroom_enabled`)
 - `milo-ir-keytable` - Boot-time oneshot: enables NEC decoding on the rc-core device and reloads the paired Apple Remote keymap (TSOP4838 → GPIO17 → `gpio-ir` overlay → rc-core → evdev).
 - `milo-kiosk` - Chromium kiosk mode for touchscreen
 - `milo-disable-wifi-power-management` - WiFi power management optimization
 - `milo-readiness` - System readiness check
+- `milo-first-boot` - First-boot setup oneshot
 
 **All sources `BindsTo=milo-backend`** - they stop if backend stops.
 
@@ -569,17 +350,16 @@ All components managed by systemd:
 
 ## Common Pitfalls
 
-1. **Don't modify initialization order** in dependencies.py without understanding circular dependencies
-2. **Don't bypass state_machine** - always use `update_source_state()` and `broadcast_event()`
-3. **Don't bypass SettingsService** - direct JSON file edits won't persist correctly
-4. **Don't use blocking I/O** - always async/await for file, network, subprocess operations
-5. **Don't skip source registration** - register in `initialize_services()` BEFORE `init_async()`
-6. **Don't hardcode ALSA devices** - use environment variable pattern for multiroom/equalizer switching
-7. **Don't use `ws_manager.broadcast_dict()` directly** - use `state_machine.broadcast_event()` for all events
-8. **Don't use camelCase in Pydantic models** - all fields must be `snake_case`
-9. **Don't handle WS events in Vue components** - handle them in Pinia stores, components react to store state
-10. **Don't use `POST` for idempotent updates** - use `PUT` for settings, `DELETE` for removals, `PATCH` for partial updates
+The conventions above are the rules; these are the most common ways they're violated. When in doubt, re-read the relevant section.
 
+1. **Don't bypass `state_machine`** — always use `update_source_state()` and `broadcast_event()`, never touch internals.
+2. **Don't bypass `SettingsService`** — direct JSON file edits won't persist correctly.
+3. **Don't use blocking I/O** — async/await for all file, network, subprocess operations.
+4. **Don't use `ws_manager.broadcast_dict()` directly** — use `state_machine.broadcast_event()`.
+5. **Don't use camelCase in Pydantic models** — all fields must be `snake_case`.
+6. **Don't handle WS events in Vue components** — handle them in Pinia stores; components react to store state.
+7. **Don't use `POST` for idempotent updates** — `PUT` for settings, `DELETE` for removals, `PATCH` for partial updates.
+8. **Don't hardcode ALSA devices** — use the env-var pattern for multiroom/equalizer switching.
 
 ## Development & Coding Guidelines
 
