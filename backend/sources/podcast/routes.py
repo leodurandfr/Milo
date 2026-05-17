@@ -171,7 +171,6 @@ async def search_mixed(
     countries: str = Query(None, description="Comma-separated country list"),
     duration_min: int = Query(None, description="Min duration in seconds"),
     duration_max: int = Query(None, description="Max duration in seconds"),
-    safe_mode: bool = Query(False),
     sort_by: str = Query("EXACTNESS", description="EXACTNESS or POPULARITY"),
     page: int = Query(1, ge=1, le=20),
     limit: int = Query(25, ge=1, le=25)
@@ -203,7 +202,6 @@ async def search_mixed(
             countries=country_list,
             duration_min=duration_min,
             duration_max=duration_max,
-            safe_mode=safe_mode,
             sort_by=sort_by,
             page=page,
             limit=limit
@@ -490,8 +488,6 @@ async def update_settings(
     """Update podcast settings."""
     try:
         updates = {}
-        if request.safe_mode is not None:
-            updates['safe_mode'] = request.safe_mode
         if request.playback_speed is not None:
             updates['playback_speed'] = request.playback_speed
 

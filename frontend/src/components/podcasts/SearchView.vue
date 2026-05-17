@@ -206,7 +206,6 @@ function buildSearchParams(page) {
   const params = new URLSearchParams({
     term: searchTerm.value,
     sort_by: 'EXACTNESS',
-    safe_mode: 'false',
     limit: '25',
     page: String(page)
   })

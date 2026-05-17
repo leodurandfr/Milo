@@ -251,9 +251,6 @@ class PodcastSource(MpvAudioSource):
             self._is_buffering = False
             self._loading = False
 
-            # Cache episode data
-            await self._podcast_data.cache_episode(episode_uuid, episode)
-
             # Start progress save task
             self._start_progress_save()
 

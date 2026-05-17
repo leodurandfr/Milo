@@ -32,7 +32,6 @@ class SubscribeRequest(BaseModel):
 
 class SettingsRequest(BaseModel):
     """Request to update podcast settings."""
-    safe_mode: Optional[bool] = None
     playback_speed: Optional[float] = None
 
 
