@@ -61,4 +61,13 @@ export const wsEventRegistry = {
     crossover_enabled: z.boolean(),
     crossover_frequency: z.number(),
   }),
+  // Backend: backend/core/audio_source.py:583 — broadcast_position_update.
+  // Position and duration are in milliseconds.
+  'source.position_update': z.object({
+    source: z.enum([
+      'none', 'spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'airplay', 'cd',
+    ]),
+    position: z.number(),
+    duration: z.number(),
+  }),
 };
