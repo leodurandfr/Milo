@@ -28,6 +28,8 @@ from typing import List, Optional, Tuple
 from dbus_next.aio import MessageBus
 from dbus_next.constants import BusType
 
+from backend.shared.background import BackgroundTaskSet
+
 from backend.core.network.models import (
     WifiNetwork, WifiConnectionStatus, EthernetStatus,
     NetworkStatus, SavedNetwork,
@@ -100,7 +102,7 @@ class NetworkService:
         self._signal_debounce_task: Optional[asyncio.Task] = None
         # Holds strong refs to fire-and-forget tasks (CPython can otherwise GC
         # a pending task that has no external reference).
-        self._pending_tasks: set = set()
+        self._bg = BackgroundTaskSet(self.logger, "network")
 
     @property
     def hotspot_active(self) -> bool:
@@ -707,20 +709,9 @@ class NetworkService:
             await self.cleanup()
             return False
 
-    def _schedule(self, coro) -> asyncio.Task:
-        """Fire-and-forget a coroutine while keeping a strong ref until done."""
-        task = asyncio.create_task(coro)
-        self._pending_tasks.add(task)
-        task.add_done_callback(self._pending_tasks.discard)
-        return task
-
     async def cleanup(self) -> None:
         """Detach every listener and disconnect the bus. Idempotent."""
-        pending = list(self._pending_tasks)
-        for task in pending:
-            task.cancel()
-        if pending:
-            await asyncio.gather(*pending, return_exceptions=True)
+        await self._bg.cancel_all()
         self._signal_debounce_task = None
 
         await self._detach_ap_listener()
@@ -797,8 +788,8 @@ class NetworkService:
             if not (changed.keys() & _DEVICE_BASE_PROPS):
                 return
             if "Ip4Config" in changed:
-                self._schedule(self._reanchor_ip4(iface_name))
-            self._schedule(self._refresh_and_broadcast())
+                self._bg.spawn(self._reanchor_ip4(iface_name), label="reanchor_ip4")
+            self._bg.spawn(self._refresh_and_broadcast(), label="refresh_and_broadcast")
         return _handler
 
     # ---- Tier 1b: IP4Config object (re-anchored on Device.Ip4Config change) ----
@@ -826,7 +817,7 @@ class NetworkService:
                 await self._attach_ip4(iface_name, new_path)
 
         # Path change is itself a status change — refresh now.
-        self._schedule(self._refresh_and_broadcast())
+        self._bg.spawn(self._refresh_and_broadcast(), label="refresh_and_broadcast")
 
     async def _attach_ip4(self, iface_name: str, path: str) -> None:
         try:
@@ -855,7 +846,7 @@ class NetworkService:
                 return
             if not (changed.keys() & _IP4_CONFIG_PROPS):
                 return
-            self._schedule(self._refresh_and_broadcast())
+            self._bg.spawn(self._refresh_and_broadcast(), label="refresh_and_broadcast")
         return _handler
 
     # ---- Tier 2: Device.Wireless (wlan0 only) ----
@@ -872,7 +863,7 @@ class NetworkService:
             return
         if "ActiveAccessPoint" not in changed:
             return
-        self._schedule(self._reanchor_active_ap())
+        self._bg.spawn(self._reanchor_active_ap(), label="reanchor_active_ap")
 
     # ---- Tier 3: AccessPoint (re-anchored on AP change) ----
 
@@ -900,7 +891,7 @@ class NetworkService:
                 await self._attach_ap_listener(new_path)
 
         # AP change is itself a status change — refresh now.
-        self._schedule(self._refresh_and_broadcast())
+        self._bg.spawn(self._refresh_and_broadcast(), label="refresh_and_broadcast")
 
     async def _attach_ap_listener(self, path: str) -> None:
         try:
@@ -953,7 +944,9 @@ class NetworkService:
         # surface immediately via the tier-1 path.
         if self._signal_debounce_task and not self._signal_debounce_task.done():
             self._signal_debounce_task.cancel()
-        self._signal_debounce_task = self._schedule(self._debounced_refresh())
+        self._signal_debounce_task = self._bg.spawn(
+            self._debounced_refresh(), label="debounced_refresh"
+        )
 
     async def _debounced_refresh(self) -> None:
         try:
