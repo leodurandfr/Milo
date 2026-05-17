@@ -1,11 +1,11 @@
-# backend/tests/test_audio_source_protocol.py
+# backend/tests/test_base_audio_source.py
 """
 Unit tests for BaseAudioSource.
 
 Tests cover:
-- BaseAudioSource inheritance (AC1, AC2)
-- Status format (AC3)
-- BaseAudioSource lifecycle (AC4)
+- BaseAudioSource inheritance
+- Status format
+- BaseAudioSource lifecycle
 """
 import pytest
 from unittest.mock import Mock, AsyncMock, patch

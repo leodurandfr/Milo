@@ -41,11 +41,11 @@ def radio_source(config):
     return source
 
 
-class TestProtocolCompliance:
-    """Test AudioSource Protocol compliance."""
+class TestBaseClassCompliance:
+    """Test that RadioSource extends BaseAudioSource correctly."""
 
-    def test_implements_protocol(self, radio_source):
-        """Test RadioSource implements AudioSource protocol."""
+    def test_extends_base_audio_source(self, radio_source):
+        """Test RadioSource extends BaseAudioSource."""
         assert isinstance(radio_source, BaseAudioSource)
 
     def test_has_required_attributes(self, radio_source):

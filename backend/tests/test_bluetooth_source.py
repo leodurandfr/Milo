@@ -63,11 +63,11 @@ def bluetooth_source(config):
     return source
 
 
-class TestProtocolCompliance:
-    """Test AudioSource Protocol compliance."""
+class TestBaseClassCompliance:
+    """Test that BluetoothSource extends BaseAudioSource correctly."""
 
-    def test_implements_protocol(self, bluetooth_source):
-        """Test BluetoothSource implements AudioSource protocol."""
+    def test_extends_base_audio_source(self, bluetooth_source):
+        """Test BluetoothSource extends BaseAudioSource."""
         assert isinstance(bluetooth_source, BaseAudioSource)
 
     def test_has_required_attributes(self, bluetooth_source):

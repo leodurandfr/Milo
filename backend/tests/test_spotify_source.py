@@ -50,11 +50,11 @@ def spotify_source(config):
     return source
 
 
-class TestProtocolCompliance:
-    """Test AudioSource Protocol compliance."""
+class TestBaseClassCompliance:
+    """Test that SpotifySource extends BaseAudioSource correctly."""
 
-    def test_implements_protocol(self, spotify_source):
-        """Test SpotifySource implements AudioSource protocol."""
+    def test_extends_base_audio_source(self, spotify_source):
+        """Test SpotifySource extends BaseAudioSource."""
         assert isinstance(spotify_source, BaseAudioSource)
 
     def test_has_required_attributes(self, spotify_source):

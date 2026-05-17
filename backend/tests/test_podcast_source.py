@@ -43,11 +43,11 @@ def podcast_source(config):
     return source
 
 
-class TestProtocolCompliance:
-    """Test AudioSource Protocol compliance."""
+class TestBaseClassCompliance:
+    """Test that PodcastSource extends BaseAudioSource correctly."""
 
-    def test_implements_protocol(self, podcast_source):
-        """Test PodcastSource implements AudioSource protocol."""
+    def test_extends_base_audio_source(self, podcast_source):
+        """Test PodcastSource extends BaseAudioSource."""
         assert isinstance(podcast_source, BaseAudioSource)
 
     def test_has_required_attributes(self, podcast_source):
