@@ -268,6 +268,7 @@ def initialize_services() -> None:
     # =========================================================================
     # STEP 1: Retrieve instances (triggers lazy creation)
     # =========================================================================
+    settings_service = get_service("settings_service")
     state_machine = get_service("audio_state_machine")
     routing_service = get_service("audio_routing_service")
     volume_service = get_service("volume_service")
@@ -408,6 +409,10 @@ def initialize_services() -> None:
     async def init_async():
         """Async initialization with error handling."""
         services = [
+            # SettingsService init runs first so a settings.json schema mismatch
+            # surfaces here (clean SystemExit(1) banner) before any consumer
+            # touches a stale on-disk shape.
+            ("settings_service", settings_service.initialize()),
             ("client_registry_service", client_registry_service.initialize()),
             ("routing_service", routing_service.initialize()),
             ("volume_service", volume_service.initialize()),

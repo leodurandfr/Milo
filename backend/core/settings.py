@@ -7,10 +7,16 @@ import os
 import logging
 import aiofiles
 import asyncio
+from pathlib import Path
 from typing import Dict, Any
 
 from backend.config.constants import DEFAULT_VOLUME_DB, VALID_DOCK_APPS, AUDIO_SOURCE_APPS, UTILITY_DOCK_APPS, DEFAULT_DOCK_APPS, SETTINGS_FILE, VALID_LANGUAGES
 from backend.shared.decorators import handle_errors
+from backend.shared.persistence import (
+    SchemaVersionMismatch,
+    load_versioned_json,
+    save_versioned_json,
+)
 
 
 class SettingsWriteError(RuntimeError):
@@ -24,6 +30,8 @@ class SettingsWriteError(RuntimeError):
 
 class SettingsService:
     """Simplified settings manager with support for 0 = disabled"""
+
+    SCHEMA_VERSION: int = 2
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
@@ -75,27 +83,37 @@ class SettingsService:
             }
         }
 
+    async def initialize(self) -> None:
+        """Pre-load settings.json so a schema mismatch surfaces at boot.
+
+        Raises SchemaVersionMismatch on version drift; the handler in
+        dependencies.py::init_async logs the banner and SystemExit(1)s.
+        """
+        await self.load_settings()
+
     async def load_settings(self) -> Dict[str, Any]:
-        """Loads and validates settings with async lock"""
+        """Loads and validates settings with async lock.
+
+        Raises SchemaVersionMismatch on schema_version drift (caller is
+        responsible for logging the banner and exiting). Corrupted JSON falls
+        back to defaults (same behaviour as before).
+        """
         try:
-            if os.path.exists(self.settings_file):
-                async with self._file_lock:
-                    async with aiofiles.open(self.settings_file, 'r', encoding='utf-8') as f:
-                        content = await f.read()
+            async with self._file_lock:
+                data = await load_versioned_json(Path(self.settings_file), self.SCHEMA_VERSION)
 
-                    settings = json.loads(content)
-
-                    # Merge with defaults and validate
-                    validated = self._validate_and_merge(settings)
-
-                    self._cache = validated
-                    return validated
-            else:
-                # Create file with defaults
+            if not data:
+                # Fresh install — write defaults stamped with schema_version
                 self._cache = self.defaults.copy()
                 await self.save_settings(self.defaults)
                 return self._cache
 
+            validated = self._validate_and_merge(data)
+            self._cache = validated
+            return validated
+
+        except SchemaVersionMismatch:
+            raise
         except json.JSONDecodeError as e:
             self.logger.error(f"JSON decode error in settings file: {e}")
             # Save corrupted file
@@ -115,26 +133,14 @@ class SettingsService:
             return self._cache
 
     async def save_settings(self, settings: Dict[str, Any]) -> bool:
-        """Saves with async lock and atomic write"""
+        """Saves with async lock and atomic write (schema_version stamped automatically)."""
         try:
             validated = self._validate_and_merge(settings)
 
             async with self._file_lock:
-                # Atomic write via temp file
-                temp_file = self.settings_file + '.tmp'
-
-                # Generate JSON
-                json_content = json.dumps(validated, ensure_ascii=False, indent=2)
-
-                # Write content
-                async with aiofiles.open(temp_file, 'w', encoding='utf-8') as f:
-                    await f.write(json_content)
-                    await f.write('\n')
-                    await f.flush()
-                    os.fsync(f.fileno())
-
-                # Atomic rename
-                os.replace(temp_file, self.settings_file)
+                await save_versioned_json(
+                    Path(self.settings_file), validated, self.SCHEMA_VERSION
+                )
 
             self._cache = validated
             self.logger.debug("Settings saved successfully")
@@ -142,12 +148,6 @@ class SettingsService:
 
         except Exception as e:
             self.logger.error(f"Error saving settings: {e}")
-            # Clean up temp file on failure
-            try:
-                if os.path.exists(self.settings_file + '.tmp'):
-                    os.remove(self.settings_file + '.tmp')
-            except Exception as cleanup_error:
-                self.logger.warning(f"Failed to clean up temp file: {cleanup_error}")
             return False
 
     def _validate_and_merge(self, settings: Dict[str, Any]) -> Dict[str, Any]:
@@ -247,30 +247,11 @@ class SettingsService:
             validated['equalizer'] = equalizer_input
 
         # Audio (auto-disconnect on pause)
-        # Migration: legacy spotify.auto_disconnect_delay / airplay.auto_disconnect_delay
-        # are folded into audio.auto_disconnect_delay (max of both if both present),
-        # then dropped from the validated output.
         audio_input = settings.get('audio', {})
-        legacy_spotify_delay = settings.get('spotify', {}).get('auto_disconnect_delay')
-        legacy_airplay_delay = settings.get('airplay', {}).get('auto_disconnect_delay')
-
-        def _coerce_delay(value):
-            try:
-                return float(value)
-            except (TypeError, ValueError):
-                return None
-
-        if 'auto_disconnect_delay' in audio_input:
-            disconnect_raw = _coerce_delay(audio_input.get('auto_disconnect_delay'))
-            if disconnect_raw is None:
-                disconnect_raw = 120.0
-        else:
-            legacy_values = [
-                v for v in (_coerce_delay(legacy_spotify_delay), _coerce_delay(legacy_airplay_delay))
-                if v is not None
-            ]
-            disconnect_raw = max(legacy_values) if legacy_values else 120.0
-
+        try:
+            disconnect_raw = float(audio_input.get('auto_disconnect_delay', 120.0))
+        except (TypeError, ValueError):
+            disconnect_raw = 120.0
         validated['audio'] = {
             # 0 = disabled, otherwise clamp to [1.0, 9999.0]
             'auto_disconnect_delay': 0.0 if disconnect_raw == 0.0 else max(1.0, min(9999.0, disconnect_raw))
@@ -485,25 +466,13 @@ class SettingsService:
         """Validate + atomically write settings. Caller must hold self._file_lock."""
         try:
             validated = self._validate_and_merge(settings)
-            temp_file = self.settings_file + '.tmp'
-            json_content = json.dumps(validated, ensure_ascii=False, indent=2)
-
-            async with aiofiles.open(temp_file, 'w', encoding='utf-8') as f:
-                await f.write(json_content)
-                await f.write('\n')
-                await f.flush()
-                os.fsync(f.fileno())
-
-            os.replace(temp_file, self.settings_file)
+            await save_versioned_json(
+                Path(self.settings_file), validated, self.SCHEMA_VERSION
+            )
             self._cache = validated
             return True
         except Exception as e:
             self.logger.error(f"Error writing settings: {e}")
-            try:
-                if os.path.exists(self.settings_file + '.tmp'):
-                    os.remove(self.settings_file + '.tmp')
-            except Exception:
-                pass
             return False
 
     def get_volume_config(self) -> Dict[str, Any]:
