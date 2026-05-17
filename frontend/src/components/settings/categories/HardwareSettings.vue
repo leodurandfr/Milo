@@ -124,7 +124,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
-import axios from 'axios';
+import { apiCall } from '@/services/apiCall';
 import { logger } from '@/services/logger';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
@@ -261,10 +261,11 @@ async function toggleVolumeControl() {
   config.value.volume_control = !config.value.volume_control;
   // If no pending hardware change, save immediately via API
   if (!isDirty.value) {
-    try {
-      await axios.patch('/api/volume/volume-control', { volume_control: config.value.volume_control });
-    } catch (error) {
-      logger.error('hardware', 'Error saving volume control', error);
+    const result = await apiCall.patch('/api/volume/volume-control', { volume_control: config.value.volume_control }, {
+      category: 'hardware',
+      message: 'Error saving volume control'
+    });
+    if (!result.ok) {
       config.value.volume_control = !config.value.volume_control; // Revert on failure
     }
   }
@@ -294,49 +295,56 @@ async function applyAndReboot() {
   isApplying.value = true;
   confirmReboot.value = false;
 
-  try {
-    const payload = {
-      audio: { id: config.value.audio_id, volume_control: config.value.volume_control },
-      screen: { type: config.value.screen_type },
-      rotary_encoder: {
-        enabled: config.value.rotary_enabled,
-        clk_pin: config.value.clk_pin,
-        dt_pin: config.value.dt_pin,
-        sw_pin: config.value.sw_pin,
-      },
-      ir_remote: {
-        enabled: config.value.ir_enabled,
-        gpio_pin: config.value.ir_gpio_pin,
-      },
-    };
+  const payload = {
+    audio: { id: config.value.audio_id, volume_control: config.value.volume_control },
+    screen: { type: config.value.screen_type },
+    rotary_encoder: {
+      enabled: config.value.rotary_enabled,
+      clk_pin: config.value.clk_pin,
+      dt_pin: config.value.dt_pin,
+      sw_pin: config.value.sw_pin,
+    },
+    ir_remote: {
+      enabled: config.value.ir_enabled,
+      gpio_pin: config.value.ir_gpio_pin,
+    },
+  };
 
-    await axios.put('/api/settings/hardware-config', payload);
+  const putResult = await apiCall.put('/api/settings/hardware-config', payload, {
+    category: 'hardware',
+    message: 'Failed to apply hardware config'
+  });
+  if (!putResult.ok) {
     isApplying.value = false;
-    isRebooting.value = true;
-
-    // Poll for backend to come back after reboot (max ~3 minutes)
-    let pollCount = 0;
-    const maxPolls = 60;
-    const pollInterval = setInterval(async () => {
-      pollCount++;
-      if (pollCount > maxPolls) {
-        clearInterval(pollInterval);
-        isRebooting.value = false;
-        logger.error('hardware', 'Reboot polling timed out');
-        return;
-      }
-      try {
-        await axios.get('/api/ping', { timeout: 2000 });
-        clearInterval(pollInterval);
-        window.location.reload();
-      } catch {
-        // Backend still down, keep polling
-      }
-    }, 3000);
-  } catch (err) {
-    logger.error('hardware', 'Failed to apply hardware config', err);
-    isApplying.value = false;
+    return;
   }
+  isApplying.value = false;
+  isRebooting.value = true;
+
+  // Poll for backend to come back after reboot (max ~3 minutes).
+  // Use debug log level so the expected stream of failures during reboot does
+  // not flood the console.
+  let pollCount = 0;
+  const maxPolls = 60;
+  const pollInterval = setInterval(async () => {
+    pollCount++;
+    if (pollCount > maxPolls) {
+      clearInterval(pollInterval);
+      isRebooting.value = false;
+      logger.error('hardware', 'Reboot polling timed out');
+      return;
+    }
+    const pingResult = await apiCall.get('/api/ping', {
+      category: 'hardware',
+      message: 'Reboot polling ping failed',
+      timeout: 2000,
+      logLevel: 'debug'
+    });
+    if (pingResult.ok) {
+      clearInterval(pollInterval);
+      window.location.reload();
+    }
+  }, 3000);
 }
 
 // Use preloaded data immediately for correct layout on first render

@@ -61,8 +61,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
-import { logger } from '@/services/logger';
-import axios from 'axios';
+import { apiCall } from '@/services/apiCall';
 import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
@@ -158,33 +157,27 @@ async function handleTestConnection() {
     return;
   }
 
-  try {
-    isValidating.value = true;
-    errorMessage.value = '';
+  isValidating.value = true;
+  errorMessage.value = '';
 
-    const { data } = await axios.post('/api/settings/podcast-credentials/validate', {
+  const result = await apiCall.post('/api/settings/podcast-credentials/validate', {
+    taddy_user_id: localUserId.value,
+    taddy_api_key: localApiKey.value,
+  }, {
+    category: 'podcast',
+    message: 'Error testing connection'
+  });
+
+  if (result.ok && result.data.valid) {
+    await updateSetting('podcast-credentials', {
       taddy_user_id: localUserId.value,
-      taddy_api_key: localApiKey.value,
+      taddy_api_key: localApiKey.value
     });
-
-    if (data.valid) {
-      // Valid credentials - save them automatically
-      await updateSetting('podcast-credentials', {
-        taddy_user_id: localUserId.value,
-        taddy_api_key: localApiKey.value
-      });
-      // Refresh credentials status (updates podcastApiUsage and podcastCredentialsStatus)
-      await settingsStore.refreshPodcastCredentialsStatus();
-    } else {
-      // Invalid credentials
-      errorMessage.value = t('podcastSettings.invalidCredentials');
-    }
-  } catch (error) {
-    logger.error('podcast', 'Error testing connection:', error);
+    await settingsStore.refreshPodcastCredentialsStatus();
+  } else {
     errorMessage.value = t('podcastSettings.invalidCredentials');
-  } finally {
-    isValidating.value = false;
   }
+  isValidating.value = false;
 }
 
 </script>

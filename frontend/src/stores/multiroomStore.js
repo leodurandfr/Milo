@@ -180,27 +180,24 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    */
   async function fetchState() {
     isLoading.value = true;
-    try {
-      const response = await axios.get('/api/multiroom/state');
-      const { clients: clientsData, zones: zonesData } = response.data;
+    const result = await apiCall.get('/api/multiroom/state', {
+      category: 'multiroom',
+      message: 'Error fetching registry state'
+    });
+    if (result.ok) {
+      const { clients: clientsData, zones: zonesData } = result.data;
 
-      // Update clients (strip runtime fields - volume/mute live in volumeState)
       const cleanedClients = new Map();
       for (const [id, client] of Object.entries(clientsData || {})) {
         cleanedClients.set(id, stripRuntimeFields(client));
       }
       clients.value = cleanedClients;
 
-      // Update zones
       zones.value = new Map(Object.entries(zonesData || {}));
 
-      // Save to cache
       saveCache();
-    } catch (error) {
-      logger.error('store', 'Error fetching registry state', error);
-    } finally {
-      isLoading.value = false;
     }
+    isLoading.value = false;
   }
 
   // === CLIENT QUERIES ===

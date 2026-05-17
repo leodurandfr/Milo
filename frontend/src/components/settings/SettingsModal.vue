@@ -256,7 +256,7 @@ import { useRadioStore } from '@/stores/radioStore';
 import { useNavigationStack } from '@/composables/useNavigationStack';
 import { useViewTransition } from '@/composables/useViewTransition';
 import { logger } from '@/services/logger';
-import axios from 'axios';
+import { apiCall } from '@/services/apiCall';
 import NavigationHeader from '@/components/ui/NavigationHeader.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import IconButton from '@/components/ui/IconButton.vue';
@@ -459,24 +459,22 @@ function handleEditStation(station) {
 async function handleRestoreStation() {
   if (!stationToEdit.value) return;
 
-  try {
-    const formData = new FormData();
-    formData.append('station_id', stationToEdit.value.id);
+  const formData = new FormData();
+  formData.append('station_id', stationToEdit.value.id);
 
-    const response = await axios.post('/api/radio/favorites/restore-metadata', formData);
+  const result = await apiCall.post('/api/radio/favorites/restore-metadata', formData, {
+    category: 'settings',
+    message: 'Error restoring station'
+  });
 
-    if (response.data.success) {
-      // Wait a bit for backend to save
-      await new Promise(resolve => setTimeout(resolve, 200));
-
-      await radioStore.loadRadioSettingsData();
-      back();
-      stationToEdit.value = null;
-    } else {
-      logger.error('settings', 'Failed to restore station');
-    }
-  } catch (error) {
-    logger.error('settings', 'Error restoring station:', error);
+  if (result.ok && result.data.success) {
+    // Wait a bit for backend to save
+    await new Promise(resolve => setTimeout(resolve, 200));
+    await radioStore.loadRadioSettingsData();
+    back();
+    stationToEdit.value = null;
+  } else if (result.ok) {
+    logger.error('settings', 'Failed to restore station');
   }
 }
 
@@ -583,10 +581,11 @@ async function handleRestart() {
     return;
   }
   restartInProgress.value = true;
-  try {
-    await axios.post('/api/system/restart');
-  } catch (error) {
-    logger.error('settings', 'Restart request failed', error);
+  const result = await apiCall.post('/api/system/restart', null, {
+    category: 'settings',
+    message: 'Restart request failed'
+  });
+  if (!result.ok) {
     restartInProgress.value = false;
   }
 }
@@ -598,10 +597,11 @@ async function handleShutdown() {
     return;
   }
   shutdownInProgress.value = true;
-  try {
-    await axios.post('/api/system/shutdown');
-  } catch (error) {
-    logger.error('settings', 'Shutdown request failed', error);
+  const result = await apiCall.post('/api/system/shutdown', null, {
+    category: 'settings',
+    message: 'Shutdown request failed'
+  });
+  if (!result.ok) {
     shutdownInProgress.value = false;
   }
 }

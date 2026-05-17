@@ -66,7 +66,6 @@ import { computed, ref, watch } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useSourceProgress } from '@/composables/useSourceProgress';
 import { useI18n } from '@/services/i18n';
-import { logger } from '@/services/logger';
 
 import PlaybackControls from './PlaybackControls.vue';
 import ConnectProgressBar from './ConnectProgressBar.vue';
@@ -92,13 +91,9 @@ const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
 const { currentPosition, duration, progressPercentage, seekTo, isPositionInitialized } = useSourceProgress(props.source);
 
-// Playback controls
-async function sendSourceCommand(command) {
-  try {
-    await unifiedStore.sendCommand(props.source, command);
-  } catch (error) {
-    logger.error('component', `Error executing command ${command} on ${props.source}`, error);
-  }
+// Playback controls — sendCommand swallows + logs errors via the store.
+function sendSourceCommand(command) {
+  return unifiedStore.sendCommand(props.source, command);
 }
 
 function togglePlayPause() {

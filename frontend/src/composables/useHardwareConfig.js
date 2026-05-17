@@ -1,7 +1,7 @@
 // frontend/src/composables/useHardwareConfig.js
 import { ref, computed } from 'vue';
-import axios from 'axios';
 import { logger } from '@/services/logger';
+import { apiCall } from '@/services/apiCall';
 
 /**
  * Composable to manage system hardware information.
@@ -20,6 +20,9 @@ const error = ref(null);
 // Shared global state — full hardware config + dropdown options
 const hardwareConfig = ref(null);
 const isLoadingConfig = ref(false);
+
+const NO_CACHE_HEADERS = { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' };
+
 /**
  * Pre-load hardware config for instant rendering when HardwareSettings opens.
  * Call from SettingsModal.onMounted() (non-blocking, like preloadNetworkStatus).
@@ -27,18 +30,16 @@ const isLoadingConfig = ref(false);
 export async function preloadHardwareConfig() {
   if (hardwareConfig.value || isLoadingConfig.value) return;
   isLoadingConfig.value = true;
-  try {
-    const response = await axios.get('/api/settings/hardware-config', {
-      headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
-    });
-    if (response.data.status === 'success') {
-      hardwareConfig.value = response.data;
-    }
-  } catch (err) {
-    logger.error('hardware', 'Failed to preload hardware config', err);
-  } finally {
-    isLoadingConfig.value = false;
+  const result = await apiCall.get('/api/settings/hardware-config', {
+    category: 'hardware',
+    message: 'Failed to preload hardware config',
+    headers: NO_CACHE_HEADERS,
+    checkStatus: true
+  });
+  if (result.ok) {
+    hardwareConfig.value = result.data;
   }
+  isLoadingConfig.value = false;
 }
 
 export function useHardwareConfig() {
@@ -51,7 +52,6 @@ export function useHardwareConfig() {
       return hardwareInfo.value;
     }
 
-    // If already loading, wait
     if (isLoading.value) {
       return new Promise((resolve) => {
         const checkLoaded = setInterval(() => {
@@ -66,28 +66,25 @@ export function useHardwareConfig() {
     isLoading.value = true;
     error.value = null;
 
-    try {
-      const response = await axios.get('/api/settings/hardware-info', {
-        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
-      });
-      if (response.data.status === 'success') {
-        hardwareInfo.value = response.data.hardware;
-        logger.debug('hardware', 'Hardware info loaded', response.data.hardware);
-      } else {
-        throw new Error(response.data.message || 'Failed to load hardware info');
-      }
-      return hardwareInfo.value;
-    } catch (err) {
-      error.value = err.message;
-      logger.error('component', 'Error loading hardware info', err);
+    const result = await apiCall.get('/api/settings/hardware-info', {
+      category: 'hardware',
+      message: 'Error loading hardware info',
+      headers: NO_CACHE_HEADERS,
+      checkStatus: true
+    });
+
+    if (result.ok) {
+      hardwareInfo.value = result.data.hardware;
+      logger.debug('hardware', 'Hardware info loaded', result.data.hardware);
+    } else {
+      error.value = result.error?.detail || 'Failed to load hardware info';
       hardwareInfo.value = {
         screen_type: 'none',
         screen_resolution: { width: null, height: null }
       };
-      return hardwareInfo.value;
-    } finally {
-      isLoading.value = false;
     }
+    isLoading.value = false;
+    return hardwareInfo.value;
   }
 
   /**
@@ -114,23 +111,20 @@ export function useHardwareConfig() {
 
     isLoadingConfig.value = true;
 
-    try {
-      const response = await axios.get('/api/settings/hardware-config', {
-        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
-      });
-      if (response.data.status === 'success') {
-        hardwareConfig.value = response.data;
-        logger.debug('hardware', 'Hardware config loaded', response.data);
-      } else {
-        throw new Error('Failed to load hardware config');
-      }
-      return hardwareConfig.value;
-    } catch (err) {
-      logger.error('component', 'Error loading hardware config', err);
-      return null;
-    } finally {
-      isLoadingConfig.value = false;
+    const result = await apiCall.get('/api/settings/hardware-config', {
+      category: 'hardware',
+      message: 'Error loading hardware config',
+      headers: NO_CACHE_HEADERS,
+      checkStatus: true
+    });
+    if (result.ok) {
+      hardwareConfig.value = result.data;
+      logger.debug('hardware', 'Hardware config loaded', result.data);
+    } else {
+      hardwareConfig.value = null;
     }
+    isLoadingConfig.value = false;
+    return hardwareConfig.value;
   }
 
   function reload() {

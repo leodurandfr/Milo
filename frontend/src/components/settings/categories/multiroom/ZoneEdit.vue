@@ -62,6 +62,7 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useMultiroomStore } from '@/stores/multiroomStore';
+import { logger } from '@/services/logger';
 import Button from '@/components/ui/Button.vue';
 import InputText from '@/components/ui/InputText.vue';
 import SystemListItem from '@/components/settings/categories/multiroom/SystemListItem.vue';
@@ -116,7 +117,7 @@ async function toggleClient(clientId) {
         // Revert optimistic update
         const revertIndex = selectedClients.value.indexOf(clientId);
         if (revertIndex !== -1) selectedClients.value.splice(revertIndex, 1);
-        console.error('Error adding client to zone:', error);
+        logger.error('multiroom', 'Error adding client to zone', error);
       }
     }
   } else {
@@ -135,7 +136,7 @@ async function toggleClient(clientId) {
       } catch (error) {
         // Revert optimistic update
         selectedClients.value.push(clientId);
-        console.error('Error removing client from zone:', error);
+        logger.error('multiroom', 'Error removing client from zone', error);
       }
     }
   }
@@ -151,7 +152,7 @@ async function saveZoneName() {
     await multiroomStore.updateZone(props.groupId, { name: newName });
     originalZoneName.value = newName;
   } catch (error) {
-    console.error('Error saving zone name:', error);
+    logger.error('multiroom', 'Error saving zone name', error);
   }
 }
 
@@ -190,7 +191,7 @@ async function handleCreate() {
     await multiroomStore.createZone(zoneName.value || 'New Zone', selectedClients.value);
     emit('back');
   } catch (error) {
-    console.error('Error creating zone:', error);
+    logger.error('multiroom', 'Error creating zone', error);
   } finally {
     saving.value = false;
   }
@@ -215,7 +216,7 @@ async function handleDelete() {
     await multiroomStore.deleteZone(props.groupId);
     emit('back');
   } catch (error) {
-    console.error('Error deleting zone:', error);
+    logger.error('multiroom', 'Error deleting zone', error);
     deleteState.value = 'idle';
   }
 }

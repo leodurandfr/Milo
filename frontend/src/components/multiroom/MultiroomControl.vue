@@ -33,6 +33,7 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useSnapcastStore } from '@/stores/snapcastStore';
 import { useEqualizerStore } from '@/stores/equalizerStore';
+import { logger } from '@/services/logger';
 import MultiroomItem from './MultiroomItem.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 
@@ -384,7 +385,7 @@ async function handleVolumeChange(clientMacId, volumeDb, options = {}) {
         await equalizerStore.applyZoneDelta(zone.id, delta);
         // Volume state updated via single WebSocket broadcast from backend
       } catch (error) {
-        console.error('Failed to apply zone volume delta:', error);
+        logger.error('multiroom', 'Failed to apply zone volume delta', error);
       }
 
       // Clear state after change completes (slider drag ended)

@@ -1,6 +1,7 @@
 // frontend/src/services/i18n.js - Translation service with standardized codes
 import { ref } from 'vue';
-import axios from 'axios';
+import { apiCall } from '@/services/apiCall';
+import { logger } from '@/services/logger';
 
 class I18nService {
   constructor() {
@@ -40,7 +41,7 @@ class I18nService {
         this.translations.set(language, translations);
       }
     } catch (error) {
-      console.error(`Error loading translations for ${language}:`, error);
+      logger.error('i18n', `Error loading translations for ${language}`, error);
     }
   }
 
@@ -88,40 +89,33 @@ class I18nService {
   async initializeLanguage() {
     if (this.isInitialized) return;
 
-    try {
-      // Always preload French and English translations
-      await Promise.all([
-        this.loadTranslations('french'),
-        this.loadTranslations('english')
-      ]);
+    // Always preload French and English translations
+    await Promise.all([
+      this.loadTranslations('french'),
+      this.loadTranslations('english')
+    ]);
 
-      const response = await axios.get('/api/settings/language');
-      if (response.data.status === 'success') {
-        const serverLanguage = response.data.language;
-        await this.loadTranslations(serverLanguage);
-        this.currentLanguage.value = serverLanguage;
-      }
-    } catch (error) {
-      console.error('Error initializing language from server:', error);
-      // Keep French as default
-    } finally {
-      this.isInitialized = true;
+    const result = await apiCall.get('/api/settings/language', {
+      category: 'i18n',
+      message: 'Error initializing language from server',
+      checkStatus: true
+    });
+    if (result.ok) {
+      const serverLanguage = result.data.language;
+      await this.loadTranslations(serverLanguage);
+      this.currentLanguage.value = serverLanguage;
     }
+    this.isInitialized = true;
   }
 
   // Change language via API (automatic WebSocket broadcast)
   async setLanguage(language) {
-    try {
-      const response = await axios.put('/api/settings/language', { language });
-      
-      if (response.data.status === 'success') {
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error('Error setting language:', error);
-      return false;
-    }
+    const result = await apiCall.put('/api/settings/language', { language }, {
+      category: 'i18n',
+      message: 'Error setting language',
+      checkStatus: true
+    });
+    return result.ok;
   }
 
   // Called from WebSocket events

@@ -82,7 +82,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
-import axios from 'axios';
+import { apiCall } from '@/services/apiCall';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
@@ -179,7 +179,10 @@ function handleBrightnessChange(value) {
 
 function applyBrightness(value) {
   lastAppliedBrightness = value;
-  axios.post('/api/settings/screen-brightness/apply', { brightness_on: value }).catch(console.error);
+  apiCall.post('/api/settings/screen-brightness/apply', { brightness_on: value }, {
+    category: 'screen',
+    message: 'Failed to apply brightness'
+  });
 }
 
 function saveBrightness(value) {

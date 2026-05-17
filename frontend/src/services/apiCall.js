@@ -64,10 +64,16 @@ async function httpRequest(method, url, body, options = {}) {
     fallback,
     rethrow = false,
     checkStatus = false,
+    logLevel = 'error',
     headers,
     timeout,
     responseType,
   } = options;
+
+  const logError = (msg, data) => {
+    const fn = logger[logLevel] || logger.error;
+    fn.call(logger, category, msg, data);
+  };
 
   const config = {};
   if (params !== undefined) config.params = params;
@@ -86,7 +92,7 @@ async function httpRequest(method, url, body, options = {}) {
 
     if (checkStatus && response?.data?.status === 'error') {
       const detail = response.data?.detail || response.data?.message || 'Unknown error';
-      logger.error(category, message || `${method.toUpperCase()} ${url} returned status=error`, response.data);
+      logError(message || `${method.toUpperCase()} ${url} returned status=error`, response.data);
       if (errorRef) errorRef.value = detail;
       return { ok: false, data: response.data, error: { detail, status: 200 } };
     }
@@ -96,7 +102,7 @@ async function httpRequest(method, url, body, options = {}) {
     if (isCancelled(error)) {
       return { ok: false, data: fallback ?? null, error: null };
     }
-    logger.error(category, message || `${method.toUpperCase()} ${url} failed`, error);
+    logError(message || `${method.toUpperCase()} ${url} failed`, error);
     const detail = extractErrorDetail(error);
     const status = error?.response?.status ?? null;
     if (errorRef) errorRef.value = detail;

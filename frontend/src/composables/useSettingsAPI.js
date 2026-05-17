@@ -1,6 +1,6 @@
 // frontend/src/composables/useSettingsAPI.js
-import axios from 'axios';
 import { logger } from '@/services/logger';
+import { apiCall } from '@/services/apiCall';
 
 /**
  * Composable to manage settings API calls with debouncing
@@ -14,14 +14,13 @@ export function useSettingsAPI() {
    * @param {object} payload - Data to send
    */
   async function updateSetting(endpoint, payload) {
-    try {
-      const response = await axios.put(`/api/settings/${endpoint}`, payload);
-      if (response.data?.reload_success === false) {
-        logger.warn('api', `Setting ${endpoint} saved but runtime reload failed`);
-      }
-    } catch (error) {
-      logger.error('api', `Error updating ${endpoint}`, error);
-      throw error;
+    const result = await apiCall.put(`/api/settings/${endpoint}`, payload, {
+      category: 'api',
+      message: `Error updating ${endpoint}`,
+      rethrow: true
+    });
+    if (result.ok && result.data?.reload_success === false) {
+      logger.warn('api', `Setting ${endpoint} saved but runtime reload failed`);
     }
   }
 
@@ -38,10 +37,9 @@ export function useSettingsAPI() {
     }
 
     const timer = setTimeout(() => {
-      updateSetting(endpoint, payload).catch(() => {
-        // Error already logged by updateSetting — silenced here to avoid
-        // unhandled promise rejection in the timer callback.
-      });
+      // updateSetting rethrows; swallow here so the timer callback does not
+      // surface an unhandled rejection (the error was already logged).
+      updateSetting(endpoint, payload).catch(() => {});
       debounceTimers.delete(key);
     }, delay);
 
@@ -59,16 +57,15 @@ export function useSettingsAPI() {
   /**
    * Load a configuration from the API
    * @param {string} endpoint - API endpoint
-   * @returns {Promise<object>} - API response
+   * @returns {Promise<object>} - API response data
    */
   async function loadConfig(endpoint) {
-    try {
-      const response = await axios.get(`/api/settings/${endpoint}`);
-      return response.data;
-    } catch (error) {
-      logger.error('api', `Error loading config from ${endpoint}`, error);
-      throw error;
-    }
+    const result = await apiCall.get(`/api/settings/${endpoint}`, {
+      category: 'api',
+      message: `Error loading config from ${endpoint}`,
+      rethrow: true
+    });
+    return result.data;
   }
 
   return {
