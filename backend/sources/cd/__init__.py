@@ -21,7 +21,6 @@ from backend.sources.cd.data import CdDataService
 from backend.sources.cd.reader import CdIoctlReader
 from backend.sources.cd.models import (
     PlayTrackRequest,
-    SeekRequest,
     DiscInfo,
     TrackInfo,
 )
@@ -33,7 +32,6 @@ __all__ = [
     "setup_cd_routes",
     "CdDataService",
     "PlayTrackRequest",
-    "SeekRequest",
     "DiscInfo",
     "TrackInfo",
 ]

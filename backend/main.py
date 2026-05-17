@@ -22,7 +22,6 @@ from backend.api.routing import create_routing_router
 from backend.core.multiroom.routes import create_snapcast_router
 from backend.api.equalizer import create_equalizer_router
 from backend.api.volume import create_volume_router
-from backend.sources.bluetooth.routes import setup_bluetooth_routes
 from backend.sources.radio.routes import setup_radio_routes
 from backend.sources.podcast.routes import setup_podcast_routes
 from backend.sources.airplay.routes import setup_airplay_routes
@@ -187,11 +186,6 @@ app.include_router(equalizer_router)
 
 volume_router = create_volume_router(volume_service, client_registry_service)
 app.include_router(volume_router)
-
-bluetooth_router = setup_bluetooth_routes(
-    lambda: state_machine.sources.get(AudioSource.BLUETOOTH)
-)
-app.include_router(bluetooth_router, prefix="/api")
 
 radio_router = setup_radio_routes(
     lambda: state_machine.sources.get(AudioSource.RADIO)

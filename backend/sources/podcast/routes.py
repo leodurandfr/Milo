@@ -47,28 +47,6 @@ def setup_podcast_routes(source_provider) -> APIRouter:
     return router
 
 
-# === Status Route ===
-
-@router.get("/status")
-async def get_status(source: PodcastSource = Depends(get_source)) -> Dict[str, Any]:
-    """Get current playback status."""
-    try:
-        status = await source.status()
-        return {
-            "status": "success",
-            **status
-        }
-    except Exception as e:
-        logger.error(f"Status error: {e}")
-        return {
-            "status": "error",
-            "message": str(e),
-            "service_active": False,
-            "mpv_connected": False,
-            "is_playing": False
-        }
-
-
 # === Discovery Routes ===
 
 @router.get("/discover/top-charts")

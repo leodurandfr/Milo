@@ -3,7 +3,6 @@
 FastAPI routes for Radio audio source.
 
 Provides REST API endpoints for:
-- Status: Get current radio source status
 - Playback: Play/stop stations
 - Favorites: Manage favorite stations
 - Custom stations: Create, update, delete custom stations
@@ -41,33 +40,6 @@ def setup_radio_routes(source_provider) -> APIRouter:
     """Configure routes with source provider."""
     set_source_provider(source_provider)
     return router
-
-
-# === Status Routes ===
-
-@router.get("/status")
-async def get_status(source: RadioSource = Depends(get_source)) -> Dict[str, Any]:
-    """
-    Get current Radio source status.
-
-    Returns:
-        Current state (service, playback, station, etc.)
-    """
-    try:
-        status = await source.status()
-        return {
-            "status": "success",
-            **status
-        }
-    except Exception as e:
-        logger.error(f"Status error: {e}")
-        return {
-            "status": "error",
-            "message": str(e),
-            "service_active": False,
-            "mpv_connected": False,
-            "is_playing": False
-        }
 
 
 # === Playback Routes ===

@@ -143,13 +143,6 @@ class AirPlaySource(BaseAudioSource):
 
     async def _handle_command(self, cmd: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Handle AirPlay-specific commands."""
-        if cmd == "restart_service":
-            success = await self._do_restart()
-            return (
-                self.success_response("Service restarted")
-                if success else self.error_response("Restart failed")
-            )
-
         # AirPlay 2 does not support remote playback control
         # (shairport-sync AIRPLAY2.md: "Remote control facilities are not implemented")
         return self.error_response(f"Unknown command: {cmd}")

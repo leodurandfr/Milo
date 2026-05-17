@@ -11,11 +11,6 @@ class PlayTrackRequest(BaseModel):
     track_number: int  # 1-based
 
 
-class SeekRequest(BaseModel):
-    """Request to seek within the current track."""
-    position: int  # seconds within current track
-
-
 class TrackInfo(BaseModel):
     """Information about a single CD track."""
     number: int  # 1-based
