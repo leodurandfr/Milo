@@ -1256,30 +1256,16 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
   /**
    * Handle zone crossover changed events.
-   * Supports both legacy format (crossover.zone_crossover_changed) and
-   * new multiroom format (multiroom.crossover_changed).
-   * @param {Object} event - Event with data containing zone crossover info
-   *   New format: { zone_id, crossover_enabled, crossover_frequency }
-   *   Legacy format: { zone_id, frequency, enabled, has_subwoofer }
+   * Schema in @/schemas/ws.js → 'multiroom.crossover_changed'.
+   * @param {{zone_id: string, crossover_enabled: boolean, crossover_frequency: number}} payload
    */
-  function handleZoneCrossoverChanged(event) {
-    if (event.data) {
-      const data = event.data;
-
-      // Support both old and new field names
-      const zoneId = data.zone_id;
-      const frequency = data.crossover_frequency ?? data.frequency;
-      const enabled = data.crossover_enabled ?? data.enabled;
-      const hasSubwoofer = data.has_subwoofer ?? false;
-
-      if (zoneId) {
-        zoneCrossover.value[zoneId] = {
-          frequency,
-          enabled,
-          has_subwoofer: hasSubwoofer
-        };
-      }
-    }
+  function handleZoneCrossoverChanged(payload) {
+    if (!payload.zone_id) return;
+    zoneCrossover.value[payload.zone_id] = {
+      frequency: payload.crossover_frequency,
+      enabled: payload.crossover_enabled,
+      has_subwoofer: false,
+    };
   }
 
   // === WEBSOCKET HANDLERS ===
