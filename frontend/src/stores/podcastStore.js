@@ -1,7 +1,6 @@
 // frontend/src/stores/podcastStore.js
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import axios from 'axios';
 import { apiCall } from '@/services/apiCall';
 
 // Maximum progress entries to cache (prevents unbounded memory growth)
@@ -93,80 +92,85 @@ export const usePodcastStore = defineStore('podcast', () => {
   async function play(episodeUuid) {
     // Set pending immediately for instant UI feedback (spinner)
     pendingEpisodeUuid.value = episodeUuid;
-    try {
-      await apiCall(
-        'store',
-        'Error playing episode',
-        async () => {
-          const response = await axios.post('/api/podcast/play', {
-            episode_uuid: episodeUuid
-          });
-          if (!response.data.success) {
-            throw new Error('Failed to play episode');
-          }
-          // State will be updated via WebSocket broadcast from backend
-          // pendingEpisodeUuid will be cleared in handleStateUpdate()
-        },
-        { rethrow: true }
-      );
-    } catch (error) {
+    const result = await apiCall.post('/api/podcast/play', {
+      episode_uuid: episodeUuid,
+    }, {
+      category: 'store',
+      message: 'Error playing episode',
+    });
+    if (!result.ok || !result.data.success) {
       pendingEpisodeUuid.value = null;
-      throw error;
+      throw new Error(result.error?.detail || 'Failed to play episode');
     }
+    // State will be updated via WebSocket broadcast from backend
+    // pendingEpisodeUuid will be cleared in handleStateUpdate()
   }
 
   async function pause() {
-    await apiCall('store', 'Error pausing', () =>
-      axios.post('/api/podcast/pause')
-    );
+    await apiCall.post('/api/podcast/pause', null, {
+      category: 'store',
+      message: 'Error pausing',
+    });
   }
 
   async function resume() {
-    await apiCall('store', 'Error resuming', () =>
-      axios.post('/api/podcast/resume')
-    );
+    await apiCall.post('/api/podcast/resume', null, {
+      category: 'store',
+      message: 'Error resuming',
+    });
   }
 
   async function seek(position) {
-    await apiCall('store', 'Error seeking', async () => {
-      await axios.post('/api/podcast/seek', { position: Math.floor(position) });
-      currentPosition.value = position;
+    const result = await apiCall.post('/api/podcast/seek', { position: Math.floor(position) }, {
+      category: 'store',
+      message: 'Error seeking',
     });
+    if (result.ok) {
+      currentPosition.value = position;
+    }
   }
 
   async function stop() {
-    await apiCall('store', 'Error stopping', async () => {
-      await axios.post('/api/podcast/stop');
-      currentEpisode.value = null;
+    const result = await apiCall.post('/api/podcast/stop', null, {
+      category: 'store',
+      message: 'Error stopping',
     });
+    if (result.ok) {
+      currentEpisode.value = null;
+    }
   }
 
   async function setSpeed(speed) {
-    await apiCall('store', 'Error setting speed', async () => {
-      const response = await axios.post('/api/podcast/speed', { speed });
-      if (response.data.success) {
-        playbackSpeed.value = response.data.speed;
-      }
+    const result = await apiCall.post('/api/podcast/speed', { speed }, {
+      category: 'store',
+      message: 'Error setting speed',
     });
+    if (result.ok && result.data.success) {
+      playbackSpeed.value = result.data.speed;
+    }
   }
 
   // === SETTINGS ACTIONS ===
 
   async function loadSettings() {
-    await apiCall('store', 'Error loading settings', async () => {
-      const response = await axios.get('/api/podcast/settings');
-      if (response.data.settings) {
-        settings.value = { ...settings.value, ...response.data.settings };
-        playbackSpeed.value = response.data.settings.playback_speed || 1.0;
-      }
+    const result = await apiCall.get('/api/podcast/settings', {
+      category: 'store',
+      message: 'Error loading settings',
     });
+    if (result.ok && result.data.settings) {
+      settings.value = { ...settings.value, ...result.data.settings };
+      playbackSpeed.value = result.data.settings.playback_speed || 1.0;
+    }
   }
 
   async function updateSettings(newSettings) {
-    await apiCall('store', 'Error updating settings', async () => {
-      await axios.post('/api/podcast/settings', newSettings);
-      settings.value = { ...settings.value, ...newSettings };
+    const result = await apiCall.post('/api/podcast/settings', newSettings, {
+      category: 'store',
+      message: 'Error updating settings',
     });
+    if (result.ok) {
+      settings.value = { ...settings.value, ...newSettings };
+    }
   }
 
   // === WEBSOCKET STATE HANDLER ===
@@ -331,13 +335,16 @@ export const usePodcastStore = defineStore('podcast', () => {
   // Called at app startup for instant hasSubscriptions check
   async function preloadSubscriptionsList() {
     if (subscriptionsListLoaded.value) return;
-    await apiCall('store', 'Error preloading subscriptions list', async () => {
-      const response = await axios.get('/api/podcast/subscriptions');
+    const result = await apiCall.get('/api/podcast/subscriptions', {
+      category: 'store',
+      message: 'Error preloading subscriptions list',
+    });
+    if (result.ok) {
       subscriptions.value = arrayToSubscriptionsMap(
-        response.data.subscriptions || []
+        result.data.subscriptions || []
       );
       subscriptionsListLoaded.value = true;
-    });
+    }
   }
 
   // Full load - fetches subscriptions list + latest episodes (Taddy API call)
@@ -355,41 +362,47 @@ export const usePodcastStore = defineStore('podcast', () => {
     if (subscriptionsFullLoading.value) return;
     subscriptionsFullLoading.value = true;
 
-    const result = await apiCall(
-      'store',
-      'Error loading subscriptions',
-      async () => {
-        // Reuse subscriptions list if already preloaded, otherwise fetch
-        if (!subscriptionsListLoaded.value) {
-          const response = await axios.get('/api/podcast/subscriptions');
-          subscriptions.value = arrayToSubscriptionsMap(
-            response.data.subscriptions || []
-          );
-          subscriptionsListLoaded.value = true;
-        }
-
-        // Fetch latest episodes (Taddy API call) if user has subscriptions
-        if (subscriptions.value.size > 0) {
-          const response = await axios.get(
-            '/api/podcast/subscriptions/latest-episodes',
-            { params: { limit: 20 } }
-          );
-          latestSubscriptionEpisodes.value = enrichEpisodesWithProgress(
-            response.data.results || []
-          );
-        } else {
-          latestSubscriptionEpisodes.value = [];
-        }
-
-        subscriptionsLoaded.value = true;
-        return {
-          subscriptions: subscriptionsList.value,
-          latestEpisodes: latestSubscriptionEpisodes.value
-        };
+    try {
+      // Reuse subscriptions list if already preloaded, otherwise fetch
+      if (!subscriptionsListLoaded.value) {
+        const subsResult = await apiCall.get('/api/podcast/subscriptions', {
+          category: 'store',
+          message: 'Error loading subscriptions',
+        });
+        if (!subsResult.ok) return false;
+        subscriptions.value = arrayToSubscriptionsMap(
+          subsResult.data.subscriptions || []
+        );
+        subscriptionsListLoaded.value = true;
       }
-    );
-    subscriptionsFullLoading.value = false;
-    return result;
+
+      // Fetch latest episodes (Taddy API call) if user has subscriptions
+      if (subscriptions.value.size > 0) {
+        const epResult = await apiCall.get(
+          '/api/podcast/subscriptions/latest-episodes',
+          {
+            category: 'store',
+            message: 'Error loading latest subscription episodes',
+            params: { limit: 20 },
+          },
+        );
+        if (epResult.ok) {
+          latestSubscriptionEpisodes.value = enrichEpisodesWithProgress(
+            epResult.data.results || []
+          );
+        }
+      } else {
+        latestSubscriptionEpisodes.value = [];
+      }
+
+      subscriptionsLoaded.value = true;
+      return {
+        subscriptions: subscriptionsList.value,
+        latestEpisodes: latestSubscriptionEpisodes.value,
+      };
+    } finally {
+      subscriptionsFullLoading.value = false;
+    }
   }
 
   function addSubscription(subscription) {
