@@ -104,6 +104,7 @@ import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useSystemStore } from '@/stores/systemStore';
 import { i18n, useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
+import { wsEventRegistry } from '@/schemas/ws';
 import { logger } from '@/services/logger';
 import { useScreenActivity } from '@/composables/useScreenActivity';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
@@ -129,7 +130,7 @@ const settingsStore = useSettingsStore();
 const multiroomStore = useMultiroomStore();
 const equalizerStore = useEqualizerStore();
 const systemStore = useSystemStore();
-const { on, onReconnect, onVisibilityChange, isConnected } = useWebSocket();
+const { on, parsedOn, onReconnect, onVisibilityChange, isConnected } = useWebSocket();
 const { loadHardwareInfo } = useHardwareConfig();
 
 // Enable screen activity detection (touch, mouse, keyboard)
@@ -646,10 +647,14 @@ onMounted(async () => {
     // Equalizer events
     on('equalizer', 'filter_changed', (event) => equalizerStore.handleFilterChanged(event)),
     on('equalizer', 'filters_reset', () => equalizerStore.handleFiltersReset()),
-    on('equalizer', 'state_changed', (event) => equalizerStore.handleStateChanged(event)),
-    on('equalizer', 'preset_loaded', (event) => equalizerStore.handlePresetLoaded(event)),
-    on('equalizer', 'compressor_changed', (event) => equalizerStore.handleCompressorChanged(event)),
-    on('equalizer', 'loudness_changed', (event) => equalizerStore.handleLoudnessChanged(event)),
+    parsedOn('equalizer', 'state_changed', wsEventRegistry['equalizer.state_changed'],
+             (payload) => equalizerStore.handleStateChanged(payload)),
+    parsedOn('equalizer', 'preset_loaded', wsEventRegistry['equalizer.preset_loaded'],
+             (payload) => equalizerStore.handlePresetLoaded(payload)),
+    parsedOn('equalizer', 'compressor_changed', wsEventRegistry['equalizer.compressor_changed'],
+             (payload) => equalizerStore.handleCompressorChanged(payload)),
+    parsedOn('equalizer', 'loudness_changed', wsEventRegistry['equalizer.loudness_changed'],
+             (payload) => equalizerStore.handleLoudnessChanged(payload)),
     on('equalizer', 'mono_changed', (event) => equalizerStore.handleMonoChanged(event)),
     on('equalizer', 'enabled_changed', (event) => equalizerStore.handleEnabledChanged(event)),
     on('equalizer', 'zone_enabled_changed', (event) => equalizerStore.handleZoneEnabledChanged(event)),

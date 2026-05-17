@@ -17,6 +17,39 @@
  */
 import { z } from 'zod';
 
+// Backend: backend/core/equalizer/service.py — CamillaDspState enum.
+const CamillaDspStateSchema = z.enum([
+  'disconnected', 'inactive', 'running', 'paused',
+]);
+
+// Backend: backend/core/equalizer/service.py self._compressor dict.
+const CompressorPayloadSchema = z.object({
+  enabled: z.boolean(),
+  threshold: z.number(),
+  ratio: z.number(),
+  attack: z.number(),
+  release: z.number(),
+  makeup_gain: z.number(),
+});
+
+// Backend: backend/core/equalizer/service.py self._loudness dict.
+const LoudnessPayloadSchema = z.object({
+  enabled: z.boolean(),
+  low_boost: z.number(),
+  high_boost: z.number(),
+});
+
 export const wsEventRegistry = {
-  // Filled progressively in subsequent commits (C3-C5).
+  // Backend: service.py:306,353 → {state: CamillaDspState.value}.
+  'equalizer.state_changed': z.object({
+    state: CamillaDspStateSchema,
+  }),
+  // Backend: service.py:965 → {id: preset_id} (string).
+  'equalizer.preset_loaded': z.object({
+    id: z.string(),
+  }),
+  // Backend: service.py:699 → self._compressor.
+  'equalizer.compressor_changed': CompressorPayloadSchema,
+  // Backend: service.py:784 → self._loudness.
+  'equalizer.loudness_changed': LoudnessPayloadSchema,
 };
