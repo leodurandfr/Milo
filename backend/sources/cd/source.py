@@ -617,6 +617,7 @@ class CdSource(MpvAudioSource):
             self._update_connection_state()
             return self.success_response("Paused")
         except Exception as e:
+            self._logger.error(f"Pause error: {e}")
             return self.error_response(str(e))
 
     async def _handle_resume(self) -> Dict[str, Any]:
@@ -642,6 +643,7 @@ class CdSource(MpvAudioSource):
 
             return self.success_response("Already playing")
         except Exception as e:
+            self._logger.error(f"Resume error: {e}")
             return self.error_response(str(e))
 
     async def _handle_next_track(self) -> Dict[str, Any]:
@@ -691,6 +693,7 @@ class CdSource(MpvAudioSource):
             return self.success_response(f"Seeked to {position}s")
 
         except Exception as e:
+            self._logger.error(f"Seek error: {e}")
             return self.error_response(str(e))
 
     async def _handle_eject(self) -> Dict[str, Any]:
