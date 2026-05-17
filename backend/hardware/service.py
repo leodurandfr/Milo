@@ -1,177 +1,60 @@
 # backend/hardware/service.py
-"""
-Hardware management service — read/write hardware.json configuration.
+"""Hardware management service — read/write hardware.json configuration.
 
-Handles screen type, audio card, and rotary encoder GPIO pin configuration.
-Supports migration from the legacy format (screen type as dict key) to the
-normalized format (screen type as "type" field).
+Handles screen type, audio card, rotary encoder GPIO pins, and IR remote
+configuration. Uses the schema_version protocol — see CLAUDE.md
+§"Development & Coding Guidelines §2" and BREAKING_CHANGES.md.
 """
 import asyncio
 import json
 import logging
-import os
-import tempfile
+from pathlib import Path
 from typing import Optional, Dict, Tuple
 
 from backend.config.constants import HARDWARE_FILE
-from backend.hardware.registry import AUDIO_CARDS, DEFAULT_ROTARY_PINS, DEFAULT_IR_REMOTE
-from backend.shared.decorators import handle_errors
+from backend.hardware.registry import DEFAULT_ROTARY_PINS, DEFAULT_IR_REMOTE
+from backend.shared.persistence import load_versioned_json, save_versioned_json
 
 
 class HardwareService:
-    """Service to read and write hardware configuration (screen, audio, rotary encoder)."""
+    """Service to read and write hardware configuration (screen, audio, rotary encoder, IR)."""
+
+    SCHEMA_VERSION: int = 2
 
     def __init__(self):
-        self.hardware_file = HARDWARE_FILE
+        self.hardware_file: Path = HARDWARE_FILE
         self.logger = logging.getLogger(__name__)
         self._cache: Optional[Dict] = None
 
     # =========================================================================
-    # PRIVATE — load, migrate, ensure cache
+    # PRIVATE — load
     # =========================================================================
 
+    async def initialize(self) -> None:
+        """Pre-load hardware.json so a schema mismatch surfaces at boot.
+
+        Raises SchemaVersionMismatch on version drift; the handler in
+        dependencies.py::init_async logs the banner and SystemExit(1)s.
+        """
+        self._cache = await load_versioned_json(self.hardware_file, self.SCHEMA_VERSION)
+
     def _ensure_cache(self) -> Dict:
-        """Load and cache hardware config, migrating legacy format if needed."""
+        """Sync access path for bootstrap getters called before ``initialize()``.
+
+        Reads the file leniently — schema validation happens in async
+        ``initialize()``. If the file is missing or unreadable, returns ``{}``.
+        """
         if self._cache is None:
-            self._cache = self._load_hardware_config()
+            if self.hardware_file.exists():
+                try:
+                    with open(self.hardware_file, 'r') as f:
+                        self._cache = json.load(f)
+                except (json.JSONDecodeError, OSError) as e:
+                    self.logger.warning(f"hardware sync read fallback: {e}")
+                    self._cache = {}
+            else:
+                self._cache = {}
         return self._cache
-
-    @handle_errors(default={})
-    def _load_hardware_config(self) -> Dict:
-        """Load hardware.json, migrating legacy format transparently."""
-        if not self.hardware_file.exists():
-            self.logger.warning(f"Hardware config file not found: {self.hardware_file}")
-            return {}
-
-        with open(self.hardware_file, 'r') as f:
-            config = json.load(f)
-
-        dirty = False
-
-        # Migrate legacy format if detected
-        migrated = self._migrate_legacy_format(config)
-        if migrated is not None:
-            config = migrated
-            dirty = True
-            self.logger.info("Migrated hardware.json to new format")
-
-        # Backfill default sections introduced by later versions
-        if self._ensure_defaults(config):
-            dirty = True
-
-        if dirty:
-            self._write_sync(config)
-
-        self.logger.info(f"Hardware config loaded: {config}")
-        return config
-
-    def _ensure_defaults(self, config: Dict) -> bool:
-        """Add default sections introduced after the initial schema.
-
-        Mutates `config` in place. Returns True if anything was added.
-        Runs on every load so upgrades from pre-feature versions converge to
-        the current schema without depending on legacy-format detection.
-        """
-        changed = False
-        if 'ir_remote' not in config:
-            config['ir_remote'] = dict(DEFAULT_IR_REMOTE)
-            changed = True
-        return changed
-
-    def _migrate_legacy_format(self, config: Dict) -> Optional[Dict]:
-        """
-        One-time data migration from legacy hardware.json format.
-        Rewrites the file in-place on first load, then uses the new format.
-
-        Legacy: {"screen": {"waveshare_8_dsi": {"resolution": "1280x800"}}}
-        New:    {"screen": {"type": "waveshare_8_dsi", "resolution": "1280x800"}}
-
-        Returns the migrated config, or None if no migration needed.
-        TODO: Remove after all installations have been migrated (v2.x).
-        """
-        screen = config.get('screen', {})
-
-        # Already new format (has "type" key)
-        if 'type' in screen:
-            return None
-
-        # Detect legacy: screen dict has a known screen type as key
-        legacy_types = {'waveshare_7_usb', 'waveshare_8_dsi', 'none'}
-        found_type = None
-        for key in screen:
-            if key in legacy_types:
-                found_type = key
-                break
-
-        if found_type is None:
-            return None
-
-        # Build migrated config
-        migrated = dict(config)
-
-        # Migrate screen section
-        screen_data = screen.get(found_type, {})
-        migrated['screen'] = {
-            'type': found_type,
-            'resolution': screen_data.get('resolution'),
-        }
-
-        # Migrate audio section — add 'id' by reverse-looking up the registry
-        audio = config.get('audio', {})
-        if audio and 'id' not in audio:
-            audio_id = self._resolve_audio_id(audio)
-            migrated['audio'] = {
-                'id': audio_id,
-                **audio,
-            }
-            # Add overlay from registry if missing
-            if audio_id and 'overlay' not in migrated['audio']:
-                card = AUDIO_CARDS.get(audio_id)
-                if card:
-                    migrated['audio']['overlay'] = card['overlay']
-
-        # Add default rotary encoder pins if missing
-        if 'rotary_encoder' not in migrated:
-            migrated['rotary_encoder'] = dict(DEFAULT_ROTARY_PINS)
-
-        return migrated
-
-    @staticmethod
-    def _resolve_audio_id(audio: Dict) -> Optional[str]:
-        """Reverse-lookup audio card ID from overlay + card_name + alsa_control."""
-        overlay = audio.get('overlay', '')
-        card_name = audio.get('card_name', '')
-        alsa_control = audio.get('alsa_control', '')
-
-        # Try exact match on all three fields first (most reliable)
-        for card_id, card in AUDIO_CARDS.items():
-            if (card['overlay'] == overlay
-                    and card['card_name'] == card_name
-                    and card['alsa_control'] == alsa_control):
-                return card_id
-
-        # Fallback: match without overlay (for very old configs missing overlay)
-        for card_id, card in AUDIO_CARDS.items():
-            if card['card_name'] == card_name and card['alsa_control'] == alsa_control:
-                return card_id
-
-        return None
-
-    def _write_sync(self, config: Dict) -> None:
-        """Atomic write to hardware.json (sync, for migration on load)."""
-        dir_path = self.hardware_file.parent
-        fd, tmp_path = tempfile.mkstemp(dir=str(dir_path), suffix='.tmp')
-        try:
-            with os.fdopen(fd, 'w') as f:
-                json.dump(config, f, indent=2)
-            os.replace(tmp_path, str(self.hardware_file))
-        except Exception:
-            # Clean up temp file on failure
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
 
     # =========================================================================
     # PUBLIC — read accessors
@@ -247,7 +130,6 @@ class HardwareService:
         explicit = config.get('audio', {}).get('volume_control')
         if explicit is not None:
             return explicit
-        # Auto-detect from card category
         from backend.hardware.registry import is_dac_card
         audio_id = self.get_audio_id()
         if not audio_id or audio_id == "none":
@@ -278,9 +160,8 @@ class HardwareService:
     # =========================================================================
 
     async def save_config(self, config: Dict) -> None:
-        """Atomic write to hardware.json. Invalidates cache after write."""
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, self._write_sync, config)
+        """Atomic write to hardware.json. Stamps schema_version. Invalidates cache."""
+        await save_versioned_json(self.hardware_file, config, self.SCHEMA_VERSION)
         self._cache = None
 
     async def apply_and_reboot(self) -> None:
