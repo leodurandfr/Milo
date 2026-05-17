@@ -62,7 +62,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import axios from 'axios'
+import { apiCall } from '@/services/apiCall'
 import { useRadioStore } from '@/stores/radioStore'
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore'
 import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility'
@@ -227,13 +227,11 @@ async function handleFavorite() {
 
 // === AVAILABLE COUNTRIES ===
 async function loadAvailableCountries() {
-  try {
-    const response = await axios.get('/api/radio/countries')
-    availableCountries.value = response.data
-  } catch (error) {
-    logger.error('radio', 'Error loading countries:', error)
-    availableCountries.value = []
-  }
+  const result = await apiCall.get('/api/radio/countries', {
+    category: 'radio',
+    message: 'Error loading countries',
+  })
+  availableCountries.value = result.ok ? result.data : []
 }
 
 // === LIFECYCLE ===
