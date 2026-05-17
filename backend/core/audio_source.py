@@ -16,6 +16,7 @@ import asyncio
 import logging
 
 from backend.core.models.audio_state import AudioSource, SourceState
+from backend.shared.background import BackgroundTaskSet
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +94,7 @@ class BaseAudioSource(ABC):
         self._settings_service = settings_service
         self._config = config or {}
         self._logger = logging.getLogger(f"source.{source_id}")
+        self._bg = BackgroundTaskSet(self._logger, f"source.{source_id}")
 
         # Auto-disconnect timer (opt-in, subclasses override _on_auto_disconnect)
         self.auto_disconnect_enabled: bool = False
@@ -165,6 +167,10 @@ class BaseAudioSource(ABC):
         """
         self._logger.info(f"Stopping {self.source_id}")
         self._cancel_pause_timer()
+        # Drain any stale in-flight broadcasts from the previous state.
+        # Done before _do_stop so the broadcasts it emits (e.g. set_state(WAITING))
+        # run to completion after stop() returns.
+        await self._bg.cancel_all()
 
         try:
             success = await self._do_stop()
@@ -529,15 +535,12 @@ class BaseAudioSource(ABC):
             self._metadata.update(metadata)
 
         if self.state_machine:
-            try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(
-                    self.state_machine.update_source_state(
-                        self.source, state, metadata
-                    )
-                )
-            except RuntimeError:
-                pass
+            self._bg.spawn(
+                self.state_machine.update_source_state(
+                    self.source, state, metadata
+                ),
+                label="set_state",
+            )
 
     def _set_active_or_waiting(
         self,
@@ -575,22 +578,19 @@ class BaseAudioSource(ABC):
             sm.metadata["position"] = position
             sm.metadata["duration"] = duration
 
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(
-                self.state_machine.broadcast_event(
-                    "source",
-                    "position_update",
-                    {
-                        "source": self.source.value,
-                        "position": position,
-                        "duration": duration,
-                    },
-                    include_full_state=False,
-                )
-            )
-        except RuntimeError:
-            pass
+        self._bg.spawn(
+            self.state_machine.broadcast_event(
+                "source",
+                "position_update",
+                {
+                    "source": self.source.value,
+                    "position": position,
+                    "duration": duration,
+                },
+                include_full_state=False,
+            ),
+            label="broadcast_position_update",
+        )
 
     def broadcast_error(self, error_message: str) -> None:
         """
@@ -602,21 +602,18 @@ class BaseAudioSource(ABC):
         if not self.state_machine:
             return
 
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(
-                self.state_machine.broadcast_event(
-                    "source",
-                    "state_changed",
-                    {
-                        "source": self.source.value,
-                        "new_state": SourceState.ERROR.value,
-                        "metadata": {"error": error_message}
-                    }
-                )
-            )
-        except RuntimeError:
-            pass
+        self._bg.spawn(
+            self.state_machine.broadcast_event(
+                "source",
+                "state_changed",
+                {
+                    "source": self.source.value,
+                    "new_state": SourceState.ERROR.value,
+                    "metadata": {"error": error_message}
+                }
+            ),
+            label="broadcast_error",
+        )
 
     def broadcast_error_cleared(self) -> None:
         """
@@ -628,17 +625,14 @@ class BaseAudioSource(ABC):
         if not self.state_machine:
             return
 
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(
-                self.state_machine.broadcast_event(
-                    "source",
-                    "error_cleared",
-                    {"source": self.source.value}
-                )
-            )
-        except RuntimeError:
-            pass
+        self._bg.spawn(
+            self.state_machine.broadcast_event(
+                "source",
+                "error_cleared",
+                {"source": self.source.value}
+            ),
+            label="broadcast_error_cleared",
+        )
 
     def success_response(self, message: str = None, **kwargs) -> Dict[str, Any]:
         """
