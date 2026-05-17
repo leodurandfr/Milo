@@ -578,8 +578,15 @@ class PodcastSource(MpvAudioSource):
         try:
             while True:
                 await asyncio.sleep(10)
-                if self._is_playing and self._current_episode:
-                    await self._save_progress()
+                try:
+                    if self._is_playing and self._current_episode:
+                        await self._save_progress()
+                except Exception as e:
+                    # Loop body try/except keeps the task alive on transient I/O
+                    # errors (disk full, lock contention) — otherwise a single
+                    # _save_progress failure would silently kill periodic saves
+                    # until the next backend restart.
+                    self._logger.error(f"Progress save failed (loop continues): {e}")
 
         except asyncio.CancelledError:
             self._logger.debug("Progress save task cancelled")
