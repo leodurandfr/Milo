@@ -99,12 +99,12 @@ class PlaybackDispatcher:
             if active_source == AudioSource.SPOTIFY:
                 await source_instance.command("playpause", {})
             elif active_source == AudioSource.RADIO:
-                if source_instance._is_playing:
+                if source_instance.is_playing:
                     await source_instance.command("stop_playback", {})
                 else:
                     await source_instance.command("resume_playback", {})
             elif active_source in (AudioSource.PODCAST, AudioSource.CD):
-                if source_instance._is_playing:
+                if source_instance.is_playing:
                     await source_instance.command("pause", {})
                 else:
                     await source_instance.command("resume", {})

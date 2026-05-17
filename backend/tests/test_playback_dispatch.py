@@ -43,7 +43,7 @@ class TestPublicDispatchMethods:
     @pytest.mark.asyncio
     async def test_dispatch_play_pause_radio_when_playing(self):
         source = MagicMock()
-        source._is_playing = True
+        source.is_playing = True
         source.command = AsyncMock()
         sm = _make_state_machine(AudioSource.RADIO, source)
 
@@ -55,7 +55,7 @@ class TestPublicDispatchMethods:
     @pytest.mark.asyncio
     async def test_dispatch_play_pause_radio_when_paused(self):
         source = MagicMock()
-        source._is_playing = False
+        source.is_playing = False
         source.command = AsyncMock()
         sm = _make_state_machine(AudioSource.RADIO, source)
 
