@@ -9,6 +9,9 @@ Tests cover:
 - Command handling (play, pause, seek, speed)
 - Data service operations
 """
+import json
+from pathlib import Path
+
 import pytest
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
@@ -16,6 +19,7 @@ from backend.sources.podcast.source import PodcastSource
 from backend.sources.podcast.data import PodcastDataService
 from backend.core.audio_source import BaseAudioSource
 from backend.core.models.audio_state import SourceState
+from backend.shared.persistence import SchemaVersionMismatch
 
 
 @pytest.fixture
@@ -39,6 +43,11 @@ def podcast_source(config):
     source._service_manager.stop = AsyncMock(return_value=True)
     source._service_manager.restart = AsyncMock(return_value=True)
     source._service_manager.is_active = AsyncMock(return_value=True)
+
+    # Mock podcast data service so tests don't touch the real /var/lib/milo file.
+    # Individual tests can override these methods or replace _podcast_data entirely.
+    source._podcast_data = AsyncMock()
+    source._podcast_data.get_setting = AsyncMock(return_value=1.0)
 
     return source
 
@@ -342,18 +351,41 @@ class TestPodcastDataService:
         assert structure["subscriptions"] == []
         assert structure["playback_progress"] == {}
 
-    @pytest.mark.asyncio
-    async def test_ensure_structure(self):
-        """Test ensure_structure adds missing keys."""
+    def test_validate_required_keys_passes_on_full_structure(self):
+        """Validation accepts a complete top-level shape."""
         service = PodcastDataService()
+        service._validate_required_keys(service._get_default_structure())
 
-        # Minimal data
-        data = {}
-        ensured, _ = service._ensure_structure(data)
+    def test_validate_required_keys_raises_on_missing_keys(self):
+        """Validation fails loud when a top-level key is missing."""
+        service = PodcastDataService()
+        with pytest.raises(RuntimeError, match="missing required keys"):
+            service._validate_required_keys({"subscriptions": []})
 
-        assert "subscriptions" in ensured
-        assert "playback_progress" in ensured
-        assert "settings" in ensured
+    @pytest.mark.asyncio
+    async def test_initialize_seeds_defaults_on_fresh_install(self, tmp_path):
+        """Fresh install (no file): initialize() seeds defaults stamped with schema_version."""
+        service = PodcastDataService()
+        service._data_file = tmp_path / "podcast_data.json"
+
+        await service.initialize()
+
+        assert service._data_file.exists()
+        payload = json.loads(service._data_file.read_text())
+        assert payload["schema_version"] == PodcastDataService.SCHEMA_VERSION
+        assert payload["subscriptions"] == []
+        assert payload["playback_progress"] == {}
+        assert payload["settings"]["playback_speed"] == 1.0
+
+    @pytest.mark.asyncio
+    async def test_initialize_raises_on_schema_mismatch(self, tmp_path):
+        """Existing file without schema_version triggers SchemaVersionMismatch."""
+        service = PodcastDataService()
+        service._data_file = tmp_path / "podcast_data.json"
+        service._data_file.write_text(json.dumps({"subscriptions": []}))
+
+        with pytest.raises(SchemaVersionMismatch):
+            await service.initialize()
 
     @pytest.mark.asyncio
     async def test_settings_defaults(self):

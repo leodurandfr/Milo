@@ -27,6 +27,12 @@ When you bump a `SCHEMA_VERSION` in a service, add an entry here with the file p
 - Action: `rm /var/lib/milo/settings.json && sudo systemctl restart milo-backend`
 - Impact: full reset to factory defaults — language, volume limits + startup volume + step sizes, screen (timeout, brightness, screensaver, color filter, UI scale), dock layout, routing (multiroom toggle, equalizer effects toggle), Mac ROC latency profile, audio auto-disconnect delay, radio Shazam toggle, WiFi country, podcast Taddy credentials, BT/IR remote pairing, multiroom client overrides — all reset. Snapshot the file before upgrade if you want to retype your settings: `cat /var/lib/milo/settings.json`.
 
+## 2026-05-17 — podcast_data.json schema_version → 1
+
+- Reason: removal of `_ensure_structure` (auto-injected the `subscriptions`, `playback_progress`, `cache`, `settings` top-level keys + re-saved silently) and the dead `cache.{episodes,podcasts}` / `settings.safe_mode` blocks the loader had to seed. The loader now validates required keys (`subscriptions`, `playback_progress`, `settings`) fail-loud — pre-existing `podcast_data.json` files lack the `schema_version` field, so the load fails loud on first boot after upgrade.
+- Action: `rm /var/lib/milo/podcast_data.json && sudo systemctl restart milo-backend`
+- Impact: all podcast subscriptions, playback progress (resume positions, completed flags), and per-podcast settings (playback speed) are reset — the user has to re-subscribe to each podcast and restart any in-progress episode from the beginning. Snapshot the file before upgrade if you want to retype your subscriptions: `cat /var/lib/milo/podcast_data.json`.
+
 ## 2026-05-17 — hardware.json schema_version → 2
 
 - Reason: removal of `_migrate_legacy_format` + `_resolve_audio_id` (~80 lines) — they folded the pre-`type`-field screen format (`{"screen": {"waveshare_8_dsi": {...}}}` → `{"screen": {"type": "waveshare_8_dsi", ...}}`) and back-resolved the `audio.id` field on first load. Removal of `_ensure_defaults` — it silently injected the `ir_remote` block on every load via `setdefault`, violating the loader doctrine. Pre-existing `hardware.json` files lack the `schema_version` field, so the load now fails loud.

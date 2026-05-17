@@ -72,6 +72,12 @@ class PodcastSource(MpvAudioSource):
         # Tasks
         self._progress_save_task: Optional[asyncio.Task] = None
 
+    async def initialize(self) -> bool:
+        """Pre-load podcast_data.json so a schema mismatch surfaces at boot."""
+        await self._podcast_data.initialize()
+        self._initialized = True
+        return True
+
     def _reset_playback_state(self) -> None:
         super()._reset_playback_state()
         self._current_episode = None

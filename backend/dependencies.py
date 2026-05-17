@@ -406,6 +406,7 @@ def initialize_services() -> None:
     # Get sources that need early init
     radio_source = get_service("radio_source")
     cd_source = get_service("cd_source")
+    podcast_source = get_service("podcast_source")
 
     async def init_async():
         """Async initialization with error handling."""
@@ -431,6 +432,8 @@ def initialize_services() -> None:
             ("radio_source", radio_source.initialize()),
             # CD disc watcher needs early init for auto-detection
             ("cd_source", cd_source.initialize()),
+            # Podcast persistence schema check (fail-loud on schema_version drift)
+            ("podcast_source", podcast_source.initialize()),
             # mDNS hostname conflict detection (fail-open, never raises)
             ("hostname_conflict_service", hostname_conflict_service.check()),
             # Internet connectivity monitoring (D-Bus subscription, fail-open)
