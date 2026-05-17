@@ -18,6 +18,7 @@ from typing import Dict, Any, Optional, TYPE_CHECKING
 
 import aiohttp
 
+from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
 from backend.config.constants import CLIENT_API_PORT as _CLIENT_API_PORT
 from backend.core.multiroom.models import (
@@ -66,6 +67,7 @@ class CrossoverService:
         # Background retry tasks keyed by client_id — one per client at most.
         # Tracked for deduplication and clean cancellation on shutdown.
         self._retry_tasks: Dict[str, asyncio.Task] = {}
+        self._bg = BackgroundTaskSet(self.logger, "crossover")
 
     def set_state_machine(self, state_machine) -> None:
         """Set reference to UnifiedAudioStateMachine for event broadcasting."""
@@ -732,13 +734,14 @@ class CrossoverService:
 
     # === Retry Tasks ===
 
-    def _create_retry_task(self, client_id: str, coro) -> asyncio.Task:
+    def _create_retry_task(self, client_id: str, coro) -> Optional[asyncio.Task]:
         """Create a background retry task, cancelling any existing one for this client."""
-        existing = self._retry_tasks.get(client_id)
+        existing = self._retry_tasks.pop(client_id, None)
         if existing and not existing.done():
             existing.cancel()
-        task = asyncio.create_task(coro)
-        self._retry_tasks[client_id] = task
+        task = self._bg.spawn(coro, label=f"retry_{client_id}")
+        if task is not None:
+            self._retry_tasks[client_id] = task
         return task
 
     @handle_errors(default=None, level='debug')
@@ -773,12 +776,8 @@ class CrossoverService:
 
     async def cleanup(self) -> None:
         """Clean up resources."""
-        # Cancel pending retry tasks
-        for task in self._retry_tasks.values():
-            task.cancel()
-        if self._retry_tasks:
-            await asyncio.gather(*self._retry_tasks.values(), return_exceptions=True)
-            self._retry_tasks.clear()
+        await self._bg.cancel_all()
+        self._retry_tasks.clear()
 
         self._pending_settings.clear()
         self.logger.info("CrossoverService cleanup complete")

@@ -20,6 +20,7 @@ from backend.core.multiroom.client_registry import (
     REGISTRY_EVENT_TYPE_MAP,
 )
 from backend.config.constants import CLIENT_API_PORT, DEFAULT_VOLUME_DB, get_client_display_name
+from backend.shared.background import BackgroundTaskSet
 
 
 class SnapcastWebSocketService:
@@ -63,7 +64,7 @@ class SnapcastWebSocketService:
 
         # Background tasks (fire-and-forget sync, config push, etc.)
         # Tracked so they can be cancelled cleanly in stop_connection().
-        self._background_tasks: set = set()
+        self._bg = BackgroundTaskSet(self.logger, "snapcast_ws")
 
         # Initialization state - suppress verbose logs during startup
         self._is_initializing = False
@@ -104,7 +105,7 @@ class SnapcastWebSocketService:
 
             if self.should_connect:
                 self.logger.info("Multiroom already enabled, starting WebSocket connection")
-                self.reconnect_task = asyncio.create_task(self._connection_loop())
+                self.reconnect_task = self._bg.spawn(self._connection_loop(), label="connection_loop")
             else:
                 self.logger.info("Multiroom disabled, WebSocket will connect when multiroom is enabled")
 
@@ -122,7 +123,7 @@ class SnapcastWebSocketService:
         self.should_connect = True
 
         if not self.reconnect_task and self.running:
-            self.reconnect_task = asyncio.create_task(self._connection_loop())
+            self.reconnect_task = self._bg.spawn(self._connection_loop(), label="connection_loop")
 
     async def stop_connection(self) -> None:
         """Stop WebSocket connection when multiroom is disabled."""
@@ -132,23 +133,11 @@ class SnapcastWebSocketService:
         self.logger.info("Stopping Snapcast WebSocket connection (multiroom disabled)")
         self.should_connect = False
 
-        # Cancel reconnection task
-        if self.reconnect_task:
-            self.reconnect_task.cancel()
-            try:
-                await self.reconnect_task
-            except asyncio.CancelledError:
-                pass
-            self.reconnect_task = None
-
-        # Cancel all in-flight background tasks (sync retries, config push, etc.)
-        if self._background_tasks:
-            self.logger.info(f"Cancelling {len(self._background_tasks)} background tasks")
-            for task in list(self._background_tasks):
-                task.cancel()
-            await asyncio.gather(*self._background_tasks, return_exceptions=True)
-            self._background_tasks.clear()
-            self._syncing_mac_ids.clear()
+        # Cancel all in-flight background tasks (connection loop, sync retries,
+        # config push, etc.)
+        await self._bg.cancel_all()
+        self.reconnect_task = None
+        self._syncing_mac_ids.clear()
 
         # Close current WebSocket connection
         if self.websocket:
@@ -173,19 +162,7 @@ class SnapcastWebSocketService:
         self.running = False
         self.should_connect = False
 
-        # Cancel background tasks
-        for task in list(self._background_tasks):
-            task.cancel()
-        if self._background_tasks:
-            await asyncio.gather(*self._background_tasks, return_exceptions=True)
-            self._background_tasks.clear()
-
-        if self.reconnect_task:
-            self.reconnect_task.cancel()
-            try:
-                await self.reconnect_task
-            except asyncio.CancelledError:
-                pass
+        await self._bg.cancel_all()
 
         if self.websocket:
             await self.websocket.close()
@@ -237,13 +214,6 @@ class SnapcastWebSocketService:
         """Set PendingClientsService dependency."""
         self._pending_clients_service = service
 
-    def _create_tracked_task(self, coro) -> asyncio.Task:
-        """Create a background task that is tracked for cleanup on stop."""
-        task = asyncio.create_task(coro)
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
-        return task
-
     async def _connection_loop(self) -> None:
         """Connection loop with intelligent reconnection."""
         reconnect_delay = 5
@@ -283,7 +253,7 @@ class SnapcastWebSocketService:
             # Initialize already connected clients
             self._is_initializing = True
             await self._initialize_existing_clients()
-            asyncio.create_task(self._clear_init_flag_after_delay(2.0))
+            self._bg.spawn(self._clear_init_flag_after_delay(2.0), label="clear_init_flag")
 
             # Signal that WebSocket is ready
             self._ready_event.set()
@@ -481,8 +451,9 @@ class SnapcastWebSocketService:
                 # Sync volume then set online. The sync task owns the
                 # _syncing_mac_ids guard and clears it when done.
                 if client["online"]:
-                    self._create_tracked_task(
-                        self._sync_reconnecting_client_volume(mac_id, set_online_after=True)
+                    self._bg.spawn(
+                        self._sync_reconnecting_client_volume(mac_id, set_online_after=True),
+                        label=f"sync_new_client_{mac_id}",
                     )
 
     async def _process_disconnected_clients(self, current_mac_ids: set, known_mac_ids: set) -> None:
@@ -512,8 +483,9 @@ class SnapcastWebSocketService:
                     # sets online after hardware confirms volume (set_online_after=True).
                     # This prevents a window where the frontend shows the client
                     # at a stale volume before sync completes.
-                    self._create_tracked_task(
-                        self._sync_reconnecting_client_volume(mac_id, set_online_after=True)
+                    self._bg.spawn(
+                        self._sync_reconnecting_client_volume(mac_id, set_online_after=True),
+                        label=f"sync_reconnect_{mac_id}",
                     )
                 elif self.registry:
                     # Client going offline: update immediately
@@ -603,7 +575,10 @@ class SnapcastWebSocketService:
 
             # Push snapclient buffer config to remote clients (fire-and-forget)
             if not is_local:
-                self._create_tracked_task(self._push_snapclient_config(client_ip))
+                self._bg.spawn(
+                    self._push_snapclient_config(client_ip),
+                    label=f"push_snapclient_config_{client_ip}",
+                )
         finally:
             self._syncing_mac_ids.discard(mac_id)
 
