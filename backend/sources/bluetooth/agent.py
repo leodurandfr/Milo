@@ -26,7 +26,7 @@ class BluetoothAgent(ServiceInterface):
 
     def __init__(self):
         """Initialize agent with unique path."""
-        self._logger = logging.getLogger("feature.bluetooth.agent")
+        self._logger = logging.getLogger("source.bluetooth.agent")
         self._path = f"/org/milo/agent_{uuid.uuid4().hex[:8]}"
         super().__init__('org.bluez.Agent1')
         self._bus: Optional[MessageBus] = None

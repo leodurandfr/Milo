@@ -30,12 +30,9 @@ class SpotifySource(BaseAudioSource):
     """
     Spotify audio source using go-librespot.
 
-    Implements AudioSource Protocol with:
-    - start(): Start go-librespot service and WebSocket
-    - stop(): Stop service and cleanup
-    - restart(): Restart service with state reset
-    - status(): Get current status with metadata
-    - command(): Handle playback commands
+    Family C (active player): controlled from Milō's UI via go-librespot
+    WebSocket. No dedicated routes.py — commands flow through the generic
+    `/api/audio/control/spotify` endpoint. Extends BaseAudioSource.
     """
 
     def __init__(

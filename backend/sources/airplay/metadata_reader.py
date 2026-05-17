@@ -39,7 +39,7 @@ from typing import Callable, Dict, Any, Optional
 
 from backend.shared.decorators import handle_errors
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("source.airplay.metadata")
 
 # Hex-decode helper: converts hex string to ASCII
 def _hex_to_str(hex_str: str) -> str:

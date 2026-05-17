@@ -31,12 +31,8 @@ class RadioSource(MpvAudioSource):
     """
     Radio audio source using MPV.
 
-    Implements AudioSource Protocol with:
-    - start(): Start MPV service and connect IPC
-    - stop(): Stop playback and service
-    - restart(): Restart service with state reset
-    - status(): Get current status with metadata
-    - command(): Handle playback and station commands
+    Family C (active player): controlled from Milō's UI. Extends MpvAudioSource
+    (BaseAudioSource subclass) — implements playback and station commands.
     """
 
     def __init__(
