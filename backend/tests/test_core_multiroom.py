@@ -1265,7 +1265,7 @@ class TestSnapcastService:
     def test_validate_config_valid(self, snapcast_service):
         """Test config validation with valid config."""
         config = {
-            "buffer": 500,
+            "buffer_ms": 500,
             "codec": "flac",
             "chunk_ms": 20
         }
@@ -1273,7 +1273,7 @@ class TestSnapcastService:
 
     def test_validate_config_invalid_buffer(self, snapcast_service):
         """Test config validation with invalid buffer."""
-        config = {"buffer": 50}  # Too small
+        config = {"buffer_ms": 50}  # Too small
         assert snapcast_service._validate_config(config) is False
 
     def test_validate_config_invalid_codec(self, snapcast_service):
