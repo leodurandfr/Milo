@@ -103,7 +103,7 @@ export const usePodcastStore = defineStore('podcast', () => {
       throw new Error(result.error?.detail || 'Failed to play episode');
     }
     // State will be updated via WebSocket broadcast from backend
-    // pendingEpisodeUuid will be cleared in handleStateUpdate()
+    // pendingEpisodeUuid will be cleared in _applyMetadata()
   }
 
   async function pause() {
@@ -175,11 +175,10 @@ export const usePodcastStore = defineStore('podcast', () => {
 
   // === WEBSOCKET STATE HANDLER ===
 
-  function handleStateUpdate(data) {
-    // Update from WebSocket broadcast
-    // Extract metadata from nested structure (data.metadata) or use data directly
-    const metadata = data.metadata || data;
-
+  // Applies an already-flat metadata object to the podcast store state.
+  // Callers are responsible for extracting metadata from whichever envelope
+  // they receive (initial_state payload vs source.state_changed event).
+  function _applyMetadata(metadata) {
     // Handle episode end FIRST (before updating any other state)
     if (metadata.episode_ended === true) {
       // Clear currentEpisode immediately (for state consistency)
@@ -237,23 +236,27 @@ export const usePodcastStore = defineStore('podcast', () => {
     // They are updated by the unified audio state machine via WebSocket
   }
 
-  function handleSourceEvent(event) {
-    // Handle WebSocket source events for podcast
-    if (event.origin !== 'podcast') {
-      return;
-    }
+  // Called from App.vue on system.initial_state / system.state_changed when
+  // full_state.active_source === 'podcast' and metadata is already flat.
+  function handleInitialMetadata(metadata) {
+    _applyMetadata(metadata);
+  }
 
+  // Called from App.vue on source.state_changed; metadata is nested under
+  // event.data.metadata (the event also carries old_state/new_state).
+  function handleSourceEvent(event) {
+    if (event.origin !== 'podcast') return;
     if (event.type === 'state_changed') {
-      handleStateUpdate(event.data || {});
+      _applyMetadata(event.data?.metadata || {});
     }
   }
 
-  function handlePositionUpdate(event) {
-    if (event.data?.source !== 'podcast') return;
-    const { position, duration } = event.data;
-    // position_update sends milliseconds; podcastStore uses seconds
-    if (position !== undefined) currentPosition.value = Math.floor(position / 1000);
-    if (duration !== undefined) currentDuration.value = Math.floor(duration / 1000);
+  // Called from App.vue on source.position_update; payload validated via
+  // schemas/ws.js → 'source.position_update'. Position/duration in ms.
+  function handlePositionUpdate(payload) {
+    if (payload.source !== 'podcast') return;
+    currentPosition.value = Math.floor(payload.position / 1000);
+    currentDuration.value = Math.floor(payload.duration / 1000);
   }
 
   // === PENDING STATE HELPER ===
@@ -555,7 +558,7 @@ export const usePodcastStore = defineStore('podcast', () => {
     setSpeed,
     loadSettings,
     updateSettings,
-    handleStateUpdate,
+    handleInitialMetadata,
     handleSourceEvent,
     handlePositionUpdate,
     clearState,

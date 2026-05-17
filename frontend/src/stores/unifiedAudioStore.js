@@ -180,13 +180,12 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     }
   }
 
-  function updatePosition(event) {
-    const { source, position, duration } = event.data || {};
+  function updatePosition(payload) {
     // Ignore stale events from a previous source during transitions
-    if (source !== systemState.value.active_source) return;
+    if (payload.source !== systemState.value.active_source) return;
     if (systemState.value.metadata) {
-      if (position !== undefined) systemState.value.metadata.position = position;
-      if (duration !== undefined) systemState.value.metadata.duration = duration;
+      systemState.value.metadata.position = payload.position;
+      systemState.value.metadata.duration = payload.duration;
     }
   }
 

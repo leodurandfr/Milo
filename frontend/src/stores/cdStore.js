@@ -61,34 +61,45 @@ export const useCdStore = defineStore('cd', () => {
   }
 
   // === WEBSOCKET EVENT HANDLERS ===
+
+  // Applies an already-flat CD metadata object to the store state.
+  function _applyMetadata(metadata) {
+    // Disc info
+    if (metadata.disc_id !== undefined) {
+      discInfo.value = {
+        disc_id: metadata.disc_id,
+        album: metadata.album,
+        artist: metadata.artist,
+        year: metadata.year,
+        album_art_url: metadata.album_art_url,
+        track_count: metadata.track_count,
+      };
+      discPresent.value = !!metadata.disc_id;
+    }
+
+    // Track list
+    if (metadata.tracks !== undefined) {
+      tracks.value = metadata.tracks || [];
+    }
+
+    // Playback state
+    if (metadata.current_track !== undefined) {
+      currentTrack.value = metadata.current_track;
+    }
+  }
+
+  // Called from App.vue on system.initial_state / system.state_changed when
+  // full_state.active_source === 'cd' and metadata is already flat.
+  function handleInitialMetadata(metadata) {
+    _applyMetadata(metadata);
+  }
+
+  // Called from App.vue on source.state_changed; metadata is nested under
+  // event.data.metadata (the event also carries old_state/new_state).
   function handleSourceEvent(event) {
     if (event.origin !== 'cd') return;
-
     if (event.type === 'state_changed') {
-      const metadata = event.data?.metadata || event.data || {};
-
-      // Disc info
-      if (metadata.disc_id !== undefined) {
-        discInfo.value = {
-          disc_id: metadata.disc_id,
-          album: metadata.album,
-          artist: metadata.artist,
-          year: metadata.year,
-          album_art_url: metadata.album_art_url,
-          track_count: metadata.track_count,
-        };
-        discPresent.value = !!metadata.disc_id;
-      }
-
-      // Track list
-      if (metadata.tracks !== undefined) {
-        tracks.value = metadata.tracks || [];
-      }
-
-      // Playback state
-      if (metadata.current_track !== undefined) {
-        currentTrack.value = metadata.current_track;
-      }
+      _applyMetadata(event.data?.metadata || {});
     }
   }
 
@@ -124,6 +135,7 @@ export const useCdStore = defineStore('cd', () => {
     toggleTracklist,
 
     // WS handlers
+    handleInitialMetadata,
     handleSourceEvent,
     handleSystemEvent,
   };

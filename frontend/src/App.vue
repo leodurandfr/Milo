@@ -165,10 +165,10 @@ function processInitialState(event) {
 
   const fullState = event.data?.full_state;
   if (fullState?.active_source === 'podcast' && fullState?.metadata) {
-    podcastStore.handleStateUpdate(fullState.metadata);
+    podcastStore.handleInitialMetadata(fullState.metadata);
   }
   if (fullState?.active_source === 'cd' && fullState?.metadata) {
-    cdStore.handleSourceEvent({ origin: 'cd', type: 'state_changed', data: { metadata: fullState.metadata } });
+    cdStore.handleInitialMetadata(fullState.metadata);
   }
 
   if (isBootComplete.value && showDockFn && unifiedStore.systemState.active_source === 'none') {
@@ -461,10 +461,11 @@ onMounted(async () => {
         currentError.value = { title: `${capitalize(source)} Error`, detail: error };
       }
     }),
-    on('source', 'position_update', (event) => {
-      unifiedStore.updatePosition(event);
-      podcastStore.handlePositionUpdate(event);
-    }),
+    parsedOn('source', 'position_update', wsEventRegistry['source.position_update'],
+             (payload) => {
+               unifiedStore.updatePosition(payload);
+               podcastStore.handlePositionUpdate(payload);
+             }),
     on('source', 'error_cleared', () => {
       // Auto-dismiss error notification when the error condition is resolved
       currentError.value = null;
