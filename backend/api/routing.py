@@ -5,7 +5,7 @@ API routes for audio routing management
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from backend.core.models.audio_state import AudioSource
+from backend.api.route_helpers import coerce_audio_source_or_none
 
 
 class MultiroomRequest(BaseModel):
@@ -23,13 +23,7 @@ def create_routing_router(routing_service, state_machine):
             multiroom_enabled = request.enabled
 
             current_state = state_machine.get_current_state()
-            active_source = None
-
-            if current_state["active_source"] != "none":
-                try:
-                    active_source = AudioSource(current_state["active_source"])
-                except ValueError:
-                    pass
+            active_source = coerce_audio_source_or_none(current_state["active_source"])
 
             success = await routing_service.set_multiroom_enabled(multiroom_enabled, active_source)
             if not success:

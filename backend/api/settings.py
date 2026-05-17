@@ -5,6 +5,7 @@ Settings Routes – Version with app deactivation and process stopping
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from typing import Any, Callable, Dict, Optional
 from backend.core.models.audio_state import AudioSource
+from backend.api.route_helpers import coerce_audio_source_or_none
 from backend.sources.podcast.taddy_api import TaddyAPI
 from backend.config.constants import DEFAULT_VOLUME_DB, DEFAULT_DOCK_APPS, AUDIO_SOURCE_APPS
 from backend.api.models import (
@@ -390,12 +391,7 @@ def create_settings_router(
                     elif app == 'multiroom':
                         # Get the active source for source restart
                         current_state = state_machine.get_current_state()
-                        active_source = None
-                        if current_state["active_source"] != "none":
-                            try:
-                                active_source = AudioSource(current_state["active_source"])
-                            except ValueError:
-                                pass
+                        active_source = coerce_audio_source_or_none(current_state["active_source"])
 
                         # set_multiroom_enabled owns the full transition: source restart,
                         # snapcast stop, settings + routing.env writes, and broadcast.
@@ -407,12 +403,7 @@ def create_settings_router(
                     elif app == 'equalizer':
                         # Get the active source to restart the source
                         current_state = state_machine.get_current_state()
-                        active_source = None
-                        if current_state["active_source"] != "none":
-                            try:
-                                active_source = AudioSource(current_state["active_source"])
-                            except ValueError:
-                                pass
+                        active_source = coerce_audio_source_or_none(current_state["active_source"])
 
                         operations_log.append("Disabling equalizer effects")
                         logger.info(f"Disabling equalizer effects for active source: {active_source.value if active_source else 'none'}")
@@ -431,12 +422,7 @@ def create_settings_router(
                     elif app == 'multiroom':
                         # Get the active source for source restart
                         current_state = state_machine.get_current_state()
-                        active_source = None
-                        if current_state["active_source"] != "none":
-                            try:
-                                active_source = AudioSource(current_state["active_source"])
-                            except ValueError:
-                                pass
+                        active_source = coerce_audio_source_or_none(current_state["active_source"])
 
                         # set_multiroom_enabled owns the full transition: source restart,
                         # snapcast start, settings + routing.env writes, and broadcast.
@@ -448,12 +434,7 @@ def create_settings_router(
                     elif app == 'equalizer':
                         # Get the active source to restart the source
                         current_state = state_machine.get_current_state()
-                        active_source = None
-                        if current_state["active_source"] != "none":
-                            try:
-                                active_source = AudioSource(current_state["active_source"])
-                            except ValueError:
-                                pass
+                        active_source = coerce_audio_source_or_none(current_state["active_source"])
 
                         operations_log.append("Enabling equalizer effects")
                         logger.info(f"Enabling equalizer effects for active source: {active_source.value if active_source else 'none'}")
