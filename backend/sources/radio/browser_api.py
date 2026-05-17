@@ -153,7 +153,7 @@ class RadioBrowserAPI:
 
         return deduplicated_stations
 
-    async def _fetch_station_by_id(self, station_id: str) -> Optional[Dict[str, Any]]:
+    async def fetch_remote_station(self, station_id: str) -> Optional[Dict[str, Any]]:
         """
         Gets station by ID via the API
 
@@ -671,7 +671,7 @@ class RadioBrowserAPI:
                 return custom_station
 
         # Get directly from API
-        station = await self._fetch_station_by_id(station_id)
+        station = await self.fetch_remote_station(station_id)
 
         return station
 
@@ -707,7 +707,7 @@ class RadioBrowserAPI:
         # Get regular stations
         for station_id in regular_ids:
             # Fetch from API
-            station = await self._fetch_station_by_id(station_id)
+            station = await self.fetch_remote_station(station_id)
 
             if station:
                 stations.append(station)
