@@ -1,7 +1,6 @@
 // frontend/src/stores/settingsStore.js
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import axios from 'axios';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
 
@@ -148,10 +147,13 @@ export const useSettingsStore = defineStore('settings', () => {
     if (isLoading.value) return;
 
     isLoading.value = true;
-    await apiCall('settings', 'Error loading settings:', async () => {
-      const bulkResponse = await axios.get('/api/settings/bulk').catch(() => ({ data: null }));
+    try {
+      const bulkResult = await apiCall.get('/api/settings/bulk', {
+        category: 'settings',
+        message: 'Error loading settings',
+      });
 
-      const d = bulkResponse.data;
+      const d = bulkResult.ok ? bulkResult.data : null;
       if (d) {
         language.value = d.language ?? 'english';
 
@@ -232,8 +234,9 @@ export const useSettingsStore = defineStore('settings', () => {
 
       hasLoaded.value = true;
       logger.info('settings', 'All settings loaded successfully');
-    });
-    isLoading.value = false;
+    } finally {
+      isLoading.value = false;
+    }
   }
 
   /**
@@ -301,12 +304,15 @@ export const useSettingsStore = defineStore('settings', () => {
    * Refresh podcast credentials status (after validation/save)
    */
   async function refreshPodcastCredentialsStatus() {
-    await apiCall('settings', 'Error refreshing podcast credentials status:', async () => {
-      const response = await axios.get('/api/settings/podcast-credentials/status');
-      podcastCredentialsStatus.value = response.data.status ?? 'error';
-      podcastApiUsage.value = response.data.requests_used ?? null;
-      podcastCredentialsValidatedAt.value = response.data.credentials_validated_at ?? null;
+    const result = await apiCall.get('/api/settings/podcast-credentials/status', {
+      category: 'settings',
+      message: 'Error refreshing podcast credentials status',
     });
+    if (result.ok) {
+      podcastCredentialsStatus.value = result.data.status ?? 'error';
+      podcastApiUsage.value = result.data.requests_used ?? null;
+      podcastCredentialsValidatedAt.value = result.data.credentials_validated_at ?? null;
+    }
   }
 
   // === BT REMOTE ACTIONS ===
@@ -329,11 +335,14 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   async function loadBtRemoteStatus() {
-    await apiCall('settings', 'Error loading BT remote status:', async () => {
-      const res = await axios.get('/api/bt-remote/status');
-      btRemote.value.enabled = res.data.enabled ?? false;
-      updateBtRemoteStatus(res.data);
+    const result = await apiCall.get('/api/bt-remote/status', {
+      category: 'settings',
+      message: 'Error loading BT remote status',
     });
+    if (result.ok) {
+      btRemote.value.enabled = result.data.enabled ?? false;
+      updateBtRemoteStatus(result.data);
+    }
   }
 
   async function toggleBtRemote(enabled) {
@@ -344,31 +353,37 @@ export const useSettingsStore = defineStore('settings', () => {
       btRemote.value.device_name = '';
       btRemote.value.discovering = true;
     }
-    const result = await apiCall('settings', 'Error toggling BT remote:', async () => {
-      await axios.patch('/api/bt-remote/config', { enabled });
-      return true;
+    const result = await apiCall.patch('/api/bt-remote/config', { enabled }, {
+      category: 'settings',
+      message: 'Error toggling BT remote',
     });
-    if (!result) {
+    if (!result.ok) {
       Object.assign(btRemote.value, prev);
     }
   }
 
   async function fetchBtRemoteBattery() {
-    await apiCall('settings', 'Error fetching BT remote battery:', async () => {
-      const res = await axios.get('/api/bt-remote/battery');
-      const devices = res.data.devices || [];
-      btRemote.value.battery_percentage = devices[0]?.battery_percentage ?? null;
+    const result = await apiCall.get('/api/bt-remote/battery', {
+      category: 'settings',
+      message: 'Error fetching BT remote battery',
     });
+    if (result.ok) {
+      const devices = result.data.devices || [];
+      btRemote.value.battery_percentage = devices[0]?.battery_percentage ?? null;
+    }
   }
 
   async function discoverBtRemote() {
     btRemote.value.discovering = true;
-    const result = await apiCall('settings', 'Error discovering BT remote:', async () => {
-      const res = await axios.post('/api/bt-remote/discover');
-      return res.data.status;
+    const result = await apiCall.post('/api/bt-remote/discover', null, {
+      category: 'settings',
+      message: 'Error discovering BT remote',
     });
-    if (!result) btRemote.value.discovering = false;
-    return result;
+    if (!result.ok) {
+      btRemote.value.discovering = false;
+      return false;
+    }
+    return result.data.status;
   }
 
   // === IR REMOTE ACTIONS ===
@@ -386,21 +401,25 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   async function loadIrRemoteStatus() {
-    await apiCall('settings', 'Error loading IR remote status:', async () => {
-      const res = await axios.get('/api/ir-remote/status');
-      applyIrRemoteStatus(res.data);
+    const result = await apiCall.get('/api/ir-remote/status', {
+      category: 'settings',
+      message: 'Error loading IR remote status',
     });
+    if (result.ok) {
+      applyIrRemoteStatus(result.data);
+    }
   }
 
   async function toggleIrRemote(enabled) {
     const prev = { ...irRemote.value };
     irRemote.value.enabled = enabled;
-    const result = await apiCall('settings', 'Error toggling IR remote:', async () => {
-      const res = await axios.patch('/api/ir-remote/config', { enabled });
-      applyIrRemoteStatus(res.data);
-      return true;
+    const result = await apiCall.patch('/api/ir-remote/config', { enabled }, {
+      category: 'settings',
+      message: 'Error toggling IR remote',
     });
-    if (!result) {
+    if (result.ok) {
+      applyIrRemoteStatus(result.data);
+    } else {
       Object.assign(irRemote.value, prev);
     }
   }
@@ -411,26 +430,30 @@ export const useSettingsStore = defineStore('settings', () => {
    *     device_id?: number, message?: string }
    */
   async function startIrRemotePairing() {
-    return await apiCall('settings', 'Error starting IR pairing:', async () => {
-      const res = await axios.post('/api/ir-remote/pair');
-      return res.data;
+    const result = await apiCall.post('/api/ir-remote/pair', null, {
+      category: 'settings',
+      message: 'Error starting IR pairing',
     });
+    return result.ok ? result.data : false;
   }
 
   async function cancelIrRemotePairing() {
-    return await apiCall('settings', 'Error cancelling IR pairing:', async () => {
-      const res = await axios.post('/api/ir-remote/pair/cancel');
-      return res.data;
+    const result = await apiCall.post('/api/ir-remote/pair/cancel', null, {
+      category: 'settings',
+      message: 'Error cancelling IR pairing',
     });
+    return result.ok ? result.data : false;
   }
 
   async function unpairIrRemote() {
-    const result = await apiCall('settings', 'Error unpairing IR remote:', async () => {
-      const res = await axios.delete('/api/ir-remote/pair');
-      applyIrRemoteStatus(res.data);
-      return true;
+    const result = await apiCall.delete('/api/ir-remote/pair', {
+      category: 'settings',
+      message: 'Error unpairing IR remote',
     });
-    return Boolean(result);
+    if (result.ok) {
+      applyIrRemoteStatus(result.data);
+    }
+    return result.ok;
   }
 
   /**
