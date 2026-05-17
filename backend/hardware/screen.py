@@ -140,6 +140,19 @@ class ScreenController:
         self.last_activity_time = monotonic()
         return True
 
+    async def apply_screen_config(self, brightness_on: int) -> None:
+        """Apply a new brightness instantly + reset inactivity timer.
+
+        Single public entry point for routes that need to mutate screen state —
+        replaces direct mutation of brightness_on / last_activity_time / screen_on
+        and direct calls to _update_screen_commands / _screen_cmd.
+        """
+        self.brightness_on = brightness_on
+        self._update_screen_commands()
+        await self._screen_cmd(self.screen_on_cmd)
+        self.last_activity_time = monotonic()
+        self.screen_on = True
+
     @handle_errors(default=False)
     async def initialize(self) -> bool:
         """Initializes the controller"""

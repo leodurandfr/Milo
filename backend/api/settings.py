@@ -5,7 +5,7 @@ Settings Routes – Version with app deactivation and process stopping
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from typing import Any, Callable, Dict, Optional
 from backend.core.models.audio_state import AudioSource
-from backend.api.route_helpers import coerce_audio_source_or_none
+from backend.api.route_helpers import api_error_handler, coerce_audio_source_or_none
 from backend.sources.podcast.taddy_api import TaddyAPI
 from backend.config.constants import DEFAULT_VOLUME_DB, DEFAULT_DOCK_APPS, AUDIO_SOURCE_APPS
 from backend.api.models import (
@@ -679,32 +679,14 @@ def create_settings_router(
     @router.post("/screen-brightness/apply")
     async def apply_brightness_instantly(payload: ScreenBrightnessRequest):
         """Instant brightness application + restart timeout"""
-        try:
-            brightness_on = payload.brightness_on
-
-            # Use screen_controller which handles different screen types
-            screen_controller.brightness_on = brightness_on
-            screen_controller._update_screen_commands()
-
-            # Execute the command adapted to the screen type
-            await screen_controller._screen_cmd(screen_controller.screen_on_cmd)
-
-            # Reset the inactivity timer
-            from time import monotonic
-            screen_controller.last_activity_time = monotonic()
-            screen_controller.screen_on = True
-
+        async with api_error_handler("Error applying brightness", logger):
+            await screen_controller.apply_screen_config(payload.brightness_on)
             return {
                 "status": "success",
-                "brightness_applied": brightness_on,
+                "brightness_applied": payload.brightness_on,
                 "screen_type": screen_controller.screen_type,
-                "timeout_restarted": True
+                "timeout_restarted": True,
             }
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
 
     # Screen screensaver
     @router.get("/screen-screensaver")
