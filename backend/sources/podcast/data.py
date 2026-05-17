@@ -7,17 +7,19 @@ This service manages:
 - Playback progress with episode context
 - User settings (playback_speed)
 
-Data is persisted to /var/lib/milo/podcast_data.json
+Data is persisted to /var/lib/milo/podcast_data.json — uses the
+schema_version protocol (see CLAUDE.md §"Development & Coding Guidelines §2"
+and BREAKING_CHANGES.md at the repo root).
 """
-import json
-import os
-import logging
-import aiofiles
 import asyncio
+import logging
 import time
+from pathlib import Path
 from typing import Dict, Any, List, Optional
 
-from backend.shared.decorators import handle_errors
+from backend.shared.persistence import load_versioned_json, save_versioned_json
+
+REQUIRED_TOP_LEVEL_KEYS = ("subscriptions", "playback_progress", "settings")
 
 
 class PodcastDataService:
@@ -32,41 +34,50 @@ class PodcastDataService:
     Note: Language/country settings are centralized in /var/lib/milo/settings.json
     """
 
+    SCHEMA_VERSION: int = 1
+
     def __init__(self, state_machine=None):
         self._logger = logging.getLogger(__name__)
-        self._data_file = '/var/lib/milo/podcast_data.json'
+        self._data_file: Path = Path('/var/lib/milo/podcast_data.json')
         self._file_lock = asyncio.Lock()
         self._state_machine = state_machine
 
+    async def initialize(self) -> None:
+        """Pre-load podcast_data.json so a schema mismatch surfaces at boot.
+
+        Seeds defaults on fresh install. Raises SchemaVersionMismatch on
+        version drift or RuntimeError on missing required keys; the handler
+        in dependencies.py::init_async logs the banner and SystemExit(1)s.
+        """
+        async with self._file_lock:
+            data = await load_versioned_json(self._data_file, self.SCHEMA_VERSION)
+
+        if not data:
+            await self.save_data(self._get_default_structure())
+            return
+
+        self._validate_required_keys(data)
+
     async def load_data(self) -> Dict[str, Any]:
-        """Load podcast_data.json."""
-        try:
-            if os.path.exists(self._data_file):
-                ensured_data = None
-                needs_save = False
+        """Load podcast_data.json. Trusts shape (validated at boot in initialize())."""
+        async with self._file_lock:
+            data = await load_versioned_json(self._data_file, self.SCHEMA_VERSION)
 
-                async with self._file_lock:
-                    async with aiofiles.open(self._data_file, 'r', encoding='utf-8') as f:
-                        data = json.loads(await f.read())
-                        ensured_data, needs_save = self._ensure_structure(data)
-
-                # Save outside the lock to avoid deadlock
-                if needs_save:
-                    await self.save_data(ensured_data)
-
-                return ensured_data
-            else:
-                self._logger.info("podcast_data.json not found, creating new file")
-                default_data = self._get_default_structure()
-                await self.save_data(default_data)
-                return default_data
-
-        except json.JSONDecodeError as e:
-            self._logger.error(f"JSON error in podcast_data.json: {e}")
+        if not data:
             return self._get_default_structure()
-        except Exception as e:
-            self._logger.error(f"Error loading podcast_data.json: {e}")
-            return self._get_default_structure()
+
+        self._validate_required_keys(data)
+        return data
+
+    def _validate_required_keys(self, data: Dict[str, Any]) -> None:
+        """Fail-loud if any expected top-level key is missing."""
+        missing = [k for k in REQUIRED_TOP_LEVEL_KEYS if k not in data]
+        if missing:
+            raise RuntimeError(
+                f"podcast_data.json missing required keys: {missing} — "
+                f"delete it to reset (rm {self._data_file}), "
+                f"see BREAKING_CHANGES.md at the repo root for context"
+            )
 
     def _get_default_structure(self) -> Dict[str, Any]:
         """Get default data structure."""
@@ -78,42 +89,10 @@ class PodcastDataService:
             }
         }
 
-    def _ensure_structure(self, data: Dict[str, Any]):
-        """Fill missing top-level keys with defaults. Returns (data, needs_save)."""
-        defaults = self._get_default_structure()
-        needs_save = False
-
-        data.setdefault('subscriptions', defaults['subscriptions'])
-        data.setdefault('playback_progress', defaults['playback_progress'])
-
-        if 'settings' not in data:
-            data['settings'] = defaults['settings']
-            needs_save = True
-        else:
-            for key, value in defaults['settings'].items():
-                if key not in data['settings']:
-                    data['settings'][key] = value
-                    needs_save = True
-
-        return data, needs_save
-
-    @handle_errors(default=False)
     async def save_data(self, data: Dict[str, Any]) -> bool:
-        """Save podcast_data.json with atomic write."""
+        """Save podcast_data.json with atomic write (schema_version stamped automatically)."""
         async with self._file_lock:
-            # Ensure directory exists
-            os.makedirs(os.path.dirname(self._data_file), exist_ok=True)
-
-            temp_file = self._data_file + '.tmp'
-
-            async with aiofiles.open(temp_file, 'w', encoding='utf-8') as f:
-                await f.write(json.dumps(data, ensure_ascii=False, indent=2))
-                await f.write('\n')
-                await f.flush()
-                os.fsync(f.fileno())
-
-            os.replace(temp_file, self._data_file)
-
+            await save_versioned_json(self._data_file, data, self.SCHEMA_VERSION)
         return True
 
     # ========== SUBSCRIPTIONS ==========

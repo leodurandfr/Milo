@@ -324,7 +324,7 @@ All persistent data in `/var/lib/milo/`. Versioned JSON files use the `schema_ve
 - `last_volume.json` - Last volume for restoration — *no `schema_version` yet*
 - `radio_data.json` - Radio favorites and custom stations — *no `schema_version` yet*
 - `radio_images/` - Uploaded station images
-- `podcast_data.json` - Podcast subscriptions, favorites, playback progress, and user preferences — *no `schema_version` yet*
+- `podcast_data.json` - Podcast subscriptions, playback progress, and per-podcast settings (playback speed) — `schema_version: 1` (owned by `PodcastDataService`)
 - `cd_data.json` - CD disc metadata cache (TOC, MusicBrainz lookups) — *no `schema_version` yet*
 - `cd_covers/` - CD cover art cache
 - `equalizer.json` - Equalizer state: filters, active preset, custom gains, compressor, loudness, mono (atomic writes, debounced) — `schema_version: 2` (owned by `EqualizerService`)
