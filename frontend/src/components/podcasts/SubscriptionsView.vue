@@ -38,7 +38,6 @@ import { computed, onMounted } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
 import { apiCall } from '@/services/apiCall'
-import axios from 'axios'
 import { useAsyncData } from '@/composables/useAsyncData'
 import PodcastCard from './PodcastCard.vue'
 import EpisodeCard from './EpisodeCard.vue'
@@ -64,10 +63,13 @@ function formatSubscription(sub) {
 }
 
 async function handleUnsubscribe(uuid) {
-  await apiCall('podcast', 'Error unsubscribing', async () => {
-    await axios.delete(`/api/podcast/subscriptions/${uuid}`)
-    podcastStore.removeSubscription(uuid)
+  const result = await apiCall.delete(`/api/podcast/subscriptions/${uuid}`, {
+    category: 'podcast',
+    message: 'Error unsubscribing',
   })
+  if (result.ok) {
+    podcastStore.removeSubscription(uuid)
+  }
 }
 
 const { loading, execute: loadData } = useAsyncData(

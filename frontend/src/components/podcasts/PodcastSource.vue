@@ -94,7 +94,6 @@ import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisi
 import { useI18n } from '@/services/i18n'
 import { apiCall } from '@/services/apiCall'
 import { logger } from '@/services/logger'
-import axios from 'axios'
 import IconButton from '@/components/ui/IconButton.vue'
 import AudioPlayer from '@/components/audio/AudioPlayer.vue'
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue'
@@ -238,15 +237,14 @@ async function openPodcastDetails(podcastOrUuid) {
   } else if (podcastOrUuid && podcastOrUuid.itunes_id) {
     // Podcast object from iTunes RSS without UUID - need to lookup
     loadingPodcastId.value = podcastOrUuid.itunes_id
-    const result = await apiCall('podcast', 'Error looking up podcast UUID', async () => {
-      const { data } = await axios.get(`/api/podcast/lookup/itunes/${podcastOrUuid.itunes_id}`, {
-        params: { name: podcastOrUuid.name || '' }
-      })
-      return data.uuid
+    const result = await apiCall.get(`/api/podcast/lookup/itunes/${podcastOrUuid.itunes_id}`, {
+      category: 'podcast',
+      message: 'Error looking up podcast UUID',
+      params: { name: podcastOrUuid.name || '' },
     })
     loadingPodcastId.value = null
-    if (!result) return
-    uuid = result
+    if (!result.ok || !result.data.uuid) return
+    uuid = result.data.uuid
   } else {
     logger.error('podcast', 'Invalid podcast data', podcastOrUuid)
     return

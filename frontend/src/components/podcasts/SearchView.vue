@@ -81,7 +81,6 @@ import { usePodcastStore } from '@/stores/podcastStore'
 import { useDebounce } from '@/composables/useDebounce'
 import { useI18n } from '@/services/i18n'
 import { apiCall } from '@/services/apiCall'
-import axios from 'axios'
 import PodcastCard from './PodcastCard.vue'
 import EpisodeCard from './EpisodeCard.vue'
 import InputText from '@/components/ui/InputText.vue'
@@ -229,15 +228,20 @@ function buildSearchParams(page) {
 
 async function performSearch() {
   loading.value = true
-  await apiCall('podcast', 'Error searching podcasts', async () => {
-    const { data } = await axios.get('/api/podcast/search', { params: buildSearchParams(1) })
+  const result = await apiCall.get('/api/podcast/search', {
+    category: 'podcast',
+    message: 'Error searching podcasts',
+    params: buildSearchParams(1),
+  })
+  if (result.ok) {
+    const data = result.data
     if (data.network_error) {
       podcastStore.networkError = true
-      return
+    } else {
+      podcastStore.networkError = false
+      podcastStore.setSearchResults(data.podcasts, data.episodes, data.pagination)
     }
-    podcastStore.networkError = false
-    podcastStore.setSearchResults(data.podcasts, data.episodes, data.pagination)
-  })
+  }
   loading.value = false
 }
 
@@ -245,10 +249,14 @@ async function loadMorePodcasts() {
   if (searchLoadingMore.value.podcasts || searchCurrentPage.value.podcasts >= searchPagination.value.podcasts.pages) return
 
   searchLoadingMore.value.podcasts = true
-  await apiCall('podcast', 'Error loading more podcasts', async () => {
-    const { data } = await axios.get('/api/podcast/search', { params: buildSearchParams(searchCurrentPage.value.podcasts + 1) })
-    podcastStore.appendSearchResults('podcasts', data.podcasts || [])
+  const result = await apiCall.get('/api/podcast/search', {
+    category: 'podcast',
+    message: 'Error loading more podcasts',
+    params: buildSearchParams(searchCurrentPage.value.podcasts + 1),
   })
+  if (result.ok) {
+    podcastStore.appendSearchResults('podcasts', result.data.podcasts || [])
+  }
   searchLoadingMore.value.podcasts = false
 }
 
@@ -256,10 +264,14 @@ async function loadMoreEpisodes() {
   if (searchLoadingMore.value.episodes || searchCurrentPage.value.episodes >= searchPagination.value.episodes.pages) return
 
   searchLoadingMore.value.episodes = true
-  await apiCall('podcast', 'Error loading more episodes', async () => {
-    const { data } = await axios.get('/api/podcast/search', { params: buildSearchParams(searchCurrentPage.value.episodes + 1) })
-    podcastStore.appendSearchResults('episodes', data.episodes || [])
+  const result = await apiCall.get('/api/podcast/search', {
+    category: 'podcast',
+    message: 'Error loading more episodes',
+    params: buildSearchParams(searchCurrentPage.value.episodes + 1),
   })
+  if (result.ok) {
+    podcastStore.appendSearchResults('episodes', result.data.episodes || [])
+  }
   searchLoadingMore.value.episodes = false
 }
 

@@ -123,7 +123,6 @@ import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
 import { apiCall } from '@/services/apiCall'
 import { logger } from '@/services/logger'
-import axios from 'axios'
 import PodcastCard from './PodcastCard.vue'
 import EpisodeCard from './EpisodeCard.vue'
 import GenreCard from './GenreCard.vue'
@@ -185,29 +184,34 @@ async function loadData() {
 
   // Load top podcasts (Bloc 2) - backend derives country from user's language setting
   loadingTopCharts.value = true
-  await apiCall('podcast', 'Error loading top charts', async () => {
-    const { data } = await axios.get('/api/podcast/discover/top-charts', {
-      params: { content_type: 'PODCASTSERIES', limit: 10 }
-    })
+  const podcastsResult = await apiCall.get('/api/podcast/discover/top-charts', {
+    category: 'podcast',
+    message: 'Error loading top charts',
+    params: { content_type: 'PODCASTSERIES', limit: 10 },
+  })
+  if (podcastsResult.ok) {
+    const data = podcastsResult.data
     if (data.network_error) {
       topChartsNetworkError.value = true
       topCharts.value = []
-      return
+    } else {
+      topChartsNetworkError.value = false
+      topCharts.value = data.results || []
     }
-    topChartsNetworkError.value = false
-    topCharts.value = data.results || []
-  })
+  }
   loadingTopCharts.value = false
 
   // Load top episodes (Bloc 4) - skip if network is already known to be down
   if (!topChartsNetworkError.value) {
     loadingTopEpisodes.value = true
-    await apiCall('podcast', 'Error loading top episodes', async () => {
-      const { data } = await axios.get('/api/podcast/discover/top-charts', {
-        params: { content_type: 'PODCASTEPISODE', limit: 10 }
-      })
-      topEpisodes.value = podcastStore.enrichEpisodesWithProgress(data.results || [])
+    const episodesResult = await apiCall.get('/api/podcast/discover/top-charts', {
+      category: 'podcast',
+      message: 'Error loading top episodes',
+      params: { content_type: 'PODCASTEPISODE', limit: 10 },
     })
+    if (episodesResult.ok) {
+      topEpisodes.value = podcastStore.enrichEpisodesWithProgress(episodesResult.data.results || [])
+    }
     loadingTopEpisodes.value = false
   } else {
     loadingTopEpisodes.value = false
