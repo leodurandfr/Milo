@@ -143,13 +143,13 @@ class BlueAlsaMonitor:
         """Handle PCM added event."""
         # Extract path: "PCMAdded /org/bluealsa/hci0/dev_XX_XX_XX_XX_XX_XX/a2dpsnk/source"
         path = line.split("PCMAdded ", 1)[1].strip()
-        device_info = self._parse_pcm_path(path)
+        device_info = self.parse_pcm_path(path)
 
         if device_info:
             address = device_info["address"]
 
             # Resolve device name
-            name = await self._resolve_device_name(address)
+            name = await self.resolve_device_name(address)
             device_info["name"] = name
 
             # Store device
@@ -163,7 +163,7 @@ class BlueAlsaMonitor:
     async def _handle_pcm_removed(self, line: str) -> None:
         """Handle PCM removed event."""
         path = line.split("PCMRemoved ", 1)[1].strip()
-        device_info = self._parse_pcm_path(path)
+        device_info = self.parse_pcm_path(path)
 
         if device_info:
             address = device_info["address"]
@@ -178,7 +178,7 @@ class BlueAlsaMonitor:
                 if self._on_disconnect:
                     await self._on_disconnect(address, name)
 
-    def _parse_pcm_path(self, path: str) -> Optional[Dict[str, Any]]:
+    def parse_pcm_path(self, path: str) -> Optional[Dict[str, Any]]:
         """
         Parse PCM path to extract device info.
 
@@ -210,7 +210,7 @@ class BlueAlsaMonitor:
 
         return None
 
-    async def _resolve_device_name(self, address: str) -> str:
+    async def resolve_device_name(self, address: str) -> str:
         """
         Resolve device name via bluetoothctl.
 
