@@ -346,6 +346,13 @@ async def stop_playback(
     return await run_source_command(source, "stop", {}, "Stop")
 
 
+@router.get("/playback-speeds")
+async def get_playback_speeds() -> Dict[str, Any]:
+    """Return the canonical list of valid playback speeds."""
+    from backend.sources.podcast.source import VALID_PLAYBACK_SPEEDS
+    return {"status": "success", "speeds": VALID_PLAYBACK_SPEEDS}
+
+
 @router.post("/speed")
 async def set_speed(
     request: SpeedRequest,
