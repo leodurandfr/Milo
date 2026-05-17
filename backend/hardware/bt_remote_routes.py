@@ -29,19 +29,13 @@ def create_bt_remote_router(bt_remote_controller):
     @router.get("/battery")
     async def get_battery():
         """Read battery level for connected BT remote devices (on-demand)."""
-        seen_macs = set()
         devices = []
-        for path in list(bt_remote_controller._monitored_paths):
-            info = bt_remote_controller._device_info.get(path, {})
-            address = info.get("address", "")
-            if not address or address.upper() in seen_macs:
-                continue
-            seen_macs.add(address.upper())
-            level = await bt_remote_controller.read_battery_level(address)
+        for d in bt_remote_controller.get_device_info():
+            level = await bt_remote_controller.read_battery_level(d["address"])
             devices.append({
-                "address": address,
-                "name": info.get("name", ""),
-                "battery_percentage": level
+                "address": d["address"],
+                "name": d["name"],
+                "battery_percentage": level,
             })
         return {"status": "success", "devices": devices}
 
