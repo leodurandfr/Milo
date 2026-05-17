@@ -67,12 +67,12 @@ class TestSettingsService:
     @pytest.mark.asyncio
     async def test_load_settings_file_exists(self, service, temp_settings_file):
         """Existing file loading test"""
-        # Write settings to file
+        # Write settings to file (stamped with current schema_version)
         test_settings = {
+            'schema_version': SettingsService.SCHEMA_VERSION,
             'language': 'english',
             'volume': {'limit_min_db': -50.0, 'limit_max_db': -15.0},
             'screen': {'timeout_seconds': 15, 'brightness_on': 7},
-            'spotify': {'auto_disconnect_delay': 20.0},
             'routing': {'multiroom_enabled': True, 'equalizer_effects_enabled': False},
             'dock': {'enabled_apps': ['spotify', 'bluetooth']}
         }
@@ -85,6 +85,24 @@ class TestSettingsService:
         assert settings['language'] == 'english'
         assert settings['volume']['limit_min_db'] == -50.0
         assert settings['volume']['limit_max_db'] == -15.0
+
+    @pytest.mark.asyncio
+    async def test_load_settings_raises_on_schema_mismatch(
+        self, service, temp_settings_file
+    ):
+        """A legacy file without `schema_version` (or a stale one) must fail loud
+        so dependencies.py::init_async can log the banner and SystemExit(1)."""
+        from backend.shared.persistence import SchemaVersionMismatch
+
+        legacy_settings = {
+            'language': 'english',
+            'spotify': {'auto_disconnect_delay': 300.0},
+        }
+        with open(temp_settings_file, 'w') as f:
+            json.dump(legacy_settings, f)
+
+        with pytest.raises(SchemaVersionMismatch):
+            await service.load_settings()
 
     @pytest.mark.asyncio
     async def test_save_settings_success(self, service):
@@ -161,8 +179,6 @@ class TestSettingsService:
             'audio': {'auto_disconnect_delay': 0.0}
         })
         assert result['audio']['auto_disconnect_delay'] == 0.0
-        assert 'spotify' not in result
-        assert 'airplay' not in result
 
         # Normal delay
         result = service._validate_and_merge({
@@ -176,51 +192,12 @@ class TestSettingsService:
         })
         assert result['audio']['auto_disconnect_delay'] == 1.0
 
-    def test_validate_and_merge_migrates_legacy_spotify_delay(self, service):
-        """Legacy spotify.auto_disconnect_delay should migrate to audio.*"""
+    def test_validate_and_merge_audio_disconnect_non_numeric(self, service):
+        """Non-numeric auto_disconnect_delay must not crash; fall back to default."""
         result = service._validate_and_merge({
-            'spotify': {'auto_disconnect_delay': 300.0}
-        })
-        assert result['audio']['auto_disconnect_delay'] == 300.0
-        assert 'spotify' not in result
-        assert 'airplay' not in result
-
-    def test_validate_and_merge_migrates_legacy_both_takes_max(self, service):
-        """Both legacy keys present: keep the max and drop both."""
-        result = service._validate_and_merge({
-            'spotify': {'auto_disconnect_delay': 300.0},
-            'airplay': {'auto_disconnect_delay': 600.0}
-        })
-        assert result['audio']['auto_disconnect_delay'] == 600.0
-        assert 'spotify' not in result
-        assert 'airplay' not in result
-
-    def test_validate_and_merge_audio_overrides_legacy(self, service):
-        """Explicit audio.auto_disconnect_delay wins over legacy keys."""
-        result = service._validate_and_merge({
-            'audio': {'auto_disconnect_delay': 90.0},
-            'spotify': {'auto_disconnect_delay': 300.0}
-        })
-        assert result['audio']['auto_disconnect_delay'] == 90.0
-        assert 'spotify' not in result
-
-    def test_validate_and_merge_migrates_legacy_zero_disabled(self, service):
-        """Legacy disabled (0.0) value migrates to audio.* as disabled."""
-        result = service._validate_and_merge({
-            'spotify': {'auto_disconnect_delay': 0.0}
-        })
-        assert result['audio']['auto_disconnect_delay'] == 0.0
-        assert 'spotify' not in result
-
-    def test_validate_and_merge_legacy_non_numeric_falls_back_to_default(self, service):
-        """Corrupted (non-numeric) legacy value must not crash; fall back to default."""
-        result = service._validate_and_merge({
-            'spotify': {'auto_disconnect_delay': 'broken'},
-            'airplay': {'auto_disconnect_delay': None}
+            'audio': {'auto_disconnect_delay': 'broken'}
         })
         assert result['audio']['auto_disconnect_delay'] == 120.0
-        assert 'spotify' not in result
-        assert 'airplay' not in result
 
     def test_validate_and_merge_dock_apps(self, service):
         """Dock apps validation test"""
@@ -294,9 +271,10 @@ class TestSettingsService:
     @pytest.mark.asyncio
     async def test_get_setting_loads_if_no_cache(self, service, temp_settings_file):
         """Test that get_setting loads settings if cache is empty"""
-        # Write settings to file
+        # Write settings to file (stamped with current schema_version)
         test_settings = service.defaults.copy()
         test_settings['language'] = 'english'
+        test_settings['schema_version'] = SettingsService.SCHEMA_VERSION
 
         with open(temp_settings_file, 'w') as f:
             json.dump(test_settings, f)

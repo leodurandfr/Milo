@@ -588,9 +588,12 @@ class TestDefaultsMerging:
     @pytest.mark.asyncio
     async def test_missing_keys_get_defaults(self, temp_settings_file):
         """Test that missing keys inherit from defaults."""
-        # Create file with partial settings
+        # Create file with partial settings (stamped with current schema_version)
         with open(temp_settings_file, 'w') as f:
-            json.dump({'language': 'french'}, f)
+            json.dump({
+                'schema_version': SettingsService.SCHEMA_VERSION,
+                'language': 'french',
+            }, f)
 
         # Create service and load
         service = SettingsService()
@@ -608,9 +611,10 @@ class TestDefaultsMerging:
     @pytest.mark.asyncio
     async def test_partial_nested_gets_merged(self, temp_settings_file):
         """Test that partial nested settings get merged with defaults."""
-        # Create file with partial volume settings
+        # Create file with partial volume settings (stamped with current schema_version)
         with open(temp_settings_file, 'w') as f:
             json.dump({
+                'schema_version': SettingsService.SCHEMA_VERSION,
                 'language': 'english',
                 'volume': {'limit_min_db': -60.0}  # Only one key
             }, f)
