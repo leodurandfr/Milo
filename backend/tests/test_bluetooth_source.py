@@ -302,32 +302,32 @@ class TestConnectionState:
 class TestBlueAlsaMonitor:
     """Test BlueAlsaMonitor component."""
 
-    def test_parse_pcm_path_valid(self):
+    def testparse_pcm_path_valid(self):
         """Test parsing valid PCM path."""
         monitor = BlueAlsaMonitor()
         path = "/org/bluealsa/hci0/dev_AA_BB_CC_DD_EE_FF/a2dpsnk/source"
 
-        result = monitor._parse_pcm_path(path)
+        result = monitor.parse_pcm_path(path)
 
         assert result is not None
         assert result["address"] == "AA:BB:CC:DD:EE:FF"
         assert result["type"] == "a2dp-sink"
 
-    def test_parse_pcm_path_invalid_direction(self):
+    def testparse_pcm_path_invalid_direction(self):
         """Test parsing PCM path with wrong direction."""
         monitor = BlueAlsaMonitor()
         path = "/org/bluealsa/hci0/dev_AA_BB_CC_DD_EE_FF/a2dpsnk/sink"
 
-        result = monitor._parse_pcm_path(path)
+        result = monitor.parse_pcm_path(path)
 
         assert result is None
 
-    def test_parse_pcm_path_short_path(self):
+    def testparse_pcm_path_short_path(self):
         """Test parsing too short path."""
         monitor = BlueAlsaMonitor()
         path = "/org/bluealsa/hci0"
 
-        result = monitor._parse_pcm_path(path)
+        result = monitor.parse_pcm_path(path)
 
         assert result is None
 

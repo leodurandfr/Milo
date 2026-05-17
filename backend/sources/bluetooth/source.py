@@ -365,10 +365,10 @@ class BluetoothSource(BaseAudioSource):
 
         if proc.returncode == 0:
             for line in stdout.decode().splitlines():
-                device_info = self.monitor._parse_pcm_path(line.strip())
+                device_info = self.monitor.parse_pcm_path(line.strip())
                 if device_info:
                     address = device_info["address"]
-                    name = await self.monitor._resolve_device_name(address)
+                    name = await self.monitor.resolve_device_name(address)
                     self.connected_device = {"address": address, "name": name}
                     return
 
