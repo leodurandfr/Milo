@@ -52,4 +52,13 @@ export const wsEventRegistry = {
   'equalizer.compressor_changed': CompressorPayloadSchema,
   // Backend: service.py:784 → self._loudness.
   'equalizer.loudness_changed': LoudnessPayloadSchema,
+  // Backend: backend/core/multiroom/crossover.py:371 — canonical zone shape.
+  // Other producers in crossover.py emit per-client variants (client_id-keyed)
+  // on the same event type; those are not consumed by the frontend and will
+  // surface as schema warnings in dev — see the _broadcast_event docstring.
+  'multiroom.crossover_changed': z.object({
+    zone_id: z.string(),
+    crossover_enabled: z.boolean(),
+    crossover_frequency: z.number(),
+  }),
 };

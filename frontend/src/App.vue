@@ -531,7 +531,8 @@ onMounted(async () => {
       }
     }),
     on('multiroom', 'equalizer_changed', (event) => equalizerStore.handleEqualizerChanged(event)),
-    on('multiroom', 'crossover_changed', (event) => equalizerStore.handleZoneCrossoverChanged(event)),
+    parsedOn('multiroom', 'crossover_changed', wsEventRegistry['multiroom.crossover_changed'],
+             (payload) => equalizerStore.handleZoneCrossoverChanged(payload)),
     // Radio favorite events
     on('source', 'favorite_added', (event) => {
       if (event.data?.source === 'radio' && event.data?.station_id) {

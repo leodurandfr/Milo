@@ -372,8 +372,6 @@ class CrossoverService:
             "zone_id": zone_id,
             "crossover_enabled": crossover_state["enabled"],
             "crossover_frequency": int(frequency),
-            # Backward compatibility
-            "frequency": frequency
         })
 
         # Apply the updated crossover filters to all zone clients
@@ -566,7 +564,19 @@ class CrossoverService:
     # === Event Broadcasting ===
 
     async def _broadcast_event(self, data: Dict[str, Any]) -> None:
-        """Broadcast crossover event via state machine (WebSocket)."""
+        """Broadcast a crossover event via state machine (WebSocket).
+
+        Canonical payload for 'multiroom.crossover_changed' (consumed by the
+        frontend equalizerStore.handleZoneCrossoverChanged):
+            {zone_id: str, crossover_enabled: bool, crossover_frequency: int}
+
+        Other call sites in this file also emit this event with different
+        shapes for per-client changes (e.g. {client_id, speaker_type,
+        crossover_frequency}, {client_id, settings_applied}). These are not
+        currently consumed by the frontend — same event type, different shape
+        depending on whether zone_id or client_id is keyed. A future RFC may
+        split this into distinct event types.
+        """
         if self.state_machine:
             await self.state_machine.broadcast_event("multiroom", "crossover_changed", data)
 
