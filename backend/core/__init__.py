@@ -2,21 +2,16 @@
 """
 Core module for Milo audio system.
 
-This module provides core services:
-- AudioStateMachine: Central state management
-- SettingsService: Configuration management
-- SystemdServiceManager: Systemd service control
-- VolumeService: Volume control (in core.volume)
-- Equalizer services (in core.equalizer)
-- Multiroom services (in core.multiroom)
+Submodules:
+- backend.core.state — AudioStateMachine
+- backend.core.settings — SettingsService
+- backend.core.systemd — SystemdServiceManager
+- backend.core.volume / equalizer / multiroom — domain services
+
+Import the names you need directly from the submodule (e.g.
+`from backend.core.state import AudioStateMachine`). The package
+intentionally does NOT eagerly re-export them: doing so re-enters
+`backend.config.constants` mid-load via `core.state -> core.models
+-> volume -> config.constants`, which raises ImportError because
+the constants module is still partially initialized.
 """
-
-from backend.core.state import AudioStateMachine
-from backend.core.settings import SettingsService
-from backend.core.systemd import SystemdServiceManager
-
-__all__ = [
-    "AudioStateMachine",
-    "SettingsService",
-    "SystemdServiceManager",
-]
