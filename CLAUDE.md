@@ -317,22 +317,22 @@ Before writing code, **pick the family** (see *Audio Source Architecture* above)
 
 ## Data Persistence Locations
 
-All persistent data in `/var/lib/milo/`:
+All persistent data in `/var/lib/milo/`. Versioned JSON files use the `schema_version` protocol (cf. §"Persisted-data schema bumps" in Development Guidelines).
 
-- `settings.json` - Central settings (language, volume, screen, routing, dock)
-- `hardware.json` - Hardware configuration (screen type/resolution)
-- `last_volume.json` - Last volume for restoration
-- `radio_data.json` - Radio favorites and custom stations
+- `settings.json` - Central settings (language, volume, screen, routing, dock) — *no `schema_version` yet*
+- `hardware.json` - Hardware configuration (screen type/resolution) — *no `schema_version` yet*
+- `last_volume.json` - Last volume for restoration — *no `schema_version` yet*
+- `radio_data.json` - Radio favorites and custom stations — *no `schema_version` yet*
 - `radio_images/` - Uploaded station images
-- `podcast_data.json` - Podcast subscriptions, favorites, playback progress, and user preferences
-- `cd_data.json` - CD disc metadata cache (TOC, MusicBrainz lookups)
+- `podcast_data.json` - Podcast subscriptions, favorites, playback progress, and user preferences — *no `schema_version` yet*
+- `cd_data.json` - CD disc metadata cache (TOC, MusicBrainz lookups) — *no `schema_version` yet*
 - `cd_covers/` - CD cover art cache
-- `equalizer.json` - Equalizer state: filters, active preset, custom gains, compressor, loudness, mono (atomic writes, debounced)
-- `client_equalizer.json` - Per-client equalizer state for remote multiroom clients (keyed by `mac_id`)
-- `pending_clients.json` - Multiroom clients awaiting approval
-- `routing.env` - ALSA routing environment variables (auto-generated)
-- `mac.env` - ROC receiver env vars consumed by `milo-mac` (auto-generated)
-- `snapclient.env` - Snapclient env vars consumed by `milo-snapclient-multiroom` (auto-generated)
+- `equalizer.json` - Equalizer state: filters, active preset, custom gains, compressor, loudness, mono (atomic writes, debounced) — *no `schema_version` yet*
+- `client_equalizer.json` - Per-client equalizer state for remote multiroom clients (keyed by `mac_id`) — *no `schema_version` yet*
+- `pending_clients.json` - Multiroom clients awaiting approval — *no `schema_version` yet*
+- `routing.env` - ALSA routing environment variables (auto-generated, regenerated on every settings change — no `schema_version`)
+- `mac.env` - ROC receiver env vars consumed by `milo-mac` (auto-generated, no `schema_version`)
+- `snapclient.env` - Snapclient env vars consumed by `milo-snapclient-multiroom` (auto-generated, no `schema_version`)
 - `app-version` - Installed app version marker (written at install time)
 - `shairport-sync-version` - Shairport-sync version marker (written by update flow)
 - `avahi-interface` - Active network interface for mDNS (written by NetworkManager dispatcher)
@@ -340,6 +340,8 @@ All persistent data in `/var/lib/milo/`:
 - `go-librespot/` - go-librespot config + runtime state (`config.yml`, `state.json`, `lockfile`)
 - `errors.log` - Persisted backend + frontend errors
 - `backups/` - Binary backups during updates
+
+*Files annotated «no `schema_version` yet» will adopt the protocol on their first breaking schema change — see [BREAKING_CHANGES.md](BREAKING_CHANGES.md).*
 
 ## Important Constraints
 
@@ -397,6 +399,8 @@ The conventions above are the rules; these are the most common ways they're viol
 7. **Don't use `POST` for idempotent updates** — `PUT` for settings, `DELETE` for removals, `PATCH` for partial updates.
 8. **Don't hardcode ALSA devices** — use the env-var pattern for multiroom/equalizer switching.
 9. **Don't use `asyncio.create_task()` for fire-and-forget** — use `BackgroundTaskSet.spawn()` (services) or FastAPI `BackgroundTasks` (routes). Direct `create_task` is reserved for long-running tracked tasks stored on `self` (e.g. `self._monitor_task = asyncio.create_task(...)`).
+10. **Don't write migration code on persisted data.** Bump `SCHEMA_VERSION`, add an entry to [BREAKING_CHANGES.md](BREAKING_CHANGES.md), let the file reset on first boot via `SchemaVersionMismatch`. Migration code is the path that grows legacy debt — avoid it even when it looks like a 3-line if-block.
+11. **Don't use `dict.get(k1, dict.get(k2, default))` chain fallbacks to absorb old payload shapes.** Fix the producer instead (one canonical key). Chain fallbacks rot — they keep absorbing old shapes long after no one emits them.
 
 ## Development & Coding Guidelines
 
@@ -422,13 +426,22 @@ When refactoring or adding features:
   - No duplicated "old" and "new" versions of the same logic.
   - No compatibility shims that keep unused APIs alive "just in case".
   - No feature flags whose only purpose is to keep legacy behavior around.
-  - No `if old_key in data` / `data.get("legacy_field") or data.get("new_field")` branches to absorb older stored shapes.
+  - No `if old_key in data` / `data.get("legacy_field") or data.get("new_field")` chain fallback branches to absorb older stored shapes.
+  - No `data.setdefault(...)` in a loader to auto-create a missing top-level key — prefer fail-loud.
   - No version detection on persisted files (`if version < N: migrate(...)`).
-- **Persisted user data is NOT a constraint.** When a schema change is required for files in `/var/lib/milo/` (`radio_data.json`, `podcast_data.json`, `settings.json`, …), implement the **new shape directly**. It is acceptable to require the user to delete the affected file(s) and start fresh — call this out in the commit message. Do NOT write auto-migration helpers, key-renaming loops, or "if missing field, fall back to cache" branches.
 - **Remove dead code on sight** while refactoring: unused functions, dead routes, orphaned helpers, abandoned data-layer methods that no route calls anymore. Don't leave them "in case someone wires them up later" — they will rot.
 - Always prefer:
   - A **single, optimized code path** over multiple conditional branches for legacy behavior.
   - Clear, simple refactors over incremental "layer on top of legacy" patches.
+
+#### Persisted-data schema bumps — fail-loud + reset protocol
+
+**Persisted user data is NOT a constraint.** When the on-disk shape of a file under `/var/lib/milo/` changes, do **not** write a migration. Bump the schema version, document the reset, let the file rewrite itself from defaults on the next boot:
+
+1. Every persisted JSON file in `/var/lib/milo/` carries a top-level `"schema_version": N` integer field.
+2. The owning service declares `SCHEMA_VERSION: int` as a class constant and loads via [`load_versioned_json(path, SCHEMA_VERSION)`](backend/shared/persistence.py) — save via `save_versioned_json` so the field is stamped on every write.
+3. On version mismatch (or missing field) the primitive raises `SchemaVersionMismatch`. [backend/dependencies.py::initialize_services](backend/dependencies.py) catches it during async init, logs a banner to stderr (the exact `rm` command + pointer to `BREAKING_CHANGES.md`) and `SystemExit(1)`. Systemd restarts the unit, the same banner reappears in `journalctl` until the operator deletes the offending file.
+4. **When bumping a `SCHEMA_VERSION`** — add an entry to [BREAKING_CHANGES.md](BREAKING_CHANGES.md) at the repo root: file path, version bump, reason, exact `rm` command, impact on user state.
 
 In short: **keep the codebase OPTIM** (simple, efficient, modern). Backward-compatibility baggage — for code OR for persisted data — is never warranted unless the user explicitly asks for it.
 
