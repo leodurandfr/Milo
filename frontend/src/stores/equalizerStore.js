@@ -1391,21 +1391,16 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     }
   }
 
-  function handleStateChanged(event) {
-    state.value = event.data.state || 'disconnected';
+  function handleStateChanged(payload) {
+    state.value = payload.state;
   }
 
-  function handlePresetLoaded(event) {
-    const presetId = event.data.id || event.data.name;
+  function handlePresetLoaded(payload) {
+    const presetId = payload.id;
     activePreset.value = presetId;
     isPresetEdited.value = false;
     _snapshotPresetGains(presetId);
     _applyPresetGains(presetId);
-  }
-
-  function handleLevels(event) {
-    inputPeak.value = event.data.input_peak || [-80, -80];
-    outputPeak.value = event.data.output_peak || [-80, -80];
   }
 
   function updateLevels(input, output) {
@@ -1413,12 +1408,12 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     outputPeak.value = output;
   }
 
-  function handleCompressorChanged(event) {
-    Object.assign(compressor.value, event.data);
+  function handleCompressorChanged(payload) {
+    Object.assign(compressor.value, payload);
   }
 
-  function handleLoudnessChanged(event) {
-    Object.assign(loudness.value, event.data);
+  function handleLoudnessChanged(payload) {
+    Object.assign(loudness.value, payload);
   }
 
   function handleMonoChanged(event) {
@@ -1626,7 +1621,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     handleFiltersReset,
     handleStateChanged,
     handlePresetLoaded,
-    handleLevels,
     updateLevels,
     handleCompressorChanged,
     handleLoudnessChanged,
