@@ -109,7 +109,7 @@ class ScreenController:
         """Loads complete config from settings - timeout_seconds = 0 for never"""
         try:
             # FORCE reload from file by invalidating cache first
-            self.settings_service._cache = None
+            self.settings_service.invalidate_cache()
 
             # Load all settings directly from file
             all_settings = await self.settings_service.load_settings()
