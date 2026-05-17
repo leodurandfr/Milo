@@ -386,8 +386,8 @@ class RadioSource(MpvAudioSource):
                     if duration_ms > 0:
                         skip = (duration_ms // 1000) + 2
                         self._logger.info(f"Pre-roll ad detected ({duration_ms}ms), skipping {skip}s")
-        except Exception:
-            pass
+        except Exception as e:
+            self._logger.debug(f"Preroll detection failed for {hostname}: {e}")
 
         self._preroll_cache[hostname] = skip
         return skip

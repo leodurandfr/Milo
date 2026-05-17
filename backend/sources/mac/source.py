@@ -260,7 +260,7 @@ class MacSource(BaseAudioSource):
                     await self._process_log_line(line)
 
         except Exception as e:
-            self._logger.debug(f"Active connection detection failed: {e}")
+            self._logger.warning(f"Active connection detection failed: {e}")
 
     async def _monitor_events(self) -> None:
         """Monitor journalctl for connection events."""
@@ -419,6 +419,9 @@ class MacSource(BaseAudioSource):
                 if len(parts) >= 2:
                     return parts[1].rstrip('.').replace(".local", "")
 
+        except FileNotFoundError:
+            self._logger.error("mDNS resolution skipped: avahi-browse not installed")
+            return ip
         except Exception as e:
             self._logger.debug(f"mDNS resolution failed for {ip}: {e}")
 
