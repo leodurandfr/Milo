@@ -69,7 +69,7 @@ class UpdateService(VersionService):
 
         try:
             # Check that an update is available
-            status = await self._get_program_full_status(program_key)
+            status = await self.get_program_full_status(program_key)
             if not status.get("update_available"):
                 return {"success": False, "error": "No update available"}
 
@@ -1460,7 +1460,7 @@ class UpdateService(VersionService):
             return {"can_update": False, "reason": "Deploy wrapper not accessible"}
 
         # Check that an update is available
-        status = await self._get_program_full_status(program_key)
+        status = await self.get_program_full_status(program_key)
         if not status.get("update_available"):
             return {"can_update": False, "reason": "No update available"}
 

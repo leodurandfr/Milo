@@ -290,7 +290,7 @@ def create_programs_router(update_service, satellite_update_service, state_machi
     async def get_program_details(program_key: str):
         """Retrieve the details of a specific program"""
         try:
-            result = await update_service._get_program_full_status(program_key)
+            result = await update_service.get_program_full_status(program_key)
             return {
                 "status": "success",
                 "program": result
