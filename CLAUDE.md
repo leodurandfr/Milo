@@ -230,7 +230,20 @@ CamillaDSP is ALWAYS in the audio path for volume control. DSP effects (EQ, comp
 
 ### 8. Frontend Conventions
 
-**API calls**: Use `apiCall()` from `frontend/src/services/apiCall.js` for all store API actions (wraps try/catch with logging).
+**API calls** — doctrine "where" + "how":
+
+**Where the I/O lives** (criterion: "do >1 components need this data reactively?"):
+- **Pinia store** when state is shared reactively across components (audio, multiroom, settings, equalizer).
+- **Composable** when the widget cuts across multiple views without owning shared state (network, hardware config).
+- **Component** when the fetch is view-local and one-shot (version banner in InfoSettings, podcast detail by UUID).
+- **Shared service (`services/`)** only for cross-store infrastructure (i18n, websocket). No feature data.
+
+**How the I/O flows** (non-negotiable):
+- Every HTTP request goes through `apiCall.{get,post,put,patch,delete}(url, { category, message, ... })` for single requests, or `apiCall(category, message, fn, options)` for atomic multi-request sequences.
+- **No `import axios` outside `frontend/src/services/apiCall.js`.** RFC 22 will enforce this via ESLint `no-restricted-imports`.
+- Typed helpers return `{ ok, data, error }`. The helper extracts `error.response?.data?.detail` automatically when an `errorRef` Ref is passed; native support for `AbortController` via `signal`; `checkStatus: true` for the resilience pattern (`response.data.status === 'success'`); `logLevel: 'debug'` for best-effort beacons that should not flood the console on failure.
+
+**Logging**: Use `logger.{debug,info,warn,error}(category, message, data)` from `@/services/logger`. No direct `console.*` for errors/warnings. The only sanctioned `console.*` sites are `services/logger.js` (the logger itself), `main.js` (Vue errorHandler), `schemas/api.js` (dev-only Zod warnings), and `services/modalDebug.js` (opt-in debug toggle). RFC 22 will lock this via ESLint `no-console`.
 
 **i18n**: Use `const { t } = useI18n()` in `<script setup>`, not the global `$t()`.
 
@@ -264,7 +277,7 @@ Before writing code, **pick the family** (see *Audio Source Architecture* above)
 2. **Create the module** in `backend/sources/{source}/` with `__init__.py` + `source.py` extending `BaseAudioSource(ABC)`. Constructor takes `(config, state_machine, settings_service, systemd_manager)`. Implement `_do_start / _do_stop / _get_status / _handle_command`.
 3. **Register in dependencies** — add a creator in `backend/dependencies.py::_create_service()` and register the source in `initialize_services()`
 4. **Add ALSA devices** in `/etc/asound.conf` with 2 variants (direct via CamillaDSP, multiroom via Snapcast)
-5. **Update stores** if needed in `frontend/src/stores/` (use `apiCall()` for API actions, handle WS events in store)
+5. **Update stores** if needed in `frontend/src/stores/` (use `apiCall.{get,post,put,patch,delete}` for API actions, handle WS events in store)
 
 **Family A — Mute receiver** (external control, no rich metadata) :
 
@@ -401,6 +414,8 @@ The conventions above are the rules; these are the most common ways they're viol
 9. **Don't use `asyncio.create_task()` for fire-and-forget** — use `BackgroundTaskSet.spawn()` (services) or FastAPI `BackgroundTasks` (routes). Direct `create_task` is reserved for long-running tracked tasks stored on `self` (e.g. `self._monitor_task = asyncio.create_task(...)`).
 10. **Don't write migration code on persisted data.** Bump `SCHEMA_VERSION`, add an entry to [BREAKING_CHANGES.md](BREAKING_CHANGES.md), let the file reset on first boot via `SchemaVersionMismatch`. Migration code is the path that grows legacy debt — avoid it even when it looks like a 3-line if-block.
 11. **Don't use `dict.get(k1, dict.get(k2, default))` chain fallbacks to absorb old payload shapes.** Fix the producer instead (one canonical key). Chain fallbacks rot — they keep absorbing old shapes long after no one emits them.
+12. **Don't `import axios` outside `frontend/src/services/apiCall.js`.** Use `apiCall.{get,post,put,patch,delete}(url, { category, message, ... })` for all HTTP requests, or the callback form `apiCall(cat, msg, async () => { ... })` for atomic multi-request sequences. Direct `axios` imports bypass centralized logging, the resilience-pattern check (`response.data.status === 'success'`), and `AbortController` / `errorRef` plumbing.
+13. **Don't use `console.*` for errors or warnings outside the documented allowlist** (logger.js, main.js, schemas/api.js, modalDebug.js) — use `logger.{debug,info,warn,error}(category, message, data)`. `console.*` skips the category prefix and timestamp formatting, so the central log view can't filter or correlate.
 
 ## Development & Coding Guidelines
 
