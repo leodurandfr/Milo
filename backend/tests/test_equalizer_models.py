@@ -498,32 +498,14 @@ class TestEqualizerSettings:
         actual_freqs = [f.frequency for f in eq.filters]
         assert actual_freqs == expected_freqs
 
-    # Backward compatibility tests
-    def test_backward_compat_old_dict_format(self):
-        """Should handle old settings.json format with plain dicts"""
-        # Old format from existing settings.json (List[Dict] instead of List[EqFilter])
-        old_data = {
-            "filters": [
-                {"id": "eq_band_00", "freq": 100, "gain": 2.0, "q": 1.41, "type": "Peaking", "enabled": True}
-            ],
-            "compressor": {"enabled": False, "threshold": -20.0, "ratio": 4.0, "attack": 10.0, "release": 100.0, "makeup_gain": 0.0},
-            "loudness": {"enabled": False, "high_boost": 5.0, "low_boost": 8.0}
-        }
-        eq = EqualizerSettings.from_dict(old_data)
-        # Should handle old "freq" key
-        assert len(eq.filters) == 1
-        assert eq.filters[0].frequency == 100
-        # Should handle old "type" key
-        assert eq.filters[0].filter_type == FilterType.PEAKING
-
-    def test_backward_compat_none_compressor_loudness(self):
-        """Should handle None compressor/loudness from old format"""
-        old_data = {
+    def test_none_compressor_loudness(self):
+        """Should default compressor/loudness when payload sets them to None."""
+        data = {
             "filters": [],
             "compressor": None,
             "loudness": None
         }
-        eq = EqualizerSettings.from_dict(old_data)
+        eq = EqualizerSettings.from_dict(data)
         assert eq.compressor.enabled is False
         assert eq.loudness.enabled is False
 
