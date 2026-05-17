@@ -4,7 +4,6 @@ CamillaDSP service for Milo - WebSocket client for CamillaDSP daemon.
 Replaces alsaequal with full parametric EQ capabilities.
 """
 import asyncio
-import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -12,11 +11,14 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 from enum import Enum
 
-import aiofiles
-
 from backend.core.equalizer.presets import get_builtin_presets, get_preset_by_id, DEFAULT_CUSTOM_GAINS, DEFAULT_EQ_FREQS
 from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
+from backend.shared.persistence import (
+    SchemaVersionMismatch,
+    load_versioned_json,
+    save_versioned_json,
+)
 
 
 class CamillaDspState(str, Enum):
@@ -57,19 +59,10 @@ class CamillaDSPService:
     MAX_RECONNECT_DELAY = 30.0
 
     # Dedicated persistence file for filters / compressor / loudness / mono /
-    # active_preset / custom_gains. See docs/plans/equalizer-persistence-split.md.
+    # active_preset / custom_gains.
     STORAGE_PATH = Path("/var/lib/milo/equalizer.json")
+    SCHEMA_VERSION: int = 2
     PERSIST_DEBOUNCE_S = 1.0
-
-    # Legacy settings.json keys consumed exactly once during first-boot migration.
-    _MIGRATION_KEYS = (
-        "filters",
-        "compressor",
-        "loudness",
-        "mono",
-        "active_preset",
-        "custom_gains",
-    )
 
     def __init__(self, settings_service=None, host: str = None, port: int = None):
         self.logger = logging.getLogger(__name__)
@@ -235,6 +228,10 @@ class CamillaDSPService:
 
             return True
 
+        except SchemaVersionMismatch:
+            # Let dependencies.py::init_async log the banner + SystemExit(1)
+            self._connection_ready.set()
+            raise
         except Exception as e:
             self.logger.error(f"Error initializing CamillaDSP service: {e}")
             # Signal event on error so waiters don't block forever
@@ -1103,153 +1100,52 @@ class CamillaDSPService:
 
     # === Configuration Persistence ===
 
-    @handle_errors(default=None)
     async def _load_saved_config(self) -> None:
         """Load persisted equalizer state from /var/lib/milo/equalizer.json.
 
-        Migrates from settings.json on first boot after upgrade (legacy
-        equalizer.* keys are read, written to the new file, then deleted from
-        settings.json). The effects-enabled toggle lives in settings.json under
-        routing.equalizer_effects_enabled — it is loaded here too.
+        Raises SchemaVersionMismatch on version drift (caller in dependencies.py
+        logs the banner and SystemExit(1)s). The effects-enabled toggle lives
+        in settings.json under routing.equalizer_effects_enabled.
         """
-        # Effects-enabled flag stays in settings.json.
-        # The legacy location (equalizer.effects_enabled) was the actual source
-        # of truth pre-refactor, so prefer it if present — the routing key was
-        # written as a default by the settings validator and may not reflect
-        # the user's real preference. After this branch the legacy key is
-        # always removed.
         if self.settings_service:
-            legacy_effects = await self.settings_service.get_setting("equalizer.effects_enabled")
-            if legacy_effects is not None:
-                self._effects_enabled = bool(legacy_effects)
-                await self.settings_service.set_setting(
-                    "routing.equalizer_effects_enabled", self._effects_enabled
-                )
-                await self.settings_service.delete_setting("equalizer.effects_enabled")
-                self.logger.info(
-                    f"Migrated equalizer.effects_enabled -> routing.equalizer_effects_enabled ({self._effects_enabled})"
-                )
-            else:
-                saved_effects_enabled = await self.settings_service.get_setting(
-                    "routing.equalizer_effects_enabled"
-                )
-                if saved_effects_enabled is not None:
-                    self._effects_enabled = bool(saved_effects_enabled)
-                    self.logger.info(f"Loaded saved effects_enabled: {self._effects_enabled}")
-
-        loaded_from_file = await self._load_persisted_state()
-
-        if not loaded_from_file:
-            await self._migrate_from_settings()
-        elif self.settings_service:
-            # Defensive: if equalizer.json is the source of truth, ensure no
-            # stale legacy block lingers in settings.json from a partial
-            # migration on a previous boot.
-            await self.settings_service.delete_setting("equalizer")
-
-    async def _load_persisted_state(self) -> bool:
-        """Load filters/compressor/loudness/mono/preset state from equalizer.json.
-
-        Returns True if the file existed and was parsed, False otherwise.
-        """
-        try:
-            if not self.STORAGE_PATH.exists():
-                return False
-
-            async with aiofiles.open(self.STORAGE_PATH, "r") as f:
-                data = json.loads(await f.read())
-
-            saved_filters = data.get("filters")
-            if isinstance(saved_filters, list) and saved_filters:
-                self._filters = saved_filters
-
-            saved_compressor = data.get("compressor")
-            if isinstance(saved_compressor, dict):
-                self._compressor.update(saved_compressor)
-
-            saved_loudness = data.get("loudness")
-            if isinstance(saved_loudness, dict):
-                self._loudness.update(saved_loudness)
-
-            saved_mono = data.get("mono")
-            if isinstance(saved_mono, bool):
-                self._mono = saved_mono
-
-            saved_preset = data.get("active_preset")
-            if isinstance(saved_preset, str):
-                self._active_preset = saved_preset
-
-            saved_gains = data.get("custom_gains")
-            if isinstance(saved_gains, list) and len(saved_gains) >= 10:
-                self._custom_gains = [float(g) for g in saved_gains]
-
-            self.logger.info(
-                f"Loaded equalizer.json: {len(self._filters)} filters, "
-                f"preset={self._active_preset}, mono={self._mono}"
+            saved_effects_enabled = await self.settings_service.get_setting(
+                "routing.equalizer_effects_enabled"
             )
-            return True
+            if saved_effects_enabled is not None:
+                self._effects_enabled = bool(saved_effects_enabled)
+                self.logger.info(f"Loaded saved effects_enabled: {self._effects_enabled}")
 
-        except Exception as e:
-            self.logger.error(f"Error loading equalizer.json: {e}", exc_info=True)
-            return False
+        data = await load_versioned_json(self.STORAGE_PATH, self.SCHEMA_VERSION)
+        if not data:
+            return  # Fresh install — in-memory defaults stay
 
-    async def _migrate_from_settings(self) -> None:
-        """One-time migration of equalizer.* keys from settings.json.
-
-        Reads each legacy key, populates the in-memory state, persists to the
-        new file, then deletes the keys from settings.json. After the first
-        successful boot post-upgrade this is a no-op.
-
-        Mechanical follow-up cleanup: this method can be deleted ~2-3 months
-        after rollout once all live appliances have migrated.
-        """
-        if not self.settings_service:
-            return
-
-        migrated_any = False
-
-        saved_filters = await self.settings_service.get_setting("equalizer.filters")
-        if saved_filters:
+        saved_filters = data.get("filters")
+        if isinstance(saved_filters, list) and saved_filters:
             self._filters = saved_filters
-            migrated_any = True
 
-        saved_compressor = await self.settings_service.get_setting("equalizer.compressor")
-        if saved_compressor:
+        saved_compressor = data.get("compressor")
+        if isinstance(saved_compressor, dict):
             self._compressor.update(saved_compressor)
-            migrated_any = True
 
-        saved_loudness = await self.settings_service.get_setting("equalizer.loudness")
-        if saved_loudness:
+        saved_loudness = data.get("loudness")
+        if isinstance(saved_loudness, dict):
             self._loudness.update(saved_loudness)
-            migrated_any = True
 
-        saved_mono = await self.settings_service.get_setting("equalizer.mono")
-        if saved_mono is not None:
-            self._mono = bool(saved_mono)
-            migrated_any = True
+        saved_mono = data.get("mono")
+        if isinstance(saved_mono, bool):
+            self._mono = saved_mono
 
-        saved_preset = await self.settings_service.get_setting("equalizer.active_preset")
+        saved_preset = data.get("active_preset")
         if isinstance(saved_preset, str):
             self._active_preset = saved_preset
-            migrated_any = True
 
-        saved_gains = await self.settings_service.get_setting("equalizer.custom_gains")
+        saved_gains = data.get("custom_gains")
         if isinstance(saved_gains, list) and len(saved_gains) >= 10:
             self._custom_gains = [float(g) for g in saved_gains]
-            migrated_any = True
-
-        if not migrated_any:
-            self.logger.debug("No legacy equalizer.* keys to migrate")
-            return
-
-        await self._persist_state_async()
-
-        # Drop the entire legacy `equalizer` block atomically, including
-        # `effects_enabled` (already migrated to routing block above if needed).
-        await self.settings_service.delete_setting("equalizer")
 
         self.logger.info(
-            "Migrated equalizer state from settings.json -> /var/lib/milo/equalizer.json"
+            f"Loaded equalizer.json: {len(self._filters)} filters, "
+            f"preset={self._active_preset}, mono={self._mono}"
         )
 
     @handle_errors(default=None)
@@ -1284,13 +1180,7 @@ class CamillaDSPService:
                 "loudness": dict(self._loudness),
             }
 
-            self.STORAGE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            temp_path = self.STORAGE_PATH.with_suffix(".tmp")
-
-            async with aiofiles.open(temp_path, "w") as f:
-                await f.write(json.dumps(data, indent=2))
-
-            temp_path.replace(self.STORAGE_PATH)
+            await save_versioned_json(self.STORAGE_PATH, data, self.SCHEMA_VERSION)
             self.logger.debug(
                 f"Persisted equalizer state: {len(self._filters)} filters, preset={self._active_preset}"
             )
