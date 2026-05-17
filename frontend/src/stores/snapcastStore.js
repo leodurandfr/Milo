@@ -11,6 +11,7 @@ import { useMultiroomStore } from './multiroomStore';
 import { useUnifiedAudioStore } from './unifiedAudioStore';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
+import { SnapcastServerConfigSchema, validateSchema } from '@/schemas/api';
 
 const DISPLAY_CACHE_KEY = 'multiroom_display_cache';
 
@@ -144,16 +145,15 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     });
     if (!result.ok || !result.data?.config) return null;
 
-    const fileConfig = result.data.config.file_config?.parsed_config?.stream || {};
-    const streamConfig = result.data.config.stream_config || {};
-    const snapclientBufferTime = result.data.config.snapclient_buffer_time;
+    const parsed = validateSchema(SnapcastServerConfigSchema, result.data.config, 'snapcast.server-config');
+    if (!parsed.success) return null;
 
     return {
-      buffer: parseInt(fileConfig.buffer || streamConfig.buffer_ms || '1000'),
-      codec: fileConfig.codec || streamConfig.codec || 'flac',
-      chunk_ms: parseInt(fileConfig.chunk_ms || streamConfig.chunk_ms) || 20,
-      sampleformat: '48000:32:2',
-      snapclient_buffer_time: snapclientBufferTime !== undefined ? snapclientBufferTime : 80,
+      buffer_ms: parsed.data.stream_config.buffer_ms,
+      codec: parsed.data.stream_config.codec,
+      chunk_ms: parsed.data.stream_config.chunk_ms,
+      sampleformat: parsed.data.stream_config.sampleformat,
+      snapclient_buffer_time: parsed.data.snapclient_buffer_time,
     };
   }
 
@@ -239,7 +239,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
   }
 
   function applyPreset(preset) {
-    serverConfig.value.buffer = preset.config.buffer;
+    serverConfig.value.buffer_ms = preset.config.buffer_ms;
     serverConfig.value.codec = preset.config.codec;
     serverConfig.value.chunk_ms = preset.config.chunk_ms;
     if (preset.config.snapclient_buffer_time !== undefined) {

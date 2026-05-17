@@ -241,34 +241,30 @@ class SnapcastService:
 
     @handle_errors(default={})
     async def get_server_config(self) -> Dict[str, Any]:
-        """Get server configuration."""
+        """Get the canonical stream configuration.
+
+        Returns a single flat shape under `stream_config`. The `buffer_ms`
+        field is only present in snapserver.conf (not exposed by the daemon
+        JSON-RPC), so the file is parsed for it and merged with the daemon's
+        live `chunk_ms` / `codec` / `sampleformat` values when available.
+        """
         api_task = self._request("Server.GetStatus")
         file_task = self._read_snapserver_conf()
 
         status, file_config = await asyncio.gather(api_task, file_task)
 
-        server_info = status.get("server", {})
+        file_stream = file_config.get("parsed_config", {}).get("stream", {})
         streams = status.get("streams", [])
+        query = streams[0].get("uri", {}).get("query", {}) if streams else {}
 
-        stream_config = {}
-        if streams:
-            first_stream = streams[0]
-            uri = first_stream.get("uri", {})
-            query = uri.get("query", {})
-
-            stream_config = {
-                "chunk_ms": query.get("chunk_ms", "20"),
-                "codec": query.get("codec", "flac"),
-                "sampleformat": query.get("sampleformat", "48000:32:2")
-            }
-
-        return {
-            "server_info": server_info,
-            "stream_config": stream_config,
-            "file_config": file_config,
-            "streams": streams,
-            "rpc_version": await self._request("Server.GetRPCVersion")
+        stream_config = {
+            "buffer_ms": int(file_stream.get("buffer") or 1000),
+            "chunk_ms": int(query.get("chunk_ms") or file_stream.get("chunk_ms") or 20),
+            "codec": query.get("codec") or file_stream.get("codec") or "flac",
+            "sampleformat": query.get("sampleformat") or "48000:32:2",
         }
+
+        return {"stream_config": stream_config}
 
     @handle_errors(default={})
     async def _read_snapserver_conf(self) -> Dict[str, Any]:
@@ -322,7 +318,7 @@ class SnapcastService:
     def _validate_config(self, config: Dict[str, Any]) -> bool:
         """Validate configuration parameters."""
         validators = {
-            "buffer": lambda x: isinstance(x, int) and 200 <= x <= 3000,
+            "buffer_ms": lambda x: isinstance(x, int) and 200 <= x <= 3000,
             "codec": lambda x: x in ["flac", "pcm", "opus", "ogg"],
             "chunk_ms": lambda x: isinstance(x, int) and 15 <= x <= 50,
             "snapclient_buffer_time": lambda x: isinstance(x, int) and 60 <= x <= 300,
@@ -376,8 +372,10 @@ class SnapcastService:
         updated_lines = []
         in_stream_section = False
 
+        # Map snapserver.conf field names (left) to incoming payload keys (right).
+        # The conf uses `buffer` for what we expose on the wire as `buffer_ms`.
         param_mapping = {
-            "buffer": "buffer",
+            "buffer": "buffer_ms",
             "codec": "codec",
             "chunk_ms": "chunk_ms",
             "sampleformat": "sampleformat"
