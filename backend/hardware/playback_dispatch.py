@@ -11,6 +11,7 @@ import logging
 from typing import Optional
 
 from backend.core.models.audio_state import AudioSource
+from backend.shared.background import BackgroundTaskSet
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ class PlaybackDispatcher:
         self._state_machine = state_machine
         self._click_count = 0
         self._click_timer: Optional[asyncio.TimerHandle] = None
+        self._bg = BackgroundTaskSet(logger, "playback_dispatch")
 
     async def on_click(self):
         """Register a click and (re)start the multi-click window timer."""
@@ -57,7 +59,7 @@ class PlaybackDispatcher:
         loop = asyncio.get_running_loop()
         self._click_timer = loop.call_later(
             MULTI_CLICK_WINDOW,
-            lambda: asyncio.create_task(self._resolve_clicks())
+            lambda: self._bg.spawn(self._resolve_clicks(), label="resolve_clicks"),
         )
 
     def cancel(self):

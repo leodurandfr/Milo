@@ -196,7 +196,10 @@ class RadioSource(MpvAudioSource):
             self._logger.info(f"Playing station: {station_name}")
 
             # Increment Radio Browser counter (fire and forget)
-            asyncio.create_task(self._radio_api.increment_station_clicks(station_id))
+            self._bg.spawn(
+                self._radio_api.increment_station_clicks(station_id),
+                label="increment_station_clicks",
+            )
 
             # Stop current playback before switching stations
             if self._shazam:

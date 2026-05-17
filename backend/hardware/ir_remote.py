@@ -30,6 +30,7 @@ from backend.hardware import keymap_writer
 from backend.hardware.keymap_writer import APPLE_MANUFACTURER
 from backend.hardware.playback_dispatch import PlaybackDispatcher
 from backend.hardware.volume_accumulator import VolumeAccumulator
+from backend.shared.background import BackgroundTaskSet
 
 try:
     import evdev
@@ -126,6 +127,8 @@ class IrRemoteController:
         self._menu_resolve_task: Optional[asyncio.Task] = None
         self._menu_pressed = False
 
+        self._bg = BackgroundTaskSet(logger, "ir_remote")
+
     # ========================================================================
     # LIFECYCLE
     # ========================================================================
@@ -158,6 +161,7 @@ class IrRemoteController:
         self._dispatcher.cancel()
         self._cancel_menu_click_timer()
         await self._volume.cleanup()
+        await self._bg.cancel_all()
         logger.info("IR remote controller cleaned up")
 
     # ========================================================================
@@ -331,7 +335,9 @@ class IrRemoteController:
 
     def _fire_menu_resolution(self) -> None:
         """Spawn the resolver task, tracking it so cleanup can cancel it."""
-        self._menu_resolve_task = asyncio.create_task(self._resolve_menu_clicks())
+        self._menu_resolve_task = self._bg.spawn(
+            self._resolve_menu_clicks(), label="resolve_menu_clicks"
+        )
 
     def _cancel_menu_click_timer(self) -> None:
         if self._menu_click_timer:

@@ -149,7 +149,10 @@ class CdSource(MpvAudioSource):
             # Runs AFTER _do_start returns so the transition completes first
             # and the frontend can show "Chargement de l'album".
             if self._disc_present and not self._current_disc and self._last_disc_id:
-                asyncio.create_task(self._load_disc_metadata())
+                self._bg.spawn(
+                    self._load_disc_metadata(),
+                    label="load_disc_metadata_on_start",
+                )
 
             return True
 
