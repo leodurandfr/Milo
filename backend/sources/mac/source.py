@@ -54,12 +54,10 @@ class MacSource(BaseAudioSource):
     """
     Mac audio source using ROC toolkit.
 
-    Implements AudioSource Protocol with:
-    - start(): Start ROC service and monitoring
-    - stop(): Stop service and cleanup
-    - restart(): Restart service
-    - status(): Get current status with connected clients
-    - command(): Handle restart command
+    Family A (mute receiver): playback control flows from the Mac sender;
+    commands routed through `/api/audio/control/mac` reach `_handle_command`.
+    Extends BaseAudioSource — implements `_do_start / _do_stop / _get_status /
+    _handle_command`.
     """
 
     def __init__(

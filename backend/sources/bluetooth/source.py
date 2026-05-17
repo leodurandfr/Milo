@@ -26,13 +26,10 @@ class BluetoothSource(BaseAudioSource):
     """
     Bluetooth audio source using BlueALSA.
 
-    Implements AudioSource Protocol with:
-    - start(): Start Bluetooth services, agent, and monitoring
-    - stop(): Stop services and cleanup
-    - restart(): Restart audio playback service
-    - status(): Get current status with connected device
-    - command(): Handle disconnect
-
+    Family A (mute receiver): control flows from the Bluetooth sender;
+    commands routed through `/api/audio/control/bluetooth` reach
+    `_handle_command` (e.g. `disconnect`). Extends BaseAudioSource —
+    implements `_do_start / _do_stop / _get_status / _handle_command`.
     """
 
     def __init__(

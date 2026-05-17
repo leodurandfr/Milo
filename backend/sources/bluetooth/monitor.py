@@ -27,7 +27,7 @@ class BlueAlsaMonitor:
 
     def __init__(self):
         """Initialize monitor."""
-        self._logger = logging.getLogger("feature.bluetooth.monitor")
+        self._logger = logging.getLogger("source.bluetooth.monitor")
         self._process: Optional[asyncio.subprocess.Process] = None
         self._connected_devices: Dict[str, Dict[str, Any]] = {}
         self._on_connect: Optional[ConnectionCallback] = None

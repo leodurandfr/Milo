@@ -16,7 +16,7 @@ import struct
 import threading
 from typing import Optional
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("source.cd.reader")
 
 # Linux ioctl constants
 CDROMREADAUDIO = 0x530E

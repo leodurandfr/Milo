@@ -15,7 +15,7 @@ from typing import Any, Callable, Coroutine, Dict, Optional
 from aiohttp_retry import ExponentialRetry
 from shazamio import Shazam, HTTPClient
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("source.radio.shazam")
 
 # Recognition timing
 INITIAL_DELAY_SECONDS = 10

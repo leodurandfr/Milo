@@ -28,7 +28,7 @@ from backend.config.constants import CD_COVERS_DIR, CD_DATA_FILE, CD_DEVICE
 from backend.sources.cd.models import DiscInfo, TrackInfo
 from backend.shared.decorators import handle_errors
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("source.cd.data")
 
 # ioctl constants for CD drive status
 CDROM_DRIVE_STATUS = 0x5326
@@ -46,7 +46,6 @@ class CdDataService:
     """
 
     def __init__(self):
-        self._logger = logging.getLogger(__name__)
         self._data_file = str(CD_DATA_FILE)
         self._covers_dir = str(CD_COVERS_DIR)
         self._file_lock = asyncio.Lock()
@@ -58,7 +57,7 @@ class CdDataService:
             import musicbrainzngs
             musicbrainzngs.set_useragent("Milo", "1.0", "https://music.milo.audio")
         except ImportError:
-            self._logger.warning("musicbrainzngs not installed, metadata lookup disabled")
+            logger.warning("musicbrainzngs not installed, metadata lookup disabled")
 
     async def initialize(self) -> None:
         """Load cached data from disk and ensure directories exist."""
@@ -106,7 +105,7 @@ class CdDataService:
             result = await asyncio.to_thread(self._read_disc_sync)
             return result
         except Exception as e:
-            self._logger.error(f"Failed to read disc: {e}")
+            logger.error(f"Failed to read disc: {e}")
             return None
 
     def _read_disc_sync(self) -> Optional[Tuple[str, str, List[Dict[str, Any]], int]]:
@@ -121,7 +120,7 @@ class CdDataService:
             import discid
             disc = discid.read(CD_DEVICE)
         except Exception as e:
-            self._logger.error(f"discid.read() failed: {e}")
+            logger.error(f"discid.read() failed: {e}")
             return None
 
         tracks = []
@@ -150,7 +149,7 @@ class CdDataService:
         # Check cache first
         cached = self._cache.get(disc_id)
         if cached:
-            self._logger.info(f"Cache hit for disc {disc_id}")
+            logger.info(f"Cache hit for disc {disc_id}")
             return self._disc_info_from_cache(disc_id, cached)
 
         # Try MusicBrainz lookup (in thread to avoid blocking)
@@ -159,7 +158,7 @@ class CdDataService:
                 self._lookup_musicbrainz_sync, disc_id, toc_string
             )
         except Exception as e:
-            self._logger.warning(f"MusicBrainz lookup failed: {e}")
+            logger.warning(f"MusicBrainz lookup failed: {e}")
             result = None
 
         if result:
@@ -227,7 +226,7 @@ class CdDataService:
             if release:
                 return self._parse_release(release)
         except musicbrainzngs.ResponseError:
-            self._logger.debug(f"No exact match for disc ID {disc_id}")
+            logger.debug(f"No exact match for disc ID {disc_id}")
 
         # Fallback: fuzzy match by TOC
         try:
@@ -238,7 +237,7 @@ class CdDataService:
             if release:
                 return self._parse_release(release)
         except musicbrainzngs.ResponseError:
-            self._logger.debug(f"No fuzzy match for disc TOC")
+            logger.debug(f"No fuzzy match for disc TOC")
 
         return None
 
@@ -347,10 +346,10 @@ class CdDataService:
             if image_data:
                 async with aiofiles.open(cover_path, "wb") as f:
                     await f.write(image_data)
-                self._logger.info(f"Cover art saved for disc {disc_id}")
+                logger.info(f"Cover art saved for disc {disc_id}")
                 return True
         except Exception as e:
-            self._logger.warning(f"Cover art download failed: {e}")
+            logger.warning(f"Cover art download failed: {e}")
 
         return False
 
@@ -369,14 +368,14 @@ class CdDataService:
         try:
             return musicbrainzngs.get_image_front(release_mbid, size="500")
         except musicbrainzngs.ResponseError:
-            self._logger.debug(f"No cover art for release {release_mbid}")
+            logger.debug(f"No cover art for release {release_mbid}")
 
         # Fallback: release group cover art (any edition of the album)
         if release_group_mbid:
             try:
                 return musicbrainzngs.get_release_group_image_front(release_group_mbid, size="500")
             except musicbrainzngs.ResponseError:
-                self._logger.debug(f"No cover art for release group {release_group_mbid}")
+                logger.debug(f"No cover art for release group {release_group_mbid}")
 
         return None
 
@@ -421,11 +420,11 @@ class CdDataService:
                     async with aiofiles.open(self._data_file, "r", encoding="utf-8") as f:
                         data = json.loads(await f.read())
                         self._cache = data.get("discs", {})
-                self._logger.info(f"Loaded {len(self._cache)} cached disc(s)")
+                logger.info(f"Loaded {len(self._cache)} cached disc(s)")
             else:
                 self._cache = {}
         except Exception as e:
-            self._logger.error(f"Error loading cd_data.json: {e}")
+            logger.error(f"Error loading cd_data.json: {e}")
             self._cache = {}
 
     @handle_errors(default=False)

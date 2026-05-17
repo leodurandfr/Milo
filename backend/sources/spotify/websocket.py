@@ -39,7 +39,7 @@ class LibrespotWebSocket:
             session: aiohttp ClientSession for connections
             on_event: Callback for received events
         """
-        self._logger = logging.getLogger("feature.spotify.websocket")
+        self._logger = logging.getLogger("source.spotify.websocket")
         self._ws_url = ws_url
         self._session = session
         self._on_event = on_event
