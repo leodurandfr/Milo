@@ -328,7 +328,7 @@ class StationDataService:
             return metadata
 
         if self.radio_api:
-            metadata = await self.radio_api._fetch_station_by_id(station_id)
+            metadata = await self.radio_api.fetch_remote_station(station_id)
             if metadata:
                 self._favorites_cache[station_id] = metadata
                 await self._save()
