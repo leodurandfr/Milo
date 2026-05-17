@@ -175,6 +175,10 @@ await self.state_machine.broadcast_event(
 
 **Wire format**: `{ category, type, origin, data, timestamp }`. The `origin` field is read from `data["source"]` (falls back to `category`). Callers using category `"source"` **must** provide `"source"` in the data dict.
 
+**Payload contracts** — every WS event payload consumed by the frontend SHOULD have a Zod schema declared in [frontend/src/schemas/ws.js](frontend/src/schemas/ws.js). Handlers consume the validated payload via `parsedOn(category, type, schema, handler)` exposed by `useWebSocket()` — they MUST NOT read `event.data.x` directly. On the backend side, document the expected shape in a docstring next to each `broadcast_event(...)` call site; the schema and producer are kept in sync by code review (no codegen).
+
+The registry is intentionally incremental: only fautive pairs (those that previously absorbed dual-shape drift via `??`/`||` fallbacks) are schematized initially. Other pairs continue to dispatch raw `event` via `on(...)` until a future PR migrates them.
+
 **Event category conventions:**
 - `source` — All audio source feature events (state changes, metadata). Never use source-specific categories.
 - `settings` — Settings changes. Always via `state_machine.broadcast_event()`, never `ws_manager.broadcast_dict()`.
@@ -432,6 +436,8 @@ The conventions above are the rules; these are the most common ways they're viol
 14. **Don't `except Exception: pass`** — use `@handle_errors(default=..., level=...)` if a fallback is legitimate, otherwise `log + raise`. Silent swallows hide production breakage and force every future debugging session to start by re-adding the log statement.
 15. **Don't access `_private` attributes/methods of another service from a route or another service.** If you need the data, the service must expose a public method or property. Encapsulation breaks here become load-bearing fast — the next refactor across the boundary breaks every caller silently.
 16. **Don't catch only `CancelledError` in a background loop** — wrap the loop body in `try/except Exception` + log + `continue`. `except CancelledError` alone lets transient I/O errors silently kill the task (e.g. disk-full, lock contention) so the task is gone until the next backend restart.
+17. **Don't read `event.data.x` directly in WS handlers.** Declare a Zod schema in [frontend/src/schemas/ws.js](frontend/src/schemas/ws.js) and consume the validated payload via `parsedOn(category, type, schema, handler)`. Raw access bypasses validation and silently absorbs payload drift.
+18. **Don't use `event.data?.x ?? event.data?.y` fallbacks to absorb dual payload shapes.** Fix the producer side first (one canonical key in the broadcast), then declare a single schema. Dual-shape fallbacks rot — they outlive the producer that justified them.
 
 ## Development & Coding Guidelines
 
