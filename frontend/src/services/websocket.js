@@ -343,13 +343,13 @@ class WebSocketSingleton {
 
   on(category, type, callback) {
     const eventKey = `${category}.${type}`;
-    
+
     if (!this.eventHandlers.has(eventKey)) {
       this.eventHandlers.set(eventKey, new Set());
     }
-    
+
     this.eventHandlers.get(eventKey).add(callback);
-    
+
     return () => {
       const handlers = this.eventHandlers.get(eventKey);
       if (handlers) {
@@ -359,6 +359,31 @@ class WebSocketSingleton {
         }
       }
     };
+  }
+
+  /**
+   * Subscribe with Zod schema validation on `event.data`.
+   *
+   * On success, the callback receives `(payload, event)` where `payload` is
+   * the validated (and possibly coerced) `event.data`. On validation failure,
+   * a warning is logged and the callback is STILL invoked with the raw
+   * `event.data` (tolerant fallback) — the runtime must never break on
+   * payload drift; the warning surfaces the bug to the dev cycle.
+   */
+  parsedOn(category, type, schema, callback) {
+    const eventKey = `${category}.${type}`;
+    const wrapped = (event) => {
+      const result = schema.safeParse(event.data);
+      if (result.success) {
+        callback(result.data, event);
+      } else {
+        logger.warn('websocket', `Schema validation failed for ${eventKey}`, {
+          issues: result.error.issues,
+        });
+        callback(event.data, event);
+      }
+    };
+    return this.on(category, type, wrapped);
   }
 }
 
@@ -388,6 +413,12 @@ export default function useWebSocket() {
     return cleanup;
   }
 
+  function parsedOn(category, type, schema, callback) {
+    const cleanup = wsInstance.parsedOn(category, type, schema, callback);
+    cleanupFunctions.push(cleanup);
+    return cleanup;
+  }
+
   function onReconnect(callback) {
     const cleanup = wsInstance.onReconnect(callback);
     cleanupFunctions.push(cleanup);
@@ -403,6 +434,7 @@ export default function useWebSocket() {
   return {
     isConnected: computed(() => wsInstance.isConnected.value),
     on,
+    parsedOn,
     onReconnect,
     onVisibilityChange
   };
