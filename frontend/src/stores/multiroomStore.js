@@ -12,7 +12,6 @@
  */
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import axios from 'axios';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
 
@@ -433,15 +432,17 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * Uses canonical /api/multiroom/zones endpoint (Story 2-4).
    */
   async function createZone(name, clientIds = []) {
-    return apiCall('store', 'Error creating zone', async () => {
-      const response = await axios.post('/api/multiroom/zones', { name, client_ids: clientIds });
-      const newZone = response.data.zone;
-      if (newZone && newZone.id) {
-        zones.value.set(newZone.id, newZone);
-        saveCache();
-      }
-      return response.data;
-    }, { rethrow: true });
+    const result = await apiCall.post('/api/multiroom/zones', { name, client_ids: clientIds }, {
+      category: 'store',
+      message: 'Error creating zone',
+      rethrow: true,
+    });
+    const newZone = result.data.zone;
+    if (newZone && newZone.id) {
+      zones.value.set(newZone.id, newZone);
+      saveCache();
+    }
+    return result.data;
   }
 
   /**
@@ -449,12 +450,14 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * Uses canonical /api/multiroom/zones endpoint (Story 2-4).
    */
   async function deleteZone(zoneId) {
-    return apiCall('store', 'Error deleting zone', async () => {
-      await axios.delete(`/api/multiroom/zones/${zoneId}`);
-      zones.value.delete(zoneId);
-      saveCache();
-      return true;
-    }, { rethrow: true });
+    await apiCall.delete(`/api/multiroom/zones/${zoneId}`, {
+      category: 'store',
+      message: 'Error deleting zone',
+      rethrow: true,
+    });
+    zones.value.delete(zoneId);
+    saveCache();
+    return true;
   }
 
   /**
@@ -462,14 +465,16 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * Uses canonical /api/multiroom/zones endpoint (Story 2-4).
    */
   async function updateZone(zoneId, updates) {
-    return apiCall('store', 'Error updating zone', async () => {
-      const response = await axios.patch(`/api/multiroom/zones/${zoneId}`, updates);
-      if (response.data.zone) {
-        zones.value.set(zoneId, response.data.zone);
-        saveCache();
-      }
-      return response.data;
-    }, { rethrow: true });
+    const result = await apiCall.patch(`/api/multiroom/zones/${zoneId}`, updates, {
+      category: 'store',
+      message: 'Error updating zone',
+      rethrow: true,
+    });
+    if (result.data.zone) {
+      zones.value.set(zoneId, result.data.zone);
+      saveCache();
+    }
+    return result.data;
   }
 
   /**
@@ -480,14 +485,16 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * @returns {Promise<Object>} Response with updated zone data
    */
   async function addClientToZone(zoneId, macId) {
-    return apiCall('store', 'Error adding client to zone', async () => {
-      const response = await axios.post(`/api/multiroom/zones/${zoneId}/clients`, { mac_id: macId });
-      if (response.data.zone) {
-        zones.value.set(zoneId, response.data.zone);
-        saveCache();
-      }
-      return response.data;
-    }, { rethrow: true });
+    const result = await apiCall.post(`/api/multiroom/zones/${zoneId}/clients`, { mac_id: macId }, {
+      category: 'store',
+      message: 'Error adding client to zone',
+      rethrow: true,
+    });
+    if (result.data.zone) {
+      zones.value.set(zoneId, result.data.zone);
+      saveCache();
+    }
+    return result.data;
   }
 
   /**
@@ -499,16 +506,18 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * @returns {Promise<Object>} Response with zone data or deletion message
    */
   async function removeClientFromZone(zoneId, macId) {
-    return apiCall('store', 'Error removing client from zone', async () => {
-      const response = await axios.delete(`/api/multiroom/zones/${zoneId}/clients/${macId}`);
-      if (response.data.zone) {
-        zones.value.set(zoneId, response.data.zone);
-      } else if (response.data.message?.includes('deleted')) {
-        zones.value.delete(zoneId);
-      }
-      saveCache();
-      return response.data;
-    }, { rethrow: true });
+    const result = await apiCall.delete(`/api/multiroom/zones/${zoneId}/clients/${macId}`, {
+      category: 'store',
+      message: 'Error removing client from zone',
+      rethrow: true,
+    });
+    if (result.data.zone) {
+      zones.value.set(zoneId, result.data.zone);
+    } else if (result.data.message?.includes('deleted')) {
+      zones.value.delete(zoneId);
+    }
+    saveCache();
+    return result.data;
   }
 
   /**
@@ -530,10 +539,12 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * @returns {Promise<Object>} Updated client data
    */
   async function updateClient(macId, updates) {
-    return apiCall('store', 'Error updating client', async () => {
-      const response = await axios.patch(`/api/multiroom/clients/${macId}`, updates);
-      return response.data;
-    }, { rethrow: true });
+    const result = await apiCall.patch(`/api/multiroom/clients/${macId}`, updates, {
+      category: 'store',
+      message: 'Error updating client',
+      rethrow: true,
+    });
+    return result.data;
   }
 
   /**
@@ -543,10 +554,12 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * @returns {Promise<boolean>} Success status
    */
   async function deleteClient(macId) {
-    return apiCall('store', 'Error deleting client', async () => {
-      const response = await axios.delete(`/api/multiroom/clients/${macId}`);
-      return response.data.status === 'success';
+    const result = await apiCall.delete(`/api/multiroom/clients/${macId}`, {
+      category: 'store',
+      message: 'Error deleting client',
+      checkStatus: true,
     });
+    return result.ok;
   }
 
   // === CLIENT HARDWARE ===
@@ -557,10 +570,12 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * @returns {Promise<Object>} Hardware config { audio: { id, overlay } }
    */
   async function fetchClientHardware(macId) {
-    return apiCall('store', 'Error fetching client hardware', async () => {
-      const response = await axios.get(`/api/multiroom/clients/${encodeURIComponent(macId)}/hardware`);
-      return response.data;
-    }, { rethrow: true });
+    const result = await apiCall.get(`/api/multiroom/clients/${encodeURIComponent(macId)}/hardware`, {
+      category: 'store',
+      message: 'Error fetching client hardware',
+      rethrow: true,
+    });
+    return result.data;
   }
 
   /**
@@ -570,15 +585,18 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * @returns {Promise<Object>} Response with status
    */
   async function configureClientAudio(macId, audioId, volumeControl = null) {
-    return apiCall('store', 'Error configuring client audio', async () => {
-      const body = { audio_id: audioId };
-      if (volumeControl !== null) body.volume_control = volumeControl;
-      const response = await axios.put(
-        `/api/multiroom/clients/${encodeURIComponent(macId)}/audio`,
-        body,
-      );
-      return response.data;
-    }, { rethrow: true });
+    const body = { audio_id: audioId };
+    if (volumeControl !== null) body.volume_control = volumeControl;
+    const result = await apiCall.put(
+      `/api/multiroom/clients/${encodeURIComponent(macId)}/audio`,
+      body,
+      {
+        category: 'store',
+        message: 'Error configuring client audio',
+        rethrow: true,
+      },
+    );
+    return result.data;
   }
 
   // === PENDING CLIENTS ===
@@ -587,11 +605,14 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * Fetch all pending clients from the backend.
    */
   async function fetchPendingClients() {
-    return apiCall('store', 'Error fetching pending clients', async () => {
-      const response = await axios.get('/api/multiroom/pending-clients');
-      const data = response.data.clients || {};
-      pendingClients.value = new Map(Object.entries(data));
+    const result = await apiCall.get('/api/multiroom/pending-clients', {
+      category: 'store',
+      message: 'Error fetching pending clients',
     });
+    if (result.ok) {
+      const data = result.data.clients || {};
+      pendingClients.value = new Map(Object.entries(data));
+    }
   }
 
   /**
@@ -603,20 +624,22 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     // Add to configuring set BEFORE the request to avoid race with WebSocket events
     configuringClients.value = new Set([...configuringClients.value, macId]);
     try {
-      const result = await apiCall('store', 'Error configuring pending client', async () => {
-        const response = await axios.post(
-          `/api/multiroom/pending-clients/${encodeURIComponent(macId)}/configure`,
-          config,
-        );
-        return response.data;
-      }, { rethrow: true });
+      const result = await apiCall.post(
+        `/api/multiroom/pending-clients/${encodeURIComponent(macId)}/configure`,
+        config,
+        {
+          category: 'store',
+          message: 'Error configuring pending client',
+          rethrow: true,
+        },
+      );
 
       // Auto-clear configuring state after timeout (cleanup if client never comes back)
       configuringTimeouts[macId] = setTimeout(() => {
         clearConfiguringClient(macId);
       }, CONFIGURING_TIMEOUT_MS);
 
-      return result;
+      return result.data;
     } catch (e) {
       // Remove from configuring set on failure
       const next = new Set(configuringClients.value);

@@ -1,7 +1,6 @@
 // frontend/src/stores/radioStore.js
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import axios from 'axios';
 import { useUnifiedAudioStore } from './unifiedAudioStore';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
@@ -195,14 +194,18 @@ export const useRadioStore = defineStore('radio', () => {
   async function preloadFavorites() {
     if (favoritesInitialized.value) return;
     if (preloadPromise) return preloadPromise;
-    preloadPromise = apiCall('radio', 'Error preloading favorites:', async () => {
-      const response = await axios.get('/api/radio/stations', {
-        params: { favorites_only: true }
+    preloadPromise = (async () => {
+      const result = await apiCall.get('/api/radio/stations', {
+        category: 'radio',
+        message: 'Error preloading favorites',
+        params: { favorites_only: true },
       });
-      favoriteStations.value = response.data.stations;
-      favoritesInitialized.value = true;
-      logger.debug('radio', `Preloaded ${favoriteStations.value.length} favorites`);
-    });
+      if (result.ok) {
+        favoriteStations.value = result.data.stations;
+        favoritesInitialized.value = true;
+        logger.debug('radio', `Preloaded ${favoriteStations.value.length} favorites`);
+      }
+    })();
     await preloadPromise;
     preloadPromise = null;
   }
@@ -336,46 +339,50 @@ export const useRadioStore = defineStore('radio', () => {
    * Play a station
    */
   async function playStation(stationId) {
-    return apiCall('radio', 'Error playing station:', async () => {
-      let station = searchResults.value.find(s => s.id === stationId);
-      if (!station) station = favoriteStations.value.find(s => s.id === stationId);
-      const payload = station ? { station_id: stationId, station } : { station_id: stationId };
-      const response = await axios.post('/api/radio/play', payload);
-      return response.data.success;
+    let station = searchResults.value.find(s => s.id === stationId);
+    if (!station) station = favoriteStations.value.find(s => s.id === stationId);
+    const payload = station ? { station_id: stationId, station } : { station_id: stationId };
+    const result = await apiCall.post('/api/radio/play', payload, {
+      category: 'radio',
+      message: 'Error playing station',
     });
+    return result.ok && result.data.success;
   }
 
   /**
    * Stop playback
    */
   async function stopPlayback() {
-    return apiCall('radio', 'Error stopping playback:', async () => {
-      const response = await axios.post('/api/radio/stop');
-      return response.data.success;
+    const result = await apiCall.post('/api/radio/stop', null, {
+      category: 'radio',
+      message: 'Error stopping playback',
     });
+    return result.ok && result.data.success;
   }
 
   /**
    * Add a station to favorites
    */
   async function addFavorite(stationId) {
-    return apiCall('radio', 'Error adding favorite:', async () => {
-      let station = searchResults.value.find(s => s.id === stationId);
-      if (!station) station = favoriteStations.value.find(s => s.id === stationId);
-      const payload = station ? { station_id: stationId, station } : { station_id: stationId };
-      const response = await axios.post('/api/radio/favorites/add', payload);
-      return response.data.success;
+    let station = searchResults.value.find(s => s.id === stationId);
+    if (!station) station = favoriteStations.value.find(s => s.id === stationId);
+    const payload = station ? { station_id: stationId, station } : { station_id: stationId };
+    const result = await apiCall.post('/api/radio/favorites/add', payload, {
+      category: 'radio',
+      message: 'Error adding favorite',
     });
+    return result.ok && result.data.success;
   }
 
   /**
    * Remove a station from favorites
    */
   async function removeFavorite(stationId) {
-    return apiCall('radio', 'Error removing favorite:', async () => {
-      const response = await axios.delete(`/api/radio/favorites/${stationId}`);
-      return response.data.success;
+    const result = await apiCall.delete(`/api/radio/favorites/${stationId}`, {
+      category: 'radio',
+      message: 'Error removing favorite',
     });
+    return result.ok && result.data.success;
   }
 
   /**
@@ -427,26 +434,28 @@ export const useRadioStore = defineStore('radio', () => {
    * Remove a custom station
    */
   async function removeCustomStation(stationId) {
-    return apiCall('radio', 'Error removing custom station:', async () => {
-      const response = await axios.delete(`/api/radio/custom/${stationId}`);
-      if (response.data.success) {
-        logger.info('radio', `Custom station removed: ${stationId}`);
-        searchResults.value = searchResults.value.filter(s => s.id !== stationId);
-        totalResults.value = Math.max(0, totalResults.value - 1);
-        return true;
-      }
-      return false;
+    const result = await apiCall.delete(`/api/radio/custom/${stationId}`, {
+      category: 'radio',
+      message: 'Error removing custom station',
     });
+    if (result.ok && result.data.success) {
+      logger.info('radio', `Custom station removed: ${stationId}`);
+      searchResults.value = searchResults.value.filter(s => s.id !== stationId);
+      totalResults.value = Math.max(0, totalResults.value - 1);
+      return true;
+    }
+    return false;
   }
 
   /**
    * Fetch custom stations dict from API (for settings view)
    */
   async function fetchCustomStations() {
-    customStations.value = await apiCall('radio', 'Error loading custom stations:', async () => {
-      const response = await axios.get('/api/radio/custom');
-      return response.data || {};
-    }, { fallback: {} });
+    const result = await apiCall.get('/api/radio/custom', {
+      category: 'radio',
+      message: 'Error loading custom stations',
+    });
+    customStations.value = result.ok ? (result.data || {}) : {};
   }
 
   /**
