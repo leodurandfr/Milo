@@ -42,8 +42,7 @@ class VersionService:
                 "description": "updates.spotifyConnect",
                 "commands": {
                     # Version is embedded in binary as "B0.6.1" pattern (since v0.6.1+)
-                    # Fallback to legacy version file for older versions
-                    "main": ["sh", "-c", "v=$(strings /usr/local/bin/go-librespot 2>/dev/null | grep -oE '^B[0-9]+\\.[0-9]+\\.[0-9]+$' | sed 's/^B//'); [ -n \"$v\" ] && echo \"$v\" || cat /var/lib/milo/go-librespot-version 2>/dev/null"]
+                    "main": ["sh", "-c", "strings /usr/local/bin/go-librespot 2>/dev/null | grep -oE '^B[0-9]+\\.[0-9]+\\.[0-9]+$' | sed 's/^B//'"]
                 },
                 "repo": "devgianlu/go-librespot",
                 "version_regex": r"(\d+\.\d+\.\d+)"

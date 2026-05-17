@@ -459,16 +459,7 @@ class UpdateService(VersionService):
             if progress_callback:
                 await progress_callback("updates.progress.completed", 100)
 
-            # 7. Clean up legacy version file if it exists (version now embedded in binary)
-            legacy_version_file = Path("/var/lib/milo/go-librespot-version")
-            if legacy_version_file.exists():
-                try:
-                    legacy_version_file.unlink()
-                    self.update_logger.info("Removed legacy go-librespot-version file")
-                except Exception as e:
-                    self.update_logger.info(f"Could not remove legacy version file: {e}")
-
-            # 8. Clean up temporary files
+            # 7. Clean up temporary files
             await self._cleanup_temp_files(download_result.get("temp_dir"))
 
             return {

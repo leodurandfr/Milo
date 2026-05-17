@@ -78,29 +78,18 @@ class EqFilter:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'EqFilter':
-        """
-        Create from dictionary.
-
-        Handles backward compatibility with old format:
-        - "freq" -> "frequency"
-        - "type" -> "filter_type"
-        """
+        """Create from dictionary written by ``to_dict``."""
         if data is None:
             raise ValueError("Cannot create EqFilter from None")
 
-        # Handle old key names for backward compatibility
-        frequency = data.get("frequency", data.get("freq", 1000))
-        filter_type_str = data.get("filter_type", data.get("type", "Peaking"))
-
-        # Convert string to FilterType enum
         try:
-            filter_type = FilterType(filter_type_str)
+            filter_type = FilterType(data.get("filter_type", "Peaking"))
         except ValueError:
             filter_type = FilterType.PEAKING
 
         return cls(
             id=data["id"],
-            frequency=frequency,
+            frequency=data.get("frequency", 1000),
             gain=data.get("gain", 0.0),
             q=data.get("q", 1.41),
             filter_type=filter_type,
