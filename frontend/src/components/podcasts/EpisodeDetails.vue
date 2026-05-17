@@ -33,7 +33,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
-import axios from 'axios'
+import { apiCall } from '@/services/apiCall'
 import { useAsyncData } from '@/composables/useAsyncData'
 import EpisodeCard from './EpisodeCard.vue'
 import SkeletonEpisodeDetails from './SkeletonEpisodeDetails.vue'
@@ -62,9 +62,12 @@ const enrichedEpisode = computed(() => {
 })
 
 const { loading, execute: loadEpisode } = useAsyncData(async () => {
-  const { data } = await axios.get(`/api/podcast/episode/${props.uuid}`)
-  episode.value = data
-
+  const result = await apiCall.get(`/api/podcast/episode/${props.uuid}`, {
+    category: 'podcast',
+    message: 'Error loading episode details',
+  })
+  if (!result.ok) return
+  episode.value = result.data
   podcastStore.enrichEpisodesWithProgress([episode.value])
 }, { logTag: 'podcast' })
 

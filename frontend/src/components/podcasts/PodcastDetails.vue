@@ -55,7 +55,6 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
 import { apiCall } from '@/services/apiCall'
-import axios from 'axios'
 import { useAsyncData } from '@/composables/useAsyncData'
 import PodcastCard from './PodcastCard.vue'
 import EpisodeCard from './EpisodeCard.vue'
@@ -86,44 +85,49 @@ const hasMoreEpisodes = computed(() => {
 })
 
 const { loading, execute: loadPodcast } = useAsyncData(async () => {
-  await apiCall('podcast', 'Error loading podcast details', async () => {
-    currentPage.value = 1
-    const { data } = await axios.get(`/api/podcast/series/${props.uuid}`, {
-      params: { page: 1, limit: 25 }
-    })
-    podcast.value = data
-    allEpisodes.value = data.episodes || []
-    podcastStore.enrichEpisodesWithProgress(allEpisodes.value)
+  currentPage.value = 1
+  const result = await apiCall.get(`/api/podcast/series/${props.uuid}`, {
+    category: 'podcast',
+    message: 'Error loading podcast details',
+    params: { page: 1, limit: 25 },
   })
+  if (!result.ok) return
+  podcast.value = result.data
+  allEpisodes.value = result.data.episodes || []
+  podcastStore.enrichEpisodesWithProgress(allEpisodes.value)
 })
 
 async function handleSubscribe() {
   if (!podcast.value) return
 
-  await apiCall('podcast', 'Error subscribing', async () => {
-    await axios.post('/api/podcast/subscriptions', {
-      uuid: props.uuid,
-      name: podcast.value.name || '',
-      image_url: podcast.value.image_url || '',
-      children_hash: podcast.value.children_hash || ''
-    })
-    podcast.value.is_subscribed = true
-    podcastStore.addSubscription({
-      uuid: props.uuid,
-      name: podcast.value.name || '',
-      image_url: podcast.value.image_url || ''
-    })
+  const result = await apiCall.post('/api/podcast/subscriptions', {
+    uuid: props.uuid,
+    name: podcast.value.name || '',
+    image_url: podcast.value.image_url || '',
+    children_hash: podcast.value.children_hash || '',
+  }, {
+    category: 'podcast',
+    message: 'Error subscribing',
+  })
+  if (!result.ok) return
+  podcast.value.is_subscribed = true
+  podcastStore.addSubscription({
+    uuid: props.uuid,
+    name: podcast.value.name || '',
+    image_url: podcast.value.image_url || '',
   })
 }
 
 async function handleUnsubscribe() {
   if (!podcast.value) return
 
-  await apiCall('podcast', 'Error unsubscribing', async () => {
-    await axios.delete(`/api/podcast/subscriptions/${props.uuid}`)
-    podcast.value.is_subscribed = false
-    podcastStore.removeSubscription(props.uuid)
+  const result = await apiCall.delete(`/api/podcast/subscriptions/${props.uuid}`, {
+    category: 'podcast',
+    message: 'Error unsubscribing',
   })
+  if (!result.ok) return
+  podcast.value.is_subscribed = false
+  podcastStore.removeSubscription(props.uuid)
 }
 
 async function loadMoreEpisodes() {
@@ -132,18 +136,19 @@ async function loadMoreEpisodes() {
   loadingMore.value = true
   currentPage.value++
 
-  const result = await apiCall('podcast', 'Error loading more episodes', async () => {
-    const { data } = await axios.get(`/api/podcast/series/${props.uuid}`, {
-      params: { page: currentPage.value, limit: 25 }
-    })
-
-    const newEpisodes = data.episodes || []
-    podcastStore.enrichEpisodesWithProgress(newEpisodes)
-    allEpisodes.value = [...allEpisodes.value, ...newEpisodes]
-    return true
+  const result = await apiCall.get(`/api/podcast/series/${props.uuid}`, {
+    category: 'podcast',
+    message: 'Error loading more episodes',
+    params: { page: currentPage.value, limit: 25 },
   })
 
-  if (!result) currentPage.value-- // Rollback on error
+  if (result.ok) {
+    const newEpisodes = result.data.episodes || []
+    podcastStore.enrichEpisodesWithProgress(newEpisodes)
+    allEpisodes.value = [...allEpisodes.value, ...newEpisodes]
+  } else {
+    currentPage.value-- // Rollback on error
+  }
   loadingMore.value = false
 }
 

@@ -29,7 +29,6 @@ import { ref, onMounted } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
 import { apiCall } from '@/services/apiCall'
-import axios from 'axios'
 import { useAsyncData } from '@/composables/useAsyncData'
 import EpisodeCard from './EpisodeCard.vue'
 import MessageContent from '@/components/ui/MessageContent.vue'
@@ -59,17 +58,23 @@ function formatQueueEpisode(queueItem) {
 }
 
 const { loading, execute: loadQueue } = useAsyncData(async () => {
-  await apiCall('podcast', 'Error loading queue', async () => {
-    const { data } = await axios.get('/api/podcast/queue')
-    episodes.value = data.episodes || []
+  const result = await apiCall.get('/api/podcast/queue', {
+    category: 'podcast',
+    message: 'Error loading queue',
   })
+  if (result.ok) {
+    episodes.value = result.data.episodes || []
+  }
 })
 
 async function markComplete(episodeUuid) {
-  await apiCall('podcast', 'Error marking episode complete', async () => {
-    await axios.post(`/api/podcast/queue/${episodeUuid}/complete`)
-    episodes.value = episodes.value.filter(e => e.episode_uuid !== episodeUuid)
+  const result = await apiCall.post(`/api/podcast/queue/${episodeUuid}/complete`, null, {
+    category: 'podcast',
+    message: 'Error marking episode complete',
   })
+  if (result.ok) {
+    episodes.value = episodes.value.filter(e => e.episode_uuid !== episodeUuid)
+  }
 }
 
 onMounted(loadQueue)

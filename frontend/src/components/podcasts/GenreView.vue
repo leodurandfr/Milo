@@ -25,7 +25,7 @@
 import { ref, onMounted, watch } from 'vue'
 import { useI18n } from '@/services/i18n'
 import { logger } from '@/services/logger'
-import axios from 'axios'
+import { apiCall } from '@/services/apiCall'
 import { useAsyncData } from '@/composables/useAsyncData'
 import PodcastCard from './PodcastCard.vue'
 import MessageContent from '@/components/ui/MessageContent.vue'
@@ -58,9 +58,17 @@ const topPodcasts = ref([])
 const networkError = ref(false)
 
 const { loading, execute: loadData } = useAsyncData(async () => {
-  const { data } = await axios.get('/api/podcast/discover/by-genre', {
-    params: { genre: props.genre, limit: 30 }
+  const result = await apiCall.get('/api/podcast/discover/by-genre', {
+    category: 'podcast',
+    message: `Error loading podcasts for genre ${props.genre}`,
+    params: { genre: props.genre, limit: 30 },
   })
+  if (!result.ok) {
+    networkError.value = true
+    topPodcasts.value = []
+    return
+  }
+  const data = result.data
   if (data.network_error) {
     networkError.value = true
     topPodcasts.value = []
