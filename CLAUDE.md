@@ -319,15 +319,15 @@ Before writing code, **pick the family** (see *Audio Source Architecture* above)
 
 All persistent data in `/var/lib/milo/`. Versioned JSON files use the `schema_version` protocol (cf. §"Persisted-data schema bumps" in Development Guidelines).
 
-- `settings.json` - Central settings (language, volume, screen, routing, dock) — *no `schema_version` yet*
-- `hardware.json` - Hardware configuration (screen type/resolution) — *no `schema_version` yet*
+- `settings.json` - Central settings (language, volume, screen, routing, dock) — `schema_version: 2` (owned by `SettingsService`)
+- `hardware.json` - Hardware configuration (screen type/resolution, audio card, rotary encoder, IR remote) — `schema_version: 2` (owned by `HardwareService`)
 - `last_volume.json` - Last volume for restoration — *no `schema_version` yet*
 - `radio_data.json` - Radio favorites and custom stations — *no `schema_version` yet*
 - `radio_images/` - Uploaded station images
 - `podcast_data.json` - Podcast subscriptions, favorites, playback progress, and user preferences — *no `schema_version` yet*
 - `cd_data.json` - CD disc metadata cache (TOC, MusicBrainz lookups) — *no `schema_version` yet*
 - `cd_covers/` - CD cover art cache
-- `equalizer.json` - Equalizer state: filters, active preset, custom gains, compressor, loudness, mono (atomic writes, debounced) — *no `schema_version` yet*
+- `equalizer.json` - Equalizer state: filters, active preset, custom gains, compressor, loudness, mono (atomic writes, debounced) — `schema_version: 2` (owned by `EqualizerService`)
 - `client_equalizer.json` - Per-client equalizer state for remote multiroom clients (keyed by `mac_id`) — *no `schema_version` yet*
 - `pending_clients.json` - Multiroom clients awaiting approval — *no `schema_version` yet*
 - `routing.env` - ALSA routing environment variables (auto-generated, regenerated on every settings change — no `schema_version`)
