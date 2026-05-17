@@ -219,7 +219,6 @@ class TestPodcastSourceCommands:
         podcast_source._mpv.is_playing = AsyncMock(return_value=False)
         podcast_source._podcast_data = Mock()
         podcast_source._podcast_data.get_playback_progress = AsyncMock(return_value=None)
-        podcast_source._podcast_data.cache_episode = AsyncMock(return_value=True)
         podcast_source._podcast_data.set_setting = AsyncMock(return_value=True)
         podcast_source._taddy_api = Mock()
         podcast_source._taddy_api.get_episode = AsyncMock(return_value={
@@ -339,7 +338,6 @@ class TestPodcastDataService:
 
         assert "subscriptions" in structure
         assert "playback_progress" in structure
-        assert "cache" in structure
         assert "settings" in structure
         assert structure["subscriptions"] == []
         assert structure["playback_progress"] == {}
@@ -355,7 +353,6 @@ class TestPodcastDataService:
 
         assert "subscriptions" in ensured
         assert "playback_progress" in ensured
-        assert "cache" in ensured
         assert "settings" in ensured
 
     @pytest.mark.asyncio
@@ -364,7 +361,6 @@ class TestPodcastDataService:
         service = PodcastDataService()
         structure = service._get_default_structure()
 
-        assert structure["settings"]["safe_mode"] is False
         assert structure["settings"]["playback_speed"] == 1.0
 
 

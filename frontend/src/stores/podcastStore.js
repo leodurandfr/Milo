@@ -73,7 +73,6 @@ export const usePodcastStore = defineStore('podcast', () => {
   // === SETTINGS ===
   // Note: Language/country are centralized in /var/lib/milo/settings.json (via settingsStore)
   const settings = ref({
-    safe_mode: false,
     playback_speed: 1.0
   });
 

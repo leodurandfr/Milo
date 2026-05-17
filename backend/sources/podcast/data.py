@@ -5,8 +5,7 @@ Podcast data service for subscription and progress management.
 This service manages:
 - Subscriptions with full metadata
 - Playback progress with episode context
-- Episode and podcast cache
-- User settings (safe_mode, playback_speed)
+- User settings (playback_speed)
 
 Data is persisted to /var/lib/milo/podcast_data.json
 """
@@ -28,8 +27,7 @@ class PodcastDataService:
     Manages:
     - Subscriptions with full metadata (name, image_url, children_hash, added_at, last_checked)
     - Playback progress with episode context (position, duration, last_played, episode/podcast info)
-    - Episode and podcast cache
-    - User settings (safe_mode, playback_speed)
+    - User settings (playback_speed)
 
     Note: Language/country settings are centralized in /var/lib/milo/settings.json
     """
@@ -75,12 +73,7 @@ class PodcastDataService:
         return {
             "subscriptions": [],
             "playback_progress": {},
-            "cache": {
-                "episodes": {},
-                "podcasts": {}
-            },
             "settings": {
-                "safe_mode": False,
                 "playback_speed": 1.0
             }
         }
@@ -92,13 +85,6 @@ class PodcastDataService:
 
         data.setdefault('subscriptions', defaults['subscriptions'])
         data.setdefault('playback_progress', defaults['playback_progress'])
-
-        if 'cache' not in data:
-            data['cache'] = defaults['cache']
-            needs_save = True
-        else:
-            data['cache'].setdefault('episodes', {})
-            data['cache'].setdefault('podcasts', {})
 
         if 'settings' not in data:
             data['settings'] = defaults['settings']
@@ -307,21 +293,6 @@ class PodcastDataService:
             return await self.save_data(data)
 
         return True
-
-    # ========== CACHE ==========
-
-    async def cache_episode(
-        self,
-        episode_uuid: str,
-        episode_data: Dict[str, Any]
-    ) -> bool:
-        """Cache episode data."""
-        data = await self.load_data()
-        data['cache']['episodes'][episode_uuid] = {
-            'data': episode_data,
-            'cached_at': int(time.time())
-        }
-        return await self.save_data(data)
 
     # ========== SETTINGS ==========
 
