@@ -145,7 +145,7 @@ import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import WifiSignal from '@/components/settings/categories/wifi/WifiSignal.vue';
-import axios from 'axios';
+import { apiCall } from '@/services/apiCall';
 import { logger } from '@/services/logger';
 
 const { t, getCurrentLanguage } = useI18n();
@@ -213,36 +213,47 @@ async function applyCountryAndReboot() {
 
   try {
     await setCountry(pendingCountry.value);
-    isApplyingCountry.value = false;
-    isRebootingCountry.value = true;
-
-    // Trigger reboot
-    await axios.post('/api/system/restart');
-
-    // Poll for backend to come back after reboot
-    let pollCount = 0;
-    const maxPolls = 60;
-    countryPollIntervalId = setInterval(async () => {
-      pollCount++;
-      if (pollCount > maxPolls) {
-        clearInterval(countryPollIntervalId);
-        countryPollIntervalId = null;
-        isRebootingCountry.value = false;
-        return;
-      }
-      try {
-        await axios.get('/api/ping', { timeout: 2000 });
-        clearInterval(countryPollIntervalId);
-        countryPollIntervalId = null;
-        window.location.reload();
-      } catch {
-        // Backend still down, keep polling
-      }
-    }, 3000);
   } catch (err) {
     logger.error('network', 'Failed to apply WiFi country', err);
     isApplyingCountry.value = false;
+    return;
   }
+  isApplyingCountry.value = false;
+  isRebootingCountry.value = true;
+
+  const restartResult = await apiCall.post('/api/system/restart', null, {
+    category: 'network',
+    message: 'Failed to trigger reboot'
+  });
+  if (!restartResult.ok) {
+    isRebootingCountry.value = false;
+    return;
+  }
+
+  // Poll for backend to come back after reboot — expected stream of failures
+  // while it restarts, so log at debug level.
+  let pollCount = 0;
+  const maxPolls = 60;
+  countryPollIntervalId = setInterval(async () => {
+    pollCount++;
+    if (pollCount > maxPolls) {
+      clearInterval(countryPollIntervalId);
+      countryPollIntervalId = null;
+      isRebootingCountry.value = false;
+      return;
+    }
+    const pingResult = await apiCall.get('/api/ping', {
+      category: 'network',
+      message: 'Reboot polling ping failed',
+      timeout: 2000,
+      logLevel: 'debug'
+    });
+    if (pingResult.ok) {
+      clearInterval(countryPollIntervalId);
+      countryPollIntervalId = null;
+      window.location.reload();
+    }
+  }, 3000);
 }
 
 const wifiDisplaySsid = computed(() =>

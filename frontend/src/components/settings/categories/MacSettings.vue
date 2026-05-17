@@ -52,7 +52,7 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useSettingsStore } from '@/stores/settingsStore';
-import axios from 'axios';
+import { apiCall } from '@/services/apiCall';
 import Button from '@/components/ui/Button.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
@@ -129,26 +129,20 @@ function handleFrameLengthChange(value) {
 // Apply changes and restart service
 async function applyChanges() {
   if (isApplying.value) return;
-
-  try {
-    isApplying.value = true;
-
-    const response = await axios.put('/api/settings/mac-roc', {
-      target_latency_ms: config.value.target_latency_ms,
-      latency_profile: config.value.latency_profile,
-      frame_length_ms: config.value.frame_length_ms
-    });
-
-    if (response.data.status === 'success') {
-      originalConfig.value = { ...config.value };
-    } else {
-      console.error('Failed to apply Mac ROC config:', response.data.message);
-    }
-  } catch (error) {
-    console.error('Error applying Mac ROC config:', error);
-  } finally {
-    isApplying.value = false;
+  isApplying.value = true;
+  const result = await apiCall.put('/api/settings/mac-roc', {
+    target_latency_ms: config.value.target_latency_ms,
+    latency_profile: config.value.latency_profile,
+    frame_length_ms: config.value.frame_length_ms
+  }, {
+    category: 'mac',
+    message: 'Failed to apply Mac ROC config',
+    checkStatus: true
+  });
+  if (result.ok) {
+    originalConfig.value = { ...config.value };
   }
+  isApplying.value = false;
 }
 
 // Sync local config when store changes (e.g., WS event from another device)

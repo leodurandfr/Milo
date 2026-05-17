@@ -6,7 +6,7 @@
  * Works with all screen types (touch or not).
  */
 import { onMounted, onUnmounted } from 'vue';
-import axios from 'axios';
+import { apiCall } from '@/services/apiCall';
 
 let lastActivityTime = 0;
 const THROTTLE_DELAY = 2000; // Minimum 2 seconds between each notification
@@ -22,13 +22,13 @@ export function useScreenActivity() {
 
     lastActivityTime = now;
 
-    try {
-      await axios.post('/api/settings/screen-activity');
-    } catch (error) {
-      // Silent fail - do not pollute the console with these errors
-      // The backend already logs errors if necessary
-      console.debug('Failed to notify screen activity:', error);
-    }
+    // Best-effort beacon — log at debug level so a downed backend does not
+    // flood the console every 2 seconds. Backend logs server-side failures.
+    await apiCall.post('/api/settings/screen-activity', null, {
+      category: 'screen',
+      message: 'Failed to notify screen activity',
+      logLevel: 'debug'
+    });
   };
 
   const setupListeners = () => {

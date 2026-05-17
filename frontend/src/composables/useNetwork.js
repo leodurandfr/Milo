@@ -1,7 +1,6 @@
 // frontend/src/composables/useNetwork.js
 import { ref, computed } from 'vue';
-import axios from 'axios';
-import { logger } from '@/services/logger';
+import { apiCall } from '@/services/apiCall';
 
 /**
  * Module-level singleton state (persists across component instances).
@@ -25,12 +24,13 @@ let _countryLoaded = false;
  */
 export async function preloadNetworkStatus() {
   if (_statusLoaded) return;
-  try {
-    const res = await axios.get('/api/network/status');
-    _status.value = res.data.data;
+  const result = await apiCall.get('/api/network/status', {
+    category: 'network',
+    message: 'Failed to preload network status'
+  });
+  if (result.ok) {
+    _status.value = result.data.data;
     _statusLoaded = true;
-  } catch (error) {
-    logger.error('network', 'Failed to preload network status', error);
   }
 }
 
@@ -97,80 +97,87 @@ export function useNetwork() {
   }
 
   async function loadStatus() {
-    try {
-      const res = await axios.get('/api/network/status');
-      status.value = res.data.data;
+    const result = await apiCall.get('/api/network/status', {
+      category: 'network',
+      message: 'Failed to load network status'
+    });
+    if (result.ok) {
+      status.value = result.data.data;
       _statusLoaded = true;
-    } catch (error) {
-      logger.error('network', 'Failed to load network status', error);
     }
   }
 
   async function loadCountry() {
-    try {
-      const res = await axios.get('/api/network/wifi/country');
-      _country.value = res.data.data.country_code || '';
+    const result = await apiCall.get('/api/network/wifi/country', {
+      category: 'network',
+      message: 'Failed to load WiFi country'
+    });
+    if (result.ok) {
+      _country.value = result.data.data.country_code || '';
       _countryLoaded = true;
-    } catch (error) {
-      logger.error('network', 'Failed to load WiFi country', error);
     }
   }
 
   async function setCountry(code) {
-    try {
-      await axios.put('/api/network/wifi/country', { country_code: code });
+    const result = await apiCall.put('/api/network/wifi/country', { country_code: code }, {
+      category: 'network',
+      message: 'Failed to set WiFi country',
+      rethrow: true
+    });
+    if (result.ok) {
       _country.value = code;
-    } catch (error) {
-      logger.error('network', 'Failed to set WiFi country', error);
-      throw error;
     }
   }
 
   async function loadSavedNetworks() {
-    try {
-      const res = await axios.get('/api/network/wifi/saved');
-      savedSsids.value = new Set(res.data.data.map(n => n.ssid));
-    } catch (error) {
-      logger.error('network', 'Failed to load saved networks', error);
+    const result = await apiCall.get('/api/network/wifi/saved', {
+      category: 'network',
+      message: 'Failed to load saved networks'
+    });
+    if (result.ok) {
+      savedSsids.value = new Set(result.data.data.map(n => n.ssid));
     }
   }
 
   async function scanNetworks() {
     scanning.value = true;
-    try {
-      const res = await axios.get('/api/network/wifi/networks');
-      networks.value = res.data.data;
-    } catch (error) {
-      logger.error('network', 'Failed to scan networks', error);
-    } finally {
-      scanning.value = false;
+    const result = await apiCall.get('/api/network/wifi/networks', {
+      category: 'network',
+      message: 'Failed to scan networks'
+    });
+    if (result.ok) {
+      networks.value = result.data.data;
     }
+    scanning.value = false;
   }
 
   async function connectToNetwork(network, t) {
     connecting.value = true;
     connectError.value = '';
-    try {
-      const payload = { ssid: network.ssid, password: network.security ? password.value : null };
-      await axios.post('/api/network/wifi/connect', payload);
+    const payload = { ssid: network.ssid, password: network.security ? password.value : null };
+    const result = await apiCall.post('/api/network/wifi/connect', payload, {
+      category: 'network',
+      message: 'WiFi connection failed'
+    });
+    if (result.ok) {
       selectedSsid.value = null;
       password.value = '';
       await Promise.all([loadStatus(), scanNetworks(), loadSavedNetworks()]);
-    } catch (error) {
-      const detail = error.response?.data?.detail;
-      connectError.value = detail || (t ? t('network.connectFailed') : 'Connection failed');
-      logger.error('network', 'WiFi connection failed', error);
-    } finally {
-      connecting.value = false;
+    } else {
+      connectError.value = result.error?.detail || (t ? t('network.connectFailed') : 'Connection failed');
     }
+    connecting.value = false;
   }
 
   async function saveNetwork(network, t) {
     connecting.value = true;
     connectError.value = '';
-    try {
-      const payload = { ssid: network.ssid, password: network.security ? password.value : null };
-      await axios.post('/api/network/wifi/save', payload);
+    const payload = { ssid: network.ssid, password: network.security ? password.value : null };
+    const result = await apiCall.post('/api/network/wifi/save', payload, {
+      category: 'network',
+      message: 'WiFi save failed'
+    });
+    if (result.ok) {
       selectedSsid.value = null;
       password.value = '';
       // Update local state to reflect saved SSID without reloading from backend
@@ -178,23 +185,21 @@ export function useNetwork() {
         ...status.value,
         wifi: { ...status.value.wifi, saved_ssid: network.ssid },
       };
-    } catch (error) {
-      const detail = error.response?.data?.detail;
-      connectError.value = detail || (t ? t('network.saveFailed') : 'Save failed');
-      logger.error('network', 'WiFi save failed', error);
-    } finally {
-      connecting.value = false;
+    } else {
+      connectError.value = result.error?.detail || (t ? t('network.saveFailed') : 'Save failed');
     }
+    connecting.value = false;
   }
 
   async function forgetNetwork(ssid) {
-    try {
-      await axios.delete(`/api/network/wifi/saved/${encodeURIComponent(ssid)}`);
+    const result = await apiCall.delete(`/api/network/wifi/saved/${encodeURIComponent(ssid)}`, {
+      category: 'network',
+      message: 'Failed to forget network'
+    });
+    if (result.ok) {
       savedSsids.value.delete(ssid);
       savedSsids.value = new Set(savedSsids.value);
       await loadStatus();
-    } catch (error) {
-      logger.error('network', 'Failed to forget network', error);
     }
   }
 
@@ -223,16 +228,18 @@ export function useNetwork() {
     if (enabled) {
       scanning.value = true;
     }
-    try {
-      const res = await axios.put('/api/network/wifi/radio', { enabled });
-      status.value = res.data.data;
+    const result = await apiCall.put('/api/network/wifi/radio', { enabled }, {
+      category: 'network',
+      message: 'Failed to toggle WiFi'
+    });
+    if (result.ok) {
+      status.value = result.data.data;
       if (enabled) {
         await Promise.all([scanNetworks(), loadSavedNetworks()]);
       }
-    } catch (error) {
+    } else {
       status.value = previous;
       if (enabled) scanning.value = false;
-      logger.error('network', 'Failed to toggle WiFi', error);
     }
   }
 

@@ -215,23 +215,20 @@ export const useRadioStore = defineStore('radio', () => {
     hasError.value = false;
 
     if (favoritesOnly) {
-      // Load favorites from backend
-      try {
-        const response = await axios.get('/api/radio/stations', {
-          params: { favorites_only: true }
-        });
-
-        favoriteStations.value = response.data.stations;
+      const result = await apiCall.get('/api/radio/stations', {
+        category: 'radio',
+        message: 'Error loading favorites',
+        params: { favorites_only: true }
+      });
+      loading.value = false;
+      if (result.ok) {
+        favoriteStations.value = result.data.stations;
         logger.debug('radio', `Loaded ${favoriteStations.value.length} favorites`);
         favoritesInitialized.value = true;
         return true;
-      } catch (error) {
-        logger.error('radio', 'Error loading favorites:', error);
-        hasError.value = true;
-        return false;
-      } finally {
-        loading.value = false;
       }
+      hasError.value = true;
+      return false;
     }
 
     // Check if this is a top stations request (no filters)
@@ -263,17 +260,24 @@ export const useRadioStore = defineStore('radio', () => {
     totalResults.value = 0;
     displayedCount.value = 40;
 
-    try {
-      const params = { favorites_only: false };
+    const params = { favorites_only: false };
+    if (searchQuery.value) params.query = searchQuery.value;
+    if (countryFilter.value) params.country = countryFilter.value;
+    if (genreFilter.value) params.genre = genreFilter.value;
 
-      if (searchQuery.value) params.query = searchQuery.value;
-      if (countryFilter.value) params.country = countryFilter.value;
-      if (genreFilter.value) params.genre = genreFilter.value;
+    logger.debug('radio', 'Fetching stations from API');
+    const result = await apiCall.get('/api/radio/stations', {
+      category: 'radio',
+      message: 'Error loading stations',
+      params,
+      signal
+    });
 
-      logger.debug('radio', 'Fetching stations from API');
-      const response = await axios.get('/api/radio/stations', { params, signal });
+    loading.value = false;
+    currentAbortController = null;
 
-      if (response.data.network_error) {
+    if (result.ok) {
+      if (result.data.network_error) {
         networkError.value = true;
         hasError.value = true;
         startRetry();
@@ -282,42 +286,38 @@ export const useRadioStore = defineStore('radio', () => {
 
       networkError.value = false;
       stopRetry();
-      searchResults.value = response.data.stations;
-      totalResults.value = response.data.total;
+      searchResults.value = result.data.stations;
+      totalResults.value = result.data.total;
       displayedCount.value = 40;
 
-      // Cache top stations
       if (isTopStationsRequest) {
-        topStationsCache.value = response.data.stations;
+        topStationsCache.value = result.data.stations;
         topStationsCacheTimestamp.value = Date.now();
-        logger.debug('radio', `Cached ${response.data.stations.length} top stations`);
+        logger.debug('radio', `Cached ${result.data.stations.length} top stations`);
       }
 
-      logger.debug('radio', `Loaded ${response.data.stations.length} stations`);
+      logger.debug('radio', `Loaded ${result.data.stations.length} stations`);
       return true;
-    } catch (error) {
-      if (axios.isCancel(error) || error.name === 'CanceledError') {
-        logger.debug('radio', 'Search request cancelled');
-        return false;
-      }
-
-      logger.error('radio', 'Error loading stations:', error);
-      hasError.value = true;
-      searchResults.value = [];
-      totalResults.value = 0;
-
-      // Axios network error (backend unreachable) — keep retrying
-      if (!error.response) {
-        networkError.value = true;
-        startRetry();
-      } else {
-        stopRetry();
-      }
-      return false;
-    } finally {
-      loading.value = false;
-      currentAbortController = null;
     }
+
+    // result.error === null means the request was cancelled (AbortController)
+    if (result.error === null) {
+      logger.debug('radio', 'Search request cancelled');
+      return false;
+    }
+
+    hasError.value = true;
+    searchResults.value = [];
+    totalResults.value = 0;
+
+    // status === null indicates a TCP-level failure (backend unreachable) → keep retrying
+    if (result.error.status === null) {
+      networkError.value = true;
+      startRetry();
+    } else {
+      stopRetry();
+    }
+    return false;
   }
 
   /**
@@ -393,36 +393,34 @@ export const useRadioStore = defineStore('radio', () => {
    * Add a custom station
    */
   async function addCustomStation(stationData) {
-    try {
-      const formData = new FormData();
-      formData.append('name', stationData.name);
-      formData.append('url', stationData.url);
-      formData.append('country', stationData.country || '');
-      formData.append('countrycode', stationData.countrycode || '');
-      formData.append('genre', stationData.genre || '');
-      formData.append('bitrate', stationData.bitrate || 0);
-      formData.append('codec', stationData.codec || '');
-      formData.append('shazam_enabled', (stationData.shazam_enabled !== false).toString());
+    const formData = new FormData();
+    formData.append('name', stationData.name);
+    formData.append('url', stationData.url);
+    formData.append('country', stationData.country || '');
+    formData.append('countrycode', stationData.countrycode || '');
+    formData.append('genre', stationData.genre || '');
+    formData.append('bitrate', stationData.bitrate || 0);
+    formData.append('codec', stationData.codec || '');
+    formData.append('shazam_enabled', (stationData.shazam_enabled !== false).toString());
 
-      if (stationData.image) {
-        formData.append('image', stationData.image);
-      }
-
-      const response = await axios.post('/api/radio/custom/add', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-
-      if (response.data.success) {
-        logger.info('radio', 'Custom station added', response.data.station);
-        return { success: true, station: response.data.station };
-      } else {
-        return { success: false, error: response.data.error || 'Failed to add station' };
-      }
-    } catch (error) {
-      logger.error('radio', 'Error adding custom station:', error);
-      const errorMessage = error.response?.data?.detail || error.message || 'Unknown error';
-      return { success: false, error: errorMessage };
+    if (stationData.image) {
+      formData.append('image', stationData.image);
     }
+
+    const result = await apiCall.post('/api/radio/custom/add', formData, {
+      category: 'radio',
+      message: 'Error adding custom station',
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+
+    if (!result.ok) {
+      return { success: false, error: result.error?.detail || 'Failed to add station' };
+    }
+    if (result.data.success) {
+      logger.info('radio', 'Custom station added', result.data.station);
+      return { success: true, station: result.data.station };
+    }
+    return { success: false, error: result.data.error || 'Failed to add station' };
   }
 
   /**
@@ -439,33 +437,6 @@ export const useRadioStore = defineStore('radio', () => {
       }
       return false;
     });
-  }
-
-  /**
-   * Remove a station's image
-   */
-  async function removeStationImage(stationId) {
-    try {
-      const response = await axios.delete(`/api/radio/custom/${stationId}/image`);
-
-      if (response.data.success) {
-        logger.info('radio', `Station image removed: ${stationId}`);
-
-        // Update in search results
-        const index = searchResults.value.findIndex(s => s.id === stationId);
-        if (index !== -1) {
-          searchResults.value[index] = response.data.station;
-        }
-
-        return { success: true, station: response.data.station };
-      } else {
-        return { success: false, error: response.data.error || 'Failed to remove image' };
-      }
-    } catch (error) {
-      logger.error('radio', 'Error removing station image:', error);
-      const errorMessage = error.response?.data?.detail || error.message || 'Unknown error';
-      return { success: false, error: errorMessage };
-    }
   }
 
   /**
@@ -568,7 +539,6 @@ export const useRadioStore = defineStore('radio', () => {
     toggleFavorite,
     addCustomStation,
     removeCustomStation,
-    removeStationImage,
     setLoading,
     resetFilters,
     handleFavoriteEvent,

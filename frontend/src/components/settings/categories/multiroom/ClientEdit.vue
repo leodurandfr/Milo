@@ -339,7 +339,7 @@ async function handleCrossoverChange(frequency) {
   try {
     await equalizerStore.setZoneCrossoverFrequency(clientZone.value.id, frequency);
   } catch (error) {
-    console.error('Error updating crossover frequency:', error);
+    logger.error('multiroom', 'Error updating crossover frequency', error);
   }
 }
 
@@ -356,7 +356,7 @@ async function selectSpeakerType(type) {
   try {
     await multiroomClientStore.updateClient(props.macId, { speaker_type: type });
   } catch (error) {
-    console.error('Error saving speaker type:', error);
+    logger.error('multiroom', 'Error saving speaker type', error);
   }
 }
 
@@ -368,7 +368,7 @@ async function saveClientName() {
     await multiroomClientStore.updateClient(props.macId, { name: newName });
     originalClientName.value = newName;
   } catch (error) {
-    console.error('Error saving client name:', error);
+    logger.error('multiroom', 'Error saving client name', error);
   }
 }
 
@@ -382,7 +382,7 @@ async function handleDelete() {
       emit('back');
     }
   } catch (error) {
-    console.error('Error deleting client:', error);
+    logger.error('multiroom', 'Error deleting client', error);
   } finally {
     deleting.value = false;
   }

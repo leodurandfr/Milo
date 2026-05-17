@@ -242,7 +242,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
-import axios from 'axios';
+import { apiCall } from '@/services/apiCall';
 import useWebSocket from '@/services/websocket';
 import Button from '@/components/ui/Button.vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
@@ -375,24 +375,19 @@ const enabledProgramCount = computed(() =>
 // === LOCAL PROGRAMS ===
 
 async function loadLocalPrograms() {
-  try {
-    localProgramsLoading.value = true;
-    localProgramsError.value = false;
-
-    const response = await axios.get('/api/programs');
-
-    if (response.data.status === 'success') {
-      localPrograms.value = response.data.programs || {};
-      localProgramsError.value = false;
-    } else {
-      localProgramsError.value = true;
-    }
-  } catch (error) {
-    console.error('Error loading programs:', error);
+  localProgramsLoading.value = true;
+  localProgramsError.value = false;
+  const result = await apiCall.get('/api/programs', {
+    category: 'updates',
+    message: 'Error loading programs',
+    checkStatus: true
+  });
+  if (result.ok) {
+    localPrograms.value = result.data.programs || {};
+  } else {
     localProgramsError.value = true;
-  } finally {
-    localProgramsLoading.value = false;
   }
+  localProgramsLoading.value = false;
 }
 
 function getLocalInstalledVersion(program) {
@@ -419,18 +414,13 @@ function isLocalUpdateCompleted(programKey) {
 
 async function startLocalUpdate(programKey) {
   if (!canUpdateLocal(programKey) || isLocalUpdating(programKey)) return;
-
-  try {
-    localUpdateStates.value[programKey] = { updating: true };
-
-    const response = await axios.post(`/api/programs/${programKey}/update`);
-
-    if (response.data.status !== 'success') {
-      throw new Error(response.data.message || 'Failed to start update');
-    }
-
-  } catch (error) {
-    console.error(`Error starting update for ${programKey}:`, error);
+  localUpdateStates.value[programKey] = { updating: true };
+  const result = await apiCall.post(`/api/programs/${programKey}/update`, null, {
+    category: 'updates',
+    message: `Error starting update for ${programKey}`,
+    checkStatus: true
+  });
+  if (!result.ok) {
     delete localUpdateStates.value[programKey];
   }
 }
@@ -438,19 +428,16 @@ async function startLocalUpdate(programKey) {
 // === SATELLITES ===
 
 async function loadSatellites() {
-  try {
-    satellites.value = null;
-    satellitesError.value = false;
-
-    const response = await axios.get('/api/programs/satellites');
-
-    if (response.data.status === 'success') {
-      satellites.value = response.data.satellites || [];
-    } else {
-      satellitesError.value = true;
-    }
-  } catch (error) {
-    console.error('Error loading satellites:', error);
+  satellites.value = null;
+  satellitesError.value = false;
+  const result = await apiCall.get('/api/programs/satellites', {
+    category: 'updates',
+    message: 'Error loading satellites',
+    checkStatus: true
+  });
+  if (result.ok) {
+    satellites.value = result.data.satellites || [];
+  } else {
     satellitesError.value = true;
   }
 }
@@ -465,18 +452,13 @@ function isSatelliteUpdateCompleted(macId) {
 
 async function startSatelliteUpdate(macId) {
   if (isSatelliteUpdating(macId)) return;
-
-  try {
-    satelliteUpdateStates.value[macId] = { updating: true };
-
-    const response = await axios.post(`/api/programs/satellites/${macId}/update`);
-
-    if (response.data.status !== 'success') {
-      throw new Error(response.data.message || 'Failed to start update');
-    }
-
-  } catch (error) {
-    console.error(`Error starting update for satellite ${macId}:`, error);
+  satelliteUpdateStates.value[macId] = { updating: true };
+  const result = await apiCall.post(`/api/programs/satellites/${macId}/update`, null, {
+    category: 'updates',
+    message: `Error starting update for satellite ${macId}`,
+    checkStatus: true
+  });
+  if (!result.ok) {
     delete satelliteUpdateStates.value[macId];
   }
 }
@@ -493,18 +475,13 @@ function isSatelliteAppUpdateCompleted(macId) {
 
 async function startSatelliteAppUpdate(macId) {
   if (isSatelliteAppUpdating(macId)) return;
-
-  try {
-    satelliteAppUpdateStates.value[macId] = { updating: true };
-
-    const response = await axios.post(`/api/programs/satellites/${macId}/update-app`);
-
-    if (response.data.status !== 'success') {
-      throw new Error(response.data.message || 'Failed to start app update');
-    }
-
-  } catch (error) {
-    console.error(`Error starting app update for satellite ${macId}:`, error);
+  satelliteAppUpdateStates.value[macId] = { updating: true };
+  const result = await apiCall.post(`/api/programs/satellites/${macId}/update-app`, null, {
+    category: 'updates',
+    message: `Error starting app update for satellite ${macId}`,
+    checkStatus: true
+  });
+  if (!result.ok) {
     delete satelliteAppUpdateStates.value[macId];
   }
 }
@@ -521,18 +498,13 @@ function isSatelliteCamillaUpdateCompleted(macId) {
 
 async function startSatelliteCamillaUpdate(macId) {
   if (isSatelliteCamillaUpdating(macId)) return;
-
-  try {
-    satelliteCamillaUpdateStates.value[macId] = { updating: true };
-
-    const response = await axios.post(`/api/programs/satellites/${macId}/update-camilladsp`);
-
-    if (response.data.status !== 'success') {
-      throw new Error(response.data.message || 'Failed to start CamillaDSP update');
-    }
-
-  } catch (error) {
-    console.error(`Error starting CamillaDSP update for satellite ${macId}:`, error);
+  satelliteCamillaUpdateStates.value[macId] = { updating: true };
+  const result = await apiCall.post(`/api/programs/satellites/${macId}/update-camilladsp`, null, {
+    category: 'updates',
+    message: `Error starting CamillaDSP update for satellite ${macId}`,
+    checkStatus: true
+  });
+  if (!result.ok) {
     delete satelliteCamillaUpdateStates.value[macId];
   }
 }

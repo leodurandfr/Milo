@@ -76,7 +76,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useI18n } from '@/services/i18n';
-import axios from 'axios';
+import { apiCall } from '@/services/apiCall';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 
 const { t } = useI18n();
@@ -103,75 +103,52 @@ const ramPercent = computed(() => {
 
 async function loadMiloVersion() {
   if (versionLoading.value) return;
-
-  try {
-    versionLoading.value = true;
-    const response = await axios.get('/api/programs/milo/installed');
-    miloVersion.value = response.data.installed?.versions?.main || null;
-  } catch (error) {
-    console.error('Error loading Milo version:', error);
-    miloVersion.value = null;
-  } finally {
-    versionLoading.value = false;
-  }
+  versionLoading.value = true;
+  const result = await apiCall.get('/api/programs/milo/installed', {
+    category: 'system',
+    message: 'Error loading Milo version'
+  });
+  miloVersion.value = result.ok ? (result.data.installed?.versions?.main || null) : null;
+  versionLoading.value = false;
 }
 
 async function loadSystemTemperature() {
   if (temperatureLoading.value) return;
-
-  try {
-    temperatureLoading.value = true;
-    const response = await axios.get('/api/settings/system-temperature');
-
-    if (response.data.status === 'success' && response.data.temperature !== null) {
-      systemTemperature.value = response.data.temperature;
-    } else {
-      systemTemperature.value = null;
-    }
-  } catch (error) {
-    console.error('Error loading temperature:', error);
-    systemTemperature.value = null;
-  } finally {
-    temperatureLoading.value = false;
-  }
+  temperatureLoading.value = true;
+  const result = await apiCall.get('/api/settings/system-temperature', {
+    category: 'system',
+    message: 'Error loading temperature',
+    checkStatus: true
+  });
+  systemTemperature.value = (result.ok && result.data.temperature !== null) ? result.data.temperature : null;
+  temperatureLoading.value = false;
 }
 
 async function loadNetworkInfo() {
   if (ipLoading.value) return;
-
-  try {
-    ipLoading.value = true;
-    const response = await axios.get('/api/settings/network-info');
-
-    if (response.data.status === 'success' && response.data.ip !== null) {
-      ipAddress.value = response.data.ip;
-    } else {
-      ipAddress.value = null;
-    }
-  } catch (error) {
-    console.error('Error loading network info:', error);
-    ipAddress.value = null;
-  } finally {
-    ipLoading.value = false;
-  }
+  ipLoading.value = true;
+  const result = await apiCall.get('/api/settings/network-info', {
+    category: 'system',
+    message: 'Error loading network info',
+    checkStatus: true
+  });
+  ipAddress.value = (result.ok && result.data.ip !== null) ? result.data.ip : null;
+  ipLoading.value = false;
 }
 
 async function loadSystemResources() {
   if (resourcesLoading.value) return;
-
-  try {
-    resourcesLoading.value = true;
-    const response = await axios.get('/api/settings/system-resources');
-
-    if (response.data.status === 'success') {
-      cpuPercent.value = response.data.cpu_percent;
-      ram.value = response.data.ram;
-    }
-  } catch (error) {
-    console.error('Error loading system resources:', error);
-  } finally {
-    resourcesLoading.value = false;
+  resourcesLoading.value = true;
+  const result = await apiCall.get('/api/settings/system-resources', {
+    category: 'system',
+    message: 'Error loading system resources',
+    checkStatus: true
+  });
+  if (result.ok) {
+    cpuPercent.value = result.data.cpu_percent;
+    ram.value = result.data.ram;
   }
+  resourcesLoading.value = false;
 }
 
 let pollingInterval = null;
