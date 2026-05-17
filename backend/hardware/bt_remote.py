@@ -229,6 +229,23 @@ class BtRemoteController:
             "key_map": self.key_map
         }
 
+    def get_device_info(self) -> list[dict]:
+        """Return monitored devices (one entry per unique MAC) for battery polling."""
+        seen_macs = set()
+        devices = []
+        for path in list(self._monitored_paths):
+            info = self._device_info.get(path, {})
+            address = info.get("address", "")
+            if not address or address.upper() in seen_macs:
+                continue
+            seen_macs.add(address.upper())
+            devices.append({
+                "path": path,
+                "address": address,
+                "name": info.get("name", ""),
+            })
+        return devices
+
     async def _broadcast_status(self):
         """Broadcast current connection status via WebSocket."""
         status = self.get_status()
