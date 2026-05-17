@@ -264,11 +264,15 @@ CamillaDSP is ALWAYS in the audio path for volume control. DSP effects (EQ, comp
 
 **i18n**: Use `const { t } = useI18n()` in `<script setup>`, not the global `$t()`.
 
-**CSS**: Use design tokens (`var(--color-*)`, `var(--space-*)`, `var(--radius-*)`) instead of hardcoded values.
+**CSS**: Use design tokens (`var(--color-*)`, `var(--space-*)`, `var(--radius-*)`) instead of hardcoded values. The `stylelint` of the project blocks hex literals (`#abc`, `#abcdef`) and `rgba()` in scoped styles of `.vue` files. If a token is missing, extend [design-system.css](frontend/src/assets/styles/design-system.css) rather than adding a local exception.
 
-**Typography**: Apply text styles via the design-system utility classes (`heading-1`…`heading-4`, `text-body`, `text-mono`, `text-mono-small`, `display-1`) defined in `frontend/src/assets/styles/design-system.css`. Do NOT redeclare `font-family`, `font-size`, `line-height`, `letter-spacing`, or `font-weight` in scoped component CSS to mimic an existing style — compose the utility class on the element instead (e.g. `class="my-block__title heading-3"`). Scoped CSS should only handle layout, color, and component-specific spacing.
+**Typography**: Apply text styles via the design-system utility classes (`heading-1`…`heading-4`, `text-body`, `text-mono`, `text-mono-small`, `display-1`) defined in `frontend/src/assets/styles/design-system.css`. Do NOT redeclare `font-family`, `font-size`, `line-height`, `letter-spacing`, or `font-weight` in scoped component CSS to mimic an existing style — compose the utility class on the element instead (e.g. `class="my-block__title heading-3"`). Scoped CSS should only handle layout, color, and component-specific spacing. The project `stylelint` rejects these typography redefinitions in any scoped `<style>`.
 
 **Code style**: All `.js` files use semicolons. Constants files use camelCase naming (`audioPlayer.js`, `musicGenres.js`).
+
+**Shared constants**: Structural constants used by 2+ modules (stores, composables, components) live in [`frontend/src/constants/`](frontend/src/constants/) (see [README](frontend/src/constants/README.md)). Don't duplicate a literal value across a store AND a component — promote it to the module as soon as a second site consumes it. Constants derivable from the backend (speeds, codecs, presets) are fetched at runtime and cached in the relevant store, not hardcoded on both sides.
+
+**Timers**: Every `setTimeout` / `setInterval` inside a component or composable must go through [`useTimer()`](frontend/src/composables/useTimer.js) for automatic cleanup on unmount. Direct calls to `window.setTimeout` / `window.setInterval` are only allowed inside `useTimer.js` itself.
 
 **WS event handling**: WebSocket events should be handled in Pinia stores, not in Vue components directly. Components react to store state changes.
 
