@@ -33,6 +33,19 @@
     --color-error: #f44336;
     --color-info: #2196f3;
 
+    /* Subtle variants — ~12% alpha for badges, banners, status blocks */
+    --color-success-subtle: rgba(17, 170, 58, 0.12);
+    --color-warning-subtle: rgba(255, 152, 0, 0.12);
+    --color-error-subtle: rgba(244, 67, 54, 0.12);
+    --color-info-subtle: rgba(33, 150, 243, 0.12);
+
+    /* === SVG BRAND TOKENS === */
+    /* Inline-SVG fill aliases: a `fill="<hex>"` attribute cannot read a var(),
+       so these explicit aliases let the scoped <style> of the hosting .vue
+       reference the same palette colour. */
+    --color-svg-logo-grey: #a6aca6;       /* = --color-text-light */
+    --color-svg-shimmer-base: #f7f7f7;    /* = --color-background */
+
     /* === STROKES === */
     --stroke-glass: linear-gradient(190deg, rgba(255, 255, 255, .48) 0.43%, rgba(255, 255, 255, .06) 21.15%, rgba(255, 255, 255, .48) 47.85%, rgba(255, 255, 255, .06) 78.57%);
 
