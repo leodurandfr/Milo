@@ -255,7 +255,7 @@ def create_equalizer_router(
     async def save_custom_preset():
         """Save current filter gains as the custom preset and activate it."""
         async with api_error_handler("Error saving custom preset", logger):
-            await camilladsp_service._save_custom_gains()
+            await camilladsp_service.save_custom_gains()
             await camilladsp_service.set_active_preset("custom")
 
             return {"status": "success", "preset_id": "custom"}

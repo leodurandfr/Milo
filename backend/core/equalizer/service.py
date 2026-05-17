@@ -965,7 +965,7 @@ class CamillaDSPService:
         await self._broadcast_event("preset_loaded", {"id": preset_id})
         return True
 
-    async def _save_custom_gains(self) -> None:
+    async def save_custom_gains(self) -> None:
         self._custom_gains = [float(f.get("gain", 0)) for f in self._filters[:10]]
         self._schedule_persist()
 
