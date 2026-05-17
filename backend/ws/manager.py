@@ -66,8 +66,8 @@ class WebSocketManager:
             # Close dead connection so the client detects disconnect immediately
             try:
                 await connection.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Close on dead WS connection failed: {e}")
             return connection, "failed"
 
         results = await asyncio.gather(
