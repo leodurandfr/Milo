@@ -9,6 +9,7 @@ import time
 from typing import Any, Callable, Dict, Optional
 from backend.core.models.audio_state import AudioSource, SourceState
 from backend.core.systemd import SystemdServiceManager  # noqa: F401 (patched in tests)
+from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
 
 
@@ -225,6 +226,7 @@ class AudioRoutingService:
 
         # Lock to guarantee atomicity of routing operations
         self._routing_lock = asyncio.Lock()
+        self._bg = BackgroundTaskSet(self.logger, "routing")
 
         # Services snapcast
         self.snapserver_service = "milo-snapserver-multiroom.service"
@@ -344,7 +346,10 @@ class AudioRoutingService:
             )
 
             if self.multiroom_enabled:
-                asyncio.create_task(self._delayed_multiroom_sync())
+                self._bg.spawn(
+                    self._delayed_multiroom_sync(),
+                    label="delayed_multiroom_sync",
+                )
 
         except Exception as e:
             # Leave _initial_detection_done = False so a transient init failure

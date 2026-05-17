@@ -15,6 +15,7 @@ from enum import Enum
 import aiofiles
 
 from backend.core.equalizer.presets import get_builtin_presets, get_preset_by_id, DEFAULT_CUSTOM_GAINS, DEFAULT_EQ_FREQS
+from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
 
 
@@ -138,6 +139,7 @@ class CamillaDSPService:
 
         # Debounced persistence for equalizer.json (EQ rotary is a hot path)
         self._persist_debounce_task: Optional[asyncio.Task] = None
+        self._bg = BackgroundTaskSet(self.logger, "equalizer")
 
         # Owned state: equalizer effects on/off. Loaded from
         # routing.equalizer_effects_enabled in settings.json. Read by
@@ -1260,11 +1262,6 @@ class CamillaDSPService:
         if self._persist_debounce_task and not self._persist_debounce_task.done():
             self._persist_debounce_task.cancel()
 
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            return  # No event loop (e.g., during early init or unit tests)
-
         async def _debounced():
             try:
                 await asyncio.sleep(self.PERSIST_DEBOUNCE_S)
@@ -1272,7 +1269,7 @@ class CamillaDSPService:
             except asyncio.CancelledError:
                 pass
 
-        self._persist_debounce_task = loop.create_task(_debounced())
+        self._persist_debounce_task = self._bg.spawn(_debounced(), label="persist_state")
 
     async def _persist_state_async(self) -> None:
         """Write current equalizer state to /var/lib/milo/equalizer.json atomically."""

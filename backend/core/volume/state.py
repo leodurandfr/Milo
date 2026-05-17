@@ -26,6 +26,7 @@ from typing import Dict, List, Optional, TYPE_CHECKING
 from dataclasses import dataclass
 import aiofiles
 
+from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
 
 # Use existing domain models
@@ -100,6 +101,7 @@ class VolumeStateStore:
 
         # Debounced persistence (prevent rapid disk writes during volume sweeps)
         self._persist_debounce_task: Optional[asyncio.Task] = None
+        self._bg = BackgroundTaskSet(self.logger, "volume")
         self._PERSIST_DEBOUNCE_S = 2.0
 
         # Concurrency control
@@ -455,11 +457,6 @@ class VolumeStateStore:
         if self._persist_debounce_task and not self._persist_debounce_task.done():
             self._persist_debounce_task.cancel()
 
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            return  # No event loop (e.g., during tests or init)
-
         async def _debounced():
             try:
                 await asyncio.sleep(self._PERSIST_DEBOUNCE_S)
@@ -467,7 +464,7 @@ class VolumeStateStore:
             except asyncio.CancelledError:
                 pass
 
-        self._persist_debounce_task = loop.create_task(_debounced())
+        self._persist_debounce_task = self._bg.spawn(_debounced(), label="persist_state")
 
     async def _persist_state_async(self) -> None:
         """Persist current volume state to disk using async I/O."""

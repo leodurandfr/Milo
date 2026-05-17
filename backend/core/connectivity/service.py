@@ -19,13 +19,14 @@ Only FULL is treated as online. Fails open: if D-Bus or NetworkManager is
 unavailable (e.g. dev environment, NM down), the service stays at
 online=True so the UI never shows a false offline banner.
 """
-import asyncio
 import logging
 from typing import Optional
 
 from dbus_next.aio import MessageBus
 from dbus_next.constants import BusType
 from dbus_next.signature import Variant
+
+from backend.shared.background import BackgroundTaskSet
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ class ConnectivityService:
         self._properties_iface = None
         self._online: bool = True  # Fail-open default
         self._listener_attached: bool = False
+        self._bg = BackgroundTaskSet(logger, "connectivity")
 
     def set_state_machine(self, state_machine) -> None:
         self._state_machine = state_machine
@@ -106,7 +108,7 @@ class ConnectivityService:
             "online" if new_online else "offline",
             connectivity,
         )
-        asyncio.create_task(self._broadcast())
+        self._bg.spawn(self._broadcast(), label="nm_props_changed")
 
     async def _broadcast(self) -> None:
         if self._state_machine is None:
@@ -119,6 +121,7 @@ class ConnectivityService:
         )
 
     async def cleanup(self) -> None:
+        await self._bg.cancel_all()
         if self._properties_iface is not None and self._listener_attached:
             try:
                 self._properties_iface.off_properties_changed(self._on_properties_changed)
