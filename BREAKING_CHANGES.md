@@ -15,4 +15,8 @@ When you bump a `SCHEMA_VERSION` in a service, add an entry here with the file p
 
 ## Upcoming
 
-_(empty — add an entry here when bumping a `SCHEMA_VERSION` in a service)_
+## 2026-05-17 — equalizer.json schema_version → 2
+
+- Reason: removal of `_migrate_from_settings` (legacy fold of `equalizer.*` keys from `settings.json` into `equalizer.json`) and inline migration of `equalizer.effects_enabled → routing.equalizer_effects_enabled`. Pre-existing `equalizer.json` files lack the `schema_version` field, so the load now fails loud.
+- Action: `rm /var/lib/milo/equalizer.json && sudo systemctl restart milo-backend`
+- Impact: equalizer state resets to factory defaults — custom presets, filters, compressor, loudness, mono ratio all reset. Snapshot the file before upgrade if you want to retype your settings: `cat /var/lib/milo/equalizer.json`.
