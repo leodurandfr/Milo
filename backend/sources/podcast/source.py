@@ -22,6 +22,8 @@ from backend.shared.mpv import MpvController
 from backend.shared.mpv_audio_source import MpvAudioSource
 from backend.sources.podcast.taddy_api import TaddyAPI
 
+VALID_PLAYBACK_SPEEDS: list[float] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+
 
 class PodcastSource(MpvAudioSource):
     """
@@ -394,12 +396,10 @@ class PodcastSource(MpvAudioSource):
             return self.error_response("speed required")
 
         try:
-            # Validate speed
-            valid_speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
             speed = float(speed)
-            if speed not in valid_speeds:
+            if speed not in VALID_PLAYBACK_SPEEDS:
                 self._logger.info(f"Invalid speed {speed}, using nearest valid")
-                speed = min(valid_speeds, key=lambda x: abs(x - speed))
+                speed = min(VALID_PLAYBACK_SPEEDS, key=lambda x: abs(x - speed))
 
             # Set mpv speed property
             await self._mpv.set_property("speed", speed)
