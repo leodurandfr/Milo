@@ -75,7 +75,7 @@ Top-level layout — run `ls <dir>` to see current contents, do not maintain fil
 
 Source-based architecture under `backend/`:
 
-- `core/` — Core infrastructure. Key files: `state.py` (AudioStateMachine — single source of truth), `audio_source.py` (AudioSourceProtocol + BaseAudioSource), `settings.py` (SettingsService), `systemd.py` (SystemdServiceManager). Subpackages: `models/`, `volume/`, `equalizer/`, `multiroom/`, `connectivity/`, `network/`, `system/`, `updates/`.
+- `core/` — Core infrastructure. Key files: `state.py` (AudioStateMachine — single source of truth), `audio_source.py` (BaseAudioSource abstract base class), `settings.py` (SettingsService), `systemd.py` (SystemdServiceManager). Subpackages: `models/`, `volume/`, `equalizer/`, `multiroom/`, `connectivity/`, `network/`, `system/`, `updates/`.
 - `sources/` — Audio source implementations (one subpackage per source: `spotify/`, `airplay/`, `mac/`, `bluetooth/`, `radio/`, `podcast/`, `cd/`).
 - `api/` — REST API routes + shared Pydantic models (`models.py`) + route helpers (`route_helpers.py`).
 - `hardware/` — Hardware controllers (rotary encoder, IR remote, BT remote, screen).
@@ -124,25 +124,28 @@ The order in `backend/dependencies.py::initialize_services()` is **CRITICAL** du
 
 ### 2. Audio Source Architecture
 
-All audio sources must implement `AudioSourceProtocol`:
+All audio sources extend `BaseAudioSource(ABC)` ([backend/core/audio_source.py](backend/core/audio_source.py)):
+- Public API: `start() / stop() / restart() / status() / command()`
+- Hooks to override in subclasses: `_do_start() / _do_stop() / _get_status() / _handle_command()`
+- `BaseAudioSource.__init__` instantiates `self._logger = logging.getLogger(f"source.{source_id}")` — sub-modules of a source must extend this hierarchy (see *Logger* rule below).
 
-```python
-class AudioSourceProtocol(Protocol):
-    async def initialize(self) -> bool
-    async def start(self) -> bool
-    async def stop(self) -> bool
-    async def get_status(self) -> Dict[str, Any]
-    async def handle_command(self, command: str, data: Dict) -> Dict[str, Any]
-```
+There is **no `AudioSourceProtocol`** — any mention in a docstring is a drift to fix.
 
-`BaseAudioSource` in `backend/core/audio_source.py` provides common functionality (state management, systemd control, logging).
+**Three families of sources** — pick a source's family from two questions: *(1) is playback control sent from Milō's UI, or from an external sender?* and *(2) does the source expose rich metadata (artwork, title, artist)?*
 
-**Uniform source structure** — Every source in `backend/sources/{source}/` must follow:
-- `__init__.py` — Docstring + `__all__` exporting `Source`, `router`, `setup_{source}_routes`
-- `source.py` — Constructor takes `(config, state_machine, settings_service, systemd_manager)`
-- `routes.py` — `logger = logging.getLogger(__name__)` at module level; `logger.error()` before every `raise HTTPException` in except blocks; use `run_source_command()` for playback routes
+| Family | Sources | Backend layout (`backend/sources/{source}/`) | Frontend layout (`frontend/src/components/{source}/`) |
+|---|---|---|---|
+| **A. Mute receiver** — external control, no rich metadata | Bluetooth, Mac | `source.py` (+ internal helpers like `agent.py`, `monitor.py`). **No `routes.py`** — commands flow through the generic `/api/audio/control/{source}`. `__all__ = ["{Name}Source"]`. | No dedicated component — rendered via `AudioSourceStatus` (icon + device name). |
+| **B. Passive player** — external control, rich metadata displayed | AirPlay | `source.py` + minimal `routes.py` for what the sender protocol can't deliver (e.g. binary artwork) + metadata reader if needed (`metadata_reader.py`). `__all__` exposes `{Name}Source, router, setup_{source}_routes`. | Dedicated Vue component wrapping `<AudioPlayerFull source="..." :showControls="false" />`. |
+| **C. Active player** — control from Milō's UI, rich metadata | Spotify, Radio, Podcast, CD | `source.py` + dedicated networking layer as needed: `websocket.py` (Spotify), full `routes.py` + `data.py` + external API (Radio, Podcast, CD), `models.py` Pydantic. `__all__` follows the same shape as family B when a `router` exists. | Dedicated Vue component wrapping `<AudioPlayerFull>` with controls enabled; additional custom UI when relevant (CD tracklist, podcast queue, radio favorites). |
 
-When you need a reference implementation, read the existing sources rather than relying on summaries — they evolve. `radio/` and `podcast/` are the most feature-rich; `airplay/` shows external-process + named-pipe integration; `spotify/` is the minimal shape.
+**Rules shared by all three families**:
+- **No `GET /<source>/status` route** — status is exclusively broadcast over WebSocket via `state_machine.broadcast_event()`.
+- **No `POST /<source>/restart` route** — restart is an admin/systemd concern, not exposed to the UI.
+- **Logger names**: at module level in routes, `logger = logging.getLogger(__name__)`. For sub-modules of a source (`websocket.py`, `agent.py`, `monitor.py`, `metadata_reader.py`, `reader.py`, `data.py`, `shazam.py`, …), use `logging.getLogger(f"source.{source_id}.<sub>")` so they hang under the hierarchy created by `BaseAudioSource.__init__`. The legacy `feature.*` namespace is retired.
+- **Routes (families B and C)**: use `run_source_command()` for playback routes and call `logger.error(...)` before every `raise HTTPException` in `except` blocks.
+
+When you need a reference implementation, read the existing sources rather than relying on summaries — they evolve. `radio/` and `podcast/` are the richest family-C examples; `airplay/` is the family-B reference (external-process + named-pipe + binary artwork); `spotify/` is a family-C source without `routes.py` (commands flow through the generic endpoint, all UI state via WebSocket); `mac/` and `bluetooth/` are the family-A references.
 
 ### 3. State Management Flow
 
@@ -243,14 +246,37 @@ CamillaDSP is ALWAYS in the audio path for volume control. DSP effects (EQ, comp
 
 ### Adding a New Audio Source
 
+Before writing code, **pick the family** (see *Audio Source Architecture* above). The checklist below is differentiated by family — apply only the steps marked for the family you picked.
+
+**Common steps (all families)** :
+
 1. **Define enum** in `backend/core/models/audio_state.py::AudioSource`
-2. **Create source module** in `backend/sources/{source}/` following the uniform source structure (see *Audio Source Architecture* above)
-3. **Register in dependencies** (`backend/dependencies.py::_create_service()`)
+2. **Create the module** in `backend/sources/{source}/` with `__init__.py` + `source.py` extending `BaseAudioSource(ABC)`. Constructor takes `(config, state_machine, settings_service, systemd_manager)`. Implement `_do_start / _do_stop / _get_status / _handle_command`.
+3. **Register in dependencies** — add a creator in `backend/dependencies.py::_create_service()` and register the source in `initialize_services()`
 4. **Add ALSA devices** in `/etc/asound.conf` with 2 variants (direct via CamillaDSP, multiroom via Snapcast)
-5. **Register source** in `backend/dependencies.py::initialize_services()`
-6. **Register routes** in `backend/main.py`
-7. **Create Vue component** in `frontend/src/components/{source}/`
-8. **Update stores** if needed in `frontend/src/stores/` (use `apiCall()` for API actions, handle WS events in store)
+5. **Update stores** if needed in `frontend/src/stores/` (use `apiCall()` for API actions, handle WS events in store)
+
+**Family A — Mute receiver** (external control, no rich metadata) :
+
+- `__init__.py` exports `__all__ = ["{Name}Source"]` only. **Do not create `routes.py`** — commands flow through the generic `/api/audio/control/{source}` endpoint.
+- No frontend component — the source is rendered by `AudioSourceStatus` (icon + device name).
+
+**Family B — Passive player** (external control, rich metadata displayed) :
+
+- `__init__.py` exports `__all__ = ["{Name}Source", "router", "setup_{source}_routes"]`. `routes.py` is **minimal** — only the bits the sender protocol doesn't deliver (e.g. binary artwork). Register routes in `backend/main.py`.
+- Frontend: dedicated Vue component in `frontend/src/components/{source}/` wrapping `<AudioPlayerFull source="..." :showControls="false" />` (no remote control surface).
+
+**Family C — Active player** (control from Milō's UI, rich metadata) :
+
+- `__init__.py` exposes `{Name}Source` + (if `routes.py` exists) `router` + `setup_{source}_routes`. Build the networking layer you need: `websocket.py` (e.g. Spotify), full `routes.py` + `data.py` + external API client (Radio / Podcast / CD), `models.py` for Pydantic. Register routes in `backend/main.py` when a router exists.
+- Frontend: dedicated Vue component wrapping `<AudioPlayerFull>` with controls enabled; add custom UI on top (tracklist, queue, favorites) as relevant.
+
+**Rules to respect — applicable to all families** (see *Audio Source Architecture* for the full doctrine):
+
+- No `GET /<source>/status` route — status flows over WebSocket via `state_machine.broadcast_event()`.
+- No `POST /<source>/restart` route — restart is a systemd/admin concern.
+- Sub-module loggers must use `logging.getLogger(f"source.{source_id}.<sub>")`. The `feature.*` namespace is retired.
+- Routes (families B and C) call `run_source_command()` for playback commands and `logger.error(...)` before every `raise HTTPException`.
 
 ### Adding a New Service
 
