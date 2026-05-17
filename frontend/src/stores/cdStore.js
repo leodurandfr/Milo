@@ -1,7 +1,6 @@
 // frontend/src/stores/cdStore.js
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import axios from 'axios';
 import { apiCall } from '@/services/apiCall';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 
@@ -32,23 +31,28 @@ export const useCdStore = defineStore('cd', () => {
 
   // === PLAYBACK ACTIONS ===
   async function playTrack(trackNumber) {
-    await apiCall('cd', 'Error playing track', () =>
-      axios.post('/api/cd/play', { track_number: trackNumber })
-    );
+    await apiCall.post('/api/cd/play', { track_number: trackNumber }, {
+      category: 'cd',
+      message: 'Error playing track',
+    });
   }
 
   async function eject() {
-    await apiCall('cd', 'Error ejecting', () =>
-      axios.post('/api/cd/eject')
-    );
+    await apiCall.post('/api/cd/eject', null, {
+      category: 'cd',
+      message: 'Error ejecting',
+    });
   }
 
   async function fetchDriveStatus() {
-    await apiCall('cd', 'Error fetching drive status', async () => {
-      const response = await axios.get('/api/cd/drive-status');
-      driveConnected.value = response.data.connected ?? false;
-      discPresent.value = response.data.disc_present ?? false;
+    const result = await apiCall.get('/api/cd/drive-status', {
+      category: 'cd',
+      message: 'Error fetching drive status',
     });
+    if (result.ok) {
+      driveConnected.value = result.data.connected ?? false;
+      discPresent.value = result.data.disc_present ?? false;
+    }
   }
 
   // === UI ACTIONS ===

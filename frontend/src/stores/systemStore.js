@@ -8,7 +8,6 @@
  */
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import axios from 'axios';
 import { apiCall } from '@/services/apiCall';
 
 export const useSystemStore = defineStore('system', () => {
@@ -44,24 +43,28 @@ export const useSystemStore = defineStore('system', () => {
   }
 
   async function fetchStatus() {
-    return apiCall('system', 'Error fetching system status', async () => {
-      const response = await axios.get('/api/system/status');
-      if (response.data?.status === 'success') {
-        applyState(response.data.data);
-      }
+    const result = await apiCall.get('/api/system/status', {
+      category: 'system',
+      message: 'Error fetching system status',
+      checkStatus: true,
     });
+    if (result.ok) {
+      applyState(result.data.data);
+    }
   }
 
   async function recheckHostname() {
     if (rechecking.value) return;
     rechecking.value = true;
     try {
-      await apiCall('system', 'Error rechecking hostname', async () => {
-        const response = await axios.post('/api/system/recheck-hostname');
-        if (response.data?.status === 'success') {
-          applyState(response.data.data);
-        }
+      const result = await apiCall.post('/api/system/recheck-hostname', null, {
+        category: 'system',
+        message: 'Error rechecking hostname',
+        checkStatus: true,
       });
+      if (result.ok) {
+        applyState(result.data.data);
+      }
     } finally {
       rechecking.value = false;
     }
