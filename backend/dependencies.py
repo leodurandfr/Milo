@@ -7,7 +7,10 @@ Supports lazy singleton creation, circular dependency resolution, and test reset
 """
 import asyncio
 import logging
+import sys
 from typing import Any, Dict, Optional
+
+from backend.shared.persistence import SchemaVersionMismatch
 
 logger = logging.getLogger(__name__)
 
@@ -432,6 +435,19 @@ def initialize_services() -> None:
             *[coro for _, coro in services],
             return_exceptions=True
         )
+
+        # Fail-loud on persisted-data schema mismatch: log the banner, flush stderr
+        # so the journal captures it, then SystemExit(1) to trigger a systemd-restart
+        # loop with a stable error until the operator deletes the offending file.
+        for (service_name, _), result in zip(services, results):
+            if isinstance(result, SchemaVersionMismatch):
+                logger.error(
+                    "Schema version mismatch during %s init — bailing.\n%s",
+                    service_name,
+                    result,
+                )
+                sys.stderr.flush()
+                raise SystemExit(1)
 
         for (service_name, _), result in zip(services, results):
             if isinstance(result, Exception):
