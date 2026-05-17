@@ -2,7 +2,7 @@
 """
 System power management + status routes (restart, shutdown, hostname conflict).
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, BackgroundTasks
 import asyncio
 import logging
 
@@ -26,17 +26,17 @@ def create_system_router(hostname_conflict_service=None, connectivity_service=No
             logger.error(f"System {label} failed: {e}")
 
     @router.post("/restart")
-    async def restart_system():
+    async def restart_system(background_tasks: BackgroundTasks):
         """Reboot the Raspberry Pi."""
         logger.info("System restart requested")
-        asyncio.create_task(_delayed_exec("reboot", "restart"))
+        background_tasks.add_task(_delayed_exec, "reboot", "restart")
         return {"status": "success"}
 
     @router.post("/shutdown")
-    async def shutdown_system():
+    async def shutdown_system(background_tasks: BackgroundTasks):
         """Shut down the Raspberry Pi."""
         logger.info("System shutdown requested")
-        asyncio.create_task(_delayed_exec("poweroff", "shutdown"))
+        background_tasks.add_task(_delayed_exec, "poweroff", "shutdown")
         return {"status": "success"}
 
     @router.get("/status")

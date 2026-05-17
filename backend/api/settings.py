@@ -2,7 +2,7 @@
 """
 Settings Routes – Version with app deactivation and process stopping
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from typing import Any, Callable, Dict, Optional
 from backend.core.models.audio_state import AudioSource
 from backend.sources.podcast.taddy_api import TaddyAPI
@@ -1091,7 +1091,7 @@ def create_settings_router(
             raise HTTPException(status_code=500, detail=str(e))
 
     @router.put("/hardware-config")
-    async def set_hardware_config(payload: HardwareConfigRequest):
+    async def set_hardware_config(payload: HardwareConfigRequest, background_tasks: BackgroundTasks):
         """
         Save hardware config, apply to config.txt, and reboot.
 
@@ -1138,15 +1138,15 @@ def create_settings_router(
             await hardware_service.save_config(config)
             logger.info(f"Hardware config saved: audio={payload.audio.id}, screen={payload.screen.type}")
 
-            # Apply config.txt changes and reboot (fire-and-forget with short delay)
+            # Apply config.txt changes and reboot (after HTTP response is sent)
             async def _delayed_apply():
-                await asyncio.sleep(1)  # Allow HTTP response to be sent
+                await asyncio.sleep(1)  # Allow HTTP response to flush to the client
                 try:
                     await hardware_service.apply_and_reboot()
                 except Exception as e:
                     logger.error(f"Hardware apply/reboot failed: {e}")
 
-            asyncio.create_task(_delayed_apply())
+            background_tasks.add_task(_delayed_apply)
 
             return {"status": "rebooting"}
 

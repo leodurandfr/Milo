@@ -15,7 +15,7 @@ import asyncio
 import json
 import logging
 import os
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from typing import Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 
@@ -70,7 +70,7 @@ def create_setup_router(settings_service, hardware_service, systemd_manager, net
     router = APIRouter(prefix="/api/setup", tags=["setup"])
 
     @router.post("/complete")
-    async def complete_setup(payload: SetupCompleteRequest):
+    async def complete_setup(payload: SetupCompleteRequest, background_tasks: BackgroundTasks):
         """
         Atomic wizard completion: set language, save hardware config, mark setup complete, reboot.
 
@@ -135,15 +135,15 @@ def create_setup_router(settings_service, hardware_service, systemd_manager, net
                 raise RuntimeError("Failed to persist setup_completed flag")
             logger.info("Setup wizard: setup_completed set to true")
 
-            # 4. Apply config.txt changes and reboot (fire-and-forget with short delay)
+            # 4. Apply config.txt changes and reboot (after HTTP response is sent)
             async def _delayed_apply():
-                await asyncio.sleep(1)  # Allow HTTP response to be sent
+                await asyncio.sleep(1)  # Allow HTTP response to flush to the client
                 try:
                     await hardware_service.apply_and_reboot()
                 except Exception as e:
                     logger.error(f"Setup wizard: hardware apply/reboot failed: {e}")
 
-            asyncio.create_task(_delayed_apply())
+            background_tasks.add_task(_delayed_apply)
 
             return {"status": "rebooting"}
 
@@ -160,7 +160,7 @@ def create_setup_router(settings_service, hardware_service, systemd_manager, net
             raise HTTPException(status_code=500, detail=f"Setup failed: {e}")
 
     @router.post("/become-client")
-    async def become_client(payload: BecomeClientRequest):
+    async def become_client(payload: BecomeClientRequest, background_tasks: BackgroundTasks):
         """
         Adopt this fresh device as a multiroom client (wifi flow).
 
@@ -260,7 +260,7 @@ def create_setup_router(settings_service, hardware_service, systemd_manager, net
                 except Exception as e:
                     logger.error("become-client: reboot subprocess failed: %s", e)
 
-            asyncio.create_task(_delayed_reboot())
+            background_tasks.add_task(_delayed_reboot)
             return {"status": "rebooting"}
 
     return router
