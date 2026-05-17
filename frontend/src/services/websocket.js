@@ -1,6 +1,6 @@
 // frontend/src/services/websocket.js
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import axios from 'axios';
+import { apiCall } from '@/services/apiCall';
 import { logger } from '@/services/logger';
 
 /**
@@ -184,29 +184,35 @@ class WebSocketSingleton {
         if (this.socket?.readyState === WebSocket.OPEN) {
           // Socket is open - fetch fresh state via HTTP
           logger.debug('websocket', 'Tab visible - fetching fresh state');
-          try {
-            const [audioRes, volumeRes] = await Promise.all([
-              axios.get('/api/audio/state'),
-              axios.get('/api/volume/state')
-            ]);
+          const [audioRes, volumeRes] = await Promise.all([
+            apiCall.get('/api/audio/state', {
+              category: 'websocket',
+              message: 'Failed to fetch audio state on visibility change',
+              logLevel: 'warn',
+            }),
+            apiCall.get('/api/volume/state', {
+              category: 'websocket',
+              message: 'Failed to fetch volume state on visibility change',
+              logLevel: 'warn',
+            }),
+          ]);
 
+          if (audioRes.ok) {
             this.handleMessage({
               category: 'system',
               type: 'state_changed',
               source: 'system',
-              data: { full_state: audioRes.data }
+              data: { full_state: audioRes.data },
             });
+          }
 
-            if (volumeRes.data.status === 'success') {
-              this.handleMessage({
-                category: 'volume',
-                type: 'volume_changed',
-                source: 'volume',
-                data: { show_bar: false, state: volumeRes.data.data }
-              });
-            }
-          } catch (error) {
-            logger.warn('websocket', 'Failed to fetch state on visibility change', { error: error.message });
+          if (volumeRes.ok && volumeRes.data.status === 'success') {
+            this.handleMessage({
+              category: 'volume',
+              type: 'volume_changed',
+              source: 'volume',
+              data: { show_bar: false, state: volumeRes.data.data },
+            });
           }
           this.notifyVisibilityChange();
         } else if (this.subscribers.size > 0) {

@@ -93,7 +93,7 @@ const HostnameConflictView = defineAsyncComponent(() =>
   import('@/components/system/HostnameConflictView.vue')
 );
 
-import axios from 'axios';
+import { apiCall } from '@/services/apiCall';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { usePodcastStore } from '@/stores/podcastStore';
 import { useCdStore } from '@/stores/cdStore';
@@ -181,15 +181,18 @@ function processInitialState(event) {
 function startBootTimeout() {
   clearBootTimeout();
   // Stage 1: Show "connecting" after first timeout
-  bootTimeoutId = setTimeout(() => {
+  bootTimeoutId = setTimeout(async () => {
     if (!isReady.value) {
       showBootMessage(t('app.connecting'));
       // HTTP fallback for captive portal (macOS doesn't support WebSocket)
-      axios.get('/api/initial-state').then(({ data }) => {
-        if (!isReady.value && data?.status === 'success') {
-          processInitialState({ category: 'system', type: 'initial_state', source: 'system', data });
-        }
-      }).catch(() => {});
+      const result = await apiCall.get('/api/initial-state', {
+        category: 'boot',
+        message: 'Initial-state HTTP fallback failed',
+        logLevel: 'debug',
+      });
+      if (!isReady.value && result.ok && result.data?.status === 'success') {
+        processInitialState({ category: 'system', type: 'initial_state', source: 'system', data: result.data });
+      }
       // Stage 2: Show "unavailable" after more time
       bootFailedTimeoutId = setTimeout(() => {
         if (!isReady.value) {
@@ -326,7 +329,11 @@ function handleScreenWake() {
   wakeInProgress = true;
 
   // Send wake notification to backend (triggers on_touch_detected → broadcasts screen_sleep_changed: false)
-  axios.post('/api/settings/screen-activity').catch(() => {});
+  apiCall.post('/api/settings/screen-activity', null, {
+    category: 'screen',
+    message: 'Screen-activity wake failed',
+    logLevel: 'debug',
+  });
 
   // Safety fallback: if WebSocket event doesn't arrive within 500ms, force-hide the shield
   clearTimeout(sleepShieldTimeout);
@@ -510,7 +517,11 @@ onMounted(async () => {
       if (isNew && !isSettingsOpen.value) {
         // Wake screen if sleeping
         if (settingsStore.isScreenSleeping) {
-          axios.post('/api/settings/screen-activity').catch(() => {});
+          apiCall.post('/api/settings/screen-activity', null, {
+            category: 'screen',
+            message: 'Screen-activity wake failed',
+            logLevel: 'debug',
+          });
           settingsStore.updateScreenSleeping(false);
         }
         // Dismiss screensaver
