@@ -76,7 +76,8 @@ def create_settings_router(
             if reload_callback:
                 try:
                     reload_success = await reload_callback()
-                except Exception:
+                except Exception as e:
+                    logger.error(f"reload_callback failed for {event_type}: {e}")
                     reload_success = False
 
             await state_machine.broadcast_event("settings", event_type, {

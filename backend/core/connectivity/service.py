@@ -125,12 +125,12 @@ class ConnectivityService:
         if self._properties_iface is not None and self._listener_attached:
             try:
                 self._properties_iface.off_properties_changed(self._on_properties_changed)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"NM properties listener detach failed: {e}")
             self._listener_attached = False
         if self._bus is not None:
             try:
                 self._bus.disconnect()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"NM D-Bus disconnect failed: {e}")
             self._bus = None

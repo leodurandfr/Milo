@@ -226,16 +226,22 @@ def create_setup_router(settings_service, hardware_service, systemd_manager, net
                 logger.error("become-client: failed to save wifi profile for '%s': %s", payload.wifi_ssid, e)
                 try:
                     PENDING_CLIENT_ROLE_FILE.unlink()
-                except OSError:
-                    pass
+                except OSError as unlink_err:
+                    logger.debug(
+                        "Pending client role file unlink failed (already absent?): %s",
+                        unlink_err,
+                    )
                 raise HTTPException(status_code=500, detail=f"Failed to save WiFi profile: {e}")
 
             if not await settings_service.set_setting("setup_completed", True):
                 logger.error("become-client: failed to persist setup_completed=true")
                 try:
                     PENDING_CLIENT_ROLE_FILE.unlink()
-                except OSError:
-                    pass
+                except OSError as unlink_err:
+                    logger.debug(
+                        "Pending client role file unlink failed (already absent?): %s",
+                        unlink_err,
+                    )
                 try:
                     await network_service.forget_network(payload.wifi_ssid)
                 except Exception as e:
