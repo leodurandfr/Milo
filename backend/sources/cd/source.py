@@ -563,15 +563,8 @@ class CdSource(MpvAudioSource):
             return await self._handle_prev_track()
         if cmd == "seek":
             return await self._handle_seek(data)
-        if cmd == "stop_playback":
-            return await self._handle_stop_playback()
         if cmd == "eject":
             return await self._handle_eject()
-        if cmd == "get_tracks":
-            return self.success_response(
-                "Tracks retrieved",
-                tracks=[t.model_dump() for t in self._tracks],
-            )
         return self.error_response(f"Unknown command: {cmd}")
 
     async def _handle_play_track(self, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -694,21 +687,6 @@ class CdSource(MpvAudioSource):
             self._update_connection_state()
             return self.success_response(f"Seeked to {position}s")
 
-        except Exception as e:
-            return self.error_response(str(e))
-
-    async def _handle_stop_playback(self) -> Dict[str, Any]:
-        """Stop playback: stop reader and mpv."""
-        try:
-            await self._stop_reader_and_mpv()
-            self._is_playing = False
-            self._is_paused = False
-            self._current_track = None
-            self._track_position = 0
-            self._album_finished = False
-            self._handle_pause_change(False)
-            self._update_connection_state()
-            return self.success_response("Playback stopped")
         except Exception as e:
             return self.error_response(str(e))
 
