@@ -1,7 +1,6 @@
 // frontend/src/stores/unifiedAudioStore.js - Cleaned version without UI states
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import axios from 'axios';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -47,10 +46,12 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   async function changeSource(source) {
     isChangingSource.value = true;
     try {
-      return await apiCall('store', `Change source failed: ${source}`, async () => {
-        const response = await axios.post(`/api/audio/source/${source}`);
-        return response.data.status === 'success';
+      const result = await apiCall.post(`/api/audio/source/${source}`, null, {
+        category: 'store',
+        message: `Change source failed: ${source}`,
+        checkStatus: true,
       });
+      return result.ok;
     } finally {
       isChangingSource.value = false;
     }
@@ -59,24 +60,27 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   async function sendCommand(source, command, data = {}) {
     isSendingCommand.value = true;
     try {
-      const success = await apiCall('store', `Command failed: ${source}/${command}`, async () => {
-        const response = await axios.post(`/api/audio/control/${source}`, { command, data });
-        return response.data.status === 'success';
+      const result = await apiCall.post(`/api/audio/control/${source}`, { command, data }, {
+        category: 'store',
+        message: `Command failed: ${source}/${command}`,
+        checkStatus: true,
       });
-      if (!success) {
+      if (!result.ok) {
         commandError.value = { source, command };
       }
-      return success;
+      return result.ok;
     } finally {
       isSendingCommand.value = false;
     }
   }
 
   async function setMultiroomEnabled(enabled) {
-    return apiCall('store', 'Set multiroom failed', async () => {
-      const response = await axios.put('/api/routing/multiroom', { enabled });
-      return response.data.status === 'success';
+    const result = await apiCall.put('/api/routing/multiroom', { enabled }, {
+      category: 'store',
+      message: 'Set multiroom failed',
+      checkStatus: true,
     });
+    return result.ok;
   }
 
   // === DISCONNECT ===
@@ -86,18 +90,18 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     if (!source || source === 'none') return false;
     disconnectingStates.value[source] = true;
 
-    const success = await apiCall('store', `Disconnect ${source} failed`, async () => {
-      switch (source) {
-        case 'bluetooth':
-          await axios.post('/api/bluetooth/disconnect');
-          return true;
-        case 'mac':
-          return true;
-        default:
-          logger.warn('store', `Disconnect not supported for ${source}`);
-          return false;
-      }
-    });
+    let success = false;
+    if (source === 'bluetooth') {
+      const result = await apiCall.post('/api/bluetooth/disconnect', null, {
+        category: 'store',
+        message: 'Disconnect bluetooth failed',
+      });
+      success = result.ok;
+    } else if (source === 'mac') {
+      success = true;
+    } else {
+      logger.warn('store', `Disconnect not supported for ${source}`);
+    }
 
     setTimeout(() => {
       disconnectingStates.value[source] = false;
@@ -140,10 +144,12 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   }
 
   async function adjustVolume(delta_db, showBar = true) {
-    return apiCall('store', 'Adjust volume failed', async () => {
-      const response = await axios.post('/api/volume/adjust', { delta_db, show_bar: showBar });
-      return response.data.status === 'success';
+    const result = await apiCall.post('/api/volume/adjust', { delta_db, show_bar: showBar }, {
+      category: 'store',
+      message: 'Adjust volume failed',
+      checkStatus: true,
     });
+    return result.ok;
   }
 
   // === WEBSOCKET STATE UPDATES ===

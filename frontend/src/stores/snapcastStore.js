@@ -7,7 +7,6 @@
  */
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import axios from 'axios';
 import { useMultiroomStore } from './multiroomStore';
 import { useUnifiedAudioStore } from './unifiedAudioStore';
 import { logger } from '@/services/logger';
@@ -138,23 +137,24 @@ export const useSnapcastStore = defineStore('snapcast', () => {
   // Note: fetchClients removed - clients are derived from multiroomStore
 
   async function fetchServerConfig(signal = null) {
-    return apiCall('store', 'Error fetching server config', async () => {
-      const response = await axios.get('/api/routing/snapcast/server-config', { signal });
-      if (response.data.config) {
-        const fileConfig = response.data.config.file_config?.parsed_config?.stream || {};
-        const streamConfig = response.data.config.stream_config || {};
-        const snapclientBufferTime = response.data.config.snapclient_buffer_time;
+    const result = await apiCall.get('/api/routing/snapcast/server-config', {
+      category: 'store',
+      message: 'Error fetching server config',
+      signal,
+    });
+    if (!result.ok || !result.data?.config) return null;
 
-        return {
-          buffer: parseInt(fileConfig.buffer || streamConfig.buffer_ms || '1000'),
-          codec: fileConfig.codec || streamConfig.codec || 'flac',
-          chunk_ms: parseInt(fileConfig.chunk_ms || streamConfig.chunk_ms) || 20,
-          sampleformat: '48000:32:2',
-          snapclient_buffer_time: snapclientBufferTime !== undefined ? snapclientBufferTime : 80
-        };
-      }
-      return null;
-    }, { fallback: null });
+    const fileConfig = result.data.config.file_config?.parsed_config?.stream || {};
+    const streamConfig = result.data.config.stream_config || {};
+    const snapclientBufferTime = result.data.config.snapclient_buffer_time;
+
+    return {
+      buffer: parseInt(fileConfig.buffer || streamConfig.buffer_ms || '1000'),
+      codec: fileConfig.codec || streamConfig.codec || 'flac',
+      chunk_ms: parseInt(fileConfig.chunk_ms || streamConfig.chunk_ms) || 20,
+      sampleformat: '48000:32:2',
+      snapclient_buffer_time: snapclientBufferTime !== undefined ? snapclientBufferTime : 80,
+    };
   }
 
   // === ACTIONS - CLIENTS ===
@@ -213,20 +213,21 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     if (!hasServerConfigChanges.value || isApplyingServerConfig.value) return false;
 
     isApplyingServerConfig.value = true;
-    const result = await apiCall('store', 'Error applying multiroom server config', async () => {
-      const response = await axios.post('/api/routing/snapcast/server/config', {
-        config: serverConfig.value
-      });
-
-      if (response.data.status === 'success') {
-        originalServerConfig.value = { ...serverConfig.value };
-        logger.info('store', 'Multiroom server config applied successfully');
-        return true;
-      }
-      return false;
+    const result = await apiCall.post('/api/routing/snapcast/server/config', {
+      config: serverConfig.value,
+    }, {
+      category: 'store',
+      message: 'Error applying multiroom server config',
+      checkStatus: true,
     });
     isApplyingServerConfig.value = false;
-    return result;
+
+    if (result.ok) {
+      originalServerConfig.value = { ...serverConfig.value };
+      logger.info('store', 'Multiroom server config applied successfully');
+      return true;
+    }
+    return false;
   }
 
   function updateServerConfig(updates) {
