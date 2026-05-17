@@ -225,8 +225,21 @@ CamillaDSP is ALWAYS in the audio path for volume control. DSP effects (EQ, comp
 **Route helpers** (`backend/api/route_helpers.py`):
 - `run_source_command(source, cmd, data, context)` — Standard wrapper for `source.command()` with success check + HTTP 400/500 error handling. All feature playback routes should use this.
 - `api_error_handler(context, log)` — Async context manager for the common `try/except HTTPException/Exception` pattern.
+- `parse_audio_source(name)` — Parse user-provided source name to `AudioSource` or raise HTTP 400 with explicit `"Unknown audio source: '<name>'"`. Use in route handlers receiving a source name from path/query/body.
+- `coerce_audio_source_or_none(name)` — Defensive variant for trusted state values (`state_machine.get_current_state()["active_source"]`); returns `None` for `"none"`/missing/invalid + logs warning on truly invalid input so upstream state corruption is visible without crashing the caller.
 
 **Pydantic models**: All models use `snake_case` field names. Shared models live in `backend/api/models.py`. Source-specific models live in `backend/sources/{source}/models.py`.
+
+**Error handling doctrine** — policy per layer:
+
+| Layer | Policy | Mandatory tool | Anti-pattern |
+|---|---|---|---|
+| **HTTP route** | Catch via `api_error_handler` or `run_source_command` (for sources). No bare `try/except` in route body. Enum validation via `parse_audio_source(name)`. | `api_error_handler`, `run_source_command`, `parse_audio_source` ([backend/api/route_helpers.py](backend/api/route_helpers.py)) | `try: ... except Exception: raise HTTPException(500, str(e))` copy-pasted per route |
+| **Service layer** | **Log + raise.** If a fallback is legitimate, `@handle_errors(default=..., level='error')` so the log is explicit. Never `except Exception: pass` nor silent `except: return None`. | `@handle_errors` ([backend/shared/decorators.py](backend/shared/decorators.py)) | `try: ... except: return False` without log |
+| **Background task / loop** | Wrap the **loop body** in `try/except Exception` + `error` log + `continue`. `except CancelledError` alone is NEVER enough — transient I/O errors will silently kill the task. | Explicit pattern in the coroutine body (see [backend/sources/podcast/source.py](backend/sources/podcast/source.py) `_progress_save_loop`) | `while True: ... except CancelledError: ...` that dies silently on transient errors |
+| **Best-effort hardware / external API** | Legitimate catch but **explicit and scoped**: `except SpecificError as e: self._logger.warning(...)` with named fallback. Use `warning` (not `debug` which is invisible in prod, not `info` which drowns). | `@handle_errors(default=..., level='warning')` | `except Exception: self._logger.debug(...)` masking real failures |
+
+**Examples by layer**: see [backend/api/equalizer.py](backend/api/equalizer.py) (route with `api_error_handler`), [backend/sources/radio/shazam.py](backend/sources/radio/shazam.py) (best-effort warning split by exception), [backend/sources/podcast/source.py](backend/sources/podcast/source.py) `_progress_save_loop` (background loop with body try/except).
 
 ### 8. Frontend Conventions
 
@@ -416,6 +429,9 @@ The conventions above are the rules; these are the most common ways they're viol
 11. **Don't use `dict.get(k1, dict.get(k2, default))` chain fallbacks to absorb old payload shapes.** Fix the producer instead (one canonical key). Chain fallbacks rot — they keep absorbing old shapes long after no one emits them.
 12. **Don't `import axios` outside `frontend/src/services/apiCall.js`.** Use `apiCall.{get,post,put,patch,delete}(url, { category, message, ... })` for all HTTP requests, or the callback form `apiCall(cat, msg, async () => { ... })` for atomic multi-request sequences. Direct `axios` imports bypass centralized logging, the resilience-pattern check (`response.data.status === 'success'`), and `AbortController` / `errorRef` plumbing.
 13. **Don't use `console.*` for errors or warnings outside the documented allowlist** (logger.js, main.js, schemas/api.js, modalDebug.js) — use `logger.{debug,info,warn,error}(category, message, data)`. `console.*` skips the category prefix and timestamp formatting, so the central log view can't filter or correlate.
+14. **Don't `except Exception: pass`** — use `@handle_errors(default=..., level=...)` if a fallback is legitimate, otherwise `log + raise`. Silent swallows hide production breakage and force every future debugging session to start by re-adding the log statement.
+15. **Don't access `_private` attributes/methods of another service from a route or another service.** If you need the data, the service must expose a public method or property. Encapsulation breaks here become load-bearing fast — the next refactor across the boundary breaks every caller silently.
+16. **Don't catch only `CancelledError` in a background loop** — wrap the loop body in `try/except Exception` + log + `continue`. `except CancelledError` alone lets transient I/O errors silently kill the task (e.g. disk-full, lock contention) so the task is gone until the next backend restart.
 
 ## Development & Coding Guidelines
 
