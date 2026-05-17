@@ -405,7 +405,7 @@ export default function useWebSocket() {
 // Debug for development
 if (import.meta.env.DEV) {
   window.wsDebug = () => {
-    console.log('WebSocket Debug:', {
+    logger.debug('websocket', 'WebSocket Debug', {
       subscribers: wsInstance.subscribers.size,
       connected: wsInstance.isConnected.value,
       eventTypes: Array.from(wsInstance.eventHandlers.keys()),

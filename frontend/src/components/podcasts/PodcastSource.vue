@@ -93,6 +93,7 @@ import { useNavigationStack } from '@/composables/useNavigationStack'
 import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility'
 import { useI18n } from '@/services/i18n'
 import { apiCall } from '@/services/apiCall'
+import { logger } from '@/services/logger'
 import axios from 'axios'
 import IconButton from '@/components/ui/IconButton.vue'
 import AudioPlayer from '@/components/audio/AudioPlayer.vue'
@@ -247,7 +248,7 @@ async function openPodcastDetails(podcastOrUuid) {
     if (!result) return
     uuid = result
   } else {
-    console.error('Invalid podcast data:', podcastOrUuid)
+    logger.error('podcast', 'Invalid podcast data', podcastOrUuid)
     return
   }
 
@@ -262,7 +263,7 @@ async function playEpisode(episode) {
   try {
     await podcastStore.play(episode.uuid)
   } catch (error) {
-    console.error('Error playing episode:', error)
+    logger.error('podcast', 'Error playing episode', error)
   }
 }
 

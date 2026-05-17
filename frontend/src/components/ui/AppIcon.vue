@@ -15,6 +15,7 @@ let instanceCounter = 0;
 
 <script setup>
 import { computed } from 'vue';
+import { logger } from '@/services/logger';
 
 // Generate a unique ID for this component instance
 const instanceId = ++instanceCounter;
@@ -120,7 +121,7 @@ const svgContent = computed(() => {
   const icon = appIconsOriginal[iconFileName];
 
   if (!icon) {
-    console.warn(`AppIcon "${props.name}" (mapped to "${iconFileName}") not found`);
+    logger.warn('component', `AppIcon "${props.name}" (mapped to "${iconFileName}") not found`);
     return '';
   }
 
