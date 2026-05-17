@@ -50,7 +50,7 @@ class TestUpdateProgram:
 
     @pytest.mark.asyncio
     async def test_no_update_available(self, update_service):
-        with patch.object(update_service, "_get_program_full_status", return_value={
+        with patch.object(update_service, "get_program_full_status", return_value={
             "update_available": False
         }):
             result = await update_service.update_program("go-librespot")
@@ -62,7 +62,7 @@ class TestUpdateProgram:
         status = {"update_available": True, "latest": {"version": "0.7.0"}}
         expected_result = {"success": True, "message": "updated"}
 
-        with patch.object(update_service, "_get_program_full_status", return_value=status):
+        with patch.object(update_service, "get_program_full_status", return_value=status):
             with patch.object(update_service, "_update_go_librespot", return_value=expected_result) as mock_update:
                 result = await update_service.update_program("go-librespot")
 
@@ -74,7 +74,7 @@ class TestUpdateProgram:
         status = {"update_available": True, "latest": {"version": "0.29.0"}}
         expected_result = {"success": True}
 
-        with patch.object(update_service, "_get_program_full_status", return_value=status):
+        with patch.object(update_service, "get_program_full_status", return_value=status):
             with patch.object(update_service, "_update_multiroom", return_value=expected_result) as mock_update:
                 await update_service.update_program("multiroom")
 
@@ -85,7 +85,7 @@ class TestUpdateProgram:
         status = {"update_available": True, "latest": {"version": "4.3.4"}}
         expected_result = {"success": True}
 
-        with patch.object(update_service, "_get_program_full_status", return_value=status):
+        with patch.object(update_service, "get_program_full_status", return_value=status):
             with patch.object(update_service, "_update_shairport_sync", return_value=expected_result) as mock_update:
                 await update_service.update_program("shairport-sync")
 
@@ -96,7 +96,7 @@ class TestUpdateProgram:
         status = {"update_available": True, "latest": {"version": "1.0.0"}}
         expected_result = {"success": True}
 
-        with patch.object(update_service, "_get_program_full_status", return_value=status):
+        with patch.object(update_service, "get_program_full_status", return_value=status):
             with patch.object(update_service, "_update_milo_app", return_value=expected_result) as mock_update:
                 await update_service.update_program("milo")
 
@@ -104,7 +104,7 @@ class TestUpdateProgram:
 
     @pytest.mark.asyncio
     async def test_exception_caught(self, update_service):
-        with patch.object(update_service, "_get_program_full_status",
+        with patch.object(update_service, "get_program_full_status",
                           side_effect=Exception("boom")):
             result = await update_service.update_program("go-librespot")
 
@@ -116,7 +116,7 @@ class TestUpdateProgram:
         callback = AsyncMock()
         status = {"update_available": True, "latest": {"version": "0.7.0"}}
 
-        with patch.object(update_service, "_get_program_full_status", return_value=status):
+        with patch.object(update_service, "get_program_full_status", return_value=status):
             with patch.object(update_service, "_update_go_librespot", return_value={"success": True}):
                 await update_service.update_program("go-librespot", progress_callback=callback)
 
@@ -475,7 +475,7 @@ class TestCanUpdateProgram:
     async def test_no_update_available(self, update_service):
         sudo_proc = _make_mock_proc(returncode=0)
         with patch("asyncio.create_subprocess_exec", return_value=sudo_proc):
-            with patch.object(update_service, "_get_program_full_status", return_value={
+            with patch.object(update_service, "get_program_full_status", return_value={
                 "update_available": False
             }):
                 result = await update_service.can_update_program("go-librespot")
@@ -485,7 +485,7 @@ class TestCanUpdateProgram:
     async def test_can_update(self, update_service):
         sudo_proc = _make_mock_proc(returncode=0)
         with patch("asyncio.create_subprocess_exec", return_value=sudo_proc):
-            with patch.object(update_service, "_get_program_full_status", return_value={
+            with patch.object(update_service, "get_program_full_status", return_value={
                 "update_available": True,
                 "latest": {"version": "0.7.0"}
             }):

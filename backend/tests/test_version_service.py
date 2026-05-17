@@ -327,7 +327,7 @@ class TestGetLatestGithubVersion:
 
 
 class TestGetProgramFullStatus:
-    """Tests for _get_program_full_status()"""
+    """Tests for get_program_full_status()"""
 
     @pytest.mark.asyncio
     async def test_update_available(self, version_service):
@@ -345,7 +345,7 @@ class TestGetProgramFullStatus:
                 "published_at": None,
                 "html_url": None
             }):
-                result = await version_service._get_program_full_status("multiroom")
+                result = await version_service.get_program_full_status("multiroom")
 
         assert result["update_available"] is True
 
@@ -365,7 +365,7 @@ class TestGetProgramFullStatus:
                 "published_at": None,
                 "html_url": None
             }):
-                result = await version_service._get_program_full_status("multiroom")
+                result = await version_service.get_program_full_status("multiroom")
 
         assert result["update_available"] is False
 
@@ -385,7 +385,7 @@ class TestGetProgramFullStatus:
                 "published_at": None,
                 "html_url": None
             }):
-                result = await version_service._get_program_full_status("multiroom")
+                result = await version_service.get_program_full_status("multiroom")
 
         # Should normalize to {"main": "0.28.0"}
         assert result["installed"]["versions"] == {"main": "0.28.0"}
@@ -403,7 +403,7 @@ class TestGetProgramFullStatus:
                 "status": "error",
                 "message": "timeout"
             }):
-                result = await version_service._get_program_full_status("multiroom")
+                result = await version_service.get_program_full_status("multiroom")
 
         assert result["update_available"] is False
 
@@ -415,7 +415,7 @@ class TestGetProgramFullStatus:
                 "status": "success", "version": "1.0.0", "tag_name": "v1.0.0",
                 "published_at": None, "html_url": None
             }):
-                result = await version_service._get_program_full_status("multiroom")
+                result = await version_service.get_program_full_status("multiroom")
 
         # Exception is caught and converted to error dict
         assert result["update_available"] is False
@@ -434,7 +434,7 @@ class TestGetAllProgramStatus:
             "update_available": False
         }
 
-        with patch.object(version_service, "_get_program_full_status", return_value=mock_status):
+        with patch.object(version_service, "get_program_full_status", return_value=mock_status):
             result = await version_service.get_all_program_status()
 
         assert set(result.keys()) == set(version_service.programs.keys())
@@ -446,7 +446,7 @@ class TestGetAllProgramStatus:
                 raise Exception("milo error")
             return {"name": "Test", "update_available": False}
 
-        with patch.object(version_service, "_get_program_full_status", side_effect=raise_for_milo):
+        with patch.object(version_service, "get_program_full_status", side_effect=raise_for_milo):
             result = await version_service.get_all_program_status()
 
         assert result["milo"]["status"] == "error"

@@ -275,7 +275,7 @@ class VersionService:
         # Get installed versions in parallel
         tasks = []
         for program_key in self.programs.keys():
-            tasks.append(self._get_program_full_status(program_key))
+            tasks.append(self.get_program_full_status(program_key))
 
         program_results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -290,7 +290,7 @@ class VersionService:
 
         return results
 
-    async def _get_program_full_status(self, program_key: str) -> Dict[str, Any]:
+    async def get_program_full_status(self, program_key: str) -> Dict[str, Any]:
         """Gets complete status (installed + GitHub) for a program"""
         try:
             # Launch both requests in parallel
