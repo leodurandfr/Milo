@@ -213,9 +213,9 @@ class TaddyAPI:
 
         except Exception as e:
             if is_network_error(e):
-                self.logger.error(f"Network error calling Taddy API: {e}")
+                self.logger.warning(f"Taddy API network error: {e}")
                 return {"_network_error": True}
-            self.logger.error(f"Error calling Taddy API: {e}")
+            self.logger.error(f"Taddy API unexpected error: {e}")
             return None
 
     def _check_cache(self, cache: Dict, key: str) -> Optional[Any]:

@@ -12,6 +12,7 @@ import logging
 import wave
 from typing import Any, Callable, Coroutine, Dict, Optional
 
+import aiohttp
 from aiohttp_retry import ExponentialRetry
 from shazamio import Shazam, HTTPClient
 
@@ -216,8 +217,11 @@ class ShazamRecognitionService:
         except asyncio.TimeoutError:
             logger.info("Shazam recognition timed out")
             return False
+        except (aiohttp.ClientError, ValueError) as e:
+            logger.warning(f"Shazam recognition transient failure: {e}")
+            return False
         except Exception as e:
-            logger.info(f"Recognition attempt failed: {e}")
+            logger.error(f"Shazam recognition unexpected error: {e}")
             return False
 
     async def _capture_audio(self, url: str) -> Optional[bytes]:
@@ -337,5 +341,6 @@ class ShazamRecognitionService:
         try:
             radio_settings = await self._settings_service.get_setting("radio") or {}
             return radio_settings.get("shazam_enabled", True)
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Shazam is_enabled check failed, defaulting to True: {e}")
             return True
