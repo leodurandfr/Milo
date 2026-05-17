@@ -29,7 +29,7 @@ import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import LevelMeter from './LevelMeter.vue';
-import axios from 'axios';
+import { apiCall } from '@/services/apiCall';
 
 const props = defineProps({
   clientIds: {
@@ -74,23 +74,25 @@ async function pollLevels() {
   const ids = activeClientIds.value;
   const silent = [meterMin, meterMin];
 
-  try {
-    // Use zone endpoint when clients are known, otherwise direct local endpoint
-    const endpoint = ids.length > 0
-      ? `/api/equalizer/levels/zone/${ids.join(',')}`
-      : '/api/equalizer/levels';
+  // Use zone endpoint when clients are known, otherwise direct local endpoint
+  const endpoint = ids.length > 0
+    ? `/api/equalizer/levels/zone/${ids.join(',')}`
+    : '/api/equalizer/levels';
 
-    const response = await axios.get(endpoint);
-    if (response.data.available) {
-      equalizerStore.updateLevels(
-        response.data.input_peak || silent,
-        response.data.output_peak || silent
-      );
-    } else {
-      equalizerStore.updateLevels(silent, silent);
-    }
-  } catch (error) {
-    // Silently fail - levels are optional
+  const result = await apiCall.get(endpoint, {
+    category: 'equalizer',
+    message: 'Error polling equalizer levels',
+    logLevel: 'debug',
+  });
+  if (!result.ok) return; // Levels are optional - debug-logged only
+
+  if (result.data.available) {
+    equalizerStore.updateLevels(
+      result.data.input_peak || silent,
+      result.data.output_peak || silent
+    );
+  } else {
+    equalizerStore.updateLevels(silent, silent);
   }
 }
 

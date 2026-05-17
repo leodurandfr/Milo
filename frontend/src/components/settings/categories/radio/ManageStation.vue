@@ -120,7 +120,7 @@ import ListItemButton from '@/components/ui/ListItemButton.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
 import { getFaviconUrl } from '@/utils/faviconUrl';
-import axios from 'axios';
+import { apiCall } from '@/services/apiCall';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 
 const props = defineProps({
@@ -201,12 +201,14 @@ const submitButtonText = computed(() => {
 // === Country options ===
 
 async function loadAvailableCountries() {
-  try {
-    const response = await axios.get('/api/radio/countries');
-    availableCountries.value = response.data;
+  const result = await apiCall.get('/api/radio/countries', {
+    category: 'radio',
+    message: 'Error loading countries',
+  });
+  if (result.ok) {
+    availableCountries.value = result.data;
     logger.debug('radio', `Loaded ${availableCountries.value.length} countries`);
-  } catch (error) {
-    logger.error('radio', 'Error loading countries:', error);
+  } else {
     availableCountries.value = [];
   }
 }
@@ -310,22 +312,26 @@ async function saveEdit() {
       formDataToSend.append('image', selectedFile.value);
     }
 
-    const { data } = await axios.post('/api/radio/favorites/modify-metadata', formDataToSend);
+    const result = await apiCall.post('/api/radio/favorites/modify-metadata', formDataToSend, {
+      category: 'radio',
+      message: 'Auto-save failed',
+      errorRef: errorMessage,
+    });
 
-    if (data.success) {
+    if (!result.ok) {
+      // errorRef already set by apiCall; fall back to a localized default
+      if (!errorMessage.value) errorMessage.value = t('radio.manageStation.errorOccurred');
+    } else if (result.data.success) {
       // After an image upload, swap the local preview for the server-side URL
       // so subsequent saves don't re-upload the same file.
-      if (selectedFile.value && data.station?.favicon) {
-        currentImageUrl.value = data.station.favicon;
+      if (selectedFile.value && result.data.station?.favicon) {
+        currentImageUrl.value = result.data.station.favicon;
         selectedFile.value = null;
         imagePreview.value = null;
       }
     } else {
-      errorMessage.value = data.error || t('radio.manageStation.editFailed');
+      errorMessage.value = result.data.error || t('radio.manageStation.editFailed');
     }
-  } catch (error) {
-    logger.error('radio', 'Auto-save failed:', error);
-    errorMessage.value = error?.response?.data?.detail || error.message || t('radio.manageStation.errorOccurred');
   } finally {
     isSaving.value = false;
     if (pendingSave.value) {

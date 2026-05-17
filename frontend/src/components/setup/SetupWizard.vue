@@ -65,8 +65,7 @@ import { useI18n, i18n } from '@/services/i18n';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useNetwork } from '@/composables/useNetwork';
-import axios from 'axios';
-import { logger } from '@/services/logger';
+import { apiCall } from '@/services/apiCall';
 import StepIndicator from './StepIndicator.vue';
 import WelcomeStep from './WelcomeStep.vue';
 import NetworkStep from './NetworkStep.vue';
@@ -192,49 +191,58 @@ async function applySetup() {
   confirmReboot.value = false;
   error.value = null;
 
-  try {
-    await axios.post('/api/setup/complete', {
-      language: wizardState.language,
-      audio_id: wizardState.audioId,
-      volume_control: isDacSelected.value ? wizardState.volumeControl : undefined,
-      screen_type: wizardState.screenType,
-    });
+  const applyResult = await apiCall.post('/api/setup/complete', {
+    language: wizardState.language,
+    audio_id: wizardState.audioId,
+    volume_control: isDacSelected.value ? wizardState.volumeControl : undefined,
+    screen_type: wizardState.screenType,
+  }, {
+    category: 'setup',
+    message: 'Setup wizard failed',
+    errorRef: error,
+  });
 
+  if (!applyResult.ok) {
     isApplying.value = false;
-    isRebooting.value = true;
+    if (!error.value) error.value = 'Setup failed. Please try again.';
+    return;
+  }
 
-    // Two-phase polling: wait for backend to go DOWN, then wait for it to come back UP
-    let pollCount = 0;
-    const maxPolls = 60;
-    let backendWentDown = false;
+  isApplying.value = false;
+  isRebooting.value = true;
 
-    pollIntervalId = setInterval(async () => {
-      pollCount++;
-      if (pollCount > maxPolls) {
+  // Two-phase polling: wait for backend to go DOWN, then wait for it to come back UP
+  let pollCount = 0;
+  const maxPolls = 60;
+  let backendWentDown = false;
+
+  pollIntervalId = setInterval(async () => {
+    pollCount++;
+    if (pollCount > maxPolls) {
+      clearInterval(pollIntervalId);
+      pollIntervalId = null;
+      isRebooting.value = false;
+      error.value = 'Reboot timed out. Please refresh the page.';
+      return;
+    }
+    const pingResult = await apiCall.get('/api/ping', {
+      category: 'setup',
+      message: 'Ping during reboot',
+      timeout: 2000,
+      logLevel: 'debug',
+    });
+    if (pingResult.ok) {
+      if (backendWentDown) {
+        // Backend is back up after reboot
         clearInterval(pollIntervalId);
         pollIntervalId = null;
-        isRebooting.value = false;
-        error.value = 'Reboot timed out. Please refresh the page.';
-        return;
+        window.location.reload();
       }
-      try {
-        await axios.get('/api/ping', { timeout: 2000 });
-        if (backendWentDown) {
-          // Backend is back up after reboot
-          clearInterval(pollIntervalId);
-          pollIntervalId = null;
-          window.location.reload();
-        }
-      } catch {
-        // Backend unreachable — reboot has begun
-        backendWentDown = true;
-      }
-    }, 3000);
-  } catch (err) {
-    logger.error('setup', 'Setup wizard failed', err);
-    isApplying.value = false;
-    error.value = err.response?.data?.detail || 'Setup failed. Please try again.';
-  }
+    } else {
+      // Backend unreachable — reboot has begun
+      backendWentDown = true;
+    }
+  }, 3000);
 }
 
 onMounted(async () => {

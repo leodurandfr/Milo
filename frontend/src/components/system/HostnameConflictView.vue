@@ -29,7 +29,6 @@
 
 <script setup>
 import { computed } from 'vue';
-import axios from 'axios';
 import { useSystemStore } from '@/stores/systemStore';
 import { useI18n } from '@/services/i18n';
 import { apiCall } from '@/services/apiCall';
@@ -54,8 +53,9 @@ function handleRecheck() {
 }
 
 function handleShutdown() {
-  apiCall('system', 'Error during shutdown', async () => {
-    await axios.post('/api/system/shutdown');
+  apiCall.post('/api/system/shutdown', null, {
+    category: 'system',
+    message: 'Error during shutdown',
   });
 }
 </script>
