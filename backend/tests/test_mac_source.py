@@ -41,11 +41,11 @@ def mac_source(config):
     return source
 
 
-class TestProtocolCompliance:
-    """Test AudioSource Protocol compliance."""
+class TestBaseClassCompliance:
+    """Test that MacSource extends BaseAudioSource correctly."""
 
-    def test_implements_protocol(self, mac_source):
-        """Test MacSource implements AudioSource protocol."""
+    def test_extends_base_audio_source(self, mac_source):
+        """Test MacSource extends BaseAudioSource."""
         assert isinstance(mac_source, BaseAudioSource)
 
     def test_has_required_attributes(self, mac_source):
