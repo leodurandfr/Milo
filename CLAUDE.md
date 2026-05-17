@@ -242,6 +242,16 @@ CamillaDSP is ALWAYS in the audio path for volume control. DSP effects (EQ, comp
 
 **WS event handling**: WebSocket events should be handled in Pinia stores, not in Vue components directly. Components react to store state changes.
 
+### 9. Background tasks
+
+Schedule fire-and-forget coroutines through the right primitive for the call site — never via raw `asyncio.create_task` for untracked work.
+
+**Services**: instantiate `self._bg = BackgroundTaskSet(logger, "owner_label")` in `__init__` (see [backend/shared/background.py](backend/shared/background.py)), then `self._bg.spawn(coro, label="...")`. Exceptions are logged at ERROR with `exc_info`; `CancelledError` is silent. Call `await self._bg.cancel_all()` in the service's `cleanup()`.
+
+**HTTP routes**: add a `background_tasks: BackgroundTasks` parameter and call `background_tasks.add_task(callable, *args)` (see [backend/api/system.py](backend/api/system.py) and [backend/api/setup.py](backend/api/setup.py)). FastAPI runs the task after the response is sent and propagates exceptions to uvicorn's logger. Do **not** schedule `asyncio.create_task(_delayed_X())` from a route body.
+
+**Tracked long-running tasks** (`self._monitor_task = asyncio.create_task(self._monitor_loop())`): the direct `asyncio.create_task` is still allowed when the handle is stored on `self` for targeted cancellation. This is the only legitimate use of raw `create_task` in service code.
+
 ## Adding New Features
 
 ### Adding a New Audio Source
@@ -386,6 +396,7 @@ The conventions above are the rules; these are the most common ways they're viol
 6. **Don't handle WS events in Vue components** — handle them in Pinia stores; components react to store state.
 7. **Don't use `POST` for idempotent updates** — `PUT` for settings, `DELETE` for removals, `PATCH` for partial updates.
 8. **Don't hardcode ALSA devices** — use the env-var pattern for multiroom/equalizer switching.
+9. **Don't use `asyncio.create_task()` for fire-and-forget** — use `BackgroundTaskSet.spawn()` (services) or FastAPI `BackgroundTasks` (routes). Direct `create_task` is reserved for long-running tracked tasks stored on `self` (e.g. `self._monitor_task = asyncio.create_task(...)`).
 
 ## Development & Coding Guidelines
 
