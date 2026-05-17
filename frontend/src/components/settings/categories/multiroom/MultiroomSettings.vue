@@ -95,7 +95,7 @@
             <h2 class="heading-2">{{ t('multiroomSettings.advanced') }}</h2>
 
             <SettingItem :label="t('multiroomSettings.globalBuffer')">
-              <RangeSlider v-model="snapcastStore.serverConfig.buffer" :min="200" :max="3000" :step="100"
+              <RangeSlider v-model="snapcastStore.serverConfig.buffer_ms" :min="200" :max="3000" :step="100"
                 value-unit="ms" :disabled="snapcastStore.isApplyingServerConfig" />
             </SettingItem>
 
@@ -277,17 +277,17 @@ const audioPresets = computed(() => [
   {
     id: 'lan',
     name: t('multiroomSettings.lan'),
-    config: { buffer: 300, codec: 'flac', chunk_ms: 20, snapclient_buffer_time: 120 }
+    config: { buffer_ms: 300, codec: 'flac', chunk_ms: 20, snapclient_buffer_time: 120 }
   },
   {
     id: 'wifi_stable',
     name: t('multiroomSettings.wifiStable'),
-    config: { buffer: 700, codec: 'flac', chunk_ms: 20, snapclient_buffer_time: 120 }
+    config: { buffer_ms: 700, codec: 'flac', chunk_ms: 20, snapclient_buffer_time: 120 }
   },
   {
     id: 'wifi_weak',
     name: t('multiroomSettings.wifiWeak'),
-    config: { buffer: 1500, codec: 'opus', chunk_ms: 20, snapclient_buffer_time: 200 }
+    config: { buffer_ms: 1500, codec: 'opus', chunk_ms: 20, snapclient_buffer_time: 200 }
   }
 ]);
 
@@ -303,7 +303,7 @@ const presetOptions = computed(() =>
 const activePresetId = computed(() => {
   const current = snapcastStore.serverConfig;
   const active = audioPresets.value.find(preset =>
-    current.buffer === preset.config.buffer &&
+    current.buffer_ms === preset.config.buffer_ms &&
     current.codec === preset.config.codec &&
     current.chunk_ms === preset.config.chunk_ms &&
     current.snapclient_buffer_time === preset.config.snapclient_buffer_time
