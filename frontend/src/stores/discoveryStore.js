@@ -10,7 +10,6 @@
  */
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import axios from 'axios';
 import { apiCall } from '@/services/apiCall';
 
 const POLL_INTERVAL_MS = 10000;
@@ -46,10 +45,13 @@ export const useDiscoveryStore = defineStore('discovery', () => {
     if (scanning.value) return;
     scanning.value = true;
     try {
-      await apiCall('discovery', 'Error scanning wifi speakers', async () => {
-        const response = await axios.get('/api/discovery/wifi-speakers');
-        hotspots.value = response.data.data?.hotspots || [];
+      const result = await apiCall.get('/api/discovery/wifi-speakers', {
+        category: 'discovery',
+        message: 'Error scanning wifi speakers',
       });
+      if (result.ok) {
+        hotspots.value = result.data.data?.hotspots || [];
+      }
     } finally {
       scanning.value = false;
     }
@@ -60,10 +62,13 @@ export const useDiscoveryStore = defineStore('discovery', () => {
    * Returns `{ available: false }` when the server is ethernet-only.
    */
   async function loadServerWifiCreds() {
-    await apiCall('discovery', 'Error loading server wifi creds', async () => {
-      const response = await axios.get('/api/discovery/server-wifi-creds');
-      serverWifiCreds.value = response.data.data || { available: false };
+    const result = await apiCall.get('/api/discovery/server-wifi-creds', {
+      category: 'discovery',
+      message: 'Error loading server wifi creds',
     });
+    if (result.ok) {
+      serverWifiCreds.value = result.data.data || { available: false };
+    }
   }
 
   /**
@@ -72,15 +77,16 @@ export const useDiscoveryStore = defineStore('discovery', () => {
    * @param {Object} payload - { ssid, audio_id, speaker_name, speaker_type, wifi_ssid, wifi_password }
    */
   async function adoptSpeaker(payload) {
-    return apiCall('discovery', 'Error adopting wifi speaker', async () => {
-      const response = await axios.post('/api/discovery/adopt-speaker', payload, {
-        timeout: ADOPT_TIMEOUT_MS,
-      });
-      // Optimistically drop the adopted hotspot from the list — it will reboot
-      // and stop broadcasting; a stale entry would only confuse the UI.
-      hotspots.value = hotspots.value.filter(h => h.ssid !== payload.ssid);
-      return response.data.data;
-    }, { rethrow: true });
+    const result = await apiCall.post('/api/discovery/adopt-speaker', payload, {
+      category: 'discovery',
+      message: 'Error adopting wifi speaker',
+      timeout: ADOPT_TIMEOUT_MS,
+      rethrow: true,
+    });
+    // Optimistically drop the adopted hotspot from the list — it will reboot
+    // and stop broadcasting; a stale entry would only confuse the UI.
+    hotspots.value = hotspots.value.filter(h => h.ssid !== payload.ssid);
+    return result.data.data;
   }
 
   /**
