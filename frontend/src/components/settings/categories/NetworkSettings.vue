@@ -137,6 +137,7 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted, inject } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useNetwork } from '@/composables/useNetwork';
+import { useTimer } from '@/composables/useTimer';
 import { wifiCountryOptions } from '@/constants/wifiCountries';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
@@ -149,6 +150,7 @@ import { apiCall } from '@/services/apiCall';
 import { logger } from '@/services/logger';
 
 const { t, getCurrentLanguage } = useI18n();
+const timer = useTimer();
 const requestHeightDelta = inject('modalRequestHeightDelta', null);
 const modalContentInnerRef = inject('modalContentInnerRef', null);
 
@@ -234,10 +236,10 @@ async function applyCountryAndReboot() {
   // while it restarts, so log at debug level.
   let pollCount = 0;
   const maxPolls = 60;
-  countryPollIntervalId = setInterval(async () => {
+  countryPollIntervalId = timer.setInterval(async () => {
     pollCount++;
     if (pollCount > maxPolls) {
-      clearInterval(countryPollIntervalId);
+      timer.clear(countryPollIntervalId);
       countryPollIntervalId = null;
       isRebootingCountry.value = false;
       return;
@@ -249,7 +251,7 @@ async function applyCountryAndReboot() {
       logLevel: 'debug'
     });
     if (pingResult.ok) {
-      clearInterval(countryPollIntervalId);
+      timer.clear(countryPollIntervalId);
       countryPollIntervalId = null;
       window.location.reload();
     }
@@ -390,7 +392,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (rafId) cancelAnimationFrame(rafId);
-  if (countryPollIntervalId) clearInterval(countryPollIntervalId);
+  // countryPollIntervalId is auto-cleared by useTimer on unmount.
 });
 </script>
 

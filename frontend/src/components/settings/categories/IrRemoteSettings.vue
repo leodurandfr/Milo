@@ -82,6 +82,7 @@ import { useI18n } from '@/services/i18n';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
+import { useTimer } from '@/composables/useTimer';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
@@ -95,6 +96,7 @@ const { t } = useI18n();
 const { debouncedUpdate, clearAllTimers } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 const { hardwareConfig } = useHardwareConfig();
+const timer = useTimer();
 
 const irHardwareEnabled = computed(
   () => hardwareConfig.value?.current?.ir_remote?.enabled !== false
@@ -212,7 +214,7 @@ const secondaryCtaClick = computed(() => null);
 function startCountdown() {
   remainingSeconds.value = PAIRING_TIMEOUT_SECONDS;
   stopCountdown();
-  countdownTimer = setInterval(() => {
+  countdownTimer = timer.setInterval(() => {
     if (remainingSeconds.value > 0) {
       remainingSeconds.value -= 1;
     }
@@ -221,7 +223,7 @@ function startCountdown() {
 
 function stopCountdown() {
   if (countdownTimer) {
-    clearInterval(countdownTimer);
+    timer.clear(countdownTimer);
     countdownTimer = null;
   }
 }
