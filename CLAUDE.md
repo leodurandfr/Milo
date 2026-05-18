@@ -442,6 +442,7 @@ The conventions above are the rules; these are the most common ways they're viol
 16. **Don't catch only `CancelledError` in a background loop** — wrap the loop body in `try/except Exception` + log + `continue`. `except CancelledError` alone lets transient I/O errors silently kill the task (e.g. disk-full, lock contention) so the task is gone until the next backend restart.
 17. **Don't read `event.data.x` directly in WS handlers.** Declare a Zod schema in [frontend/src/schemas/ws.js](frontend/src/schemas/ws.js) and consume the validated payload via `parsedOn(category, type, schema, handler)`. Raw access bypasses validation and silently absorbs payload drift.
 18. **Don't use `event.data?.x ?? event.data?.y` fallbacks to absorb dual payload shapes.** Fix the producer side first (one canonical key in the broadcast), then declare a single schema. Dual-shape fallbacks rot — they outlive the producer that justified them.
+19. **Don't add `// stylelint-disable` comments to scoped CSS.** If `stylelint` rejects a value, either (a) extend [`design-system.css`](frontend/src/assets/styles/design-system.css) with the missing token, or (b) the case is sémantiquement one-off (CSS-mask `linear-gradient(#000 0 0)`, SVG inline pure-black, ultra-small meter labels outside the type scale) — add the file to the `overrides` list in [`frontend/.stylelintrc.cjs`](frontend/.stylelintrc.cjs) with a one-line comment explaining why. Inline disables hide the violation from future grep audits and let the dette reform silently.
 
 ## Development & Coding Guidelines
 

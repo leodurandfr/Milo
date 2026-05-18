@@ -315,13 +315,6 @@ async function loadMoreEpisodes() {
   gap: var(--space-03);
 }
 
-.section-title {
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text);
-  margin: 0;
-}
-
 .podcasts-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));

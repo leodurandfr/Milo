@@ -494,7 +494,6 @@ onUnmounted(() => {
 
 .wifi-content__description {
   color: var(--color-text-secondary);
-  line-height: 1.4;
 }
 
 /* Grouped sections (preferred + other networks) */

@@ -112,6 +112,5 @@ onUnmounted(() => {
 
 .bt-remote-status__battery.is-low {
   color: var(--color-warning);
-  font-weight: 600;
 }
 </style>

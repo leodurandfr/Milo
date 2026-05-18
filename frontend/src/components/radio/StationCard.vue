@@ -230,8 +230,6 @@ const cardMetadata = computed(() => {
 
 .station-title {
   margin: 0;
-  font-size: var(--font-size-h4);
-  font-weight: 500;
   color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -240,7 +238,6 @@ const cardMetadata = computed(() => {
 
 .station-subtitle {
   margin: 0;
-  font-size: var(--font-size-small);
   color: var(--color-text-light);
   white-space: nowrap;
   overflow: hidden;

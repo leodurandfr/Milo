@@ -354,7 +354,6 @@ function handleDisconnect() {
 
 .disconnect-text p {
   display: block;
-  line-height: var(--line-height-body);
   white-space: pre;
   margin: 0;
 }
