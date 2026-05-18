@@ -1,4 +1,4 @@
-<!-- frontend/src/components/ui/Toggle.vue - Avec variantes de taille -->
+<!-- Toggle component with size variants -->
 <template>
   <div class="toggle-container">
     <h2 v-if="title" class="heading-2">{{ title }}</h2>

@@ -128,7 +128,7 @@ class CdSource(MpvAudioSource):
         """Start mpv service, connect IPC.
         If _pre_start_service already ran, reuses the existing connection.
         Metadata lookup runs in the background so the frontend can show
-        'Chargement de l'album' during the load."""
+        the loading-album indicator during the load."""
         try:
             async with self._mpv_lock:
                 if self._mpv and self._mpv.is_connected:
@@ -147,7 +147,7 @@ class CdSource(MpvAudioSource):
 
             # Metadata lookup in background if disc present but no metadata yet.
             # Runs AFTER _do_start returns so the transition completes first
-            # and the frontend can show "Chargement de l'album".
+            # and the frontend can show the loading-album indicator.
             if self._disc_present and not self._current_disc and self._last_disc_id:
                 self._bg.spawn(
                     self._load_disc_metadata(),
@@ -316,7 +316,7 @@ class CdSource(MpvAudioSource):
         """Check drive connection and disc status (two-phase detection).
 
         Phase 1: CDS_DRIVE_NOT_READY — disc detected, spinning up.
-                 Immediately broadcast presence so frontend shows "Chargement de l'album".
+                 Immediately broadcast presence so the frontend shows the loading-album indicator.
         Phase 2: CDS_DISC_OK — disc ready, TOC readable.
                  Read TOC, metadata lookup, auto-play.
         """
@@ -371,8 +371,8 @@ class CdSource(MpvAudioSource):
     async def _handle_disc_detected(self) -> None:
         """Phase 1: disc detected (spinning up or already ready).
 
-        Broadcasts presence immediately so the frontend can show
-        'Chargement de l'album' while the drive spins up.
+        Broadcasts presence immediately so the frontend can show the
+        loading-album indicator while the drive spins up.
         """
         self._logger.info("Disc detected (spinning up)")
 
@@ -389,7 +389,7 @@ class CdSource(MpvAudioSource):
             }
         )
 
-        # Show "Chargement de l'album" immediately
+        # Show the loading-album indicator immediately
         if is_active:
             self.set_state(SourceState.WAITING, {
                 "disc_present": True, "cache_ready": False,

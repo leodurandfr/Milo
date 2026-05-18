@@ -11,7 +11,7 @@ from backend.shared.decorators import handle_errors
 from backend.shared.network import is_network_error
 
 
-# Mapping des genres Taddy vers les IDs de genre iTunes RSS
+# Map Taddy genres to iTunes RSS genre IDs
 GENRE_TO_ITUNES_ID = {
     'PODCASTSERIES_NEWS': 1489,
     'PODCASTSERIES_COMEDY': 1303,
@@ -30,7 +30,7 @@ GENRE_TO_ITUNES_ID = {
     'PODCASTSERIES_TV_AND_FILM': 1309,
 }
 
-# Mapping des langues Milo (settings.json) vers les enums Taddy
+# Map Milō languages (settings.json) to Taddy language enums
 MILO_LANGUAGE_TO_TADDY = {
     'english': 'ENGLISH',
     'french': 'FRENCH',
@@ -42,7 +42,7 @@ MILO_LANGUAGE_TO_TADDY = {
     'hindi': 'HINDI',
 }
 
-# Mapping des langues Milo vers codes pays iTunes RSS (pour Apple Podcasts charts)
+# Map Milō languages to iTunes RSS country codes (for Apple Podcasts charts)
 MILO_LANGUAGE_TO_ITUNES_COUNTRY = {
     'english': 'us',      # United States
     'french': 'fr',       # France

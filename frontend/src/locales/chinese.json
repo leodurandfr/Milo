@@ -376,7 +376,8 @@
     "confirm": "确认",
     "restore": "恢复",
     "delete": "删除",
-    "deleting": "删除中..."
+    "deleting": "删除中...",
+    "close": "关闭"
   },
   "radio": {
     "country": "国家",
