@@ -529,7 +529,8 @@ The project ships a lightweight lint floor that mechanically locks the conventio
 
 | Tool | Rule | Source RFC | Activated in |
 |---|---|---|---|
-| _(table populated progressively as lots A-D land)_ | | | |
+| eslint | `no-restricted-imports: axios` | [RFC 17](docs/plans/concern-frontend-api-layer.md) | Lot A — 2026-05-18 |
+| eslint | `no-restricted-syntax: console.*` | [RFC 17](docs/plans/concern-frontend-api-layer.md) | Lot A — 2026-05-18 |
 
 **Bypassing a legitimate exception** — add a per-line directive with a written justification after `--`:
 
