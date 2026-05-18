@@ -83,8 +83,8 @@ class EqualizerController:
             try:
                 if await self._proxy_service.check_available(client_ip):
                     return True
-            except Exception:
-                pass
+            except Exception as e:
+                self.logger.debug("Client readiness probe (%s) failed: %s", client_ip, e)
             await asyncio.sleep(interval)
         return False
 

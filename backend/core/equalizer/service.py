@@ -400,8 +400,8 @@ class CamillaDSPService:
                     # pycamilladsp v3 API: rate.capture()
                     rate = await self._run(self._client.rate.capture)
                     status["sample_rate"] = rate
-                except Exception:
-                    pass
+                except Exception as e:
+                    self.logger.debug("CamillaDSP sample rate probe failed: %s", e)
 
             return status
 

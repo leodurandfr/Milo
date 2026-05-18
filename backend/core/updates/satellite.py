@@ -3,6 +3,7 @@
 Satellite update service — discovers satellites via client registry and manages updates.
 """
 import asyncio
+import contextlib
 import aiohttp
 import logging
 import os
@@ -332,10 +333,8 @@ class SatelliteUpdateService:
 
         finally:
             if tarball_path:
-                try:
+                with contextlib.suppress(OSError):
                     os.unlink(tarball_path)
-                except Exception:
-                    pass
 
     async def update_satellite_camilladsp(
         self,

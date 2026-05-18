@@ -20,6 +20,7 @@ Two mutually-exclusive read modes — guarded by an asyncio.Lock — are exposed
   recognized going forward. Bounded by a timeout.
 """
 import asyncio
+import contextlib
 import logging
 import time
 from typing import Optional, Tuple
@@ -75,7 +76,8 @@ def _find_gpio_ir_device() -> Optional[str]:
     for path in evdev.list_devices():
         try:
             device = evdev.InputDevice(path)
-        except Exception:
+        except OSError:
+            # Stale evdev node (device removed mid-scan); skip silently.
             continue
         try:
             if device.name == GPIO_IR_DEVICE_NAME:
@@ -245,10 +247,8 @@ class IrRemoteController:
         self._runtime_task = None
         if task and not task.done():
             task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
-            except (asyncio.CancelledError, Exception):
-                pass
 
     async def _runtime_loop(self) -> None:
         """Consume EV_KEY events from the rc-core device and dispatch them.
@@ -291,10 +291,8 @@ class IrRemoteController:
         except Exception as e:
             logger.error("IR runtime loop error: %s", e)
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 device.close()
-            except Exception:
-                pass
 
     async def _handle_keycode(self, code: int) -> None:
         """Map an EV_KEY code to a Milō action."""
@@ -521,10 +519,8 @@ class IrRemoteController:
             await asyncio.gather(reader_task, cancel_task, return_exceptions=True)
             raise
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 device.close()
-            except Exception:
-                pass
         return result
 
     async def cancel_pairing(self) -> bool:

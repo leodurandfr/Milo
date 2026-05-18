@@ -2,6 +2,7 @@
 """
 Unit tests for SettingsService
 """
+import contextlib
 import pytest
 import json
 import os
@@ -22,16 +23,12 @@ class TestSettingsService:
         yield temp_path
 
         # Cleanup
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(temp_path)
-        except:
-            pass
 
         # Cleanup .tmp file too if present
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(temp_path + '.tmp')
-        except:
-            pass
 
     @pytest.fixture
     def service(self, temp_settings_file):

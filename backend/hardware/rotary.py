@@ -5,6 +5,7 @@ KY-040 Rotary Encoder Controller for Volume - dB Volume API Version
 Uses event-triggered processing: detent detection immediately triggers
 volume adjustment via VolumeAccumulator for minimal latency.
 """
+import contextlib
 import lgpio
 import asyncio
 import logging
@@ -116,10 +117,8 @@ class RotaryVolumeController:
         if self.chip_handle is not None:
             try:
                 for pin in [self.CLK, self.DT, self.SW]:
-                    try:
+                    with contextlib.suppress(Exception):
                         lgpio.gpio_free(self.chip_handle, pin)
-                    except Exception:
-                        pass
                 lgpio.gpiochip_close(self.chip_handle)
                 logger.info("GPIO resources cleaned up")
             except Exception as e:
