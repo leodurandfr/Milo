@@ -202,10 +202,8 @@ watch(shouldShowLoading, (loading) => {
 const displayClients = computed(() => {
   // Force Vue to track volumeState.zones and volumeState.clients as dependencies
   // This ensures recomputation when zone averages or client volumes change
-  // eslint-disable-next-line no-unused-vars
-  const _zones = unifiedStore.volumeState.zones;
-  // eslint-disable-next-line no-unused-vars
-  const _clients = unifiedStore.volumeState.clients;
+  void unifiedStore.volumeState.zones;
+  void unifiedStore.volumeState.clients;
 
   // During enabling or loading, show placeholders based on last known display structure
   if (multiroomStore.transitionState === 'enabling' || (snapcastStore.clients.length === 0 && snapcastStore.isLoading)) {

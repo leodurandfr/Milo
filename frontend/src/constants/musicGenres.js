@@ -139,7 +139,6 @@ function genreI18nKey(genre) {
  * @param {string} genre - Canonical genre slug (e.g. 'hip-hop', 'r&b').
  * @returns {string}
  */
-// eslint-disable-next-line no-unused-vars
 export function getTranslatedGenreName(language, genre) {
   if (!genre) return '';
 
