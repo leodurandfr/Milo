@@ -533,6 +533,7 @@ The project ships a lightweight lint floor that mechanically locks the conventio
 | eslint | `no-restricted-syntax: console.*` | [RFC 17](docs/plans/concern-frontend-api-layer.md) | Lot A — 2026-05-18 |
 | ruff | `S110` (try-except-pass) | [RFC 18](docs/plans/concern-error-handling.md) | Lot B — 2026-05-18 |
 | ruff | `S112` (try-except-continue) | [RFC 18](docs/plans/concern-error-handling.md) | Lot B — 2026-05-18 |
+| pytest | `test_breaking_changes_coherence` (`SCHEMA_VERSION` ↔ [`BREAKING_CHANGES.md`](BREAKING_CHANGES.md)) | [RFC 19](docs/plans/concern-breaking-changes.md) | Lot C — 2026-05-18 |
 
 **Intentional silent swallows** (Python) — use `contextlib.suppress(ExceptionType)` instead of `try: ... except: pass`. The latter trips `ruff S110/S112`; the former is the documented Pythonic idiom and reads as a deliberate, scoped suppression (cleanup paths, idempotent teardown, transient hardware errors in `finally:` blocks).
 
