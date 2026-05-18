@@ -220,7 +220,7 @@ class ScreenScreensaverRequest(BaseModel):
 
 class ScreenUiScaleRequest(BaseModel):
     """Screen UI scale request"""
-    ui_scale: float = Field(..., ge=0.9, le=1.1)
+    ui_scale: float = Field(..., ge=0.9, le=1.15)
 
 
 class ScreenColorFilterRequest(BaseModel):
