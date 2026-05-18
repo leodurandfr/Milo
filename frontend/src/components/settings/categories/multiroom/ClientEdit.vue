@@ -473,7 +473,7 @@ onUnmounted(() => {
 }
 
 .audio-error {
-  color: var(--color-error, #ef4444);
+  color: var(--color-error);
   margin: 0;
 }
 
