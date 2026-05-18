@@ -615,7 +615,7 @@
       "unsupportedDetails": "Milō unterstützt nur das Apple Remote (1. Generation).",
       "errorTitle": "Kopplung fehlgeschlagen",
       "errorDetails": "Ein unerwarteter Fehler ist aufgetreten. Bitte versuche es erneut.",
-      "startCta": "Diese Fernbedienung koppeln",
+      "startCta": "Erkennung starten",
       "cancelCta": "Abbrechen",
       "retryCta": "Erneut versuchen"
     }

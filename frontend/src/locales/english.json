@@ -617,7 +617,7 @@
       "unsupportedDetails": "Milō only supports the Apple Remote (1st gen).",
       "errorTitle": "Pairing failed",
       "errorDetails": "An unexpected error occurred. Please try again.",
-      "startCta": "Pair this remote",
+      "startCta": "Start detection",
       "cancelCta": "Cancel",
       "retryCta": "Try again"
     }

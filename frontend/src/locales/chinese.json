@@ -615,7 +615,7 @@
       "unsupportedDetails": "Milō 仅支持 Apple Remote（第一代）。",
       "errorTitle": "配对失败",
       "errorDetails": "发生意外错误，请重试。",
-      "startCta": "配对此遥控器",
+      "startCta": "开始检测",
       "cancelCta": "取消",
       "retryCta": "重试"
     }

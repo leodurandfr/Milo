@@ -615,7 +615,7 @@
       "unsupportedDetails": "Milō solo es compatible con el Apple Remote (1ª gen).",
       "errorTitle": "Error al emparejar",
       "errorDetails": "Se ha producido un error inesperado. Inténtalo de nuevo.",
-      "startCta": "Emparejar este mando",
+      "startCta": "Iniciar detección",
       "cancelCta": "Cancelar",
       "retryCta": "Reintentar"
     }
