@@ -134,23 +134,20 @@ configure_fan_control() {
 
     if ! grep -q "cooling_fan=on" "$config_file"; then
         echo "" | sudo tee -a "$config_file"
-        echo "# Milo - Fan PWM Control" | sudo tee -a "$config_file"
+        echo "# Milo - Fan PWM Control (4 paliers, audio-first)" | sudo tee -a "$config_file"
         echo "dtparam=cooling_fan=on" | sudo tee -a "$config_file"
-        echo "dtparam=fan_temp0=55000" | sudo tee -a "$config_file"
+        echo "dtparam=fan_temp0=50000" | sudo tee -a "$config_file"
         echo "dtparam=fan_temp0_hyst=2500" | sudo tee -a "$config_file"
         echo "dtparam=fan_temp0_speed=50" | sudo tee -a "$config_file"
         echo "dtparam=fan_temp1=60000" | sudo tee -a "$config_file"
         echo "dtparam=fan_temp1_hyst=2500" | sudo tee -a "$config_file"
         echo "dtparam=fan_temp1_speed=100" | sudo tee -a "$config_file"
-        echo "dtparam=fan_temp2=65000" | sudo tee -a "$config_file"
+        echo "dtparam=fan_temp2=70000" | sudo tee -a "$config_file"
         echo "dtparam=fan_temp2_hyst=2500" | sudo tee -a "$config_file"
         echo "dtparam=fan_temp2_speed=150" | sudo tee -a "$config_file"
-        echo "dtparam=fan_temp3=70000" | sudo tee -a "$config_file"
+        echo "dtparam=fan_temp3=80000" | sudo tee -a "$config_file"
         echo "dtparam=fan_temp3_hyst=2500" | sudo tee -a "$config_file"
-        echo "dtparam=fan_temp3_speed=200" | sudo tee -a "$config_file"
-        echo "dtparam=fan_temp4=75000" | sudo tee -a "$config_file"
-        echo "dtparam=fan_temp4_hyst=2500" | sudo tee -a "$config_file"
-        echo "dtparam=fan_temp4_speed=255" | sudo tee -a "$config_file"
+        echo "dtparam=fan_temp3_speed=255" | sudo tee -a "$config_file"
     fi
 
    log_success "Fan control configured"
