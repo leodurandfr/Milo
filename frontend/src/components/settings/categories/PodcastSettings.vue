@@ -256,8 +256,8 @@ async function handleTestConnection() {
 }
 
 .status-message.error {
-  background: rgba(231, 76, 60, 0.1);
-  color: #e74c3c;
+  background: var(--color-error-subtle);
+  color: var(--color-error);
   border: 1px solid rgba(231, 76, 60, 0.3);
 }
 

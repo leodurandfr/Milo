@@ -90,7 +90,7 @@ function onProgressClick(event) {
   background-color: var(--color-background-neutral);
   border-radius: var(--radius-01);
   position: absolute;
-  transition: transform 0.2s ease;
+  transition: transform var(--transition-fast);
 }
 
 .time {

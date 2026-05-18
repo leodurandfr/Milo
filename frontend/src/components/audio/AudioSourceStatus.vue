@@ -35,7 +35,7 @@
         <div v-if="displayedShowDisconnectButton" class="disconnect-button">
           <div class="disconnect-button-content">
             <div class="disconnect-button-inner">
-              <button @click="handleDisconnect" :disabled="isDisconnecting" class="disconnect-text">
+              <button @click="handleDisconnect" :disabled="isDisconnecting" class="disconnect-text heading-3">
                 <p>{{ isDisconnecting ? t('status.disconnecting') : t('status.disconnect') }}</p>
               </button>
             </div>
@@ -337,16 +337,12 @@ function handleDisconnect() {
   background: none;
   border: none;
   cursor: pointer;
-  font-family: 'Neue Montreal Medium', 'Noto Sans SC', sans-serif;
-  font-weight: 500;
   font-style: normal;
   position: relative;
   flex-shrink: 0;
   color: var(--color-text-secondary);
-  font-size: var(--font-size-h3);
   text-align: center;
   white-space: nowrap;
-  letter-spacing: var(--letter-spacing-sans-serif);
 }
 
 

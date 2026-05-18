@@ -448,8 +448,8 @@ onBeforeUnmount(() => {
 }
 
 .crossover-badge--inactive {
-  background: var(--color-warning-subtle, rgba(234, 179, 8, 0.15));
-  color: var(--color-warning, #eab308);
+  background: var(--color-warning-subtle);
+  color: var(--color-warning);
   opacity: 0.8;
 }
 

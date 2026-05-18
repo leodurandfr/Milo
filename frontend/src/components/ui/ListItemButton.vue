@@ -265,7 +265,7 @@ function handleClick(event) {
   }
 
   .list-item-button__icon--standard {
-    border-radius: 8px;
+    border-radius: var(--radius-02);
   }
 
   .list-item-button__icon--standard :deep(img),

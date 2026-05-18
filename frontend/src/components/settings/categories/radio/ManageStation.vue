@@ -568,10 +568,10 @@ async function handleAddSubmit() {
 /* Error Message */
 .error-message {
   padding: var(--space-03);
-  background: rgba(244, 67, 54, 0.1);
+  background: var(--color-error-subtle);
   border: 2px solid rgba(244, 67, 54, 0.3);
   border-radius: var(--radius-04);
-  color: rgb(244, 67, 54);
+  color: var(--color-error);
 }
 
 .create-btn {

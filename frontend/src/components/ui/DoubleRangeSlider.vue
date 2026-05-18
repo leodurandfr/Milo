@@ -278,7 +278,7 @@ onUnmounted(() => {
   height: 100%;
   aspect-ratio: 1.6;
   border-radius: var(--radius-full);
-  background: #FFFFFF;
+  background: var(--color-background-neutral);
   border: 2px solid var(--color-text-secondary);
   cursor: pointer;
   transform: translateX(-50%);
@@ -334,7 +334,7 @@ onUnmounted(() => {
 
   .range-track {
     height: 30px;
-    border-radius: 15px;
+    border-radius: var(--radius-04);
   }
 
 }
