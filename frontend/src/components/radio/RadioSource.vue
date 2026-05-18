@@ -83,12 +83,11 @@ const unifiedStore = useUnifiedAudioStore()
 const { t, getCurrentLanguage } = useI18n()
 
 // === PLAYBACK VISIBILITY ===
-// Visual fade-out delay when radio stops — purely cosmetic, the backend
-// handles auto-disconnect via audio.auto_disconnect_delay.
-const HIDE_FADE_MS = 3000
-
+// Visibility tracks the backend's source_state transitions — the player hides
+// when the source enters 'waiting' (stop or auto-disconnect via
+// audio.auto_disconnect_delay), nothing in the frontend competes with that.
 const { isPlaying: isCurrentlyPlaying, isBuffering, shouldShowPlayer: shouldShowNowPlayingLayout } =
-  useSourcePlaybackVisibility('radio', { hideDelayMs: HIDE_FADE_MS })
+  useSourcePlaybackVisibility('radio')
 
 // === STATE ===
 const isSearchMode = ref(false)
