@@ -140,18 +140,15 @@ function openPodcastSettings() {
   }
 }
 
-// Playback state + player visibility (shared logic via composable)
-// Visual fade-out delay only — the backend handles auto-disconnect via
-// audio.auto_disconnect_delay (mpv pause hook).
-const HIDE_FADE_MS = 3000
-
+// Playback state + player visibility (shared logic via composable).
+// Visibility follows the backend's source_state transitions — when the backend
+// auto-disconnects after `audio.auto_disconnect_delay`, source_state flips to
+// 'waiting' and the player fades out. clearDisplayEpisode runs once the fade
+// animation is done so the artwork stays visible during the fade.
 const timer = useTimer()
 
 const { isPlaying: isCurrentlyPlaying, isBuffering, shouldShowPlayer: shouldShowPlayerLayout } =
   useSourcePlaybackVisibility('podcast', {
-    hideDelayMs: HIDE_FADE_MS,
-    hideOnReady: true,
-    shouldStartTimer: (playing, buffering) => !playing && !buffering && podcastStore.hasCurrentEpisode,
     onFadeOutStart: () => {
       timer.setTimeout(() => podcastStore.clearDisplayEpisode(), 600)
     }

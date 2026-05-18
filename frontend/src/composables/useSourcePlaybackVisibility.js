@@ -1,29 +1,21 @@
 // frontend/src/composables/useSourcePlaybackVisibility.js
-// Playback state detection + player visibility lifecycle for audio source components.
-// Handles the show/hide animation with timers, source switching, and source state transitions.
-import { ref, computed, watch, onBeforeUnmount } from 'vue';
+// Playback state detection + player visibility for audio source components.
+// Visibility tracks `source_state` exclusively: shown on 'active', hidden on
+// 'waiting'. Backend is the single source of truth — no parallel frontend
+// timer that could desync with the backend's auto_disconnect_delay.
+import { ref, computed, watch } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 
 /**
  * @param {string} source - Audio source identifier (e.g. 'radio', 'podcast')
  * @param {Object} [options]
- * @param {number} [options.hideDelayMs=5000] - Delay before hiding the player after playback stops
- * @param {boolean} [options.hideOnReady=false] - Hide immediately when source_state becomes 'waiting'
  * @param {Function} [options.onFadeOutStart] - Called when shouldShowPlayer transitions true → false
- * @param {Function} [options.shouldStartTimer] - Custom predicate: (isPlaying, isBuffering) => boolean.
- *   Returns true when the hide timer should start. Defaults to: !isPlaying
  */
 export function useSourcePlaybackVisibility(source, options = {}) {
-  const {
-    hideDelayMs = 5000,
-    hideOnReady = false,
-    onFadeOutStart,
-    shouldStartTimer
-  } = options;
+  const { onFadeOutStart } = options;
 
   const unifiedStore = useUnifiedAudioStore();
   const shouldShowPlayer = ref(false);
-  const stopTimer = ref(null);
 
   const isPlaying = computed(() => {
     if (unifiedStore.systemState.active_source !== source) return false;
@@ -35,33 +27,19 @@ export function useSourcePlaybackVisibility(source, options = {}) {
     return unifiedStore.systemState.metadata?.is_buffering || false;
   });
 
-  function clearTimer() {
-    if (stopTimer.value) {
-      clearTimeout(stopTimer.value);
-      stopTimer.value = null;
-    }
-  }
-
-  // Show player when active (with smooth entrance via double rAF)
+  // Show on 'active', hide on 'waiting' — driven by backend transitions only.
   watch(
     () => unifiedStore.systemState.source_state,
     (newState) => {
       const isActive = unifiedStore.systemState.active_source === source;
 
       if (isActive && newState === 'active') {
-        clearTimer();
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
             shouldShowPlayer.value = true;
           });
         });
-      } else if (
-        hideOnReady &&
-        isActive &&
-        newState === 'waiting' &&
-        shouldShowPlayer.value
-      ) {
-        clearTimer();
+      } else if (isActive && newState === 'waiting' && shouldShowPlayer.value) {
         shouldShowPlayer.value = false;
       }
     },
@@ -73,27 +51,7 @@ export function useSourcePlaybackVisibility(source, options = {}) {
     () => unifiedStore.systemState.active_source,
     (newSource) => {
       if (newSource !== source) {
-        clearTimer();
         shouldShowPlayer.value = false;
-      }
-    },
-    { immediate: true }
-  );
-
-  // Auto-hide after delay when playback stops.
-  // Uses a getter so Vue tracks all reactive deps inside shouldStartTimer (e.g. store refs).
-  watch(
-    () =>
-      shouldStartTimer
-        ? shouldStartTimer(isPlaying.value, isBuffering.value)
-        : !isPlaying.value,
-    (shouldStart) => {
-      clearTimer();
-
-      if (shouldStart && shouldShowPlayer.value) {
-        stopTimer.value = setTimeout(() => {
-          shouldShowPlayer.value = false;
-        }, hideDelayMs);
       }
     },
     { immediate: true }
@@ -107,10 +65,6 @@ export function useSourcePlaybackVisibility(source, options = {}) {
       }
     });
   }
-
-  onBeforeUnmount(() => {
-    clearTimer();
-  });
 
   return {
     isPlaying,
