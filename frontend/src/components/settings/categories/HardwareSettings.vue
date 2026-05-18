@@ -124,6 +124,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
+import { useTimer } from '@/composables/useTimer';
 import { apiCall } from '@/services/apiCall';
 import { logger } from '@/services/logger';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
@@ -136,6 +137,7 @@ import Button from '@/components/ui/Button.vue';
 
 const { t } = useI18n();
 const { loadHardwareConfig, hardwareConfig } = useHardwareConfig();
+const timer = useTimer();
 
 // GPIO pin options (1–40 for RPi 40-pin header)
 const gpioPinOptions = Array.from({ length: 40 }, (_, i) => ({
@@ -326,10 +328,10 @@ async function applyAndReboot() {
   // not flood the console.
   let pollCount = 0;
   const maxPolls = 60;
-  const pollInterval = setInterval(async () => {
+  const pollInterval = timer.setInterval(async () => {
     pollCount++;
     if (pollCount > maxPolls) {
-      clearInterval(pollInterval);
+      timer.clear(pollInterval);
       isRebooting.value = false;
       logger.error('hardware', 'Reboot polling timed out');
       return;
@@ -341,7 +343,7 @@ async function applyAndReboot() {
       logLevel: 'debug'
     });
     if (pingResult.ok) {
-      clearInterval(pollInterval);
+      timer.clear(pollInterval);
       window.location.reload();
     }
   }, 3000);

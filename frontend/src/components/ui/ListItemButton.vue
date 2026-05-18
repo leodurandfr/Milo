@@ -33,6 +33,7 @@ import { ref, computed, useSlots } from 'vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import Radio from '@/components/ui/Radio.vue';
+import { useTimer } from '@/composables/useTimer';
 
 const props = defineProps({
   title: {
@@ -90,13 +91,15 @@ const isActionInactive = computed(() => {
   return (props.action === 'toggle' || props.action === 'radio') && !props.modelValue;
 });
 
+const timer = useTimer();
+
 // Handle press animation for toggle/radio actions
 function handlePointerDown() {
   if (props.disabled) return;
   if (props.action !== 'toggle' && props.action !== 'radio') return;
 
   actionPressed.value = true;
-  setTimeout(() => {
+  timer.setTimeout(() => {
     actionPressed.value = false;
   }, 150);
 }

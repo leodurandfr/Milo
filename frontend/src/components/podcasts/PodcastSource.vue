@@ -91,6 +91,7 @@ import { usePodcastStore } from '@/stores/podcastStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useNavigationStack } from '@/composables/useNavigationStack'
 import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility'
+import { useTimer } from '@/composables/useTimer'
 import { useI18n } from '@/services/i18n'
 import { apiCall } from '@/services/apiCall'
 import { logger } from '@/services/logger'
@@ -144,13 +145,15 @@ function openPodcastSettings() {
 // audio.auto_disconnect_delay (mpv pause hook).
 const HIDE_FADE_MS = 3000
 
+const timer = useTimer()
+
 const { isPlaying: isCurrentlyPlaying, isBuffering, shouldShowPlayer: shouldShowPlayerLayout } =
   useSourcePlaybackVisibility('podcast', {
     hideDelayMs: HIDE_FADE_MS,
     hideOnReady: true,
     shouldStartTimer: (playing, buffering) => !playing && !buffering && podcastStore.hasCurrentEpisode,
     onFadeOutStart: () => {
-      setTimeout(() => podcastStore.clearDisplayEpisode(), 600)
+      timer.setTimeout(() => podcastStore.clearDisplayEpisode(), 600)
     }
   })
 
