@@ -617,7 +617,7 @@
       "unsupportedDetails": "Milō prend uniquement en charge l'Apple Remote (1ère génération).",
       "errorTitle": "Échec de l'appairage",
       "errorDetails": "Une erreur inattendue est survenue. Veuillez réessayer.",
-      "startCta": "Appairer cette télécommande",
+      "startCta": "Démarrer la détection",
       "cancelCta": "Annuler",
       "retryCta": "Réessayer"
     }

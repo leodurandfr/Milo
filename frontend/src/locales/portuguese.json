@@ -615,7 +615,7 @@
       "unsupportedDetails": "O Milō só suporta o Apple Remote (1.ª geração).",
       "errorTitle": "Falha no emparelhamento",
       "errorDetails": "Ocorreu um erro inesperado. Tente novamente.",
-      "startCta": "Emparelhar este comando",
+      "startCta": "Iniciar deteção",
       "cancelCta": "Cancelar",
       "retryCta": "Tentar novamente"
     }
