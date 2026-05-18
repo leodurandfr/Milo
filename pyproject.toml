@@ -1,0 +1,21 @@
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = [
+    "venv",
+    ".venv",
+    "frontend",
+    "milo-client",
+    "rootfs",
+    "install",
+    "scripts",
+]
+
+[tool.ruff.lint]
+# Rules activated progressively per lot — see docs/plans/exec-lint-floor.md.
+# Bootstrap (B0): no rules active. Lot B will add BLE001/S110/S112.
+select = []
+
+[tool.ruff.lint.per-file-ignores]
+# Whitelist populated progressively per lot.
+

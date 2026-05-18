@@ -14,7 +14,9 @@
     "i18n:check:full": "node scripts/check-i18n.js --unused",
     "i18n:cleanup": "node scripts/cleanup-i18n.js",
     "i18n:cleanup:apply": "node scripts/cleanup-i18n.js --apply",
-    "lint:css": "stylelint 'src/**/*.{vue,css}'"
+    "lint:js": "eslint 'src/**/*.{js,vue}' --max-warnings 0",
+    "lint:css": "stylelint 'src/**/*.{vue,css}'",
+    "lint": "npm run lint:js && npm run lint:css"
   },
   "dependencies": {
     "axios": "^1.4.0",
@@ -27,6 +29,8 @@
     "@vitejs/plugin-vue": "^5.0.0",
     "@vitest/coverage-v8": "^4.0.18",
     "@vue/test-utils": "^2.4.6",
+    "eslint": "^9.39.4",
+    "eslint-plugin-vue": "^9.33.0",
     "happy-dom": "^20.1.0",
     "knip": "^5.82.1",
     "postcss-html": "^1.8.1",

@@ -523,6 +523,30 @@ For these: investigate root cause and fix.
 **When in doubt, ask explicitly before implementing**: *"Is this reproducible from a clean prod boot, or only because of your dev session state?"* Do not bake mitigation into the prod codebase to silently absorb developer mistakes.
 
 
+## Lint and typing floor
+
+The project ships a lightweight lint floor that mechanically locks the conventions of RFCs 15-21. All rules are **built-in** to standard tools (no custom plugins to maintain). CI ([.github/workflows/lint.yml](.github/workflows/lint.yml)) blocks merges if any of the following fail: `ruff check backend/`, `npm run lint:js`, `npm run lint:css`, `pytest backend/`. (The vitest `npm run test:run` step is temporarily skipped — the suite still mocks `axios.*` directly after the RFC 17 apiCall migration. Re-enable once tests are retargeted at `apiCall`.)
+
+| Tool | Rule | Source RFC | Activated in |
+|---|---|---|---|
+| _(table populated progressively as lots A-D land)_ | | | |
+
+**Bypassing a legitimate exception** — add a per-line directive with a written justification after `--`:
+
+- Python: `# noqa: BLE001 -- <reason>`
+- JS / Vue: `// eslint-disable-next-line <rule> -- <reason>`
+- CSS / Vue: avoid `// stylelint-disable` inline (see Common Pitfalls #19); extend the design system or whitelist the file in [`frontend/.stylelintrc.cjs`](frontend/.stylelintrc.cjs).
+
+No file-level or repo-level disabling. No muted `noqa` without a reason.
+
+### Future considerations
+
+- **TypeScript progressive adoption** on stores / composables — deferred to a dedicated RFC.
+- **`pyright` strict** on `backend/core/` + `backend/sources/` — deferred.
+- **`husky` pre-commit + `lint-staged`** — useful if the team grows to 3+ devs. CI feedback (~5 min) is currently enough for solo dev.
+- **Custom eslint plugins** (`no-french-comment`, `no-bare-timer`, `no-raw-ws-event-data`) — not cost-effective at 1-2 devs. Re-arbitrate if recurrence justifies.
+
+
 ## Reference Documentation
 
 - [Architecture Details](docs/architecture.md) - Deep dive into technologies and audio routing
