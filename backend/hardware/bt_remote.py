@@ -15,6 +15,7 @@ Features:
 - Playback control via state_machine sources
 """
 import asyncio
+import contextlib
 import logging
 import re
 from typing import Dict, Optional, Set, Union
@@ -288,10 +289,8 @@ class BtRemoteController:
             return None
         finally:
             if bus:
-                try:
+                with contextlib.suppress(Exception):
                     bus.disconnect()
-                except Exception:
-                    pass
 
     # ========================================================================
     # D-BUS RECONNECT LISTENER
@@ -355,10 +354,8 @@ class BtRemoteController:
                 if get_task and not get_task.done():
                     get_task.cancel()
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 bus.disconnect()
-            except Exception:
-                pass
 
     def _on_dbus_message(self, msg):
         """Handle incoming D-Bus messages (synchronous callback).
@@ -804,10 +801,8 @@ class BtRemoteController:
             mac = (address or device_mac).upper()
             self._monitored_paths.discard(device_path)
             self._monitor_tasks.pop(device_path, None)
-            try:
+            with contextlib.suppress(Exception):
                 device.close()
-            except Exception:
-                pass
 
             if device_disconnected and mac:
                 # BLE HID creates multiple evdev nodes per connection.

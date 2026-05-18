@@ -8,6 +8,7 @@ dB deltas -> drain + apply -> sleep 20 ms -> re-check.  If new deltas arrive
 during the finally block, respawn the processor to avoid silently dropping them.
 """
 import asyncio
+import contextlib
 import logging
 from typing import Optional
 
@@ -55,10 +56,8 @@ class VolumeAccumulator:
         """Cancel pending processor and wait for it to finish."""
         if self._processor_task and not self._processor_task.done():
             self._processor_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._processor_task
-            except (asyncio.CancelledError, Exception):
-                pass
         self._processor_task = None
         self._accumulator = 0.0
         self._processor_running = False

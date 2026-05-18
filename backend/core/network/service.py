@@ -22,6 +22,7 @@ initialize() logs and returns False. The existing nmcli-based status path
 keeps working — just without live updates.
 """
 import asyncio
+import contextlib
 import logging
 from typing import List, Optional, Tuple
 
@@ -718,10 +719,8 @@ class NetworkService:
 
         if self._wireless_listener is not None:
             properties_iface, handler = self._wireless_listener
-            try:
+            with contextlib.suppress(Exception):
                 properties_iface.off_properties_changed(handler)
-            except Exception:
-                pass
             self._wireless_listener = None
 
         for iface_name in list(self._ip4_listener):
@@ -729,20 +728,16 @@ class NetworkService:
         self._ip4_path.clear()
 
         for _, (properties_iface, handler) in self._device_listeners.items():
-            try:
+            with contextlib.suppress(Exception):
                 properties_iface.off_properties_changed(handler)
-            except Exception:
-                pass
         self._device_listeners.clear()
         self._device_proxies.clear()
 
         self._wlan_proxy = None
 
         if self._bus is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._bus.disconnect()
-            except Exception:
-                pass
             self._bus = None
 
     async def _resolve_device_path(self, iface_name: str) -> Optional[str]:
@@ -835,10 +830,8 @@ class NetworkService:
         if listener is None:
             return
         properties_iface, handler = listener
-        try:
+        with contextlib.suppress(Exception):
             properties_iface.off_properties_changed(handler)
-        except Exception:
-            pass
 
     def _make_ip4_handler(self, iface_name: str):
         def _handler(iface: str, changed: dict, _invalidated: list) -> None:
@@ -911,10 +904,8 @@ class NetworkService:
         if self._ap_listener is None:
             return
         properties_iface, handler = self._ap_listener
-        try:
+        with contextlib.suppress(Exception):
             properties_iface.off_properties_changed(handler)
-        except Exception:
-            pass
         self._ap_listener = None
 
     async def _read_active_ap_info(self) -> Tuple[Optional[str], Optional[int]]:

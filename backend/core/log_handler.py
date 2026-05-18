@@ -1,4 +1,5 @@
 """Custom logging handler that broadcasts backend errors to the frontend via WebSocket."""
+import contextlib
 import logging
 import time
 
@@ -43,11 +44,11 @@ class WebSocketLogHandler(logging.Handler):
         self._bg.spawn(self._broadcast(record), label="broadcast_log")
 
     async def _broadcast(self, record):
-        try:
+        # Never let broadcasting errors propagate — otherwise a logged exception
+        # would re-enter the WebSocket layer and loop. Intentionally silent.
+        with contextlib.suppress(Exception):
             await self._state_machine.broadcast_event("system", "backend_error", {
                 "level": record.levelname,
                 "logger": record.name,
                 "message": record.getMessage(),
             })
-        except Exception:
-            pass  # Never let broadcasting errors propagate

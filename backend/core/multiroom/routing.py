@@ -2,6 +2,7 @@
 """
 Audio routing service for Milo - UNIFIED version with SystemAudioState as single source of truth
 """
+import contextlib
 import logging
 import asyncio
 import os
@@ -48,11 +49,9 @@ def _atomic_write(path: str, content: str) -> None:
             os.fsync(f.fileno())
         os.replace(temp_path, path)
     except Exception:
-        try:
+        with contextlib.suppress(OSError):
             if os.path.exists(temp_path):
                 os.remove(temp_path)
-        except Exception:
-            pass
         raise
 
 

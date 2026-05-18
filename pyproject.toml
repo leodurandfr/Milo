@@ -13,8 +13,19 @@ extend-exclude = [
 
 [tool.ruff.lint]
 # Rules activated progressively per lot — see docs/plans/exec-lint-floor.md.
-# Bootstrap (B0): no rules active. Lot B will add BLE001/S110/S112.
-select = []
+#   Lot B: S110 (try-except-pass) + S112 (try-except-continue) — locks RFC 18
+#          silent-swallow doctrine. Intentional swallows must use
+#          `contextlib.suppress(...)` (Pythonic idiom, exempt by design).
+#   BLE001 (blind `except Exception`) is intentionally NOT activated: the
+#          codebase has ~370 legitimate logged-and-handled broad catches
+#          (best-effort hardware, route translators, background-loop bodies).
+#          Activating BLE001 would force a mass refactor with no real safety
+#          gain — the doctrine in CLAUDE.md already requires that broad
+#          catches log + raise / log + warning. Re-arbitrate if needed.
+select = [
+    "S110",  # try-except-pass — silent swallow with bare pass
+    "S112",  # try-except-continue — silent swallow with bare continue
+]
 
 [tool.ruff.lint.per-file-ignores]
 # Whitelist populated progressively per lot.
