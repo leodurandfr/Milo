@@ -290,11 +290,9 @@ const progressPercentage = computed(() => {
   return (podcastStore.currentPosition / podcastStore.currentDuration) * 100
 })
 
-// Speed control
-const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2]
-
+// Speed control — canonical list owned by backend, fetched at mount time
 const speedOptions = computed(() =>
-  speeds.map(speed => ({
+  podcastStore.playbackSpeeds.map(speed => ({
     label: `${speed}x`,
     value: String(speed)
   }))
@@ -340,6 +338,7 @@ async function handleSpeedChange(speedValue) {
 onMounted(async () => {
   // Load settings and initial data
   await podcastStore.loadSettings()
+  podcastStore.loadPlaybackSpeeds()
 })
 
 // Cleanup on unmount

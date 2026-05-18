@@ -38,6 +38,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { generateStationAvatarSvg } from '@/utils/stationAvatar'
+import { MIN_IMAGE_SIZE } from '@/constants/imageQuality'
 
 const props = defineProps({
   src: {
@@ -76,8 +77,6 @@ const props = defineProps({
 const imgRef = ref(null)
 const imageLoaded = ref(false)
 const imageError = ref(false)
-
-const MIN_IMAGE_SIZE = 8
 
 const resolvedFallbackSvg = computed(() => {
   if (!props.fallbackName) return ''

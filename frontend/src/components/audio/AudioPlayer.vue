@@ -49,6 +49,7 @@ import IconButton from '@/components/ui/IconButton.vue'
 import episodePlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { generateStationAvatarSvg } from '@/utils/stationAvatar'
+import { MIN_IMAGE_SIZE } from '@/constants/imageQuality'
 
 const { isMobile } = useIsMobile()
 
@@ -144,7 +145,6 @@ const props = defineProps({
 defineEmits(['toggle-play', 'after-hide'])
 
 // Artwork validation — falls back to inline SVG / placeholder on error or tiny image (e.g. 1x1 tracking pixel)
-const MIN_IMAGE_SIZE = 8
 const artworkError = ref(false)
 watch(() => props.artwork, () => { artworkError.value = false })
 const validArtwork = computed(() => props.artwork && !artworkError.value ? props.artwork : null)

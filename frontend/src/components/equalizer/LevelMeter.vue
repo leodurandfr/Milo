@@ -42,6 +42,7 @@
 
 <script setup>
 import { ref, computed, watch, onUnmounted } from 'vue';
+import { dbToPercent } from '@/constants/volumeConversion';
 
 const props = defineProps({
   level: {
@@ -92,14 +93,8 @@ const peakLevel = ref(props.level);
 let peakHoldTimer = null;
 let decayInterval = null;
 
-// Convert dB to percentage (0-100)
-function dbToPercent(db) {
-  const clampedDb = Math.max(props.min, Math.min(props.max, db));
-  return ((clampedDb - props.min) / (props.max - props.min)) * 100;
-}
-
-const levelPercent = computed(() => dbToPercent(props.level));
-const peakPercent = computed(() => dbToPercent(peakLevel.value));
+const levelPercent = computed(() => dbToPercent(props.level, props.min, props.max));
+const peakPercent = computed(() => dbToPercent(peakLevel.value, props.min, props.max));
 
 // Dynamic scale markers based on min/max
 const scaleMarkers = computed(() => {

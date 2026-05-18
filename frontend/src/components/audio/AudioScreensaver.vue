@@ -59,6 +59,7 @@
 import { ref, computed, watch } from 'vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import { generateStationAvatarSvg } from '@/utils/stationAvatar';
+import { MIN_IMAGE_SIZE } from '@/constants/imageQuality';
 
 const props = defineProps({
   isVisible: {
@@ -105,7 +106,6 @@ const emit = defineEmits(['close']);
 const isClosing = ref(false);
 
 // Artwork validation — falls back to generated avatar on error or tiny image
-const MIN_IMAGE_SIZE = 8;
 const artworkError = ref(false);
 watch(() => props.artwork, () => { artworkError.value = false; });
 

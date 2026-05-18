@@ -13,6 +13,9 @@ export const usePodcastStore = defineStore('podcast', () => {
   const currentPosition = ref(0);
   const currentDuration = ref(0);
   const playbackSpeed = ref(1.0);
+  // Canonical list fetched from backend (GET /api/podcast/playback-speeds).
+  // Safe fallback used until the first successful fetch.
+  const playbackSpeeds = ref([1.0]);
   const pendingEpisodeUuid = ref(null); // Optimistic loading state before WebSocket confirms
 
   // Timeout for delayed metadata clearing (during fade-out animation)
@@ -147,6 +150,17 @@ export const usePodcastStore = defineStore('podcast', () => {
     });
     if (result.ok && result.data.success) {
       playbackSpeed.value = result.data.speed;
+    }
+  }
+
+  async function loadPlaybackSpeeds() {
+    const result = await apiCall.get('/api/podcast/playback-speeds', {
+      category: 'store',
+      message: 'Error loading playback speeds',
+      checkStatus: true,
+    });
+    if (result.ok && Array.isArray(result.data.speeds)) {
+      playbackSpeeds.value = result.data.speeds;
     }
   }
 
@@ -522,6 +536,7 @@ export const usePodcastStore = defineStore('podcast', () => {
     currentPosition,
     currentDuration,
     playbackSpeed,
+    playbackSpeeds,
     pendingEpisodeUuid,
     settings,
     progressCache,
@@ -556,6 +571,7 @@ export const usePodcastStore = defineStore('podcast', () => {
     seek,
     stop,
     setSpeed,
+    loadPlaybackSpeeds,
     loadSettings,
     updateSettings,
     handleInitialMetadata,
