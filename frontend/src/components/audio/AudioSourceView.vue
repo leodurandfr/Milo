@@ -1,4 +1,3 @@
-<!-- AudioSourceView.vue - Fixed version for centering and transitions -->
 <template>
   <div class="audio-source-view">
     <!-- SIMPLIFIED transition without absolute positioning -->

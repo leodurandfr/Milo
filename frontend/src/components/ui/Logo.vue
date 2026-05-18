@@ -1,4 +1,4 @@
-<!-- Logo.vue - 2 positions (center/top) + visibilité -->
+<!-- Logo: 2 positions (center / top) with visibility toggle -->
 <template>
   <div class="logo-container" :class="[`logo-${position}`, { 'logo-hidden': !visible }]">
     <svg
@@ -63,7 +63,7 @@ defineProps({
   transform: translateX(-50%);
 }
 
-/* === Hidden (s'ajoute à la position) === */
+/* === Hidden (composes with the position class) === */
 .logo-hidden {
   opacity: 0;
   margin-top: -24px;

@@ -378,7 +378,8 @@
     "confirm": "Confirmer",
     "restore": "Restaurer",
     "delete": "Supprimer",
-    "deleting": "Suppression..."
+    "deleting": "Suppression...",
+    "close": "Fermer"
   },
   "radio": {
     "country": "Pays",

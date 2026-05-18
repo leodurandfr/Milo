@@ -376,7 +376,8 @@
     "confirm": "Bestätigen",
     "restore": "Wiederherstellen",
     "delete": "Löschen",
-    "deleting": "Wird gelöscht..."
+    "deleting": "Wird gelöscht...",
+    "close": "Schließen"
   },
   "radio": {
     "country": "Land",

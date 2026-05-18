@@ -1,11 +1,10 @@
-<!-- frontend/src/components/ui/MessageContent.vue -->
 <template>
   <div class="message-content" :class="{ 'is-delayed': loading && !showLoading }">
-    <!-- Loading spinner OU icône (mutuellement exclusifs) -->
+    <!-- Loading spinner OR icon (mutually exclusive) -->
     <LoadingSpinner v-if="showLoading" :size="64" />
     <SvgIcon v-else-if="icon" :name="icon" :size="64" color="var(--color-background-medium-16)" />
 
-    <!-- Contenu toujours visible (même en loading) -->
+    <!-- Content always visible (even while loading) -->
     <p v-if="title" class="heading-2">{{ title }}</p>
     <p v-if="subtitle" class="text-mono" v-html="subtitle"></p>
     <p v-if="details" class="text-mono">{{ details }}</p>

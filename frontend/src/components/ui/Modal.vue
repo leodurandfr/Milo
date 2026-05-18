@@ -4,7 +4,7 @@
     <div class="modal-wrapper">
       <div ref="closeButtonWrapper" class="close-btn-wrapper">
         <IconButton ref="closeButton" icon="close" variant="rounded" size="large"
-          aria-label="Fermer" @click="close" />
+          :aria-label="t('common.close')" @click="close" />
       </div>
 
       <div ref="modalContainer" class="modal-container"
@@ -27,6 +27,7 @@ import { ref, onMounted, onUnmounted, watch, nextTick, provide } from 'vue';
 import IconButton from './IconButton.vue';
 import { useAnimatedHeight } from '@/composables/useAnimatedHeight';
 import { modalDebugLog, modalDebugTrace } from '@/services/modalDebug';
+import { useI18n } from '@/services/i18n';
 
 const props = defineProps({
   isOpen: {
@@ -40,6 +41,8 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['close']);
+
+const { t } = useI18n();
 
 // References to modal elements
 const modalContent = ref(null);
