@@ -291,7 +291,6 @@ onBeforeUnmount(() => {
 
 .dropdown-trigger--minimal .dropdown-label {
   color: var(--color-text-contrast-50);
-  font-weight: normal;
   text-align: center;
 }
 

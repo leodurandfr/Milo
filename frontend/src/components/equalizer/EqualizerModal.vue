@@ -356,9 +356,8 @@ onUnmounted(() => {
   align-items: center;
   gap: var(--space-02);
   padding: var(--space-03);
-  background: var(--color-error, #f44336);
-  background: rgba(244, 67, 54, 0.15);
-  border: 1px solid var(--color-error, #f44336);
+  background: var(--color-error-subtle);
+  border: 1px solid var(--color-error);
   border-radius: var(--radius-04);
   color: var(--color-text);
   font-size: 13px;

@@ -106,7 +106,7 @@
         </div>
 
         <!-- Key press popup (shows enlarged character above pressed key) -->
-        <div v-if="pressPopup.visible" class="key-press-popup"
+        <div v-if="pressPopup.visible" class="key-press-popup heading-2"
           :style="pressPopup.style">
           {{ pressPopup.char }}
         </div>
@@ -812,8 +812,6 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: 'Neue Montreal Regular', 'Noto Sans SC', sans-serif;
-  font-size: var(--font-size-h2);
   color: var(--color-text);
   z-index: 10;
 }
