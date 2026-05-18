@@ -3,6 +3,7 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
+import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
 
 export const useSettingsStore = defineStore('settings', () => {
   // === SETUP WIZARD ===
@@ -36,8 +37,6 @@ export const useSettingsStore = defineStore('settings', () => {
   });
 
   // === DOCK APPS ===
-  const ALL_AUDIO_SOURCES = ['spotify', 'bluetooth', 'radio', 'podcast', 'airplay', 'mac', 'cd'];
-
   const dockApps = ref({
     spotify: true,
     bluetooth: true,

@@ -107,14 +107,13 @@ import SvgIcon from '@/components/ui/SvgIcon.vue';
 import Button from '@/components/ui/Button.vue';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
+import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
 
 const { t } = useI18n();
 const { debouncedUpdate } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 
 const { dockApps: config, sourceOrder } = storeToRefs(settingsStore);
-
-const AUDIO_SOURCES = ['spotify', 'bluetooth', 'radio', 'podcast', 'airplay', 'mac', 'cd'];
 
 // === Source title mapping ===
 
@@ -134,7 +133,7 @@ function getSourceTitle(source) {
 // === Dock Apps ===
 
 function canDisableAudioSource(sourceId) {
-  const enabledAudioSources = AUDIO_SOURCES.filter(source =>
+  const enabledAudioSources = ALL_AUDIO_SOURCES.filter(source =>
     config.value[source] && source !== sourceId
   );
   return enabledAudioSources.length > 0;

@@ -88,13 +88,11 @@ import { useDockDrag } from '@/composables/useDockDrag';
 import { useVolumeHold } from '@/composables/useVolumeHold';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
+import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
 
 const { t } = useI18n();
 const settingsStore = useSettingsStore();
 const registerDockControl = inject('registerDockControl', null);
-
-// === STATIC CONFIGURATION ===
-const ALL_AUDIO_SOURCES = ['spotify', 'bluetooth', 'radio', 'podcast', 'airplay', 'mac', 'cd'];
 
 // === ANIMATION TIMING ===
 const DOCK_ANIM_INITIAL_DELAY = 0.08;  // Initial delay in seconds

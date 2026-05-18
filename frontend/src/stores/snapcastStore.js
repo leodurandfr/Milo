@@ -12,27 +12,9 @@ import { useUnifiedAudioStore } from './unifiedAudioStore';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
 import { SnapcastServerConfigSchema, validateSchema } from '@/schemas/api';
+import { dbToPercent, percentToDb } from '@/constants/volumeConversion';
 
 const DISPLAY_CACHE_KEY = 'multiroom_display_cache';
-
-// Volume conversion helpers
-// Backend uses dB (-72 to 0), Snapcast UI uses percentage (0-100)
-const MIN_DB = -72;
-const MAX_DB = 0;
-
-function dbToPercent(db) {
-  // Clamp to valid range
-  const clampedDb = Math.max(MIN_DB, Math.min(MAX_DB, db));
-  // Linear conversion: -72dB = 0%, 0dB = 100%
-  return Math.round(((clampedDb - MIN_DB) / (MAX_DB - MIN_DB)) * 100);
-}
-
-function percentToDb(percent) {
-  // Clamp to valid range
-  const clampedPercent = Math.max(0, Math.min(100, percent));
-  // Linear conversion: 0% = -72dB, 100% = 0dB
-  return MIN_DB + (clampedPercent / 100) * (MAX_DB - MIN_DB);
-}
 
 export const useSnapcastStore = defineStore('snapcast', () => {
   // === DERIVED STATE FROM MULTIROOM REGISTRY ===
