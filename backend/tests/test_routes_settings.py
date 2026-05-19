@@ -33,7 +33,7 @@ class TestSettingsRoutes:
         sm.get_current_state = Mock(return_value={"active_source": "none"})
         sm.get_source = Mock(return_value=None)
         sm.broadcast_event = AsyncMock()
-        sm.reload_auto_disconnect_for_all_sources = AsyncMock(return_value=True)
+        sm.reload_auto_stop_for_all_sources = AsyncMock(return_value=True)
         return sm
 
     @pytest.fixture
@@ -316,37 +316,37 @@ class TestSettingsRoutes:
         assert response.status_code == 422
 
     # ===================
-    # AUDIO DISCONNECT TESTS (global)
+    # AUDIO STOP TESTS (global)
     # ===================
 
-    def test_get_audio_disconnect(self, client):
-        """Test GET /audio-disconnect"""
+    def test_get_audio_stop(self, client):
+        """Test GET /audio-stop"""
         client._mock_settings.get_setting = AsyncMock(return_value={
-            "auto_disconnect_delay": 10.0
+            "auto_stop_delay": 10.0
         })
-        response = client.get("/api/settings/audio-disconnect")
+        response = client.get("/api/settings/audio-stop")
         assert response.status_code == 200
-        assert response.json()["config"]["auto_disconnect_delay"] == 10.0
+        assert response.json()["config"]["auto_stop_delay"] == 10.0
 
-    def test_set_audio_disconnect_valid(self, client):
-        """Test PUT /audio-disconnect with valid value"""
-        response = client.put("/api/settings/audio-disconnect", json={
-            "auto_disconnect_delay": 15.0
-        })
-        assert response.status_code == 200
-        client._mock_state_machine.reload_auto_disconnect_for_all_sources.assert_awaited()
-
-    def test_set_audio_disconnect_zero_disable(self, client):
-        """Test PUT /audio-disconnect with 0 (disabled)"""
-        response = client.put("/api/settings/audio-disconnect", json={
-            "auto_disconnect_delay": 0.0
+    def test_set_audio_stop_valid(self, client):
+        """Test PUT /audio-stop with valid value"""
+        response = client.put("/api/settings/audio-stop", json={
+            "auto_stop_delay": 15.0
         })
         assert response.status_code == 200
+        client._mock_state_machine.reload_auto_stop_for_all_sources.assert_awaited()
 
-    def test_set_audio_disconnect_negative(self, client):
-        """Test PUT /audio-disconnect with negative value - should return 422"""
-        response = client.put("/api/settings/audio-disconnect", json={
-            "auto_disconnect_delay": -5.0
+    def test_set_audio_stop_zero_disable(self, client):
+        """Test PUT /audio-stop with 0 (disabled)"""
+        response = client.put("/api/settings/audio-stop", json={
+            "auto_stop_delay": 0.0
+        })
+        assert response.status_code == 200
+
+    def test_set_audio_stop_negative(self, client):
+        """Test PUT /audio-stop with negative value - should return 422"""
+        response = client.put("/api/settings/audio-stop", json={
+            "auto_stop_delay": -5.0
         })
         assert response.status_code == 422
 

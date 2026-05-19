@@ -257,8 +257,8 @@
     "rebooting": "पुनः आरंभ हो रहा है..."
   },
   "audioPlayback": {
-    "autoDisconnect": "विराम पर स्वतः बंद",
-    "autoDisconnectHint": "विराम के बाद ऑडियो बंद करें:"
+    "autoStop": "विराम पर स्वतः बंद",
+    "autoStopHint": "विराम के बाद ऑडियो बंद करें:"
   },
   "macSettings": {
     "latency": "विलंबता",

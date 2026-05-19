@@ -581,7 +581,7 @@ onMounted(async () => {
         settingsStore.updateVolumeSteps(event.data.config);
       }
     }),
-    on('settings', 'audio_disconnect_changed', (event) => {
+    on('settings', 'audio_stop_changed', (event) => {
       if (event.data?.config) {
         settingsStore.updateAudioPlayback(event.data.config);
       }

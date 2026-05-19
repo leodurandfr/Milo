@@ -15,6 +15,12 @@ When you bump a `SCHEMA_VERSION` in a service, add an entry here with the file p
 
 ## Upcoming
 
+## 2026-05-19 — settings.json schema_version 2 → 3
+
+- Reason: rename `audio.auto_disconnect_delay` → `audio.auto_stop_delay`. The setting controlled an "auto-stop after pause/silence" timer (default 120s), not a device-level disconnect. The new name reflects the actual behavior (per-source playback stop in place, `active_source` preserved). All backend symbols (`auto_disconnect_enabled`, `_on_auto_disconnect`, `AUTO_DISCONNECT_SETTINGS_KEY`, …), the API endpoint (`/api/settings/audio-disconnect` → `/audio-stop`), and the WS event type (`audio_disconnect_changed` → `audio_stop_changed`) follow the same rename.
+- Action: `rm /var/lib/milo/settings.json && sudo systemctl restart milo-backend`
+- Impact: full reset to factory defaults (same scope as the 2026-05-17 entry below) — language, volume limits + startup volume + step sizes, screen (timeout, brightness, screensaver, color filter, UI scale), dock layout, routing (multiroom toggle, equalizer effects toggle), Mac ROC latency profile, audio auto-stop delay, radio Shazam toggle, WiFi country, podcast Taddy credentials, BT/IR remote pairing, multiroom client overrides — all reset. Snapshot the file before upgrade if you want to retype your settings: `cat /var/lib/milo/settings.json`.
+
 ## 2026-05-17 — equalizer.json schema_version → 2
 
 - Reason: removal of `_migrate_from_settings` (legacy fold of `equalizer.*` keys from `settings.json` into `equalizer.json`) and inline migration of `equalizer.effects_enabled → routing.equalizer_effects_enabled`. Pre-existing `equalizer.json` files lack the `schema_version` field, so the load now fails loud.

@@ -141,7 +141,7 @@ class CdSource(MpvAudioSource):
                         self._logger.error("Failed to connect to mpv IPC")
                         return False
 
-            await self._load_auto_disconnect_config()
+            await self._load_auto_stop_config()
             self._start_monitor()
             self._update_connection_state()
 
@@ -247,6 +247,17 @@ class CdSource(MpvAudioSource):
         if self._mpv:
             await self._mpv.stop()  # Closes FIFO read end -> BrokenPipeError in reader
         await asyncio.to_thread(self._reader.stop)
+
+    async def _auto_stop_action(self) -> None:
+        """Stop playback in place after pause timeout.
+
+        Stops the reader + mpv, clears track-level state. The disc itself
+        stays loaded (track list remains visible), so a tap on any track
+        resumes immediately without re-reading the TOC.
+        """
+        await self._stop_reader_and_mpv()
+        self._reset_playback_state()
+        self._update_connection_state()
 
     async def _restart_reader_and_mpv(self, start_lba: int) -> bool:
         """Restart reader at a new LBA position and reconnect mpv."""

@@ -259,8 +259,8 @@
     "rebooting": "Rebooting..."
   },
   "audioPlayback": {
-    "autoDisconnect": "Auto stop on pause",
-    "autoDisconnectHint": "Stop audio when paused for:"
+    "autoStop": "Auto stop on pause",
+    "autoStopHint": "Stop audio when paused for:"
   },
   "macSettings": {
     "latency": "Latency",

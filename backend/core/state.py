@@ -329,10 +329,10 @@ class AudioStateMachine:
             )
             logger.info("Inactivity monitor started (timeout: %ds)", self.INACTIVITY_TIMEOUT)
 
-    async def reload_auto_disconnect_for_all_sources(self) -> bool:
-        """Refresh the auto-disconnect delay on every registered source.
+    async def reload_auto_stop_for_all_sources(self) -> bool:
+        """Refresh the auto-stop delay on every registered source.
 
-        Invoked by the settings API after `audio.auto_disconnect_delay`
+        Invoked by the settings API after `audio.auto_stop_delay`
         is updated so each live source picks up the new value without
         a restart. Failures on individual sources are logged but do not
         abort the rest of the fan-out.
@@ -342,11 +342,11 @@ class AudioStateMachine:
             if instance is None:
                 continue
             try:
-                await instance.reload_auto_disconnect_config()
+                await instance.reload_auto_stop_config()
             except Exception as e:
                 all_ok = False
                 logger.error(
-                    "Failed to reload auto-disconnect for %s: %s",
+                    "Failed to reload auto-stop for %s: %s",
                     source.value, e
                 )
         return all_ok

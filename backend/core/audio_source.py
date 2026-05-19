@@ -96,9 +96,9 @@ class BaseAudioSource(ABC):
         self._logger = logging.getLogger(f"source.{source_id}")
         self._bg = BackgroundTaskSet(self._logger, f"source.{source_id}")
 
-        # Auto-disconnect timer (opt-in, subclasses override _on_auto_disconnect)
-        self.auto_disconnect_enabled: bool = False
-        self.pause_disconnect_delay: float = 10.0
+        # Auto-stop timer (opt-in, subclasses override _on_auto_stop)
+        self.auto_stop_enabled: bool = False
+        self.auto_stop_delay: float = 10.0
         self._pause_timer: Optional[asyncio.Task] = None
         self._monitor_task: Optional[asyncio.Task] = None
 
@@ -351,84 +351,84 @@ class BaseAudioSource(ABC):
         """
         return self.error_response(f"Unknown command: {cmd}")
 
-    # === Auto-Disconnect Timer ===
+    # === Auto-Stop Timer ===
 
     def _cancel_pause_timer(self) -> None:
-        """Cancel auto-disconnect timer."""
+        """Cancel auto-stop timer."""
         if self._pause_timer:
             self._pause_timer.cancel()
             self._pause_timer = None
 
     def _start_pause_timer(self) -> None:
-        """Start auto-disconnect timer after pause/inactivity."""
-        if not self.auto_disconnect_enabled:
+        """Start auto-stop timer after pause/inactivity."""
+        if not self.auto_stop_enabled:
             return
 
         self._cancel_pause_timer()
 
-        async def disconnect_after_delay():
+        async def stop_after_delay():
             try:
-                await asyncio.sleep(self.pause_disconnect_delay)
+                await asyncio.sleep(self.auto_stop_delay)
             except asyncio.CancelledError:
                 return
             # Detach the task ref so re-entrant _cancel_pause_timer() calls
-            # (e.g. from stop() inside _on_auto_disconnect) become no-ops.
+            # (e.g. from stop() inside _on_auto_stop) become no-ops.
             self._pause_timer = None
             self._logger.info(
-                f"Auto-disconnecting after {self.pause_disconnect_delay}s pause"
+                f"Auto-stopping after {self.auto_stop_delay}s pause"
             )
             try:
-                await self._on_auto_disconnect()
+                await self._on_auto_stop()
             except Exception as e:
-                self._logger.error(f"Auto-disconnect failed: {e}")
+                self._logger.error(f"Auto-stop failed: {e}")
 
-        self._pause_timer = asyncio.create_task(disconnect_after_delay())
+        self._pause_timer = asyncio.create_task(stop_after_delay())
 
-    async def _on_auto_disconnect(self) -> None:
+    async def _on_auto_stop(self) -> None:
         """
-        Called when the auto-disconnect timer fires.
+        Called when the auto-stop timer fires.
 
         Default: restart the source. Override for custom behavior.
         """
         await self._do_restart()
 
-    AUTO_DISCONNECT_SETTINGS_KEY = "audio.auto_disconnect_delay"
+    AUTO_STOP_SETTINGS_KEY = "audio.auto_stop_delay"
 
-    async def _load_auto_disconnect_config(self) -> None:
-        """Load the global auto-disconnect delay from settings."""
+    async def _load_auto_stop_config(self) -> None:
+        """Load the global auto-stop delay from settings."""
         if not self._settings_service:
             return
 
         try:
-            delay = await self._settings_service.get_setting(self.AUTO_DISCONNECT_SETTINGS_KEY)
+            delay = await self._settings_service.get_setting(self.AUTO_STOP_SETTINGS_KEY)
             if delay is not None:
                 if delay == 0:
-                    self.auto_disconnect_enabled = False
-                    self.pause_disconnect_delay = 10.0
+                    self.auto_stop_enabled = False
+                    self.auto_stop_delay = 10.0
                 else:
-                    self.auto_disconnect_enabled = True
-                    self.pause_disconnect_delay = float(delay)
+                    self.auto_stop_enabled = True
+                    self.auto_stop_delay = float(delay)
 
             self._logger.info(
-                f"Auto-disconnect: enabled={self.auto_disconnect_enabled}, "
-                f"delay={self.pause_disconnect_delay}s"
+                f"Auto-stop: enabled={self.auto_stop_enabled}, "
+                f"delay={self.auto_stop_delay}s"
             )
         except Exception as e:
-            self._logger.error(f"Auto-disconnect settings load failed: {e}")
+            self._logger.error(f"Auto-stop settings load failed: {e}")
 
-    async def reload_auto_disconnect_config(self) -> bool:
+    async def reload_auto_stop_config(self) -> bool:
         """
-        Reload the global auto-disconnect delay and refresh any running timer.
+        Reload the global auto-stop delay and refresh any running timer.
 
         Called from the settings API when the global delay changes so live
         sources pick up the new value without a restart.
         """
-        await self._load_auto_disconnect_config()
+        await self._load_auto_stop_config()
 
         # Refresh a pending timer so the new delay takes effect immediately.
         if self._pause_timer and not self._pause_timer.done():
             self._cancel_pause_timer()
-            if self.auto_disconnect_enabled:
+            if self.auto_stop_enabled:
                 self._start_pause_timer()
 
         return True

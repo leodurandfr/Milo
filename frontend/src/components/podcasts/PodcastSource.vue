@@ -142,7 +142,7 @@ function openPodcastSettings() {
 
 // Playback state + player visibility (shared logic via composable).
 // Visibility follows the backend's source_state transitions — when the backend
-// auto-disconnects after `audio.auto_disconnect_delay`, source_state flips to
+// auto-stops after `audio.auto_stop_delay`, source_state flips to
 // 'waiting' and the player fades out. clearDisplayEpisode runs once the fade
 // animation is done so the artwork stays visible during the fade.
 const timer = useTimer()

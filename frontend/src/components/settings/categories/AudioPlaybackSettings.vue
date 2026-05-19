@@ -1,18 +1,18 @@
 <!-- frontend/src/components/settings/categories/AudioPlaybackSettings.vue -->
 <template>
   <SettingsContainer>
-    <!-- Auto-disconnect on pause (applies to every eligible source) -->
+    <!-- Auto-stop on pause (applies to every eligible source) -->
     <ToggleSection
-      :title="t('audioPlayback.autoDisconnect')"
-      :enabled="autoDisconnectEnabled"
-      @change="handleAutoDisconnectToggle"
+      :title="t('audioPlayback.autoStop')"
+      :enabled="autoStopEnabled"
+      @change="handleAutoStopToggle"
     >
-      <SettingItem :label="t('audioPlayback.autoDisconnectHint')">
+      <SettingItem :label="t('audioPlayback.autoStopHint')">
         <ButtonGroup
-          :model-value="config.auto_disconnect_delay"
-          :options="autoDisconnectPresets"
+          :model-value="config.auto_stop_delay"
+          :options="autoStopPresets"
           mobile-layout="grid-3"
-          @change="setAutoDisconnectDelay"
+          @change="setAutoStopDelay"
         />
       </SettingItem>
     </ToggleSection>
@@ -35,15 +35,15 @@ const settingsStore = useSettingsStore();
 
 // Local state for instant responsiveness
 const config = ref({
-  auto_disconnect_delay: 120
+  auto_stop_delay: 120
 });
 
 // Remember last non-zero value so toggling OFF then ON restores the user choice
-const lastAutoDisconnect = ref(120);
+const lastAutoStop = ref(120);
 
-const autoDisconnectEnabled = computed(() => config.value.auto_disconnect_delay !== 0);
+const autoStopEnabled = computed(() => config.value.auto_stop_delay !== 0);
 
-const autoDisconnectPresets = computed(() => [
+const autoStopPresets = computed(() => [
   { value: 30, label: t('time.30sec') },
   { value: 120, label: t('time.2min') },
   { value: 300, label: t('time.5min') },
@@ -54,29 +54,29 @@ const autoDisconnectPresets = computed(() => [
 
 function syncFromStore() {
   const playback = settingsStore.audioPlayback;
-  config.value.auto_disconnect_delay = playback.auto_disconnect_delay;
-  if (playback.auto_disconnect_delay > 0) {
-    lastAutoDisconnect.value = playback.auto_disconnect_delay;
+  config.value.auto_stop_delay = playback.auto_stop_delay;
+  if (playback.auto_stop_delay > 0) {
+    lastAutoStop.value = playback.auto_stop_delay;
   }
 }
 
-function handleAutoDisconnectToggle(enabled) {
-  const next = enabled ? lastAutoDisconnect.value : 0;
-  if (!enabled && config.value.auto_disconnect_delay > 0) {
-    lastAutoDisconnect.value = config.value.auto_disconnect_delay;
+function handleAutoStopToggle(enabled) {
+  const next = enabled ? lastAutoStop.value : 0;
+  if (!enabled && config.value.auto_stop_delay > 0) {
+    lastAutoStop.value = config.value.auto_stop_delay;
   }
-  config.value.auto_disconnect_delay = next;
-  settingsStore.updateAudioPlayback({ auto_disconnect_delay: next });
-  updateSetting('audio-disconnect', { auto_disconnect_delay: next });
+  config.value.auto_stop_delay = next;
+  settingsStore.updateAudioPlayback({ auto_stop_delay: next });
+  updateSetting('audio-stop', { auto_stop_delay: next });
 }
 
-function setAutoDisconnectDelay(value) {
+function setAutoStopDelay(value) {
   if (value > 0) {
-    lastAutoDisconnect.value = value;
+    lastAutoStop.value = value;
   }
-  config.value.auto_disconnect_delay = value;
-  settingsStore.updateAudioPlayback({ auto_disconnect_delay: value });
-  updateSetting('audio-disconnect', { auto_disconnect_delay: value });
+  config.value.auto_stop_delay = value;
+  settingsStore.updateAudioPlayback({ auto_stop_delay: value });
+  updateSetting('audio-stop', { auto_stop_delay: value });
 }
 
 // Re-sync when the store changes (e.g. WS event from another device)

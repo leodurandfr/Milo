@@ -17,7 +17,7 @@ from backend.api.models import (
     BtRemoteStepsRequest,
     IrRemoteStepsRequest,
     DockAppsRequest,
-    AudioDisconnectRequest,
+    AudioStopRequest,
     PodcastCredentialsRequest,
     ScreenTimeoutRequest,
     ScreenBrightnessRequest,
@@ -136,7 +136,7 @@ def create_settings_router(
             "bt_remote_steps": {"step_bt_remote_db": vol.get('step_bt_remote_db', 2.0)},
             "ir_remote_steps": {"step_ir_remote_db": vol.get('step_ir_remote_db', 2.0)},
             "dock_apps": {"enabled_apps": dock.get('enabled_apps', DEFAULT_DOCK_APPS)},
-            "audio_disconnect": {"auto_disconnect_delay": audio.get('auto_disconnect_delay', 120.0)},
+            "audio_stop": {"auto_stop_delay": audio.get('auto_stop_delay', 120.0)},
             "podcast_credentials": {
                 "taddy_user_id": podcast.get('taddy_user_id', ''),
                 "taddy_api_key": podcast.get('taddy_api_key', '')
@@ -479,26 +479,26 @@ def create_settings_router(
             logger.error(f"Unexpected error in dock-apps update: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    # Global audio auto-disconnect (applies to every eligible source)
-    @router.get("/audio-disconnect")
-    async def get_audio_disconnect():
+    # Global audio auto-stop (applies to every eligible source)
+    @router.get("/audio-stop")
+    async def get_audio_stop():
         audio = await settings.get_setting('audio') or {}
         return {
             "status": "success",
-            "config": {"auto_disconnect_delay": audio.get("auto_disconnect_delay", 120.0)}
+            "config": {"auto_stop_delay": audio.get("auto_stop_delay", 120.0)}
         }
 
-    @router.put("/audio-disconnect")
-    async def set_audio_disconnect(payload: AudioDisconnectRequest):
-        delay = payload.auto_disconnect_delay
+    @router.put("/audio-stop")
+    async def set_audio_stop(payload: AudioStopRequest):
+        delay = payload.auto_stop_delay
 
         return await _handle_setting_update(
             payload,
             validator=lambda p: True,  # Validated by Pydantic
-            setter=lambda: settings.set_setting('audio.auto_disconnect_delay', delay),
-            event_type="audio_disconnect_changed",
-            event_data={"config": {"auto_disconnect_delay": delay}},
-            reload_callback=state_machine.reload_auto_disconnect_for_all_sources
+            setter=lambda: settings.set_setting('audio.auto_stop_delay', delay),
+            event_type="audio_stop_changed",
+            event_data={"config": {"auto_stop_delay": delay}},
+            reload_callback=state_machine.reload_auto_stop_for_all_sources
         )
 
     # Podcast credentials

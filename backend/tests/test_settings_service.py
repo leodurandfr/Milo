@@ -44,7 +44,7 @@ class TestSettingsService:
         assert 'volume' in service.defaults
         assert 'screen' in service.defaults
         assert 'audio' in service.defaults
-        assert 'auto_disconnect_delay' in service.defaults['audio']
+        assert 'auto_stop_delay' in service.defaults['audio']
         assert 'routing' in service.defaults
 
     @pytest.mark.asyncio
@@ -93,7 +93,7 @@ class TestSettingsService:
 
         legacy_settings = {
             'language': 'english',
-            'spotify': {'auto_disconnect_delay': 300.0},
+            'spotify': {'auto_stop_delay': 300.0},
         }
         with open(temp_settings_file, 'w') as f:
             json.dump(legacy_settings, f)
@@ -169,32 +169,32 @@ class TestSettingsService:
         })
         assert result['screen']['timeout_seconds'] == 3
 
-    def test_validate_and_merge_audio_disconnect_zero(self, service):
-        """Global auto-disconnect delay validation test with 0 = disabled"""
+    def test_validate_and_merge_audio_stop_zero(self, service):
+        """Global auto-stop delay validation test with 0 = disabled"""
         # Delay at 0 (disabled)
         result = service._validate_and_merge({
-            'audio': {'auto_disconnect_delay': 0.0}
+            'audio': {'auto_stop_delay': 0.0}
         })
-        assert result['audio']['auto_disconnect_delay'] == 0.0
+        assert result['audio']['auto_stop_delay'] == 0.0
 
         # Normal delay
         result = service._validate_and_merge({
-            'audio': {'auto_disconnect_delay': 15.0}
+            'audio': {'auto_stop_delay': 15.0}
         })
-        assert result['audio']['auto_disconnect_delay'] == 15.0
+        assert result['audio']['auto_stop_delay'] == 15.0
 
         # Delay too small (minimum 1.0s if non-zero)
         result = service._validate_and_merge({
-            'audio': {'auto_disconnect_delay': 0.5}
+            'audio': {'auto_stop_delay': 0.5}
         })
-        assert result['audio']['auto_disconnect_delay'] == 1.0
+        assert result['audio']['auto_stop_delay'] == 1.0
 
-    def test_validate_and_merge_audio_disconnect_non_numeric(self, service):
-        """Non-numeric auto_disconnect_delay must not crash; fall back to default."""
+    def test_validate_and_merge_audio_stop_non_numeric(self, service):
+        """Non-numeric auto_stop_delay must not crash; fall back to default."""
         result = service._validate_and_merge({
-            'audio': {'auto_disconnect_delay': 'broken'}
+            'audio': {'auto_stop_delay': 'broken'}
         })
-        assert result['audio']['auto_disconnect_delay'] == 120.0
+        assert result['audio']['auto_stop_delay'] == 120.0
 
     def test_validate_and_merge_dock_apps(self, service):
         """Dock apps validation test"""

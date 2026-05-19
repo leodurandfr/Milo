@@ -1,12 +1,14 @@
 # backend/tests/test_mpv_audio_source.py
 """
-Unit tests for MpvAudioSource auto-disconnect on mpv pause.
+Unit tests for MpvAudioSource auto-stop on mpv pause.
 
 The base class provides a single edge-tracking helper
 (`_handle_pause_change`); each mpv source decides when to call it (from
 its monitor tick or from explicit user commands like CD play/pause).
-This file covers the helper, the `_on_auto_disconnect` override that
-returns the system to NONE, and the timer self-cancel regression guard.
+This file covers the helper, the `_on_auto_stop` dispatch that keeps
+`active_source` intact (regression guard against the prior
+`transition_to_source(NONE)` behavior), and the timer self-cancel
+regression guard.
 """
 import asyncio
 import pytest
@@ -20,21 +22,21 @@ from backend.sources.radio.source import RadioSource
 @pytest.fixture
 def radio_source():
     source = RadioSource({"mpv_socket": "/tmp/test-radio-ipc.sock"})
-    source.auto_disconnect_enabled = True
-    source.pause_disconnect_delay = 999.0
+    source.auto_stop_enabled = True
+    source.auto_stop_delay = 999.0
     return source
 
 
 @pytest.fixture
 def podcast_source():
     source = PodcastSource({"mpv_socket": "/tmp/test-podcast-ipc.sock"})
-    source.auto_disconnect_enabled = True
-    source.pause_disconnect_delay = 999.0
+    source.auto_stop_enabled = True
+    source.auto_stop_delay = 999.0
     return source
 
 
 class TestPauseChange:
-    """Edge-tracking arms/cancels the auto-disconnect timer."""
+    """Edge-tracking arms/cancels the auto-stop timer."""
 
     @pytest.mark.asyncio
     async def test_arms_timer_on_pause_edge(self, radio_source):
@@ -56,7 +58,7 @@ class TestPauseChange:
         assert radio_source._pause_timer is None
 
     def test_no_op_when_disabled(self, radio_source):
-        radio_source.auto_disconnect_enabled = False
+        radio_source.auto_stop_enabled = False
 
         radio_source._handle_pause_change(True)
 
@@ -72,77 +74,97 @@ class TestPauseChange:
         assert podcast_source._pause_timer is None
 
 
-class TestAutoDisconnectAction:
-    """_on_auto_disconnect transitions to NONE with a CAS guard."""
+class TestAutoStopAction:
+    """_on_auto_stop dispatches to per-source _auto_stop_action with a CAS guard.
+
+    Regression guard: the prior behavior called transition_to_source(NONE),
+    which kicked the user back to the home screen instead of stopping
+    in-source. The new behavior keeps active_source intact.
+    """
 
     @pytest.mark.asyncio
-    async def test_transitions_to_none_with_expected_source(self, podcast_source):
-        """Default mpv override hands off to state_machine.transition_to_source(NONE)."""
+    async def test_dispatches_to_auto_stop_action_in_source(self, podcast_source):
+        """When the source is still active, delegate to _auto_stop_action."""
         podcast_source.state_machine = Mock()
+        podcast_source.state_machine.system_state = Mock()
+        podcast_source.state_machine.system_state.active_source = AudioSource.PODCAST
         podcast_source.state_machine.transition_to_source = AsyncMock(return_value=True)
+        podcast_source._auto_stop_action = AsyncMock(return_value=None)
 
-        await podcast_source._on_auto_disconnect()
+        await podcast_source._on_auto_stop()
 
-        podcast_source.state_machine.transition_to_source.assert_awaited_once_with(
-            AudioSource.NONE, expected_source=AudioSource.PODCAST
-        )
+        podcast_source._auto_stop_action.assert_awaited_once()
+        # Critical: must NOT call transition_to_source — that was the bug.
+        podcast_source.state_machine.transition_to_source.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_falls_back_to_stop_without_state_machine(self, radio_source):
-        """When no state_machine is wired, fall back to stop()."""
+    async def test_cas_guard_aborts_when_source_switched_away(self, podcast_source):
+        """If the user switched to another source mid-timer, do nothing."""
+        podcast_source.state_machine = Mock()
+        podcast_source.state_machine.system_state = Mock()
+        podcast_source.state_machine.system_state.active_source = AudioSource.RADIO
+        podcast_source._auto_stop_action = AsyncMock(return_value=None)
+
+        await podcast_source._on_auto_stop()
+
+        podcast_source._auto_stop_action.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_dispatches_without_state_machine(self, radio_source):
+        """When no state_machine is wired (test scaffold), still call action."""
         radio_source.state_machine = None
-        radio_source.stop = AsyncMock(return_value=True)
+        radio_source._auto_stop_action = AsyncMock(return_value=None)
 
-        await radio_source._on_auto_disconnect()
+        await radio_source._on_auto_stop()
 
-        radio_source.stop.assert_awaited_once()
+        radio_source._auto_stop_action.assert_awaited_once()
 
 
-class TestReloadAutoDisconnect:
-    """reload_auto_disconnect_config refreshes the delay on mpv sources."""
+class TestReloadAutoStop:
+    """reload_auto_stop_config refreshes the delay on mpv sources."""
 
     @pytest.mark.asyncio
     async def test_reload_disables_when_zero(self, radio_source):
         radio_source._settings_service = Mock()
         radio_source._settings_service.get_setting = AsyncMock(return_value=0)
 
-        result = await radio_source.reload_auto_disconnect_config()
+        result = await radio_source.reload_auto_stop_config()
 
         assert result is True
-        assert radio_source.auto_disconnect_enabled is False
+        assert radio_source.auto_stop_enabled is False
 
     @pytest.mark.asyncio
     async def test_reload_updates_delay(self, podcast_source):
         podcast_source._settings_service = Mock()
         podcast_source._settings_service.get_setting = AsyncMock(return_value=45.0)
 
-        result = await podcast_source.reload_auto_disconnect_config()
+        result = await podcast_source.reload_auto_stop_config()
 
         assert result is True
-        assert podcast_source.auto_disconnect_enabled is True
-        assert podcast_source.pause_disconnect_delay == 45.0
+        assert podcast_source.auto_stop_enabled is True
+        assert podcast_source.auto_stop_delay == 45.0
 
 
 class TestSelfCancelSafety:
-    """The pause timer must not cancel itself once it commits to disconnecting.
+    """The pause timer must not cancel itself once it commits to stopping.
 
-    Regression guard: _on_auto_disconnect typically calls stop() which calls
+    Regression guard: _on_auto_stop typically calls stop() which calls
     _cancel_pause_timer(). If the running timer task were still tracked, the
-    cancel would inject CancelledError mid-disconnect and abort cleanup.
+    cancel would inject CancelledError mid-stop and abort cleanup.
     """
 
     @pytest.mark.asyncio
     async def test_timer_detaches_before_running_callback(self, radio_source):
-        radio_source.pause_disconnect_delay = 0.01
+        radio_source.auto_stop_delay = 0.01
 
         callback_observed_timer = []
 
-        async def fake_disconnect():
+        async def fake_stop():
             # By the time the callback runs, the timer ref must be detached
             # so nested _cancel_pause_timer() calls become no-ops.
             callback_observed_timer.append(radio_source._pause_timer)
 
-        radio_source._on_auto_disconnect = fake_disconnect
+        radio_source._on_auto_stop = fake_stop
         radio_source._start_pause_timer()
         # Wait for the timer to fire and the callback to record state.
         await asyncio.sleep(0.1)

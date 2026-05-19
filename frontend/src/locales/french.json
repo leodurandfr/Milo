@@ -259,8 +259,8 @@
     "rebooting": "Redémarrage en cours..."
   },
   "audioPlayback": {
-    "autoDisconnect": "Arrêt automatique",
-    "autoDisconnectHint": "Arrêter la lecture après une pause ou un silence de :"
+    "autoStop": "Arrêt automatique",
+    "autoStopHint": "Arrêter la lecture après une pause ou un silence de :"
   },
   "macSettings": {
     "latency": "Latence",

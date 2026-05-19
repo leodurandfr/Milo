@@ -257,8 +257,8 @@
     "rebooting": "Riavvio in corso..."
   },
   "audioPlayback": {
-    "autoDisconnect": "Stop automatico in pausa",
-    "autoDisconnectHint": "Interrompere l'audio dopo una pausa di:"
+    "autoStop": "Stop automatico in pausa",
+    "autoStopHint": "Interrompere l'audio dopo una pausa di:"
   },
   "macSettings": {
     "latency": "Latenza",
