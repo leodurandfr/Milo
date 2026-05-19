@@ -222,11 +222,20 @@ export const usePodcastStore = defineStore('podcast', () => {
         delayedClearTimeout = null;
       }
     }
-    if (metadata.position !== undefined) {
-      currentPosition.value = metadata.position;
+    // Backend emits position/duration in milliseconds (wire convention shared
+    // with all other audio sources); store-internal values stay in seconds.
+    const positionSeconds = metadata.position !== undefined
+      ? Math.floor(metadata.position / 1000)
+      : undefined;
+    const durationSeconds = metadata.duration !== undefined
+      ? Math.floor(metadata.duration / 1000)
+      : undefined;
+
+    if (positionSeconds !== undefined) {
+      currentPosition.value = positionSeconds;
     }
-    if (metadata.duration !== undefined) {
-      currentDuration.value = metadata.duration;
+    if (durationSeconds !== undefined) {
+      currentDuration.value = durationSeconds;
     }
     if (metadata.playback_speed !== undefined) {
       playbackSpeed.value = metadata.playback_speed;
@@ -235,12 +244,12 @@ export const usePodcastStore = defineStore('podcast', () => {
     // Update progress cache for reactive updates in EpisodeCard
     if (
       metadata.episode_uuid &&
-      metadata.position !== undefined &&
-      metadata.duration !== undefined
+      positionSeconds !== undefined &&
+      durationSeconds !== undefined
     ) {
       progressCache.value.set(metadata.episode_uuid, {
-        position: metadata.position,
-        duration: metadata.duration,
+        position: positionSeconds,
+        duration: durationSeconds,
         last_played: Date.now()
       });
       enforceProgressCacheLimit();
