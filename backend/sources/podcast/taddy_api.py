@@ -910,6 +910,27 @@ class TaddyAPI:
 
         return normalized
 
+    def _coerce_duration_seconds(self, episode: Dict[str, Any]) -> int:
+        """Return episode duration in seconds, coercing milliseconds when needed.
+
+        Taddy documents PodcastEpisode.duration as Int seconds
+        (https://taddy.org/developers/podcast-api/podcastepisode). A small
+        subset of upstream RSS feeds publish the value in milliseconds; Taddy
+        forwards it unchanged. Any duration above 24h is therefore treated as
+        ms and divided by 1000; a warning is logged so the offending feed can
+        be identified.
+        """
+        raw = episode.get('duration', 0)
+        if not isinstance(raw, (int, float)) or raw <= 0:
+            return 0
+        if raw > 86_400:
+            self.logger.warning(
+                "Episode %s reports duration=%s > 24h, treating as milliseconds",
+                episode.get('uuid'), raw,
+            )
+            return int(raw / 1000)
+        return int(raw)
+
     def _normalize_episode(
         self,
         episode: Dict[str, Any],
@@ -934,7 +955,7 @@ class TaddyAPI:
             'description': episode.get('description', ''),
             'subtitle': episode.get('subtitle', ''),
             'date_published': episode.get('datePublished'),
-            'duration': episode.get('duration', 0),
+            'duration': self._coerce_duration_seconds(episode),
             'audio_url': episode.get('audioUrl'),
             'video_url': episode.get('videoUrl', ''),
             'image_url': image_url,
