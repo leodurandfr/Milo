@@ -16,7 +16,6 @@ import asyncio
 from typing import Dict, Any, Optional
 
 from backend.core.audio_source import BaseAudioSource
-from backend.core.silence_detector import SilenceDetector
 from backend.sources.bluetooth.agent import BluetoothAgent
 from backend.sources.bluetooth.monitor import BlueAlsaMonitor
 from backend.shared.decorators import handle_errors
@@ -66,15 +65,13 @@ class BluetoothSource(BaseAudioSource):
         self.agent = BluetoothAgent()
         self.monitor = BlueAlsaMonitor()
 
-        # Auto-disconnect on silence (effective enable controlled by global delay)
-        self.auto_disconnect_enabled = True
-        self._silence_detector: Optional[SilenceDetector] = None
-        if camilladsp_service is not None:
-            self._silence_detector = SilenceDetector(camilladsp_service)
-            self._silence_detector.set_callbacks(
-                on_silence_started=self._on_silence_started,
-                on_audio_resumed=self._on_audio_resumed,
-            )
+        # No per-source auto-stop: BT carries no out-of-band pause signal
+        # and senders re-connect instantly when the user resumes. The 12h
+        # INACTIVITY_TIMEOUT in AudioStateMachine remains as the final
+        # backstop. `camilladsp_service` is kept on the constructor for DI
+        # compatibility with the other Family A sources.
+        self.auto_stop_enabled = False
+        _ = camilladsp_service  # reserved for future use
 
     def _reset_playback_state(self) -> None:
         super()._reset_playback_state()
@@ -114,10 +111,6 @@ class BluetoothSource(BaseAudioSource):
 
             # 7. Update state
             self._update_connection_state()
-
-            # 8. Resume silence watch if a device was reattached on startup
-            if self.connected_device:
-                await self._start_silence_watch()
 
             return True
 
@@ -238,7 +231,6 @@ class BluetoothSource(BaseAudioSource):
             self.connected_device = {"address": address, "name": name}
             self._logger.info(f"Device connected: {name} ({address})")
             self._update_connection_state()
-            await self._start_silence_watch()
 
     @handle_errors(default=False)
     async def _disconnect_device(self, address: str) -> bool:
@@ -276,42 +268,7 @@ class BluetoothSource(BaseAudioSource):
 
         self.connected_device = None
         self._logger.info(f"Device disconnected: {name} ({address})")
-        await self._stop_silence_watch()
-        self._cancel_pause_timer()
         self._update_connection_state()
-
-    # === Silence-based auto-disconnect ===
-
-    async def _start_silence_watch(self) -> None:
-        """Start the silence detector and refresh the global delay."""
-        if not self._silence_detector:
-            return
-        await self._load_auto_disconnect_config()
-        await self._silence_detector.start()
-
-    async def _stop_silence_watch(self) -> None:
-        """Stop the silence detector."""
-        if self._silence_detector:
-            await self._silence_detector.stop()
-
-    async def _on_silence_started(self) -> None:
-        """Silence detector edge: arm the auto-disconnect timer."""
-        self._start_pause_timer()
-
-    async def _on_audio_resumed(self) -> None:
-        """Silence detector edge: cancel a pending auto-disconnect."""
-        self._cancel_pause_timer()
-
-    async def _on_auto_disconnect(self) -> None:
-        """Disconnect the active BT device but keep BlueALSA running.
-
-        Leaving bluealsa.service alive lets a new device pair without a
-        restart cycle.
-        """
-        if self.connected_device:
-            address = self.connected_device.get("address")
-            if address:
-                await self._disconnect_device(address)
 
     # === Helper Methods ===
 
@@ -377,10 +334,6 @@ class BluetoothSource(BaseAudioSource):
 
     async def _cleanup(self) -> None:
         """Clean up resources."""
-        # Stop silence detector
-        await self._stop_silence_watch()
-        self._cancel_pause_timer()
-
         # Stop BlueALSA monitor
         await self.monitor.stop()
 

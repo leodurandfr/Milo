@@ -9,7 +9,7 @@ supports playback control via REST API.
 Features:
 - WebSocket for real-time events (playing, paused, metadata, etc.)
 - REST API for playback commands (play, pause, seek, etc.)
-- Auto-disconnect timer after pause (configurable)
+- Auto-stop timer after pause (configurable)
 - Metadata tracking with album art and position
 """
 import asyncio
@@ -69,9 +69,9 @@ class SpotifySource(BaseAudioSource):
         self._device_connected = False
         self._ws_connected = False
 
-        # Auto-disconnect (uses BaseAudioSource timer infrastructure)
-        self.auto_disconnect_enabled = True
-        self.pause_disconnect_delay = 10.0
+        # Auto-stop (uses BaseAudioSource timer infrastructure)
+        self.auto_stop_enabled = True
+        self.auto_stop_delay = 10.0
 
         # Log monitor for error detection
         self._log_monitor_task: Optional[asyncio.Task] = None
@@ -147,9 +147,9 @@ class SpotifySource(BaseAudioSource):
             "ws_connected": self._ws_connected,
             "is_playing": self._is_playing,
             "metadata": self._metadata,
-            "auto_disconnect_config": {
-                "enabled": self.auto_disconnect_enabled,
-                "delay": self.pause_disconnect_delay,
+            "auto_stop_config": {
+                "enabled": self.auto_stop_enabled,
+                "delay": self.auto_stop_delay,
                 "timer_active": self._pause_timer is not None and not self._pause_timer.done()
             }
         }
@@ -209,8 +209,8 @@ class SpotifySource(BaseAudioSource):
         self._api_url = f"http://{addr}:{port}"
         self._ws_url = f"ws://{addr}:{port}/events"
 
-        # Load auto-disconnect config from settings
-        await self._load_auto_disconnect_config()
+        # Load auto-stop config from settings
+        await self._load_auto_stop_config()
 
         self._logger.info(f"Config loaded: API={self._api_url}")
         return True

@@ -2,7 +2,7 @@
 // Playback state detection + player visibility for audio source components.
 // Visibility tracks `source_state` exclusively: shown on 'active', hidden on
 // 'waiting'. Backend is the single source of truth — no parallel frontend
-// timer that could desync with the backend's auto_disconnect_delay.
+// timer that could desync with the backend's auto_stop_delay.
 import { ref, computed, watch } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 

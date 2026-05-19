@@ -66,9 +66,9 @@ export const useSettingsStore = defineStore('settings', () => {
 
   // === AUDIO PLAYBACK ===
   // Global behavior applied to every eligible audio source:
-  // - auto_disconnect_delay: stop a paused (or silent) source after N seconds (0 = disabled)
+  // - auto_stop_delay: stop a paused (or silent) source after N seconds (0 = disabled)
   const audioPlayback = ref({
-    auto_disconnect_delay: 120.0
+    auto_stop_delay: 120.0
   });
 
   // === RADIO ===
@@ -193,7 +193,7 @@ export const useSettingsStore = defineStore('settings', () => {
         };
 
         audioPlayback.value = {
-          auto_disconnect_delay: d.audio_disconnect?.auto_disconnect_delay ?? 120.0
+          auto_stop_delay: d.audio_stop?.auto_stop_delay ?? 120.0
         };
 
         screenTimeout.value = {

@@ -31,7 +31,7 @@ class SettingsWriteError(RuntimeError):
 class SettingsService:
     """Simplified settings manager with support for 0 = disabled"""
 
-    SCHEMA_VERSION: int = 2
+    SCHEMA_VERSION: int = 3
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
@@ -62,7 +62,7 @@ class SettingsService:
                 "color_filter_warmth": 50
             },
             "audio": {
-                "auto_disconnect_delay": 120.0,
+                "auto_stop_delay": 120.0,
             },
             "podcast": {
                 "taddy_user_id": "",
@@ -246,15 +246,15 @@ class SettingsService:
             # Preserve equalizer section as-is (no strict validation)
             validated['equalizer'] = equalizer_input
 
-        # Audio (auto-disconnect on pause)
+        # Audio (auto-stop on pause)
         audio_input = settings.get('audio', {})
         try:
-            disconnect_raw = float(audio_input.get('auto_disconnect_delay', 120.0))
+            stop_raw = float(audio_input.get('auto_stop_delay', 120.0))
         except (TypeError, ValueError):
-            disconnect_raw = 120.0
+            stop_raw = 120.0
         validated['audio'] = {
             # 0 = disabled, otherwise clamp to [1.0, 9999.0]
-            'auto_disconnect_delay': 0.0 if disconnect_raw == 0.0 else max(1.0, min(9999.0, disconnect_raw))
+            'auto_stop_delay': 0.0 if stop_raw == 0.0 else max(1.0, min(9999.0, stop_raw))
         }
 
         # Radio settings

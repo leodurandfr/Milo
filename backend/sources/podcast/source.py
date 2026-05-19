@@ -104,9 +104,9 @@ class PodcastSource(MpvAudioSource):
             saved_speed = await self._podcast_data.get_setting("playback_speed", 1.0)
             self._playback_speed = saved_speed
 
-            # 4. Reset state and load auto-disconnect config
+            # 4. Reset state and load auto-stop config
             self._reset_playback_state()
-            await self._load_auto_disconnect_config()
+            await self._load_auto_stop_config()
 
             # 5. Start monitor task
             self._start_monitor()
@@ -359,6 +359,10 @@ class PodcastSource(MpvAudioSource):
         except Exception as e:
             return self.error_response(str(e))
 
+    async def _auto_stop_action(self) -> None:
+        """Save progress and stop playback in place after pause timeout."""
+        await self._handle_stop_playback()
+
     async def _handle_stop_playback(self) -> Dict[str, Any]:
         """Stop playback."""
         try:
@@ -529,7 +533,7 @@ class PodcastSource(MpvAudioSource):
                 self._position * 1000, self._duration * 1000
             )
 
-        # Auto-disconnect: arm/cancel timer based on the pause we already polled.
+        # Auto-stop: arm/cancel timer based on the pause we already polled.
         if pause_state is not None:
             self._handle_pause_change(bool(pause_state))
 

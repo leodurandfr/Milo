@@ -158,14 +158,14 @@ class DockAppsRequest(BaseModel):
 
 
 # =============================================================================
-# SETTINGS - AUDIO AUTO-DISCONNECT
+# SETTINGS - AUDIO AUTO-STOP
 # =============================================================================
 
-class AudioDisconnectRequest(BaseModel):
-    """Global audio auto-disconnect delay request (applies to all sources)"""
-    auto_disconnect_delay: float = Field(..., ge=0, le=9999)
+class AudioStopRequest(BaseModel):
+    """Global audio auto-stop delay request (applies to all sources)"""
+    auto_stop_delay: float = Field(..., ge=0, le=9999)
 
-    @field_validator('auto_disconnect_delay')
+    @field_validator('auto_stop_delay')
     @classmethod
     def validate_delay(cls, v: float) -> float:
         # 0 means disabled, otherwise must be >= 1.0

@@ -84,8 +84,8 @@ const { t, getCurrentLanguage } = useI18n()
 
 // === PLAYBACK VISIBILITY ===
 // Visibility tracks the backend's source_state transitions — the player hides
-// when the source enters 'waiting' (stop or auto-disconnect via
-// audio.auto_disconnect_delay), nothing in the frontend competes with that.
+// when the source enters 'waiting' (stop or auto-stop via
+// audio.auto_stop_delay), nothing in the frontend competes with that.
 const { isPlaying: isCurrentlyPlaying, isBuffering, shouldShowPlayer: shouldShowNowPlayingLayout } =
   useSourcePlaybackVisibility('radio')
 

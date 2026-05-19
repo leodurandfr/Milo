@@ -8,7 +8,7 @@ Tests cover:
 - WebSocket event handling
 - Metadata refresh
 - Command handling
-- Auto-disconnect timer
+- Auto-stop timer
 """
 import pytest
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
@@ -78,8 +78,8 @@ class TestSpotifySourceConfig:
         """Test default configuration values."""
         source = SpotifySource()
 
-        assert source.auto_disconnect_enabled is True
-        assert source.pause_disconnect_delay == 10.0
+        assert source.auto_stop_enabled is True
+        assert source.auto_stop_delay == 10.0
 
     def test_custom_config(self, tmp_path):
         """Test custom configuration."""
@@ -277,7 +277,7 @@ class TestWebSocketEvents:
     async def test_playback_paused_event(self, spotify_source):
         """Test handling paused event."""
         spotify_source._session = AsyncMock()
-        spotify_source.auto_disconnect_enabled = False  # Disable to simplify test
+        spotify_source.auto_stop_enabled = False  # Disable to simplify test
 
         with patch.object(spotify_source, '_refresh_metadata', return_value=True):
             await spotify_source._on_playback_state(False)
@@ -299,8 +299,8 @@ class TestWebSocketEvents:
         assert spotify_source._metadata["position"] == 45000
 
 
-class TestAutoDisconnect:
-    """Test auto-disconnect timer functionality."""
+class TestAutoStop:
+    """Test auto-stop timer functionality."""
 
     def test_cancel_pause_timer(self, spotify_source):
         """Test canceling pause timer."""
@@ -315,32 +315,32 @@ class TestAutoDisconnect:
 
     def test_start_pause_timer_disabled(self, spotify_source):
         """Test timer not started when disabled."""
-        spotify_source.auto_disconnect_enabled = False
+        spotify_source.auto_stop_enabled = False
 
         spotify_source._start_pause_timer()
 
         assert spotify_source._pause_timer is None
 
     @pytest.mark.asyncio
-    async def test_reload_auto_disconnect_config_disabled(self, spotify_source):
-        """Reloading with delay=0 disables auto-disconnect."""
+    async def test_reload_auto_stop_config_disabled(self, spotify_source):
+        """Reloading with delay=0 disables auto-stop."""
         spotify_source._settings_service = Mock()
         spotify_source._settings_service.get_setting = AsyncMock(return_value=0)
-        result = await spotify_source.reload_auto_disconnect_config()
+        result = await spotify_source.reload_auto_stop_config()
 
         assert result is True
-        assert spotify_source.auto_disconnect_enabled is False
+        assert spotify_source.auto_stop_enabled is False
 
     @pytest.mark.asyncio
-    async def test_reload_auto_disconnect_config_enabled(self, spotify_source):
-        """Reloading with positive delay enables auto-disconnect."""
+    async def test_reload_auto_stop_config_enabled(self, spotify_source):
+        """Reloading with positive delay enables auto-stop."""
         spotify_source._settings_service = Mock()
         spotify_source._settings_service.get_setting = AsyncMock(return_value=30.0)
-        result = await spotify_source.reload_auto_disconnect_config()
+        result = await spotify_source.reload_auto_stop_config()
 
         assert result is True
-        assert spotify_source.auto_disconnect_enabled is True
-        assert spotify_source.pause_disconnect_delay == 30.0
+        assert spotify_source.auto_stop_enabled is True
+        assert spotify_source.auto_stop_delay == 30.0
 
 
 class TestConnectionState:

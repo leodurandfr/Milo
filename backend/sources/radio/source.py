@@ -107,9 +107,9 @@ class RadioSource(MpvAudioSource):
                 self._logger.error("Failed to connect to MPV IPC")
                 return False
 
-            # 5. Reset state and load auto-disconnect config
+            # 5. Reset state and load auto-stop config
             self._reset_playback_state()
-            await self._load_auto_disconnect_config()
+            await self._load_auto_stop_config()
 
             # 6. Start monitor task
             self._start_monitor()
@@ -290,6 +290,10 @@ class RadioSource(MpvAudioSource):
         if not success:
             self._logger.debug(f"mpv load_stream failed for: {url[:80]}")
         return success
+
+    async def _auto_stop_action(self) -> None:
+        """Stop playback in place after pause/silence timeout."""
+        await self._handle_stop_playback()
 
     async def _handle_stop_playback(self) -> Dict[str, Any]:
         """Stop playback and reset to READY state."""
@@ -485,7 +489,7 @@ class RadioSource(MpvAudioSource):
         was_playing = self._is_playing
         self._is_playing = await self._mpv.is_playing()
 
-        # Auto-disconnect on mpv pause edges. Radio doesn't expose a pause
+        # Auto-stop on mpv pause edges. Radio doesn't expose a pause
         # control in the UI, so this is mostly defensive — but it keeps
         # behavior uniform with the other mpv sources if mpv ever pauses.
         if self._current_station:

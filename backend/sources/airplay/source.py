@@ -60,9 +60,9 @@ class AirPlaySource(BaseAudioSource):
         self._progress_end = 0
         self._last_progress_broadcast: float = 0.0
 
-        # Auto-disconnect (uses BaseAudioSource timer infrastructure)
-        self.auto_disconnect_enabled = True
-        self.pause_disconnect_delay = 10.0
+        # Auto-stop (uses BaseAudioSource timer infrastructure)
+        self.auto_stop_enabled = True
+        self.auto_stop_delay = 10.0
 
     def _reset_playback_state(self) -> None:
         super()._reset_playback_state()
@@ -79,8 +79,8 @@ class AirPlaySource(BaseAudioSource):
             self._reset_playback_state()
             self._cancel_pause_timer()
 
-            # Load auto-disconnect config from settings
-            await self._load_auto_disconnect_config()
+            # Load auto-stop config from settings
+            await self._load_auto_stop_config()
 
             await self._ensure_metadata_pipe()
 
@@ -168,7 +168,7 @@ class AirPlaySource(BaseAudioSource):
 
         Note: pend (stop) only means the playback stream ended, NOT that the
         device disconnected.  The device remains connected until we receive a
-        'disc' event via _on_connection.  We start the auto-disconnect timer
+        'disc' event via _on_connection.  We start the auto-stop timer
         on both pause and stop so the UI resets to READY after a timeout.
         """
         if state == "play":
@@ -181,7 +181,7 @@ class AirPlaySource(BaseAudioSource):
         elif state == "stop":
             self._is_playing = False
             # Device may still be connected — don't reset _device_connected.
-            # Start auto-disconnect timer as session idle timeout.
+            # Start auto-stop timer as session idle timeout.
             self._start_pause_timer()
 
         self._metadata["is_playing"] = self._is_playing
@@ -282,7 +282,7 @@ class AirPlaySource(BaseAudioSource):
         """Update state based on device connection.
 
         Always include all metadata keys so that state_machine.metadata.update()
-        overwrites stale values (e.g. clearing title/artist after auto-disconnect).
+        overwrites stale values (e.g. clearing title/artist after auto-stop).
         """
         # Base keys ensure old values are always overwritten during merge
         base_metadata = {
@@ -306,19 +306,6 @@ class AirPlaySource(BaseAudioSource):
             self._metadata_reader = None
 
         self._reset_playback_state()
-
-    async def _on_auto_disconnect(self) -> None:
-        """After pause/stop timeout: clear metadata but stay connected.
-
-        The device is still connected to the AirPlay output — only 'disc'
-        should reset to READY.  Clearing metadata makes the frontend
-        transition from the full player to "Connecté à [device]".
-        """
-        self._is_playing = False
-        self._metadata = {}
-        self._clear_artwork()
-        # Keep _device_connected = True and _client_name intact
-        self._update_connection_state()
 
     def _clear_artwork(self) -> None:
         """Clear stored artwork data."""
