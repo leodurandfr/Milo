@@ -88,6 +88,7 @@ class BaseAudioSource(ABC):
         self._metadata: Dict[str, Any] = {}
         self._is_playing = False
         self._error: Optional[str] = None
+        self._error_active = False
         self._initialized = False
 
         self._service_manager = systemd_manager
@@ -602,6 +603,7 @@ class BaseAudioSource(ABC):
         if not self.state_machine:
             return
 
+        self._error_active = True
         self._bg.spawn(
             self.state_machine.broadcast_event(
                 "source",
@@ -619,12 +621,14 @@ class BaseAudioSource(ABC):
         """
         Clear any displayed error for this source.
 
-        Called when an error condition is resolved. The UI will
-        automatically dismiss the notification banner.
+        No-op if no error was previously broadcast — call sites can invoke
+        this unconditionally on successful operations without producing wire
+        noise. The UI dismisses the banner when the event is emitted.
         """
-        if not self.state_machine:
+        if not self.state_machine or not self._error_active:
             return
 
+        self._error_active = False
         self._bg.spawn(
             self.state_machine.broadcast_event(
                 "source",
