@@ -424,7 +424,12 @@ class PodcastSource(MpvAudioSource):
     # === Helpers ===
 
     def _build_playback_metadata(self) -> Dict[str, Any]:
-        """Build metadata dict for current episode."""
+        """Build metadata dict for current episode.
+
+        position/duration are emitted in milliseconds to match the wire
+        convention used by the other audio sources (Spotify, AirPlay, CD) and
+        by broadcast_position_update. Internal state stays in seconds.
+        """
         if not self._current_episode:
             return {}
 
@@ -433,8 +438,8 @@ class PodcastSource(MpvAudioSource):
             "episode_name": self._current_episode.get('name'),
             "description": self._current_episode.get('description'),
             "image_url": self._current_episode.get('image_url'),
-            "position": self._position,
-            "duration": self._duration,
+            "position": self._position * 1000,
+            "duration": self._duration * 1000,
             "is_playing": self._is_playing,
             "is_buffering": self._is_buffering,
             "playback_speed": self._playback_speed,
@@ -449,12 +454,16 @@ class PodcastSource(MpvAudioSource):
         return metadata
 
     def _update_connection_state(self) -> None:
-        """Update state based on playback."""
+        """Update state based on playback.
+
+        position/duration in the active metadata are in milliseconds (see
+        _build_playback_metadata).
+        """
         self._set_active_or_waiting(
             bool(self._current_episode),
             {"current_episode": self._current_episode,
              "is_playing": self._is_playing, "is_buffering": self._is_buffering,
-             "position": self._position, "duration": self._duration,
+             "position": self._position * 1000, "duration": self._duration * 1000,
              "playback_speed": self._playback_speed},
             {"is_playing": False, "is_buffering": False, "ready": True}
         )
