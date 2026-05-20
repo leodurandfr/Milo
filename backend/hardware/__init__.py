@@ -2,24 +2,16 @@
 """
 Hardware module for Milo audio system.
 
-This module provides hardware controllers:
-- RotaryVolumeController: Rotary encoder for volume control
-- ScreenController: Screen brightness and power management
-- HardwareService: Hardware configuration service
-- BtRemoteController: Bluetooth HID remote for volume/playback control
-- IrRemoteController: IR remote (Apple Remote 1st gen) via TSOP4838 on GPIO17
+Controllers live in their own submodules and are imported lazily by the
+service registry (see dependencies.py::_import). The package intentionally
+performs NO eager imports: pulling in RotaryVolumeController would drag in
+`lgpio` (Pi-only GPIO native lib, absent on x86 dev/CI hosts), which would
+break unrelated submodules (ir_remote, keymap_writer, …) at import time.
+
+Submodules:
+- rotary.RotaryVolumeController: Rotary encoder for volume control (needs lgpio)
+- screen.ScreenController: Screen brightness and power management
+- service.HardwareService: Hardware configuration service
+- bt_remote.BtRemoteController: Bluetooth HID remote for volume/playback control
+- ir_remote.IrRemoteController: IR remote (Apple Remote 1st gen) via TSOP4838 on GPIO17
 """
-
-from backend.hardware.rotary import RotaryVolumeController
-from backend.hardware.screen import ScreenController
-from backend.hardware.service import HardwareService
-from backend.hardware.bt_remote import BtRemoteController
-from backend.hardware.ir_remote import IrRemoteController
-
-__all__ = [
-    "RotaryVolumeController",
-    "ScreenController",
-    "HardwareService",
-    "BtRemoteController",
-    "IrRemoteController",
-]

@@ -11,7 +11,7 @@ zeroconf>=0.146.5
 dbus-next>=0.2.3
 aiofiles>=23.2.1
 configparser>=7.0.0
-lgpio>=0.2.2.0
+lgpio>=0.2.2.0; platform_machine == "aarch64"  # Pi GPIO (rotary encoder) — needs liblgpio, unavailable on x86 CI
 evdev>=1.7.0
 slowapi>=0.1.9
 Pillow>=10.0.0
