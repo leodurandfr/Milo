@@ -16,9 +16,6 @@ export const usePodcastStore = defineStore('podcast', () => {
   const playbackSpeeds = ref([1.0]);
   const pendingEpisodeUuid = ref(null); // Optimistic loading state before WebSocket confirms
 
-  // Timeout for delayed metadata clearing (during fade-out animation)
-  let delayedClearTimeout = null;
-
   // === PROGRESS CACHE ===
   // Reactive cache of playback progress for all episodes
   // Key: episode_uuid, Value: { position, duration, last_played }
@@ -196,12 +193,6 @@ export const usePodcastStore = defineStore('podcast', () => {
       // Clear pending state - WebSocket has confirmed playback
       if (pendingEpisodeUuid.value === metadata.current_episode.uuid) {
         pendingEpisodeUuid.value = null;
-      }
-
-      // Clear any pending delayed clear
-      if (delayedClearTimeout) {
-        clearTimeout(delayedClearTimeout);
-        delayedClearTimeout = null;
       }
     }
     // Backend emits position/duration in milliseconds (wire convention shared
@@ -482,12 +473,6 @@ export const usePodcastStore = defineStore('podcast', () => {
     currentEpisode.value = null;
     displayEpisode.value = null;
 
-    // Clear any pending delayed clear
-    if (delayedClearTimeout) {
-      clearTimeout(delayedClearTimeout);
-      delayedClearTimeout = null;
-    }
-
     // Note: playback state comes from unifiedAudioStore, no need to clear locally
     // Keep progress cache for displaying "X min restantes" on paused episodes
   }
@@ -495,12 +480,6 @@ export const usePodcastStore = defineStore('podcast', () => {
   // Clear display metadata after fade-out animation completes
   function clearDisplayEpisode() {
     displayEpisode.value = null;
-
-    // Clear any pending timeout
-    if (delayedClearTimeout) {
-      clearTimeout(delayedClearTimeout);
-      delayedClearTimeout = null;
-    }
   }
 
   // === RETURN ===

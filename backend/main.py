@@ -13,9 +13,6 @@ from logging.handlers import RotatingFileHandler
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
 from backend.dependencies import get_service, initialize_services, get_init_task
 from backend.api import audio
 from backend.api.routing import create_routing_router
@@ -58,8 +55,6 @@ logging.getLogger().addHandler(_file_handler)
 from backend.core.log_handler import WebSocketLogHandler
 _ws_log_handler = WebSocketLogHandler(level=logging.WARNING)
 logging.getLogger("backend").addHandler(_ws_log_handler)
-
-limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
 
 # Get services from registry
 state_machine = get_service("audio_state_machine")
@@ -143,9 +138,6 @@ async def lifespan(app: FastAPI):
         logger.error(f"Cleanup error: {e}")
 
 app = FastAPI(title="Milo API", lifespan=lifespan)
-
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS configuration - restricted to authorized origins
 app.add_middleware(

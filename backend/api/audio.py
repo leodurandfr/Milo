@@ -1,13 +1,9 @@
 """
 Main API routes for audio management
 """
-from fastapi import APIRouter, HTTPException, Request
-from slowapi import Limiter
-from slowapi.util import get_remote_address
+from fastapi import APIRouter, HTTPException
 from backend.api.models import AudioControlRequest
 from backend.api.route_helpers import parse_audio_source
-
-limiter = Limiter(key_func=get_remote_address)
 
 def create_router(state_machine):
     """Creates router with injected dependencies"""
@@ -27,9 +23,8 @@ def create_router(state_machine):
         return {"status": "success" if success else "error"}
 
     @router.post("/control/{source_name}")
-    @limiter.limit("60/minute")
-    async def control_source(request: Request, source_name: str, control_request: AudioControlRequest):
-        """Sends command to specific source with validation and rate limiting"""
+    async def control_source(source_name: str, control_request: AudioControlRequest):
+        """Sends command to specific source with validation"""
         source = parse_audio_source(source_name)
         source_instance = state_machine.sources.get(source)
 

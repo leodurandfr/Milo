@@ -116,7 +116,7 @@ export function useVolumeThrottle(callback, preset = 'MEDIUM') {
  *
  * @param {Function} callbackFactory - Factory function (key) => callback
  * @param {string} preset - Preset name
- * @returns {Object} { getThrottledFn, cleanupAll }
+ * @returns {Object} { getThrottledFn }
  */
 export function useVolumeThrottleMap(callbackFactory, preset = 'MEDIUM') {
   const config = THROTTLE_PRESETS[preset] || THROTTLE_PRESETS.MEDIUM;
@@ -180,7 +180,6 @@ export function useVolumeThrottleMap(callbackFactory, preset = 'MEDIUM') {
 
   return {
     getThrottledFn,
-    cleanupAll,
   };
 }
 

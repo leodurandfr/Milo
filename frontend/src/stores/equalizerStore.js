@@ -26,7 +26,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   const state = ref('disconnected'); // disconnected, inactive, running, paused
   const isLoading = ref(false);
   const isUpdating = ref(false);
-  const isResetting = ref(false);
   const filtersLoaded = ref(false);
   const sampleRate = ref(48000);
 
@@ -36,7 +35,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   const isTogglingEnabled = ref(false);
 
   // Audio levels (for meters)
-  const inputPeak = ref([-80, -80]);
   const outputPeak = ref([-80, -80]);
 
   // Advanced equalizer settings
@@ -252,15 +250,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     const result = await apiCall.put(`${getApiBase()}/filter/${filterId}`, filterData, {
       category: 'store',
       message: 'Error updating filter',
-      checkStatus: true,
-    });
-    return result.ok;
-  }
-
-  async function sendResetFilters() {
-    const result = await apiCall.post(`${getApiBase()}/reset`, null, {
-      category: 'store',
-      message: 'Error resetting filters',
       checkStatus: true,
     });
     return result.ok;
@@ -769,35 +758,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     }
   }
 
-  async function resetAllFilters() {
-    if (isResetting.value) return false;
-
-    isResetting.value = true;
-    const success = await sendResetFilters();
-    if (success) {
-      filters.value.forEach(filter => {
-        filter.gain = 0;
-      });
-
-      // Propagate reset to online linked clients
-      const linkedIds = registryStore.getLinkedClientIds(selectedTarget.value);
-      if (linkedIds.length > 1) {
-        const onlineClients = linkedIds.filter(id =>
-          id !== selectedTarget.value && registryStore.isClientOnline(id)
-        );
-        const promises = onlineClients.map(targetId =>
-          apiCall.post(`${getApiBase(targetId)}/reset`, null, {
-            category: 'store',
-            message: `Error resetting filters on ${targetId}`,
-          }),
-        );
-        await Promise.all(promises);
-      }
-    }
-    isResetting.value = false;
-    return success;
-  }
-
   // === PRESET MANAGEMENT ===
   async function loadPreset(presetId) {
     // If target is in a zone, use zone endpoint (backend handles propagation)
@@ -1072,20 +1032,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   }
 
   // === LINKED CLIENTS MANAGEMENT ===
-
-  async function unlinkClient(clientId) {
-    return apiCall('store', 'Error unlinking client', async () => {
-      // Find the zone this client belongs to
-      const zone = registryStore.getZoneForClient(clientId);
-      if (!zone) {
-        // Client not in any zone, nothing to unlink
-        return true;
-      }
-      // Delegate to multiroomStore
-      await registryStore.removeClientFromZone(zone.id, clientId);
-      return true;
-    });
-  }
 
   async function clearAllLinks() {
     return apiCall('store', 'Error clearing links', async () => {
@@ -1389,8 +1335,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     _applyPresetGains(presetId);
   }
 
-  function updateLevels(input, output) {
-    inputPeak.value = input;
+  function updateLevels(output) {
     outputPeak.value = output;
   }
 
@@ -1504,10 +1449,8 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     state,
     isLoading,
     isUpdating,
-    isResetting,
     filtersLoaded,
     sampleRate,
-    inputPeak,
     outputPeak,
 
     // Equalizer Effects Enabled State
@@ -1536,7 +1479,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     loadStatus,
     updateFilter,
     finalizeFilterUpdate,
-    resetAllFilters,
     cleanup,
 
     // Equalizer Effects Enable/Disable
@@ -1548,7 +1490,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     selectTarget,
 
     // Linked Clients Management
-    unlinkClient,
     clearAllLinks,
     deleteZone,
     updateZoneName,
