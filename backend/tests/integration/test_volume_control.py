@@ -16,7 +16,6 @@ import pytest
 import asyncio
 import json
 from unittest.mock import Mock, AsyncMock, patch
-from datetime import datetime, timezone
 
 from backend.core.volume import VolumeService
 from backend.core.volume.state import VolumeStateStore, ZoneConfig
@@ -730,7 +729,6 @@ class TestVolumePersistence:
         """
         # Create persistence file with known volume
         persist_data = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
             "local_mac_id": "local",
             "clients": {
                 "local": {"volume_db": -35.0, "mute": False}
@@ -783,7 +781,7 @@ class TestVolumePersistence:
 
         Validates:
         - JSON format with required fields
-        - timestamp, local_volume_db, clients
+        - local_mac_id, clients
         """
         # Create settings with restore_last_volume=True
         settings = Mock()
@@ -842,41 +840,29 @@ class TestVolumePersistence:
             with open(temp_storage_path) as f:
                 data = json.load(f)
 
-            # Validate format
-            assert "timestamp" in data
-            assert isinstance(data["timestamp"], str)
-
             # Should always carry the clients dict and the local mac_id key
             assert "clients" in data
             assert "local_mac_id" in data
 
-            # Timestamp should be valid ISO format
-            try:
-                datetime.fromisoformat(data["timestamp"].replace("Z", "+00:00"))
-            except ValueError:
-                pytest.fail("Timestamp should be valid ISO format")
-
             await service.cleanup()
 
     @pytest.mark.asyncio
-    async def test_stale_persistence_ignored(
+    async def test_old_persistence_still_restored(
         self,
         mock_settings_service,
         temp_storage_path
     ):
         """
-        Test stale (>7 days old) persistence data is ignored.
+        Persisted volume is restored regardless of age (no expiry).
 
         Validates:
-        - Old timestamp causes data to be ignored
-        - Default volume is used instead
+        - An old persisted file is still loaded into the store
+        - Volume, mac_id and mute carry over to the new session
         """
-        from datetime import timedelta
-
-        # Create stale persistence file (8 days old)
-        old_time = datetime.now(timezone.utc) - timedelta(days=8)
+        # Persist a file with a deliberately old timestamp to prove age no
+        # longer gates restoration (timestamp is not even read anymore).
         persist_data = {
-            "timestamp": old_time.isoformat(),
+            "timestamp": "2000-01-01T00:00:00+00:00",
             "local_mac_id": "local",
             "clients": {
                 "local": {"volume_db": -45.0, "mute": False}
@@ -891,10 +877,10 @@ class TestVolumePersistence:
             store = VolumeStateStore(mock_settings_service)
             await store.initialize()
 
-            # Stale data should be ignored, use default
-            assert store.local_volume_db == DEFAULT_VOLUME_DB
-            assert store._local_mac_id is None
-            assert store._clients == {}
+            # Old data is restored as-is
+            assert store.local_volume_db == -45.0
+            assert store._local_mac_id == "local"
+            assert "local" in store._clients
 
 
 # ==============================================================================
@@ -1612,7 +1598,6 @@ class TestStartupVolumeIntegration:
 
         # Create persisted volume file with DIFFERENT volume
         persist_data = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
             "local_mac_id": "local",  # Persisted local volume different from startup_volume
             "clients": {
                 "local": {"volume_db": -50.0, "mute": False}
@@ -1688,7 +1673,6 @@ class TestStartupVolumeIntegration:
 
         # Create persisted volume file (also matches startup_volume_db)
         persist_data = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
             "local_mac_id": "local",
             "clients": {
                 "local": {"volume_db": persisted_volume, "mute": False}
@@ -1715,86 +1699,6 @@ class TestStartupVolumeIntegration:
             calls = mock_camilladsp_service.set_volume.call_args_list
             volume_calls = [c for c in calls if c[0][0] == persisted_volume]
             assert len(volume_calls) >= 1, f"Expected call with {persisted_volume}, got {calls}"
-
-            await service.cleanup()
-
-    @pytest.mark.asyncio
-    async def test_fr12_stale_persisted_volume_ignored(
-        self,
-        mock_state_machine,
-        mock_snapcast_service,
-        mock_camilladsp_service,
-        temp_storage_path
-    ):
-        """
-        FR12: Persisted volume older than 7 days is ignored.
-
-        Validates:
-        - Stale persistence data uses startup_volume_db instead
-        """
-        from datetime import timedelta
-
-        # Create settings
-        settings = Mock()
-        settings.invalidate_cache = Mock()
-        startup_volume = -35.0
-
-        async def mock_get_setting(key):
-            if key == "volume":
-                return {
-                    "limit_min_db": -80.0,
-                    "limit_max_db": -21.0,
-                    "startup_volume_db": startup_volume,
-                    "restore_last_volume": True,  # Would restore, but data is stale
-                    "step_mobile_db": 3.0,
-                    "step_rotary_db": 2.0
-                }
-            elif key == "routing.multiroom_enabled":
-                return False
-            elif key == "equalizer.linked_groups":
-                return []
-            return None
-
-        settings.get_setting = AsyncMock(side_effect=mock_get_setting)
-        settings.set_setting = AsyncMock()
-
-        # Create STALE persisted volume file (8 days old)
-        old_time = datetime.now(timezone.utc) - timedelta(days=8)
-        persist_data = {
-            "timestamp": old_time.isoformat(),
-            "local_mac_id": "local",  # Stale data — should be ignored entirely
-            "clients": {
-                "local": {"volume_db": -50.0, "mute": False}
-            }
-        }
-        temp_storage_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(temp_storage_path, 'w') as f:
-            json.dump(persist_data, f)
-
-        with patch.object(VolumeStateStore, 'STORAGE_PATH', temp_storage_path):
-            service = VolumeService(
-                state_machine=mock_state_machine,
-                snapcast_service=mock_snapcast_service,
-                settings_service=settings,
-                camilladsp_service=mock_camilladsp_service,
-                equalizer_client_proxy_service=None
-            )
-
-            # Action: Initialize service
-            await service.initialize()
-
-            # Assert: Stale data was ignored - state store uses DEFAULT_VOLUME_DB
-            assert service._state_store.local_volume_db == DEFAULT_VOLUME_DB
-            assert service._state_store._local_mac_id is None
-
-            # Assert: Equalizer was NOT set to stale volume (-50dB)
-            calls = mock_camilladsp_service.set_volume.call_args_list
-            stale_volume_calls = [c for c in calls if c[0][0] == -50.0]
-            assert len(stale_volume_calls) == 0, f"Equalizer should not receive stale volume -50dB, got {calls}"
-
-            # Assert: Equalizer received startup_volume_db from settings (single source of truth)
-            startup_calls = [c for c in calls if c[0][0] == startup_volume]
-            assert len(startup_calls) >= 1, f"Equalizer should receive startup_volume_db ({startup_volume}), got {calls}"
 
             await service.cleanup()
 
