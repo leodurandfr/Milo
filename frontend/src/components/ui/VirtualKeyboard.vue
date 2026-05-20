@@ -131,9 +131,11 @@ import { ref, reactive, computed, nextTick, onUnmounted, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useVirtualKeyboard } from '@/composables/useVirtualKeyboard';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
+import { useTimer } from '@/composables/useTimer';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const { getCurrentLanguage } = useI18n();
+const timer = useTimer();
 const keyboardState = useVirtualKeyboard();
 const { screenResolution } = useHardwareConfig();
 
@@ -358,8 +360,8 @@ function resetState() {
   isShiftHeld.value = false;
   pressPopup.visible = false;
   cleanupAccentListeners();
-  clearTimeout(longPressTimer);
-  clearInterval(backspaceInterval);
+  timer.clear(longPressTimer);
+  timer.clear(backspaceInterval);
 }
 
 function handleSubmit() {
@@ -448,7 +450,7 @@ function onKeyPointerDown(event, key) {
 
   const lowerKey = key.toLowerCase();
   if (accentMap.value[lowerKey]) {
-    longPressTimer = setTimeout(() => {
+    longPressTimer = timer.setTimeout(() => {
       showAccentPopup(event, key);
       // Once accent popup is shown, listen on document for slide-to-select
       document.addEventListener('pointermove', onDocumentPointerMove);
@@ -459,7 +461,7 @@ function onKeyPointerDown(event, key) {
 }
 
 function onKeyPointerUp(event, key) {
-  clearTimeout(longPressTimer);
+  timer.clear(longPressTimer);
   longPressTimer = null;
 
   // If accent popup is visible, let the document-level handler manage selection
@@ -474,7 +476,7 @@ function onKeyPointerLeave() {
   // Don't cancel if accent popup is active (finger sliding to popup)
   if (accentPopup.visible) return;
 
-  clearTimeout(longPressTimer);
+  timer.clear(longPressTimer);
   longPressTimer = null;
   pressPopup.visible = false;
 }
@@ -522,12 +524,12 @@ function cleanupAccentListeners() {
 // ===== BACKSPACE REPEAT =====
 function startBackspaceRepeat() {
   backspace();
-  backspaceInterval = setInterval(backspace, 100);
+  backspaceInterval = timer.setInterval(backspace, 100);
 }
 
 function stopBackspaceRepeat() {
   if (backspaceInterval) {
-    clearInterval(backspaceInterval);
+    timer.clear(backspaceInterval);
     backspaceInterval = null;
   }
 }
@@ -556,7 +558,7 @@ function isAncestorHidden(el) {
 
 function startOriginCheck() {
   stopOriginCheck();
-  originCheckInterval = setInterval(() => {
+  originCheckInterval = timer.setInterval(() => {
     const el = keyboardState.originElement.value;
     if (!el) return;
     if (!el.isConnected || isAncestorHidden(el)) {
@@ -567,7 +569,7 @@ function startOriginCheck() {
 
 function stopOriginCheck() {
   if (originCheckInterval) {
-    clearInterval(originCheckInterval);
+    timer.clear(originCheckInterval);
     originCheckInterval = null;
   }
 }
@@ -586,7 +588,7 @@ watch(isKeyboardVisible, (visible) => {
   if (visible) {
     startOriginCheck();
     focusDisplayInput();
-    setTimeout(() => {
+    timer.setTimeout(() => {
       document.addEventListener('pointerdown', handleOutsideClick);
     }, 0);
   } else {
@@ -599,8 +601,7 @@ onUnmounted(() => {
   stopOriginCheck();
   document.removeEventListener('pointerdown', handleOutsideClick);
   cleanupAccentListeners();
-  clearTimeout(longPressTimer);
-  clearInterval(backspaceInterval);
+  // longPressTimer / backspaceInterval are auto-cleared by useTimer.
 });
 </script>
 

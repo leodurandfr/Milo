@@ -45,7 +45,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
@@ -59,7 +59,7 @@ import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 
 const { t } = useI18n();
-const { updateSetting, debouncedUpdate, clearAllTimers } = useSettingsAPI();
+const { updateSetting, debouncedUpdate } = useSettingsAPI();
 const { rotaryEnabled } = useHardwareConfig();
 const settingsStore = useSettingsStore();
 const unifiedStore = useUnifiedAudioStore();
@@ -117,10 +117,6 @@ watch(
 );
 
 onMounted(syncFromStore);
-
-onUnmounted(() => {
-  clearAllTimers();
-});
 </script>
 
 <style scoped>

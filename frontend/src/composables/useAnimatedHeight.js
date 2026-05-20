@@ -1,5 +1,6 @@
 // frontend/src/composables/useAnimatedHeight.js
 import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue';
+import { useTimer } from '@/composables/useTimer';
 import { modalDebugLog } from '@/services/modalDebug';
 
 /**
@@ -29,6 +30,7 @@ export function useAnimatedHeight(contentRef, options = {}) {
   let isFirstResize = skipFirstResize;
 
   // Height lock: prevents ResizeObserver updates during child animations
+  const timer = useTimer();
   let isHeightLocked = false;
   let unlockTimer = null;
 
@@ -105,7 +107,7 @@ export function useAnimatedHeight(contentRef, options = {}) {
    */
   function requestHeightDelta(delta, duration = 400, { skipOverflowCheck = false } = {}) {
     // Clear any pending unlock
-    if (unlockTimer) clearTimeout(unlockTimer);
+    if (unlockTimer) timer.clear(unlockTimer);
 
     // Calculate target height
     const currentHeight = parseFloat(containerHeight.value) || 0;
@@ -152,7 +154,7 @@ export function useAnimatedHeight(contentRef, options = {}) {
       applyHeight(targetHeight);
 
       // Unlock after animation completes and correct if prediction was off
-      unlockTimer = setTimeout(() => {
+      unlockTimer = timer.setTimeout(() => {
         isHeightLocked = false;
         if (contentRef.value) {
           const el = contentRef.value;
@@ -198,7 +200,7 @@ export function useAnimatedHeight(contentRef, options = {}) {
   });
 
   onUnmounted(() => {
-    if (unlockTimer) clearTimeout(unlockTimer);
+    // unlockTimer (if pending) is auto-cleared by useTimer.
     disconnectObserver();
   });
 

@@ -303,8 +303,10 @@ import InfoSettings from '@/components/settings/categories/InfoSettings.vue';
 import NetworkSettings from '@/components/settings/categories/NetworkSettings.vue';
 import { preloadNetworkStatus } from '@/composables/useNetwork';
 import { preloadHardwareConfig, useHardwareConfig } from '@/composables/useHardwareConfig';
+import { useTimer } from '@/composables/useTimer';
 
 const { screenType } = useHardwareConfig();
+const timer = useTimer();
 const props = defineProps({
   initialView: {
     type: String,
@@ -469,7 +471,7 @@ async function handleRestoreStation() {
 
   if (result.ok && result.data.success) {
     // Wait a bit for backend to save
-    await new Promise(resolve => setTimeout(resolve, 200));
+    await new Promise(resolve => timer.setTimeout(resolve, 200));
     await radioStore.loadRadioSettingsData();
     back();
     stationToEdit.value = null;
@@ -488,7 +490,7 @@ async function handleDeleteStation() {
       logger.info('settings', 'Station deleted');
 
       // Wait a bit for backend to save
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise(resolve => timer.setTimeout(resolve, 200));
 
       await radioStore.loadRadioSettingsData();
       back();

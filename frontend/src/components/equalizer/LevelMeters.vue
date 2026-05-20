@@ -23,13 +23,14 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, watch } from 'vue';
+import { computed, onMounted, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import LevelMeter from './LevelMeter.vue';
 import { apiCall } from '@/services/apiCall';
+import { useTimer } from '@/composables/useTimer';
 
 const props = defineProps({
   clientIds: {
@@ -41,6 +42,7 @@ const props = defineProps({
 const { t } = useI18n();
 const equalizerStore = useEqualizerStore();
 const audioStore = useUnifiedAudioStore();
+const timer = useTimer();
 
 // Fixed metering range: 0 dBFS is the standard reference for audio level meters,
 // regardless of volume control settings (which define the volume knob range, not signal range)
@@ -99,23 +101,12 @@ async function pollLevels() {
 function startPolling() {
   if (pollInterval) return;
   pollLevels();
-  pollInterval = setInterval(pollLevels, 100); // 10Hz update rate
-}
-
-function stopPolling() {
-  if (pollInterval) {
-    clearInterval(pollInterval);
-    pollInterval = null;
-  }
+  pollInterval = timer.setInterval(pollLevels, 100); // 10Hz update rate (auto-cleared on unmount)
 }
 
 // Start polling when component mounts
 onMounted(() => {
   startPolling();
-});
-
-onUnmounted(() => {
-  stopPolling();
 });
 
 // Re-poll immediately when clientIds or mute states change

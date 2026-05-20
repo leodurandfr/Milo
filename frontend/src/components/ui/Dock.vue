@@ -79,8 +79,9 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch, nextTick, inject } from 'vue';
+import { ref, computed, onMounted, watch, nextTick, inject } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { useTimer } from '@/composables/useTimer';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useI18n } from '@/services/i18n';
 import { useIsMobile } from '@/composables/useIsMobile';
@@ -167,6 +168,7 @@ const showDragIndicator = ref(false);
 const additionalAppsInDOM = ref(false);
 
 // === TIMERS ===
+const timer = useTimer();
 let hideTimeout = null;
 let additionalHideTimeout = null;
 
@@ -177,9 +179,9 @@ const getDockItemDelay = (index) => `${DOCK_ANIM_INITIAL_DELAY + index * DOCK_AN
 
 // === DOCK SHOW/HIDE ===
 const startHideTimer = () => {
-  clearTimeout(hideTimeout);
+  timer.clear(hideTimeout);
   if (unifiedStore.systemState.active_source === 'none') return;
-  hideTimeout = setTimeout(hideDock, 10000);
+  hideTimeout = timer.setTimeout(hideDock, 10000);
 };
 
 const resetHideTimer = () => isVisible.value && startHideTimer();
@@ -197,8 +199,8 @@ const showDock = () => {
   // Wait one frame so the reset state is painted before triggering visible transition
   requestAnimationFrame(() => {
     startHideTimer();
-    setTimeout(() => isFullyVisible.value = true, 400);
-    setTimeout(updateActiveIndicator, 500);
+    timer.setTimeout(() => isFullyVisible.value = true, 400);
+    timer.setTimeout(updateActiveIndicator, 500);
   });
 };
 
@@ -207,10 +209,10 @@ const hideDock = () => {
   isFullyVisible.value = false;
   showAdditionalApps.value = false;
   isVisible.value = false;
-  clearTimeout(hideTimeout);
-  clearTimeout(additionalHideTimeout);
+  timer.clear(hideTimeout);
+  timer.clear(additionalHideTimeout);
   indicatorStyle.value.opacity = '0';
-  setTimeout(() => additionalAppsInDOM.value = false, 400);
+  timer.setTimeout(() => additionalAppsInDOM.value = false, 400);
 
   volumeHold.onVolumeHoldEnd();
   drag.resetGestureState();
@@ -288,7 +290,7 @@ const updateActiveIndicator = () => {
 
     indicatorStyle.value = { opacity: '0', transform: `translateX(${offsetX}px)`, transition: 'none' };
 
-    setTimeout(() => {
+    timer.setTimeout(() => {
       indicatorStyle.value = {
         opacity: '1',
         transform: `translateX(${offsetX}px)`,
@@ -383,7 +385,7 @@ const getAppTitle = (appId) => {
 const toggleAdditionalApps = () => {
   if (!showAdditionalApps.value) {
     additionalAppsInDOM.value = true;
-    clearTimeout(additionalHideTimeout);
+    timer.clear(additionalHideTimeout);
     nextTick(() => {
       requestAnimationFrame(() => {
         showAdditionalApps.value = true;
@@ -398,8 +400,8 @@ const toggleAdditionalApps = () => {
 const closeAdditionalApps = () => {
   if (!showAdditionalApps.value) return;
   showAdditionalApps.value = false;
-  clearTimeout(additionalHideTimeout);
-  additionalHideTimeout = setTimeout(() => additionalAppsInDOM.value = false, 1200);
+  timer.clear(additionalHideTimeout);
+  additionalHideTimeout = timer.setTimeout(() => additionalAppsInDOM.value = false, 1200);
 };
 
 const handleToggleClick = (event) => {
@@ -412,7 +414,7 @@ const handleToggleClick = (event) => {
 watch(() => unifiedStore.systemState.active_source, (newSource) => {
   if (newSource === 'none') {
     indicatorStyle.value.opacity = '0';
-    clearTimeout(hideTimeout);
+    timer.clear(hideTimeout);
   } else if (isVisible.value && indicatorStyle.value.opacity === '1') {
     // Indicator already visible — slide to new position
     const newIndex = activeSourceIndex.value;
@@ -438,14 +440,10 @@ onMounted(() => {
     registerDockControl(showDock);
   }
 
-  setTimeout(() => showDragIndicator.value = true, 800);
+  timer.setTimeout(() => showDragIndicator.value = true, 800);
 });
-
-onUnmounted(() => {
-  // drag and volumeHold register their own onUnmounted hooks internally
-  clearTimeout(hideTimeout);
-  clearTimeout(additionalHideTimeout);
-});
+// hideTimeout / additionalHideTimeout are auto-cleared on unmount by useTimer;
+// the drag and volumeHold composables register their own onUnmounted hooks internally.
 </script>
 
 <style scoped>

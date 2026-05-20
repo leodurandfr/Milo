@@ -108,6 +108,7 @@ import { wsEventRegistry } from '@/schemas/ws';
 import { logger } from '@/services/logger';
 import { useScreenActivity } from '@/composables/useScreenActivity';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
+import { useTimer } from '@/composables/useTimer';
 import { handleNetworkStatusChanged } from '@/composables/useNetwork';
 
 // === Constants ===
@@ -132,6 +133,7 @@ const equalizerStore = useEqualizerStore();
 const systemStore = useSystemStore();
 const { on, parsedOn, onReconnect, onVisibilityChange, isConnected } = useWebSocket();
 const { loadHardwareInfo } = useHardwareConfig();
+const timer = useTimer();
 
 // Enable screen activity detection (touch, mouse, keyboard)
 useScreenActivity();
@@ -182,7 +184,7 @@ function processInitialState(event) {
 function startBootTimeout() {
   clearBootTimeout();
   // Stage 1: Show "connecting" after first timeout
-  bootTimeoutId = setTimeout(async () => {
+  bootTimeoutId = timer.setTimeout(async () => {
     if (!isReady.value) {
       showBootMessage(t('app.connecting'));
       // HTTP fallback for captive portal (macOS doesn't support WebSocket)
@@ -195,7 +197,7 @@ function startBootTimeout() {
         processInitialState({ category: 'system', type: 'initial_state', source: 'system', data: result.data });
       }
       // Stage 2: Show "unavailable" after more time
-      bootFailedTimeoutId = setTimeout(() => {
+      bootFailedTimeoutId = timer.setTimeout(() => {
         if (!isReady.value) {
           showBootMessage(t('app.connectionUnavailable'));
         }
@@ -206,11 +208,11 @@ function startBootTimeout() {
 
 function clearBootTimeout() {
   if (bootTimeoutId) {
-    clearTimeout(bootTimeoutId);
+    timer.clear(bootTimeoutId);
     bootTimeoutId = null;
   }
   if (bootFailedTimeoutId) {
-    clearTimeout(bootFailedTimeoutId);
+    timer.clear(bootFailedTimeoutId);
     bootFailedTimeoutId = null;
   }
 }
@@ -240,7 +242,7 @@ watch(isConnected, (connected) => {
   if (settingsStore.setupCompleted === false) return;
 
   if (connectionLostTimeout) {
-    clearTimeout(connectionLostTimeout);
+    timer.clear(connectionLostTimeout);
     connectionLostTimeout = null;
   }
 
@@ -249,7 +251,7 @@ watch(isConnected, (connected) => {
       || window.matchMedia('(display-mode: standalone)').matches;
     if (isStandalone) {
       // PWA standalone: delay to avoid flash during quick background/foreground transitions
-      connectionLostTimeout = setTimeout(() => {
+      connectionLostTimeout = timer.setTimeout(() => {
         if (!isConnected.value) {
           showConnectionLost.value = true;
         }
@@ -301,10 +303,10 @@ let commandErrorTimer = null;
 watch(() => unifiedStore.commandError, (err) => {
   if (!err) return;
   unifiedStore.commandError = null;
-  if (commandErrorTimer) clearTimeout(commandErrorTimer);
+  if (commandErrorTimer) timer.clear(commandErrorTimer);
   const source = capitalize(err.source || 'audio');
   currentError.value = { title: `${source} · ${t('notification.commandFailed')}`, detail: err.command };
-  commandErrorTimer = setTimeout(() => {
+  commandErrorTimer = timer.setTimeout(() => {
     if (currentError.value?.detail === err.command) {
       currentError.value = null;
     }
@@ -337,8 +339,8 @@ function handleScreenWake() {
   });
 
   // Safety fallback: if WebSocket event doesn't arrive within 500ms, force-hide the shield
-  clearTimeout(sleepShieldTimeout);
-  sleepShieldTimeout = setTimeout(() => {
+  timer.clear(sleepShieldTimeout);
+  sleepShieldTimeout = timer.setTimeout(() => {
     if (settingsStore.isScreenSleeping) {
       settingsStore.updateScreenSleeping(false);
     }
@@ -353,22 +355,22 @@ watch(isReady, (ready) => {
     hideBootMessage();
 
     if (!isFastBoot) {
-      setTimeout(() => {
+      timer.setTimeout(() => {
         bootScreenEl.classList.add('logo-exit');
       }, LOGO_FADE_DELAY);
     }
 
-    setTimeout(() => {
+    timer.setTimeout(() => {
       bootScreenEl.classList.add('fade-out');
       isBootComplete.value = true;
       sessionStorage.setItem('milo_booted', '1');
 
-      setTimeout(() => {
+      timer.setTimeout(() => {
         if (bootScreenEl) bootScreenEl.style.display = 'none';
       }, DOM_REMOVE_DELAY);
 
       // Auto-show dock after boot complete, only if no audio source is active
-      setTimeout(() => {
+      timer.setTimeout(() => {
         if (showDockFn && unifiedStore.systemState.active_source === 'none') {
           showDockFn();
         }
@@ -712,12 +714,8 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  clearBootTimeout();
-  clearTimeout(sleepShieldTimeout);
-  if (connectionLostTimeout) {
-    clearTimeout(connectionLostTimeout);
-    connectionLostTimeout = null;
-  }
+  // All component timers (boot, sleep-shield, connection-lost, command-error)
+  // are auto-cleared by useTimer.
   cleanupFunctions.forEach(cleanup => cleanup());
 });
 </script>

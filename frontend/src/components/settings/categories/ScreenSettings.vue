@@ -78,10 +78,11 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useTimer } from '@/composables/useTimer';
 import { apiCall } from '@/services/apiCall';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
@@ -91,7 +92,8 @@ import SettingItem from '@/components/settings/SettingItem.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 
 const { t } = useI18n();
-const { updateSetting, clearAllTimers } = useSettingsAPI();
+const { updateSetting } = useSettingsAPI();
+const timer = useTimer();
 const settingsStore = useSettingsStore();
 const DEFAULT_DELAY = 30;
 
@@ -164,7 +166,7 @@ function handleBrightnessChange(value) {
     // Fire immediately
     applyBrightness(value);
     brightnessThrottleActive = true;
-    setTimeout(() => {
+    timer.setTimeout(() => {
       brightnessThrottleActive = false;
       // Apply any pending value that arrived during throttle window
       if (pendingBrightness !== null && pendingBrightness !== lastAppliedBrightness) {
@@ -267,10 +269,6 @@ watch(
 
 onMounted(() => {
   syncFromStore();
-});
-
-onUnmounted(() => {
-  clearAllTimers();
 });
 </script>
 

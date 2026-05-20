@@ -34,9 +34,10 @@
 </template>
 
 <script setup>
-import { computed, ref, watch, inject, onUnmounted, defineAsyncComponent } from 'vue';
+import { computed, ref, watch, inject, defineAsyncComponent } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useScreensaver } from '@/composables/useScreensaver';
+import { useTimer } from '@/composables/useTimer';
 
 import AudioSourceView from '@/components/audio/AudioSourceView.vue';
 import Logo from '@/components/ui/Logo.vue';
@@ -51,6 +52,7 @@ const AudioScreensaver = defineAsyncComponent(() =>
 );
 
 const unifiedStore = useUnifiedAudioStore();
+const timer = useTimer();
 
 // === Audio Screensaver ===
 const { isScreensaverVisible, screensaverData, closeScreensaver } = useScreensaver();
@@ -125,14 +127,14 @@ let clickWindowTimer = null;
 function resetClickWindow() {
   settingsClicks.value = 0;
   if (clickWindowTimer) {
-    clearTimeout(clickWindowTimer);
+    timer.clear(clickWindowTimer);
     clickWindowTimer = null;
   }
 }
 
 function handleSettingsClick() {
   if (settingsClicks.value === 0) {
-    clickWindowTimer = setTimeout(() => {
+    clickWindowTimer = timer.setTimeout(() => {
       resetClickWindow();
     }, CLICK_WINDOW_MS);
   }
@@ -144,10 +146,6 @@ function handleSettingsClick() {
     openSettings();
   }
 }
-
-onUnmounted(() => {
-  if (clickWindowTimer) clearTimeout(clickWindowTimer);
-});
 </script>
 
 <style scoped>

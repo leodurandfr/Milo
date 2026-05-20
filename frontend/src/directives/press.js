@@ -41,7 +41,10 @@ function setupPress(el) {
     // Capture pointer to ensure click fires even after scale transform shrinks hit area
     el.setPointerCapture(e.pointerId)
     el.classList.add('pressed')
-    setTimeout(() => el.classList.remove('pressed'), 150)
+    // Raw window timer (window.* prefix): a directive has no component lifecycle,
+    // so useTimer() can't be used here. Fire-and-forget 150ms CSS-class removal,
+    // harmless if the element is already gone.
+    window.setTimeout(() => el.classList.remove('pressed'), 150)
   }
 
   el.addEventListener('pointerdown', el._pressHandler, { passive: true })

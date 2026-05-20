@@ -20,7 +20,8 @@
 </template>
 
 <script setup>
-import { ref, watch, onUnmounted } from 'vue'
+import { ref, watch } from 'vue'
+import { useTimer } from '@/composables/useTimer'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import SvgIcon from '@/components/ui/SvgIcon.vue'
 import Button from '@/components/ui/Button.vue'
@@ -85,18 +86,19 @@ const props = defineProps({
 })
 
 // Delayed loading state to avoid flash of spinner
+const timer = useTimer()
 const showLoading = ref(false)
 let loadingTimeout = null
 
 watch(() => props.loading, (isLoading) => {
   if (loadingTimeout) {
-    clearTimeout(loadingTimeout)
+    timer.clear(loadingTimeout)
     loadingTimeout = null
   }
 
   if (isLoading) {
     if (props.loadingDelay > 0) {
-      loadingTimeout = setTimeout(() => {
+      loadingTimeout = timer.setTimeout(() => {
         showLoading.value = true
       }, props.loadingDelay)
     } else {
@@ -106,10 +108,6 @@ watch(() => props.loading, (isLoading) => {
     showLoading.value = false
   }
 }, { immediate: true })
-
-onUnmounted(() => {
-  if (loadingTimeout) clearTimeout(loadingTimeout)
-})
 </script>
 
 <style scoped>

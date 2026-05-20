@@ -3,6 +3,7 @@
 // computation for AudioScreensaver. Owns the full screensaver lifecycle so MainView
 // only needs to render the component and wire the returned refs.
 import { ref, computed, watch, onUnmounted } from 'vue';
+import { useTimer } from '@/composables/useTimer';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useRadioStore } from '@/stores/radioStore';
 import { usePodcastStore } from '@/stores/podcastStore';
@@ -30,6 +31,7 @@ export function useScreensaver() {
   const podcastStore = usePodcastStore();
   const settingsStore = useSettingsStore();
   const { t } = useI18n();
+  const timer = useTimer();
 
   // --- Reactive state ---
   const isScreensaverVisible = ref(false);
@@ -53,7 +55,7 @@ export function useScreensaver() {
 
   function clearInactivityTimer() {
     if (inactivityTimer) {
-      clearTimeout(inactivityTimer);
+      timer.clear(inactivityTimer);
       inactivityTimer = null;
     }
   }
@@ -62,7 +64,7 @@ export function useScreensaver() {
     clearInactivityTimer();
     if (!shouldMonitorInactivity.value || isScreensaverVisible.value) return;
 
-    inactivityTimer = setTimeout(() => {
+    inactivityTimer = timer.setTimeout(() => {
       isScreensaverVisible.value = true;
     }, screensaverDelay.value);
   }
@@ -210,7 +212,7 @@ export function useScreensaver() {
 
   onUnmounted(() => {
     removeActivityListeners();
-    clearInactivityTimer();
+    // inactivityTimer is auto-cleared by useTimer.
   });
 
   return {

@@ -1,4 +1,5 @@
 import { onUnmounted } from 'vue';
+import { useTimer } from '@/composables/useTimer';
 
 /**
  * Hold-to-repeat composable for discrete volume buttons.
@@ -29,6 +30,7 @@ export function useVolumeHold({
   const INITIAL_DELAY = 400;
   const REPEAT_INTERVAL = 50;
 
+  const timer = useTimer();
   let startTimer = null;
   let repeatTimer = null;
   let isHolding = false;
@@ -46,18 +48,18 @@ export function useVolumeHold({
     currentDelta = delta;
     actionTaken = false;
 
-    startTimer = setTimeout(() => {
+    startTimer = timer.setTimeout(() => {
       if (!gestureHasMoved.value && lockedPointerType === event.pointerType) {
         adjustVolume(delta);
         actionTaken = true;
         isHolding = true;
         onHoldStart?.(delta, REPEAT_INTERVAL);
 
-        repeatTimer = setInterval(() => {
+        repeatTimer = timer.setInterval(() => {
           if (isHolding) {
             adjustVolume(currentDelta);
           } else {
-            clearInterval(repeatTimer);
+            timer.clear(repeatTimer);
           }
         }, REPEAT_INTERVAL);
       }
@@ -77,11 +79,11 @@ export function useVolumeHold({
     onHoldEnd?.();
 
     if (startTimer) {
-      clearTimeout(startTimer);
+      timer.clear(startTimer);
       startTimer = null;
     }
     if (repeatTimer) {
-      clearInterval(repeatTimer);
+      timer.clear(repeatTimer);
       repeatTimer = null;
     }
 

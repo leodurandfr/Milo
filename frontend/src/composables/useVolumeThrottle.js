@@ -10,6 +10,10 @@
  * - Throttled execution (skip calls within throttle window)
  * - Final callback (ensures last value is sent after drag ends)
  * - Proper cleanup on unmount
+ *
+ * Timer-primitive layer: like useTimer, this composable manages its own cleanup,
+ * so it uses raw window.* timers directly (the window.* prefix marks the
+ * deliberate raw usage — see the no-restricted-globals rule in eslint.config.mjs).
  */
 
 import { ref, onUnmounted } from 'vue';
@@ -47,7 +51,7 @@ export function useVolumeThrottle(callback, preset = 'MEDIUM') {
 
     // Clear any pending final timer
     if (finalTimer) {
-      clearTimeout(finalTimer);
+      window.clearTimeout(finalTimer);
       finalTimer = null;
     }
 
@@ -60,7 +64,7 @@ export function useVolumeThrottle(callback, preset = 'MEDIUM') {
     }
 
     // Schedule final callback to ensure last value is sent
-    finalTimer = setTimeout(() => {
+    finalTimer = window.setTimeout(() => {
       if (lastArgs) {
         callback(...lastArgs);
         lastArgs = null;
@@ -74,7 +78,7 @@ export function useVolumeThrottle(callback, preset = 'MEDIUM') {
    */
   const flush = () => {
     if (finalTimer) {
-      clearTimeout(finalTimer);
+      window.clearTimeout(finalTimer);
       finalTimer = null;
     }
     if (lastArgs) {
@@ -89,7 +93,7 @@ export function useVolumeThrottle(callback, preset = 'MEDIUM') {
    */
   const cleanup = () => {
     if (finalTimer) {
-      clearTimeout(finalTimer);
+      window.clearTimeout(finalTimer);
       finalTimer = null;
     }
     lastArgs = null;
@@ -134,7 +138,7 @@ export function useVolumeThrottleMap(callbackFactory, preset = 'MEDIUM') {
         lastArgs = args;
 
         if (finalTimer) {
-          clearTimeout(finalTimer);
+          window.clearTimeout(finalTimer);
         }
 
         if (now - lastCallTime >= config.throttle) {
@@ -142,7 +146,7 @@ export function useVolumeThrottleMap(callbackFactory, preset = 'MEDIUM') {
           callbackFactory(key)(...args);
         }
 
-        finalTimer = setTimeout(() => {
+        finalTimer = window.setTimeout(() => {
           if (lastArgs) {
             callbackFactory(key)(...lastArgs);
             lastArgs = null;
@@ -154,7 +158,7 @@ export function useVolumeThrottleMap(callbackFactory, preset = 'MEDIUM') {
         fn: throttledFn,
         cleanup: () => {
           if (finalTimer) {
-            clearTimeout(finalTimer);
+            window.clearTimeout(finalTimer);
           }
         },
       });

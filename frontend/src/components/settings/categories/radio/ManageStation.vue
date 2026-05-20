@@ -107,7 +107,8 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onUnmounted, watch, computed, nextTick } from 'vue';
+import { ref, reactive, onMounted, watch, computed, nextTick } from 'vue';
+import { useTimer } from '@/composables/useTimer';
 import { useI18n } from '@/services/i18n';
 import { logger } from '@/services/logger';
 import { useRadioStore } from '@/stores/radioStore';
@@ -261,11 +262,12 @@ const isInitialized = ref(false);
 const isSaving = ref(false);
 const pendingSave = ref(false);
 const SAVE_DEBOUNCE_MS = 500;
+const timer = useTimer();
 let saveDebounceTimer = null;
 
 function clearDebounce() {
   if (saveDebounceTimer) {
-    clearTimeout(saveDebounceTimer);
+    timer.clear(saveDebounceTimer);
     saveDebounceTimer = null;
   }
 }
@@ -276,7 +278,7 @@ function triggerSave({ instant = false } = {}) {
   if (instant) {
     saveEdit();
   } else {
-    saveDebounceTimer = setTimeout(() => {
+    saveDebounceTimer = timer.setTimeout(() => {
       saveDebounceTimer = null;
       saveEdit();
     }, SAVE_DEBOUNCE_MS);
@@ -373,10 +375,6 @@ watch(() => props.station, async () => {
 
 onMounted(() => {
   loadAvailableCountries();
-});
-
-onUnmounted(() => {
-  clearDebounce();
 });
 
 // === File selection ===

@@ -77,7 +77,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -93,7 +93,7 @@ import MessageContent from '@/components/ui/MessageContent.vue';
 const emit = defineEmits(['open-hardware']);
 
 const { t } = useI18n();
-const { debouncedUpdate, clearAllTimers } = useSettingsAPI();
+const { debouncedUpdate } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 const { hardwareConfig } = useHardwareConfig();
 const timer = useTimer();
@@ -287,10 +287,6 @@ onBeforeUnmount(() => {
     settingsStore.cancelIrRemotePairing();
   }
   stopCountdown();
-});
-
-onUnmounted(() => {
-  clearAllTimers();
 });
 </script>
 

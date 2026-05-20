@@ -41,8 +41,9 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onUnmounted } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { dbToPercent } from '@/constants/volumeConversion';
+import { useTimer } from '@/composables/useTimer';
 
 const props = defineProps({
   level: {
@@ -89,6 +90,7 @@ const props = defineProps({
 });
 
 // Peak hold logic
+const timer = useTimer();
 const peakLevel = ref(props.level);
 let peakHoldTimer = null;
 let decayInterval = null;
@@ -115,26 +117,21 @@ watch(() => props.level, (newLevel) => {
     peakLevel.value = newLevel;
 
     // Clear existing timers
-    if (peakHoldTimer) clearTimeout(peakHoldTimer);
-    if (decayInterval) clearInterval(decayInterval);
+    if (peakHoldTimer) timer.clear(peakHoldTimer);
+    if (decayInterval) timer.clear(decayInterval);
 
     // Start decay after hold time
-    peakHoldTimer = setTimeout(() => {
-      decayInterval = setInterval(() => {
+    peakHoldTimer = timer.setTimeout(() => {
+      decayInterval = timer.setInterval(() => {
         peakLevel.value = Math.max(props.level, peakLevel.value - props.peakDecay);
 
         if (peakLevel.value <= props.level) {
-          clearInterval(decayInterval);
+          timer.clear(decayInterval);
           decayInterval = null;
         }
       }, 16); // ~60fps
     }, props.peakHoldTime);
   }
-});
-
-onUnmounted(() => {
-  if (peakHoldTimer) clearTimeout(peakHoldTimer);
-  if (decayInterval) clearInterval(decayInterval);
 });
 </script>
 

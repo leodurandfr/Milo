@@ -214,9 +214,11 @@ import SvgIcon from '@/components/ui/SvgIcon.vue';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useVolumeThrottle, useVolumeThrottleMap } from '@/composables/useVolumeThrottle';
+import { useTimer } from '@/composables/useTimer';
 import { useI18n } from '@/services/i18n';
 
 const { t } = useI18n();
+const timer = useTimer();
 const settingsStore = useSettingsStore();
 const equalizerStore = useEqualizerStore();
 
@@ -402,7 +404,7 @@ function handleVolumeChange(newDisplayVolume) {
     emit('volume-change', props.client.mac_id, newDisplayVolume, { isZone: props.isZone });
   }
   // Fallback: clear local value after 2s if WebSocket didn't confirm
-  setTimeout(() => {
+  timer.setTimeout(() => {
     if (localDisplayVolume.value === newDisplayVolume) {
       localDisplayVolume.value = null;
     }

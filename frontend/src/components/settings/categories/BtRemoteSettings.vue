@@ -42,7 +42,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -53,7 +53,7 @@ import ToggleSection from '@/components/ui/ToggleSection.vue';
 import Button from '@/components/ui/Button.vue';
 
 const { t } = useI18n();
-const { debouncedUpdate, clearAllTimers } = useSettingsAPI();
+const { debouncedUpdate } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 
 const stepBtRemoteDb = ref(settingsStore.volumeSteps.step_bt_remote_db);
@@ -83,10 +83,6 @@ onMounted(() => {
   if (settingsStore.btRemote.connected) {
     settingsStore.fetchBtRemoteBattery();
   }
-});
-
-onUnmounted(() => {
-  clearAllTimers();
 });
 </script>
 

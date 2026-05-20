@@ -1,4 +1,5 @@
 import { ref, onUnmounted } from 'vue';
+import { useTimer } from '@/composables/useTimer';
 
 /**
  * Dock drag/gesture composable — handles all pointer events for:
@@ -39,6 +40,7 @@ export function useDockDrag({
   const isDragging = ref(false);
   const gestureHasMoved = ref(false);
   const gestureStartPosition = ref({ x: 0, y: 0 });
+  const timer = useTimer();
 
   // Plain variables (not reactive — only used inside event handlers)
   let dragStartY = 0;
@@ -101,7 +103,7 @@ export function useDockDrag({
     dragActionTaken = false;
 
     if (dragGraceTimeout) {
-      clearTimeout(dragGraceTimeout);
+      timer.clear(dragGraceTimeout);
       dragGraceTimeout = null;
     }
 
@@ -165,7 +167,7 @@ export function useDockDrag({
         onHide();
       }
 
-      dragGraceTimeout = setTimeout(() => {
+      dragGraceTimeout = timer.setTimeout(() => {
         isDragging.value = false;
         dragActionTaken = false;
         resetGestureState();
@@ -250,7 +252,7 @@ export function useDockDrag({
   const cleanup = () => {
     removeDragEvents();
     if (dragGraceTimeout) {
-      clearTimeout(dragGraceTimeout);
+      timer.clear(dragGraceTimeout);
       dragGraceTimeout = null;
     }
     resetGestureState();
