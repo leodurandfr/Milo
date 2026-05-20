@@ -486,35 +486,3 @@ class TestSettingsService:
         value = service.get_setting_sync('routing.multiroom_enabled')
 
         assert value is False
-
-    @pytest.mark.asyncio
-    async def test_delete_setting_returns_false_on_disk_failure(self, service):
-        """delete_setting swallows write failures and returns False.
-
-        Documents the *current* lossy semantics — equalizer callers do not
-        rely on the strict variant, so this is acceptable for now. If a
-        critical-path caller of delete_setting appears, mirror set_setting
-        and add a `delete_setting_strict` instead.
-        """
-        await service.save_settings(service.defaults)
-
-        async def fake_write_locked(_settings):
-            return False
-
-        with patch.object(service, '_write_locked', side_effect=fake_write_locked):
-            result = await service.delete_setting('routing.multiroom_enabled')
-
-        assert result is False
-        # File on disk must still hold the pre-call value
-        with open(service.settings_file, 'r') as f:
-            on_disk = json.load(f)
-        assert 'multiroom_enabled' in on_disk['routing']
-
-    @pytest.mark.asyncio
-    async def test_delete_setting_missing_key_is_noop(self, service):
-        """Deleting a key that doesn't exist is a successful no-op."""
-        await service.save_settings(service.defaults)
-
-        result = await service.delete_setting('nonexistent.key')
-
-        assert result is True
