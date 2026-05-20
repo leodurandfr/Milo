@@ -278,11 +278,6 @@ class NetworkService:
         if rc != 0:
             error_msg = stderr or "Failed to create connection profile"
             self.logger.error("Failed to create WiFi profile for '%s': %s", ssid, error_msg)
-            await self.state_machine.broadcast_event(
-                category="network",
-                event_type="wifi_connect_failed",
-                data={"ssid": ssid, "error": error_msg},
-            )
             raise RuntimeError(f"WiFi connection failed: {error_msg}")
 
         try:
@@ -290,45 +285,20 @@ class NetworkService:
                 "connection", "up", con_name, timeout=30.0
             )
         except asyncio.TimeoutError:
-            await self.state_machine.broadcast_event(
-                category="network",
-                event_type="wifi_connect_failed",
-                data={"ssid": ssid, "error": "Connection timed out"},
-            )
             raise RuntimeError(f"WiFi connection to '{ssid}' timed out")
 
         if rc != 0:
             error_msg = stderr or "Connection failed"
             self.logger.error("WiFi connection to '%s' failed: %s", ssid, error_msg)
-            await self.state_machine.broadcast_event(
-                category="network",
-                event_type="wifi_connect_failed",
-                data={"ssid": ssid, "error": error_msg},
-            )
             raise RuntimeError(f"WiFi connection failed: {error_msg}")
 
         self.logger.info("Successfully connected to WiFi: %s", ssid)
-
-        status = await self.get_network_status()
-
-        await self.state_machine.broadcast_event(
-            category="network",
-            event_type="wifi_connected",
-            data=status.model_dump(),
-        )
-
-        return status
+        return await self.get_network_status()
 
     async def forget_network(self, ssid: str) -> None:
         """Forget (delete) all saved WiFi connection profiles for this SSID."""
         await self._delete_ssid_profiles(ssid)
         self.logger.info("Forgot WiFi network: %s", ssid)
-
-        await self.state_machine.broadcast_event(
-            category="network",
-            event_type="wifi_forgotten",
-            data={"ssid": ssid},
-        )
 
     async def get_saved_networks(self) -> List[SavedNetwork]:
         """List saved WiFi network connections."""

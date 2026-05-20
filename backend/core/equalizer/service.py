@@ -860,7 +860,7 @@ class CamillaDSPService:
 
     @handle_errors(default=False)
     async def _set_passband_filter(self, filter_name: str, filter_type: str,
-                                    enabled: bool, freq: float, q: float, event: str) -> bool:
+                                    enabled: bool, freq: float, q: float) -> bool:
         """Internal helper for highpass/lowpass filters"""
         if not self._connected:
             return False
@@ -879,7 +879,6 @@ class CamillaDSPService:
             self._remove_filter_from_pipeline(config, filter_name)
 
         await self._set_config(config)
-        await self._broadcast_event(event, {"enabled": enabled, "frequency": freq, "q": q})
         return True
 
     async def get_crossover_filter(self) -> Dict[str, Any]:
@@ -896,11 +895,11 @@ class CamillaDSPService:
 
     async def set_crossover_filter(self, enabled: bool, frequency: float = 80.0, q: float = 0.707) -> bool:
         """Apply highpass filter to remove bass from speakers (for subwoofer setups)"""
-        return await self._set_passband_filter("crossover_highpass", "Highpass", enabled, frequency, q, "crossover_changed")
+        return await self._set_passband_filter("crossover_highpass", "Highpass", enabled, frequency, q)
 
     async def set_lowpass_filter(self, enabled: bool, frequency: float = 80.0, q: float = 0.707) -> bool:
         """Apply lowpass filter to send only bass to subwoofer."""
-        return await self._set_passband_filter("crossover_lowpass", "Lowpass", enabled, frequency, q, "lowpass_changed")
+        return await self._set_passband_filter("crossover_lowpass", "Lowpass", enabled, frequency, q)
 
     # === Level Monitoring ===
 
