@@ -102,7 +102,7 @@ class CdSource(MpvAudioSource):
         self._play_start_lba: int = 0  # LBA where current FIFO session started
 
     def _reset_playback_state(self) -> None:
-        """Reset CD-specific playback fields (called by _do_restart)."""
+        """Reset CD-specific playback fields (called by _do_stop/_auto_stop_action)."""
         super()._reset_playback_state()
         self._current_track = None
         self._track_position = 0
@@ -186,13 +186,6 @@ class CdSource(MpvAudioSource):
 
         except Exception as e:
             self._logger.error(f"Background metadata lookup failed: {e}")
-
-    async def _before_restart_save(self) -> None:
-        """Stop reader before restart."""
-        await asyncio.to_thread(self._reader.stop)
-
-    async def _after_restart_restore(self) -> None:
-        """After restart, don't auto-resume — user must press play."""
 
     @handle_errors(default=False)
     async def _do_stop(self) -> bool:

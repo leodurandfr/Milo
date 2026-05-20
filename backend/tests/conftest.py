@@ -49,7 +49,6 @@ def mock_source():
     source.initialize = AsyncMock(return_value=True)
     source.start = AsyncMock(return_value=True)
     source.stop = AsyncMock(return_value=True)
-    source.restart = AsyncMock(return_value=True)
     # Multiroom reroute hooks (default = stop()/start() on the real base class);
     # mocked as awaitables so _apply_transition can call them on this Mock.
     source.release_for_reroute = AsyncMock(return_value=True)

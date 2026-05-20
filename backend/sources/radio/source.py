@@ -124,11 +124,6 @@ class RadioSource(MpvAudioSource):
             await self._cleanup()
             return False
 
-    async def _before_restart_save(self) -> None:
-        """Stop Shazam before restart."""
-        if self._shazam:
-            await self._shazam.stop()
-
     async def _get_status(self) -> Dict[str, Any]:
         """Get Radio-specific status."""
         mpv_connected = self._mpv.is_connected if self._mpv else False

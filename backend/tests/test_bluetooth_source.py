@@ -80,7 +80,6 @@ class TestBaseClassCompliance:
         """Test required methods exist."""
         assert hasattr(bluetooth_source, 'start')
         assert hasattr(bluetooth_source, 'stop')
-        assert hasattr(bluetooth_source, 'restart')
         assert hasattr(bluetooth_source, 'status')
         assert hasattr(bluetooth_source, 'command')
 

@@ -3,7 +3,7 @@
 Unit tests for RadioSource (features/radio/source.py).
 
 Tests cover:
-- AudioSource Protocol compliance
+- BaseAudioSource compliance
 - Lifecycle (start, stop, restart)
 - Status format
 - Command handling
@@ -57,7 +57,6 @@ class TestBaseClassCompliance:
         """Test required methods exist."""
         assert hasattr(radio_source, 'start')
         assert hasattr(radio_source, 'stop')
-        assert hasattr(radio_source, 'restart')
         assert hasattr(radio_source, 'status')
         assert hasattr(radio_source, 'command')
 

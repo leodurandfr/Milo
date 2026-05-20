@@ -145,32 +145,6 @@ class MacSource(BaseAudioSource):
         # Stop service
         return await self._stop_service()
 
-    async def _do_restart(self) -> bool:
-        """Restart with service restart."""
-        self._stopping = True
-
-        # Cancel monitoring
-        if self._monitor_task:
-            self._monitor_task.cancel()
-            try:
-                await self._monitor_task
-            except asyncio.CancelledError:
-                pass
-            self._monitor_task = None
-
-        # Restart service
-        if not await self._restart_service_and_wait(settle=1):
-            return False
-
-        # Restart monitoring
-        self._stopping = False
-        self._reset_playback_state()
-        await self._check_initial_state()
-        self._monitor_task = asyncio.create_task(self._monitor_events())
-        self._update_connection_state()
-
-        return True
-
     async def _get_status(self) -> Dict[str, Any]:
         """Get Mac-specific status."""
         client_names = list(self.connected_clients.values())
@@ -188,10 +162,6 @@ class MacSource(BaseAudioSource):
 
     async def _handle_command(self, cmd: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Handle Mac-specific commands."""
-        if cmd == "restart_service":
-            success = await self._do_restart()
-            return self.success_response("Restarted") if success else self.error_response("Restart failed")
-
         if cmd == "get_connections":
             return self.success_response(
                 connections=dict(self.connected_clients),

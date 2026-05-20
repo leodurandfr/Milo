@@ -125,7 +125,7 @@ The order in `backend/dependencies.py::initialize_services()` is **CRITICAL** du
 ### 2. Audio Source Architecture
 
 All audio sources extend `BaseAudioSource(ABC)` ([backend/core/audio_source.py](backend/core/audio_source.py)):
-- Public API: `start() / stop() / restart() / status() / command()`
+- Public API: `start() / stop() / status() / command()`
 - Hooks to override in subclasses: `_do_start() / _do_stop() / _get_status() / _handle_command()`
 - `BaseAudioSource.__init__` instantiates `self._logger = logging.getLogger(f"source.{source_id}")` — sub-modules of a source must extend this hierarchy (see *Logger* rule below).
 

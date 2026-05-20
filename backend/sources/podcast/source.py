@@ -131,17 +131,6 @@ class PodcastSource(MpvAudioSource):
         await self._cleanup()
         return await self._stop_service()
 
-    async def _before_restart_save(self) -> None:
-        """Stop progress save and persist progress before restart."""
-        self._stop_progress_save()
-        if self._current_episode and self._position > 0:
-            await self._save_progress()
-
-    async def _after_restart_restore(self) -> None:
-        """Re-apply playback speed to the new mpv process after restart."""
-        if self._mpv and self._mpv.is_connected and self._playback_speed != 1.0:
-            await self._mpv.set_property("speed", self._playback_speed)
-
     async def _get_status(self) -> Dict[str, Any]:
         """Get Podcast-specific status."""
         mpv_connected = self._mpv.is_connected if self._mpv else False
