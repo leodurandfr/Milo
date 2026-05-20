@@ -452,8 +452,9 @@ class TestPlaybackMetadata:
         assert metadata["episode_uuid"] == "test-uuid"
         assert metadata["episode_name"] == "Test Episode"
         assert metadata["podcast_name"] == "Test Podcast"
-        assert metadata["position"] == 120
-        assert metadata["duration"] == 3600
+        # position/duration emitted in milliseconds (shared wire convention).
+        assert metadata["position"] == 120000
+        assert metadata["duration"] == 3600000
         assert metadata["is_playing"] is True
         assert metadata["is_buffering"] is False
         assert metadata["playback_speed"] == 1.5

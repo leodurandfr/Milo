@@ -158,6 +158,33 @@ class PodcastSource(MpvAudioSource):
             "metadata": self._metadata
         }
 
+    async def _refresh_metadata(self) -> bool:
+        """Pull live position/duration from mpv so the WebSocket initial_state
+        sent to a (re)connecting client reflects the current playhead — not
+        the last value broadcast via the 30s periodic sync.
+
+        Called by state.refresh_active_metadata() from the WS handshake.
+        """
+        if not self._current_episode or not self._mpv or not self._mpv.is_connected:
+            return False
+
+        position = await self._mpv.get_property("playback-time")
+        duration = await self._mpv.get_property("duration")
+        pause_state = await self._mpv.get_property("pause")
+        if position is not None:
+            self._position = int(position)
+        if duration is not None:
+            self._duration = int(duration)
+        # Sync play state from mpv too: reading position live but trusting a
+        # cached _is_playing would stamp a stale flag if a reconnect races a
+        # pause command still in flight. Skip while buffering (mpv reports
+        # pause=False before the stream is ready).
+        if pause_state is not None and not self._is_buffering:
+            self._is_playing = not bool(pause_state)
+
+        self._metadata = self._build_playback_metadata()
+        return True
+
     async def _handle_command(self, cmd: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Handle Podcast-specific commands."""
         if cmd == "play_episode":
@@ -224,7 +251,6 @@ class PodcastSource(MpvAudioSource):
             self._is_playing = False
             self._position = start_position
             self._duration = episode.get('duration', 0)
-            self._metadata = self._build_playback_metadata()
 
             # Notify buffering state
             self._update_connection_state()
@@ -262,8 +288,7 @@ class PodcastSource(MpvAudioSource):
             # Start progress save task
             self._start_progress_save()
 
-            # Notify playing state
-            self._metadata = self._build_playback_metadata()
+            # Notify playing state (flips is_playing false→true after buffering).
             self._update_connection_state()
 
             # Clear any previous error now that playback is successful
@@ -315,7 +340,6 @@ class PodcastSource(MpvAudioSource):
                 # Save progress
                 await self._save_progress()
 
-                self._metadata = self._build_playback_metadata()
                 self._update_connection_state()
 
             return self.success_response("Paused")
@@ -330,7 +354,6 @@ class PodcastSource(MpvAudioSource):
                 await self._mpv.resume()
                 self._is_playing = True
 
-                self._metadata = self._build_playback_metadata()
                 self._update_connection_state()
 
             return self.success_response("Resumed")
@@ -351,7 +374,6 @@ class PodcastSource(MpvAudioSource):
             # Save progress immediately after seek
             await self._save_progress()
 
-            self._metadata = self._build_playback_metadata()
             self._update_connection_state()
 
             return self.success_response(f"Seeked to {position}s")
@@ -412,7 +434,6 @@ class PodcastSource(MpvAudioSource):
             # Save speed preference
             await self._podcast_data.set_setting("playback_speed", speed)
 
-            self._metadata = self._build_playback_metadata()
             self._update_connection_state()
 
             self._logger.info(f"Playback speed set to {speed}x")
@@ -532,12 +553,30 @@ class PodcastSource(MpvAudioSource):
             if new_position != self._position:
                 self._position = new_position
 
+        # Edge-trigger: Taddy may return duration=null (→ self._duration is
+        # initialized to 0 in _handle_play_episode). Once mpv reports the real
+        # duration, broadcast immediately so the frontend ProgressBar appears
+        # without waiting up to POSITION_SYNC_INTERVAL seconds for the next
+        # periodic sync.
+        duration_just_known = False
         if duration is not None:
-            self._duration = int(duration)
+            new_duration = int(duration)
+            duration_just_known = self._duration == 0 and new_duration > 0
+            self._duration = new_duration
 
-        # Only broadcast position periodically (not every tick).
-        # Frontend interpolates position locally via useSourceProgress.
-        if self._is_playing and self._position_sync_due():
+        if duration_just_known:
+            self.broadcast_position_update(
+                self._position * 1000, self._duration * 1000
+            )
+
+        # Only broadcast position periodically (not every tick). Skip when the
+        # eager duration push already covered this tick to avoid a redundant
+        # paired broadcast on the rare overlap.
+        if (
+            self._is_playing
+            and self._position_sync_due()
+            and not duration_just_known
+        ):
             self.broadcast_position_update(
                 self._position * 1000, self._duration * 1000
             )
