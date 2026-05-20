@@ -5,7 +5,7 @@ Unit tests for Settings API routes
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import Mock, AsyncMock, patch
 from backend.api.settings import create_settings_router
 
 
@@ -472,11 +472,13 @@ class TestSettingsRoutes:
 
     def test_set_mac_roc_valid(self, client):
         """Test PUT /mac-roc with valid values"""
-        response = client.put("/api/settings/mac-roc", json={
-            "target_latency_ms": 100,
-            "latency_profile": "responsive",
-            "frame_length_ms": 6
-        })
+        # MacEnv.regenerate() writes mac.env to /var/lib/milo — mock it for hermeticity
+        with patch("backend.api.settings.MacEnv.regenerate"):
+            response = client.put("/api/settings/mac-roc", json={
+                "target_latency_ms": 100,
+                "latency_profile": "responsive",
+                "frame_length_ms": 6
+            })
         assert response.status_code == 200
 
     def test_set_mac_roc_latency_out_of_range(self, client):
