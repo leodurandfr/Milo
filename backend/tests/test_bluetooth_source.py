@@ -3,8 +3,9 @@
 Unit tests for BluetoothSource (features/bluetooth/source.py).
 
 Tests cover:
-- AudioSource Protocol compliance
+- BaseAudioSource compliance
 - Lifecycle (start, stop, restart)
+- Multiroom reroute (release/acquire only the player, keep the A2DP link)
 - Device connection tracking
 - Command handling
 - BlueALSA monitor integration
@@ -284,19 +285,67 @@ class TestConnectionState:
 
         assert bluetooth_source.connected_device is None
 
-    @pytest.mark.asyncio
-    async def test_on_device_disconnected_ignored_during_restart(self, bluetooth_source):
-        """Test disconnect is ignored during restart."""
-        bluetooth_source.connected_device = {
-            "address": "AA:BB:CC:DD:EE:FF",
-            "name": "iPhone"
-        }
-        bluetooth_source._restart_in_progress = True
+class TestBluetoothReroute:
+    """Multiroom reroute: bounce ONLY bluealsa-aplay, keep the A2DP link alive.
 
+    A multiroom toggle must not kick the phone off (the regression after
+    fd23f0e6 made _do_stop tear down bluealsa + bluetooth.service). The reroute
+    hooks stop/start only the writer; bluealsa + bluetooth.service stay up, so
+    the A2DP link survives. The monitor tracks PCM add/remove from the bluealsa
+    daemon (the phone's transport), not from the aplay consumer, so bouncing
+    the writer is never seen as a disconnect — no guard needed.
+    """
+
+    @pytest.mark.asyncio
+    async def test_release_stops_only_player(self, bluetooth_source):
+        """release_for_reroute stops bluealsa-aplay and NOT bluealsa /
+        bluetooth.service, and keeps connected_device for the acquire half."""
+        bluetooth_source.connected_device = {"address": "AA:BB:CC:DD:EE:FF", "name": "iPhone"}
+
+        result = await bluetooth_source.release_for_reroute()
+
+        assert result is True
+        bluetooth_source._service_manager.stop.assert_called_once_with("milo-bluealsa-aplay.service")
+        # The A2DP link (bluealsa + bluetooth.service) must stay up.
+        stopped = [c.args[0] for c in bluetooth_source._service_manager.stop.call_args_list]
+        assert "milo-bluealsa.service" not in stopped
+        assert "bluetooth.service" not in stopped
+        # Device kept so acquire can re-publish ACTIVE.
+        assert bluetooth_source.connected_device is not None
+
+    @pytest.mark.asyncio
+    async def test_acquire_restarts_player_and_stays_active(self, bluetooth_source):
+        """acquire_after_reroute restarts the player and re-publishes ACTIVE for
+        the still-connected device."""
+        bluetooth_source.connected_device = {"address": "AA:BB:CC:DD:EE:FF", "name": "iPhone"}
+
+        result = await bluetooth_source.acquire_after_reroute()
+
+        assert result is True
+        bluetooth_source._service_manager.start.assert_called_once_with("milo-bluealsa-aplay.service")
+        assert bluetooth_source.state == SourceState.ACTIVE
+
+    @pytest.mark.asyncio
+    async def test_acquire_failure_returns_false(self, bluetooth_source):
+        """A failed player restart is reported; the caller (_apply_transition)
+        treats it as best-effort and keeps the transition successful."""
+        bluetooth_source._service_manager.start = AsyncMock(return_value=False)
+
+        result = await bluetooth_source.acquire_after_reroute()
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_real_disconnect_during_reroute_is_honored(self, bluetooth_source):
+        """No restart guard any more: if the phone genuinely disconnects while
+        the writer is down, the monitor's PCMRemoved → _on_device_disconnected
+        still clears state (the old _restart_in_progress suppression is gone)."""
+        bluetooth_source.connected_device = {"address": "AA:BB:CC:DD:EE:FF", "name": "iPhone"}
+
+        await bluetooth_source.release_for_reroute()
         await bluetooth_source._on_device_disconnected("AA:BB:CC:DD:EE:FF", "iPhone")
 
-        # Device should still be connected
-        assert bluetooth_source.connected_device is not None
+        assert bluetooth_source.connected_device is None
 
 
 class TestBlueAlsaMonitor:

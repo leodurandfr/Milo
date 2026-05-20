@@ -58,8 +58,6 @@ class BluetoothSource(BaseAudioSource):
 
         # State
         self.connected_device: Optional[Dict[str, str]] = None
-        self._restart_in_progress = False
-        self._restart_lock = asyncio.Lock()
 
         # Components
         self.agent = BluetoothAgent()
@@ -141,32 +139,30 @@ class BluetoothSource(BaseAudioSource):
 
         return True
 
-    async def _do_restart(self) -> bool:
-        """Restart audio playback service and re-detect device."""
-        async with self._restart_lock:
-            try:
-                self._logger.info("Restarting Bluetooth audio")
-                self._restart_in_progress = True
+    async def release_for_reroute(self) -> bool:
+        """Multiroom reroute (release half): stop ONLY bluealsa-aplay so the
+        CamillaDSP input it feeds in direct mode is freed for the snapcast
+        reconcile (snapclient feeds that same CamillaDSP in multiroom mode).
 
-                # Restart playback service
-                if not await self._restart_service(self.bluealsa_aplay_service):
-                    self._restart_in_progress = False
-                    return False
+        bluealsa + bluetooth.service keep running, so the A2DP link — and
+        self.connected_device — survive; unlike _do_stop(), which tears the
+        whole stack down and kicks the phone off. The BlueALSA monitor tracks
+        PCM add/remove driven by the bluealsa daemon (i.e. the phone's A2DP
+        transport), not by the bluealsa-aplay consumer, so bouncing the writer
+        alone never surfaces as a disconnect.
+        """
+        return await self._stop_service(self.bluealsa_aplay_service)
 
-                await asyncio.sleep(0.5)
-
-                # Re-detect connected device
-                await self._detect_connected_device()
-
-                self._restart_in_progress = False
-                self._update_connection_state()
-
-                return True
-
-            except Exception as e:
-                self._restart_in_progress = False
-                self._logger.error(f"Restart failed: {e}")
-                return False
+    async def acquire_after_reroute(self) -> bool:
+        """Multiroom reroute (acquire half): restart bluealsa-aplay under the
+        new MILO_MODE and re-publish state. The device stayed connected and the
+        monitor kept self.connected_device current, so re-broadcasting the
+        connection state restores ACTIVE (the transition set it to STARTING).
+        """
+        if not await self._start_service(self.bluealsa_aplay_service):
+            return False
+        self._update_connection_state()
+        return True
 
     async def _get_status(self) -> Dict[str, Any]:
         """Get Bluetooth-specific status."""
@@ -255,11 +251,6 @@ class BluetoothSource(BaseAudioSource):
 
     async def _on_device_disconnected(self, address: str, name: str) -> None:
         """Handle device disconnection from BlueALSA monitor."""
-        # Ignore during restart
-        if self._restart_in_progress:
-            self._logger.debug(f"Ignoring disconnect during restart: {name}")
-            return
-
         # Check if current device
         if not self.connected_device:
             return
