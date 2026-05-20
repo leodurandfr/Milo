@@ -69,8 +69,7 @@
       "minCharactersRequired": "请输入至少3个字符进行搜索",
       "noFavorites": "没有喜爱的广播",
       "playRadio": "收听",
-      "stopRadio": "停止",
-      "loadingMore": "加载中..."
+      "stopRadio": "停止"
     }
   },
   "multiroom": {
@@ -243,7 +242,9 @@
     "screensaverSourceNote": "仅适用于广播、播客、蓝牙和 macOS",
     "uiScale": "显示",
     "uiScaleLevel": "界面缩放",
-    "screensaverDelay": "在以下时间后启动屏幕保护程序："
+    "screensaverDelay": "在以下时间后启动屏幕保护程序：",
+    "colorFilter": "暖色滤镜",
+    "colorFilterWarmth": "强度"
   },
   "hardwareSettings": {
     "audioCard": "声卡",
@@ -323,7 +324,6 @@
     "ethernet": "以太网",
     "wifi": "WiFi",
     "connected": "已连接",
-    "disconnected": "已断开",
     "notConnected": "未连接",
     "preferredNetwork": "首选网络",
     "wifiDescription": "以太网不可用时由 WiFi 接管。",
@@ -360,22 +360,11 @@
     "2min": "2 分钟",
     "5min": "5 分钟",
     "10min": "10 分钟",
-    "15min": "15 分钟",
     "30min": "30 分钟",
-    "1h": "1 小时",
-    "2h": "2 小时",
-    "4h": "4 小时",
-    "6h": "6 小时",
-    "12h": "12 小时"
+    "1h": "1 小时"
   },
   "common": {
     "settings": "设置",
-    "cancel": "取消",
-    "save": "保存",
-    "saving": "正在保存...",
-    "confirm": "确认",
-    "restore": "恢复",
-    "delete": "删除",
     "deleting": "删除中...",
     "close": "关闭"
   },
@@ -547,7 +536,6 @@
       "amplifiers": "功放",
       "dacs": "DACs",
       "volumeManagement": "音量管理",
-      "volumeManagementDescription": "Milō 控制音频音量",
       "none": "无声卡",
       "other": "其他"
     },
@@ -584,7 +572,6 @@
     "status": {
       "disabled": "已禁用",
       "connected": "已连接",
-      "notConnected": "未连接",
       "notPaired": "未配对",
       "paired": "已配对",
       "hardwareDisabled": "红外接收器已禁用"

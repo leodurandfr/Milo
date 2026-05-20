@@ -69,8 +69,7 @@
       "minCharactersRequired": "Enter at least 3 characters to search",
       "noFavorites": "No favorite radios",
       "playRadio": "Listen",
-      "stopRadio": "Stop",
-      "loadingMore": "Loading more..."
+      "stopRadio": "Stop"
     }
   },
   "multiroom": {
@@ -325,7 +324,6 @@
     "ethernet": "Ethernet",
     "wifi": "WiFi",
     "connected": "Connected",
-    "disconnected": "Disconnected",
     "notConnected": "Not connected",
     "preferredNetwork": "Preferred network",
     "wifiDescription": "WiFi takes over if Ethernet is unavailable.",
@@ -362,22 +360,11 @@
     "2min": "2 min",
     "5min": "5 min",
     "10min": "10 min",
-    "15min": "15 min",
     "30min": "30 min",
-    "1h": "1 h",
-    "2h": "2 h",
-    "4h": "4 h",
-    "6h": "6 h",
-    "12h": "12 h"
+    "1h": "1 h"
   },
   "common": {
     "settings": "Settings",
-    "cancel": "Cancel",
-    "save": "Save",
-    "saving": "Saving...",
-    "confirm": "Confirm",
-    "restore": "Restore",
-    "delete": "Delete",
     "deleting": "Deleting...",
     "close": "Close"
   },
@@ -549,7 +536,6 @@
       "amplifiers": "Amplifiers",
       "dacs": "DACs",
       "volumeManagement": "Volume management",
-      "volumeManagementDescription": "Milō controls the audio volume",
       "none": "No audio card",
       "other": "Other"
     },
@@ -586,7 +572,6 @@
     "status": {
       "disabled": "Disabled",
       "connected": "Connected",
-      "notConnected": "Not connected",
       "notPaired": "Not paired",
       "paired": "Paired",
       "hardwareDisabled": "Infrared receiver disabled"

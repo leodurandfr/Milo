@@ -69,8 +69,7 @@
       "minCharactersRequired": "Inserisci almeno 3 caratteri per cercare",
       "noFavorites": "Nessuna radio preferita",
       "playRadio": "Ascolta",
-      "stopRadio": "Ferma",
-      "loadingMore": "Caricamento..."
+      "stopRadio": "Ferma"
     }
   },
   "multiroom": {
@@ -243,7 +242,9 @@
     "screensaverSourceNote": "Solo su Radio, Podcasts, Bluetooth e macOS",
     "uiScale": "Display",
     "uiScaleLevel": "Scala dell'interfaccia",
-    "screensaverDelay": "Avviare il salvaschermo dopo:"
+    "screensaverDelay": "Avviare il salvaschermo dopo:",
+    "colorFilter": "Filtro colore caldo",
+    "colorFilterWarmth": "Intensità"
   },
   "hardwareSettings": {
     "audioCard": "Scheda audio",
@@ -323,7 +324,6 @@
     "ethernet": "Ethernet",
     "wifi": "WiFi",
     "connected": "Connesso",
-    "disconnected": "Disconnesso",
     "notConnected": "Non connesso",
     "preferredNetwork": "Rete preferita",
     "wifiDescription": "La rete WiFi subentra se Ethernet non è disponibile.",
@@ -360,22 +360,11 @@
     "2min": "2 min",
     "5min": "5 min",
     "10min": "10 min",
-    "15min": "15 min",
     "30min": "30 min",
-    "1h": "1 h",
-    "2h": "2 h",
-    "4h": "4 h",
-    "6h": "6 h",
-    "12h": "12 h"
+    "1h": "1 h"
   },
   "common": {
     "settings": "Impostazioni",
-    "cancel": "Annulla",
-    "save": "Salva",
-    "saving": "Salvataggio...",
-    "confirm": "Conferma",
-    "restore": "Ripristina",
-    "delete": "Elimina",
     "deleting": "Eliminazione...",
     "close": "Chiudi"
   },
@@ -547,7 +536,6 @@
       "amplifiers": "Amplificatori",
       "dacs": "DACs",
       "volumeManagement": "Gestione del volume",
-      "volumeManagementDescription": "Milō controlla il volume audio",
       "none": "Nessuna scheda audio",
       "other": "Altro"
     },
@@ -584,7 +572,6 @@
     "status": {
       "disabled": "Disattivato",
       "connected": "Connesso",
-      "notConnected": "Non connesso",
       "notPaired": "Non accoppiato",
       "paired": "Accoppiato",
       "hardwareDisabled": "Ricevitore infrarossi disattivato"

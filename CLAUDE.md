@@ -100,7 +100,7 @@ Vue 3 + Composition API + Pinia under `frontend/src/`:
 - `composables/` — Vue composables (run `ls frontend/src/composables/` to see current set).
 - `stores/` — Pinia stores. `unifiedAudioStore.js` is the central audio state mirror; other stores are per-feature (`settings`, `equalizer`, `multiroom`, `snapcast`, `podcast`, `radio`, `cd`, `system`, `discovery`).
 - `services/` — WebSocket client, `apiCall()` wrapper, i18n.
-- `locales/` — i18n translations (`en.json`, `fr.json`).
+- `locales/` — i18n translations: 8 files named by full language (`english.json`, `french.json`, `german.json`, `spanish.json`, `italian.json`, `portuguese.json`, `chinese.json`, `hindi.json`). `english.json` is the canonical/source locale (fallback in [services/i18n.js](frontend/src/services/i18n.js)); all keys must exist there first.
 - `views/` — `MainView.vue` (single-page app) + dev-only style guides.
 
 **State synchronization**: Backend state changes → WebSocket event → Pinia store update → reactive UI update.
