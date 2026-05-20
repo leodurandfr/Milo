@@ -5,9 +5,8 @@ podcast), this test asserts that BREAKING_CHANGES.md has an entry for the
 current version. Prevents a silent SCHEMA_VERSION bump that forgets to
 document what changed and what user state is reset on boot.
 
-Source: RFC 19 (concern-breaking-changes.md) + RFC 22 Lot C
-(exec-lint-floor.md). The protocol is "no migration code, fail-loud on
-mismatch, document the reset in BREAKING_CHANGES.md".
+The protocol is "no migration code, fail-loud on mismatch, document the
+reset in BREAKING_CHANGES.md" (see CLAUDE.md §"Persisted-data schema bumps").
 """
 import re
 from pathlib import Path
