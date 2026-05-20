@@ -19,7 +19,6 @@ from backend.sources.podcast.routes import router, setup_podcast_routes
 from backend.sources.podcast.data import PodcastDataService
 from backend.sources.podcast.models import (
     PlayEpisodeRequest,
-    SeekRequest,
     SpeedRequest,
     SubscribeRequest,
     SettingsRequest,
@@ -36,7 +35,6 @@ __all__ = [
     "setup_podcast_routes",
     "PodcastDataService",
     "PlayEpisodeRequest",
-    "SeekRequest",
     "SpeedRequest",
     "SubscribeRequest",
     "SettingsRequest",
