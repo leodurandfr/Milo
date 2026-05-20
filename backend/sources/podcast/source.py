@@ -362,8 +362,15 @@ class PodcastSource(MpvAudioSource):
             return self.error_response(str(e))
 
     async def _handle_seek(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Seek to position."""
+        """Seek to position. Accepts `position` (seconds) or `position_ms`.
+
+        position_ms is the wire convention used by useSourceProgress.seekTo
+        (shared with Spotify/AirPlay); `position` (seconds) is kept for the
+        internal resume-seek in the /play route.
+        """
         position = data.get('position')
+        if position is None and data.get('position_ms') is not None:
+            position = data['position_ms'] / 1000
         if position is None:
             return self.error_response("position required")
 

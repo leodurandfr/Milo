@@ -19,7 +19,6 @@ import logging
 from backend.api.source_dependency import make_source_dependency
 from backend.sources.podcast.models import (
     PlayEpisodeRequest,
-    SeekRequest,
     SpeedRequest,
     SubscribeRequest,
     SettingsRequest
@@ -327,15 +326,6 @@ async def resume_playback(
 ) -> Dict[str, Any]:
     """Resume playback."""
     return await run_source_command(source, "resume", {}, "Resume")
-
-
-@router.post("/seek")
-async def seek_playback(
-    request: SeekRequest,
-    source: PodcastSource = Depends(get_source)
-) -> Dict[str, Any]:
-    """Seek to position."""
-    return await run_source_command(source, "seek", {"position": request.position}, "Seek")
 
 
 @router.post("/stop")

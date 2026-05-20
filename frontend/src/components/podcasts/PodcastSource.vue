@@ -162,6 +162,7 @@ const {
   currentPosition: positionMs,
   duration: durationMs,
   progressPercentage: livePercent,
+  seekTo,
 } = useSourceProgress('podcast')
 
 // ProgressBar + seekBackward/seekForward operate in seconds.
@@ -318,21 +319,20 @@ async function togglePlayPause() {
   }
 }
 
+// All seeks go through useSourceProgress.seekTo (ms): it sets localPosition
+// optimistically and suppresses the next WS sync, so the bar jumps instantly
+// instead of waiting for the backend round-trip.
 async function seekBackward() {
-  const newPosition = Math.max(0, currentPositionSec.value - 15)
-  await podcastStore.seek(newPosition)
+  await seekTo(Math.max(0, positionMs.value - 15000))
 }
 
 async function seekForward() {
-  const newPosition = Math.min(
-    currentDurationSec.value,
-    currentPositionSec.value + 30
-  )
-  await podcastStore.seek(newPosition)
+  await seekTo(Math.min(durationMs.value, positionMs.value + 30000))
 }
 
-async function handleSeek(position) {
-  await podcastStore.seek(position)
+// ProgressBar emits the target position in seconds.
+async function handleSeek(positionSec) {
+  await seekTo(positionSec * 1000)
 }
 
 async function handleSpeedChange(speedValue) {

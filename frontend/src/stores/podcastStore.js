@@ -116,15 +116,6 @@ export const usePodcastStore = defineStore('podcast', () => {
     });
   }
 
-  async function seek(position) {
-    await apiCall.post('/api/podcast/seek', { position: Math.floor(position) }, {
-      category: 'store',
-      message: 'Error seeking',
-    });
-    // Position reconciles via the backend state_changed broadcast →
-    // unifiedStore.systemState.metadata.position (read by useSourceProgress).
-  }
-
   async function stop() {
     const result = await apiCall.post('/api/podcast/stop', null, {
       category: 'store',
@@ -549,7 +540,6 @@ export const usePodcastStore = defineStore('podcast', () => {
     play,
     pause,
     resume,
-    seek,
     stop,
     setSpeed,
     loadPlaybackSpeeds,

@@ -12,11 +12,6 @@ class PlayEpisodeRequest(BaseModel):
     position: Optional[int] = None  # Resume position
 
 
-class SeekRequest(BaseModel):
-    """Request to seek to a position."""
-    position: int
-
-
 class SpeedRequest(BaseModel):
     """Request to set playback speed."""
     speed: float
