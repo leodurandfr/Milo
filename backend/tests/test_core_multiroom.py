@@ -1756,11 +1756,12 @@ class TestStandaloneEqualizerSync:
     async def test_load_standalone_settings_returns_none_when_not_found(self, tmp_path, monkeypatch):
         """Test loading settings for unknown client returns None."""
         from backend.core.equalizer.sync import EqualizerSettingsSyncService
-        from backend.config import constants
 
-        # Use temp file
+        # Use temp file. sync.py binds CLIENT_EQUALIZER_FILE by value at import
+        # (`from ...constants import CLIENT_EQUALIZER_FILE`), so patch the name where
+        # it is used, not on the constants module (which has no effect here).
         test_file = tmp_path / "client_equalizer.json"
-        monkeypatch.setattr(constants, "CLIENT_EQUALIZER_FILE", test_file)
+        monkeypatch.setattr("backend.core.equalizer.sync.CLIENT_EQUALIZER_FILE", test_file)
 
         sync_service = EqualizerSettingsSyncService()
         result = await sync_service.load_standalone_settings("unknown-client")
@@ -1771,11 +1772,12 @@ class TestStandaloneEqualizerSync:
     async def test_save_and_load_standalone_settings(self, tmp_path, monkeypatch):
         """Test saving and loading standalone Equalizer settings."""
         from backend.core.equalizer.sync import EqualizerSettingsSyncService
-        from backend.config import constants
 
-        # Use temp file
+        # Use temp file. sync.py binds CLIENT_EQUALIZER_FILE by value at import
+        # (`from ...constants import CLIENT_EQUALIZER_FILE`), so patch the name where
+        # it is used, not on the constants module (which has no effect here).
         test_file = tmp_path / "client_equalizer.json"
-        monkeypatch.setattr(constants, "CLIENT_EQUALIZER_FILE", test_file)
+        monkeypatch.setattr("backend.core.equalizer.sync.CLIENT_EQUALIZER_FILE", test_file)
 
         sync_service = EqualizerSettingsSyncService()
         client_id = "milo-client-01"
@@ -1798,11 +1800,12 @@ class TestStandaloneEqualizerSync:
     async def test_local_client_standalone_settings(self, tmp_path, monkeypatch):
         """AC4: 'local' client follows same STANDALONE rules."""
         from backend.core.equalizer.sync import EqualizerSettingsSyncService
-        from backend.config import constants
 
-        # Use temp file
+        # Use temp file. sync.py binds CLIENT_EQUALIZER_FILE by value at import
+        # (`from ...constants import CLIENT_EQUALIZER_FILE`), so patch the name where
+        # it is used, not on the constants module (which has no effect here).
         test_file = tmp_path / "client_equalizer.json"
-        monkeypatch.setattr(constants, "CLIENT_EQUALIZER_FILE", test_file)
+        monkeypatch.setattr("backend.core.equalizer.sync.CLIENT_EQUALIZER_FILE", test_file)
 
         sync_service = EqualizerSettingsSyncService()
         local_settings = {
