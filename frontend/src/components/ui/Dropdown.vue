@@ -283,6 +283,8 @@ onBeforeUnmount(() => {
   border: none;
   box-shadow: none;
   width: auto;
+  /* Vertical-only padding: no horizontal padding so the trigger hugs its content width */
+  padding: var(--space-04) 0;
 }
 
 .dropdown-trigger--minimal:focus {
