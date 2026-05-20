@@ -93,26 +93,26 @@ class TestBaseAudioSourceLifecycle:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_restart_success(self):
-        """Test successful restart (default: stop + start)."""
+    async def test_do_restart_success(self):
+        """Test the default _do_restart() (stop + start) behind _on_auto_stop."""
         source = ConcreteAudioSource()
         await source.start()
         source.start_called = False
         source.stop_called = False
 
-        result = await source.restart()
+        result = await source._do_restart()
 
         assert result is True
         assert source.stop_called
         assert source.start_called
 
     @pytest.mark.asyncio
-    async def test_restart_failure_on_stop(self):
-        """Test restart fails if stop fails."""
+    async def test_do_restart_failure_on_stop(self):
+        """Test _do_restart() fails if stop fails."""
         source = ConcreteAudioSource(stop_success=False)
         await source.start()
 
-        result = await source.restart()
+        result = await source._do_restart()
 
         assert result is False
 

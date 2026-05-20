@@ -3,7 +3,7 @@
 Unit tests for MacSource (features/mac/source.py).
 
 Tests cover:
-- AudioSource Protocol compliance
+- BaseAudioSource compliance
 - Lifecycle (start, stop, restart)
 - Connection tracking
 - Command handling
@@ -57,7 +57,6 @@ class TestBaseClassCompliance:
         """Test required methods exist."""
         assert hasattr(mac_source, 'start')
         assert hasattr(mac_source, 'stop')
-        assert hasattr(mac_source, 'restart')
         assert hasattr(mac_source, 'status')
         assert hasattr(mac_source, 'command')
 
@@ -195,14 +194,6 @@ class TestMacSourceStatus:
 
 class TestMacSourceCommands:
     """Test MacSource command handling."""
-
-    @pytest.mark.asyncio
-    async def test_restart_command(self, mac_source):
-        """Test restart command."""
-        with patch.object(mac_source, '_do_restart', return_value=True):
-            result = await mac_source.command("restart_service", {})
-
-        assert result["success"] is True
 
     @pytest.mark.asyncio
     async def test_get_connections_command(self, mac_source):

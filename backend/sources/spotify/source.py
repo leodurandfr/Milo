@@ -156,13 +156,6 @@ class SpotifySource(BaseAudioSource):
 
     async def _handle_command(self, cmd: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Handle Spotify-specific commands."""
-        if cmd == "restart_service":
-            success = await self._do_restart()
-            return (
-                self.success_response("Service restarted")
-                if success else self.error_response("Restart failed")
-            )
-
         if cmd == "refresh_metadata":
             success = await self._refresh_metadata()
             return self.success_response(

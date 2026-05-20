@@ -3,7 +3,7 @@
 Unit tests for PodcastSource (features/podcast/source.py).
 
 Tests cover:
-- AudioSource Protocol compliance
+- BaseAudioSource compliance
 - Lifecycle (start, stop, restart)
 - Status format
 - Command handling (play, pause, seek, speed)
@@ -68,7 +68,6 @@ class TestBaseClassCompliance:
         """Test required methods exist."""
         assert hasattr(podcast_source, 'start')
         assert hasattr(podcast_source, 'stop')
-        assert hasattr(podcast_source, 'restart')
         assert hasattr(podcast_source, 'status')
         assert hasattr(podcast_source, 'command')
 

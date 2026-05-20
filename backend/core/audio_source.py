@@ -196,33 +196,6 @@ class BaseAudioSource(ABC):
             self._logger.error(f"Error stopping {self.source_id}: {e}")
             return False
 
-    async def restart(self) -> bool:
-        """
-        Restart the audio source.
-
-        Default implementation: stop + start.
-        Override _do_restart() for custom logic.
-
-        Returns:
-            True if restart successful
-        """
-        self._logger.info(f"Restarting {self.source_id}")
-
-        try:
-            # Try custom restart first
-            success = await self._do_restart()
-
-            if success:
-                self._logger.info(f"{self.source_id} restarted successfully")
-
-            return success
-
-        except Exception as e:
-            self._logger.error(f"Error restarting {self.source_id}: {e}")
-            self._state = SourceState.ERROR
-            self._error = str(e)
-            return False
-
     async def release_for_reroute(self) -> bool:
         """Release the ALSA output device for a MILO_MODE (direct↔multiroom)
         change while keeping any upstream sender connection alive.
@@ -338,8 +311,10 @@ class BaseAudioSource(ABC):
         """
         Source-specific restart implementation.
 
-        Default: stop + start.
-        Override for custom restart logic (e.g., preserve state).
+        Sole entry point is the default _on_auto_stop() (auto-stop timer);
+        there is no public restart() wrapper. Default: stop + start.
+        Override for custom restart logic (e.g., preserve state) — done by
+        sources that auto-stop via restart (Spotify, AirPlay).
 
         Returns:
             True if restart successful

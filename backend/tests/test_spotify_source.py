@@ -3,7 +3,7 @@
 Unit tests for SpotifySource (features/spotify/source.py).
 
 Tests cover:
-- AudioSource Protocol compliance
+- BaseAudioSource compliance
 - Lifecycle (start, stop, restart)
 - WebSocket event handling
 - Metadata refresh
@@ -66,7 +66,6 @@ class TestBaseClassCompliance:
         """Test required methods exist."""
         assert hasattr(spotify_source, 'start')
         assert hasattr(spotify_source, 'stop')
-        assert hasattr(spotify_source, 'restart')
         assert hasattr(spotify_source, 'status')
         assert hasattr(spotify_source, 'command')
 
@@ -173,14 +172,6 @@ class TestSpotifySourceStatus:
 
 class TestSpotifySourceCommands:
     """Test SpotifySource command handling."""
-
-    @pytest.mark.asyncio
-    async def test_restart_service_command(self, spotify_source):
-        """Test restart_service command."""
-        with patch.object(spotify_source, '_do_restart', return_value=True):
-            result = await spotify_source.command("restart_service", {})
-
-        assert result["success"] is True
 
     @pytest.mark.asyncio
     async def test_refresh_metadata_command(self, spotify_source):
