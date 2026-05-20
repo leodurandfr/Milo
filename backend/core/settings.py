@@ -420,30 +420,6 @@ class SettingsService:
 
         self._cache = None
 
-    @handle_errors(default=False)
-    async def delete_setting(self, key_path: str) -> bool:
-        """Atomically remove a setting key if present. No-op if it doesn't exist."""
-        async with self._file_lock:
-            settings = await self._read_locked()
-
-            keys = key_path.split('.')
-            current = settings
-            for key in keys[:-1]:
-                if not isinstance(current, dict) or key not in current:
-                    return True  # Nothing to delete
-                current = current[key]
-
-            if not (isinstance(current, dict) and keys[-1] in current):
-                return True
-
-            del current[keys[-1]]
-            success = await self._write_locked(settings)
-
-        if success:
-            self._cache = None
-
-        return success
-
     async def _read_locked(self) -> Dict[str, Any]:
         """Read + validate settings. Caller must hold self._file_lock.
 
