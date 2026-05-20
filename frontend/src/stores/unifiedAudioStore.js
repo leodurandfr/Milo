@@ -92,11 +92,9 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
 
     let success = false;
     if (source === 'bluetooth') {
-      const result = await apiCall.post('/api/bluetooth/disconnect', null, {
-        category: 'store',
-        message: 'Disconnect bluetooth failed',
-      });
-      success = result.ok;
+      // Family A source: disconnect flows through the generic control endpoint
+      // (the dedicated /api/bluetooth router was retired).
+      success = await sendCommand('bluetooth', 'disconnect');
     } else if (source === 'mac') {
       success = true;
     } else {
