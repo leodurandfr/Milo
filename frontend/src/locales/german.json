@@ -69,8 +69,7 @@
       "minCharactersRequired": "Gib mindestens 3 Zeichen ein, um zu suchen",
       "noFavorites": "Keine Lieblings-Radios",
       "playRadio": "Anhören",
-      "stopRadio": "Stoppen",
-      "loadingMore": "Laden..."
+      "stopRadio": "Stoppen"
     }
   },
   "multiroom": {
@@ -243,7 +242,9 @@
     "screensaverSourceNote": "Nur bei Radio, Podcasts, Bluetooth und macOS",
     "uiScale": "Anzeige",
     "uiScaleLevel": "Skalierung der Oberfläche",
-    "screensaverDelay": "Bildschirmschoner starten nach:"
+    "screensaverDelay": "Bildschirmschoner starten nach:",
+    "colorFilter": "Warmer Farbfilter",
+    "colorFilterWarmth": "Intensität"
   },
   "hardwareSettings": {
     "audioCard": "Audiokarte",
@@ -323,7 +324,6 @@
     "ethernet": "Ethernet",
     "wifi": "WLAN",
     "connected": "Verbunden",
-    "disconnected": "Getrennt",
     "notConnected": "Nicht verbunden",
     "preferredNetwork": "Bevorzugtes Netzwerk",
     "wifiDescription": "WLAN übernimmt, wenn Ethernet nicht verfügbar ist.",
@@ -360,22 +360,11 @@
     "2min": "2 Min",
     "5min": "5 Min",
     "10min": "10 Min",
-    "15min": "15 Min",
     "30min": "30 Min",
-    "1h": "1 h",
-    "2h": "2 h",
-    "4h": "4 h",
-    "6h": "6 Std",
-    "12h": "12 h"
+    "1h": "1 h"
   },
   "common": {
     "settings": "Einstellungen",
-    "cancel": "Abbrechen",
-    "save": "Speichern",
-    "saving": "Wird gespeichert...",
-    "confirm": "Bestätigen",
-    "restore": "Wiederherstellen",
-    "delete": "Löschen",
     "deleting": "Wird gelöscht...",
     "close": "Schließen"
   },
@@ -547,7 +536,6 @@
       "amplifiers": "Verstärker",
       "dacs": "DACs",
       "volumeManagement": "Lautstärkeregelung",
-      "volumeManagementDescription": "Milō steuert die Audiolautstärke",
       "none": "Keine Audiokarte",
       "other": "Sonstige"
     },
@@ -584,7 +572,6 @@
     "status": {
       "disabled": "Deaktiviert",
       "connected": "Verbunden",
-      "notConnected": "Nicht verbunden",
       "notPaired": "Nicht gekoppelt",
       "paired": "Gekoppelt",
       "hardwareDisabled": "Infrarot-Empfänger deaktiviert"
