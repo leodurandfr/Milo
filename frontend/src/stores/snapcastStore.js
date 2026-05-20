@@ -163,13 +163,6 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     return clients.value.length || lastKnownClientCount.value;
   }
 
-  /**
-   * Clear cache (backward compatibility - no-op since no local cache)
-   */
-  function clearCache() {
-    // No-op - clients are derived from multiroomStore which manages its own cache
-  }
-
   // === ACTIONS - SERVER CONFIG ===
   async function loadServerConfig() {
     // Cancel previous request if it exists
@@ -257,7 +250,6 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     // Actions - Clients (backward compatibility)
     preloadCache,
     loadClients,
-    clearCache,
 
     // Actions - Display Cache
     preloadDisplayCache,

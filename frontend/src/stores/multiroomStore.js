@@ -98,11 +98,6 @@ export const useMultiroomStore = defineStore('multiroom', () => {
   });
 
   /**
-   * Number of registered clients.
-   */
-  const clientCount = computed(() => clients.value.size);
-
-  /**
    * Number of zones.
    */
   const zoneCount = computed(() => zones.value.size);
@@ -135,14 +130,6 @@ export const useMultiroomStore = defineStore('multiroom', () => {
       localStorage.setItem(CACHE_KEY, JSON.stringify(data));
     } catch (error) {
       logger.error('store', 'Error saving registry cache', error);
-    }
-  }
-
-  function clearCache() {
-    try {
-      localStorage.removeItem(CACHE_KEY);
-    } catch (error) {
-      logger.error('store', 'Error clearing registry cache', error);
     }
   }
 
@@ -202,13 +189,6 @@ export const useMultiroomStore = defineStore('multiroom', () => {
   // === CLIENT QUERIES ===
 
   /**
-   * Get a client by mac_id.
-   */
-  function getClient(macId) {
-    return clients.value.get(macId);
-  }
-
-  /**
    * Check if a client is online.
    */
   function isClientOnline(macId) {
@@ -225,13 +205,6 @@ export const useMultiroomStore = defineStore('multiroom', () => {
   }
 
   // === ZONE QUERIES ===
-
-  /**
-   * Get a zone by ID.
-   */
-  function getZone(zoneId) {
-    return zones.value.get(zoneId);
-  }
 
   /**
    * Get the zone a client belongs to.
@@ -669,38 +642,6 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     configuringClients.value = next;
   }
 
-  // === SYNC STATUS HELPERS ===
-
-  /**
-   * Check if a client has a sync error.
-   * @param {string} macId - Client mac_id
-   * @returns {boolean} True if client has sync error
-   */
-  function hasSyncError(macId) {
-    const client = clients.value.get(macId);
-    return client?.sync_status?.equalizer_synced === false || client?.sync_status?.volume_synced === false;
-  }
-
-  /**
-   * Check if a client is currently syncing.
-   * @param {string} macId - Client mac_id
-   * @returns {boolean} True if client is syncing
-   */
-  function isSyncing(macId) {
-    const client = clients.value.get(macId);
-    return client?.sync_status?.syncing === true;
-  }
-
-  /**
-   * Get sync status for a client.
-   * @param {string} macId - Client mac_id
-   * @returns {Object|null} Sync status { volume_synced, equalizer_synced, pending_applied }
-   */
-  function getSyncStatus(macId) {
-    const client = clients.value.get(macId);
-    return client?.sync_status || null;
-  }
-
   // === RETURN PUBLIC API ===
 
   return {
@@ -716,11 +657,9 @@ export const useMultiroomStore = defineStore('multiroom', () => {
 
     // Computed
     clientList,
-    onlineClients,
     onlineClientIds,
     zoneList,
     pendingClientList,
-    clientCount,
     zoneCount,
     isTransitioning,
 
@@ -729,12 +668,10 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     fetchState,
 
     // Client queries
-    getClient,
     isClientOnline,
     getClientName,
 
     // Zone queries
-    getZone,
     getZoneForClient,
     getZoneClientIds,
     getOnlineZoneClientIds,
@@ -766,13 +703,5 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     configurePendingClient,
     isClientConfiguring,
     clearConfiguringClient,
-
-    // Sync status
-    hasSyncError,
-    isSyncing,
-    getSyncStatus,
-
-    // Cache management
-    clearCache
   };
 });

@@ -89,12 +89,9 @@ async function pollLevels() {
   if (!result.ok) return; // Levels are optional - debug-logged only
 
   if (result.data.available) {
-    equalizerStore.updateLevels(
-      result.data.input_peak || silent,
-      result.data.output_peak || silent
-    );
+    equalizerStore.updateLevels(result.data.output_peak || silent);
   } else {
-    equalizerStore.updateLevels(silent, silent);
+    equalizerStore.updateLevels(silent);
   }
 }
 
