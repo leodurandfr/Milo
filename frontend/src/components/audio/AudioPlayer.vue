@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body" :disabled="!isMobile">
     <Transition name="audio-player" appear @after-leave="$emit('after-hide')">
-      <div v-show="visible" class="audio-player" :class="playerClasses" :style="playerStyle">
+      <div v-show="visible" class="audio-player" :class="playerClasses">
       <!-- Background image - heavily zoomed and blurred -->
       <div class="player-art-background">
         <img v-if="validArtwork" :src="validArtwork" alt="" class="background-image" />
@@ -130,15 +130,6 @@ const props = defineProps({
   isLoading: {
     type: Boolean,
     default: false
-  },
-
-  /**
-   * Fixed width for leave animation (in pixels)
-   * Passed from AudioSourceLayout to maintain width during exit transition
-   */
-  width: {
-    type: Number,
-    default: null
   }
 })
 
@@ -160,14 +151,6 @@ function handleArtworkLoad(e) {
 const playerClasses = computed(() => ({
   [`source-${props.source}`]: true
 }))
-
-// Computed style for fixed width during leave animation
-const playerStyle = computed(() => {
-  if (props.width) {
-    return { '--player-fixed-width': `${props.width}px` }
-  }
-  return {}
-})
 </script>
 
 <style scoped>
@@ -177,7 +160,7 @@ const playerStyle = computed(() => {
   width: 100%;
   margin: 0;
   height: 100%;
-  max-height: 500px;
+  max-height: 560px;
   flex-direction: column;
   gap: var(--space-04);
   padding: var(--space-04);
@@ -301,7 +284,7 @@ const playerStyle = computed(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   margin: 0;
 }
@@ -465,7 +448,10 @@ const playerStyle = computed(() => {
 @media (min-aspect-ratio: 4/3) {
   .audio-player-enter-active,
   .audio-player-leave-active {
-    width: var(--player-fixed-width, 100%);
+    /* Pin to the rendered width (wrapper minus its left padding) so the player
+       doesn't reflow to 100% while .player-wrapper collapses during the slide.
+       Inherits the layout's single source of truth — no JS prop needed. */
+    width: calc(var(--audio-player-wrapper-width) - var(--space-06));
   }
 
   .audio-player-enter-active {
