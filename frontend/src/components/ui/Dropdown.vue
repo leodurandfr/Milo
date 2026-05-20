@@ -428,5 +428,10 @@ onBeforeUnmount(() => {
   .dropdown-trigger--small {
     height: 34px;
   }
+
+  /* Restore the base trigger padding on the minimal variant for mobile */
+  .dropdown-trigger--minimal {
+    padding: var(--space-03) var(--space-04);
+  }
 }
 </style>
