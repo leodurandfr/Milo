@@ -523,7 +523,12 @@ class AudioRoutingService:
             return True
 
     async def _apply_transition(self, enabled: bool, active_source: AudioSource = None) -> None:
-        """Stop source, reconcile snapcast, regenerate routing.env, restart source.
+        """Release source, reconcile snapcast, regenerate routing.env, re-acquire source.
+
+        Source release/re-acquire goes through release_for_reroute() /
+        acquire_after_reroute() (default = stop()/start()) so a source that holds
+        its upstream link in a separate process from the ALSA writer (Bluetooth)
+        can rebounce only the writer and keep the sender connected.
 
         Acquires `state_machine._transition_lock` to prevent concurrent source
         lifecycle operations with `transition_to_source()`. Lock order is
@@ -558,8 +563,8 @@ class AudioRoutingService:
             # Critical: in direct mode the source holds camilladsp; in multiroom mode
             # snapclient needs the same device.
             if source_instance:
-                self.logger.info(f"Stopping source {active_source.value} to release ALSA device")
-                await source_instance.stop()
+                self.logger.info(f"Releasing source {active_source.value} to free ALSA device")
+                await source_instance.release_for_reroute()
                 await asyncio.sleep(0.5)  # Wait for ALSA to release
 
             # Step 3: Reconcile snapcast services to target (idempotent).
@@ -582,11 +587,11 @@ class AudioRoutingService:
             # A source failure here doesn't fail the transition; the multiroom
             # mode is correctly set and the user can retry source playback.
             if source_instance:
-                self.logger.info(f"Starting source {active_source.value} for {target_mode} mode")
+                self.logger.info(f"Re-acquiring source {active_source.value} for {target_mode} mode")
                 try:
-                    if not await source_instance.start():
+                    if not await source_instance.acquire_after_reroute():
                         self.logger.warning(
-                            f"Source {active_source.value} start returned False after "
+                            f"Source {active_source.value} re-acquire returned False after "
                             f"{target_mode} transition (transition still considered successful)"
                         )
                 except Exception as e:

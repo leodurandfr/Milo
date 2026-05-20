@@ -453,39 +453,59 @@ class TestAudioRoutingService:
         mock_regen.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_apply_transition_regenerates_env_before_source_start(
+    async def test_apply_transition_regenerates_env_before_source_acquire(
         self, routing_service, mock_systemd_manager, mock_source
     ):
-        """routing.env must be regenerated BEFORE source.start so the source unit
-        picks up the new MILO_MODE when systemd starts it."""
+        """routing.env must be regenerated BEFORE the source re-acquires its ALSA
+        device so the source unit picks up the new MILO_MODE when systemd starts it."""
         mock_systemd_manager.start = AsyncMock(return_value=True)
         routing_service.set_source_callback(lambda source: mock_source if source == AudioSource.SPOTIFY else None)
 
-        # Track ordering: regenerate vs source.start
+        # Track ordering: regenerate vs source re-acquire
         order: list[str] = []
 
         def _regen(_):
             order.append("regenerate")
 
-        async def _start():
-            order.append("source.start")
+        async def _acquire():
+            order.append("source.acquire")
             return True
 
-        mock_source.start = AsyncMock(side_effect=_start)
+        mock_source.acquire_after_reroute = AsyncMock(side_effect=_acquire)
 
         with patch('backend.core.multiroom.routing.RoutingEnv.regenerate', side_effect=_regen):
             await routing_service._apply_transition(True, active_source=AudioSource.SPOTIFY)
 
-        assert order == ["regenerate", "source.start"]
+        assert order == ["regenerate", "source.acquire"]
 
     @pytest.mark.asyncio
-    async def test_apply_transition_source_start_failure_is_non_fatal(
+    async def test_apply_transition_calls_release_not_stop(
         self, routing_service, mock_systemd_manager, mock_source
     ):
-        """A failing source.start() no longer fails the transition (Phase 3)."""
+        """_apply_transition must release via release_for_reroute(), not stop(),
+        so a source whose upstream link lives in a separate process from the ALSA
+        writer (Bluetooth) keeps that link alive across a multiroom toggle."""
+        mock_systemd_manager.start = AsyncMock(return_value=True)
+        routing_service.set_source_callback(
+            lambda source: mock_source if source == AudioSource.SPOTIFY else None
+        )
+
+        with patch('backend.core.multiroom.routing.RoutingEnv.regenerate'):
+            await routing_service._apply_transition(True, active_source=AudioSource.SPOTIFY)
+
+        mock_source.release_for_reroute.assert_awaited_once()
+        mock_source.acquire_after_reroute.assert_awaited_once()
+        mock_source.stop.assert_not_called()
+        mock_source.start.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_apply_transition_source_acquire_failure_is_non_fatal(
+        self, routing_service, mock_systemd_manager, mock_source
+    ):
+        """A failing source re-acquire no longer fails the transition (Phase 3)."""
         mock_systemd_manager.start = AsyncMock(return_value=True)
         routing_service.set_source_callback(lambda source: mock_source if source == AudioSource.SPOTIFY else None)
-        mock_source.start = AsyncMock(side_effect=RuntimeError("source boom"))
+        mock_source.acquire_after_reroute = AsyncMock(side_effect=RuntimeError("source boom"))
 
         with patch('backend.core.multiroom.routing.RoutingEnv.regenerate'):
             # Should NOT raise — source failure is best-effort

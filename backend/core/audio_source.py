@@ -39,6 +39,11 @@ class BaseAudioSource(ABC):
     Optional overrides:
     - _do_restart(): Custom restart logic (default: stop + start)
     - _handle_command(): Source-specific commands
+    - release_for_reroute() / acquire_after_reroute(): lighter device
+      release/re-acquire for a multiroom MILO_MODE change (default: stop()
+      / start()). Override only when the upstream link is held by a separate
+      process from the ALSA writer (e.g. Bluetooth: bluez/bluealsa hold the
+      link, bluealsa-aplay is the writer).
 
     Example:
         class RadioSource(BaseAudioSource):
@@ -217,6 +222,25 @@ class BaseAudioSource(ABC):
             self._state = SourceState.ERROR
             self._error = str(e)
             return False
+
+    async def release_for_reroute(self) -> bool:
+        """Release the ALSA output device for a MILO_MODE (direct↔multiroom)
+        change while keeping any upstream sender connection alive.
+
+        Called by AudioRoutingService._apply_transition instead of stop() so a
+        multiroom toggle does not tear down the sender link. Default = full
+        stop() (correct when the connection and the ALSA writer are the same
+        process). Override when the connection is held by a separate process
+        from the writer (Bluetooth: bluez/bluealsa hold the A2DP link,
+        bluealsa-aplay is the writer).
+        """
+        return await self.stop()
+
+    async def acquire_after_reroute(self) -> bool:
+        """Re-acquire the ALSA output device after routing.env was regenerated
+        with the new MILO_MODE. Mirror of release_for_reroute(); default start().
+        """
+        return await self.start()
 
     async def status(self) -> Dict[str, Any]:
         """
