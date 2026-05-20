@@ -267,37 +267,9 @@ class TestVolumeStateStore:
         assert state_store._clients["aa:bb:cc:dd:ee:ff"].volume_db == -25.0
 
     @pytest.mark.asyncio
-    async def test_local_client_mac_change_migrates_volume(self, state_store):
-        """When the local client MAC changes between sessions, the persisted
-        volume/mute is migrated from the old MAC entry to the new one."""
-        from backend.core.multiroom.models import RegistryEventType
-
-        # Simulate previous session: local client was MAC X with -30 dB, muted.
-        old_mac = "aa:bb:cc:dd:ee:ff"
-        new_mac = "11:22:33:44:55:66"
-        state_store._local_mac_id = old_mac
-        state_store._clients[old_mac] = ClientVolume(
-            volume_db=-30.0, offset_db=0.0, mute=True, available=False,
-        )
-
-        # Local client reconnects with a different MAC (network card swap).
-        await state_store._handle_registry_event(
-            RegistryEventType.CLIENT_CONNECTED,
-            {"mac_id": new_mac, "client": {"ip": "127.0.0.1"}},
-        )
-
-        # Old entry is gone, new entry carries the migrated volume + mute.
-        assert old_mac not in state_store._clients
-        assert new_mac in state_store._clients
-        assert state_store._clients[new_mac].volume_db == -30.0
-        assert state_store._clients[new_mac].mute is True
-        assert state_store._local_mac_id == new_mac
-        assert state_store.local_volume_db == -30.0
-
-    @pytest.mark.asyncio
-    async def test_local_client_same_mac_no_migration(self, state_store):
-        """When the local client reconnects with the same MAC, no migration
-        runs and the persisted volume is preserved as-is."""
+    async def test_local_client_reconnect_preserves_volume(self, state_store):
+        """When the local client reconnects with its existing MAC, the
+        persisted volume is preserved as-is (no reset on reconnect)."""
         from backend.core.multiroom.models import RegistryEventType
 
         mac = "aa:bb:cc:dd:ee:ff"
@@ -318,7 +290,7 @@ class TestVolumeStateStore:
         assert state_store._clients[mac].available is True
 
     @pytest.mark.asyncio
-    async def test_local_client_first_connect_no_migration(self, state_store):
+    async def test_local_client_first_connect_registers_default(self, state_store):
         """First-ever local client connection (no persisted mac_id): MAC is
         cached and a fresh default entry is auto-registered."""
         from backend.core.multiroom.models import RegistryEventType

@@ -20,7 +20,6 @@ Integration with ClientRegistryService:
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, TYPE_CHECKING
 from dataclasses import dataclass
@@ -67,7 +66,6 @@ class VolumeStateStore:
 
     # Persistence
     STORAGE_PATH = Path("/var/lib/milo/last_volume.json")
-    MAX_AGE_DAYS = 7
 
     def __init__(self, settings_service):
         """
@@ -142,31 +140,6 @@ class VolumeStateStore:
             client_data = data.get("client", {})
             if mac_id:
                 is_local = client_data.get("ip") == "127.0.0.1"
-
-                # If the local client's MAC changed since the last session
-                # (e.g. network card swap), migrate the persisted volume/mute
-                # from the old MAC entry to the new one so the user's preferred
-                # volume follows the appliance, not the MAC.
-                if (
-                    is_local
-                    and self._local_mac_id
-                    and self._local_mac_id != mac_id
-                ):
-                    async with self._lock:
-                        old_mac = self._local_mac_id
-                        old_client = self._clients.pop(old_mac, None)
-                        if old_client and mac_id not in self._clients:
-                            self._clients[mac_id] = ClientVolume(
-                                volume_db=old_client.volume_db,
-                                offset_db=0.0,
-                                mute=old_client.mute,
-                                available=True,
-                            )
-                            self.logger.info(
-                                f"Local client MAC changed: {old_mac} -> {mac_id}, "
-                                f"migrated volume={old_client.volume_db:.1f}dB"
-                            )
-                            self._schedule_persist()
 
                 if is_local:
                     self._local_mac_id = mac_id
@@ -405,7 +378,7 @@ class VolumeStateStore:
         """
         Load persisted volume state from disk.
 
-        Format: {"timestamp": ISO, "local_mac_id": str | null, "clients": {...}}
+        Format: {"local_mac_id": str | null, "clients": {...}}
         """
         try:
             if not self.STORAGE_PATH.exists():
@@ -414,19 +387,6 @@ class VolumeStateStore:
 
             async with aiofiles.open(self.STORAGE_PATH, 'r') as f:
                 data = json.loads(await f.read())
-
-            # Validate age
-            timestamp = data.get("timestamp")
-            if timestamp and isinstance(timestamp, str):
-                saved_time = datetime.fromisoformat(timestamp)
-                if saved_time.tzinfo is None:
-                    saved_time = saved_time.replace(tzinfo=timezone.utc)
-
-                age_days = (datetime.now(timezone.utc) - saved_time).days
-
-                if age_days > self.MAX_AGE_DAYS:
-                    self.logger.info(f"Persisted volume state is {age_days} days old (max {self.MAX_AGE_DAYS}), ignoring")
-                    return
 
             # Restore local mac_id so local_volume_db property works before the
             # registry CLIENT_CONNECTED event fires.
@@ -470,7 +430,6 @@ class VolumeStateStore:
         """Persist current volume state to disk using async I/O."""
         try:
             data = {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "local_mac_id": self._local_mac_id,
                 "clients": {
                     mac_id: {
