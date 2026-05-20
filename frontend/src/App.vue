@@ -464,7 +464,6 @@ onMounted(async () => {
     parsedOn('source', 'position_update', wsEventRegistry['source.position_update'],
              (payload) => {
                unifiedStore.updatePosition(payload);
-               podcastStore.handlePositionUpdate(payload);
              }),
     on('source', 'error_cleared', () => {
       // Auto-dismiss error notification when the error condition is resolved

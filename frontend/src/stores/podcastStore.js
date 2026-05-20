@@ -10,8 +10,6 @@ export const usePodcastStore = defineStore('podcast', () => {
   // === PLAYBACK STATE ===
   const currentEpisode = ref(null);
   const displayEpisode = ref(null); // Preserved during fade-out animation
-  const currentPosition = ref(0);
-  const currentDuration = ref(0);
   const playbackSpeed = ref(1.0);
   // Canonical list fetched from backend (GET /api/podcast/playback-speeds).
   // Safe fallback used until the first successful fetch.
@@ -83,11 +81,6 @@ export const usePodcastStore = defineStore('podcast', () => {
 
   const hasDisplayEpisode = computed(() => displayEpisode.value !== null);
 
-  const progressPercentage = computed(() => {
-    if (!currentDuration.value) return 0;
-    return (currentPosition.value / currentDuration.value) * 100;
-  });
-
   const hasSubscriptions = computed(() => subscriptions.value.size > 0);
 
   // === PLAYBACK ACTIONS ===
@@ -124,13 +117,12 @@ export const usePodcastStore = defineStore('podcast', () => {
   }
 
   async function seek(position) {
-    const result = await apiCall.post('/api/podcast/seek', { position: Math.floor(position) }, {
+    await apiCall.post('/api/podcast/seek', { position: Math.floor(position) }, {
       category: 'store',
       message: 'Error seeking',
     });
-    if (result.ok) {
-      currentPosition.value = position;
-    }
+    // Position reconciles via the backend state_changed broadcast →
+    // unifiedStore.systemState.metadata.position (read by useSourceProgress).
   }
 
   async function stop() {
@@ -197,7 +189,6 @@ export const usePodcastStore = defineStore('podcast', () => {
     if (metadata.episode_ended === true) {
       // Clear currentEpisode immediately (for state consistency)
       currentEpisode.value = null;
-      currentPosition.value = 0;
 
       // DON'T clear displayEpisode yet - preserve metadata during fade-out animation
       // The parent component will call clearDisplayEpisode() after animation completes
@@ -223,7 +214,9 @@ export const usePodcastStore = defineStore('podcast', () => {
       }
     }
     // Backend emits position/duration in milliseconds (wire convention shared
-    // with all other audio sources); store-internal values stay in seconds.
+    // with all other audio sources). Live position for the playing episode is
+    // read directly from unifiedStore.systemState.metadata; here we only derive
+    // seconds for the per-episode progress cache (EpisodeCard "X min left").
     const positionSeconds = metadata.position !== undefined
       ? Math.floor(metadata.position / 1000)
       : undefined;
@@ -231,12 +224,6 @@ export const usePodcastStore = defineStore('podcast', () => {
       ? Math.floor(metadata.duration / 1000)
       : undefined;
 
-    if (positionSeconds !== undefined) {
-      currentPosition.value = positionSeconds;
-    }
-    if (durationSeconds !== undefined) {
-      currentDuration.value = durationSeconds;
-    }
     if (metadata.playback_speed !== undefined) {
       playbackSpeed.value = metadata.playback_speed;
     }
@@ -272,14 +259,6 @@ export const usePodcastStore = defineStore('podcast', () => {
     if (event.type === 'state_changed') {
       _applyMetadata(event.data?.metadata || {});
     }
-  }
-
-  // Called from App.vue on source.position_update; payload validated via
-  // schemas/ws.js → 'source.position_update'. Position/duration in ms.
-  function handlePositionUpdate(payload) {
-    if (payload.source !== 'podcast') return;
-    currentPosition.value = Math.floor(payload.position / 1000);
-    currentDuration.value = Math.floor(payload.duration / 1000);
   }
 
   // === PENDING STATE HELPER ===
@@ -511,8 +490,6 @@ export const usePodcastStore = defineStore('podcast', () => {
     // Clear all podcast state (called when switching away from podcast source)
     currentEpisode.value = null;
     displayEpisode.value = null;
-    currentPosition.value = 0;
-    currentDuration.value = 0;
 
     // Clear any pending delayed clear
     if (delayedClearTimeout) {
@@ -527,8 +504,6 @@ export const usePodcastStore = defineStore('podcast', () => {
   // Clear display metadata after fade-out animation completes
   function clearDisplayEpisode() {
     displayEpisode.value = null;
-    currentPosition.value = 0;
-    currentDuration.value = 0;
 
     // Clear any pending timeout
     if (delayedClearTimeout) {
@@ -542,8 +517,6 @@ export const usePodcastStore = defineStore('podcast', () => {
     // State
     currentEpisode,
     displayEpisode,
-    currentPosition,
-    currentDuration,
     playbackSpeed,
     playbackSpeeds,
     pendingEpisodeUuid,
@@ -570,7 +543,6 @@ export const usePodcastStore = defineStore('podcast', () => {
     // Computed
     hasCurrentEpisode,
     hasDisplayEpisode,
-    progressPercentage,
     hasSubscriptions,
 
     // Actions
@@ -585,7 +557,6 @@ export const usePodcastStore = defineStore('podcast', () => {
     updateSettings,
     handleInitialMetadata,
     handleSourceEvent,
-    handlePositionUpdate,
     clearState,
     clearDisplayEpisode,
 

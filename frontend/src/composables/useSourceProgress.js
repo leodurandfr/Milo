@@ -1,10 +1,12 @@
 // frontend/src/composables/useSourceProgress.js
 // Playback progress tracking composable with local interpolation and seek
-import { ref, computed, watch, onUnmounted } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { useTimer } from '@/composables/useTimer';
 
 export function useSourceProgress(source) {
   const unifiedStore = useUnifiedAudioStore();
+  const timer = useTimer();
 
   const localPosition = ref(null);
   let intervalId = null;
@@ -45,10 +47,15 @@ export function useSourceProgress(source) {
 
   function startProgressTimer() {
     if (!intervalId) {
-      intervalId = setInterval(() => {
+      intervalId = timer.setInterval(() => {
         const meta = unifiedStore.systemState.metadata;
         if (localPosition.value !== null && meta?.is_playing && !meta?.is_buffering && localPosition.value < duration.value) {
-          localPosition.value += 100;
+          // Scale interpolation by mpv playback_speed so the bar tracks real
+          // playback at 1.5x/2x. Defaults to 1 for sources without speed
+          // control (Spotify, AirPlay). Read on every tick so a speed change
+          // is reflected immediately via unifiedStore.systemState.metadata.
+          const speed = meta?.playback_speed || 1;
+          localPosition.value += 100 * speed;
         }
       }, 100);
     }
@@ -56,7 +63,7 @@ export function useSourceProgress(source) {
 
   function stopProgressTimer() {
     if (intervalId) {
-      clearInterval(intervalId);
+      timer.clear(intervalId);
       intervalId = null;
     }
   }
@@ -69,15 +76,10 @@ export function useSourceProgress(source) {
       await unifiedStore.sendCommand(source, 'seek', { position_ms: position });
     } finally {
       // Small delay to let WebSocket event arrive first
-      await new Promise(resolve => setTimeout(resolve, 50));
+      await new Promise(resolve => timer.setTimeout(resolve, 50));
       isApiSyncing = false;
     }
   }
-
-  // Cleanup
-  onUnmounted(() => {
-    stopProgressTimer();
-  });
 
   return {
     currentPosition,
