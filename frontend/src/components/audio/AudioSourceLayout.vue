@@ -41,7 +41,7 @@
     <div
       :class="['player-wrapper', { 'has-player': showPlayer }]"
     >
-      <slot name="player" :player-width="playerWidth" :is-mobile="isMobile"></slot>
+      <slot name="player" :is-mobile="isMobile"></slot>
     </div>
   </div>
 </template>
@@ -214,9 +214,6 @@ onBeforeUpdate(() => {
   }
 })
 
-// Player width for desktop (310px wrapper - 32px padding)
-const playerWidth = 278
-
 // Mobile detection for padding-bottom
 const { isMobile } = useIsMobile()
 
@@ -227,7 +224,7 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
 <style scoped>
 /* Layout wrapper */
 .audio-source-layout {
-  --audio-player-wrapper-width: 310px;
+  --audio-player-wrapper-width: 360px;
   position: relative;
   display: flex;
   justify-content: center;

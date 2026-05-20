@@ -26,10 +26,10 @@
     </template>
 
     <!-- Player slot: AudioPlayer component -->
-    <template #player="{ playerWidth, isMobile }">
+    <template #player="{ isMobile }">
       <AudioPlayer v-if="radioStore.currentStation" :visible="shouldShowNowPlayingLayout" source="radio"
         :artwork="playerArtwork" :fallback-name="radioStore.currentStation?.name" :title="playerTitle"
-        :subtitle="playerSubtitle" :is-playing="isCurrentlyPlaying" :is-loading="isBuffering" :width="playerWidth">
+        :subtitle="playerSubtitle" :is-playing="isCurrentlyPlaying" :is-loading="isBuffering">
         <!-- Track info: 3-line layout when Shazam recognized a track -->
         <template v-if="radioStore.trackInfo" #info>
           <!-- Desktop: 3-line layout -->

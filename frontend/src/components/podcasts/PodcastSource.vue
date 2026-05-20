@@ -49,9 +49,9 @@
     </template>
 
     <!-- Player slot: AudioPlayer component -->
-    <template #player="{ playerWidth }">
+    <template #player>
       <AudioPlayer :visible="shouldShowPlayerLayout" source="podcast" :artwork="episodeImage" :title="episodeName"
-        :subtitle="podcastName" :is-playing="isCurrentlyPlaying" :is-loading="isBuffering" :width="playerWidth">
+        :subtitle="podcastName" :is-playing="isCurrentlyPlaying" :is-loading="isBuffering">
         <!-- Progress bar (seekable) -->
         <template #progress>
           <div @click.stop>
