@@ -124,9 +124,9 @@ async function handlePlayClick() {
 }
 
 const hasProgress = computed(() => {
-  // If this is the current episode, read from store (real-time)
+  // If this is the current episode, read live position from unified store (ms)
   if (isCurrentEpisode.value) {
-    return podcastStore.currentPosition > 0
+    return (unifiedStore.systemState.metadata?.position || 0) > 0
   }
   // Otherwise, read from reactive progress cache (updated via WebSocket)
   const progress = podcastStore.getEpisodeProgress(props.episode.uuid)
@@ -136,9 +136,10 @@ const hasProgress = computed(() => {
 const timeRemaining = computed(() => {
   let remaining
 
-  // If this is the current episode, use live data
+  // If this is the current episode, use live data (unified store, ms → s)
   if (isCurrentEpisode.value) {
-    remaining = podcastStore.currentDuration - podcastStore.currentPosition
+    const meta = unifiedStore.systemState.metadata
+    remaining = Math.floor(((meta?.duration || 0) - (meta?.position || 0)) / 1000)
   } else {
     // Otherwise, use reactive progress cache (updated via WebSocket)
     const progress = podcastStore.getEpisodeProgress(props.episode.uuid)
@@ -155,9 +156,9 @@ const timeRemaining = computed(() => {
 })
 
 const formattedDuration = computed(() => {
-  // If this is the current episode, use live duration from store
+  // If this is the current episode, use live duration from unified store (ms → s)
   if (isCurrentEpisode.value) {
-    return formatDuration(podcastStore.currentDuration || 0)
+    return formatDuration(Math.floor((unifiedStore.systemState.metadata?.duration || 0) / 1000))
   }
   // Otherwise, use episode's static duration
   return formatDuration(props.episode.duration || 0)

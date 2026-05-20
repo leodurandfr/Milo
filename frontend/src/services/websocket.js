@@ -17,7 +17,7 @@ import { logger } from '@/services/logger';
  *
  * source:
  *   - state_changed, metadata → App.vue → unifiedAudioStore, podcastStore, cdStore
- *   - position_update → App.vue → unifiedAudioStore, podcastStore
+ *   - position_update → App.vue → unifiedAudioStore
  *   - error_cleared → App.vue (dismiss notification)
  *   - favorite_added, favorite_removed, favorite_modified (origin=radio) → App.vue → radioStore
  *

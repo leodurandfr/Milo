@@ -55,8 +55,8 @@
         <!-- Progress bar (seekable) -->
         <template #progress>
           <div @click.stop>
-            <ProgressBar :currentPosition="podcastStore.currentPosition" :duration="podcastStore.currentDuration"
-              :progressPercentage="progressPercentage" @seek="handleSeek" />
+            <ProgressBar :currentPosition="currentPositionSec" :duration="currentDurationSec"
+              :progressPercentage="livePercent" @seek="handleSeek" />
           </div>
         </template>
 
@@ -91,6 +91,7 @@ import { usePodcastStore } from '@/stores/podcastStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useNavigationStack } from '@/composables/useNavigationStack'
 import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility'
+import { useSourceProgress } from '@/composables/useSourceProgress'
 import { useTimer } from '@/composables/useTimer'
 import { useI18n } from '@/services/i18n'
 import { apiCall } from '@/services/apiCall'
@@ -153,6 +154,19 @@ const { isPlaying: isCurrentlyPlaying, isBuffering, shouldShowPlayer: shouldShow
       timer.setTimeout(() => podcastStore.clearDisplayEpisode(), 600)
     }
   })
+
+// Live position with 100ms local interpolation between backend syncs.
+// Reads position/duration (in ms) from unifiedStore.systemState.metadata —
+// kept current by state_changed events and source.position_update.
+const {
+  currentPosition: positionMs,
+  duration: durationMs,
+  progressPercentage: livePercent,
+} = useSourceProgress('podcast')
+
+// ProgressBar + seekBackward/seekForward operate in seconds.
+const currentPositionSec = computed(() => Math.floor((positionMs.value || 0) / 1000))
+const currentDurationSec = computed(() => Math.floor((durationMs.value || 0) / 1000))
 
 // Navigation params (stored separately since composable handles view state)
 const selectedPodcastUuid = computed(() => currentParams.value.podcastUuid || '')
@@ -282,14 +296,6 @@ const podcastName = computed(() => {
   return podcastStore.displayEpisode?.podcast?.name || ''
 })
 
-// Progress percentage
-const progressPercentage = computed(() => {
-  if (!podcastStore.currentDuration || podcastStore.currentDuration === 0) {
-    return 0
-  }
-  return (podcastStore.currentPosition / podcastStore.currentDuration) * 100
-})
-
 // Speed control — canonical list owned by backend, fetched at mount time
 const speedOptions = computed(() =>
   podcastStore.playbackSpeeds.map(speed => ({
@@ -313,14 +319,14 @@ async function togglePlayPause() {
 }
 
 async function seekBackward() {
-  const newPosition = Math.max(0, podcastStore.currentPosition - 15)
+  const newPosition = Math.max(0, currentPositionSec.value - 15)
   await podcastStore.seek(newPosition)
 }
 
 async function seekForward() {
   const newPosition = Math.min(
-    podcastStore.currentDuration,
-    podcastStore.currentPosition + 30
+    currentDurationSec.value,
+    currentPositionSec.value + 30
   )
   await podcastStore.seek(newPosition)
 }
