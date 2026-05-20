@@ -9,8 +9,6 @@
         :id="filter.id"
         :freq="filter.freq"
         :gain="filter.gain"
-        :q="filter.q"
-        :type="filter.type"
         :display-name="filter.displayName"
         :orientation="bandOrientation"
         :disabled="disabled || !filtersLoaded"
