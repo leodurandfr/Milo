@@ -115,6 +115,33 @@ export default [
       'vue/require-valid-default-prop': 'off',
     },
   },
+  // === Frontend timer lock (CLAUDE.md §8) ===
+  // Inside components and composables, every setTimeout/setInterval must go
+  // through useTimer() so the handle is auto-cleared on unmount (prevents
+  // stale callbacks firing into a destroyed component). Bare global timer
+  // calls are banned in this scope. The timer-primitive layer
+  // (useTimer/useDebounce/useVolumeThrottle) and directives — which have no
+  // component lifecycle and so cannot use useTimer() — opt out by calling the
+  // window.* timers explicitly (member access, not a bare global, so it does
+  // not trip this rule). Stores and services run outside the component
+  // lifecycle too and are intentionally out of scope (no files glob below).
+  {
+    files: [
+      'src/components/**/*.{js,vue}',
+      'src/composables/**/*.js',
+      'src/views/**/*.vue',
+      'src/directives/**/*.js',
+      'src/App.vue',
+    ],
+    rules: {
+      'no-restricted-globals': ['error',
+        { name: 'setTimeout', message: "Use useTimer().setTimeout() from '@/composables/useTimer' (auto-cleared on unmount). See CLAUDE.md §8. window.setTimeout is allowed only in the timer-primitive layer + directives." },
+        { name: 'setInterval', message: "Use useTimer().setInterval() from '@/composables/useTimer' (auto-cleared on unmount). See CLAUDE.md §8. window.setInterval is allowed only in the timer-primitive layer + directives." },
+        { name: 'clearTimeout', message: "Use useTimer().clear() from '@/composables/useTimer'. See CLAUDE.md §8. window.clearTimeout is allowed only in the timer-primitive layer + directives." },
+        { name: 'clearInterval', message: "Use useTimer().clear() from '@/composables/useTimer'. See CLAUDE.md §8. window.clearInterval is allowed only in the timer-primitive layer + directives." },
+      ],
+    },
+  },
   // === RFC 22 Lot A whitelists ===
   // apiCall.js is the one site allowed to import axios — it IS the helper layer.
   {

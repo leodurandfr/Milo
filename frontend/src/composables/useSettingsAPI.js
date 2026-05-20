@@ -1,11 +1,14 @@
 // frontend/src/composables/useSettingsAPI.js
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
+import { useTimer } from '@/composables/useTimer';
 
 /**
- * Composable to manage settings API calls with debouncing
+ * Composable to manage settings API calls with debouncing.
+ * Pending debounced timers are auto-cleared on unmount via useTimer.
  */
 export function useSettingsAPI() {
+  const timer = useTimer();
   const debounceTimers = new Map();
 
   /**
@@ -33,25 +36,17 @@ export function useSettingsAPI() {
    */
   function debouncedUpdate(key, endpoint, payload, delay = 800) {
     if (debounceTimers.has(key)) {
-      clearTimeout(debounceTimers.get(key));
+      timer.clear(debounceTimers.get(key));
     }
 
-    const timer = setTimeout(() => {
+    const id = timer.setTimeout(() => {
       // updateSetting rethrows; swallow here so the timer callback does not
       // surface an unhandled rejection (the error was already logged).
       updateSetting(endpoint, payload).catch(() => {});
       debounceTimers.delete(key);
     }, delay);
 
-    debounceTimers.set(key, timer);
-  }
-
-  /**
-   * Clear all pending timers (for cleanup)
-   */
-  function clearAllTimers() {
-    debounceTimers.forEach(timer => clearTimeout(timer));
-    debounceTimers.clear();
+    debounceTimers.set(key, id);
   }
 
   /**
@@ -71,7 +66,6 @@ export function useSettingsAPI() {
   return {
     updateSetting,
     debouncedUpdate,
-    clearAllTimers,
     loadConfig
   };
 }

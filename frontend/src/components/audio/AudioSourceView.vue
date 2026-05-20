@@ -33,7 +33,8 @@
 </template>
 
 <script setup>
-import { computed, ref, watch, onUnmounted, defineAsyncComponent } from 'vue';
+import { computed, ref, watch, defineAsyncComponent } from 'vue';
+import { useTimer } from '@/composables/useTimer';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 
 const SpotifySource = defineAsyncComponent(() =>
@@ -169,11 +170,12 @@ const rawSourceState = computed(() => {
 // Minimum display time for "starting" state (prevents flash before "loading_disc")
 const STARTING_MIN_MS = 2000;
 const currentSourceState = ref(rawSourceState.value);
+const timer = useTimer();
 let startingEnteredAt = null;
 let startingTimer = null;
 
 watch(rawSourceState, (newState, oldState) => {
-  clearTimeout(startingTimer);
+  timer.clear(startingTimer);
 
   if (newState === 'starting') {
     startingEnteredAt = Date.now();
@@ -185,7 +187,7 @@ watch(rawSourceState, (newState, oldState) => {
   if (oldState === 'starting' && startingEnteredAt) {
     const remaining = STARTING_MIN_MS - (Date.now() - startingEnteredAt);
     if (remaining > 0) {
-      startingTimer = setTimeout(() => {
+      startingTimer = timer.setTimeout(() => {
         currentSourceState.value = rawSourceState.value;
         startingEnteredAt = null;
       }, remaining);
@@ -196,8 +198,6 @@ watch(rawSourceState, (newState, oldState) => {
   startingEnteredAt = null;
   currentSourceState.value = newState;
 });
-
-onUnmounted(() => clearTimeout(startingTimer));
 
 const currentDeviceName = computed(() => {
   const meta = metadata.value || {};

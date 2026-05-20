@@ -75,8 +75,10 @@ import ScreenStep from './ScreenStep.vue';
 import SummaryStep from './SummaryStep.vue';
 import Button from '@/components/ui/Button.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
+import { useTimer } from '@/composables/useTimer';
 
 const { t } = useI18n();
+const timer = useTimer();
 const { loadHardwareConfig } = useHardwareConfig();
 const settingsStore = useSettingsStore();
 const { country: wifiCountry } = useNetwork();
@@ -216,10 +218,10 @@ async function applySetup() {
   const maxPolls = 60;
   let backendWentDown = false;
 
-  pollIntervalId = setInterval(async () => {
+  pollIntervalId = timer.setInterval(async () => {
     pollCount++;
     if (pollCount > maxPolls) {
-      clearInterval(pollIntervalId);
+      timer.clear(pollIntervalId);
       pollIntervalId = null;
       isRebooting.value = false;
       error.value = 'Reboot timed out. Please refresh the page.';
@@ -234,7 +236,7 @@ async function applySetup() {
     if (pingResult.ok) {
       if (backendWentDown) {
         // Backend is back up after reboot
-        clearInterval(pollIntervalId);
+        timer.clear(pollIntervalId);
         pollIntervalId = null;
         window.location.reload();
       }
@@ -256,10 +258,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   document.documentElement.classList.remove('setup-active');
-  if (pollIntervalId) {
-    clearInterval(pollIntervalId);
-    pollIntervalId = null;
-  }
+  // Poll interval (if still pending) is auto-cleared by useTimer.
 });
 </script>
 

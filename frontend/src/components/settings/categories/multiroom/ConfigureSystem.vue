@@ -127,6 +127,7 @@ import { useI18n } from '@/services/i18n';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useDiscoveryStore } from '@/stores/discoveryStore';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
+import { useTimer } from '@/composables/useTimer';
 import InputText from '@/components/ui/InputText.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import Button from '@/components/ui/Button.vue';
@@ -154,6 +155,7 @@ const props = defineProps({
 const emit = defineEmits(['back']);
 
 const { t } = useI18n();
+const timer = useTimer();
 const multiroomStore = useMultiroomStore();
 const discoveryStore = useDiscoveryStore();
 const { loadHardwareConfig } = useHardwareConfig();
@@ -287,7 +289,7 @@ async function applyConfiguration() {
       // Mirror the ethernet watchdog: if the request stalls (server stuck on
       // hotspot, restore wifi failure, etc.) flip the UI to a timeout state
       // instead of spinning indefinitely.
-      rebootTimeoutId = setTimeout(() => {
+      rebootTimeoutId = timer.setTimeout(() => {
         rebootTimedOut.value = true;
       }, REBOOT_TIMEOUT_MS);
       await discoveryStore.adoptSpeaker({
@@ -300,7 +302,7 @@ async function applyConfiguration() {
       });
       // Server returns once the device has accepted the config and is rebooting.
       // The new client appears in the multiroom list when it joins the LAN.
-      clearTimeout(rebootTimeoutId);
+      timer.clear(rebootTimeoutId);
       rebootTimeoutId = null;
       emit('back');
     } else {
@@ -309,13 +311,13 @@ async function applyConfiguration() {
         speaker_type: selectedSpeakerType.value,
         audio_id: selectedAudioId.value,
       });
-      rebootTimeoutId = setTimeout(() => {
+      rebootTimeoutId = timer.setTimeout(() => {
         rebootTimedOut.value = true;
       }, REBOOT_TIMEOUT_MS);
     }
   } catch (e) {
     if (rebootTimeoutId) {
-      clearTimeout(rebootTimeoutId);
+      timer.clear(rebootTimeoutId);
       rebootTimeoutId = null;
     }
     isRebooting.value = false;
@@ -355,7 +357,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopWatch();
-  if (rebootTimeoutId) clearTimeout(rebootTimeoutId);
+  // rebootTimeoutId (if still pending) is auto-cleared by useTimer.
 });
 </script>
 

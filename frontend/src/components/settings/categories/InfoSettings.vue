@@ -74,12 +74,14 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { apiCall } from '@/services/apiCall';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
+import { useTimer } from '@/composables/useTimer';
 
 const { t } = useI18n();
+const timer = useTimer();
 
 const miloVersion = ref(null);
 const versionLoading = ref(false);
@@ -151,21 +153,13 @@ async function loadSystemResources() {
   resourcesLoading.value = false;
 }
 
-let pollingInterval = null;
-
 async function pollDynamicData() {
   await Promise.all([loadSystemTemperature(), loadSystemResources()]);
 }
 
 onMounted(async () => {
   await Promise.all([loadMiloVersion(), loadNetworkInfo(), pollDynamicData()]);
-  pollingInterval = setInterval(pollDynamicData, 5000);
-});
-
-onUnmounted(() => {
-  if (pollingInterval) {
-    clearInterval(pollingInterval);
-  }
+  timer.setInterval(pollDynamicData, 5000); // auto-cleared on unmount
 });
 </script>
 

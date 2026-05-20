@@ -272,7 +272,7 @@ CamillaDSP is ALWAYS in the audio path for volume control. DSP effects (EQ, comp
 
 **Shared constants**: Structural constants used by 2+ modules (stores, composables, components) live in [`frontend/src/constants/`](frontend/src/constants/) (see [README](frontend/src/constants/README.md)). Don't duplicate a literal value across a store AND a component — promote it to the module as soon as a second site consumes it. Constants derivable from the backend (speeds, codecs, presets) are fetched at runtime and cached in the relevant store, not hardcoded on both sides.
 
-**Timers**: Every `setTimeout` / `setInterval` inside a component or composable must go through [`useTimer()`](frontend/src/composables/useTimer.js) for automatic cleanup on unmount. Direct calls to `window.setTimeout` / `window.setInterval` are only allowed inside `useTimer.js` itself.
+**Timers**: Every `setTimeout` / `setInterval` inside a component or composable must go through [`useTimer()`](frontend/src/composables/useTimer.js) for automatic cleanup on unmount. Bare global timer calls in that scope are blocked by the `no-restricted-globals` rule in [eslint.config.mjs](frontend/eslint.config.mjs). Raw `window.setTimeout` / `window.setInterval` (member access, signalling deliberate raw use) are allowed **only** in the timer-primitive layer — [`useTimer.js`](frontend/src/composables/useTimer.js), [`useDebounce.js`](frontend/src/composables/useDebounce.js), [`useVolumeThrottle.js`](frontend/src/composables/useVolumeThrottle.js) — and in directives ([`press.js`](frontend/src/directives/press.js)), which have no component lifecycle and so cannot use `useTimer()`. Stores and services run outside the component lifecycle too and are out of the rule's scope.
 
 **WS event handling**: WebSocket events should be handled in Pinia stores, not in Vue components directly. Components react to store state changes.
 
@@ -537,6 +537,7 @@ The project ships a lightweight lint floor that mechanically locks the conventio
 | stylelint | `color-no-hex` | RFC 21 | RFC 21 PR3 — 2026-05-18 |
 | stylelint | `declaration-property-value-disallowed-list` (`rgba\|hsla` on any color property) | RFC 21 | RFC 21 PR3 — 2026-05-18 |
 | stylelint | `declaration-property-value-disallowed-list` (typography redefinition in scoped CSS) | RFC 21 + RFC 22 | RFC 21 PR3 — 2026-05-18 (Lot D — verified) |
+| eslint | `no-restricted-globals` (bare `setTimeout`/`setInterval`/`clearTimeout`/`clearInterval` in components/composables/views/directives → use `useTimer()`) | §8 Timers | 2026-05-20 |
 
 **Intentional silent swallows** (Python) — use `contextlib.suppress(ExceptionType)` instead of `try: ... except: pass`. The latter trips `ruff S110/S112`; the former is the documented Pythonic idiom and reads as a deliberate, scoped suppression (cleanup paths, idempotent teardown, transient hardware errors in `finally:` blocks).
 

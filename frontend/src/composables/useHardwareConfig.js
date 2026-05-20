@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
+import { useTimer } from '@/composables/useTimer';
 
 /**
  * Composable to manage system hardware information.
@@ -43,6 +44,8 @@ export async function preloadHardwareConfig() {
 }
 
 export function useHardwareConfig() {
+  const timer = useTimer();
+
   /**
    * Load lightweight hardware info (screen type/resolution).
    * Used by InputText.vue, App.vue, etc.
@@ -54,9 +57,9 @@ export function useHardwareConfig() {
 
     if (isLoading.value) {
       return new Promise((resolve) => {
-        const checkLoaded = setInterval(() => {
+        const checkLoaded = timer.setInterval(() => {
           if (!isLoading.value) {
-            clearInterval(checkLoaded);
+            timer.clear(checkLoaded);
             resolve(hardwareInfo.value);
           }
         }, 50);
@@ -99,10 +102,10 @@ export function useHardwareConfig() {
     if (isLoadingConfig.value) {
       return new Promise((resolve) => {
         let attempts = 0;
-        const checkLoaded = setInterval(() => {
+        const checkLoaded = timer.setInterval(() => {
           attempts++;
           if (!isLoadingConfig.value || attempts > 100) {
-            clearInterval(checkLoaded);
+            timer.clear(checkLoaded);
             resolve(hardwareConfig.value);
           }
         }, 50);

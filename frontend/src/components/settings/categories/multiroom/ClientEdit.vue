@@ -130,7 +130,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
+import { useTimer } from '@/composables/useTimer';
 import { useI18n } from '@/services/i18n';
 import { useSnapcastStore } from '@/stores/snapcastStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
@@ -157,6 +158,7 @@ const props = defineProps({
 const emit = defineEmits(['back']);
 
 const { t } = useI18n();
+const timer = useTimer();
 const snapcastStore = useSnapcastStore();
 const multiroomClientStore = useMultiroomStore();
 const equalizerStore = useEqualizerStore();
@@ -253,7 +255,7 @@ watch(
     if (isRebooting.value && online) {
       isRebooting.value = false;
       rebootTimedOut.value = false;
-      if (rebootTimeoutId) clearTimeout(rebootTimeoutId);
+      if (rebootTimeoutId) timer.clear(rebootTimeoutId);
       // Update saved audio id to reflect the new card
       savedAudioId.value = selectedAudioId.value;
     }
@@ -322,7 +324,7 @@ async function applyAudioChange() {
   try {
     await multiroomClientStore.configureClientAudio(props.macId, selectedAudioId.value, volumeControl.value);
     isRebooting.value = true;
-    rebootTimeoutId = setTimeout(() => {
+    rebootTimeoutId = timer.setTimeout(() => {
       rebootTimedOut.value = true;
     }, REBOOT_TIMEOUT_MS);
   } catch (e) {
@@ -419,9 +421,6 @@ onMounted(async () => {
   }
 });
 
-onUnmounted(() => {
-  if (rebootTimeoutId) clearTimeout(rebootTimeoutId);
-});
 </script>
 
 <style scoped>

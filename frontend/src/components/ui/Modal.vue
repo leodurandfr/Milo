@@ -26,6 +26,7 @@
 import { ref, onMounted, onUnmounted, watch, nextTick, provide } from 'vue';
 import IconButton from './IconButton.vue';
 import { useAnimatedHeight } from '@/composables/useAnimatedHeight';
+import { useTimer } from '@/composables/useTimer';
 import { modalDebugLog, modalDebugTrace } from '@/services/modalDebug';
 import { useI18n } from '@/services/i18n';
 
@@ -213,19 +214,20 @@ provide('modalDeferScrollRestore', (callback) => {
 });
 
 // Variables to cancel ongoing timeouts
+const timer = useTimer();
 let animationTimeouts = [];
 let inactivityTimer = null;
 
 // Utility to clear all timeouts
 function clearAllTimeouts() {
-  animationTimeouts.forEach(timeout => clearTimeout(timeout));
+  animationTimeouts.forEach(timeout => timer.clear(timeout));
   animationTimeouts = [];
 }
 
 // Clear the inactivity timer
 function clearInactivityTimer() {
   if (inactivityTimer) {
-    clearTimeout(inactivityTimer);
+    timer.clear(inactivityTimer);
     inactivityTimer = null;
   }
 }
@@ -235,7 +237,7 @@ function resetInactivityTimer() {
   clearInactivityTimer();
 
   // Start a new 120-second timer
-  inactivityTimer = setTimeout(() => {
+  inactivityTimer = timer.setTimeout(() => {
     close();
   }, 120000); // 120 seconds before auto-close
 }
@@ -302,7 +304,7 @@ async function openModal() {
   modalContainer.value.offsetHeight;
 
   // Overlay enter animation (immediate)
-  const overlayTimeout = setTimeout(() => {
+  const overlayTimeout = timer.setTimeout(() => {
     if (!modalOverlay.value) return;
     modalOverlay.value.style.transition = `opacity ${ANIMATION_TIMINGS.overlayDuration}ms var(--easeOutCubic)`;
     modalOverlay.value.style.opacity = '1';
@@ -310,7 +312,7 @@ async function openModal() {
   animationTimeouts.push(overlayTimeout);
 
   // Container enter animation (scale via --transition-spring, opacity via ease-out)
-  const containerTimeout = setTimeout(() => {
+  const containerTimeout = timer.setTimeout(() => {
     if (!modalContainer.value) return;
     modalContainer.value.style.transition = 'transform var(--transition-spring-snappy), opacity 300ms var(--easeOutCubic), height var(--transition-spring-snappy)';
     modalContainer.value.style.opacity = '1';
@@ -319,7 +321,7 @@ async function openModal() {
   animationTimeouts.push(containerTimeout);
 
   // Delayed close button animation (wrapper slides, button fades independently)
-  const closeButtonTimeout = setTimeout(() => {
+  const closeButtonTimeout = timer.setTimeout(() => {
     if (!closeButtonWrapper.value || !closeButton.value) return;
     closeButtonWrapper.value.style.transition = 'transform var(--transition-spring-snappy)';
     closeButtonWrapper.value.classList.add('visible');
@@ -335,7 +337,7 @@ async function openModal() {
     ANIMATION_TIMINGS.overlayDelay + ANIMATION_TIMINGS.overlayDuration
   );
 
-  const finalTimeout = setTimeout(() => {
+  const finalTimeout = timer.setTimeout(() => {
     isAnimating.value = false;
     // Add activity listeners and start the inactivity timer
     addActivityListeners();
@@ -354,14 +356,14 @@ async function closeModal() {
   if (!modalContainer.value || !modalOverlay.value || !closeButtonWrapper.value) return;
 
   // Exit animation with ease-out for closing
-  const overlayCloseTimeout = setTimeout(() => {
+  const overlayCloseTimeout = timer.setTimeout(() => {
     if (!modalOverlay.value) return;
     modalOverlay.value.style.transition = `opacity ${ANIMATION_TIMINGS.closeOverlayDuration}ms var(--easeOutCubic)`;
     modalOverlay.value.style.opacity = '0';
   }, ANIMATION_TIMINGS.closeOverlayDelay);
   animationTimeouts.push(overlayCloseTimeout);
 
-  const containerCloseTimeout = setTimeout(() => {
+  const containerCloseTimeout = timer.setTimeout(() => {
     if (!modalContainer.value) return;
     modalContainer.value.style.transition = `transform ${ANIMATION_TIMINGS.closeContainerDuration}ms var(--easeOutCubic), opacity ${ANIMATION_TIMINGS.closeContainerDuration}ms var(--easeOutCubic), height ${ANIMATION_TIMINGS.closeContainerDuration}ms var(--easeOutCubic)`;
     modalContainer.value.style.opacity = '0';
@@ -369,7 +371,7 @@ async function closeModal() {
   }, ANIMATION_TIMINGS.closeContainerDelay);
   animationTimeouts.push(containerCloseTimeout);
 
-  const closeButtonCloseTimeout = setTimeout(() => {
+  const closeButtonCloseTimeout = timer.setTimeout(() => {
     if (!closeButtonWrapper.value) return;
     closeButtonWrapper.value.style.transition = 'none';
     closeButtonWrapper.value.classList.remove('visible');
@@ -383,7 +385,7 @@ async function closeModal() {
     ANIMATION_TIMINGS.closeButtonDelayOut + ANIMATION_TIMINGS.closeButtonDurationOut
   );
 
-  const finalCloseTimeout = setTimeout(() => {
+  const finalCloseTimeout = timer.setTimeout(() => {
     isVisible.value = false;
     isAnimating.value = false;
   }, totalCloseDuration);
@@ -462,8 +464,7 @@ onUnmounted(() => {
   if (modalContent.value) modalContent.value.removeEventListener('scroll', logScroll);
   document.removeEventListener('keydown', handleKeydown);
   document.body.style.overflow = '';
-  clearAllTimeouts();
-  clearInactivityTimer();
+  // Pending animation timeouts and the inactivity timer are auto-cleared by useTimer.
   removeActivityListeners();
 });
 </script>

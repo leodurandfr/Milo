@@ -60,6 +60,9 @@ import { ref, computed, watch } from 'vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import { generateStationAvatarSvg } from '@/utils/stationAvatar';
 import { MIN_IMAGE_SIZE } from '@/constants/imageQuality';
+import { useTimer } from '@/composables/useTimer';
+
+const timer = useTimer();
 
 const props = defineProps({
   isVisible: {
@@ -139,7 +142,7 @@ function handleClose() {
   isClosing.value = true;
 
   // Wait for the end of the animation (300ms) before actually closing
-  setTimeout(() => {
+  timer.setTimeout(() => {
     isClosing.value = false;
     emit('close');
   }, 300);
