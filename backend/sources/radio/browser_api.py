@@ -83,7 +83,10 @@ class RadioBrowserAPI:
                     if 200 <= resp.status < 300:
                         return await resp.json()
                     if 500 <= resp.status < 600:
-                        self.logger.warning(
+                        # A single flaky mirror is normal for this federated
+                        # community service; rotating to the next one is the
+                        # designed recovery, not a fault worth a WARNING.
+                        self.logger.info(
                             f"Mirror {server} returned HTTP {resp.status} for /{endpoint}; rotating"
                         )
                         await self._discovery.rotate()
@@ -96,8 +99,11 @@ class RadioBrowserAPI:
                     return None
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                 last_error = e
-                self.logger.warning(
-                    f"Mirror {server} failed for /{endpoint}: {e}; rotating"
+                # Transient mirror failure (often a bare timeout, whose str() is
+                # empty — hence the type-name fallback). Rotating is the designed
+                # recovery; only an all-mirrors failure below is a real WARNING.
+                self.logger.info(
+                    f"Mirror {server} failed for /{endpoint}: {str(e) or type(e).__name__}; rotating"
                 )
                 await self._discovery.rotate()
                 continue
