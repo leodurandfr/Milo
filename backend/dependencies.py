@@ -63,7 +63,7 @@ def _create_rotary_controller():
         logging.getLogger(__name__).info("DAC mode: rotary encoder disabled (volume managed externally)")
         return None
     clk, dt, sw = hardware_service.get_rotary_pins()
-    return _import("backend.hardware", "RotaryVolumeController")(
+    return _import("backend.hardware.rotary", "RotaryVolumeController")(
         volume_service=get_service("volume_service"),
         state_machine=get_service("audio_state_machine"),
         clk_pin=clk, dt_pin=dt, sw_pin=sw
@@ -84,7 +84,7 @@ def _create_service(name: str) -> Any:
         # Core services (no dependencies or simple deps)
         "systemd_manager": lambda: _import("backend.core.systemd", "SystemdServiceManager")(),
         "settings_service": lambda: _import("backend.core.settings", "SettingsService")(),
-        "hardware_service": lambda: _import("backend.hardware", "HardwareService")(),
+        "hardware_service": lambda: _import("backend.hardware.service", "HardwareService")(),
         "snapcast_service": lambda: _import("backend.core.multiroom.snapcast", "SnapcastService")(host="127.0.0.1"),
         "websocket_manager": lambda: _import("backend.ws", "WebSocketManager")(),
 
@@ -120,17 +120,17 @@ def _create_service(name: str) -> Any:
             equalizer_router=get_service("equalizer_router")
         ),
         "rotary_controller": lambda: _create_rotary_controller(),
-        "screen_controller": lambda: _import("backend.hardware", "ScreenController")(
+        "screen_controller": lambda: _import("backend.hardware.screen", "ScreenController")(
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service"),
             hardware_service=get_service("hardware_service")
         ),
-        "bt_remote_controller": lambda: _import("backend.hardware", "BtRemoteController")(
+        "bt_remote_controller": lambda: _import("backend.hardware.bt_remote", "BtRemoteController")(
             volume_service=get_service("volume_service"),
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service")
         ),
-        "ir_remote_controller": lambda: _import("backend.hardware", "IrRemoteController")(
+        "ir_remote_controller": lambda: _import("backend.hardware.ir_remote", "IrRemoteController")(
             volume_service=get_service("volume_service"),
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service"),
