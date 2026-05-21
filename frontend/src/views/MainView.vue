@@ -26,6 +26,7 @@
       :title="screensaverData.title"
       :subtitle="screensaverData.subtitle"
       :station-favicon="screensaverData.stationFavicon"
+      :station-icon="screensaverData.stationIcon"
       :station-name="screensaverData.stationName"
       :use-mono-subtitle="screensaverData.useMonoSubtitle"
       @close="closeScreensaver"

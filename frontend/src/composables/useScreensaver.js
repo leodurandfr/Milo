@@ -11,6 +11,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { useI18n } from '@/services/i18n';
 import { formatDeviceNames } from '@/utils/deviceName';
 import { getFaviconUrl } from '@/utils/faviconUrl';
+import { AIRPLAY_MIN_ARTWORK_PX } from '@/constants/imageQuality';
 
 /** Minimum ms between activity event processing. */
 const ACTIVITY_THROTTLE_MS = 500;
@@ -48,7 +49,7 @@ export function useScreensaver() {
     if (!settingsStore.screenScreensaver.screensaver_enabled) return false;
     const source = unifiedStore.systemState.active_source;
     const state = unifiedStore.systemState.source_state;
-    return ['radio', 'podcast', 'bluetooth', 'mac'].includes(source) && state === 'active';
+    return ['radio', 'podcast', 'bluetooth', 'mac', 'airplay'].includes(source) && state === 'active';
   });
 
   // --- Timer management ---
@@ -152,6 +153,38 @@ export function useScreensaver() {
         subtitle: episode?.podcast?.name || null,
         stationFavicon: null,
         stationName: null,
+      };
+    }
+
+    if (source === 'airplay') {
+      const metadata = unifiedStore.systemState.metadata || {};
+      const deviceName = metadata.client_name || null;
+
+      // Same artwork-quality gate as the main now-playing view: a real cover
+      // (>300px) earns the rich media layout; browser audio shipping a tiny
+      // favicon falls back to the simple "Connected to <device>" card (mirrors
+      // the AudioSourceStatus card the main view shows for the same case).
+      const hasRichArtwork = !!metadata.title && !!metadata.artist &&
+        (metadata.album_art_width || 0) > AIRPLAY_MIN_ARTWORK_PX;
+
+      if (hasRichArtwork) {
+        return {
+          mode: 'media',
+          artwork: metadata.album_art_url || null,
+          title: metadata.title,
+          subtitle: metadata.artist || null,
+          // Bottom bar shows the AirPlay glyph + sender name, in the same slot
+          // the radio layout uses for station favicon + station name.
+          stationIcon: 'airplay',
+          stationName: deviceName,
+        };
+      }
+
+      return {
+        mode: 'simple',
+        sourceType: 'airplay',
+        title: t('status.connectedTo'),
+        subtitle: deviceName,
       };
     }
 

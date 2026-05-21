@@ -36,6 +36,7 @@
 import { computed, ref, watch, defineAsyncComponent } from 'vue';
 import { useTimer } from '@/composables/useTimer';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { AIRPLAY_MIN_ARTWORK_PX } from '@/constants/imageQuality';
 
 const SpotifySource = defineAsyncComponent(() =>
   import('../spotify/SpotifySource.vue')
@@ -76,11 +77,8 @@ function handleDisconnect() {
 // conservative "Connecté à…" card). `hasRichDisplay` is the ONE place that
 // rule lives — keep per-source conditions here, not scattered across booleans.
 
-// AirPlay artwork below this resolution is treated as untrustworthy: browser
-// audio without MediaSession cover art ends up as a tiny favicon / app icon,
-// whereas real senders (Apple Music, Spotify desktop) push ≥600px covers. We
-// can't recover the quality (it's never sent), so we decline the rich player.
-const AIRPLAY_MIN_ARTWORK_PX = 300;
+// AirPlay's artwork-quality gate (AIRPLAY_MIN_ARTWORK_PX) is shared with the
+// screensaver — see @/constants/imageQuality.
 
 function hasRichDisplay(source, state, meta) {
   const m = meta || {};
