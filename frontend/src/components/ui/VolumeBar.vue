@@ -1,6 +1,10 @@
 <!-- frontend/src/components/ui/VolumeBar.vue -->
 <template>
-  <div class="volume-bar glass-surface glass-border" :class="{ visible: unifiedStore.showVolumeBar }">
+  <div
+    class="volume-bar glass-surface glass-border"
+    :class="{ visible: unifiedStore.showVolumeBar }"
+    @click="unifiedStore.hideVolumeBar()"
+  >
     <div class="volume-slider">
       <div class="volume-fill" :style="volumeFillStyle"></div>
       <div class="text-mono">{{ volumeDisplay }}</div>
@@ -53,12 +57,17 @@ const volumeFillStyle = computed(() => ({
   border-radius: var(--radius-full);
   transition: all var(--transition-spring-snappy);
   z-index: 8000;
+  /* Only intercept taps while fully shown: during the fade-out the bar lets
+     clicks pass through, so re-tapping never interrupts the disappear animation. */
+  pointer-events: none;
 }
 
 .volume-bar.visible {
   opacity: 1;
   transform: translate(-50%, 0);
   left: 50%;
+  pointer-events: auto;
+  cursor: pointer;
 }
 
 .volume-slider {
