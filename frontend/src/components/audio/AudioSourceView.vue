@@ -69,73 +69,61 @@ function handleDisconnect() {
   unifiedStore.disconnectSource(activeSource.value);
 }
 
-// === DECISION LOGIC ===
-const hasCompleteTrackInfo = computed(() => {
-  return !!(
-    sourceState.value === 'active' &&
-    metadata.value?.title &&
-    metadata.value?.artist
-  );
-});
+// === DISPLAY DECISION (single source of truth) ===
+//
+// Each active source either renders its rich full-screen view (its dedicated
+// component / AudioPlayerFull) or falls back to AudioSourceStatus (the
+// conservative "Connecté à…" card). `hasRichDisplay` is the ONE place that
+// rule lives — keep per-source conditions here, not scattered across booleans.
 
-const shouldShowSpotify = computed(() => {
-  return activeSource.value === 'spotify' &&
-    sourceState.value === 'active' &&
-    hasCompleteTrackInfo.value &&
-    !transitioning.value;
-});
+// AirPlay artwork below this resolution is treated as untrustworthy: browser
+// audio without MediaSession cover art ends up as a tiny favicon / app icon,
+// whereas real senders (Apple Music, Spotify desktop) push ≥600px covers. We
+// can't recover the quality (it's never sent), so we decline the rich player.
+const AIRPLAY_MIN_ARTWORK_PX = 300;
 
-const shouldShowRadio = computed(() => {
-  return activeSource.value === 'radio' &&
-    !transitioning.value;
-});
+function hasRichDisplay(source, state, meta) {
+  const m = meta || {};
+  switch (source) {
+    case 'spotify':
+      // Trusted metadata provider: title + artist is enough.
+      return state === 'active' && !!m.title && !!m.artist;
+    case 'airplay':
+      // Untrusted sender: require title, artist AND a real cover (>300px).
+      // A small/absent image means browser audio → status card.
+      return state === 'active' && !!m.title && !!m.artist &&
+        (m.album_art_width || 0) > AIRPLAY_MIN_ARTWORK_PX;
+    case 'radio':
+    case 'podcast':
+      // Own component handles internal empty/loading states.
+      return true;
+    case 'cd':
+      return state === 'active';
+    default:
+      // bluetooth, mac, none → no rich view, always status.
+      return false;
+  }
+}
 
-const shouldShowPodcast = computed(() => {
-  return activeSource.value === 'podcast' &&
-    !transitioning.value;
-});
+// The active source resolves to a rich view, or null (→ status fallback).
+// Transitions always defer to the status card.
+const richSource = computed(() =>
+  !transitioning.value &&
+  hasRichDisplay(activeSource.value, sourceState.value, metadata.value)
+    ? activeSource.value
+    : null
+);
 
-const shouldShowCD = computed(() => {
-  return activeSource.value === 'cd' &&
-    sourceState.value === 'active' &&
-    !transitioning.value;
-});
-
-const shouldShowAirPlay = computed(() => {
-  return activeSource.value === 'airplay' &&
-    sourceState.value === 'active' &&
-    hasCompleteTrackInfo.value &&
-    !transitioning.value;
-});
+const shouldShowSpotify = computed(() => richSource.value === 'spotify');
+const shouldShowRadio = computed(() => richSource.value === 'radio');
+const shouldShowPodcast = computed(() => richSource.value === 'podcast');
+const shouldShowCD = computed(() => richSource.value === 'cd');
+const shouldShowAirPlay = computed(() => richSource.value === 'airplay');
 
 const shouldShowSourceStatus = computed(() => {
-  // Don't show status during transition to "none" (deactivation)
-  if (transitioning.value && activeSource.value === 'none') {
-    return false;
-  }
-
-  // Transition in progress
-  if (transitioning.value) return true;
-
-  // bluetooth/mac sources
-  if (['bluetooth', 'mac'].includes(activeSource.value)) return true;
-
-  // Spotify without complete conditions
-  if (activeSource.value === 'spotify') {
-    return !hasCompleteTrackInfo.value || sourceState.value !== 'active';
-  }
-
-  // AirPlay without complete conditions
-  if (activeSource.value === 'airplay') {
-    return !hasCompleteTrackInfo.value || sourceState.value !== 'active';
-  }
-
-  // CD: show status during starting/waiting (not yet active)
-  if (activeSource.value === 'cd') {
-    return sourceState.value !== 'active';
-  }
-
-  return false;
+  if (activeSource.value === 'none') return false;  // nothing active (incl. deactivation)
+  if (transitioning.value) return true;             // status card during transitions
+  return richSource.value === null;                 // active source without a rich view
 });
 
 // === PROPERTIES FOR SOURCE STATUS ===

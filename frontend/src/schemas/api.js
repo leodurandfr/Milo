@@ -36,6 +36,11 @@ const MetadataSchema = z.object({
   is_buffering: z.boolean().optional(),
   album_art_url: z.string().nullable().optional(),
 
+  // AirPlay-specific: artwork pixel dimensions, used to gate the rich player
+  // on cover quality (browser audio ships tiny favicons / app icons).
+  album_art_width: z.number().nullable().optional(),
+  album_art_height: z.number().nullable().optional(),
+
   // Radio-specific
   station_name: z.string().nullable().optional(),
   station_id: z.string().nullable().optional(),

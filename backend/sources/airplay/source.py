@@ -10,7 +10,10 @@ in memory and served via a dedicated HTTP endpoint.
 import asyncio
 import hashlib
 import os
+from io import BytesIO
 from typing import Dict, Any, Optional, Tuple
+
+from PIL import Image
 
 from backend.core.audio_source import BaseAudioSource
 from backend.sources.airplay.metadata_reader import MetadataReader
@@ -189,7 +192,15 @@ class AirPlaySource(BaseAudioSource):
 
     @handle_errors(default=None)
     async def _on_artwork(self, data: bytes) -> None:
-        """Handle artwork from pipe: store in memory and serve via endpoint."""
+        """Handle artwork from pipe: store in memory and serve via endpoint.
+
+        Also decodes pixel dimensions so the frontend can gate the rich
+        player on artwork quality: browser audio (no MediaSession cover) ends
+        up as a small favicon / app-icon, whereas real senders (Apple Music,
+        Spotify desktop) push a high-resolution cover. Dimensions are
+        broadcast as album_art_width/height; the display policy lives on the
+        frontend (AudioSourceView.hasRichDisplay).
+        """
         new_hash = hashlib.md5(data).hexdigest()[:12]
         if new_hash == self._artwork_hash:
             return
@@ -200,10 +211,31 @@ class AirPlaySource(BaseAudioSource):
         else:
             self._artwork_mime = "image/jpeg"
 
+        width, height = self._decode_artwork_dimensions(data)
+
         self._artwork_data = data
         self._artwork_hash = new_hash
         self._metadata["album_art_url"] = f"/api/airplay/artwork?v={new_hash}"
+        self._metadata["album_art_width"] = width
+        self._metadata["album_art_height"] = height
+        self._logger.info(f"AirPlay artwork {width}x{height} ({self._artwork_mime})")
         self._update_connection_state()
+
+    def _decode_artwork_dimensions(self, data: bytes) -> Tuple[int, int]:
+        """Return artwork (width, height) in pixels, (0, 0) on failure.
+
+        Reads the image header only (Pillow is lazy — no full decode), so this
+        is a microsecond CPU op on already-in-memory bytes, not blocking I/O.
+        On failure we return (0, 0): the frontend treats sub-threshold artwork
+        as untrustworthy and falls back to the status card, so a decode error
+        safely degrades to "no rich player" rather than showing a bad cover.
+        """
+        try:
+            with Image.open(BytesIO(data)) as img:
+                return img.width, img.height
+        except Exception as e:
+            self._logger.warning(f"Failed to decode AirPlay artwork dimensions: {e}")
+            return 0, 0
 
     async def _on_client_name(self, name: str) -> None:
         """Handle client name from pipe (X-Apple-Client-Name)."""
@@ -287,7 +319,8 @@ class AirPlaySource(BaseAudioSource):
         # Base keys ensure old values are always overwritten during merge
         base_metadata = {
             "title": "", "artist": "", "album": "",
-            "album_art_url": "", "duration": 0, "position": 0,
+            "album_art_url": "", "album_art_width": 0, "album_art_height": 0,
+            "duration": 0, "position": 0,
         }
         self._set_active_or_waiting(
             self._device_connected,
