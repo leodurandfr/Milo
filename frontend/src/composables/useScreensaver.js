@@ -160,14 +160,17 @@ export function useScreensaver() {
       const metadata = unifiedStore.systemState.metadata || {};
       const deviceName = metadata.client_name || null;
 
-      // Same artwork-quality gate as the main now-playing view: a real cover
-      // (>300px) earns the rich media layout; browser audio shipping a tiny
-      // favicon falls back to the simple "Connected to <device>" card (mirrors
-      // the AudioSourceStatus card the main view shows for the same case).
-      const hasRichArtwork = !!metadata.title && !!metadata.artist &&
-        (metadata.album_art_width || 0) > AIRPLAY_MIN_ARTWORK_PX;
+      // Rich media layout only while audio is actually flowing AND the sender
+      // pushes a real cover (>300px — same gate as the main now-playing view).
+      // When playback stops but the route stays connected (e.g. quitting the
+      // sender app: AirPlay emits `pend`, not `disc`), the backend keeps the
+      // stale title/artwork but flips is_playing=false — so we fall back to the
+      // simple "Connected to <device>" card rather than show a cover for audio
+      // that no longer plays.
+      const showRichMedia = !!metadata.is_playing && !!metadata.title &&
+        !!metadata.artist && (metadata.album_art_width || 0) > AIRPLAY_MIN_ARTWORK_PX;
 
-      if (hasRichArtwork) {
+      if (showRichMedia) {
         return {
           mode: 'media',
           artwork: metadata.album_art_url || null,
