@@ -226,6 +226,14 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     }
   }
 
+  // Dismiss the volume bar on user tap. Cancels the auto-hide timer so it
+  // doesn't fire later; idempotent so re-tapping during the fade-out is a no-op.
+  function hideVolumeBar() {
+    if (volumeBarHideTimer) clearTimeout(volumeBarHideTimer);
+    volumeBarHideTimer = null;
+    showVolumeBar.value = false;
+  }
+
   return {
     // State
     systemState,
@@ -246,5 +254,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     stopVolumeInterpolation,
     handleVolumeEvent,
     updateMobileStep,
+    hideVolumeBar,
   };
 });
