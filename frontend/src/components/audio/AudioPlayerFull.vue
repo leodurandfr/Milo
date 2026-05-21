@@ -3,17 +3,17 @@
   <div class="connect-player">
     <div class="now-playing">
       <!-- Left side: Cover image with CSS staggering -->
-      <div class="album-art-section stagger-1" :class="{ 'art-collapsed': hideContent }">
-        <div class="album-art-container">
+      <div class="artwork-section stagger-1" :class="{ 'art-collapsed': hideContent }">
+        <div class="artwork-container">
           <!-- Background blur -->
-          <div class="album-art-blur"
+          <div class="artwork-blur"
             :style="{ backgroundImage: artworkUrl ? `url(${artworkUrl})` : 'none' }">
           </div>
 
           <!-- Main cover art -->
-          <div class="album-art">
+          <div class="artwork">
             <img v-if="artworkUrl" :src="artworkUrl"
-              alt="Album Art" />
+              alt="Artwork" />
           </div>
         </div>
       </div>
@@ -200,8 +200,8 @@ const artworkUrl = computed(() => persistentMetadata.value.album_art_url || plac
   background: var(--color-background-neutral);
 }
 
-/* Album Art */
-.album-art-section {
+/* Artwork */
+.artwork-section {
   flex-shrink: 0;
   aspect-ratio: 1;
   order: 1;
@@ -264,14 +264,14 @@ const artworkUrl = computed(() => persistentMetadata.value.album_art_url || plac
 .player-info > .controls-section { animation-delay: 100ms; }
 
 /* Container for the two stacked cover arts */
-.album-art-container {
+.artwork-container {
   position: relative;
   width: 100%;
   height: 100%;
 }
 
 /* Background cover art with blur */
-.album-art-blur {
+.artwork-blur {
   position: absolute;
   top: -20px;
   left: -20px;
@@ -290,7 +290,7 @@ const artworkUrl = computed(() => persistentMetadata.value.album_art_url || plac
 }
 
 /* Main cover art with border radius */
-.album-art {
+.artwork {
   position: relative;
   z-index: 3;
   width: 100%;
@@ -301,7 +301,7 @@ const artworkUrl = computed(() => persistentMetadata.value.album_art_url || plac
   pointer-events: none;
 }
 
-.album-art img {
+.artwork img {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -397,12 +397,12 @@ const artworkUrl = computed(() => persistentMetadata.value.album_art_url || plac
   }
 
   /* Collapse album art when tracklist is open, keeping a strip for action buttons */
-  .album-art-section {
+  .artwork-section {
     transition: margin-top 400ms var(--easeInOutCubic);
   }
 
-  .album-art-section.art-collapsed {
-    /* Buttons absolute top (from connect-player) minus album-art offset (from now-playing padding) */
+  .artwork-section.art-collapsed {
+    /* Buttons absolute top (from connect-player) minus artwork offset (from now-playing padding) */
     --btn-top: calc(max(var(--space-05), env(safe-area-inset-top, 0px)) + var(--space-04));
     --art-top: max(var(--space-05), env(safe-area-inset-top, 0px));
     --btn-height: 40px;
@@ -410,7 +410,10 @@ const artworkUrl = computed(() => persistentMetadata.value.album_art_url || plac
     margin-top: calc(-100vw + 2 * var(--space-05) + var(--art-visible));
   }
 
-  .album-art-blur {
+  .artwork {
+    border-radius: var(--radius-07);
+  }
+  .artwork-blur {
     transform: scale(1) translateZ(0);
   }
 

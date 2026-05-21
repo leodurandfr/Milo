@@ -12,19 +12,19 @@
       <!-- Centered blur halo. Heavy blur + 0.12 opacity make the font of the
            SVG fallback effectively invisible, so encoding it as a data URL for
            CSS background-image is fine here (no font-cascade requirement). -->
-      <div class="album-art-blur"
+      <div class="artwork-blur"
         :style="{ backgroundImage: haloUrl ? `url(${haloUrl})` : 'none' }">
       </div>
 
       <!-- Main content: full-width horizontal layout -->
       <div class="now-playing-screensaver">
         <!-- Left: Artwork -->
-        <div class="album-art-section stagger-1">
-          <div class="album-art-container">
-            <div class="album-art">
+        <div class="artwork-section stagger-1">
+          <div class="artwork-container">
+            <div class="artwork">
               <img v-if="displayArtwork" :src="displayArtwork" :alt="title"
                 @load="handleArtworkLoad" @error="artworkError = true" />
-              <div v-else-if="fallbackSvg" v-html="fallbackSvg" :aria-label="title" class="album-art-fallback" />
+              <div v-else-if="fallbackSvg" v-html="fallbackSvg" :aria-label="title" class="artwork-fallback" />
             </div>
           </div>
         </div>
@@ -264,20 +264,20 @@ watch(() => props.isVisible, (visible) => {
   z-index: 1;
 }
 
-/* Album Art */
-.album-art-section {
+/* Artwork */
+.artwork-section {
   flex-shrink: 0;
   aspect-ratio: 1;
   z-index: 2;
 }
 
-.album-art-container {
+.artwork-container {
   position: relative;
   width: 100%;
   height: 100%;
 }
 
-.album-art-blur {
+.artwork-blur {
   position: absolute;
   top: 50%;
   left: 50%;
@@ -295,7 +295,7 @@ watch(() => props.isVisible, (visible) => {
   contain: strict;
 }
 
-.album-art {
+.artwork {
   position: relative;
   z-index: 3;
   width: 100%;
@@ -306,15 +306,15 @@ watch(() => props.isVisible, (visible) => {
   pointer-events: none;
 }
 
-.album-art img,
-.album-art .album-art-fallback {
+.artwork img,
+.artwork .artwork-fallback {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
 /* Inline-SVG fallback fills its wrapper like the real artwork. */
-.album-art-fallback {
+.artwork-fallback {
   display: block;
 }
 
