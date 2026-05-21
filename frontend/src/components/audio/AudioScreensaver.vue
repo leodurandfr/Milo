@@ -38,6 +38,7 @@
 
           <div v-if="showBottomBar" class="station-bar stagger-4">
             <img v-if="stationFavicon" :src="stationFavicon" alt="" class="station-favicon" />
+            <AppIcon v-else-if="stationIcon" :name="stationIcon" :size="40" class="station-icon" />
             <span class="station-name heading-4">{{ stationName }}</span>
           </div>
         </div>
@@ -91,6 +92,12 @@ const props = defineProps({
     default: null
   },
   stationFavicon: {
+    type: String,
+    default: null
+  },
+  // Bottom-bar glyph (AppIcon name) used when there is no favicon URL — e.g.
+  // AirPlay shows the AirPlay icon + sender name where radio shows the favicon.
+  stationIcon: {
     type: String,
     default: null
   },
@@ -368,6 +375,10 @@ watch(() => props.isVisible, (visible) => {
   height: 40px;
   border-radius: var(--radius-02);
   object-fit: cover;
+  flex-shrink: 0;
+}
+
+.station-icon {
   flex-shrink: 0;
 }
 
