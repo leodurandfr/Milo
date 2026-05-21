@@ -89,7 +89,11 @@ function hasRichDisplay(source, state, meta) {
     case 'airplay':
       // Untrusted sender: require title, artist AND a real cover (>300px).
       // A small/absent image means browser audio → status card.
-      return state === 'active' && !!m.title && !!m.artist &&
+      // Passive source (no Milō controls), so also require audio to be flowing:
+      // when the sender stops/quits, the route stays connected and the backend
+      // keeps the stale cover but flips is_playing=false → drop to the status
+      // card rather than freeze on a cover for audio that no longer plays.
+      return state === 'active' && !!m.is_playing && !!m.title && !!m.artist &&
         (m.album_art_width || 0) > AIRPLAY_MIN_ARTWORK_PX;
     case 'radio':
     case 'podcast':
