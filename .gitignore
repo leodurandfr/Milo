@@ -61,3 +61,10 @@ _bmad/
 # Ignore personal docs
 docs/website
 docs/plans
+
+# Vendored upstream docs are always tracked. They live in dirs named after the
+# tool (docs/vendor/go-librespot/, ...) which would otherwise be caught by the
+# broad build-dir ignores under "# Program" above (go-librespot/, roc-toolkit/,
+# bluez-alsa/). Re-include the whole vendor tree.
+!docs/vendor/
+!docs/vendor/**
