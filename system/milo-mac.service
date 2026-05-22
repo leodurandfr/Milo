@@ -15,7 +15,7 @@ EnvironmentFile=/var/lib/milo/routing.env
 EnvironmentFile=-/var/lib/milo/mac.env
 Environment=HOME=/home/milo
 
-ExecStart=/usr/bin/roc-recv -vvv \
+ExecStart=/usr/bin/roc-recv -vv \
   -s rtp+rs8m://0.0.0.0:10001 \
   -r rs8m://0.0.0.0:10002 \
   -c rtcp://0.0.0.0:10003 \
