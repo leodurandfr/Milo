@@ -311,7 +311,11 @@ export function useViewTransition({
         modalDebugLog(`[ViewTransition] onEnter — finalDelta=${delta} overflow=${usedOverflowPath} → ${Math.abs(delta) > 2 ? 'calling requestHeightDelta' : 'skipped (< 2px)'}`);
 
         if (Math.abs(delta) > 2) {
-          requestHeightDelta(delta, 800, { skipOverflowCheck: true });
+          // skipUnlockCorrection: the wrapper is un-pinned in onAfterLeave's finalize
+          // (after this delta's spring settles), and the ResizeObserver reconciles the
+          // real height then. Re-measuring at unlock would read the still-pinned height
+          // and apply a spurious correction the ResizeObserver immediately reverts.
+          requestHeightDelta(delta, 800, { skipOverflowCheck: true, skipUnlockCorrection: true });
         }
       });
     }
