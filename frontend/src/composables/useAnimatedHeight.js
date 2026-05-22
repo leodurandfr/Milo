@@ -105,7 +105,7 @@ export function useAnimatedHeight(contentRef, options = {}) {
    * @param {number} delta - Height change in pixels (positive for expand, negative for collapse)
    * @param {number} duration - Animation duration in ms (default: 400)
    */
-  function requestHeightDelta(delta, duration = 400, { skipOverflowCheck = false } = {}) {
+  function requestHeightDelta(delta, duration = 400, { skipOverflowCheck = false, skipUnlockCorrection = false } = {}) {
     // Clear any pending unlock
     if (unlockTimer) timer.clear(unlockTimer);
 
@@ -156,6 +156,16 @@ export function useAnimatedHeight(contentRef, options = {}) {
       // Unlock after animation completes and correct if prediction was off
       unlockTimer = timer.setTimeout(() => {
         isHeightLocked = false;
+        // When the caller owns the post-animation settle (view transitions pin the
+        // content wrapper during the cross-fade, then un-pin it AFTER this unlock —
+        // see useViewTransition), re-measuring here reads the still-pinned, inflated
+        // height and applies a spurious correction that the now-live ResizeObserver
+        // immediately reverts (the "height tremble"). Trust the predicted target and
+        // let the ResizeObserver reconcile the real height once the wrapper un-pins.
+        if (skipUnlockCorrection) {
+          modalDebugLog(`[AnimatedHeight] unlock — correction skipped (caller owns settle; ResizeObserver will reconcile)`);
+          return;
+        }
         if (contentRef.value) {
           const el = contentRef.value;
           const offsetH = el.offsetHeight;
