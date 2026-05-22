@@ -562,3 +562,9 @@ No file-level or repo-level disabling. No muted `noqa` without a reason.
 - [Architecture Details](docs/architecture.md) - Deep dive into technologies and audio routing
 - [Development Guide](docs/development.md) - Complete developer reference with examples
 - [README](README.md) - Installation and hardware requirements
+
+### Vendored upstream docs (check before guessing third-party contracts)
+
+When you need to verify how a bundled binary behaves (API shape, config options, events), read the vendored docs in `docs/vendor/<tool>/` **instead of guessing or relying on training data** — they are pinned to the exact version Milō ships.
+
+- [go-librespot](docs/vendor/go-librespot/VENDOR.md) — Spotify Connect daemon. REST + WebSocket event contract (`API.md`, `api-spec.yml`), `config.yml` options (`config_schema.json`). Pinned to the version in [install/go-librespot.sh](install/go-librespot.sh); refresh per VENDOR.md when that version changes.
