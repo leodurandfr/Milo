@@ -45,7 +45,13 @@ class VersionService:
                     "main": ["sh", "-c", "strings /usr/local/bin/go-librespot 2>/dev/null | grep -oE '^B[0-9]+\\.[0-9]+\\.[0-9]+$' | sed 's/^B//'"]
                 },
                 "repo": "devgianlu/go-librespot",
-                "version_regex": r"(\d+\.\d+\.\d+)"
+                "version_regex": r"(\d+\.\d+\.\d+)",
+                # Ceiling pin: 0.7.2 is the last validated release. Releases above
+                # it still carry the SIGTERM-hang regression Milō works around via
+                # /player/stop + TimeoutStopSec (see docs/plans/go-librespot-072-adoption.md
+                # and docs/vendor/go-librespot/VENDOR.md). The update flow must never
+                # auto-jump past this; bump only after re-validating on the Pi.
+                "max_version": "0.7.2"
             },
             "shairport-sync": {
                 "name": "AirPlay",
@@ -243,6 +249,20 @@ class VersionService:
                                 "published_at": data.get("published_at"),
                                 "html_url": data.get("html_url")
                             }
+
+                        # Apply optional version ceiling: never offer an upstream
+                        # release newer than the program's pinned known-good version
+                        # (compare_versions(max, fetched) is True when fetched > max).
+                        max_version = self.programs[program_key].get("max_version")
+                        if max_version and compare_versions(max_version, result["version"]):
+                            self.logger.info(
+                                f"{program_key}: upstream {result['version']} exceeds pinned "
+                                f"ceiling {max_version}; offering {max_version} instead"
+                            )
+                            result["version"] = max_version
+                            result["tag_name"] = f"v{max_version}"
+                            result["html_url"] = f"https://github.com/{repo}/releases/tag/v{max_version}"
+                            result["published_at"] = None
 
                         # Cache result
                         self._github_cache[cache_key] = result

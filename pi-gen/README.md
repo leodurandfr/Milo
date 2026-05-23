@@ -68,7 +68,7 @@ All dependency versions are pinned as variables at the top of the stage scripts 
 
 | Dependency | Version | Location |
 |---|---|---|
-| go-librespot | 0.6.1 | `01-install-audio/00-run.sh` |
+| go-librespot | 0.7.2 | `01-install-audio/00-run.sh` |
 | CamillaDSP | 3.0.1 | `01-install-audio/00-run.sh` |
 | Snapcast | 0.35.0 | `01-install-audio/00-run.sh` |
 | NQPTP | 1.2.4 | `01-install-audio/01-run.sh` |

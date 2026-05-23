@@ -326,6 +326,75 @@ class TestGetLatestGithubVersion:
         assert result["version"] == "release-candidate"
 
 
+def _patch_github_release(tag_name: str):
+    """Returns a patch() for aiohttp.ClientSession that yields a release with tag_name."""
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json = AsyncMock(return_value={
+        "tag_name": tag_name,
+        "published_at": "2026-05-21T00:00:00Z",
+        "html_url": f"https://github.com/devgianlu/go-librespot/releases/tag/{tag_name}"
+    })
+
+    mock_session = AsyncMock()
+    mock_session.get = MagicMock(return_value=AsyncMock(
+        __aenter__=AsyncMock(return_value=mock_response),
+        __aexit__=AsyncMock(return_value=False)
+    ))
+
+    return patch("aiohttp.ClientSession", return_value=AsyncMock(
+        __aenter__=AsyncMock(return_value=mock_session),
+        __aexit__=AsyncMock(return_value=False)
+    ))
+
+
+class TestMaxVersionCeiling:
+    """Tests for the optional max_version ceiling (D5 — go-librespot SIGTERM regression).
+
+    go-librespot is pinned to a known-good ceiling (0.7.2); the update flow must
+    never offer a newer upstream release that would re-introduce the regression.
+    """
+
+    @pytest.mark.asyncio
+    async def test_caps_release_above_ceiling(self, version_service):
+        with _patch_github_release("v0.7.3"):
+            result = await version_service.get_latest_github_version("go-librespot")
+
+        assert result["status"] == "success"
+        assert result["version"] == "0.7.2"
+        assert result["tag_name"] == "v0.7.2"
+        assert result["html_url"] == "https://github.com/devgianlu/go-librespot/releases/tag/v0.7.2"
+        assert result["published_at"] is None
+
+    @pytest.mark.asyncio
+    async def test_no_cap_at_ceiling(self, version_service):
+        with _patch_github_release("v0.7.2"):
+            result = await version_service.get_latest_github_version("go-librespot")
+
+        assert result["version"] == "0.7.2"
+        assert result["tag_name"] == "v0.7.2"
+        # Upstream metadata preserved when not capped
+        assert result["published_at"] == "2026-05-21T00:00:00Z"
+
+    @pytest.mark.asyncio
+    async def test_no_cap_below_ceiling(self, version_service):
+        """A release below the ceiling is still offered as-is (e.g. recovering from 0.7.1)."""
+        with _patch_github_release("v0.7.1"):
+            result = await version_service.get_latest_github_version("go-librespot")
+
+        assert result["version"] == "0.7.1"
+        assert result["tag_name"] == "v0.7.1"
+
+    @pytest.mark.asyncio
+    async def test_program_without_ceiling_is_uncapped(self, version_service):
+        """Programs with no max_version (e.g. multiroom) are never clamped."""
+        assert "max_version" not in version_service.programs["multiroom"]
+        with _patch_github_release("v99.0.0"):
+            result = await version_service.get_latest_github_version("multiroom")
+
+        assert result["version"] == "99.0.0"
+
+
 class TestGetProgramFullStatus:
     """Tests for get_program_full_status()"""
 
