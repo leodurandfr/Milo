@@ -36,7 +36,7 @@
 import { computed, ref, watch, defineAsyncComponent } from 'vue';
 import { useTimer } from '@/composables/useTimer';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import { AIRPLAY_MIN_ARTWORK_PX } from '@/constants/imageQuality';
+import { useRichDisplay } from '@/composables/useRichDisplay';
 
 const SpotifySource = defineAsyncComponent(() =>
   import('../spotify/SpotifySource.vue')
@@ -70,51 +70,12 @@ function handleDisconnect() {
   unifiedStore.disconnectSource(activeSource.value);
 }
 
-// === DISPLAY DECISION (single source of truth) ===
-//
-// Each active source either renders its rich full-screen view (its dedicated
-// component / AudioPlayerFull) or falls back to AudioSourceStatus (the
-// conservative "Connecté à…" card). `hasRichDisplay` is the ONE place that
-// rule lives — keep per-source conditions here, not scattered across booleans.
-
-// AirPlay's artwork-quality gate (AIRPLAY_MIN_ARTWORK_PX) is shared with the
-// screensaver — see @/constants/imageQuality.
-
-function hasRichDisplay(source, state, meta) {
-  const m = meta || {};
-  switch (source) {
-    case 'spotify':
-      // Trusted metadata provider: title + artist is enough.
-      return state === 'active' && !!m.title && !!m.artist;
-    case 'airplay':
-      // Untrusted sender: require title, artist AND a real cover (>300px).
-      // A small/absent image means browser audio → status card.
-      // Passive source (no Milō controls), so also require audio to be flowing:
-      // when the sender stops/quits, the route stays connected and the backend
-      // keeps the stale cover but flips is_playing=false → drop to the status
-      // card rather than freeze on a cover for audio that no longer plays.
-      return state === 'active' && !!m.is_playing && !!m.title && !!m.artist &&
-        (m.album_art_width || 0) > AIRPLAY_MIN_ARTWORK_PX;
-    case 'radio':
-    case 'podcast':
-      // Own component handles internal empty/loading states.
-      return true;
-    case 'cd':
-      return state === 'active';
-    default:
-      // bluetooth, mac, none → no rich view, always status.
-      return false;
-  }
-}
-
-// The active source resolves to a rich view, or null (→ status fallback).
-// Transitions always defer to the status card.
-const richSource = computed(() =>
-  !transitioning.value &&
-  hasRichDisplay(activeSource.value, sourceState.value, metadata.value)
-    ? activeSource.value
-    : null
-);
+// === DISPLAY DECISION ===
+// `richSource` (the active source resolved to a rich full-screen view, or null
+// → AudioSourceStatus fallback) is the ONE rule that decides which component
+// mounts below. It lives in useRichDisplay so MainView's logo visibility reads
+// the exact same decision and can't drift out of sync — see the composable.
+const { richSource } = useRichDisplay();
 
 const shouldShowSpotify = computed(() => richSource.value === 'spotify');
 const shouldShowRadio = computed(() => richSource.value === 'radio');
