@@ -38,6 +38,7 @@
 import { computed, ref, watch, inject, defineAsyncComponent } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useScreensaver } from '@/composables/useScreensaver';
+import { useRichDisplay } from '@/composables/useRichDisplay';
 import { useTimer } from '@/composables/useTimer';
 
 import AudioSourceView from '@/components/audio/AudioSourceView.vue';
@@ -67,26 +68,15 @@ watch(dismissScreensaverSignal, () => {
 // === LOGO STATE ===
 const lastVisiblePosition = ref('center');
 
-const logoVisible = computed(() => {
-  const { active_source, source_state, metadata, transitioning } = unifiedStore.systemState;
-
-  // Visible during transition
-  if (transitioning) {
-    return true;
-  }
-
-  // Hidden: Spotify/AirPlay connected with track info
-  if ((active_source === 'spotify' || active_source === 'airplay') && source_state === 'active' && metadata?.title) {
-    return false;
-  }
-
-  // Hidden: Radio, Podcast, or CD
-  if (active_source === 'radio' || active_source === 'podcast' || active_source === 'cd') {
-    return false;
-  }
-
-  return true;
-});
+// The logo is hidden exactly when the active source shows a rich full-screen
+// player (its dedicated component / AudioPlayerFull / AudioSourceLayout). Every
+// other case keeps it visible: idle, source transitions, and any source on the
+// AudioSourceStatus card — Bluetooth/Mac, CD while loading/ejecting/no-drive,
+// and AirPlay before real playback starts. `richSource` is shared with
+// AudioSourceView (which picks the component to render), so the logo can't
+// drift out of sync with what's actually on screen.
+const { richSource } = useRichDisplay();
+const logoVisible = computed(() => richSource.value === null);
 
 // Update cached position only when logo is visible or transitioning
 watch(
