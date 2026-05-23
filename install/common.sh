@@ -95,14 +95,30 @@ configure_hostname() {
     sudo hostnamectl set-hostname "$new_hostname"
 }
 
-# Configure journald log rotation limits (100 MB runtime, 7-day retention).
+# Configure journald: persistent storage, 100 MB cap, 7-day retention.
+#
+# Persistent (on-disk) storage is required so logs survive a reboot — without
+# it the journal is RAM-only and a reboot wipes the evidence of any boot-time
+# failure (e.g. NetworkManager not starting). The 100 MB / 7-day caps bound
+# SD-card wear.
+#
+# Must be applied as an /etc/ drop-in, NOT by editing /etc/systemd/journald.conf:
+# Raspberry Pi OS ships /usr/lib/systemd/journald.conf.d/40-rpi-volatile-storage.conf
+# (Storage=volatile), and any drop-in overrides the main config file, so a
+# main-file edit would be silently ignored. An /etc/ drop-in outranks /usr/lib/.
 configure_journald() {
-    log_info "Configuring journald limits..."
+    log_info "Configuring journald (persistent, 100MB, 7 days)..."
 
-    sudo sed -i 's/^#\?RuntimeMaxUse=.*/RuntimeMaxUse=100M/' /etc/systemd/journald.conf
-    sudo sed -i 's/^#\?MaxRetentionSec=.*/MaxRetentionSec=7d/' /etc/systemd/journald.conf
+    sudo mkdir -p /etc/systemd/journald.conf.d
+    sudo cp "$MILO_APP_DIR/rootfs/etc/systemd/journald.conf.d/99-milo-journald.conf" \
+        /etc/systemd/journald.conf.d/99-milo-journald.conf
 
-    log_success "Journald configured (100MB max, 7 days retention)"
+    # Create the persistent journal directory and apply immediately so logs
+    # start being kept on disk without waiting for the next boot.
+    sudo mkdir -p /var/log/journal
+    sudo systemctl restart systemd-journald 2>/dev/null || true
+
+    log_success "Journald configured (persistent on-disk, 100MB max, 7 days retention)"
 }
 
 # Remove PulseAudio and PipeWire (ALSA-only audio stack).

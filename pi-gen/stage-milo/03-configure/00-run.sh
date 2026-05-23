@@ -88,11 +88,22 @@ EOF
 fi
 CHROOT
 
-# ── Journald limits ──────────────────────────────────────────────────────────
+# ── Journald: persistent storage + limits ─────────────────────────────────────
+# Persistent (on-disk) storage so logs survive a reboot — a RAM-only journal
+# wipes the evidence of any boot-time failure (e.g. NetworkManager not
+# starting). The 100 MB / 7-day caps bound SD-card wear.
+#
+# Applied as an /etc/ drop-in: Raspberry Pi OS ships
+# /usr/lib/systemd/journald.conf.d/40-rpi-volatile-storage.conf (Storage=volatile),
+# and any drop-in overrides the main journald.conf, so editing the main file
+# would be silently ignored. An /etc/ drop-in outranks the vendor /usr/lib/ one.
 
 on_chroot << 'CHROOT'
-sed -i 's/^#RuntimeMaxUse=$/RuntimeMaxUse=100M/' /etc/systemd/journald.conf
-sed -i 's/^#MaxRetentionSec=$/MaxRetentionSec=7d/' /etc/systemd/journald.conf
+mkdir -p /etc/systemd/journald.conf.d
+cp /home/milo/milo/rootfs/etc/systemd/journald.conf.d/99-milo-journald.conf \
+    /etc/systemd/journald.conf.d/99-milo-journald.conf
+# Create the persistent journal directory so logs are kept from first boot.
+mkdir -p /var/log/journal
 CHROOT
 
 # ── udev rules ───────────────────────────────────────────────────────────────
