@@ -15,6 +15,18 @@ EnvironmentFile=/var/lib/milo/routing.env
 WorkingDirectory=/var/lib/milo
 Restart=always
 RestartSec=5
+# go-librespot 0.7.2 hangs on graceful-shutdown signals once a phone has
+# authenticated an AP/dealer session: SIGTERM *and* SIGINT are both ignored for
+# the full TimeoutStopSec, then systemd SIGKILLs. (Verified on the Pi with a live
+# Spotify session — an *idle* daemon misleadingly exits instantly on either, but
+# an active one does not.) /player/stop can't help here: it ends the Connect
+# session but not the AP login, and the process still hangs on exit. Only SIGKILL
+# is immediate (uncatchable), so we send it directly — the only way to make
+# "switch away from Spotify" fast. _do_stop() still POSTs /player/stop first to do
+# the graceful part in-process (end session + release the ALSA Loopback so the
+# next source starts without waiting). Revisit if upstream fixes the shutdown hang.
+KillSignal=SIGKILL
+TimeoutStopSec=5
 
 StandardOutput=journal
 StandardError=journal

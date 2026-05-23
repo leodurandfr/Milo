@@ -106,10 +106,11 @@ class TestSpotifySourceLifecycle:
             mock_session_class.return_value = mock_session
             mock_session.close = AsyncMock()
 
-            # Mock WebSocket and log monitor to avoid real subprocess
-            with patch.object(spotify_source, '_start_websocket', new_callable=AsyncMock):
-                with patch.object(spotify_source, '_start_log_monitor'):
-                    result = await spotify_source.start()
+            # Mock WebSocket, log monitor and readiness poll to avoid real I/O
+            with patch.object(spotify_source, '_wait_for_playback_ready', new_callable=AsyncMock, return_value=True):
+                with patch.object(spotify_source, '_start_websocket', new_callable=AsyncMock):
+                    with patch.object(spotify_source, '_start_log_monitor'):
+                        result = await spotify_source.start()
 
         assert result is True
 
@@ -126,9 +127,19 @@ class TestSpotifySourceLifecycle:
 
     @pytest.mark.asyncio
     async def test_stop_success(self, spotify_source):
-        """Test successful stop."""
-        spotify_source._session = AsyncMock()
+        """Stop posts /player/stop (graceful) before cleanup + service stop."""
+        spotify_source._api_url = "http://localhost:3678"
+        spotify_source._session = MagicMock()
         spotify_source._session.close = AsyncMock()
+
+        # Mock the POST /player/stop async context manager
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__.return_value = mock_response
+        spotify_source._session.post.return_value = mock_cm
+        post_mock = spotify_source._session.post
+
         spotify_source._ws_client = AsyncMock()
         spotify_source._ws_client.stop = AsyncMock()
         spotify_source._device_connected = True
@@ -138,6 +149,29 @@ class TestSpotifySourceLifecycle:
         assert result is True
         assert spotify_source._device_connected is False
         assert spotify_source._session is None
+        # Graceful /player/stop was sent, then the service was stopped
+        post_mock.assert_called_once()
+        assert "/player/stop" in post_mock.call_args.args[0]
+        spotify_source._service_manager.stop.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_wait_for_playback_ready_returns_on_200(self, spotify_source):
+        """Readiness poll returns as soon as GET / answers 200, regardless of
+        the playback_ready flag (false in zeroconf with no session at start)."""
+        spotify_source._api_url = "http://localhost:3678"
+        spotify_source._session = MagicMock()
+
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.json = AsyncMock(return_value={"playback_ready": False})
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__.return_value = mock_response
+        spotify_source._session.get.return_value = mock_cm
+
+        result = await spotify_source._wait_for_playback_ready(timeout=1.0, interval=0.01)
+
+        assert result is True
+        assert spotify_source._session.get.call_args.args[0].endswith("/")
 
 
 class TestSpotifySourceStatus:
@@ -311,6 +345,26 @@ class TestAutoStop:
         spotify_source._start_pause_timer()
 
         assert spotify_source._pause_timer is None
+
+    @pytest.mark.asyncio
+    async def test_on_auto_stop_posts_player_stop(self, spotify_source):
+        """Auto-stop ends the session via /player/stop, no process bounce."""
+        spotify_source._api_url = "http://localhost:3678"
+        spotify_source._session = MagicMock()
+
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__.return_value = mock_response
+        spotify_source._session.post.return_value = mock_cm
+
+        await spotify_source._on_auto_stop()
+
+        spotify_source._session.post.assert_called_once()
+        assert "/player/stop" in spotify_source._session.post.call_args.args[0]
+        # Daemon stays alive — no systemctl restart/stop on auto-stop
+        spotify_source._service_manager.restart.assert_not_called()
+        spotify_source._service_manager.stop.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_reload_auto_stop_config_disabled(self, spotify_source):
