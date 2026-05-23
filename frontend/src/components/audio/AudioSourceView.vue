@@ -157,8 +157,11 @@ const rawSourceState = computed(() => {
   return sourceState.value;
 });
 
-// Minimum display time for "starting" state (prevents flash before "loading_disc")
-const STARTING_MIN_MS = 2000;
+// Minimum display time for "starting" state: a short anti-flash buffer so a
+// fast backend transition (e.g. CD's quick starting -> loading_disc) doesn't
+// flicker the card. Kept just above the flash-perception threshold so fast
+// sources feel near-instant instead of being padded to a uniform delay.
+const STARTING_MIN_MS = 500;
 const currentSourceState = ref(rawSourceState.value);
 const timer = useTimer();
 let startingEnteredAt = null;

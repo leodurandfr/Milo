@@ -94,13 +94,18 @@ class SystemdServiceManager:
                 self.logger.error(f"Failed to {action} {service} (exit code {proc.returncode}): {error_msg}")
                 return False
 
-            # Wait for service to reach desired state
+            # Wait for the service to reach the desired state. Check first, then
+            # sleep — systemctl start/stop is synchronous, so the unit is usually
+            # already settled on the first probe; sleeping first burned a fixed
+            # 0.5s on every start AND stop (≥1s per source switch) for nothing.
+            # 6 probes at t=0,0.5..2.5s: same 2.5s settle window as before, but a
+            # service already settled on the first probe returns immediately.
             expected_active = action != "stop"
-            for i in range(5):
-                await asyncio.sleep(0.5)
-                active = await self.is_active(service)
-                if active == expected_active:
+            for attempt in range(6):
+                if await self.is_active(service) == expected_active:
                     return True
+                if attempt < 5:
+                    await asyncio.sleep(0.5)
 
             # More explicit error message if expected state is not reached
             actual_state = "active" if await self.is_active(service) else "inactive"
