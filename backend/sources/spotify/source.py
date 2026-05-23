@@ -13,6 +13,7 @@ Features:
 - Metadata tracking with album art and position
 """
 import asyncio
+import contextlib
 import os
 import re
 import time
@@ -85,28 +86,36 @@ class SpotifySource(BaseAudioSource):
     async def _do_start(self) -> bool:
         """Start go-librespot service and WebSocket."""
         try:
-            # 1. Load config
+            # 1. Load config (sets _api_url / _ws_url)
             if not await self._load_config():
                 return False
 
-            # 2. Start service
-            if not await self._start_service_and_wait():
+            # 2. Start the service (readiness is polled below, not slept on)
+            if not await self._start_service():
                 return False
 
             # 3. Reset state
             self._reset_playback_state()
             self._cancel_pause_timer()
 
-            # 4. Create HTTP session
-            self._session = aiohttp.ClientSession()
+            # 4. Create HTTP session. Bounded per-request timeout so a hung
+            # daemon can't block /player/stop or the startup poll (go-librespot
+            # 0.7.2 SIGTERM regression). The WS connect passes its own timeout,
+            # so the long-lived /events stream is unaffected.
+            self._session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=3.0)
+            )
 
-            # 5. Start WebSocket
+            # 5. Wait until the daemon's API is reachable before connecting
+            await self._wait_for_playback_ready()
+
+            # 6. Start WebSocket
             await self._start_websocket()
 
-            # 6. Start log monitor for error detection
+            # 7. Start log monitor for error detection
             self._start_log_monitor()
 
-            # 7. Update state
+            # 8. Update state
             self._update_connection_state()
 
             return True
@@ -116,29 +125,39 @@ class SpotifySource(BaseAudioSource):
             await self._cleanup()
             return False
 
-    @handle_errors(default=False)
-    async def _do_restart(self) -> bool:
-        """Restart service with state reset."""
-        self._logger.info("Restarting Spotify source")
+    async def _do_stop(self) -> bool:
+        """Stop Spotify gracefully, then stop the service.
 
-        self._cancel_pause_timer()
-        self._reset_playback_state()
+        go-librespot 0.7.2 ignores SIGTERM at the process level, so a bare
+        `systemctl stop` blocks until TimeoutStopSec. We do the graceful work
+        in-process first: POST /player/stop disconnects the Connect session and
+        releases the ALSA Loopback immediately, so the next source can grab it
+        without waiting. The bounded TimeoutStopSec=5 in the unit then SIGKILLs
+        the (already-disconnected) daemon cleanly.
 
-        # Stop WebSocket
-        if self._ws_client:
-            await self._ws_client.stop()
+        A /player/stop failure must NOT block the service stop — log + continue.
+        """
+        result = await self._send_api_command("stop")
+        if not result.get("success"):
+            self._logger.warning(
+                f"/player/stop failed before service stop: {result.get('error')}"
+            )
 
-        # Restart service
-        if not await self._restart_service_and_wait():
-            return False
+        await self._cleanup()
+        return await self._stop_service()
 
-        # Reconnect WebSocket
-        await self._start_websocket()
+    async def _on_auto_stop(self) -> None:
+        """Auto-stop after the pause delay (Spotify stays the selected source).
 
-        # Update state
-        self._update_connection_state()
-
-        return True
+        End the idle Connect session via POST /player/stop instead of bouncing
+        the process: the daemon stays alive and advertised for an instant
+        reconnect, while the resulting `inactive` WS event drives Spotify back
+        to WAITING — behaviorally equal to the old post-restart state, minus the
+        SIGTERM bounce.
+        """
+        result = await self._send_api_command("stop")
+        if not result.get("success"):
+            self._logger.warning(f"Auto-stop /player/stop failed: {result.get('error')}")
 
     async def _get_status(self) -> Dict[str, Any]:
         """Get Spotify-specific status."""
@@ -337,6 +356,42 @@ class SpotifySource(BaseAudioSource):
 
     # === REST API ===
 
+    async def _wait_for_playback_ready(self, timeout: float = 10.0, interval: float = 0.25) -> bool:
+        """Poll GET / until go-librespot's API is reachable, capped at `timeout`.
+
+        Replaces the previous fixed sleep(0.5) in startup so the WS connect and
+        first /status only run once the daemon is actually listening. We gate on
+        API reachability (HTTP 200), not the `playback_ready` flag: in Milō's
+        zeroconf setup no Connect session exists at start time (start is
+        triggered by UI selection, before a phone selects the device), so the
+        flag stays false until a phone connects — reachability is the signal the
+        startup path actually needs. Falls back to proceeding after the cap so a
+        slow/unreachable daemon can't wedge startup (the WS loop reconnects).
+        """
+        if not self._session or not self._api_url:
+            return False
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            with contextlib.suppress(
+                aiohttp.ClientConnectorError,
+                aiohttp.ClientOSError,
+                asyncio.TimeoutError,
+            ):
+                async with self._session.get(f"{self._api_url}/") as resp:
+                    if resp.status == 200:
+                        ready = (await resp.json()).get("playback_ready")
+                        self._logger.info(
+                            f"go-librespot API ready (playback_ready={ready})"
+                        )
+                        return True
+            await asyncio.sleep(interval)
+
+        self._logger.warning(
+            f"go-librespot API not reachable within {timeout}s; proceeding anyway"
+        )
+        return False
+
     async def _refresh_metadata(self) -> bool:
         """Refresh metadata from go-librespot API."""
         if not self._session or not self._api_url:
@@ -417,7 +472,12 @@ class SpotifySource(BaseAudioSource):
                     break
 
                 text = line.decode('utf-8', errors='ignore').strip()
-                await self._handle_log_line(text)
+                # Per background-loop doctrine: a transient parse/broadcast
+                # error on one line must not kill the whole monitor.
+                try:
+                    await self._handle_log_line(text)
+                except Exception as e:
+                    self._logger.error(f"Log line handling error: {e}")
 
         except asyncio.CancelledError:
             if process:
