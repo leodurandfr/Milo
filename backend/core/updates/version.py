@@ -46,12 +46,14 @@ class VersionService:
                 },
                 "repo": "devgianlu/go-librespot",
                 "version_regex": r"(\d+\.\d+\.\d+)",
-                # Ceiling pin: 0.7.2 is the last validated release. Releases above
-                # it still carry the SIGTERM-hang regression Milō works around via
-                # /player/stop + TimeoutStopSec (see docs/plans/go-librespot-072-adoption.md
-                # and docs/vendor/go-librespot/VENDOR.md). The update flow must never
-                # auto-jump past this; bump only after re-validating on the Pi.
-                "max_version": "0.7.2"
+                # Update-flow version ceiling (generic, optional): add
+                #   "max_version": "X.Y.Z"
+                # here to stop the update flow ever offering an upstream release
+                # above X.Y.Z (clamp logic lives in get_latest_github_version).
+                # Intentionally NOT set since 2026-05-25 so the UI surfaces
+                # go-librespot 0.7.3 (which carries the upstream SIGTERM-hang fix —
+                # see docs/plans/go-librespot-072-adoption.md). Re-arm by re-adding
+                # the key with the last validated version.
             },
             "shairport-sync": {
                 "name": "AirPlay",
