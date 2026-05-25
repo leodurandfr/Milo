@@ -338,15 +338,6 @@ Before writing code, **pick the family** (see *Audio Source Architecture* above)
 - Mock dependencies via constructor injection
 - See `backend/tests/` for examples
 
-**ALSA routing smoke test (Pi only):**
-- `bash scripts/test-alsa-routing.sh` — static checks of the ALSA chain: Loopback subdevice layout in `/etc/asound.conf`, CamillaDSP capture device, and snapserver source devices all match the documented slot map (DSP→0, sources→1..7). Catches subdevice renumbering, alias renames, and dead-PCM accumulation.
-- `bash scripts/test-alsa-routing.sh --with-live` — additionally probes each alias with a non-destructive `aplay` open. BUSY (subdevice held by an active writer) is reported as a warning, not a failure.
-- `pytest backend/tests/test_alsa_routing.py` — pytest wrapper around the static checks; auto-skips off-Pi.
-
-**Multiroom state-coherence smoke test (Pi only):**
-- `bash scripts/test-multiroom-desync.sh` — toggles multiroom 20 times via `PUT /api/routing/multiroom` and asserts after each toggle that `settings.routing.multiroom_enabled`, `routing.env` `MILO_MODE`, and the `milo-snapserver-multiroom` / `milo-snapclient-multiroom` units all agree.
-- `sudo bash scripts/test-multiroom-desync.sh --kill-test` — additionally `kill -9`s the backend mid-toggle and asserts the system reconciles to `settings.json` on restart.
-
 **Frontend (Vitest):** not currently configured.
 
 ## Data Persistence Locations

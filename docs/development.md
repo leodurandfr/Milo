@@ -414,19 +414,6 @@ async def test_source_initialization():
     assert source.source == AudioSource.MY_SOURCE
 ```
 
-### Smoke tests (Pi only)
-
-```bash
-# Static ALSA routing check (subdevice layout, CamillaDSP capture, snapserver sources)
-bash scripts/test-alsa-routing.sh
-bash scripts/test-alsa-routing.sh --with-live   # + non-destructive aplay open per alias
-
-# Multiroom state-coherence — toggles multiroom 20× and asserts settings.json,
-# routing.env, and the snapserver/snapclient units stay in agreement.
-bash scripts/test-multiroom-desync.sh
-sudo bash scripts/test-multiroom-desync.sh --kill-test   # + kill -9 mid-toggle
-```
-
 ### Frontend (Vitest)
 
 ```bash
