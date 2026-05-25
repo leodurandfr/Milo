@@ -15,6 +15,8 @@ import aiohttp
 
 # Event callback type
 EventCallback = Callable[[dict], Awaitable[None]]
+# Called on every (re)connection so the source can reconcile state with the daemon
+OnConnectCallback = Callable[[], Awaitable[None]]
 
 
 class LibrespotWebSocket:
@@ -29,7 +31,8 @@ class LibrespotWebSocket:
         self,
         ws_url: str,
         session: aiohttp.ClientSession,
-        on_event: EventCallback
+        on_event: EventCallback,
+        on_connect: Optional[OnConnectCallback] = None
     ):
         """
         Initialize WebSocket client.
@@ -38,11 +41,16 @@ class LibrespotWebSocket:
             ws_url: WebSocket URL (e.g., ws://localhost:3678/events)
             session: aiohttp ClientSession for connections
             on_event: Callback for received events
+            on_connect: Optional callback fired on every (re)connection so the
+                source can reconcile its state with the daemon. go-librespot
+                emits events only on change, so an idle daemon (e.g. after a
+                crash + systemd restart) sends nothing on its own.
         """
         self._logger = logging.getLogger("source.spotify.websocket")
         self._ws_url = ws_url
         self._session = session
         self._on_event = on_event
+        self._on_connect = on_connect
         self._task: Optional[asyncio.Task] = None
         self._connected = False
         self._stopping = False
@@ -95,6 +103,12 @@ class LibrespotWebSocket:
             async with self._session.ws_connect(self._ws_url, timeout=aiohttp.ClientTimeout(total=5)) as ws:
                 self._connected = True
                 self._logger.info("WebSocket connected")
+
+                if self._on_connect:
+                    try:
+                        await self._on_connect()
+                    except Exception as e:
+                        self._logger.error(f"on_connect reconcile failed: {e}", exc_info=True)
 
                 async for msg in ws:
                     if self._stopping:
