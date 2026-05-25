@@ -41,17 +41,16 @@ update flow ([backend/core/updates/update.py](../../../backend/core/updates/upda
   `not_playing`) are intact. Documented-but-unhandled events (`will_play`,
   `volume`, `shuffle_context`, `repeat_context`, `repeat_track`) are ignored on
   purpose — volume is owned by ALSA/CamillaDSP (`external_volume`).
-- **SIGTERM-hang regression (v0.7.2) — addressed upstream in v0.7.3, not yet
-  validated by Milō**: v0.7.2 did not exit on SIGTERM (systemd waited the full
+- **SIGTERM-hang regression (v0.7.2) — fixed upstream in v0.7.3, validated by
+  Milō**: v0.7.2 did not exit on SIGTERM (systemd waited the full
   `TimeoutStopSec`, then SIGKILLed) — session-dependent, biting only once a phone
   had an authenticated AP/dealer session. The earlier "call `POST /player/stop`
   first" lever was DISPROVEN (the daemon still hung after a successful
   `/player/stop`). v0.7.3 commit `c191a43` ("proper shutdown sequence on
-  interrupt") wires `ctx.Done()` → `currentPlayer.Close()` + `app.Close()`, which
-  should fix it — but this is **not yet validated with a live session**, so
-  `system/milo-spotify.service` still ships `KillSignal=SIGKILL` + `TimeoutStopSec=5`.
-  Revert to graceful SIGTERM only after a live-session probe confirms a clean
-  exit. Not an API break.
+  interrupt") wires `ctx.Done()` → `currentPlayer.Close()` + `app.Close()`;
+  validated on the Pi 2026-05-26 (live session, direct SIGTERM → graceful exit in
+  59ms). `system/milo-spotify.service` therefore uses systemd's default SIGTERM,
+  keeping `TimeoutStopSec=5` only as a backstop. Not an API break.
 
 ## How to refresh (when the pinned version changes)
 
