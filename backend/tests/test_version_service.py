@@ -349,14 +349,18 @@ def _patch_github_release(tag_name: str):
 
 
 class TestMaxVersionCeiling:
-    """Tests for the optional max_version ceiling (D5 — go-librespot SIGTERM regression).
+    """Tests for the optional max_version ceiling mechanism (generic, D5).
 
-    go-librespot is pinned to a known-good ceiling (0.7.2); the update flow must
-    never offer a newer upstream release that would re-introduce the regression.
+    The clamp is a generic feature keyed off a program's optional "max_version"
+    config. No program pins it by default — go-librespot's 0.7.2 pin was lifted
+    2026-05-25 to surface 0.7.3 — so these tests arm the ceiling in-fixture to
+    keep the dormant mechanism covered, ready to re-arm in prod by re-adding the
+    config key.
     """
 
     @pytest.mark.asyncio
     async def test_caps_release_above_ceiling(self, version_service):
+        version_service.programs["go-librespot"]["max_version"] = "0.7.2"
         with _patch_github_release("v0.7.3"):
             result = await version_service.get_latest_github_version("go-librespot")
 
@@ -368,6 +372,7 @@ class TestMaxVersionCeiling:
 
     @pytest.mark.asyncio
     async def test_no_cap_at_ceiling(self, version_service):
+        version_service.programs["go-librespot"]["max_version"] = "0.7.2"
         with _patch_github_release("v0.7.2"):
             result = await version_service.get_latest_github_version("go-librespot")
 
@@ -379,6 +384,7 @@ class TestMaxVersionCeiling:
     @pytest.mark.asyncio
     async def test_no_cap_below_ceiling(self, version_service):
         """A release below the ceiling is still offered as-is (e.g. recovering from 0.7.1)."""
+        version_service.programs["go-librespot"]["max_version"] = "0.7.2"
         with _patch_github_release("v0.7.1"):
             result = await version_service.get_latest_github_version("go-librespot")
 
@@ -386,11 +392,17 @@ class TestMaxVersionCeiling:
         assert result["tag_name"] == "v0.7.1"
 
     @pytest.mark.asyncio
-    async def test_program_without_ceiling_is_uncapped(self, version_service):
-        """Programs with no max_version (e.g. multiroom) are never clamped."""
-        assert "max_version" not in version_service.programs["multiroom"]
+    async def test_no_program_pins_a_ceiling_by_default(self, version_service):
+        """Default config: no program pins max_version, so nothing is clamped.
+
+        go-librespot included (pin lifted 2026-05-25) — an upstream release above
+        any past ceiling is now offered as-is.
+        """
+        assert all(
+            "max_version" not in cfg for cfg in version_service.programs.values()
+        )
         with _patch_github_release("v99.0.0"):
-            result = await version_service.get_latest_github_version("multiroom")
+            result = await version_service.get_latest_github_version("go-librespot")
 
         assert result["version"] == "99.0.0"
 
