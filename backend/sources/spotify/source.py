@@ -98,10 +98,10 @@ class SpotifySource(BaseAudioSource):
             self._reset_playback_state()
             self._cancel_pause_timer()
 
-            # 4. Create HTTP session. Bounded per-request timeout so a hung
-            # daemon can't block /player/stop or the startup poll (go-librespot
-            # 0.7.2 SIGTERM regression). The WS connect passes its own timeout,
-            # so the long-lived /events stream is unaffected.
+            # 4. Create HTTP session. Bounded per-request timeout so an
+            # unresponsive daemon can't block /player/stop or the startup poll.
+            # The WS connect passes its own timeout, so the long-lived /events
+            # stream is unaffected.
             self._session = aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=3.0)
             )
@@ -128,12 +128,11 @@ class SpotifySource(BaseAudioSource):
     async def _do_stop(self) -> bool:
         """Stop Spotify gracefully, then stop the service.
 
-        go-librespot 0.7.2 ignores SIGTERM at the process level, so a bare
-        `systemctl stop` blocks until TimeoutStopSec. We do the graceful work
-        in-process first: POST /player/stop disconnects the Connect session and
-        releases the ALSA Loopback immediately, so the next source can grab it
-        without waiting. The bounded TimeoutStopSec=5 in the unit then SIGKILLs
-        the (already-disconnected) daemon cleanly.
+        POST /player/stop first to disconnect the Connect session and release
+        the ALSA Loopback in-process, so the next source can grab it without
+        waiting; then cleanup and `systemctl stop`. go-librespot 0.7.3 exits
+        gracefully on SIGTERM (~60ms, validated on the Pi), with TimeoutStopSec=5
+        as a backstop.
 
         A /player/stop failure must NOT block the service stop — log + continue.
         """
