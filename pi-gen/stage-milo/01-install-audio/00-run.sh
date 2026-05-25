@@ -4,7 +4,7 @@
 # Versions are defined as variables for easy updates.
 
 # ── Version pins ─────────────────────────────────────────────────────────────
-GO_LIBRESPOT_VERSION="0.7.2"
+GO_LIBRESPOT_VERSION="0.7.3"
 CAMILLADSP_VERSION="4.1.3"
 SNAPCAST_VERSION="0.35.0"
 # ─────────────────────────────────────────────────────────────────────────────
