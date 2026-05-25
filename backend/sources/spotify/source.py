@@ -236,7 +236,8 @@ class SpotifySource(BaseAudioSource):
         self._ws_client = LibrespotWebSocket(
             ws_url=self._ws_url,
             session=self._session,
-            on_event=self._handle_ws_event
+            on_event=self._handle_ws_event,
+            on_connect=self._reconcile_on_connect
         )
         await self._ws_client.start()
 
@@ -332,6 +333,30 @@ class SpotifySource(BaseAudioSource):
         self._is_playing = False
         self._metadata["is_buffering"] = False
         self._start_pause_timer()
+        self._update_connection_state()
+
+    async def _reconcile_on_connect(self) -> None:
+        """Reconcile state with go-librespot on every WS (re)connection.
+
+        go-librespot emits events only on change, so after an un-commanded WS
+        drop (daemon crash + systemd restart, transient blip) the daemon can be
+        back idle with no session while Milō still shows the last track. Pull
+        ground truth from GET /status: a live session refreshes metadata (also
+        heals any events missed during the gap); an idle daemon — or an
+        unreachable one (API not yet up after a restart, so state is unknown) —
+        resets the source to WAITING rather than re-affirming a stale track. The
+        WS loop retries every 2s, so a too-early reconcile self-corrects. The
+        normal source-switch / auto-stop paths already manage state — this only
+        catches the un-commanded case.
+        """
+        refreshed = await self._refresh_metadata()
+        if not refreshed or not self._device_connected:
+            # No session, or state unknown: drop any stale pause timer (so a
+            # leftover auto-stop can't later fire /player/stop on a fresh
+            # session) and clear the ghost metadata before re-broadcasting.
+            self._cancel_pause_timer()
+            self._device_connected = False
+            self._metadata = {}
         self._update_connection_state()
 
     # === Metadata ===

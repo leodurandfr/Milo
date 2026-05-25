@@ -323,6 +323,65 @@ class TestWebSocketEvents:
 
         assert spotify_source._metadata["position"] == 45000
 
+    @pytest.mark.asyncio
+    async def test_reconcile_on_connect_idle_daemon_resets_to_waiting(self, spotify_source):
+        """On (re)connect to an idle daemon (crash + systemd restart), reconcile
+        pulls GET /status, finds no session, and resets the stale 'now playing'
+        state to WAITING (also dropping any leftover pause timer)."""
+        # Stale 'playing' snapshot left over from before the daemon died
+        spotify_source._device_connected = True
+        spotify_source._is_playing = True
+        spotify_source._metadata = {"title": "Breathe", "is_playing": True}
+        spotify_source._update_connection_state()
+        assert spotify_source.state == SourceState.ACTIVE
+
+        async def idle_refresh():
+            # Mirrors _refresh_metadata against an empty GET /status (no track)
+            spotify_source._device_connected = False
+            spotify_source._metadata = {}
+            return True
+
+        with patch.object(spotify_source, '_refresh_metadata', side_effect=idle_refresh), \
+             patch.object(spotify_source, '_cancel_pause_timer') as mock_cancel:
+            await spotify_source._reconcile_on_connect()
+
+        assert spotify_source._device_connected is False
+        assert spotify_source.state == SourceState.WAITING
+        mock_cancel.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_reconcile_on_connect_live_session_stays_active(self, spotify_source):
+        """On reconnect with a live session, reconcile refreshes metadata and the
+        source stays ACTIVE (also heals any events missed during the gap)."""
+        async def live_refresh():
+            spotify_source._device_connected = True
+            spotify_source._metadata = {"title": "Breathe", "is_playing": True}
+            return True
+
+        with patch.object(spotify_source, '_refresh_metadata', side_effect=live_refresh):
+            await spotify_source._reconcile_on_connect()
+
+        assert spotify_source._device_connected is True
+        assert spotify_source.state == SourceState.ACTIVE
+
+    @pytest.mark.asyncio
+    async def test_reconcile_on_connect_unreachable_resets_defensively(self, spotify_source):
+        """If GET /status is unreachable on reconnect (daemon API not up yet after
+        a crash+restart), _refresh_metadata returns False without clearing the
+        flags. Reconcile must still reset defensively to WAITING rather than
+        re-affirm the stale 'now playing' (the WS loop retries in 2s)."""
+        spotify_source._device_connected = True
+        spotify_source._metadata = {"title": "Breathe", "is_playing": True}
+
+        with patch.object(spotify_source, '_refresh_metadata', new_callable=AsyncMock, return_value=False), \
+             patch.object(spotify_source, '_cancel_pause_timer') as mock_cancel:
+            await spotify_source._reconcile_on_connect()
+
+        assert spotify_source._device_connected is False
+        assert "title" not in spotify_source._metadata  # ghost track cleared
+        assert spotify_source.state == SourceState.WAITING
+        mock_cancel.assert_called_once()
+
 
 class TestAutoStop:
     """Test auto-stop timer functionality."""
