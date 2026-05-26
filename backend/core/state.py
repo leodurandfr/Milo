@@ -240,8 +240,15 @@ class AudioStateMachine:
             old_state = self.system_state.source_state
             self.system_state.source_state = new_state
 
-            if metadata:
-                self.system_state.metadata.update(metadata)
+            # Replace, don't merge: a state transition supplies the authoritative
+            # metadata for the new state, so stale fields from the previous track
+            # (title/artist/uri…) must not survive a partial WAITING payload.
+            # metadata=None means a state-only change — leave metadata untouched
+            # (e.g. AudioRoutingService flipping to STARTING during a reroute,
+            # which keeps the current track visible). Live position/duration are
+            # not affected: they flow through broadcast_position_update, never here.
+            if metadata is not None:
+                self.system_state.metadata = dict(metadata)
 
             if new_state == SourceState.ERROR:
                 self.system_state.error = metadata.get("error") if metadata else "Unknown"

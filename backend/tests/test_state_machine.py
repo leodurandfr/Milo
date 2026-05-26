@@ -197,6 +197,59 @@ class TestAudioStateMachine:
         assert state_machine.system_state.source_state == old_state
 
     @pytest.mark.asyncio
+    async def test_update_source_state_replaces_metadata_on_transition(self, state_machine):
+        """A state transition replaces metadata wholesale.
+
+        Regression guard: update_source_state used to MERGE metadata, so a
+        source dropping to WAITING with a partial payload (e.g. Spotify when
+        go-librespot dies, sending only the "off" flags) left the previous
+        track's title/artist/album/uri stale in system_state.metadata — and
+        thus in GET /api/audio/state. The provided payload must fully replace.
+        """
+        state_machine.system_state.active_source = AudioSource.SPOTIFY
+
+        # 1. Source becomes ACTIVE with a full track payload
+        await state_machine.update_source_state(
+            AudioSource.SPOTIFY,
+            SourceState.ACTIVE,
+            {"title": "Song", "artist": "Artist", "album": "Album",
+             "uri": "spotify:track:x", "is_playing": True},
+        )
+
+        # 2. Source drops to WAITING with only the "off" flags (partial dict)
+        await state_machine.update_source_state(
+            AudioSource.SPOTIFY,
+            SourceState.WAITING,
+            {"device_connected": False, "is_playing": False},
+        )
+
+        # The WAITING payload fully replaces metadata: no stale track fields
+        assert state_machine.system_state.metadata == {
+            "device_connected": False, "is_playing": False
+        }
+
+    @pytest.mark.asyncio
+    async def test_update_source_state_none_metadata_preserves(self, state_machine):
+        """metadata=None means a state-only change: metadata is left untouched.
+
+        This is the routing path: AudioRoutingService flips the active source
+        to STARTING during a reroute while the current track must stay visible
+        in the UI, so it passes no metadata.
+        """
+        state_machine.system_state.active_source = AudioSource.SPOTIFY
+        state_machine.system_state.source_state = SourceState.ACTIVE
+        state_machine.system_state.metadata = {"title": "Song", "artist": "Artist"}
+
+        await state_machine.update_source_state(
+            AudioSource.SPOTIFY,
+            SourceState.STARTING,
+            None,
+        )
+
+        assert state_machine.system_state.source_state == SourceState.STARTING
+        assert state_machine.system_state.metadata == {"title": "Song", "artist": "Artist"}
+
+    @pytest.mark.asyncio
     async def test_broadcast_event(self, state_machine, mock_ws_manager):
         """Event broadcast test"""
         await state_machine.broadcast_event("test", "test_event", {"data": "value"})
