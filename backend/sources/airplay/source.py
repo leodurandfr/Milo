@@ -311,23 +311,12 @@ class AirPlaySource(BaseAudioSource):
                 )
 
     def _update_connection_state(self) -> None:
-        """Update state based on device connection.
-
-        Always include all metadata keys so that state_machine.metadata.update()
-        overwrites stale values (e.g. clearing title/artist after auto-stop).
-        """
-        # Base keys ensure old values are always overwritten during merge
-        base_metadata = {
-            "title": "", "artist": "", "album": "",
-            "album_art_url": "", "album_art_width": 0, "album_art_height": 0,
-            "duration": 0, "position": 0,
-        }
+        """Update state based on device connection."""
         self._set_active_or_waiting(
             self._device_connected,
-            {**base_metadata, **self._metadata, "device_connected": True,
+            {**self._metadata, "device_connected": True,
              "is_playing": self._is_playing, "client_name": self._client_name},
-            {**base_metadata, "device_connected": False,
-             "is_playing": False, "client_name": None},
+            {"device_connected": False, "is_playing": False, "client_name": None},
         )
 
     async def _cleanup(self) -> None:

@@ -551,12 +551,15 @@ class AudioRoutingService:
             source_instance = self.get_source(active_source)
 
         async with self.state_machine._transition_lock:
-            # Step 1: Notify STARTING state to show loading UI
+            # Step 1: Notify STARTING state to show loading UI.
+            # metadata=None: state-only change — keep the current track metadata
+            # visible during the reroute (update_source_state replaces metadata
+            # when a payload is given, so passing one here would wipe the track).
             if source_instance:
                 await self.state_machine.update_source_state(
                     source=active_source,
                     new_state=SourceState.STARTING,
-                    metadata={"reason": "routing_change"}
+                    metadata=None
                 )
 
             # Step 2: Stop source FIRST to release ALSA device before routing change.
