@@ -13,7 +13,6 @@ from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from backend.core.equalizer import (
     CamillaDSPService,
     CamillaDspState,
-    FilterType,
     EqualizerClientProxyService,
     get_builtin_presets,
     get_preset_by_id,
@@ -426,24 +425,6 @@ class TestCamillaDSPService:
         result = camilladsp_service._parse_filters(config)
         assert len(result) == 1
         assert result[0]["id"] == "eq_band_00"
-
-
-# =============================================================================
-# Filter Type Tests
-# =============================================================================
-
-class TestFilterType:
-    """Test filter type enum"""
-
-    def test_filter_types_exist(self):
-        """Should have all expected filter types"""
-        assert FilterType.PEAKING.value == "Peaking"
-        assert FilterType.LOWSHELF.value == "Lowshelf"
-        assert FilterType.HIGHSHELF.value == "Highshelf"
-        assert FilterType.LOWPASS.value == "Lowpass"
-        assert FilterType.HIGHPASS.value == "Highpass"
-        assert FilterType.NOTCH.value == "Notch"
-        assert FilterType.ALLPASS.value == "Allpass"
 
 
 # =============================================================================

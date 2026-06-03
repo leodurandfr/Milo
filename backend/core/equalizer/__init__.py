@@ -11,7 +11,6 @@ This module provides:
 from backend.core.equalizer.service import (
     CamillaDSPService,
     CamillaDspState,
-    FilterType,
 )
 from backend.core.equalizer.presets import (
     get_builtin_presets,
@@ -26,7 +25,6 @@ __all__ = [
     # Service
     "CamillaDSPService",
     "CamillaDspState",
-    "FilterType",
     # Multiroom Equalizer
     "MultiroomEqualizerService",
     # Proxy
