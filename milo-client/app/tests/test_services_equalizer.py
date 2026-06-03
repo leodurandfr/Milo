@@ -259,3 +259,80 @@ class TestEqualizerServiceConnection:
         assert equalizer_service._reconnect_task is not None
         await equalizer_service.stop_connection_loop()
         assert equalizer_service._running is False
+
+
+class TestEqualizerServiceStatusPayload:
+    """get_status must expose mono and master enabled so the backend/frontend
+    can render per-target state (the local /status already returns both)."""
+
+    @pytest.mark.asyncio
+    async def test_status_includes_mono_and_enabled(self, equalizer_service):
+        """Should report mono and equalizer_enabled in the status payload."""
+        equalizer_service._mono = True
+        equalizer_service._equalizer_enabled = False
+        status = await equalizer_service.get_status()
+        assert status["mono"] is True
+        assert status["equalizer_enabled"] is False
+
+
+class TestEqualizerServiceMasterBypass:
+    """Master EQ enable/disable = pipeline-only bypass mirroring the backend's
+    bypass_effects/restore_effects: EQ bands + compressor + loudness leave the
+    pipeline but their definitions stay, so restore re-pushes exact values."""
+
+    @pytest.mark.asyncio
+    async def test_disable_removes_eq_bands_from_pipeline_keeps_defs(self, equalizer_service, mock_camilla_client):
+        """Disabling must strip eq_band_* from the pipeline (not just compressor/loudness)."""
+        config = mock_camilla_client.config.active.return_value
+        result = await equalizer_service.set_equalizer_enabled(False)
+        assert result is True
+        assert equalizer_service.equalizer_enabled is False
+        names = config["pipeline"][0]["names"]
+        assert "eq_band_1" not in names
+        assert "eq_band_2" not in names
+        # Definitions are preserved for restore
+        assert "eq_band_1" in config["filters"]
+        assert "eq_band_2" in config["filters"]
+
+    @pytest.mark.asyncio
+    async def test_enable_readds_eq_bands_to_pipeline(self, equalizer_service, mock_camilla_client):
+        """Re-enabling must re-add the EQ bands to the pipeline."""
+        config = mock_camilla_client.config.active.return_value
+        await equalizer_service.set_equalizer_enabled(False)
+        result = await equalizer_service.set_equalizer_enabled(True)
+        assert result is True
+        assert equalizer_service.equalizer_enabled is True
+        names = config["pipeline"][0]["names"]
+        assert "eq_band_1" in names
+        assert "eq_band_2" in names
+
+    @pytest.mark.asyncio
+    async def test_load_state_derives_enabled_false_when_bands_not_piped(self, equalizer_service, mock_camilla_client):
+        """On (re)connect, enabled state must be derived from the persisted config:
+        bands defined but absent from the pipeline => bypassed => enabled False."""
+        config = mock_camilla_client.config.active.return_value
+        config["pipeline"] = [{"type": "Filter", "channels": [0, 1], "names": []}]
+        equalizer_service._equalizer_enabled = True
+        await equalizer_service._load_state_from_config()
+        assert equalizer_service.equalizer_enabled is False
+
+
+class TestEqualizerServiceFilterTypeAndEnable:
+    """set_filter must apply filter_type and per-band enable, not just gain/freq/q."""
+
+    @pytest.mark.asyncio
+    async def test_set_filter_applies_filter_type(self, equalizer_service, mock_camilla_client):
+        """filter_type should set the Biquad band type."""
+        config = mock_camilla_client.config.active.return_value
+        result = await equalizer_service.set_filter("eq_band_1", gain=2.0, filter_type="Lowshelf")
+        assert result is True
+        assert config["filters"]["eq_band_1"]["parameters"]["type"] == "Lowshelf"
+
+    @pytest.mark.asyncio
+    async def test_set_filter_enabled_false_removes_band_from_pipeline(self, equalizer_service, mock_camilla_client):
+        """enabled=False should drop the band from the pipeline but keep its definition."""
+        config = mock_camilla_client.config.active.return_value
+        result = await equalizer_service.set_filter("eq_band_1", gain=0.0, enabled=False)
+        assert result is True
+        assert "eq_band_1" not in config["pipeline"][0]["names"]
+        assert "eq_band_1" in config["filters"]

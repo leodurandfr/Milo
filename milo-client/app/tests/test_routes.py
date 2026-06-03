@@ -15,6 +15,7 @@ from routes import create_health_router, create_snapclient_router, create_equali
 from services.equalizer import EqualizerService
 from services.snapclient import SnapclientService
 from services.app_update import AppUpdateService
+from services.camilladsp_update import CamillaDSPUpdateService
 
 
 @pytest.fixture
@@ -73,10 +74,24 @@ def mock_app_update_service():
 
 
 @pytest.fixture
-def app(mock_equalizer_service, mock_snapclient_service, mock_app_update_service):
+def mock_camilladsp_update_service():
+    """Mock CamillaDSPUpdateService for route tests."""
+    service = Mock(spec=CamillaDSPUpdateService)
+    service.update_in_progress = False
+    service.get_installed_version = AsyncMock(return_value="2.0.0")
+    service.get_latest_github_version = AsyncMock(return_value="2.0.1")
+    service.update_camilladsp = AsyncMock(return_value={"success": True})
+    return service
+
+
+@pytest.fixture
+def app(mock_equalizer_service, mock_snapclient_service, mock_app_update_service,
+        mock_camilladsp_update_service):
     """FastAPI test app with mocked services."""
     app = FastAPI()
-    app.include_router(create_health_router(mock_equalizer_service, mock_snapclient_service, mock_app_update_service))
+    app.include_router(create_health_router(
+        mock_equalizer_service, mock_snapclient_service,
+        mock_app_update_service, mock_camilladsp_update_service))
     app.include_router(create_snapclient_router(mock_snapclient_service))
     app.include_router(create_equalizer_router(mock_equalizer_service))
     return app
