@@ -15,7 +15,7 @@
  * Maps Milō UI language codes (see services/i18n.js) to BCP-47 tags
  * understood by Intl.DisplayNames and Intl.Collator.
  */
-export const LANGUAGE_TO_BCP47 = {
+const LANGUAGE_TO_BCP47 = {
   french: 'fr',
   english: 'en',
   spanish: 'es',

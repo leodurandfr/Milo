@@ -7,8 +7,8 @@
  * min/max for components with a different reference range (e.g. LevelMeter
  * uses -60 → 0 for the 0 dBFS audio-level standard).
  */
-export const MIN_DB = -72;
-export const MAX_DB = 0;
+const MIN_DB = -72;
+const MAX_DB = 0;
 
 export function dbToPercent(db, min = MIN_DB, max = MAX_DB) {
   const clamped = Math.max(min, Math.min(max, db));
