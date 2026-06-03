@@ -349,6 +349,101 @@ class TestStandaloneClientEqualizerMethods:
 
 
 # =============================================================================
+# Standalone Client Preset Tests (preset NAME persistence)
+# =============================================================================
+
+class TestStandaloneClientPresetPersistence:
+    """Regression tests for the 'remote client preset name lost' bug.
+
+    A standalone remote client that has never had its EQ saved has no entry in
+    the registry's standalone-equalizer store. The preset-name write paths
+    (load_client_preset / save_custom_preset) must create the entry on demand
+    and persist active_preset — exactly like the local path does — instead of
+    raising (which the route turned into a 404, dropping the preset name while
+    the filter gains survived via the separate gains-write path).
+    """
+
+    @pytest.fixture
+    def fresh_standalone_client(self):
+        """A registered, online, standalone remote client with NO saved EQ entry."""
+        return Client(
+            mac_id="dc:a6:32:aa:bb:cc",
+            name="Bedroom",
+            ip="192.168.1.100",
+            online=True,
+            zone_id=None,
+        )
+
+    @pytest.mark.asyncio
+    async def test_load_client_preset_creates_entry_for_fresh_standalone_client(
+        self, multiroom_equalizer_service, mock_registry, fresh_standalone_client
+    ):
+        """Picking a preset on a fresh remote client must persist the preset NAME
+        (no pre-existing standalone-equalizer entry required)."""
+        mock_registry.get_standalone_equalizer.return_value = None  # never saved
+        mock_registry.get_client.return_value = fresh_standalone_client
+
+        result = await multiroom_equalizer_service.load_client_preset(
+            "dc:a6:32:aa:bb:cc", "bass_boost"
+        )
+
+        assert result is True
+        mock_registry.set_standalone_equalizer.assert_called_once()
+        persisted = mock_registry.set_standalone_equalizer.call_args.args[1]
+        # The preset NAME is the thing that used to be lost — assert it persists.
+        assert persisted.active_preset == "bass_boost"
+        # And the gains were built from the chosen preset.
+        assert [round(f.gain) for f in persisted.filters] == [6, 5, 4, 2, 0, 0, 0, 0, 0, 0]
+
+    @pytest.mark.asyncio
+    async def test_load_client_preset_raises_for_unknown_client(
+        self, multiroom_equalizer_service, mock_registry
+    ):
+        """A genuinely unknown client still raises (route → 404), unchanged."""
+        mock_registry.get_standalone_equalizer.return_value = None
+        mock_registry.get_client.return_value = None
+
+        with pytest.raises(ValueError, match="Client not found"):
+            await multiroom_equalizer_service.load_client_preset("nope", "bass_boost")
+
+    @pytest.mark.asyncio
+    async def test_load_client_preset_raises_for_zoned_client(
+        self, multiroom_equalizer_service, mock_registry, sample_zone_client
+    ):
+        """A client that is in a zone still raises (must use the zone path)."""
+        mock_registry.get_standalone_equalizer.return_value = None
+        mock_registry.get_client.return_value = sample_zone_client
+
+        with pytest.raises(ValueError, match="is in a zone"):
+            await multiroom_equalizer_service.load_client_preset("milo-client-1", "bass_boost")
+
+    @pytest.mark.asyncio
+    async def test_save_custom_preset_creates_entry_for_fresh_standalone_client(
+        self, multiroom_equalizer_service, mock_registry, fresh_standalone_client
+    ):
+        """Saving a custom preset on a fresh remote client must persist
+        active_preset='custom' instead of raising."""
+        mock_registry.get_standalone_equalizer.return_value = None
+        mock_registry.get_client.return_value = fresh_standalone_client
+
+        await multiroom_equalizer_service.save_custom_preset("client", "dc:a6:32:aa:bb:cc")
+
+        mock_registry.set_standalone_equalizer.assert_called_once()
+        persisted = mock_registry.set_standalone_equalizer.call_args.args[1]
+        assert persisted.active_preset == "custom"
+
+    @pytest.mark.asyncio
+    async def test_save_custom_preset_raises_for_missing_zone(
+        self, multiroom_equalizer_service, mock_registry
+    ):
+        """A missing zone still raises — zones are not auto-created on demand."""
+        mock_registry.get_zone.return_value = None
+
+        with pytest.raises(ValueError, match="not found"):
+            await multiroom_equalizer_service.save_custom_preset("zone", "nonexistent")
+
+
+# =============================================================================
 # Target-Agnostic Equalizer Tests
 # =============================================================================
 

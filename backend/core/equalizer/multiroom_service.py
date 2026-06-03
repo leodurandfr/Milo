@@ -209,6 +209,28 @@ class MultiroomEqualizerService:
             raise ValueError(f"Preset not found: {preset_id}")
         return preset["gains"]
 
+    def _new_standalone_settings(self, mac_id: str) -> EqualizerSettings:
+        """Build default EQ settings for a registered standalone client on demand.
+
+        A remote standalone client that has never had its EQ saved has no entry
+        in the registry's standalone-equalizer store. The local target's
+        preset/save paths persist active_preset unconditionally (see
+        CamillaDSPService.load_preset); mirror that here so the remote
+        preset-name write paths create the entry instead of raising — otherwise
+        the route turns the ValueError into a 404 and the chosen preset NAME is
+        silently dropped while the gains survive via the separate gains path.
+
+        Raises:
+            ValueError: if the client is unknown or currently in a zone (in which
+            case the zone equalizer is the source of truth, not standalone).
+        """
+        client = self._registry.get_client(mac_id) if self._registry else None
+        if not client:
+            raise ValueError(f"Client not found: {mac_id}")
+        if client.zone_id:
+            raise ValueError(f"Client {mac_id} is in a zone. Use load_zone_preset() instead.")
+        return EqualizerSettings.default()
+
     async def save_custom_preset(self, target_type: str, target_id: str) -> None:
         """
         Save current filter gains as the custom preset for a zone or client.
@@ -217,7 +239,15 @@ class MultiroomEqualizerService:
         """
         current = await self.get_equalizer(target_type, target_id)
         if not current:
-            raise ValueError(f"{target_type.capitalize()} not found: {target_id}")
+            if target_type == "client":
+                # Create defaults on demand (symmetric with the local path) so a
+                # fresh standalone client can save a custom preset without 404-ing.
+                # In practice the UI only exposes "Save" after an edit (which has
+                # already created the entry via _persist_remote), so this branch
+                # is a defensive fallback: it snapshots the flat default as custom.
+                current = self._new_standalone_settings(target_id)
+            else:
+                raise ValueError(f"{target_type.capitalize()} not found: {target_id}")
 
         current.custom_gains = [f.gain for f in current.filters[:10]]
         current.active_preset = "custom"
@@ -272,11 +302,11 @@ class MultiroomEqualizerService:
         """
         current = await self.get_client_equalizer(mac_id)
         if not current:
-            if self._registry:
-                client = self._registry.get_client(mac_id)
-                if client and client.zone_id:
-                    raise ValueError(f"Client {mac_id} is in a zone. Use load_zone_preset() instead.")
-            raise ValueError(f"Client not found: {mac_id}")
+            # No saved EQ yet for this standalone client — create defaults on
+            # demand (symmetric with the local path) so the preset NAME persists
+            # instead of the route returning a 404. Still raises for an unknown
+            # or zoned client.
+            current = self._new_standalone_settings(mac_id)
 
         gains = await self.resolve_preset_gains(preset_id, current)
         current.filters = self._build_preset_filters(gains)
