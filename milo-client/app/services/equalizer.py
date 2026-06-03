@@ -82,7 +82,6 @@ class EqualizerService:
         self._lowpass = {"enabled": False, "frequency": 80.0, "q": 0.707}
         self._mono: bool = False
         self._equalizer_enabled = True
-        self._saved_effects_state = None  # For bypass/restore
 
     @property
     def connected(self) -> bool:
@@ -352,6 +351,18 @@ class EqualizerService:
                         self.logger.info("Loaded mono state from config")
                     break
 
+            # Derive master equalizer-enabled state from the persisted pipeline.
+            # set_equalizer_enabled() bypasses by removing eq_band_* from the pipeline
+            # while keeping their definitions, so "bands defined but none piped" means
+            # effects are bypassed. This makes the bypass state survive a restart.
+            eq_band_defs = [n for n in config.get("filters", {}) if n.startswith("eq_band_")]
+            if eq_band_defs:
+                piped = set()
+                for step in config.get("pipeline", []):
+                    if step.get("type") == "Filter":
+                        piped.update(step.get("names", []))
+                self._equalizer_enabled = any(name in piped for name in eq_band_defs)
+
         except Exception as e:
             self.logger.warning(f"Could not load state from config: {e}")
 
@@ -367,7 +378,9 @@ class EqualizerService:
                 "filters": await self.get_filters(),
                 "compressor": self._compressor,
                 "loudness": self._loudness,
-                "delay": self._delay
+                "delay": self._delay,
+                "mono": self._mono,
+                "equalizer_enabled": self._equalizer_enabled
             }
         except Exception as e:
             self.logger.error(f"Error getting equalizer status: {e}")
@@ -411,6 +424,12 @@ class EqualizerService:
         try:
             config = await self._get_config()
             if config and "filters" in config:
+                # A band is enabled iff it is referenced in a Filter pipeline step
+                # (per-band disable / master bypass both work by un-piping the band).
+                piped = set()
+                for step in config.get("pipeline", []):
+                    if step.get("type") == "Filter":
+                        piped.update(step.get("names", []))
                 self._filters = []
                 for name, filter_data in config["filters"].items():
                     if not name.startswith("eq_band_"):
@@ -422,7 +441,7 @@ class EqualizerService:
                         "freq": params.get("freq", 1000),
                         "gain": params.get("gain", 0),
                         "q": params.get("q", 1.0),
-                        "enabled": True
+                        "enabled": name in piped
                     })
                 self._filters.sort(key=lambda f: f["id"])
             return self._filters
@@ -431,8 +450,14 @@ class EqualizerService:
             return self._filters
 
     async def set_filter(self, filter_id: str, gain: float,
-                         freq: float = None, q: float = None) -> bool:
-        """Update a filter band."""
+                         freq: float = None, q: float = None,
+                         filter_type: str = None, enabled: bool = None) -> bool:
+        """Update a filter band.
+
+        gain/freq/q/filter_type mutate the Biquad parameters. ``enabled`` toggles
+        the band's presence in the pipeline (its definition is always kept, so the
+        band can be re-enabled without losing its tuning) — mirroring the local EQ.
+        """
         try:
             config = await self._get_config()
             if not config:
@@ -447,6 +472,13 @@ class EqualizerService:
                 params["freq"] = freq
             if q is not None:
                 params["q"] = q
+            if filter_type is not None:
+                params["type"] = filter_type
+            if enabled is not None:
+                if enabled:
+                    self._add_filter_to_pipeline(config, filter_id)
+                else:
+                    self._remove_filter_from_pipeline(config, filter_id)
 
             await self._apply_config(config)
             return True
@@ -879,38 +911,44 @@ class EqualizerService:
 
     async def set_equalizer_enabled(self, enabled: bool) -> bool:
         """
-        Enable or disable equalizer effects (compressor, loudness).
+        Master toggle for equalizer effects (EQ bands + compressor + loudness).
 
-        When disabled, saves current state and disables effects.
-        When enabled, restores previously saved state.
+        Pipeline-only bypass, mirroring the main backend's bypass_effects/
+        restore_effects (backend/core/equalizer/service.py): the effect
+        *definitions* in config["filters"]/["processors"] are never touched —
+        only their pipeline references are removed (disable) or re-added
+        (enable). This keeps the exact tuning so restore is lossless, lets the
+        bypass state survive a restart (derived from the persisted pipeline in
+        _load_state_from_config), and leaves volume/mute and crossover_* alone.
+        Idempotent: re-applying the current state is safe (used by reconnect sync).
         """
-        if enabled == self._equalizer_enabled:
-            return True
-
         try:
-            if not enabled:
-                # Save current state before disabling
-                self._saved_effects_state = {
-                    "compressor_enabled": self._compressor["enabled"],
-                    "loudness_enabled": self._loudness["enabled"]
-                }
-                # Disable effects
-                if self._compressor["enabled"]:
-                    await self.set_compressor(enabled=False)
-                if self._loudness["enabled"]:
-                    await self.set_loudness(enabled=False)
-                self.logger.info("Equalizer effects bypassed")
-            else:
-                # Restore saved state
-                if self._saved_effects_state:
-                    if self._saved_effects_state.get("compressor_enabled"):
-                        await self.set_compressor(enabled=True)
-                    if self._saved_effects_state.get("loudness_enabled"):
-                        await self.set_loudness(enabled=True)
-                    self._saved_effects_state = None
-                self.logger.info("Equalizer effects restored")
+            config = await self._get_config()
+            if not config:
+                return False
 
+            eq_bands = [n for n in config.get("filters", {}) if n.startswith("eq_band_")]
+
+            if enabled:
+                for name in eq_bands:
+                    self._add_filter_to_pipeline(config, name)
+                # Compressor/loudness only return to the pipeline if individually on,
+                # preserving the user's per-effect choice across a master toggle.
+                if self._compressor["enabled"]:
+                    self._add_processor_to_pipeline(config, "compressor")
+                if self._loudness["enabled"]:
+                    self._add_filter_to_pipeline(config, "loudness_low")
+                    self._add_filter_to_pipeline(config, "loudness_high")
+            else:
+                for name in eq_bands:
+                    self._remove_filter_from_pipeline(config, name)
+                self._remove_processor_from_pipeline(config, "compressor")
+                self._remove_filter_from_pipeline(config, "loudness_low")
+                self._remove_filter_from_pipeline(config, "loudness_high")
+
+            await self._apply_config(config)
             self._equalizer_enabled = enabled
+            self.logger.info(f"Equalizer effects {'restored' if enabled else 'bypassed'} (volume unchanged)")
             return True
 
         except Exception as e:
