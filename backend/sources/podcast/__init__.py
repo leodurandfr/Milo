@@ -22,11 +22,6 @@ from backend.sources.podcast.models import (
     SpeedRequest,
     SubscribeRequest,
     SettingsRequest,
-    Podcast,
-    Episode,
-    Subscription,
-    PlaybackProgress,
-    SearchResult
 )
 
 __all__ = [
@@ -38,9 +33,4 @@ __all__ = [
     "SpeedRequest",
     "SubscribeRequest",
     "SettingsRequest",
-    "Podcast",
-    "Episode",
-    "Subscription",
-    "PlaybackProgress",
-    "SearchResult"
 ]

@@ -10,27 +10,6 @@ from typing import Optional, List
 from pydantic import BaseModel
 
 
-class Station(BaseModel):
-    """Radio station metadata."""
-    id: str
-    name: str
-    url: str
-    country: str = ""
-    genre: str = ""
-    favicon: str = ""
-    bitrate: int = 0
-    codec: str = ""
-    votes: int = 0
-    clickcount: int = 0
-    score: int = 0
-    is_favorite: bool = False
-    is_custom: bool = False
-    image_filename: str = ""
-
-    class Config:
-        extra = "allow"
-
-
 class PlayStationRequest(BaseModel):
     """Request to play a station."""
     station_id: str
