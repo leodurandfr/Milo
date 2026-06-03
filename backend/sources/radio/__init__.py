@@ -19,7 +19,6 @@ from backend.sources.radio.source import RadioSource
 from backend.sources.radio.routes import router, setup_radio_routes
 from backend.sources.radio.data import StationDataService, ImageManager
 from backend.sources.radio.models import (
-    Station,
     PlayStationRequest,
     FavoriteRequest,
     StationSearchResult
@@ -31,7 +30,6 @@ __all__ = [
     "setup_radio_routes",
     "StationDataService",
     "ImageManager",
-    "Station",
     "PlayStationRequest",
     "FavoriteRequest",
     "StationSearchResult"
