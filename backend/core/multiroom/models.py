@@ -262,35 +262,19 @@ class EqualizerSettings:
 
     @classmethod
     def from_dict(cls, data: Optional[Dict[str, Any]]) -> 'EqualizerSettings':
-        """
-        Create from dictionary.
+        """Create from a dict written by ``to_dict`` (partial dicts allowed).
 
-        Handles backward compatibility with old format where:
-        - filters was List[Dict] instead of List[EqFilter]
-        - compressor/loudness could be None or Dict
-        - 'enabled' field might be missing
+        Missing keys fall back to field defaults; ``None`` returns a default
+        instance. A ``None`` compressor/loudness sub-dict resolves to its default.
         """
         if data is None:
             return cls()
 
-        # Parse filters - handle both old Dict format and new EqFilter format
-        filters_data = data.get("filters", [])
-        filters = []
-        for f_data in filters_data:
-            if isinstance(f_data, EqFilter):
-                filters.append(f_data)
-            elif isinstance(f_data, dict):
-                filters.append(EqFilter.from_dict(f_data))
-
-        # Parse compressor and loudness
-        compressor = CompressorSettings.from_dict(data.get("compressor"))
-        loudness = LoudnessSettings.from_dict(data.get("loudness"))
-
         return cls(
             enabled=data.get("enabled", True),
-            filters=filters,
-            compressor=compressor,
-            loudness=loudness,
+            filters=[EqFilter.from_dict(f) for f in data.get("filters", [])],
+            compressor=CompressorSettings.from_dict(data.get("compressor")),
+            loudness=LoudnessSettings.from_dict(data.get("loudness")),
             active_preset=data.get("active_preset", "flat"),
             mono=data.get("mono", False),
             custom_gains=data.get("custom_gains")
