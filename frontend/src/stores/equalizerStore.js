@@ -259,7 +259,9 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   // linkedGroups and clientTypes now delegate to multiroomStore
 
   async function fetchEnabledState() {
-    const result = await apiCall.get('/api/equalizer/enabled', {
+    // Target-aware: a standalone remote client resolves to
+    // /api/equalizer/client/{mac}/enabled; local/zone targets to /api/equalizer/enabled.
+    const result = await apiCall.get(`${getApiBase()}/enabled`, {
       category: 'store',
       message: 'Error fetching equalizer enabled state',
     });
@@ -267,7 +269,9 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   }
 
   async function setEnabledState(enabled) {
-    const result = await apiCall.put('/api/equalizer/enabled', { enabled }, {
+    // Target-aware (see fetchEnabledState) so toggling a standalone remote client
+    // controls THAT client, not the local Milo.
+    const result = await apiCall.put(`${getApiBase()}/enabled`, { enabled }, {
       category: 'store',
       message: 'Error setting equalizer enabled state',
       checkStatus: true,
@@ -480,7 +484,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   /**
    * Propagate any equalizer setting to linked clients.
    * Only propagates to available (connected) clients.
-   * @param {string} endpoint - API endpoint (e.g., 'mute', 'compressor', 'preset')
+   * @param {string} endpoint - API endpoint (e.g., 'mute', 'compressor')
    * @param {object} data - Data to propagate
    * @returns {{ success: boolean, errors: Array<{targetId: string, error: string}>, skipped: Array<string> }}
    */
@@ -501,12 +505,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
     const errors = [];
     const promises = onlineClients.map(async (targetId) => {
-      // Special handling for preset: URL format is /preset/{preset_id}
-      const url = endpoint === 'preset' && data.preset_id
-        ? `${getApiBase(targetId)}/preset/${data.preset_id}`
-        : `${getApiBase(targetId)}/${endpoint}`;
-      const body = endpoint === 'preset' && data.preset_id ? null : data;
-      const result = await apiCall.put(url, body, {
+      const result = await apiCall.put(`${getApiBase(targetId)}/${endpoint}`, data, {
         category: 'store',
         message: `Error propagating ${endpoint} to ${targetId}`,
       });
@@ -641,6 +640,10 @@ export const useEqualizerStore = defineStore('equalizer', () => {
             activePreset.value = zoneEq.active_preset;
           }
         }
+      } else if (statusData?.active_preset && selectedTarget.value && !isLocalClient(selectedTarget.value)) {
+        // Standalone remote client: the per-client status carries its active_preset
+        // (injected from the registry store); fetchPresets only knows the local Pi's.
+        activePreset.value = statusData.active_preset;
       }
 
       // Volume data comes from unifiedAudioStore.volumeState via WebSocket
@@ -1015,8 +1018,10 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       await restoreClientSettings(targetId);
     }
 
-    // Load status for new target
+    // Load status + the master enabled state for the NEW target (both are
+    // target-aware now, so the toggle reflects the selected client, not the local Milo).
     await loadStatus();
+    await loadEnabledState();
   }
 
   async function restoreClientSettings(hostname) {
