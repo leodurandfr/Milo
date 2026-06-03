@@ -231,7 +231,15 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     if (!result.ok) return [];
     builtinPresets.value = result.data.presets || [];
     customGains.value = result.data.custom_gains || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-    activePreset.value = result.data.active_preset || 'flat';
+    // The /presets endpoint always reports the LOCAL Pi's active preset. Only
+    // adopt it when the local client is the selected target and it is not in a
+    // zone — otherwise the per-client status (remote standalone) or the zone
+    // equalizer is the source of truth for the active preset. Writing the local
+    // value here would make the dropdown briefly flash the local preset name
+    // before the correct one loads when switching to a remote/zone target.
+    if (!getSelectedZoneId() && (!selectedTarget.value || isLocalClient(selectedTarget.value))) {
+      activePreset.value = result.data.active_preset || 'flat';
+    }
     return builtinPresets.value;
   }
 
