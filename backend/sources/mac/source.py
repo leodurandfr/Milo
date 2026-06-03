@@ -18,7 +18,7 @@ import ipaddress
 from typing import Dict, Any, Optional, Tuple
 
 from backend.core.audio_source import BaseAudioSource
-from backend.core.models.audio_state import AudioSource, SourceState
+from backend.core.models.audio_state import SourceState
 from backend.shared.decorators import handle_errors
 
 

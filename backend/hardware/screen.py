@@ -172,7 +172,8 @@ class ScreenController:
         # Start monitoring
         asyncio.create_task(self._monitor_source_state())
         asyncio.create_task(self._monitor_timeout())
-        # asyncio.create_task(self._monitor_touch_events())  # Disabled - detection via frontend
+        # Touch-event monitoring intentionally not started here — touch wake is
+        # handled in the frontend.
 
         return True
 

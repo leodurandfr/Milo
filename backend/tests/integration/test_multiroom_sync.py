@@ -993,7 +993,7 @@ class TestProcessDisconnectedClients:
 
 
 # =============================================================================
-# TestReconnectSyncAppliesMonoAndEnabled (P0-E)
+# TestReconnectSyncAppliesMonoAndEnabled — reconnect re-applies mono + enabled
 # =============================================================================
 
 

@@ -10,7 +10,6 @@ Tests cover:
 - Data service operations
 """
 import json
-from pathlib import Path
 
 import pytest
 from unittest.mock import Mock, AsyncMock, patch, MagicMock

@@ -30,7 +30,7 @@ class TestSnapclientServiceVersion:
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             with patch("asyncio.wait_for", return_value=(b"snapclient v0.28.0\n", b"")):
                 mock_proc.communicate = AsyncMock(return_value=(b"snapclient v0.28.0\n", b""))
-                version = await snapclient_service.get_installed_version()
+                await snapclient_service.get_installed_version()
                 # Note: actual parsing depends on wait_for result
                 # This test verifies the method doesn't crash
 
@@ -106,7 +106,7 @@ class TestSnapclientServiceUpdate:
              patch.object(snapclient_service, "_download_snapclient_deb",
                          return_value={"success": False, "error": "Test error"}):
 
-            result = await snapclient_service.update_snapclient("0.29.0")
+            await snapclient_service.update_snapclient("0.29.0")
 
             # Flag should be reset after update (success or failure)
             assert snapclient_service.update_in_progress is False

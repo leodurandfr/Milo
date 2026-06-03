@@ -1,9 +1,8 @@
 """
 Unit tests for EqualizerService.
 """
-import asyncio
 import pytest
-from unittest.mock import patch, MagicMock, Mock
+from unittest.mock import patch
 
 
 class TestEqualizerServiceProperties:

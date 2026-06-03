@@ -9,9 +9,6 @@ Tests cover:
 """
 import pytest
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
-import json
-import tempfile
-from pathlib import Path
 
 from backend.core.equalizer import (
     CamillaDSPService,
