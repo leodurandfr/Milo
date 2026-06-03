@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from backend.tests.conftest import attach_registry_broadcaster
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.websocket import SnapcastWebSocketService
-from backend.core.multiroom.models import ReconnectionContext
+from backend.core.multiroom.models import ReconnectionContext, EqualizerSettings
 from backend.core.volume.state import DEFAULT_VOLUME_DB
 from backend.core.models.volume import VolumeConfig
 
@@ -990,3 +990,83 @@ class TestProcessDisconnectedClients:
 
         assert registry.get_client("client-a").online is True
         assert registry.get_client("client-b").online is True
+
+
+# =============================================================================
+# TestReconnectSyncAppliesMonoAndEnabled (P0-E)
+# =============================================================================
+
+
+def _make_ws_with_proxy(registry):
+    """SnapcastWebSocketService with a capturing equalizer proxy (no stubbed sync)."""
+    sm = MagicMock()
+    sm.broadcast_event = AsyncMock()
+    routing = MagicMock()
+    routing.get_state = MagicMock(return_value={"multiroom_enabled": True})
+    ws = SnapcastWebSocketService(state_machine=sm, routing_service=routing)
+    ws.set_registry(registry)
+    proxy = MagicMock()
+    proxy.request = AsyncMock(return_value={"status": "success"})
+    ws._equalizer_client_proxy_service = proxy
+    ws._crossover_service = None
+    return ws, proxy
+
+
+class TestReconnectSyncAppliesMonoAndEnabled:
+    """Reconnect sync must re-apply mono + master enabled/bypass, not just
+    filters/compressor/loudness — otherwise a reconnecting member comes back
+    in stereo with effects active (regression the EQ map flagged)."""
+
+    @pytest.mark.asyncio
+    async def test_zone_sync_pushes_mono_and_enabled(self, mock_settings_service, mock_state_machine):
+        registry = await _setup_registry(
+            mock_settings_service, mock_state_machine,
+            clients=[
+                ("aa:bb", "Speaker", "192.168.1.50", -20.0, True),
+                ("aa:cc", "Speaker B", "192.168.1.53", -20.0, True),
+            ],
+            zones=[("zone1", "Living", ["aa:bb", "aa:cc"])],
+        )
+        ws, proxy = _make_ws_with_proxy(registry)
+        zone = registry.get_zone("zone1")
+        zone.equalizer_settings = EqualizerSettings(mono=True, enabled=False, filters=[])
+
+        result = await ws._sync_zone_equalizer_to_client("aa:bb", zone)
+        assert result is True
+
+        by_path = {c.args[2]: c.args[3] for c in proxy.request.call_args_list}
+        assert "/equalizer/mono" in by_path and by_path["/equalizer/mono"] == {"enabled": True}
+        assert "/equalizer/enabled" in by_path and by_path["/equalizer/enabled"] == {"enabled": False}
+
+    @pytest.mark.asyncio
+    async def test_standalone_sync_pushes_saved_mono_and_enabled(self, mock_settings_service, mock_state_machine):
+        registry = await _setup_registry(
+            mock_settings_service, mock_state_machine,
+            clients=[("cc:dd", "Speaker2", "192.168.1.51", -20.0, True)],
+        )
+        ws, proxy = _make_ws_with_proxy(registry)
+        # Standalone EQ now lives in the registry standalone-equalizer store (SoT).
+        await registry.set_standalone_equalizer(
+            "cc:dd", EqualizerSettings(mono=True, enabled=False, filters=[]), broadcast=False
+        )
+
+        result = await ws._sync_standalone_equalizer_to_client("cc:dd")
+        assert result is True
+
+        by_path = {c.args[2]: c.args[3] for c in proxy.request.call_args_list}
+        assert by_path.get("/equalizer/mono") == {"enabled": True}
+        assert by_path.get("/equalizer/enabled") == {"enabled": False}
+
+    @pytest.mark.asyncio
+    async def test_standalone_sync_noop_when_no_saved_settings(self, mock_settings_service, mock_state_machine):
+        """No persisted standalone EQ → nothing is pushed (defaults stay on the satellite)."""
+        registry = await _setup_registry(
+            mock_settings_service, mock_state_machine,
+            clients=[("ee:ff", "Speaker3", "192.168.1.52", -20.0, True)],
+        )
+        ws, proxy = _make_ws_with_proxy(registry)
+        # No set_standalone_equalizer → get_standalone_equalizer returns None.
+
+        result = await ws._sync_standalone_equalizer_to_client("ee:ff")
+        assert result is True
+        assert proxy.request.call_count == 0

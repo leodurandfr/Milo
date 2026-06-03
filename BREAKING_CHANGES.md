@@ -15,6 +15,12 @@ When you bump a `SCHEMA_VERSION` in a service, add an entry here with the file p
 
 ## Upcoming
 
+## 2026-06-03 — client_equalizer.json removed (standalone client EQ unified into settings.json)
+
+- Reason: standalone (non-zone) client equalizer state had **two** sources of truth — `client_equalizer.json` (written by the per-axis `/api/equalizer/client/{mac}/…` routes) and `multiroom.standalone_equalizer` in `settings.json` (written by preset/apply). Loading a preset wrote one store while reconnect sync read the other, so per-client preset gains were lost on reconnect. The `EqualizerSettingsSyncService` + `client_equalizer.json` store has been removed; the registry `standalone_equalizer` (in `settings.json`) is now the single source of truth. This file is no longer read or written.
+- Action: `rm -f /var/lib/milo/client_equalizer.json` (optional cleanup — the file is simply ignored after upgrade; no restart needed for this file alone).
+- Impact: per-standalone-client EQ tuning that lived **only** in `client_equalizer.json` (per-band edits not also captured under `settings.json` `multiroom.standalone_equalizer`) resets to flat/defaults for standalone clients. Zone EQ is unaffected. Re-tune standalone client EQ from the equalizer UI if needed.
+
 ## 2026-05-19 — settings.json schema_version 2 → 3
 
 - Reason: rename `audio.auto_disconnect_delay` → `audio.auto_stop_delay`. The setting controlled an "auto-stop after pause/silence" timer (default 120s), not a device-level disconnect. The new name reflects the actual behavior (per-source playback stop in place, `active_source` preserved). All backend symbols (`auto_disconnect_enabled`, `_on_auto_disconnect`, `AUTO_DISCONNECT_SETTINGS_KEY`, …), the API endpoint (`/api/settings/audio-disconnect` → `/audio-stop`), and the WS event type (`audio_disconnect_changed` → `audio_stop_changed`) follow the same rename.

@@ -129,22 +129,6 @@ class EqualizerRouter:
 
         return await self._route(mac_id, local, remote, "set_mute", force=force)
 
-    # === PRESETS ===
-
-    async def load_preset(self, mac_id: str, preset_id: str) -> Dict[str, Any]:
-        """Load a preset for a client."""
-        async def local():
-            if self._camilladsp_service:
-                success = await self._camilladsp_service.load_preset(preset_id)
-                return {"status": "success" if success else "error", "preset_id": preset_id}
-            return {"status": "error", "message": "Equalizer service not available"}
-
-        async def remote(ip: str):
-            result = await self._proxy_service.request(ip, "PUT", f"/equalizer/preset/{preset_id}")
-            return result
-
-        return await self._route(mac_id, local, remote, "load_preset")
-
     # === FILTERS ===
 
     async def get_filters(self, mac_id: str) -> Dict[str, Any]:

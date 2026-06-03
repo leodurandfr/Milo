@@ -141,11 +141,6 @@ def _create_service(name: str) -> Any:
             settings_service=get_service("settings_service"),
             camilladsp_service=get_service("camilladsp_service")
         ),
-        "equalizer_settings_sync_service": lambda: _import("backend.core.equalizer", "EqualizerSettingsSyncService")(
-            proxy_service=get_service("equalizer_client_proxy_service"),
-            camilladsp_service=get_service("camilladsp_service"),
-            client_registry=get_service("client_registry_service")
-        ),
         "multiroom_equalizer_service": lambda: _import("backend.core.equalizer", "MultiroomEqualizerService")(
             client_registry_service=get_service("client_registry_service"),
             camilladsp_service=get_service("camilladsp_service")
@@ -282,7 +277,6 @@ def initialize_services() -> None:
     crossover_service = get_service("crossover_service")
     client_registry_service = get_service("client_registry_service")
     websocket_manager = get_service("websocket_manager")
-    equalizer_settings_sync_service = get_service("equalizer_settings_sync_service")
     equalizer_client_proxy_service = get_service("equalizer_client_proxy_service")
     multiroom_equalizer_service = get_service("multiroom_equalizer_service")
     pending_clients_service = get_service("pending_clients_service")
@@ -317,8 +311,8 @@ def initialize_services() -> None:
     # aggregating full_state for source/system broadcasts)
     state_machine.equalizer_service = camilladsp_service
 
-    # (crossover_service, equalizer_settings_sync_service, equalizer_client_proxy_service
-    # are wired directly to their consumers — no longer stored on state_machine)
+    # (crossover_service, equalizer_client_proxy_service are wired directly to
+    # their consumers — no longer stored on state_machine)
 
     # 2.6 - camilladsp_service → state_machine
     camilladsp_service.set_state_machine(state_machine)
@@ -369,7 +363,6 @@ def initialize_services() -> None:
     snapcast_websocket_service.set_volume_service(volume_service)
     snapcast_websocket_service.set_crossover_service(crossover_service)
     snapcast_websocket_service.set_equalizer_client_proxy_service(equalizer_client_proxy_service)
-    snapcast_websocket_service.set_equalizer_settings_sync_service(equalizer_settings_sync_service)
     snapcast_websocket_service.set_camilladsp_service(camilladsp_service)
 
     # 2.18 - pending_clients_service → state_machine

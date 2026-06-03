@@ -18,6 +18,12 @@ from backend.api.models import (
     ZoneCrossoverRequest,
     EqualizerPresetRequest
 )
+from backend.core.multiroom.models import (
+    EqualizerSettings,
+    CompressorSettings,
+    LoudnessSettings,
+    EqFilter,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +35,6 @@ def create_equalizer_router(
     routing_service=None,
     crossover_service=None,
     proxy_service=None,
-    sync_service=None,
     client_registry_service=None,
     equalizer_router_service=None,
     multiroom_equalizer_service=None,
@@ -58,10 +63,57 @@ def create_equalizer_router(
                 return client.mac_id
         return None
 
+    def _eqfilter_from_body(fid: str, body: dict) -> EqFilter:
+        """Build an EqFilter from a satellite-shaped filter body (note: the wire
+        body uses 'freq'/'type' while EqFilter uses 'frequency'/'filter_type')."""
+        return EqFilter.from_dict({
+            "id": fid,
+            "frequency": body.get("frequency", body.get("freq", 1000)),
+            "gain": body.get("gain", 0.0),
+            "q": body.get("q", 1.41),
+            "filter_type": body.get("filter_type") or body.get("type", "Peaking"),
+            "enabled": body.get("enabled", True),
+        })
+
     async def _persist_remote(hostname: str, category: str, data: dict):
-        """Persist equalizer setting for a remote client via sync_service."""
-        if equalizer_router_service and not equalizer_router_service.is_local_client(hostname) and sync_service:
-            await sync_service.update_client_settings(hostname, category, data)
+        """Persist an equalizer setting for a remote standalone client into the
+        registry's standalone-equalizer store — the single source of truth for
+        per-client EQ (reconnect sync and the API read both use it).
+
+        Local-client EQ is owned by the local EqualizerService, so it is skipped.
+        """
+        if not client_registry_service or not equalizer_router_service:
+            return
+        if equalizer_router_service.is_local_client(hostname):
+            return
+
+        settings = client_registry_service.get_standalone_equalizer(hostname) or EqualizerSettings()
+
+        if category == "compressor":
+            settings.compressor = CompressorSettings.from_dict(data)
+        elif category == "loudness":
+            settings.loudness = LoudnessSettings.from_dict(data)
+        elif category == "mono":
+            settings.mono = bool(data.get("enabled", False))
+        elif category == "enabled":
+            settings.enabled = bool(data.get("enabled", True))
+        elif category == "filter":
+            # Single-band upsert (data carries the band id).
+            fid = data.get("id")
+            if not fid:
+                return
+            kept = [f for f in settings.filters if f.id != fid]
+            kept.append(_eqfilter_from_body(fid, data))
+            settings.filters = sorted(kept, key=lambda f: f.id)
+        elif category == "filters":
+            # Full replacement (used by reset → {}).
+            settings.filters = [
+                _eqfilter_from_body(fid, fbody) for fid, fbody in sorted(data.items())
+            ]
+        else:
+            return
+
+        await client_registry_service.set_standalone_equalizer(hostname, settings, broadcast=False)
 
     # === Equalizer Enable/Disable ===
 
@@ -611,6 +663,13 @@ def create_equalizer_router(
             status['volume']['main'] = vol['main']
             status['volume']['mute'] = vol['mute']
 
+        # Inject active_preset from the standalone-equalizer store (the satellite
+        # has no preset concept) so the UI highlights the correct preset per target.
+        if multiroom_equalizer_service:
+            client_eq = await multiroom_equalizer_service.get_client_equalizer(hostname)
+            if client_eq:
+                status['active_preset'] = client_eq.active_preset
+
         return status
 
     @router.get("/client/{hostname}/filters")
@@ -627,12 +686,8 @@ def create_equalizer_router(
         if result.get("status") == "success":
             if equalizer_router_service.is_local_client(hostname):
                 return {"status": "success", "id": filter_id, **body}
-            # Remote: merge filter into saved settings
-            if sync_service:
-                saved = await sync_service.get_client_settings(hostname)
-                filters = saved.get("filters", {})
-                filters[filter_id] = body
-                await sync_service.update_client_settings(hostname, "filters", filters)
+            # Remote: upsert the band into the standalone-equalizer store (SoT)
+            await _persist_remote(hostname, "filter", {"id": filter_id, **body})
 
         return result
 
@@ -719,12 +774,26 @@ def create_equalizer_router(
 
         return result
 
+    @router.get("/client/{hostname}/enabled")
+    async def get_client_equalizer_enabled(hostname: str):
+        """Get equalizer effects enabled state for a specific client (local or remote).
+
+        Symmetric read for the PUT above so the frontend can show the correct
+        per-target enabled state instead of falling back to the local Milo's flag.
+        """
+        return await equalizer_router_service.get_equalizer_enabled(hostname, routing_service)
+
     # === Client Settings Persistence ===
 
     @router.post("/client/{hostname}/restore")
     async def restore_client_settings(hostname: str):
-        """Restore saved equalizer settings to a client"""
-        if not sync_service or not proxy_service:
+        """Restore a client's persisted standalone equalizer settings.
+
+        Reads the registry standalone-equalizer store (single source of truth)
+        and re-pushes filters/compressor/loudness/mono + the master enabled flag.
+        Volume/mute are owned by the volume service and synced separately.
+        """
+        if not proxy_service or not client_registry_service:
             return {"status": "error", "restored": [], "errors": ["Services not available"]}
 
         # Local client: settings are applied directly via camilladsp_service
@@ -736,8 +805,8 @@ def create_equalizer_router(
         if not client_ip:
             return {"status": "error", "restored": [], "errors": [f"Client {hostname} not found or offline"]}
 
-        saved = await sync_service.get_client_settings(hostname)
-        if not saved:
+        eq = client_registry_service.get_standalone_equalizer(hostname)
+        if not eq:
             return {"status": "success", "message": "No saved settings to restore", "restored": []}
 
         restored, errors = [], []
@@ -749,24 +818,20 @@ def create_equalizer_router(
             except Exception as e:
                 errors.append(f"{name}: {e}")
 
-        if "compressor" in saved:
-            await try_restore("compressor", "/equalizer/compressor", saved["compressor"])
-        if "loudness" in saved:
-            await try_restore("loudness", "/equalizer/loudness", saved["loudness"])
-        if "mono" in saved:
-            await try_restore("mono", "/equalizer/mono", saved["mono"])
-        for fid, fdata in saved.get("filters", {}).items():
-            # Transform saved filter data to match EqualizerFilterUpdateRequest schema:
-            # - Remove 'id' (it's in the URL)
-            # - Rename 'type' to 'filter_type' (Pydantic model uses filter_type)
-            filter_payload = {k: v for k, v in fdata.items() if k != "id"}
-            if "type" in filter_payload:
-                filter_payload["filter_type"] = filter_payload.pop("type")
-            await try_restore(f"filter:{fid}", f"/equalizer/filter/{fid}", filter_payload)
-        if "main" in saved.get("volume", {}):
-            await try_restore("volume", "/equalizer/volume", {"volume": saved["volume"]["main"]})
-        if "mute" in saved.get("volume", {}):
-            await try_restore("mute", "/equalizer/mute", {"muted": saved["volume"]["mute"]})
+        for flt in eq.filters:
+            if not flt.id:
+                continue
+            await try_restore(f"filter:{flt.id}", f"/equalizer/filter/{flt.id}", {
+                "freq": flt.frequency, "gain": flt.gain, "q": flt.q,
+                "filter_type": flt.filter_type.value if hasattr(flt.filter_type, "value") else flt.filter_type,
+            })
+        if eq.compressor:
+            await try_restore("compressor", "/equalizer/compressor", eq.compressor.to_dict())
+        if eq.loudness:
+            await try_restore("loudness", "/equalizer/loudness", eq.loudness.to_dict())
+        await try_restore("mono", "/equalizer/mono", {"enabled": eq.mono})
+        # Master enabled/bypass LAST, so it bypasses or restores the effects just pushed.
+        await try_restore("enabled", "/equalizer/enabled", {"enabled": eq.enabled})
 
         logger.info(f"Restored settings for {hostname}: {restored}")
         if errors:

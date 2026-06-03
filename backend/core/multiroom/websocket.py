@@ -80,7 +80,6 @@ class SnapcastWebSocketService:
         self._volume_service = None
         self._crossover_service = None
         self._equalizer_client_proxy_service = None
-        self._equalizer_settings_sync_service = None
         self._camilladsp_service = None
         self._pending_clients_service = None
 
@@ -201,10 +200,6 @@ class SnapcastWebSocketService:
     def set_equalizer_client_proxy_service(self, service) -> None:
         """Set EqualizerClientProxyService dependency."""
         self._equalizer_client_proxy_service = service
-
-    def set_equalizer_settings_sync_service(self, service) -> None:
-        """Set EqualizerSettingsSyncService dependency."""
-        self._equalizer_settings_sync_service = service
 
     def set_camilladsp_service(self, service) -> None:
         """Set CamillaDSPService dependency."""
@@ -888,8 +883,8 @@ class SnapcastWebSocketService:
         Args:
             hostname: Client IP address
             mac_id: Client identifier for logging
-            setting_type: "filter/<id>", "compressor", or "loudness"
-            data: Setting payload dict
+            setting_type: "filter/<id>", "compressor", "loudness", "mono", or "enabled"
+            data: Setting payload dict (for "mono"/"enabled": {"enabled": bool})
             is_local: Route to local CamillaDSP service instead of proxy
 
         Returns:
@@ -906,6 +901,14 @@ class SnapcastWebSocketService:
                     await self._camilladsp_service.set_compressor(**data)
                 elif setting_type == "loudness":
                     await self._camilladsp_service.set_loudness(**data)
+                elif setting_type == "mono":
+                    await self._camilladsp_service.set_mono(enabled=data.get("enabled", False))
+                elif setting_type == "enabled":
+                    # Master bypass parity with the satellite: restore vs strip effects.
+                    if data.get("enabled", True):
+                        await self._camilladsp_service.restore_effects()
+                    else:
+                        await self._camilladsp_service.bypass_effects()
             else:
                 if not self._equalizer_client_proxy_service:
                     return False
@@ -974,6 +977,27 @@ class SnapcastWebSocketService:
                     if self._crossover_service:
                         await self._crossover_service.queue_pending_settings(mac_id, "loudness", data)
 
+            # Sync mono (zones default to mono summing; a reconnecting member must
+            # not silently come back in stereo and break the zone image).
+            mono_data = {"enabled": eq.mono}
+            if await self._apply_equalizer_setting(hostname, mac_id, "mono", mono_data, is_local):
+                synced.append("mono")
+            else:
+                failed.append("mono")
+                if self._crossover_service:
+                    await self._crossover_service.queue_pending_settings(mac_id, "mono", mono_data)
+
+            # Sync master enabled/bypass LAST so it bypasses or restores the
+            # filters/compressor/loudness we just pushed (a bypassed zone must not
+            # come back with effects active on a reconnecting member).
+            enabled_data = {"enabled": eq.enabled}
+            if await self._apply_equalizer_setting(hostname, mac_id, "enabled", enabled_data, is_local):
+                synced.append("enabled")
+            else:
+                failed.append("enabled")
+                if self._crossover_service:
+                    await self._crossover_service.queue_pending_settings(mac_id, "enabled", enabled_data)
+
             # Queue failed filters for retry
             if filters_failed and self._crossover_service:
                 await self._crossover_service.queue_pending_settings(mac_id, "filters", filters_failed)
@@ -990,12 +1014,15 @@ class SnapcastWebSocketService:
             return False
 
     async def _sync_standalone_equalizer_to_client(self, mac_id: str) -> bool:
-        """Apply saved standalone equalizer settings to a reconnected client."""
-        try:
-            if not self._equalizer_settings_sync_service:
-                self.logger.warning(f"No equalizer_settings_sync_service for standalone equalizer sync to {mac_id}")
-                return True  # Not a failure, just no sync service
+        """Apply the client's persisted standalone equalizer settings to a
+        reconnected client.
 
+        Reads the registry standalone-equalizer store (the single source of truth
+        for per-client EQ), so a reconnecting standalone speaker recovers ALL of
+        its state — filters, compressor, loudness, mono and the master enabled/
+        bypass flag — exactly like a zone member does from its zone settings.
+        """
+        try:
             client = self.registry.get_client(mac_id) if self.registry else None
             if not client or not client.ip:
                 self.logger.warning(f"Cannot sync standalone equalizer to {mac_id}: no IP address")
@@ -1003,9 +1030,9 @@ class SnapcastWebSocketService:
 
             hostname = client.ip
             is_local = client.is_local
-            saved = await self._equalizer_settings_sync_service.get_client_settings(mac_id)
 
-            if not saved:
+            eq = self.registry.get_standalone_equalizer(mac_id) if self.registry else None
+            if not eq:
                 self.logger.info(f"SYNC_STANDALONE: No saved settings for {mac_id}, defaults apply")
                 return True
 
@@ -1014,41 +1041,62 @@ class SnapcastWebSocketService:
             failed = []
             filters_failed = []
 
-            # Sync filters (stored as dict: {filter_id: {freq, gain, q, ...}})
-            for filter_id, flt in saved.get('filters', {}).items():
-                if not filter_id or not isinstance(flt, dict):
-                    continue
-                filter_data = {
-                    'freq': flt.get('freq'), 'gain': flt.get('gain'), 'q': flt.get('q'),
-                    'filter_type': flt.get('filter_type') or flt.get('type')
-                }
-                if await self._apply_equalizer_setting(hostname, mac_id, f"filter/{filter_id}", filter_data, is_local):
-                    synced.append(f"filter:{filter_id}")
-                else:
-                    failed.append(f"filter:{filter_id}")
-                    filters_failed.append({filter_id: filter_data})
+            # Sync filters
+            if eq.filters:
+                for flt in eq.filters:
+                    if not flt.id:
+                        continue
+                    filter_data = {
+                        'freq': flt.frequency, 'gain': flt.gain, 'q': flt.q,
+                        'filter_type': flt.filter_type.value if hasattr(flt.filter_type, 'value') else flt.filter_type
+                    }
+                    if await self._apply_equalizer_setting(hostname, mac_id, f"filter/{flt.id}", filter_data, is_local):
+                        synced.append(f"filter:{flt.id}")
+                    else:
+                        failed.append(f"filter:{flt.id}")
+                        filters_failed.append(flt.to_dict())
 
             # Queue failed filters for retry
             if filters_failed and self._crossover_service:
                 await self._crossover_service.queue_pending_settings(mac_id, "filters", filters_failed)
 
             # Sync compressor
-            if compressor := saved.get('compressor'):
-                if await self._apply_equalizer_setting(hostname, mac_id, "compressor", compressor, is_local):
+            if eq.compressor:
+                data = eq.compressor.to_dict()
+                if await self._apply_equalizer_setting(hostname, mac_id, "compressor", data, is_local):
                     synced.append("compressor")
                 else:
                     failed.append("compressor")
                     if self._crossover_service:
-                        await self._crossover_service.queue_pending_settings(mac_id, "compressor", compressor)
+                        await self._crossover_service.queue_pending_settings(mac_id, "compressor", data)
 
             # Sync loudness
-            if loudness := saved.get('loudness'):
-                if await self._apply_equalizer_setting(hostname, mac_id, "loudness", loudness, is_local):
+            if eq.loudness:
+                data = eq.loudness.to_dict()
+                if await self._apply_equalizer_setting(hostname, mac_id, "loudness", data, is_local):
                     synced.append("loudness")
                 else:
                     failed.append("loudness")
                     if self._crossover_service:
-                        await self._crossover_service.queue_pending_settings(mac_id, "loudness", loudness)
+                        await self._crossover_service.queue_pending_settings(mac_id, "loudness", data)
+
+            # Sync mono
+            mono_data = {"enabled": eq.mono}
+            if await self._apply_equalizer_setting(hostname, mac_id, "mono", mono_data, is_local):
+                synced.append("mono")
+            else:
+                failed.append("mono")
+                if self._crossover_service:
+                    await self._crossover_service.queue_pending_settings(mac_id, "mono", mono_data)
+
+            # Sync master enabled/bypass LAST (after the effects it gates).
+            enabled_data = {"enabled": eq.enabled}
+            if await self._apply_equalizer_setting(hostname, mac_id, "enabled", enabled_data, is_local):
+                synced.append("enabled")
+            else:
+                failed.append("enabled")
+                if self._crossover_service:
+                    await self._crossover_service.queue_pending_settings(mac_id, "enabled", enabled_data)
 
             if synced:
                 self.logger.info(f"SYNC_STANDALONE: Synced {synced} to {mac_id}")

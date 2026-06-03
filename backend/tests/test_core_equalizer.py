@@ -5,7 +5,6 @@ Unit tests for core/equalizer module.
 Tests cover:
 - CamillaDSPService
 - EqualizerClientProxyService
-- EqualizerSettingsSyncService
 - Presets
 """
 import pytest
@@ -19,7 +18,6 @@ from backend.core.equalizer import (
     CamillaDspState,
     FilterType,
     EqualizerClientProxyService,
-    EqualizerSettingsSyncService,
     get_builtin_presets,
     get_preset_by_id,
     DEFAULT_CUSTOM_GAINS,
@@ -171,64 +169,6 @@ class TestEqualizerClientProxyService:
 
             result = await proxy_service.check_available("192.168.1.100")
             assert result is False
-
-
-# =============================================================================
-# EqualizerSettingsSyncService Tests
-# =============================================================================
-
-class TestEqualizerSettingsSyncService:
-    """Test Equalizer settings sync service"""
-
-    @pytest.fixture
-    def sync_service(self):
-        """Create sync service instance"""
-        return EqualizerSettingsSyncService()
-
-    @pytest.fixture
-    def temp_settings_file(self):
-        """Create temporary settings file"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            json.dump({}, f)
-            return Path(f.name)
-
-    def test_set_proxy_service(self, sync_service):
-        """Should set proxy service"""
-        mock_proxy = Mock()
-        sync_service.set_proxy_service(mock_proxy)
-        assert sync_service.proxy_service == mock_proxy
-
-    def test_set_camilladsp_service(self, sync_service):
-        """Should set Equalizer service"""
-        mock_camilladsp = Mock()
-        sync_service.set_camilladsp_service(mock_camilladsp)
-        assert sync_service.camilladsp_service == mock_camilladsp
-
-    @pytest.mark.asyncio
-    async def test_load_settings_empty(self, sync_service, temp_settings_file):
-        """Should return empty dict for empty file"""
-        with patch.object(sync_service, 'load_settings', new_callable=AsyncMock) as mock_load:
-            mock_load.return_value = {}
-            settings = await sync_service.load_settings()
-            assert settings == {}
-
-    @pytest.mark.asyncio
-    async def test_get_client_settings_not_found(self, sync_service):
-        """Should return empty dict for unknown client"""
-        with patch.object(sync_service, 'load_settings', new_callable=AsyncMock) as mock_load:
-            mock_load.return_value = {}
-            settings = await sync_service.get_client_settings("unknown-client")
-            assert settings == {}
-
-    @pytest.mark.asyncio
-    async def test_get_client_settings_found(self, sync_service):
-        """Should return settings for known client"""
-        with patch.object(sync_service, 'load_settings', new_callable=AsyncMock) as mock_load:
-            mock_load.return_value = {
-                "milo-client-1": {"compressor": {"enabled": True}}
-            }
-            settings = await sync_service.get_client_settings("milo-client-1")
-            assert settings == {"compressor": {"enabled": True}}
 
 
 # =============================================================================

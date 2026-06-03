@@ -469,15 +469,12 @@ class TestAC3ZonePropagation:
         mock_proxy = Mock()
         mock_proxy.check_available = AsyncMock(return_value=True)
         mock_proxy.request = AsyncMock(return_value={"status": "success", "enabled": False})
-        mock_sync = Mock()
-        mock_sync.update_client_settings = AsyncMock()
 
         router = create_equalizer_router(
             camilladsp_service=mock_camilladsp,
             state_machine=mock_sm,
             routing_service=mock_routing,
-            proxy_service=mock_proxy,
-            sync_service=mock_sync
+            proxy_service=mock_proxy
         )
 
         # Verify proxy is called for remote client
