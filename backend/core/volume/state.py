@@ -83,7 +83,6 @@ class VolumeStateStore:
         # State storage
         self._clients: Dict[str, ClientVolume] = {}
         self._zones: Dict[str, ZoneConfig] = {}
-        self._zone_target_volumes: Dict[str, float] = {}  # Cached zone targets for initial sync
         self._mode: str = "multiroom"  # 'direct' or 'multiroom'
 
         # Local client mac_id. Loaded from disk at init (if previously persisted)
@@ -212,7 +211,6 @@ class VolumeStateStore:
             if zone_id:
                 async with self._lock:
                     self._zones.pop(zone_id, None)
-                    self._zone_target_volumes.pop(zone_id, None)
                 self.logger.info(f"Zone {zone_id} removed from volume state")
 
         elif event_type == RegistryEventType.ZONE_CLIENT_ADDED:
@@ -266,10 +264,6 @@ class VolumeStateStore:
 
             # Load persisted volume state
             await self._load_persisted_state()
-
-            # Pre-calculate zone target volumes for initial sync
-            # Must happen BEFORE clients are marked available by VolumeService
-            self._compute_initial_zone_targets()
 
             limits_info = (f"{self._volume_config.limit_min_db:.1f}/{self._volume_config.limit_max_db:.1f}"
                           if self._volume_config else "not set")
@@ -333,46 +327,6 @@ class VolumeStateStore:
             self.logger.debug(f"Loaded {len(self._zones)} zones from registry")
         else:
             self.logger.warning("Registry not available, zones not loaded")
-
-    def _compute_initial_zone_targets(self) -> None:
-        """
-        Pre-calculate zone target volumes from persisted data.
-
-        This MUST be called during initialize() BEFORE clients are marked available.
-        It ensures all zone clients get the same consistent volume during initial sync,
-        preventing the race condition where zone average drifts as clients sync sequentially.
-        """
-        self._zone_target_volumes.clear()
-
-        for zone_id, zone_config in self._zones.items():
-            volumes = []
-            for client_id in zone_config.client_ids:
-                if client_id in self._clients:
-                    volumes.append(self._clients[client_id].volume_db)
-
-            if volumes:
-                target = sum(volumes) / len(volumes)
-                self._zone_target_volumes[zone_id] = target
-            else:
-                self._zone_target_volumes[zone_id] = DEFAULT_VOLUME_DB
-
-        if self._zone_target_volumes:
-            self.logger.info(f"Computed initial zone targets: {self._zone_target_volumes}")
-
-    def get_zone_target_volume(self, zone_id: str) -> Optional[float]:
-        """
-        Get cached zone target volume for initial sync.
-
-        Returns:
-            Cached target volume in dB, or None if not cached (normal operation)
-        """
-        return self._zone_target_volumes.get(zone_id)
-
-    def clear_zone_targets(self) -> None:
-        """Clear cached zone targets after initial sync complete."""
-        if self._zone_target_volumes:
-            self.logger.debug("Clearing initial zone targets cache")
-            self._zone_target_volumes.clear()
 
     async def _load_persisted_state(self) -> None:
         """

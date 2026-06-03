@@ -564,7 +564,6 @@ class VolumeService:
         try:
             async with asyncio.timeout(2.0):
                 async with self._volume_lock:
-                    self._state_store.clear_zone_targets()
                     updates = await self._state_store.apply_zone_delta(zone_id, delta_db)
         except asyncio.TimeoutError:
             self.logger.warning("Timeout waiting for volume lock (>2s) for zone delta")
