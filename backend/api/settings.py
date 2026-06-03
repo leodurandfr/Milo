@@ -277,14 +277,6 @@ def create_settings_router(
         )
 
     # BT remote steps (in dB)
-    @router.get("/bt-remote-steps")
-    async def get_bt_remote_steps():
-        vol = await settings.get_setting('volume') or {}
-        return {
-            "status": "success",
-            "config": {"step_bt_remote_db": vol.get("step_bt_remote_db", 2.0)}
-        }
-
     @router.put("/bt-remote-steps")
     async def set_bt_remote_steps(payload: BtRemoteStepsRequest):
         return await _handle_setting_update(
@@ -297,14 +289,6 @@ def create_settings_router(
         )
 
     # IR remote steps (in dB)
-    @router.get("/ir-remote-steps")
-    async def get_ir_remote_steps():
-        vol = await settings.get_setting('volume') or {}
-        return {
-            "status": "success",
-            "config": {"step_ir_remote_db": vol.get("step_ir_remote_db", 2.0)}
-        }
-
     @router.put("/ir-remote-steps")
     async def set_ir_remote_steps(payload: IrRemoteStepsRequest):
         return await _handle_setting_update(
@@ -502,17 +486,6 @@ def create_settings_router(
         )
 
     # Podcast credentials
-    @router.get("/podcast-credentials")
-    async def get_podcast_credentials():
-        podcast = await settings.get_setting('podcast') or {}
-        return {
-            "status": "success",
-            "config": {
-                "taddy_user_id": podcast.get("taddy_user_id", ""),
-                "taddy_api_key": podcast.get("taddy_api_key", "")
-            }
-        }
-
     @router.put("/podcast-credentials")
     async def set_podcast_credentials(payload: PodcastCredentialsRequest):
         user_id = payload.taddy_user_id
@@ -725,14 +698,6 @@ def create_settings_router(
         )
 
     # Screen UI scale
-    @router.get("/screen-ui-scale")
-    async def get_screen_ui_scale():
-        screen = await settings.get_setting('screen') or {}
-        return {
-            "status": "success",
-            "config": {"ui_scale": screen.get("ui_scale", 1.0)}
-        }
-
     @router.put("/screen-ui-scale")
     async def set_screen_ui_scale(payload: ScreenUiScaleRequest):
         return await _handle_setting_update(
@@ -744,17 +709,6 @@ def create_settings_router(
         )
 
     # Screen warm color filter
-    @router.get("/screen-color-filter")
-    async def get_screen_color_filter():
-        screen = await settings.get_setting('screen') or {}
-        return {
-            "status": "success",
-            "config": {
-                "enabled": screen.get("color_filter_enabled", False),
-                "warmth": screen.get("color_filter_warmth", 50)
-            }
-        }
-
     @router.put("/screen-color-filter")
     async def set_screen_color_filter(payload: ScreenColorFilterRequest):
         async def setter():
@@ -787,27 +741,6 @@ def create_settings_router(
             return {"status": "success", "activity_time_reset": True}
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
-
-    # Screen debug
-    @router.get("/screen-debug")
-    async def get_screen_debug():
-        """Debug endpoint to visualize screen controller state in real time"""
-        from time import monotonic
-
-        time_since_activity = monotonic() - screen_controller.last_activity_time
-        time_until_off = max(0, screen_controller.timeout_seconds - time_since_activity) if screen_controller.timeout_seconds > 0 else None
-
-        return {
-            "status": "success",
-            "debug": {
-                "time_since_activity": round(time_since_activity, 1),
-                "timeout_seconds": screen_controller.timeout_seconds,
-                "screen_on": screen_controller.screen_on,
-                "current_source_state": screen_controller.current_source_state,
-                "brightness_on": screen_controller.brightness_on,
-                "will_turn_off_in": round(time_until_off, 1) if time_until_off is not None else None
-            }
-        }
 
     # System temperature
     @router.get("/system-temperature")
