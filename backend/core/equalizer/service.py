@@ -29,17 +29,6 @@ class CamillaDspState(str, Enum):
     PAUSED = "paused"      # Paused (no audio flow)
 
 
-class FilterType(str, Enum):
-    """Supported filter types for parametric EQ"""
-    PEAKING = "Peaking"
-    LOWSHELF = "Lowshelf"
-    HIGHSHELF = "Highshelf"
-    LOWPASS = "Lowpass"
-    HIGHPASS = "Highpass"
-    NOTCH = "Notch"
-    ALLPASS = "Allpass"
-
-
 class CamillaDSPService:
     """
     CamillaDSP WebSocket client service.
