@@ -72,7 +72,6 @@ systemd_manager = get_service("systemd_manager")
 hardware_service = get_service("hardware_service")
 crossover_service = get_service("crossover_service")
 equalizer_proxy_service = get_service("equalizer_client_proxy_service")
-equalizer_sync_service = get_service("equalizer_settings_sync_service")
 client_registry_service = get_service("client_registry_service")
 equalizer_router_service = get_service("equalizer_router")
 network_service = get_service("network_service")
@@ -170,7 +169,7 @@ app.include_router(snapcast_router)
 multiroom_equalizer_service = get_service("multiroom_equalizer_service")
 equalizer_router = create_equalizer_router(
     camilladsp_service, state_machine, settings_service, routing_service,
-    crossover_service, equalizer_proxy_service, equalizer_sync_service,
+    crossover_service, equalizer_proxy_service,
     client_registry_service, equalizer_router_service, multiroom_equalizer_service,
     volume_service
 )

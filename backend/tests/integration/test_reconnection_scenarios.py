@@ -253,15 +253,15 @@ class TestReconnectionStandalone:
 
         Expected: Default Equalizer (flat EQ, compressor off, loudness off)
         """
-        from backend.core.equalizer.sync import EqualizerSettingsSyncService
+        from backend.core.multiroom.models import EqualizerSettings
 
-        sync_service = EqualizerSettingsSyncService()
-        defaults = sync_service.get_default_settings()
+        # The registry standalone-equalizer store returns None when nothing is
+        # saved; the effective default is a fresh EqualizerSettings (flat/off).
+        defaults = EqualizerSettings()
 
-        # Verify defaults are flat/off
-        assert defaults["filters"] == {}
-        assert defaults["compressor"]["enabled"] is False
-        assert defaults["loudness"]["enabled"] is False
+        assert defaults.filters == []
+        assert defaults.compressor.enabled is False
+        assert defaults.loudness.enabled is False
 
 
 class TestCrossoverAutomatic:
@@ -1798,7 +1798,6 @@ class TestStandaloneReconnectionSyncIntegration:
         """
         from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
-        from backend.core.equalizer.sync import EqualizerSettingsSyncService
 
         registry = ClientRegistryService(
             settings_service=mock_settings_service
@@ -1807,15 +1806,6 @@ class TestStandaloneReconnectionSyncIntegration:
 
         # Register standalone client
         await registry.register_client("client-1", "Client 1", "192.168.1.1")
-
-        # Mock equalizer_settings_sync_service
-        equalizer_sync = MagicMock(spec=EqualizerSettingsSyncService)
-        equalizer_sync.get_default_settings = MagicMock(return_value={
-            "filters": {},
-            "compressor": {"enabled": False},
-            "loudness": {"enabled": False}
-        })
-        mock_state_machine.equalizer_settings_sync_service = equalizer_sync
 
         # Create websocket service
         ws_service = SnapcastWebSocketService(

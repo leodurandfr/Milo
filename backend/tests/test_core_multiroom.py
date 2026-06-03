@@ -1722,105 +1722,14 @@ class TestPendingEqualizerSettings:
 
 
 class TestStandaloneEqualizerSync:
-    """Tests for standalone client Equalizer settings sync on reconnection (Story 5.2)."""
+    """Tests for standalone client behaviour.
 
-    def test_standalone_equalizer_default_settings(self):
-        """Test that default Equalizer settings are returned when none saved (AC3)."""
-        from backend.core.equalizer.sync import EqualizerSettingsSyncService
-
-        sync_service = EqualizerSettingsSyncService()
-        defaults = sync_service.get_default_settings()
-
-        # Defaults should have flat EQ, compressor off, loudness off
-        assert "filters" in defaults
-        assert "compressor" in defaults
-        assert "loudness" in defaults
-        assert defaults["compressor"]["enabled"] is False
-        assert defaults["loudness"]["enabled"] is False
-
-    def test_default_settings_returns_copy(self):
-        """Test that default settings returns a copy (not mutable reference)."""
-        from backend.core.equalizer.sync import EqualizerSettingsSyncService
-
-        sync_service = EqualizerSettingsSyncService()
-        defaults1 = sync_service.get_default_settings()
-        defaults2 = sync_service.get_default_settings()
-
-        # Modify one copy
-        defaults1["compressor"]["enabled"] = True
-
-        # Other copy should be unchanged
-        assert defaults2["compressor"]["enabled"] is False
-
-    @pytest.mark.asyncio
-    async def test_load_standalone_settings_returns_none_when_not_found(self, tmp_path, monkeypatch):
-        """Test loading settings for unknown client returns None."""
-        from backend.core.equalizer.sync import EqualizerSettingsSyncService
-
-        # Use temp file. sync.py binds CLIENT_EQUALIZER_FILE by value at import
-        # (`from ...constants import CLIENT_EQUALIZER_FILE`), so patch the name where
-        # it is used, not on the constants module (which has no effect here).
-        test_file = tmp_path / "client_equalizer.json"
-        monkeypatch.setattr("backend.core.equalizer.sync.CLIENT_EQUALIZER_FILE", test_file)
-
-        sync_service = EqualizerSettingsSyncService()
-        result = await sync_service.load_standalone_settings("unknown-client")
-
-        assert result is None
-
-    @pytest.mark.asyncio
-    async def test_save_and_load_standalone_settings(self, tmp_path, monkeypatch):
-        """Test saving and loading standalone Equalizer settings."""
-        from backend.core.equalizer.sync import EqualizerSettingsSyncService
-
-        # Use temp file. sync.py binds CLIENT_EQUALIZER_FILE by value at import
-        # (`from ...constants import CLIENT_EQUALIZER_FILE`), so patch the name where
-        # it is used, not on the constants module (which has no effect here).
-        test_file = tmp_path / "client_equalizer.json"
-        monkeypatch.setattr("backend.core.equalizer.sync.CLIENT_EQUALIZER_FILE", test_file)
-
-        sync_service = EqualizerSettingsSyncService()
-        client_id = "milo-client-01"
-        settings = {
-            "filters": {"band_1": {"type": "HighShelf", "gain": 2.0}},
-            "compressor": {"enabled": True, "threshold": -20},
-            "loudness": {"enabled": False},
-        }
-
-        # Save settings
-        await sync_service.save_standalone_settings(client_id, settings)
-
-        # Load and verify
-        loaded = await sync_service.load_standalone_settings(client_id)
-        assert loaded is not None
-        assert loaded["filters"] == settings["filters"]
-        assert loaded["compressor"]["enabled"] is True
-
-    @pytest.mark.asyncio
-    async def test_local_client_standalone_settings(self, tmp_path, monkeypatch):
-        """AC4: 'local' client follows same STANDALONE rules."""
-        from backend.core.equalizer.sync import EqualizerSettingsSyncService
-
-        # Use temp file. sync.py binds CLIENT_EQUALIZER_FILE by value at import
-        # (`from ...constants import CLIENT_EQUALIZER_FILE`), so patch the name where
-        # it is used, not on the constants module (which has no effect here).
-        test_file = tmp_path / "client_equalizer.json"
-        monkeypatch.setattr("backend.core.equalizer.sync.CLIENT_EQUALIZER_FILE", test_file)
-
-        sync_service = EqualizerSettingsSyncService()
-        local_settings = {
-            "filters": {"band_1": {"type": "Peaking", "gain": -3.0}},
-            "compressor": {"enabled": False},
-            "loudness": {"enabled": True, "high_boost": -25},
-        }
-
-        # Save settings for local client
-        await sync_service.save_standalone_settings("local", local_settings)
-
-        # Verify local client settings can be loaded
-        loaded = await sync_service.load_standalone_settings("local")
-        assert loaded is not None
-        assert loaded["loudness"]["enabled"] is True
+    NOTE: standalone EQ persistence/sync moved to the registry
+    standalone-equalizer store (single source of truth); those paths are covered
+    by test_multiroom_equalizer_service.py (apply/get_client_equalizer) and
+    test_multiroom_sync.py (reconnect sync). The old per-file sync-service tests
+    were removed with EqualizerSettingsSyncService.
+    """
 
     def test_compute_mac_id_localhost_returns_mac(self):
         """AC4: Local client (127.0.0.1) reads MAC from system interface."""
@@ -3090,197 +2999,132 @@ class TestSyncStandaloneDspToClient:
     """
     Unit tests for SnapcastWebSocketService._sync_standalone_equalizer_to_client().
 
-    Tests that standalone Equalizer sync properly loads saved settings and applies them.
+    Standalone EQ is read from the registry standalone-equalizer store (the single
+    source of truth) and pushed to the client: filters, compressor, loudness, mono
+    and the master enabled/bypass flag.
     """
 
     @pytest.fixture
     def mock_state_machine(self):
-        """Create a mock state machine with required services."""
         sm = MagicMock()
         sm.broadcast_event = AsyncMock()
-        sm.equalizer_client_proxy_service = MagicMock()
-        sm.equalizer_client_proxy_service.request = AsyncMock()
-        sm.equalizer_settings_sync_service = MagicMock()
-        sm.equalizer_settings_sync_service.get_client_settings = AsyncMock(return_value=None)
-        sm.crossover_service = MagicMock()
-        sm.crossover_service.queue_pending_settings = AsyncMock()
-        sm.camilladsp_service = MagicMock()
-        sm.camilladsp_service.set_filter = AsyncMock()
-        sm.camilladsp_service.set_compressor = AsyncMock()
-        sm.camilladsp_service.set_loudness = AsyncMock()
         return sm
 
     @pytest.fixture
+    def mock_proxy(self):
+        p = MagicMock()
+        p.request = AsyncMock()
+        return p
+
+    @pytest.fixture
+    def mock_camilladsp(self):
+        c = MagicMock()
+        c.set_filter = AsyncMock()
+        c.set_compressor = AsyncMock()
+        c.set_loudness = AsyncMock()
+        c.set_mono = AsyncMock()
+        c.bypass_effects = AsyncMock()
+        c.restore_effects = AsyncMock()
+        return c
+
+    @pytest.fixture
+    def mock_crossover(self):
+        x = MagicMock()
+        x.queue_pending_settings = AsyncMock()
+        return x
+
+    @pytest.fixture
     def mock_registry(self):
-        """Create a mock registry with a test client."""
+        """Mock registry with a remote test client and no saved standalone EQ."""
         registry = MagicMock()
         client = MagicMock()
         client.ip = "192.168.1.100"
         client.is_local = False
         client.mac_id = "test-client"
         registry.get_client = MagicMock(return_value=client)
+        registry.get_standalone_equalizer = MagicMock(return_value=None)
         return registry
 
-    @pytest.mark.asyncio
-    async def test_no_saved_settings_returns_true(self, mock_state_machine, mock_registry):
-        """Test that sync returns True when no saved settings exist (defaults used)."""
+    def _make_ws(self, sm, registry, proxy=None, camilladsp=None, crossover=None):
         from backend.core.multiroom.websocket import SnapcastWebSocketService
+        ws = SnapcastWebSocketService(state_machine=sm, routing_service=MagicMock())
+        ws._registry = registry
+        ws._equalizer_client_proxy_service = proxy
+        ws._camilladsp_service = camilladsp
+        ws._crossover_service = crossover
+        return ws
 
-        ws_service = SnapcastWebSocketService(
-            state_machine=mock_state_machine,
-            routing_service=MagicMock()
-        )
-        ws_service._registry = mock_registry
-        ws_service._equalizer_client_proxy_service = mock_state_machine.equalizer_client_proxy_service
-        ws_service._equalizer_settings_sync_service = mock_state_machine.equalizer_settings_sync_service
-        ws_service._crossover_service = mock_state_machine.crossover_service
-        ws_service._camilladsp_service = mock_state_machine.camilladsp_service
-
-        result = await ws_service._sync_standalone_equalizer_to_client("test-client")
+    @pytest.mark.asyncio
+    async def test_no_saved_settings_returns_true(self, mock_state_machine, mock_registry, mock_proxy, mock_camilladsp, mock_crossover):
+        """No persisted standalone EQ → nothing pushed, returns True (defaults apply)."""
+        ws = self._make_ws(mock_state_machine, mock_registry, mock_proxy, mock_camilladsp, mock_crossover)
+        result = await ws._sync_standalone_equalizer_to_client("test-client")
         assert result is True
+        assert mock_proxy.request.call_count == 0
 
     @pytest.mark.asyncio
-    async def test_saved_settings_applied_via_proxy(self, mock_state_machine, mock_registry):
-        """Test that saved settings are applied via proxy service for remote clients."""
-        from backend.core.multiroom.websocket import SnapcastWebSocketService
-
-        # Setup saved settings - filters as dict (filter_id -> settings)
-        saved_settings = {
-            "filters": {
-                "eq_band_00": {"freq": 100, "gain": 2.0, "q": 1.41, "type": "Peaking"}
-            },
-            "compressor": {"enabled": True, "threshold": -20},
-            "loudness": {"enabled": False}
-        }
-        mock_state_machine.equalizer_settings_sync_service.get_client_settings = AsyncMock(
-            return_value=saved_settings
+    async def test_saved_settings_applied_via_proxy(self, mock_state_machine, mock_registry, mock_proxy, mock_camilladsp, mock_crossover):
+        """Saved settings are pushed to a remote client via the proxy."""
+        from backend.core.multiroom.models import EqualizerSettings, EqFilter
+        mock_registry.get_standalone_equalizer.return_value = EqualizerSettings(
+            filters=[EqFilter(id="eq_band_00", frequency=100, gain=2.0, q=1.41)],
+            mono=False, enabled=True,
         )
-
-        ws_service = SnapcastWebSocketService(
-            state_machine=mock_state_machine,
-            routing_service=MagicMock()
-        )
-        ws_service._registry = mock_registry
-        ws_service._equalizer_client_proxy_service = mock_state_machine.equalizer_client_proxy_service
-        ws_service._equalizer_settings_sync_service = mock_state_machine.equalizer_settings_sync_service
-        ws_service._crossover_service = mock_state_machine.crossover_service
-        ws_service._camilladsp_service = mock_state_machine.camilladsp_service
-
-        await ws_service._sync_standalone_equalizer_to_client("test-client")
-
-        # Verify proxy was called for each setting type
-        proxy = mock_state_machine.equalizer_client_proxy_service
-        assert proxy.request.call_count >= 3  # filter, compressor, loudness
+        ws = self._make_ws(mock_state_machine, mock_registry, mock_proxy, mock_camilladsp, mock_crossover)
+        await ws._sync_standalone_equalizer_to_client("test-client")
+        # filter + compressor + loudness + mono + enabled
+        assert mock_proxy.request.call_count >= 3
 
     @pytest.mark.asyncio
-    async def test_local_client_uses_camilladsp_service(self, mock_state_machine):
-        """Test that local client uses camilladsp_service directly."""
-        from backend.core.multiroom.websocket import SnapcastWebSocketService
-
-        # Setup local client
-        mock_registry = MagicMock()
+    async def test_local_client_uses_camilladsp_service(self, mock_state_machine, mock_proxy, mock_camilladsp, mock_crossover):
+        """A local target applies via the local CamillaDSP service, not the proxy."""
+        from backend.core.multiroom.models import EqualizerSettings, EqFilter
+        registry = MagicMock()
         local_client = MagicMock()
         local_client.ip = "127.0.0.1"
         local_client.is_local = True
         local_client.mac_id = "local"
-        mock_registry.get_client = MagicMock(return_value=local_client)
-
-        # Setup saved settings - filters as dict (filter_id -> settings)
-        saved_settings = {
-            "filters": {"eq_band_00": {"freq": 100, "gain": 2.0, "q": 1.41, "type": "Peaking"}},
-            "compressor": {"enabled": True, "threshold": -20},
-            "loudness": {"enabled": False}
-        }
-        mock_state_machine.equalizer_settings_sync_service.get_client_settings = AsyncMock(
-            return_value=saved_settings
-        )
-
-        ws_service = SnapcastWebSocketService(
-            state_machine=mock_state_machine,
-            routing_service=MagicMock()
-        )
-        ws_service._registry = mock_registry
-        ws_service._equalizer_client_proxy_service = mock_state_machine.equalizer_client_proxy_service
-        ws_service._equalizer_settings_sync_service = mock_state_machine.equalizer_settings_sync_service
-        ws_service._crossover_service = mock_state_machine.crossover_service
-        ws_service._camilladsp_service = mock_state_machine.camilladsp_service
-
-        await ws_service._sync_standalone_equalizer_to_client("local")
-
-        # Verify camilladsp_service was used (not proxy)
-        camilladsp_service = mock_state_machine.camilladsp_service
-        assert camilladsp_service.set_filter.call_count == 1
-        assert camilladsp_service.set_compressor.call_count == 1
-        assert camilladsp_service.set_loudness.call_count == 1
-
-        # Verify proxy was NOT used for local client
-        proxy = mock_state_machine.equalizer_client_proxy_service
-        assert proxy.request.call_count == 0
+        registry.get_client = MagicMock(return_value=local_client)
+        registry.get_standalone_equalizer = MagicMock(return_value=EqualizerSettings(
+            filters=[EqFilter(id="eq_band_00", frequency=100, gain=2.0, q=1.41)],
+            mono=False, enabled=True,
+        ))
+        ws = self._make_ws(mock_state_machine, registry, mock_proxy, mock_camilladsp, mock_crossover)
+        await ws._sync_standalone_equalizer_to_client("local")
+        assert mock_camilladsp.set_filter.call_count == 1
+        assert mock_camilladsp.set_compressor.call_count == 1
+        assert mock_camilladsp.set_loudness.call_count == 1
+        assert mock_proxy.request.call_count == 0
 
     @pytest.mark.asyncio
-    async def test_sync_handles_missing_client(self, mock_state_machine):
-        """Test that sync handles missing client gracefully."""
-        from backend.core.multiroom.websocket import SnapcastWebSocketService
-
-        mock_registry = MagicMock()
-        mock_registry.get_client = MagicMock(return_value=None)
-
-        ws_service = SnapcastWebSocketService(
-            state_machine=mock_state_machine,
-            routing_service=MagicMock()
-        )
-        ws_service._registry = mock_registry
-        ws_service._equalizer_settings_sync_service = mock_state_machine.equalizer_settings_sync_service
-
-        result = await ws_service._sync_standalone_equalizer_to_client("unknown-client")
+    async def test_sync_handles_missing_client(self, mock_state_machine, mock_proxy):
+        """Missing client is handled gracefully (returns False)."""
+        registry = MagicMock()
+        registry.get_client = MagicMock(return_value=None)
+        ws = self._make_ws(mock_state_machine, registry, mock_proxy)
+        result = await ws._sync_standalone_equalizer_to_client("unknown-client")
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_failed_filter_settings_are_queued_standalone(self, mock_state_machine, mock_registry):
-        """Test that failed filter settings are queued via queue_pending_settings() (AC6)."""
-        from backend.core.multiroom.websocket import SnapcastWebSocketService
-
-        # Setup saved settings with filters as dict (filter_id -> settings)
-        saved_settings = {
-            "filters": {
-                "eq_band_00": {"freq": 100, "gain": 2.0, "q": 1.41, "type": "Peaking"},
-                "eq_band_01": {"freq": 1000, "gain": -1.5, "q": 1.41, "type": "Peaking"}
-            }
-        }
-        mock_state_machine.equalizer_settings_sync_service.get_client_settings = AsyncMock(
-            return_value=saved_settings
+    async def test_failed_filter_settings_are_queued_standalone(self, mock_state_machine, mock_registry, mock_camilladsp, mock_crossover):
+        """Failed filter pushes are queued for retry via queue_pending_settings()."""
+        from backend.core.multiroom.models import EqualizerSettings, EqFilter
+        mock_registry.get_standalone_equalizer.return_value = EqualizerSettings(
+            filters=[
+                EqFilter(id="eq_band_00", frequency=100, gain=2.0, q=1.41),
+                EqFilter(id="eq_band_01", frequency=1000, gain=-1.5, q=1.41),
+            ],
         )
+        failing_proxy = MagicMock()
+        failing_proxy.request = AsyncMock(side_effect=Exception("Connection refused"))
+        ws = self._make_ws(mock_state_machine, mock_registry, failing_proxy, mock_camilladsp, mock_crossover)
 
-        # Make proxy fail for filters
-        mock_state_machine.equalizer_client_proxy_service.request = AsyncMock(
-            side_effect=Exception("Connection refused")
-        )
+        result = await ws._sync_standalone_equalizer_to_client("test-client")
 
-        ws_service = SnapcastWebSocketService(
-            state_machine=mock_state_machine,
-            routing_service=MagicMock()
-        )
-        ws_service._registry = mock_registry
-        ws_service._equalizer_client_proxy_service = mock_state_machine.equalizer_client_proxy_service
-        ws_service._equalizer_settings_sync_service = mock_state_machine.equalizer_settings_sync_service
-        ws_service._crossover_service = mock_state_machine.crossover_service
-        ws_service._camilladsp_service = mock_state_machine.camilladsp_service
-
-        result = await ws_service._sync_standalone_equalizer_to_client("test-client")
-
-        # Sync should fail
         assert result is False
-
-        # Verify filters were queued for retry
-        crossover = mock_state_machine.crossover_service
-        crossover.queue_pending_settings.assert_called()
-
-        # Check that filters were queued with correct data
-        calls = crossover.queue_pending_settings.call_args_list
-        filters_queued = any(
-            call[0][1] == "filters" for call in calls
-        )
-        assert filters_queued, "Filter settings should be queued on failure"
+        mock_crossover.queue_pending_settings.assert_called()
+        calls = mock_crossover.queue_pending_settings.call_args_list
+        assert any(call[0][1] == "filters" for call in calls), "Filter settings should be queued on failure"
 
 
 # =============================================================================

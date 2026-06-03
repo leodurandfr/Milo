@@ -944,6 +944,12 @@ class MultiroomEqualizerService:
                 except Exception as e:
                     self.logger.warning(f"Failed to set equalizer enabled for {client_id}: {e}")
 
+        # Persist the enabled flag into the zone's settings (source of truth) so
+        # GET /zone/{id} reflects it and offline / reconnecting members can recover
+        # it via _sync_zone_equalizer_to_client.
+        zone.equalizer_settings.enabled = enabled
+        await self._registry.set_zone_equalizer(zone_id, zone.equalizer_settings, broadcast=False)
+
         # Broadcast WebSocket event
         if self._state_machine:
             await self._state_machine.broadcast_event(

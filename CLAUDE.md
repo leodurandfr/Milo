@@ -353,7 +353,6 @@ All persistent data in `/var/lib/milo/`. Versioned JSON files use the `schema_ve
 - `cd_data.json` - CD disc metadata cache (TOC, MusicBrainz lookups) — *no `schema_version` yet*
 - `cd_covers/` - CD cover art cache
 - `equalizer.json` - Equalizer state: filters, active preset, custom gains, compressor, loudness, mono (atomic writes, debounced) — `schema_version: 2` (owned by `EqualizerService`)
-- `client_equalizer.json` - Per-client equalizer state for remote multiroom clients (keyed by `mac_id`) — *no `schema_version` yet*
 - `pending_clients.json` - Multiroom clients awaiting approval — *no `schema_version` yet*
 - `routing.env` - ALSA routing environment variables (auto-generated, regenerated on every settings change — no `schema_version`)
 - `mac.env` - ROC receiver env vars consumed by `milo-mac` (auto-generated, no `schema_version`)
