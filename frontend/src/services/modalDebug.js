@@ -12,7 +12,7 @@
  * scroll/height regressions.
  */
 
-export const isModalDebug = () =>
+const isModalDebug = () =>
   typeof window !== 'undefined' && window.__MILO_MODAL_DEBUG === true;
 
 export const modalDebugLog = (...args) => {
