@@ -425,16 +425,18 @@ class ClientRegistryService:
         zone_id: str,
         name: str,
         client_ids: List[str],
-        equalizer_settings: Optional[EqualizerSettings] = None
     ) -> Zone:
         """
         Create a new zone. Requires at least 2 clients.
+
+        Membership only — a zone holds no EQ of its own (the unified per-client
+        model). Each member keeps its own EQ record; the caller neutralises the
+        zone's EQ via MultiroomEqualizerService.set_zone_eq().
 
         Args:
             zone_id: Unique zone identifier
             name: Display name
             client_ids: List of mac_ids to include (minimum 2)
-            equalizer_settings: Initial equalizer settings (optional)
 
         Returns:
             The created zone
@@ -459,16 +461,13 @@ class ClientRegistryService:
                 id=zone_id,
                 name=name,
                 client_ids=client_ids.copy(),
-                equalizer_settings=equalizer_settings or EqualizerSettings.default_for_zone()
             )
             self._zones[zone_id] = zone
 
-            # Update client zone_id references
+            # Update client zone_id references (EQ records are left untouched —
+            # the access layer applies the neutral zone EQ to each member)
             for cid in client_ids:
                 self._clients[cid].zone_id = zone_id
-                # Move standalone equalizer to zone (first client's equalizer becomes zone equalizer)
-                if cid in self._client_equalizer:
-                    del self._client_equalizer[cid]
 
         await self._persist_state()
         await self._emit_event(RegistryEventType.ZONE_CREATED, {
@@ -479,16 +478,15 @@ class ClientRegistryService:
         self.logger.info(f"Zone created: {zone_id} with clients {client_ids}")
         return zone
 
-    def _make_clients_standalone(self, mac_ids, zone: Zone) -> None:
-        """Make clients standalone, keeping zone equalizer as their individual equalizer.
+    def _make_clients_standalone(self, mac_ids) -> None:
+        """Detach clients from their zone (membership only).
 
-        Must be called inside self._lock.
+        EQ is a no-op here: each client already owns its EQ record, which it
+        keeps when the zone goes away. Must be called inside self._lock.
         """
-        zone_eq_dict = zone.equalizer_settings.to_dict()
         for mac_id in mac_ids:
             if mac_id in self._clients:
                 self._clients[mac_id].zone_id = None
-                self._client_equalizer[mac_id] = EqualizerSettings.from_dict(zone_eq_dict)
 
     async def delete_zone(self, zone_id: str) -> bool:
         """
@@ -507,7 +505,7 @@ class ClientRegistryService:
             zone = self._zones[zone_id]
             zone_dict = self.zone_to_enriched_dict(zone)
 
-            self._make_clients_standalone(zone.client_ids, zone)
+            self._make_clients_standalone(zone.client_ids)
             del self._zones[zone_id]
 
         await self._persist_state()
@@ -603,15 +601,13 @@ class ClientRegistryService:
                 # Clean up orphan zone (< 2 members)
                 if not old_zone.is_valid():
                     old_zone_deleted = True
-                    self._make_clients_standalone(old_zone.client_ids, old_zone)
+                    self._make_clients_standalone(old_zone.client_ids)
                     del self._zones[old_zone_id]
 
             zone.client_ids.append(mac_id)
             client.zone_id = zone_id
-
-            # Remove standalone equalizer (client now uses zone's equalizer)
-            if mac_id in self._client_equalizer:
-                del self._client_equalizer[mac_id]
+            # EQ record is left as-is here; the caller adopts the zone's current
+            # EQ onto the new member via MultiroomEqualizerService.set_client_eq().
 
         await self._persist_state()
 
@@ -653,15 +649,15 @@ class ClientRegistryService:
             if mac_id not in zone.client_ids:
                 return False
 
-            # Client keeps zone equalizer as standalone
-            self._make_clients_standalone([mac_id], zone)
+            # Client keeps its own EQ record when leaving the zone
+            self._make_clients_standalone([mac_id])
             zone.client_ids.remove(mac_id)
 
             # Delete zone if less than 2 clients
             if not zone.is_valid():
                 zone_deleted = True
                 zone_dict = self.zone_to_enriched_dict(zone)
-                self._make_clients_standalone(zone.client_ids, zone)
+                self._make_clients_standalone(zone.client_ids)
                 del self._zones[zone_id]
 
         await self._persist_state()
@@ -971,6 +967,9 @@ class ClientRegistryService:
         """
         Set the stored equalizer settings for a client.
 
+        Stores the record for any registered client — including zone members,
+        which own their record (a zone's EQ is the identical EQ of its members).
+
         Args:
             mac_id: The client's mac_id
             settings: Equalizer settings to store
@@ -982,11 +981,9 @@ class ClientRegistryService:
                 self.logger.warning(f"Cannot set equalizer: client {mac_id} not found")
                 return
 
-            if client.zone_id:
-                self.logger.warning(f"Client {mac_id} is in zone, use zone equalizer instead")
-                return
-
-            self._client_equalizer[mac_id] = settings
+            # Store a copy so the registry owns its records — callers can never
+            # mutate the stored object through a reference they still hold.
+            self._client_equalizer[mac_id] = EqualizerSettings.from_dict(settings.to_dict())
 
         await self._persist_client_equalizer()
         if broadcast:
@@ -995,37 +992,6 @@ class ClientRegistryService:
                 "target_id": mac_id,
                 "equalizer_settings": settings.to_dict()
             })
-
-    async def set_zone_equalizer(self, zone_id: str, settings: EqualizerSettings, broadcast: bool = True) -> bool:
-        """
-        Set equalizer settings for a zone.
-
-        Updates zone.equalizer_settings and persists to settings.json.
-
-        Args:
-            zone_id: The zone's ID
-            settings: Equalizer settings to store
-            broadcast: Whether to emit the EQUALIZER_SETTINGS_CHANGED event
-
-        Returns:
-            True if successful, False if zone not found
-        """
-        async with self._lock:
-            zone = self._zones.get(zone_id)
-            if not zone:
-                self.logger.warning(f"Cannot set equalizer: zone {zone_id} not found")
-                return False
-
-            zone.equalizer_settings = settings
-
-        await self._persist_zones()
-        if broadcast:
-            await self._emit_event(RegistryEventType.EQUALIZER_SETTINGS_CHANGED, {
-                "target_type": "zone",
-                "target_id": zone_id,
-                "equalizer_settings": settings.to_dict()
-            })
-        return True
 
     # === STATE SNAPSHOT ===
 

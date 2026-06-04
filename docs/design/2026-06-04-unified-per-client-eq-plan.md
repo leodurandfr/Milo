@@ -76,29 +76,30 @@ renamed to `client_equalizer`; settings schema bumped. Audio behavior unchanged.
 ### Task 1.2 — Drop `Zone.equalizer_settings`; zone EQ derives from members
 **Files:** Modify `backend/core/multiroom/models.py`, `backend/core/multiroom/client_registry.py`;
 Test `backend/tests/test_core_multiroom.py`.
-- [ ] Write failing tests: creating a zone sets each member's `client_equalizer` to a neutral
+- [x] Write failing tests: creating a zone sets each member's `client_equalizer` to a neutral
       record; `_make_clients_standalone` is a no-op for EQ (members already own their record);
       `Zone` no longer exposes `equalizer_settings`.
-- [ ] Run → fail.
-- [ ] Remove `Zone.equalizer_settings`; `create_zone` writes a neutral record per member;
+- [x] Run → fail.
+- [x] Remove `Zone.equalizer_settings`; `create_zone` writes a neutral record per member;
       `_make_clients_standalone` only flips `zone_id = None`; remove zone-EQ persistence.
-- [ ] Run → pass.
-- [ ] Commit: `refactor(eq): zones derive EQ from members (drop zone equalizer_settings)`.
+- [x] Run → pass.
+- [x] Commit: `refactor(eq): zones derive EQ from members (drop zone equalizer_settings)`.
+      *(Landed together with Task 1.3 as one atomic commit — see note below.)*
 
 ### Task 1.3 — Access API in `MultiroomEqualizerService`
 **Files:** Modify `backend/core/equalizer/multiroom_service.py`, `backend/core/equalizer/service.py`
 (add public `persist_state()`); Test `backend/tests/test_multiroom_equalizer_service.py`.
-- [ ] Write failing tests: `get_client_eq(local)` reads CamillaDSP; `get_client_eq(remote)` reads
+- [x] Write failing tests: `get_client_eq(local)` reads CamillaDSP; `get_client_eq(remote)` reads
       registry; `set_client_eq(local, eq)` applies to DAC **and** persists `equalizer.json`;
       `set_client_eq(remote, eq)` writes registry; `set_zone_eq(zone, eq)` writes every member;
       `get_zone_eq(zone)` returns a member's record.
-- [ ] Run → fail.
-- [ ] Implement `get/set_client_eq`, `get/set_zone_eq`; rework `apply_zone_equalizer`,
+- [x] Run → fail.
+- [x] Implement `get/set_client_eq`, `get/set_zone_eq`; rework `apply_zone_equalizer`,
       `apply_client_equalizer`, `load_zone_preset`, `load_client_preset`, `save_custom_preset`,
       `update_filter/compressor/loudness/mono` to route through them. Remove the now-redundant
       interim helpers (`_affects_local_client`, the inline `_apply_to_local` name-sync) — folded in.
-- [ ] Run → pass.
-- [ ] Commit: `feat(eq): unified get/set_client_eq access layer`.
+- [x] Run → pass.
+- [x] Commit: `feat(eq): unified get/set_client_eq access layer`.
 
 ### Task 1.4 — Schema bump + BREAKING_CHANGES
 **Files:** Modify `backend/core/multiroom/client_registry.py` (`SCHEMA_VERSION`), `BREAKING_CHANGES.md`;
@@ -107,6 +108,16 @@ Test `backend/tests/test_breaking_changes_coherence.py` (keep coherent).
       impact: **EQ settings reset once**).
 - [ ] Run `python -m pytest backend/tests/test_breaking_changes_coherence.py -q` → pass.
 - [ ] Commit: `chore(eq): bump settings schema_version for unified client EQ`.
+
+> **Phase 1 was expanded (per Léo, 2026-06-04):** dropping `Zone.equalizer_settings` cannot keep the
+> suite green without also reworking the websocket reconnect-sync (Phase 2) and the zone-create /
+> add-client API (Phase 3), so Tasks 1.2 + 1.3 plus those indissociable bits landed as **one atomic
+> commit**. Beyond the literal task text it also: removed `websocket._sync_zone_equalizer_to_client`
+> (reconnect now uses the per-client record for all contexts; the local client is a natural no-op);
+> made `api/multiroom` zone-create apply a neutral EQ and add-client adopt the zone's EQ; added
+> `CamillaDSPService.persist_state()/get_equalizer_settings()/set_custom_gains()`. One robustness item
+> (disconnected-CamillaDSP cache drift, from the Phase-1 code review) was **deferred to Phase 2** —
+> see its note. Task 1.4 (schema bump) is the remaining Phase-1 commit.
 
 **Phase 1 acceptance:** full `pytest` green; `ruff` clean; no `standalone_equalizer`/
 `zone.equalizer_settings` references remain (`grep`); `code-review` clean. STOP for review.
@@ -133,6 +144,15 @@ init/sync tests.
       that connects (new or already-known) gets its `client_equalizer` pushed.
 - [ ] Run → fail. Implement (ensure remote push isn't lost when already-known). Run → pass.
 - [ ] Commit: `fix(eq): restore local EQ from equalizer.json at boot; push remote on connect`.
+- [ ] **Carried over from Phase 1 code review (disconnected-CamillaDSP cache drift):** when
+      `set_client_eq(local)` / `_apply_partial_update` run while CamillaDSP is **disconnected**,
+      `_apply_to_local` no-ops (set_filter guards on `connected`) and nothing updates the in-memory
+      cache, so the local intent is dropped and `equalizer.json` drifts from the remote members'
+      records. Add a `CamillaDSPService.update_cache(settings)` that unconditionally overwrites the
+      cache (`_filters/_compressor/_loudness/_mono/_active_preset/_custom_gains`) + persists, and call
+      it from the disconnected path so the reconnect (`restore_effects`) pushes the correct values.
+      Connected path is already correct; this only closes the boot/reconnect window. Test: local EQ
+      set while disconnected is persisted and restored on reconnect.
 
 **Phase 2 acceptance:** full `pytest` green; `code-review` clean. STOP for review.
 

@@ -1,23 +1,22 @@
 # backend/core/equalizer/multiroom_service.py
 """
-MultiroomEqualizerService - Multiroom-aware equalizer coordination service.
+MultiroomEqualizerService - the per-client equalizer access layer.
 
-This service coordinates equalizer settings across multiple clients and zones:
-- Uses ClientRegistryService as the source of truth for settings
-- Routes DSP commands to appropriate CamillaDSP instances
-- Handles zone propagation logic (apply to all ONLINE clients)
-- Manages standalone client equalizer separately
+One EQ record per client is the source of truth; a zone holds no EQ of its own
+(its EQ is the identical EQ of its members). This service exposes the unified
+access API (get/set_client_eq, get/set_zone_eq) and routes each write to the
+domain that owns the record:
 
 Architecture:
     API Layer
         │
         ▼
-    MultiroomEqualizerService (this module - multiroom-aware)
+    MultiroomEqualizerService (get/set_client_eq, get/set_zone_eq)
         │
-        ├─── ClientRegistryService (state/persistence)
-        │       └── zone.equalizer_settings, client_equalizer
+        ├─── CamillaDSPService   → local client's record (equalizer.json + DAC)
         │
-        └─── CamillaDSPService (local daemon control)
+        └─── ClientRegistryService.client_equalizer  → remote clients' records
+                                                        (+ proxy push to satellite)
 """
 import asyncio
 import logging
@@ -113,78 +112,103 @@ class MultiroomEqualizerService:
         self._equalizer_router = equalizer_router
 
     # =========================================================================
-    # Zone Equalizer Methods (AC2, AC5)
+    # Per-Client Access Layer — the unified EQ source of truth
+    # =========================================================================
+
+    async def get_client_eq(self, mac_id: str) -> EqualizerSettings:
+        """Read a client's one EQ record.
+
+        Local client → snapshot from CamillaDSP (the equalizer.json-backed
+        cache); remote client → the registry's client_equalizer store (a neutral
+        default when nothing has been saved yet). Always returns a record.
+        """
+        if self._registry and self._registry.is_local_client(mac_id):
+            if self._camilladsp_service:
+                return self._camilladsp_service.get_equalizer_settings()
+            return EqualizerSettings.default()
+        record = self._registry.get_client_equalizer(mac_id) if self._registry else None
+        # Hand out a copy so callers can mutate freely without aliasing the store.
+        return EqualizerSettings.from_dict(record.to_dict()) if record else EqualizerSettings.default()
+
+    async def set_client_eq(self, mac_id: str, settings: EqualizerSettings) -> bool:
+        """Write a client's one EQ record — name and gains travel together.
+
+        Local client → apply to the DAC and persist equalizer.json;
+        remote client → store in the registry and push to the satellite.
+        """
+        if self._registry and self._registry.is_local_client(mac_id):
+            applied = await self._apply_to_local(settings)
+            # Persist only after a successful apply (applied == connected DSP);
+            # a failed/disconnected apply leaves the live cache uncertain.
+            if applied and self._camilladsp_service:
+                if settings.custom_gains is not None:
+                    self._camilladsp_service.set_custom_gains(settings.custom_gains)
+                await self._camilladsp_service.persist_state()
+            return applied
+        if self._registry:
+            await self._registry.set_client_equalizer(mac_id, settings)
+        return await self._apply_to_remote(mac_id, settings)
+
+    async def get_zone_eq(self, zone_id: str) -> Optional[EqualizerSettings]:
+        """Zone EQ derives from its members (kept identical).
+
+        Reads the local member if the zone contains one (most authoritative),
+        otherwise the first member. Returns None if the zone has no members.
+        """
+        if not self._registry:
+            return None
+        zone = self._registry.get_zone(zone_id)
+        if not zone or not zone.client_ids:
+            return None
+        member = next(
+            (m for m in zone.client_ids if self._registry.is_local_client(m)),
+            zone.client_ids[0],
+        )
+        return await self.get_client_eq(member)
+
+    async def set_zone_eq(self, zone_id: str, settings: EqualizerSettings) -> bool:
+        """Apply one EQ record to every zone member, keeping them identical.
+
+        Each member receives its own copy so later per-member edits never alias.
+        Members are written in parallel (NFR3: < 200ms).
+        """
+        if not self._registry:
+            self.logger.error("ClientRegistryService not available")
+            return False
+        zone = self._registry.get_zone(zone_id)
+        if not zone:
+            raise ValueError(f"Zone not found: {zone_id}")
+        await asyncio.gather(
+            *[
+                self.set_client_eq(mac_id, EqualizerSettings.from_dict(settings.to_dict()))
+                for mac_id in zone.client_ids
+            ],
+            return_exceptions=True,
+        )
+        return True
+
+    # =========================================================================
+    # Zone / Client Equalizer Methods — route-facing wrappers over the access layer
     # =========================================================================
 
     async def apply_zone_equalizer(self, zone_id: str, settings: EqualizerSettings) -> bool:
-        """
-        Apply equalizer settings to a zone.
-
-        Updates zone.equalizer_settings in ClientRegistryService (source of truth),
-        then applies to all ONLINE clients via CamillaDSP. Offline clients
-        will receive settings on reconnection.
-
-        Args:
-            zone_id: The zone ID to update
-            settings: EqualizerSettings to apply
-
-        Returns:
-            True if settings were saved (even if some clients failed)
+        """Apply equalizer settings to a whole zone (fan-out to all members).
 
         Raises:
             ValueError: If zone not found
         """
         async with self._lock:
-            # Get zone from registry
-            if not self._registry:
-                self.logger.error("ClientRegistryService not available")
-                return False
-
-            zone = self._registry.get_zone(zone_id)
-            if not zone:
-                raise ValueError(f"Zone not found: {zone_id}")
-
-            # Update zone equalizer settings via registry's public method (handles persistence + broadcast)
-            await self._registry.set_zone_equalizer(zone_id, settings)
-
-            self.logger.info(f"Zone {zone_id} Equalizer settings updated")
-
-        # Apply to all ONLINE clients in parallel (NFR3: < 200ms)
-        online_clients = self._registry.get_online_zone_clients(zone_id)
-
-        if online_clients:
-            # Parallel application for performance (NFR3)
-            results = await asyncio.gather(
-                *[self._apply_to_camilladsp(client.mac_id, settings) for client in online_clients],
-                return_exceptions=True
-            )
-            success_count = sum(1 for r in results if r is True)
-            self.logger.info(
-                f"Zone {zone_id}: Applied equalizer to {success_count}/{len(online_clients)} online clients"
-            )
-
-        return True
+            result = await self.set_zone_eq(zone_id, settings)
+            self.logger.info(f"Zone {zone_id} equalizer applied to all members")
+            return result
 
     async def get_zone_equalizer(self, zone_id: str) -> Optional[EqualizerSettings]:
-        """
-        Get equalizer settings for a zone.
-
-        Note: This method is async for API consistency with apply_zone_equalizer(),
-        enabling uniform async/await usage patterns across the service.
-
-        Args:
-            zone_id: The zone ID
+        """Get a zone's equalizer settings (derived from its members).
 
         Returns:
-            EqualizerSettings or None if zone not found
+            EqualizerSettings or None if the zone is unknown / has no members
         """
-        if not self._registry:
-            return None
-
-        zone = self._registry.get_zone(zone_id)
-        if zone:
-            return zone.equalizer_settings
-        return None
+        return await self.get_zone_eq(zone_id)
 
     async def resolve_preset_gains(self, preset_id: str, settings: EqualizerSettings = None) -> list:
         """
@@ -209,80 +233,21 @@ class MultiroomEqualizerService:
             raise ValueError(f"Preset not found: {preset_id}")
         return preset["gains"]
 
-    def _new_standalone_settings(self, mac_id: str) -> EqualizerSettings:
-        """Build default EQ settings for a registered standalone client on demand.
-
-        A remote standalone client that has never had its EQ saved has no entry
-        in the registry's standalone-equalizer store. The local target's
-        preset/save paths persist active_preset unconditionally (see
-        CamillaDSPService.load_preset); mirror that here so the remote
-        preset-name write paths create the entry instead of raising — otherwise
-        the route turns the ValueError into a 404 and the chosen preset NAME is
-        silently dropped while the gains survive via the separate gains path.
-
-        Raises:
-            ValueError: if the client is unknown or currently in a zone (in which
-            case the zone equalizer is the source of truth, not standalone).
-        """
-        client = self._registry.get_client(mac_id) if self._registry else None
-        if not client:
-            raise ValueError(f"Client not found: {mac_id}")
-        if client.zone_id:
-            raise ValueError(f"Client {mac_id} is in a zone. Use load_zone_preset() instead.")
-        return EqualizerSettings.default()
-
     async def save_custom_preset(self, target_type: str, target_id: str) -> None:
-        """
-        Save current filter gains as the custom preset for a zone or client.
+        """Snapshot current filter gains as the 'custom' preset for a zone or client.
 
-        Persists gains into custom_gains field and sets active_preset to 'custom'.
+        Persists the gains into custom_gains and sets active_preset='custom' on the
+        target's record(s) through the per-client access layer, so name and gains
+        travel together (local → equalizer.json, remote → registry, zone → every
+        member).
         """
         current = await self.get_equalizer(target_type, target_id)
         if not current:
-            if target_type == "client":
-                # Create defaults on demand (symmetric with the local path) so a
-                # fresh standalone client can save a custom preset without 404-ing.
-                # In practice the UI only exposes "Save" after an edit (which has
-                # already created the entry via _persist_remote), so this branch
-                # is a defensive fallback: it snapshots the flat default as custom.
-                current = self._new_standalone_settings(target_id)
-            else:
-                raise ValueError(f"{target_type.capitalize()} not found: {target_id}")
+            raise ValueError(f"{target_type.capitalize()} not found: {target_id}")
 
         current.custom_gains = [f.gain for f in current.filters[:10]]
         current.active_preset = "custom"
-
-        if target_type == "zone":
-            await self._registry.set_zone_equalizer(target_id, current)
-        else:
-            await self._registry.set_client_equalizer(target_id, current)
-
-        # Keep the LOCAL CamillaDSP preset NAME in sync when the local client is
-        # affected. Unlike apply_*_equalizer this path does not re-apply gains (it
-        # snapshots what is already playing), so only the name store needs updating
-        # — otherwise the local client keeps its previous preset name instead of
-        # "custom" after a target switch or a later zone deletion. persist=False:
-        # the registry is the source of truth in multiroom mode (mirrors _apply_to_local).
-        if (
-            self._affects_local_client(target_type, target_id)
-            and self._camilladsp_service
-            and self._camilladsp_service.connected
-        ):
-            await self._camilladsp_service.set_active_preset(
-                current.active_preset, persist=False
-            )
-
-    def _affects_local_client(self, target_type: str, target_id: str) -> bool:
-        """Whether an EQ change to this target touches the local CamillaDSP instance.
-
-        True for the local standalone client, or for a zone that contains it.
-        """
-        if not self._registry:
-            return False
-        if target_type == "client":
-            return self._registry.is_local_client(target_id)
-        zone = self._registry.get_zone(target_id)
-        return bool(zone and any(self._registry.is_local_client(m) for m in zone.client_ids))
+        await self.apply_equalizer(target_type, target_id, current)
 
     def _build_preset_filters(self, gains: list) -> list:
         """Build EqFilter objects from gain values using standard frequencies."""
@@ -320,43 +285,31 @@ class MultiroomEqualizerService:
 
     async def load_client_preset(self, mac_id: str, preset_id: str) -> bool:
         """
-        Load an EQ preset for a standalone client.
+        Load an EQ preset for a single (non-zone) client.
 
         Preserves existing compressor/loudness settings and applies to the client.
+        get_client_eq always returns a record (neutral default when none saved),
+        and apply_client_equalizer validates the client (unknown / in-a-zone).
 
         Raises:
             ValueError: If client not found, client is in a zone, or preset not found
         """
-        current = await self.get_client_equalizer(mac_id)
-        if not current:
-            # No saved EQ yet for this standalone client — create defaults on
-            # demand (symmetric with the local path) so the preset NAME persists
-            # instead of the route returning a 404. Still raises for an unknown
-            # or zoned client.
-            current = self._new_standalone_settings(mac_id)
-
+        current = await self.get_client_eq(mac_id)
         gains = await self.resolve_preset_gains(preset_id, current)
         current.filters = self._build_preset_filters(gains)
         current.active_preset = preset_id
         return await self.apply_client_equalizer(mac_id, current)
 
     # =========================================================================
-    # Standalone Client Equalizer Methods (AC3)
+    # Single-Client Equalizer Methods (route-facing wrappers over the access layer)
     # =========================================================================
 
     async def apply_client_equalizer(self, mac_id: str, settings: EqualizerSettings) -> bool:
         """
-        Apply equalizer settings to a standalone client.
+        Apply equalizer settings to a single client (not via a zone).
 
-        Only works for clients NOT in a zone. For zone clients,
-        use apply_zone_equalizer() instead.
-
-        Args:
-            mac_id: The client's MAC ID
-            settings: EqualizerSettings to apply
-
-        Returns:
-            True if settings were saved and applied
+        Validates the client exists and is not in a zone (zone members are
+        driven through apply_zone_equalizer), then writes its one EQ record.
 
         Raises:
             ValueError: If client not found or client is in a zone
@@ -375,33 +328,17 @@ class MultiroomEqualizerService:
                 "Use apply_zone_equalizer() instead."
             )
 
-        # Update standalone equalizer via registry (handles persistence + broadcast)
-        await self._registry.set_client_equalizer(mac_id, settings)
-
-        # Apply to CamillaDSP
-        success = await self._apply_to_camilladsp(mac_id, settings)
-
-        self.logger.info(f"Client {mac_id} Equalizer settings updated (applied: {success})")
-
-        return True
+        result = await self.set_client_eq(mac_id, settings)
+        self.logger.info(f"Client {mac_id} equalizer settings updated")
+        return result
 
     async def get_client_equalizer(self, mac_id: str) -> Optional[EqualizerSettings]:
         """
-        Get equalizer settings for a standalone client.
+        Get a single client's equalizer settings (its one EQ record).
 
-        Note: This method is async for API consistency with apply_client_equalizer(),
-        enabling uniform async/await usage patterns across the service.
-
-        Args:
-            mac_id: The client's MAC ID
-
-        Returns:
-            EqualizerSettings or None if client not found or not standalone
+        Returns a neutral default for a known client that has no saved EQ yet.
         """
-        if not self._registry:
-            return None
-
-        return self._registry.get_client_equalizer(mac_id)
+        return await self.get_client_eq(mac_id)
 
     # =========================================================================
     # Target-Agnostic Equalizer Methods (AC2, AC3)
@@ -458,34 +395,11 @@ class MultiroomEqualizerService:
 
     # =========================================================================
     # CamillaDSP Application with Error Handling (AC4)
+    #
+    # _apply_to_local / _apply_to_remote are the DSP-application halves of
+    # set_client_eq (local vs remote). They apply settings to the audio chain;
+    # the persistence half (equalizer.json / registry) lives in set_client_eq.
     # =========================================================================
-
-    async def _apply_to_camilladsp(
-        self, mac_id: str, settings: EqualizerSettings
-    ) -> bool:
-        """
-        Apply equalizer settings to a client's CamillaDSP instance.
-
-        Handles both local and remote clients:
-        - Local: Apply via CamillaDSPService
-        - Remote: Apply via proxy service (batch filters + compressor + loudness)
-
-        Handles failures gracefully:
-        - If disconnected, logs warning and returns False
-        - Settings are already saved in ClientRegistryService (source of truth)
-        - No exception raised to caller
-
-        Args:
-            mac_id: The client's MAC ID
-            settings: EqualizerSettings to apply
-
-        Returns:
-            True if applied successfully, False on failure
-        """
-        if self._registry.is_local_client(mac_id):
-            return await self._apply_to_local(settings)
-        else:
-            return await self._apply_to_remote(mac_id, settings)
 
     async def _apply_to_local(self, settings: EqualizerSettings) -> bool:
         """Apply equalizer settings to local CamillaDSP instance."""
@@ -651,10 +565,11 @@ class MultiroomEqualizerService:
         broadcast_settings: dict,
     ) -> bool:
         """
-        Shared logic for partial equalizer updates (save → route → broadcast).
+        Shared logic for partial equalizer updates (persist → route → broadcast).
 
-        1. Save current settings to registry (source of truth) without full broadcast
-        2. Route update to zone clients or standalone client via EqualizerRouter
+        1. Persist `current` to each affected member's per-client record (remote →
+           registry; local → its live DSP snapshot, after the router applies below)
+        2. Route the targeted update to ONLINE members via EqualizerRouter
         3. Broadcast targeted WebSocket event with only the changed sub-object
 
         Args:
@@ -665,13 +580,26 @@ class MultiroomEqualizerService:
             router_kwargs: Kwargs for the router method (excluding mac_id, persist, broadcast)
             broadcast_settings: Partial equalizer_settings dict for the WebSocket broadcast
         """
-        # Save to registry (source of truth) without broadcasting full settings
+        # Resolve the affected members (zone fan-out, or a single client).
         if target_type == "zone":
-            await self._registry.set_zone_equalizer(target_id, current, broadcast=False)
+            zone = self._registry.get_zone(target_id)
+            members = list(zone.client_ids) if zone else []
         else:
-            await self._registry.set_client_equalizer(target_id, current, broadcast=False)
+            members = [target_id]
 
-        # Route to clients via EqualizerRouter
+        # Persist `current` to each REMOTE member's record (the per-client source
+        # of truth — a fresh copy each, so members never alias). The local member
+        # is persisted from its live DSP cache below, after the router applies.
+        local_touched = False
+        for member in members:
+            if self._registry.is_local_client(member):
+                local_touched = True
+            else:
+                await self._registry.set_client_equalizer(
+                    member, EqualizerSettings.from_dict(current.to_dict()), broadcast=False
+                )
+
+        # Route the targeted update to ONLINE members via EqualizerRouter
         if self._equalizer_router:
             method = getattr(self._equalizer_router, router_method)
             if target_type == "zone":
@@ -686,6 +614,11 @@ class MultiroomEqualizerService:
                 await method(mac_id=target_id, persist=False, broadcast=False, **router_kwargs)
         else:
             self.logger.warning(f"EqualizerRouter not available, {router_method} not applied to clients")
+
+        # Snapshot the local client's live DSP → equalizer.json (the router already
+        # applied the targeted change to the cache), so its record survives a restart.
+        if local_touched and self._camilladsp_service and self._camilladsp_service.connected:
+            await self._camilladsp_service.persist_state()
 
         # Broadcast targeted WebSocket event
         if self._state_machine:
@@ -963,31 +896,27 @@ class MultiroomEqualizerService:
                     except Exception as e:
                         self.logger.warning(f"Failed to set equalizer enabled for local: {e}")
             else:
-                # Remote client: proxy
-                if not self._proxy_service or not self._registry:
-                    continue
-
+                # Remote client: push to the satellite (if online) and persist the
+                # flag into its per-client record so offline / reconnecting members
+                # recover it (the record is the per-client source of truth).
                 client = self._registry.get_client(client_id)
-                if not client or not client.online:
-                    continue  # Offline clients will sync on reconnection
+                if client and client.online and client.ip and self._proxy_service:
+                    try:
+                        result = await self._proxy_service.request(
+                            client.ip, "PUT", "/equalizer/enabled", {"enabled": enabled}
+                        )
+                        if result.get("status") == "success":
+                            success_count += 1
+                    except Exception as e:
+                        self.logger.warning(f"Failed to set equalizer enabled for {client_id}: {e}")
 
-                if not client.ip:
-                    continue
-
-                try:
-                    result = await self._proxy_service.request(
-                        client.ip, "PUT", "/equalizer/enabled", {"enabled": enabled}
-                    )
-                    if result.get("status") == "success":
-                        success_count += 1
-                except Exception as e:
-                    self.logger.warning(f"Failed to set equalizer enabled for {client_id}: {e}")
-
-        # Persist the enabled flag into the zone's settings (source of truth) so
-        # GET /zone/{id} reflects it and offline / reconnecting members can recover
-        # it via _sync_zone_equalizer_to_client.
-        zone.equalizer_settings.enabled = enabled
-        await self._registry.set_zone_equalizer(zone_id, zone.equalizer_settings, broadcast=False)
+                existing = self._registry.get_client_equalizer(client_id)
+                record = (
+                    EqualizerSettings.from_dict(existing.to_dict())
+                    if existing else EqualizerSettings.default_for_zone()
+                )
+                record.enabled = enabled
+                await self._registry.set_client_equalizer(client_id, record, broadcast=False)
 
         # Broadcast WebSocket event
         if self._state_machine:

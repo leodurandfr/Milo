@@ -251,6 +251,38 @@ class TestCamillaDSPService:
         loudness = await camilladsp_service.get_loudness()
         assert loudness == camilladsp_service._loudness
 
+    def test_get_equalizer_settings_snapshots_local_cache(self, camilladsp_service):
+        """get_equalizer_settings() returns the local client's full EQ record from cache."""
+        from backend.core.multiroom.models import EqualizerSettings, EqFilter
+
+        camilladsp_service._effects_enabled = True
+        camilladsp_service._mono = True
+        camilladsp_service._active_preset = "rock"
+        camilladsp_service._filters[0].update({"gain": 4.5, "freq": 31, "type": "Peaking", "q": 1.41})
+
+        eq = camilladsp_service.get_equalizer_settings()
+
+        assert isinstance(eq, EqualizerSettings)
+        assert eq.enabled is True  # mirrors _effects_enabled
+        assert eq.mono is True
+        assert eq.active_preset == "rock"
+        assert len(eq.filters) == 10
+        assert all(isinstance(f, EqFilter) for f in eq.filters)
+        assert eq.filters[0].gain == 4.5
+        assert eq.filters[0].frequency == 31
+
+    @pytest.mark.asyncio
+    async def test_persist_state_flushes_immediately(self, camilladsp_service, monkeypatch):
+        """persist_state() writes the full state now (cancels the debounce, no wait)."""
+        calls = []
+
+        async def fake_async():
+            calls.append(True)
+
+        monkeypatch.setattr(camilladsp_service, "_persist_state_async", fake_async)
+        await camilladsp_service.persist_state()
+        assert calls == [True]
+
     @pytest.mark.asyncio
     async def test_get_volume_disconnected(self, camilladsp_service):
         """Should return cached volume when disconnected"""

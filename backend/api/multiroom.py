@@ -32,6 +32,7 @@ from backend.api.models import (
     ConfigureClientAudioRequest,
 )
 from backend.config.constants import CLIENT_API_PORT
+from backend.core.multiroom.models import EqualizerSettings
 
 logger = logging.getLogger(__name__)
 
@@ -315,12 +316,14 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
             except ValueError as e:
                 raise HTTPException(status_code=400, detail=str(e))
 
-            # Apply zone's default DSP settings to CamillaDSP
-            # This ensures CamillaDSP has flat EQ when a new zone is created,
-            # preventing stale settings from previous zone from being displayed
+            # Reset every member to a neutral zone EQ. In the unified per-client
+            # model a zone holds no EQ of its own; creating one applies a neutral
+            # record (mono on) to each member via the access layer.
             if multiroom_equalizer_service:
                 try:
-                    await multiroom_equalizer_service.apply_zone_equalizer(zone_id, zone.equalizer_settings)
+                    await multiroom_equalizer_service.apply_zone_equalizer(
+                        zone_id, EqualizerSettings.default_for_zone()
+                    )
                 except Exception as e:
                     logger.warning(f"Failed to apply initial zone equalizer: {e}")
 
@@ -431,12 +434,28 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
                     detail=f"Client '{request.mac_id}' not found"
                 )
 
+            # Capture an existing member's EQ before the add, so the new member
+            # can adopt the zone's current EQ (members hold identical records).
+            existing_member = next(
+                (m for m in zone.client_ids if m != request.mac_id), None
+            )
+
             success = await registry_service.add_client_to_zone(zone_id, request.mac_id)
             if not success:
                 raise HTTPException(
                     status_code=400,
                     detail=f"Client '{request.mac_id}' is already in zone '{zone_id}'"
                 )
+
+            # New member adopts the zone's current EQ (unified per-client model).
+            if multiroom_equalizer_service and existing_member:
+                try:
+                    zone_eq = await multiroom_equalizer_service.get_client_eq(existing_member)
+                    await multiroom_equalizer_service.set_client_eq(request.mac_id, zone_eq)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to apply zone equalizer to new member {request.mac_id}: {e}"
+                    )
 
             zone = registry_service.get_zone(zone_id)
             return {

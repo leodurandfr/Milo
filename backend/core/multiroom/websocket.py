@@ -707,29 +707,19 @@ class SnapcastWebSocketService:
             volume_synced = await self._apply_target_volume_to_client(mac_id, target_volume)
             sync_status["volume_synced"] = volume_synced
 
-            # 5. Sync equalizer settings based on context
+            # 5. Sync equalizer settings. In the unified per-client model every
+            #    client (zone member or standalone) recovers its OWN EQ record —
+            #    members of a zone hold identical records, so there is no separate
+            #    zone-EQ path. Only the volume context above still differs by
+            #    zone/standalone. The local client owns equalizer.json (restored
+            #    at boot) and has no registry record, so this is a no-op for it.
             equalizer_synced = True
             if self.registry:
-                if context in (ReconnectionContext.IN_ZONE_OTHERS_ONLINE, ReconnectionContext.IN_ZONE_ALL_OFFLINE):
-                    # IN_ZONE contexts (FR7, FR8) - sync zone equalizer settings
-                    zone = self.registry.get_zone_for_client(mac_id)
-                    if zone and zone.equalizer_settings:
-                        self.logger.info(
-                            f"[{time.time():.3f}] SYNC_EQ: Syncing zone equalizer for {mac_id} "
-                            f"(zone: {zone.id}, context: {context.value})"
-                        )
-                        equalizer_synced = await self._sync_zone_equalizer_to_client(mac_id, zone)
-                    else:
-                        self.logger.warning(
-                            f"[{time.time():.3f}] SYNC_EQ: Client {mac_id} in zone context but no zone found"
-                        )
-                else:
-                    # STANDALONE contexts - sync standalone equalizer settings
-                    self.logger.info(
-                        f"[{time.time():.3f}] SYNC_EQ: Syncing standalone equalizer for {mac_id} "
-                        f"(context: {context.value})"
-                    )
-                    equalizer_synced = await self._sync_standalone_equalizer_to_client(mac_id)
+                self.logger.info(
+                    f"[{time.time():.3f}] SYNC_EQ: Syncing per-client equalizer for {mac_id} "
+                    f"(context: {context.value})"
+                )
+                equalizer_synced = await self._sync_standalone_equalizer_to_client(mac_id)
             sync_status["equalizer_synced"] = equalizer_synced
 
             # 6. Broadcast volume state to frontend (AC5)
@@ -916,111 +906,6 @@ class SnapcastWebSocketService:
             return True
         except Exception as e:
             self.logger.warning(f"Failed to apply equalizer {setting_type} to {mac_id}: {e}")
-            return False
-
-    async def _sync_zone_equalizer_to_client(self, mac_id: str, zone) -> bool:
-        """Apply zone equalizer settings (filters, compressor, loudness) to a reconnected client."""
-        try:
-            client = self.registry.get_client(mac_id) if self.registry else None
-            if not client or not client.ip:
-                self.logger.warning(f"Cannot sync to {mac_id}: no IP address")
-                return False
-
-            hostname = client.ip
-            is_local = client.is_local
-
-            # Guard: need the appropriate service for the routing path
-            if is_local and not self._camilladsp_service:
-                self.logger.warning(f"No camilladsp_service for local DSP sync to {mac_id}")
-                return False
-            if not is_local and not self._equalizer_client_proxy_service:
-                self.logger.warning(f"No equalizer_client_proxy_service for equalizer sync to {mac_id}")
-                return False
-
-            eq = zone.equalizer_settings
-            synced = []
-            failed = []
-            filters_failed = []
-
-            # Sync filters
-            if eq.filters:
-                for flt in eq.filters:
-                    if not flt.id:
-                        continue
-                    filter_data = {
-                        'freq': flt.frequency, 'gain': flt.gain, 'q': flt.q,
-                        'filter_type': flt.filter_type.value if hasattr(flt.filter_type, 'value') else flt.filter_type
-                    }
-                    if await self._apply_equalizer_setting(hostname, mac_id, f"filter/{flt.id}", filter_data, is_local):
-                        synced.append(f"filter:{flt.id}")
-                    else:
-                        failed.append(f"filter:{flt.id}")
-                        filters_failed.append(flt.to_dict())
-
-            # Sync compressor
-            if eq.compressor:
-                data = eq.compressor.to_dict()
-                if await self._apply_equalizer_setting(hostname, mac_id, "compressor", data, is_local):
-                    synced.append("compressor")
-                else:
-                    failed.append("compressor")
-                    if self._crossover_service:
-                        await self._crossover_service.queue_pending_settings(mac_id, "compressor", data)
-
-            # Sync loudness
-            if eq.loudness:
-                data = eq.loudness.to_dict()
-                if await self._apply_equalizer_setting(hostname, mac_id, "loudness", data, is_local):
-                    synced.append("loudness")
-                else:
-                    failed.append("loudness")
-                    if self._crossover_service:
-                        await self._crossover_service.queue_pending_settings(mac_id, "loudness", data)
-
-            # Sync mono (zones default to mono summing; a reconnecting member must
-            # not silently come back in stereo and break the zone image).
-            mono_data = {"enabled": eq.mono}
-            if await self._apply_equalizer_setting(hostname, mac_id, "mono", mono_data, is_local):
-                synced.append("mono")
-            else:
-                failed.append("mono")
-                if self._crossover_service:
-                    await self._crossover_service.queue_pending_settings(mac_id, "mono", mono_data)
-
-            # Sync master enabled/bypass LAST so it bypasses or restores the
-            # filters/compressor/loudness we just pushed (a bypassed zone must not
-            # come back with effects active on a reconnecting member).
-            enabled_data = {"enabled": eq.enabled}
-            if await self._apply_equalizer_setting(hostname, mac_id, "enabled", enabled_data, is_local):
-                synced.append("enabled")
-            else:
-                failed.append("enabled")
-                if self._crossover_service:
-                    await self._crossover_service.queue_pending_settings(mac_id, "enabled", enabled_data)
-
-            # Queue failed filters for retry
-            if filters_failed and self._crossover_service:
-                await self._crossover_service.queue_pending_settings(mac_id, "filters", filters_failed)
-
-            # Local client only: restore the zone's preset NAME onto the local CamillaDSP
-            # so it matches the gains just re-applied. The name lives in a separate store
-            # (CamillaDSPService._active_preset, read by GET /api/equalizer/presets); this
-            # keeps the name correct if the zone is later deleted (deletion carries the
-            # zone EQ into standalone but leaves the local DSP untouched). Remote members
-            # carry their name in the registry (served via /client/{mac}/status).
-            if is_local and eq.active_preset and self._camilladsp_service:
-                await self._camilladsp_service.set_active_preset(eq.active_preset)
-                synced.append("active_preset")
-
-            if synced:
-                self.logger.info(f"SYNC_EQ: Synced {synced} to {mac_id} from zone {zone.id}")
-            if failed:
-                self.logger.warning(f"SYNC_EQ: Queued failed {failed} for retry to {mac_id}")
-
-            return len(failed) == 0
-
-        except Exception as e:
-            self.logger.error(f"Error syncing zone equalizer to {mac_id}: {e}", exc_info=True)
             return False
 
     async def _sync_standalone_equalizer_to_client(self, mac_id: str) -> bool:

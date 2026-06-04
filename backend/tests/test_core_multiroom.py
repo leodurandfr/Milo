@@ -26,8 +26,6 @@ from backend.core.multiroom.models import (
     DEFAULT_CROSSOVER_FREQUENCIES,
     CompressorSettings,
     LoudnessSettings,
-    EqFilter,
-    FilterType,
 )
 from backend.config.constants import DEFAULT_VOLUME_DB
 from backend.core.models.volume import VolumeConfig
@@ -218,7 +216,6 @@ class TestZone:
         assert zone.id == "zone1"
         assert zone.name == "Living Room Zone"
         assert len(zone.client_ids) == 2
-        assert zone.equalizer_settings is not None
 
     def test_zone_uuid_auto_generation(self):
         """Test that zone id is auto-generated as UUID when not provided."""
@@ -231,7 +228,6 @@ class TestZone:
         assert re.match(uuid_pattern, zone.id.lower()) is not None
         assert zone.name == "Auto ID Zone"
         assert zone.client_ids == []
-        assert zone.equalizer_settings is not None
 
     def test_zone_default_values(self):
         """Test zone default values when created with minimal parameters."""
@@ -241,32 +237,22 @@ class TestZone:
         assert len(zone.id) == 36  # UUID length with dashes
         # client_ids should default to empty list
         assert zone.client_ids == []
-        # equalizer_settings should default to empty EqualizerSettings (new typed structure)
-        assert zone.equalizer_settings.enabled is True
-        assert zone.equalizer_settings.filters == []
-        assert isinstance(zone.equalizer_settings.compressor, CompressorSettings)
-        assert zone.equalizer_settings.compressor.enabled is False
-        assert isinstance(zone.equalizer_settings.loudness, LoudnessSettings)
-        assert zone.equalizer_settings.loudness.enabled is False
+        # A zone holds no EQ of its own in the unified model
+        assert not hasattr(zone, "equalizer_settings")
 
     def test_zone_to_dict(self):
-        """Test converting zone to dictionary."""
-        from backend.core.multiroom.models import EqFilter
-
-        eq = EqualizerSettings(filters=[EqFilter(id="eq_band_00", frequency=1000, gain=2.0)])
+        """Test converting zone to dictionary (no EQ — derived from members)."""
         zone = Zone(
             name="Kitchen Zone",
             id="zone2",
             client_ids=["local", "aa:bb:cc:dd:ee:ff"],
-            equalizer_settings=eq
         )
 
         data = zone.to_dict()
 
         assert data["id"] == "zone2"
         assert len(data["client_ids"]) == 2
-        assert len(data["equalizer_settings"]["filters"]) == 1
-        assert data["equalizer_settings"]["filters"][0]["frequency"] == 1000
+        assert "equalizer_settings" not in data
 
     def test_zone_from_dict(self):
         """Test creating zone from dictionary."""
@@ -696,8 +682,10 @@ class TestClientRegistryService:
         assert retrieved.filters[0].frequency == 1000
 
     @pytest.mark.asyncio
-    async def test_client_equalizer_cleared_on_zone_join(self, registry):
-        """Test that standalone Equalizer is cleared when client joins a zone."""
+    async def test_client_equalizer_kept_on_zone_join(self, registry):
+        """A client's own EQ record is NOT cleared by the registry when it joins a
+        zone — members own their record (the access layer overwrites it with the
+        zone's neutral EQ in production)."""
         from backend.core.multiroom.models import EqFilter
 
         await registry.initialize()
@@ -705,19 +693,18 @@ class TestClientRegistryService:
         await registry.register_client(mac_id="local", name="Main", ip="127.0.0.1")
         await registry.register_client(mac_id="client2", name="Client 2", ip="192.168.1.100")
 
-        # Set standalone Equalizer for local with typed EqFilter
         eq = EqualizerSettings(filters=[EqFilter(id="eq_band_00", frequency=1000)])
-        await registry.set_client_equalizer("local", eq)
+        await registry.set_client_equalizer("client2", eq)
 
-        # Create zone - standalone Equalizer should be cleared
         await registry.create_zone("zone1", "Test Zone", ["local", "client2"])
 
-        # Standalone Equalizer should be cleared
-        assert registry.get_client_equalizer("local") is None
+        # The registry leaves the record in place (no implicit clear).
+        assert registry.get_client_equalizer("client2") is not None
 
     @pytest.mark.asyncio
-    async def test_zone_equalizer_retained_on_leave(self, registry):
-        """Test that zone Equalizer is copied to standalone when client leaves zone (FR14/AC2)."""
+    async def test_client_equalizer_retained_on_leave(self, registry):
+        """Leaving a zone keeps the client's own EQ record (zones hold no EQ of
+        their own; the member already owns its record)."""
         from backend.core.multiroom.models import EqFilter
 
         await registry.initialize()
@@ -726,23 +713,21 @@ class TestClientRegistryService:
         await registry.register_client(mac_id="client2", name="Client 2", ip="192.168.1.100")
         await registry.register_client(mac_id="client3", name="Client 3", ip="192.168.1.101")
 
-        # Create zone with custom Equalizer settings using typed EqFilter
-        zone_equalizer = EqualizerSettings(filters=[EqFilter(id="eq_band_00", frequency=2000, gain=-5.0)])
-        await registry.create_zone("zone1", "Test Zone", ["local", "client2", "client3"], equalizer_settings=zone_equalizer)
+        await registry.create_zone("zone1", "Test Zone", ["local", "client2", "client3"])
 
-        # Verify no standalone Equalizer for client3
-        assert registry.get_client_equalizer("client3") is None
+        # The access layer sets each member's record; emulate that for client3.
+        eq = EqualizerSettings(filters=[EqFilter(id="eq_band_00", frequency=2000, gain=-5.0)])
+        await registry.set_client_equalizer("client3", eq)
 
-        # Remove client3 from zone
+        # Remove client3 from zone — its record must survive.
         result = await registry.remove_client_from_zone("zone1", "client3")
         assert result is True
 
-        # Client3 should now have zone's Equalizer as standalone (FR14)
-        standalone = registry.get_client_equalizer("client3")
-        assert standalone is not None
-        assert len(standalone.filters) == 1
-        assert standalone.filters[0].frequency == 2000
-        assert standalone.filters[0].gain == -5.0
+        retained = registry.get_client_equalizer("client3")
+        assert retained is not None
+        assert len(retained.filters) == 1
+        assert retained.filters[0].frequency == 2000
+        assert retained.filters[0].gain == -5.0
 
     @pytest.mark.asyncio
     async def test_thread_safety_concurrent_operations(self, registry):
@@ -1505,73 +1490,6 @@ class TestZoneDspSync:
         assert eq.filters[0].frequency == 500
         assert eq.compressor.enabled is False
         assert eq.loudness.enabled is False  # None becomes default LoudnessSettings
-
-    def test_zone_with_equalizer_settings(self):
-        """Test Zone contains Equalizer settings properly."""
-        from backend.core.multiroom.models import EqFilter, CompressorSettings, LoudnessSettings
-
-        equalizer_settings = EqualizerSettings(
-            enabled=True,
-            filters=[EqFilter(id="eq_1", frequency=100, gain=2.0)],
-            compressor=CompressorSettings(enabled=True, threshold=-15),
-            loudness=LoudnessSettings(enabled=True, high_boost=80)
-        )
-
-        zone = Zone(
-            name="Living Room",
-            id="zone-1",
-            client_ids=["local", "client-01"],
-            equalizer_settings=equalizer_settings
-        )
-
-        assert zone.equalizer_settings.filters[0].frequency == 100
-        assert zone.equalizer_settings.compressor.enabled is True
-        assert zone.equalizer_settings.loudness.enabled is True
-
-    def test_zone_to_dict_includes_equalizer_settings(self):
-        """Test Zone serialization includes Equalizer settings."""
-        from backend.core.multiroom.models import EqFilter, LoudnessSettings
-
-        zone = Zone(
-            name="Test Zone",
-            id="zone-1",
-            client_ids=["local"],
-            equalizer_settings=EqualizerSettings(
-                enabled=True,
-                filters=[EqFilter(id="eq_2", frequency=2000)],
-                loudness=LoudnessSettings(enabled=False)
-            )
-        )
-
-        data = zone.to_dict()
-
-        assert "equalizer_settings" in data
-        assert len(data["equalizer_settings"]["filters"]) == 1
-        assert data["equalizer_settings"]["filters"][0]["frequency"] == 2000
-        assert data["equalizer_settings"]["compressor"]["enabled"] is False
-        assert data["equalizer_settings"]["loudness"]["enabled"] is False
-
-    def test_zone_from_dict_loads_equalizer_settings(self):
-        """Test Zone deserialization loads Equalizer settings."""
-        data = {
-            "id": "zone-2",
-            "name": "Bedroom",
-            "client_ids": ["client-02", "client-03"],
-            "equalizer_settings": {
-                "enabled": True,
-                "filters": [{"id": "eq_3", "frequency": 3000, "gain": 1.5, "q": 1.41, "filter_type": "Peaking", "enabled": True}],
-                "compressor": {"enabled": True, "threshold": -20, "ratio": 4.0, "attack": 10.0, "release": 100.0, "makeup_gain": 0.0},
-                "loudness": {"enabled": True, "high_boost": 5.0, "low_boost": 8.0}
-            }
-        }
-
-        zone = Zone.from_dict(data)
-
-        assert zone.id == "zone-2"
-        assert len(zone.client_ids) == 2
-        assert zone.equalizer_settings.filters[0].frequency == 3000
-        assert zone.equalizer_settings.compressor.enabled is True
-        assert zone.equalizer_settings.loudness.high_boost == 5.0
 
 
 # =============================================================================
@@ -2418,7 +2336,6 @@ class TestSnapcastClientDetection:
             "z1", "Zone 1", ["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"]
         )
         await registry.update_zone("z1", name="Zone 1 Renamed")
-        await registry.set_zone_equalizer("z1", EqualizerSettings.default_for_zone())
         await registry.remove_client_from_zone("z1", "aa:bb:cc:dd:ee:02")
         await registry.delete_zone("z1")
         await registry.unregister_client("aa:bb:cc:dd:ee:01")
@@ -2753,264 +2670,6 @@ class TestReconnectionHelperMethods:
 
         others = registry.get_other_online_clients("local")
         assert others == []
-
-
-# =============================================================================
-# Equalizer Sync Method Tests (Story 5.1 Code Review Fixes)
-# =============================================================================
-
-
-class TestSyncZoneDspToClient:
-    """
-    Unit tests for SnapcastWebSocketService._sync_zone_equalizer_to_client().
-
-    These tests validate that zone Equalizer settings (EqFilter, CompressorSettings,
-    LoudnessSettings dataclasses) are properly converted to dicts before
-    being sent to the proxy service.
-    """
-
-    @pytest.fixture
-    def mock_state_machine(self):
-        """Create a mock state machine with required services."""
-        sm = MagicMock()
-        sm.broadcast_event = AsyncMock()
-        sm.equalizer_client_proxy_service = MagicMock()
-        sm.equalizer_client_proxy_service.request = AsyncMock()
-        sm.crossover_service = MagicMock()
-        sm.crossover_service.queue_pending_settings = AsyncMock()
-        return sm
-
-    @pytest.fixture
-    def mock_registry(self):
-        """Create a mock registry with a test client."""
-        registry = MagicMock()
-        client = MagicMock()
-        client.ip = "192.168.1.100"
-        client.is_local = False
-        client.mac_id = "test-client"
-        registry.get_client = MagicMock(return_value=client)
-        return registry
-
-    @pytest.fixture
-    def mock_zone_with_equalizer(self):
-        """Create a mock zone with typed Equalizer settings."""
-        zone = MagicMock()
-        zone.id = "zone-1"
-
-        # Create real EqualizerSettings with EqFilter objects
-        filters = [
-            EqFilter(id="eq_band_00", frequency=100, gain=3.0, q=1.41, filter_type=FilterType.PEAKING),
-            EqFilter(id="eq_band_01", frequency=1000, gain=-2.0, q=1.0, filter_type=FilterType.LOWSHELF),
-        ]
-        compressor = CompressorSettings(enabled=True, threshold=-15.0, ratio=4.0, attack=10.0, release=100.0)
-        loudness = LoudnessSettings(enabled=True, high_boost=5.0, low_boost=8.0)
-
-        zone.equalizer_settings = EqualizerSettings(
-            enabled=True,
-            filters=filters,
-            compressor=compressor,
-            loudness=loudness
-        )
-        return zone
-
-    @pytest.mark.asyncio
-    async def test_eq_filter_attributes_accessed_correctly(self, mock_state_machine, mock_registry, mock_zone_with_equalizer):
-        """Test that EqFilter object attributes are accessed correctly (not .get())."""
-        from backend.core.multiroom.websocket import SnapcastWebSocketService
-
-        ws_service = SnapcastWebSocketService(
-            state_machine=mock_state_machine,
-            routing_service=MagicMock()
-        )
-        ws_service._registry = mock_registry
-        ws_service._equalizer_client_proxy_service = mock_state_machine.equalizer_client_proxy_service
-        ws_service._crossover_service = mock_state_machine.crossover_service
-
-        # Execute sync
-        await ws_service._sync_zone_equalizer_to_client("test-client", mock_zone_with_equalizer)
-
-        # Verify proxy was called for each filter
-        proxy = mock_state_machine.equalizer_client_proxy_service
-        assert proxy.request.call_count >= 2  # At least 2 filter calls
-
-        # Check first filter call
-        filter_calls = [call for call in proxy.request.call_args_list if "/equalizer/filter/" in str(call)]
-        assert len(filter_calls) == 2
-
-        # Verify filter data structure is correct (dict, not EqFilter object)
-        first_filter_call = filter_calls[0]
-        filter_data = first_filter_call[0][3]  # 4th positional arg is data
-        assert isinstance(filter_data, dict)
-        assert "freq" in filter_data
-        assert "gain" in filter_data
-        assert "q" in filter_data
-        assert "filter_type" in filter_data
-
-    @pytest.mark.asyncio
-    async def test_compressor_settings_converted_to_dict(self, mock_state_machine, mock_registry, mock_zone_with_equalizer):
-        """Test that CompressorSettings dataclass is converted to dict."""
-        from backend.core.multiroom.websocket import SnapcastWebSocketService
-
-        ws_service = SnapcastWebSocketService(
-            state_machine=mock_state_machine,
-            routing_service=MagicMock()
-        )
-        ws_service._registry = mock_registry
-        ws_service._equalizer_client_proxy_service = mock_state_machine.equalizer_client_proxy_service
-        ws_service._crossover_service = mock_state_machine.crossover_service
-
-        # Execute sync
-        await ws_service._sync_zone_equalizer_to_client("test-client", mock_zone_with_equalizer)
-
-        # Find compressor call
-        proxy = mock_state_machine.equalizer_client_proxy_service
-        compressor_calls = [call for call in proxy.request.call_args_list if "/equalizer/compressor" in str(call)]
-        assert len(compressor_calls) == 1
-
-        # Verify it's a dict, not CompressorSettings object
-        compressor_data = compressor_calls[0][0][3]
-        assert isinstance(compressor_data, dict)
-        assert compressor_data["enabled"] is True
-        assert compressor_data["threshold"] == -15.0
-
-    @pytest.mark.asyncio
-    async def test_loudness_settings_converted_to_dict(self, mock_state_machine, mock_registry, mock_zone_with_equalizer):
-        """Test that LoudnessSettings dataclass is converted to dict."""
-        from backend.core.multiroom.websocket import SnapcastWebSocketService
-
-        ws_service = SnapcastWebSocketService(
-            state_machine=mock_state_machine,
-            routing_service=MagicMock()
-        )
-        ws_service._registry = mock_registry
-        ws_service._equalizer_client_proxy_service = mock_state_machine.equalizer_client_proxy_service
-        ws_service._crossover_service = mock_state_machine.crossover_service
-
-        # Execute sync
-        await ws_service._sync_zone_equalizer_to_client("test-client", mock_zone_with_equalizer)
-
-        # Find loudness call
-        proxy = mock_state_machine.equalizer_client_proxy_service
-        loudness_calls = [call for call in proxy.request.call_args_list if "/equalizer/loudness" in str(call)]
-        assert len(loudness_calls) == 1
-
-        # Verify it's a dict, not LoudnessSettings object
-        loudness_data = loudness_calls[0][0][3]
-        assert isinstance(loudness_data, dict)
-        assert loudness_data["enabled"] is True
-        assert loudness_data["high_boost"] == 5.0
-
-    @pytest.mark.asyncio
-    async def test_failed_filter_queued_as_dict(self, mock_state_machine, mock_registry, mock_zone_with_equalizer):
-        """Test that failed filters are queued as dicts (not EqFilter objects)."""
-        from backend.core.multiroom.websocket import SnapcastWebSocketService
-
-        # Make filter sync fail
-        mock_state_machine.equalizer_client_proxy_service.request = AsyncMock(
-            side_effect=Exception("Connection failed")
-        )
-
-        ws_service = SnapcastWebSocketService(
-            state_machine=mock_state_machine,
-            routing_service=MagicMock()
-        )
-        ws_service._registry = mock_registry
-        ws_service._equalizer_client_proxy_service = mock_state_machine.equalizer_client_proxy_service
-        ws_service._crossover_service = mock_state_machine.crossover_service
-
-        # Execute sync (should fail but queue settings)
-        result = await ws_service._sync_zone_equalizer_to_client("test-client", mock_zone_with_equalizer)
-        assert result is False  # Sync failed
-
-        # Verify filters were queued as dicts
-        crossover = mock_state_machine.crossover_service
-        filter_queue_calls = [
-            call for call in crossover.queue_pending_settings.call_args_list
-            if call[0][1] == "filters"
-        ]
-        assert len(filter_queue_calls) == 1
-
-        # Check that queued data is a list of dicts
-        queued_filters = filter_queue_calls[0][0][2]
-        assert isinstance(queued_filters, list)
-        assert all(isinstance(f, dict) for f in queued_filters)
-
-    @pytest.mark.asyncio
-    async def test_sync_returns_true_on_success(self, mock_state_machine, mock_registry, mock_zone_with_equalizer):
-        """Test that sync returns True when all settings are synced successfully."""
-        from backend.core.multiroom.websocket import SnapcastWebSocketService
-
-        ws_service = SnapcastWebSocketService(
-            state_machine=mock_state_machine,
-            routing_service=MagicMock()
-        )
-        ws_service._registry = mock_registry
-        ws_service._equalizer_client_proxy_service = mock_state_machine.equalizer_client_proxy_service
-        ws_service._crossover_service = mock_state_machine.crossover_service
-
-        result = await ws_service._sync_zone_equalizer_to_client("test-client", mock_zone_with_equalizer)
-        assert result is True
-
-    @pytest.mark.asyncio
-    async def test_sync_handles_missing_client(self, mock_state_machine):
-        """Test that sync handles missing client gracefully."""
-        from backend.core.multiroom.websocket import SnapcastWebSocketService
-
-        mock_registry = MagicMock()
-        mock_registry.get_client = MagicMock(return_value=None)
-
-        ws_service = SnapcastWebSocketService(
-            state_machine=mock_state_machine,
-            routing_service=MagicMock()
-        )
-        ws_service._registry = mock_registry
-        ws_service._equalizer_client_proxy_service = mock_state_machine.equalizer_client_proxy_service
-        ws_service._crossover_service = mock_state_machine.crossover_service
-
-        mock_zone = MagicMock()
-        mock_zone.equalizer_settings = EqualizerSettings()
-
-        result = await ws_service._sync_zone_equalizer_to_client("unknown-client", mock_zone)
-        assert result is False
-
-    @pytest.mark.asyncio
-    async def test_local_zone_member_restores_active_preset_name(self, mock_state_machine, mock_zone_with_equalizer):
-        """A LOCAL client reconnecting while in a zone restores the zone's preset NAME
-        onto the local CamillaDSP, so the name is correct if the zone is later deleted
-        (deletion carries the zone EQ into standalone but leaves the local DSP untouched)."""
-        from backend.core.multiroom.websocket import SnapcastWebSocketService
-
-        mock_zone_with_equalizer.equalizer_settings.active_preset = "vocal_boost"
-
-        registry = MagicMock()
-        local_client = MagicMock()
-        local_client.ip = "127.0.0.1"
-        local_client.is_local = True
-        local_client.mac_id = "local"
-        registry.get_client = MagicMock(return_value=local_client)
-
-        camilladsp = MagicMock()
-        camilladsp.set_filter = AsyncMock()
-        camilladsp.set_compressor = AsyncMock()
-        camilladsp.set_loudness = AsyncMock()
-        camilladsp.set_mono = AsyncMock()
-        camilladsp.bypass_effects = AsyncMock()
-        camilladsp.restore_effects = AsyncMock()
-        camilladsp.set_active_preset = AsyncMock()
-
-        ws_service = SnapcastWebSocketService(
-            state_machine=mock_state_machine,
-            routing_service=MagicMock()
-        )
-        ws_service._registry = registry
-        ws_service._camilladsp_service = camilladsp
-        ws_service._crossover_service = mock_state_machine.crossover_service
-
-        await ws_service._sync_zone_equalizer_to_client("local", mock_zone_with_equalizer)
-
-        # persist defaults to True here, matching the gains (set_filter persist=True
-        # in this re-sync path) so equalizer.json stays internally consistent.
-        camilladsp.set_active_preset.assert_called_once_with("vocal_boost")
 
 
 class TestSyncStandaloneDspToClient:

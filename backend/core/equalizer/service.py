@@ -12,6 +12,13 @@ from typing import Dict, List, Any, Optional
 from enum import Enum
 
 from backend.core.equalizer.presets import get_builtin_presets, get_preset_by_id, DEFAULT_CUSTOM_GAINS, DEFAULT_EQ_FREQS
+from backend.core.multiroom.models import (
+    CompressorSettings,
+    EqFilter,
+    EqualizerSettings,
+    FilterType,
+    LoudnessSettings,
+)
 from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
 from backend.shared.persistence import (
@@ -895,6 +902,16 @@ class CamillaDSPService:
         self._custom_gains = [float(f.get("gain", 0)) for f in self._filters[:10]]
         self._schedule_persist()
 
+    def set_custom_gains(self, gains: List[float]) -> None:
+        """Replace the saved custom-preset gains.
+
+        Used by the per-client access layer when a full EQ record carrying
+        custom_gains is applied to the local client; persistence is handled
+        separately by the caller (persist_state).
+        """
+        if gains and len(gains) >= 10:
+            self._custom_gains = [float(g) for g in gains[:10]]
+
     async def get_custom_gains(self) -> List[float]:
         if self._custom_gains and len(self._custom_gains) >= 10:
             return list(self._custom_gains)
@@ -1122,6 +1139,46 @@ class CamillaDSPService:
 
         except Exception as e:
             self.logger.error(f"Error persisting equalizer state: {e}", exc_info=True)
+
+    async def persist_state(self) -> None:
+        """Immediately flush the local client's full EQ state to equalizer.json.
+
+        Public entry point for the per-client EQ access layer. When the local
+        client's EQ is changed through the multiroom layer the live cache is
+        already updated; this snapshots it to disk (cancelling any pending
+        debounced write first) so the local client's record survives a restart.
+        """
+        if self._persist_debounce_task and not self._persist_debounce_task.done():
+            self._persist_debounce_task.cancel()
+        await self._persist_state_async()
+
+    def get_equalizer_settings(self) -> EqualizerSettings:
+        """Snapshot the local client's full EQ as a unified EqualizerSettings record.
+
+        Reads the in-memory cache (the source of truth — see get_filters for why
+        the daemon is not read). This is the local client's one EQ record in the
+        unified per-client model; ``enabled`` reflects the master effects toggle.
+        """
+        filters = [
+            EqFilter(
+                id=f["id"],
+                frequency=int(f["freq"]),
+                gain=float(f.get("gain", 0.0)),
+                q=float(f.get("q", 1.41)),
+                filter_type=FilterType(f.get("type", "Peaking")),
+                enabled=bool(f.get("enabled", True)),
+            )
+            for f in self._filters
+        ]
+        return EqualizerSettings(
+            enabled=self._effects_enabled,
+            filters=filters,
+            compressor=CompressorSettings.from_dict(self._compressor),
+            loudness=LoudnessSettings.from_dict(self._loudness),
+            active_preset=self._active_preset,
+            mono=self._mono,
+            custom_gains=list(self._custom_gains) if self._custom_gains else None,
+        )
 
     # === Event Broadcasting ===
 

@@ -158,7 +158,6 @@ class TestZoneCreation:
         assert zone.id == "living_room"
         assert zone.name == "Living Room"
         assert set(zone.client_ids) == {"local", "bedroom"}
-        assert zone.equalizer_settings is not None
 
     @pytest.mark.asyncio
     async def test_create_zone_requires_minimum_2_clients(
@@ -615,94 +614,47 @@ class TestZoneClientManagement:
 
 
 class TestZoneEqualizerSettings:
-    """Tests for zone Equalizer settings management."""
+    """Tests for per-client EQ records under the unified model.
+
+    A zone holds no EQ of its own — each member owns one EQ record, which the
+    registry leaves untouched on join (the access layer applies the neutral zone
+    EQ to each member in production).
+    """
 
     @pytest.mark.asyncio
-    async def test_zone_has_default_equalizer_settings(
+    async def test_zone_holds_no_equalizer_of_its_own(
         self,
         registry_with_clients: ClientRegistryService
     ):
-        """
-        Test zone is created with default Equalizer settings.
-
-        Default Equalizer settings include:
-        - enabled=True (Equalizer active)
-        - 10-band parametric EQ at standard frequencies with 0 dB gain
-        - compressor disabled
-        - loudness disabled
-        """
-        from backend.core.multiroom.models import EqFilter, CompressorSettings, LoudnessSettings
-
+        """A created zone exposes no equalizer_settings — zone EQ derives from members."""
         zone = await registry_with_clients.create_zone(
             zone_id="living_room",
             name="Living Room",
             client_ids=["local", "bedroom"]
         )
 
-        assert zone.equalizer_settings is not None
-        assert zone.equalizer_settings.enabled is True
-        # Default creates 10-band EQ with flat gains
-        assert len(zone.equalizer_settings.filters) == 10
-        assert all(isinstance(f, EqFilter) for f in zone.equalizer_settings.filters)
-        assert all(f.gain == 0.0 for f in zone.equalizer_settings.filters)
-        # Compressor and loudness should be disabled by default
-        assert isinstance(zone.equalizer_settings.compressor, CompressorSettings)
-        assert zone.equalizer_settings.compressor.enabled is False
-        assert isinstance(zone.equalizer_settings.loudness, LoudnessSettings)
-        assert zone.equalizer_settings.loudness.enabled is False
+        assert not hasattr(zone, "equalizer_settings")
 
     @pytest.mark.asyncio
-    async def test_zone_created_with_custom_equalizer_settings(
+    async def test_client_equalizer_kept_when_joining_zone(
         self,
         registry_with_clients: ClientRegistryService
     ):
-        """
-        Test zone can be created with custom Equalizer settings.
-        """
-        from backend.core.multiroom.models import EqFilter, CompressorSettings
-
-        custom_equalizer = EqualizerSettings(
-            enabled=True,
-            filters=[EqFilter(id="eq_band_00", frequency=1000, gain=3.0)],
-            compressor=CompressorSettings(enabled=True, threshold=-20, ratio=4.0)
-        )
-
-        zone = await registry_with_clients.create_zone(
-            zone_id="living_room",
-            name="Living Room",
-            client_ids=["local", "bedroom"],
-            equalizer_settings=custom_equalizer
-        )
-
-        assert len(zone.equalizer_settings.filters) == 1
-        assert zone.equalizer_settings.compressor.enabled is True
-
-    @pytest.mark.asyncio
-    async def test_client_equalizer_cleared_when_joining_zone(
-        self,
-        registry_with_clients: ClientRegistryService
-    ):
-        """
-        Test that standalone Equalizer settings are cleared when client joins a zone.
-        """
+        """The registry does NOT clear a client's EQ record when it joins a zone."""
         from backend.core.multiroom.models import EqFilter
 
-        # Set standalone Equalizer for local with typed EqFilter
         eq = EqualizerSettings(filters=[EqFilter(id="eq_band_00", frequency=1000)])
-        await registry_with_clients.set_client_equalizer("local", eq)
+        await registry_with_clients.set_client_equalizer("bedroom", eq)
+        assert registry_with_clients.get_client_equalizer("bedroom") is not None
 
-        # Verify standalone Equalizer exists
-        assert registry_with_clients.get_client_equalizer("local") is not None
-
-        # Create zone
         await registry_with_clients.create_zone(
             zone_id="living_room",
             name="Living Room",
             client_ids=["local", "bedroom"]
         )
 
-        # Standalone Equalizer should be cleared
-        assert registry_with_clients.get_client_equalizer("local") is None
+        # Record is left in place (the access layer overwrites it with zone EQ).
+        assert registry_with_clients.get_client_equalizer("bedroom") is not None
 
 
 # ==============================================================================
