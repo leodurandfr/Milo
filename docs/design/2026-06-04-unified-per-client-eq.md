@@ -149,3 +149,52 @@ now-redundant code is removed (doctrine: one code path):
   only widen *where* `set_client_eq(local)` persists.
 - Frontend `getApiBase` unification must not break the multiroom-off (plain local) case.
 - Out of scope: the "auto-save on band edit" UX question (Test C) — separate investigation.
+
+## Addendum (2026-06-04) — Option B: one uniform per-target EQ API
+
+**Context.** Phase 3 shipped *Option A* (kept the three split route families: local-bare `/api/equalizer/*`,
+remote `/client/{mac}/*`, zone `/zone/{id}/*`). When Phase 4 (frontend) began, Option A and the
+written Phase-4 ("one per-client fetch, remove all branching") proved **incompatible**: the backend
+exposes no uniform per-target shape, and the local device has no MAC the frontend can address when
+multiroom is off. An audit also found the split is not just verbose but **incoherent and already
+buggy** — verbs disagree (PUT vs PATCH), preset grammar disagrees (`/preset/{id}` vs `/preset`+body),
+and **there is no local `PUT /mono` route**, so `updateMono` on the local device (multiroom off) hits
+`PUT /api/equalizer/mono` → **404** (Mono toggle broken in production). Only the frontend consumes
+`/api/equalizer/*` (verified: Milo-Mac and satellites never call it) → a redesign has **zero external
+blast radius**.
+
+**Decision (Léo, "do Option B properly").** Replace the three families with **one uniform per-target
+EQ API**:
+
+- `GET /api/equalizer/target/{target}` → the complete record for display: `{ state, sample_rate,
+  available, enabled, active_preset, mono, compressor, loudness, custom_gains, filters }`, where
+  `filters` use the **frontend wire shape** (`id, freq, gain, q, type, enabled` — *not* the model's
+  `frequency`/`filter_type`), i.e. a superset of today's `/status` + `/filters`.
+- `PUT /api/equalizer/target/{target}/{filter/{id}|compressor|loudness|mono|enabled}` and
+  `POST /api/equalizer/target/{target}/{preset|save-custom}` — identical grammar for every target.
+- `target ∈ { "local", "<mac>", "zone:<id>" }`. `GET /presets` (global catalog) and `/levels*` stay
+  (orthogonal); `/links/*` crossover stays; `/mute` stays (volume domain).
+
+**Why this is clean and keeps the storage layering (the original Option-A concern).** The Phase-3
+objection was that base-audio EQ must not depend on the multiroom registry. That concern is about
+*storage* (already solved: local EQ stays in `equalizer.json`), **not** the HTTP shape. A
+`LOCAL_TARGET = "local"` sentinel routes straight to CamillaDSP **without any registry entry**, so the
+local device is addressable in all modes and base EQ stays multiroom-independent. The access layer
+gains `_is_local(target) = (target == "local") or registry.is_local_client(target)`, used by
+`get_client_eq` / `set_client_eq` / `apply_client_equalizer` / `_apply_partial_update` /
+`set_client_equalizer_effects_enabled` so each accepts `"local"`. `EqualizerRouter._route` already
+falls back to local CamillaDSP for an unknown mac, so `mac_id="local"` dispatches correctly.
+
+**No schema bump** — on-disk shapes are unchanged (this is an API/transport refactor only).
+
+**Sequencing (keep `main` deployable, no broken-EQ window).**
+
+1. **Phase 3.5 (backend, additive, TDD):** add the uniform `/target/{target}` routes over the existing
+   access layer + teach the access layer the `local` sentinel. The old split routes **stay** for now.
+   Fixes Mono *by construction* (a uniform `/mono` exists for every target).
+2. **Phase 4 (frontend):** collapse the store + modal onto one target resolver + one record; this
+   repoints local Mono to `/target/local/mono` (fixing the 404). **Last task:** delete the now-unused
+   old split routes (single-path doctrine) once nothing calls them.
+3. **Phase 5:** unchanged (test sweep + manual Pi A/B/C).
+
+This supersedes the original "Phasing" items 3–4 above; see the plan doc for the checkboxed tasks.

@@ -224,25 +224,123 @@ Test `backend/tests/test_api_equalizer.py` (new), `backend/tests/test_multiroom_
 
 ---
 
-## Phase 4 — Frontend unification
+## Phase 3.5 — Backend: uniform per-target EQ API (ADDED 2026-06-04, Option B)
 
-**Outcome:** The store and modal treat every client (local included) as one per-client record.
+> **Architecture pivot (Léo approved "do Option B properly"):** the 3-path split shipped in Phase 3
+> (Option A) is incoherent and already buggy (no local `PUT /mono` → Mono toggle is a 404 in prod) and
+> incompatible with a one-record frontend. Replace it with **one uniform per-target API**. See the
+> design-doc addendum (`2026-06-04-unified-per-client-eq.md` → "Addendum — Option B"). The frontend is
+> the **only** consumer of `/api/equalizer/*`, so there is no external blast radius. **No schema bump**
+> (transport-only). Sequencing keeps `main` deployable: Phase 3.5 is **additive** (old routes stay);
+> the old routes are deleted as the **last task of Phase 4**, once nothing calls them.
 
-### Task 4.1 — Unify `getApiBase` + fetch in the store
-**Files:** Modify `frontend/src/stores/equalizerStore.js`; (no vitest configured — rely on manual + lint).
-- [ ] Replace the local/remote/zone branching with one per-client fetch of `{filters, active_preset,
-      compressor, loudness, mono}`. Remove the `!isLocalClient` gates and the dual name/gains sources.
+**Outcome:** `GET /api/equalizer/target/{target}` returns the complete record and
+`PUT/POST /api/equalizer/target/{target}/…` writes it, for `target ∈ local · <mac> · zone:<id>`,
+all dispatching through the existing access layer. Old routes untouched and still green.
+
+**Verified contracts:** `routing.set_equalizer_effects_enabled(enabled, active_source=None)` (optional
+→ safe to unify); `EqualizerSettings.to_dict()` = `{enabled, filters, compressor, loudness,
+active_preset, mono, custom_gains?}`; `EqFilter.to_dict()` emits `frequency`/`filter_type` but the
+frontend + local `/filters` use `freq`/`type` → **the uniform GET must emit the frontend shape**
+(`freq`/`type`); `camilladsp.get_equalizer_settings()` is the local record; `EqualizerRouter._route`
+already falls back to local CamillaDSP for an unknown mac (so `mac_id="local"` dispatches).
+
+### Task 3.5.1 — Access layer recognizes the `local` sentinel
+**Files:** Modify `backend/core/equalizer/multiroom_service.py`; Test `backend/tests/test_multiroom_equalizer_service.py`.
+- [ ] Failing tests (empty registry, i.e. multiroom-off): `get_client_eq("local")` reads CamillaDSP;
+      `set_client_eq("local", eq)` applies to the DAC + persists (no registry write);
+      `update_filter("client","local",…)` persists local + routes via the router and does **not**
+      materialize a phantom registry record; `set_client_equalizer_effects_enabled("local",…)` →
+      `routing_service` bypass/restore; `apply_client_equalizer("local",…)` skips registry validation.
+- [ ] Run → fail. Implement: module const `LOCAL_TARGET = "local"` + `_is_local(target)` =
+      `target == LOCAL_TARGET or (self._registry and self._registry.is_local_client(target))`; route
+      `get_client_eq` / `set_client_eq` / `apply_client_equalizer` / `_apply_partial_update`
+      (guard + per-member check) / `set_client_equalizer_effects_enabled` through `_is_local`.
+- [ ] Run → pass. `ruff check --select F401,F841` on touched files.
+- [ ] Commit: `feat(eq): access layer recognizes the "local" target sentinel`.
+
+### Task 3.5.2 — `GET /target/{target}` uniform read
+**Files:** Modify `backend/api/equalizer.py`; Test `backend/tests/test_api_equalizer.py`.
+- [ ] Failing tests: `GET /target/local` → local record (filters in `freq`/`type` shape +
+      `active_preset` + `enabled` + `compressor`/`loudness`/`mono` + `custom_gains` + `state`);
+      `GET /target/{mac}` → remote record; `GET /target/zone:{id}` → zone record (derived);
+      unknown client/zone → 404.
+- [ ] Run → fail. Implement: `_resolve_target(target)` → `("client","local")` | `("zone",id)` |
+      `("client",mac)`; `record = await multiroom_equalizer_service.get_equalizer(tt, tid)` (404 on
+      `None`/`ValueError`); assemble the **frontend wire dict** (filters `freq`/`type`) + live
+      `state`/`sample_rate` (local/zone → `camilladsp_service.get_status()`; remote mac →
+      `equalizer_router_service.get_status(mac)`).
+- [ ] Run → pass.
+- [ ] Commit: `feat(eq): GET /target/{target} uniform per-target EQ read`.
+
+### Task 3.5.3 — `PUT/POST /target/{target}/…` uniform writes
+**Files:** Modify `backend/api/equalizer.py`; Test `backend/tests/test_api_equalizer.py`.
+- [ ] Failing tests: `PUT /target/{target}/{filter/{id}|compressor|loudness|mono}` route to the access
+      layer `update_*` with the resolved `(target_type, target_id)`; `PUT /target/{target}/enabled` →
+      `set_client_equalizer_effects_enabled` (client) / `set_zone_equalizer_effects_enabled` (zone);
+      `POST /target/{target}/preset` (`EqualizerPresetRequest`) → `load_client_preset` /
+      `load_zone_preset` (returns resolved gains); `POST /target/{target}/save-custom` →
+      `save_custom_preset(tt, tid)`; **`PUT /target/local/mono` succeeds (the Mono-404 fix)**;
+      unknown target → 404 everywhere.
+- [ ] Run → fail. Implement the 6 routes via `_resolve_target` + the access layer; map `ValueError`
+      → 404 like the existing siblings. Reuse `EqualizerFilterUpdateRequest` / `EqualizerCompressorRequest`
+      / `EqualizerLoudnessRequest` / `EqualizerPresetRequest` (no dual-key fallbacks — Pitfall #11).
+- [ ] Run → pass. `ruff check backend/` + `--select F401,F841` on touched files.
+- [ ] Commit: `feat(eq): uniform PUT/POST /target/{target} EQ writes`.
+
+**Phase 3.5 acceptance:** new `/target/{target}` routes covered; old routes untouched + still green;
+full `pytest` green; `ruff` clean; `code-review` clean. STOP for review.
+
+---
+
+## Phase 4 — Frontend onto the uniform API + remove old routes
+
+**Outcome:** The store and modal treat every target (local · remote · zone) as **one record** behind a
+single `/api/equalizer/target/{target}` resolver; the legacy split routes are deleted. (No vitest —
+rely on lint + `npm run build` + manual Pi validation.)
+
+### Task 4.1 — Store: one target resolver + one record
+**Files:** Modify `frontend/src/stores/equalizerStore.js`.
+- [ ] Replace `getApiBase` + every zone / `!isLocalClient` branch with `targetRef()` →
+      `'local' | '<mac>' | 'zone:<id>'` and `targetBase = '/api/equalizer/target/' + targetRef()`.
+- [ ] `loadStatus`: one `GET ${targetBase}` → parse the whole record (state, filters, compressor,
+      loudness, mono, `active_preset`, `enabled`, `custom_gains`). Keep `GET /presets` **only** for the
+      builtin catalog (labels + preset gains). Remove the dual `active_preset` reconciliation
+      (the `fetchPresets` conditional + the `loadStatus` zone/remote overrides) — the name now comes
+      solely from the record. All writes (`sendFilterUpdate`, `updateCompressor`, `updateLoudness`,
+      `updateMono`, `loadPreset`, `saveCustomPreset`, enabled toggle) → `${targetBase}/…` uniformly.
+      This repoints local Mono to `PUT /target/local/mono` (fixes the 404).
 - [ ] `npm run lint:js` → clean.
-- [ ] Commit: `refactor(eq): frontend store reads one record per client`.
+- [ ] Commit: `refactor(eq): frontend store reads/writes one per-target record`.
 
-### Task 4.2 — Modal reads one record
-**Files:** Modify `frontend/src/components/equalizer/EqualizerModal.vue`; adjust `schemas/ws.js` if
-EQ payloads changed.
-- [ ] Name and gains come from the same per-client record; no cross-source reconciliation.
+### Task 4.2 — Modal/meters read one record; align WS schema
+**Files:** Modify `frontend/src/components/equalizer/EqualizerModal.vue`,
+`frontend/src/components/equalizer/LevelMeters.vue` (if needed), `frontend/src/schemas/ws.js`.
+- [ ] Name + gains come from the one record; no cross-source reconciliation. Check the
+      `multiroom.equalizer_changed` payload: the broadcast sends `EqFilter.to_dict()`
+      (`frequency`/`filter_type`) while the store reads `freq`/`type` — align the producer to the
+      `freq`/`type` wire shape (one canonical key, Pitfall #18) and add/adjust the Zod schema.
 - [ ] `npm run lint:js && npm run lint:css` → clean.
-- [ ] Commit: `refactor(eq): modal renders one per-client EQ record`.
+- [ ] Commit: `refactor(eq): modal renders one per-target EQ record`.
 
-**Phase 4 acceptance:** lint clean; build (`npm run build`) succeeds; `code-review` clean. STOP for review.
+### Task 4.3 — Delete the legacy split routes
+**Files:** Modify `backend/api/equalizer.py`, `backend/tests/…`; verify no other consumer first.
+- [ ] Grep-confirm nothing (frontend, hardware, IR/rotary, other services) still calls the bare
+      `/status` · `/filters` · `/enabled`(GET/PUT) · `/filter/{id}` · `/compressor`(PUT) ·
+      `/loudness`(PUT) · `/preset/{id}` · `/save-custom`, the `/client/{mac}/*` family
+      (status/filters/filter/compressor/loudness/mono/enabled/preset/save-custom/**restore**), and the
+      `/zone/{id}/*` family. Keep `/presets`, `/levels*`, `/mute`, `/links/*` crossover,
+      `/client/{id}/crossover-frequency`. Decide `/client/{mac}/restore`'s fate: under record-as-truth,
+      selecting a remote target just `GET`s its record (the satellite is kept in sync by writes +
+      reconnect, Phase 2) — drop the restore-on-select call + route if confirmed unused.
+- [ ] Remove the dead routes + their now-orphaned helpers (`_get_online_client_ip`, `_get_local_client_mac`,
+      `restore_client_settings`, …) and retarget/trim the tests that asserted them.
+- [ ] `ruff check backend/` + `--select F401,F841`; full `pytest` green.
+- [ ] Commit: `refactor(eq): remove legacy split EQ routes (single per-target path)`.
+
+**Phase 4 acceptance:** `npm run lint:js && lint:css` clean; `npm run build` succeeds; backend
+`pytest` green after route removal; `code-review` clean; manual Pi validation of A/B/C **plus** the
+local Mono toggle and multiroom-off. STOP for review.
 
 ---
 
