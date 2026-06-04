@@ -402,26 +402,6 @@ class TestAC3ZonePropagation:
     """AC3: Equalizer bypass/restore propagates to all zone members within 200ms"""
 
     @pytest.mark.asyncio
-    async def test_client_enabled_proxy_route_exists(self):
-        """Verify /api/equalizer/client/{hostname}/enabled route exists"""
-        from backend.api.equalizer import create_equalizer_router
-
-        # Create router with minimal mocks
-        mock_camilladsp = Mock()
-        mock_sm = Mock()
-
-        router = create_equalizer_router(
-            camilladsp_service=mock_camilladsp,
-            state_machine=mock_sm,
-            routing_service=Mock()
-        )
-
-        # Check that the route is registered
-        routes = [r.path for r in router.routes]
-        assert "/api/equalizer/client/{hostname}/enabled" in routes, \
-            "Proxy route /api/equalizer/client/{hostname}/enabled should exist"
-
-    @pytest.mark.asyncio
     async def test_local_client_enabled_uses_routing_service(self, connected_camilladsp_with_effects):
         """PUT /api/equalizer/client/local/enabled should use routing_service"""
         # This test verifies the route logic handles "local" correctly
@@ -455,38 +435,6 @@ class TestAC3ZonePropagation:
         result = await routing.set_equalizer_effects_enabled(True)
         assert result is True
         mock_camilladsp.restore_effects.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_remote_client_enabled_proxies_to_client(self):
-        """PUT /api/equalizer/client/{hostname}/enabled should proxy to remote client"""
-        from backend.api.equalizer import create_equalizer_router
-        from fastapi import FastAPI
-
-        # Create mocks
-        mock_camilladsp = Mock()
-        mock_sm = Mock()
-        mock_routing = Mock()
-        mock_proxy = Mock()
-        mock_proxy.check_available = AsyncMock(return_value=True)
-        mock_proxy.request = AsyncMock(return_value={"status": "success", "enabled": False})
-
-        router = create_equalizer_router(
-            camilladsp_service=mock_camilladsp,
-            state_machine=mock_sm,
-            routing_service=mock_routing,
-            proxy_service=mock_proxy
-        )
-
-        # Verify proxy is called for remote client
-        app = FastAPI()
-        app.include_router(router)
-
-        # Use async test client approach - verify the proxy service would be called
-        # The route handler calls proxy_service.request for non-local clients
-        assert mock_proxy is not None
-        # Route exists and proxy_service is properly wired
-        routes = [r.path for r in router.routes]
-        assert "/api/equalizer/client/{hostname}/enabled" in routes
 
     @pytest.mark.asyncio
     async def test_zone_propagation_skips_offline_clients(self):
@@ -714,27 +662,6 @@ class TestAC6StateSync:
 
 class TestDspEnabledAPI:
     """Test /api/equalizer/enabled endpoint behavior"""
-
-    @pytest.mark.asyncio
-    async def test_get_enabled_returns_routing_state(self):
-        """GET /api/equalizer/enabled should return routing_service.equalizer_effects_enabled"""
-        # This test verifies the API route exists and returns correct data
-        from backend.api.equalizer import create_equalizer_router
-
-        mock_camilladsp = Mock()
-        mock_sm = Mock()
-        mock_routing = Mock()
-        mock_routing.equalizer_effects_enabled = True
-
-        router = create_equalizer_router(
-            camilladsp_service=mock_camilladsp,
-            state_machine=mock_sm,
-            routing_service=mock_routing
-        )
-
-        # Verify route exists
-        routes = [r.path for r in router.routes]
-        assert "/api/equalizer/enabled" in routes
 
     @pytest.mark.asyncio
     async def test_put_enabled_calls_routing_service(self):

@@ -1,17 +1,14 @@
 # backend/tests/test_api_equalizer.py
 """
-Unit tests for /api/equalizer/ per-client routes (Phase 3 — Option A).
+Unit tests for the uniform per-target equalizer API:
+``GET/PUT/POST /api/equalizer/target/{target}`` with target ∈ "local" · "<mac>" ·
+"zone:<id>".
 
-After unification the REMOTE per-client EQ writes flow through the single access
-layer (MultiroomEqualizerService) instead of the old `equalizer_router +
-_persist_remote` duplicate path. The LOCAL client keeps its dedicated non-scoped
-routes (it has no registry MAC when multiroom is off), so those are unchanged.
-
-These tests lock that contract:
-- remote `/client/{mac}/{filter,compressor,loudness,mono}` → multiroom_equalizer_service.update_*
-- remote `/client/{mac}/enabled` → multiroom_equalizer_service.set_client_equalizer_effects_enabled
-- the equalizer_router is NOT used for those writes (single write path)
-- local non-scoped routes still drive CamillaDSP directly
+After Phase 4 the legacy split routes are gone — the bare /status·/filters·/enabled
+·/filter·/compressor·/loudness·/preset·/save-custom routes, the /client/{mac}/*
+family and the /zone/{id}/* family. Every read/write now flows through one grammar
+that the route resolves to (target_type, target_id) and dispatches to the access
+layer (MultiroomEqualizerService).
 """
 import pytest
 from unittest.mock import Mock, AsyncMock
@@ -119,7 +116,6 @@ def client(mock_camilladsp, mock_state_machine, mock_mre, mock_equalizer_router,
         settings_service=Mock(),
         routing_service=Mock(),
         crossover_service=Mock(),
-        proxy_service=Mock(),
         client_registry_service=mock_registry,
         equalizer_router_service=mock_equalizer_router,
         multiroom_equalizer_service=mock_mre,
@@ -128,140 +124,6 @@ def client(mock_camilladsp, mock_state_machine, mock_mre, mock_equalizer_router,
     app.include_router(router)
     return TestClient(app)
 
-
-# =============================================================================
-# Remote per-client writes route through the unified access layer
-# =============================================================================
-
-class TestRemoteClientFilterRoute:
-    def test_filter_routes_through_access_layer(self, client, mock_mre):
-        resp = client.put(
-            f"/api/equalizer/client/{REMOTE_MAC}/filter/eq_band_00",
-            json={"freq": 120, "gain": 4.0, "q": 1.0, "filter_type": "Peaking", "enabled": True},
-        )
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "success"
-        mock_mre.update_filter.assert_awaited_once()
-        kwargs = mock_mre.update_filter.call_args.kwargs
-        assert kwargs["target_type"] == "client"
-        assert kwargs["target_id"] == REMOTE_MAC
-        assert kwargs["filter_id"] == "eq_band_00"
-        assert kwargs["frequency"] == 120
-        assert kwargs["gain"] == 4.0
-        assert kwargs["q"] == 1.0
-        assert kwargs["filter_type"] == "Peaking"
-        assert kwargs["enabled"] is True
-
-    def test_filter_does_not_use_equalizer_router(self, client, mock_equalizer_router):
-        client.put(
-            f"/api/equalizer/client/{REMOTE_MAC}/filter/eq_band_00",
-            json={"gain": 2.0},
-        )
-        mock_equalizer_router.update_filter.assert_not_called()
-
-    def test_filter_not_found_returns_404(self, client, mock_mre):
-        mock_mre.update_filter.side_effect = ValueError("Filter not found: nope")
-        resp = client.put(
-            f"/api/equalizer/client/{REMOTE_MAC}/filter/nope",
-            json={"gain": 1.0},
-        )
-        assert resp.status_code == 404
-        assert "not found" in resp.json()["detail"].lower()
-
-
-class TestRemoteClientCompressorRoute:
-    def test_compressor_routes_through_access_layer(self, client, mock_mre):
-        resp = client.put(
-            f"/api/equalizer/client/{REMOTE_MAC}/compressor",
-            json={"enabled": True, "threshold": -25.0, "ratio": 3.0},
-        )
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "success"
-        mock_mre.update_compressor.assert_awaited_once()
-        kwargs = mock_mre.update_compressor.call_args.kwargs
-        assert kwargs["target_type"] == "client"
-        assert kwargs["target_id"] == REMOTE_MAC
-        assert kwargs["enabled"] is True
-        assert kwargs["threshold"] == -25.0
-        assert kwargs["ratio"] == 3.0
-
-    def test_compressor_does_not_use_equalizer_router(self, client, mock_equalizer_router):
-        client.put(
-            f"/api/equalizer/client/{REMOTE_MAC}/compressor",
-            json={"enabled": False},
-        )
-        mock_equalizer_router.set_compressor.assert_not_called()
-
-
-class TestRemoteClientLoudnessRoute:
-    def test_loudness_routes_through_access_layer(self, client, mock_mre):
-        resp = client.put(
-            f"/api/equalizer/client/{REMOTE_MAC}/loudness",
-            json={"enabled": True, "high_boost": 4.0, "low_boost": 6.0},
-        )
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "success"
-        mock_mre.update_loudness.assert_awaited_once()
-        kwargs = mock_mre.update_loudness.call_args.kwargs
-        assert kwargs["target_type"] == "client"
-        assert kwargs["target_id"] == REMOTE_MAC
-        assert kwargs["enabled"] is True
-        assert kwargs["high_boost"] == 4.0
-        assert kwargs["low_boost"] == 6.0
-
-    def test_loudness_does_not_use_equalizer_router(self, client, mock_equalizer_router):
-        client.put(
-            f"/api/equalizer/client/{REMOTE_MAC}/loudness",
-            json={"enabled": False},
-        )
-        mock_equalizer_router.set_loudness.assert_not_called()
-
-
-class TestRemoteClientMonoRoute:
-    def test_mono_routes_through_access_layer(self, client, mock_mre):
-        resp = client.put(
-            f"/api/equalizer/client/{REMOTE_MAC}/mono",
-            json={"enabled": True},
-        )
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "success"
-        mock_mre.update_mono.assert_awaited_once()
-        kwargs = mock_mre.update_mono.call_args.kwargs
-        assert kwargs["target_type"] == "client"
-        assert kwargs["target_id"] == REMOTE_MAC
-        assert kwargs["enabled"] is True
-
-    def test_mono_missing_enabled_returns_400(self, client, mock_mre):
-        resp = client.put(f"/api/equalizer/client/{REMOTE_MAC}/mono", json={})
-        assert resp.status_code == 400
-        mock_mre.update_mono.assert_not_called()
-
-    def test_mono_does_not_use_equalizer_router(self, client, mock_equalizer_router):
-        client.put(f"/api/equalizer/client/{REMOTE_MAC}/mono", json={"enabled": True})
-        mock_equalizer_router.set_mono.assert_not_called()
-
-
-class TestRemoteClientEnabledRoute:
-    def test_enabled_routes_through_access_layer(self, client, mock_mre):
-        resp = client.put(
-            f"/api/equalizer/client/{REMOTE_MAC}/enabled",
-            json={"enabled": False},
-        )
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "success"
-        mock_mre.set_client_equalizer_effects_enabled.assert_awaited_once()
-        args = mock_mre.set_client_equalizer_effects_enabled.call_args.args
-        assert args[0] == REMOTE_MAC
-        assert args[1] is False
-
-    def test_enabled_does_not_use_equalizer_router(self, client, mock_equalizer_router):
-        client.put(f"/api/equalizer/client/{REMOTE_MAC}/enabled", json={"enabled": True})
-        mock_equalizer_router.set_equalizer_enabled.assert_not_called()
-
-
-# =============================================================================
-# Local non-scoped routes are unchanged (drive CamillaDSP directly)
-# =============================================================================
 
 # =============================================================================
 # Uniform per-target read: GET /api/equalizer/target/{target}
@@ -454,18 +316,17 @@ class TestTargetSaveCustomWrite:
 
 
 # =============================================================================
-# Local non-scoped routes are unchanged (drive CamillaDSP directly)
+# Global preset catalog: GET /api/equalizer/presets (orthogonal to per-target)
 # =============================================================================
 
-class TestLocalRoutesUnchanged:
-    def test_local_preset_drives_camilladsp(self, client, mock_camilladsp):
-        resp = client.put("/api/equalizer/preset/rock")
+class TestPresetsCatalog:
+    def test_presets_returns_catalog(self, client, mock_camilladsp):
+        mock_camilladsp.get_presets = Mock(return_value=[{"id": "flat", "gains": [0] * 10}])
+        mock_camilladsp.get_active_preset = AsyncMock(return_value="flat")
+        mock_camilladsp.get_custom_gains = AsyncMock(return_value=[0] * 10)
+        resp = client.get("/api/equalizer/presets")
         assert resp.status_code == 200
-        assert resp.json()["status"] == "success"
-        mock_camilladsp.load_preset.assert_awaited_once_with("rock")
-
-    def test_local_save_custom_drives_camilladsp(self, client, mock_camilladsp):
-        resp = client.post("/api/equalizer/save-custom")
-        assert resp.status_code == 200
-        mock_camilladsp.save_custom_gains.assert_awaited_once()
-        mock_camilladsp.set_active_preset.assert_awaited_once_with("custom")
+        body = resp.json()
+        assert body["presets"] == [{"id": "flat", "gains": [0] * 10}]
+        assert body["active_preset"] == "flat"
+        assert body["custom_gains"] == [0] * 10
