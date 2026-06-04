@@ -408,14 +408,6 @@ class Client:
         """Check if this is the local client (running on this device)."""
         return self.ip == "127.0.0.1"
 
-    def is_standalone(self) -> bool:
-        """Check if client is standalone (not in a zone)."""
-        return self.zone_id is None
-
-    def is_in_zone(self) -> bool:
-        """Check if client is in a zone."""
-        return self.zone_id is not None
-
 
 @dataclass
 class Zone:
@@ -565,4 +557,3 @@ class RegistryEventType:
 
     # Equalizer events
     EQUALIZER_SETTINGS_CHANGED = "equalizer_settings_changed"
-    CROSSOVER_CHANGED = "crossover_changed"
