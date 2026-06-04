@@ -56,6 +56,7 @@ def mock_camilladsp_service():
     # Fresh snapshot each call so partial-update tests don't alias across calls.
     cam.get_equalizer_settings = Mock(side_effect=lambda: EqualizerSettings.default())
     cam.persist_state = AsyncMock()
+    cam.update_cache = AsyncMock()
     cam.set_custom_gains = Mock()
     cam.get_custom_gains = AsyncMock(return_value=[0.0] * 10)
     cam.settings_service = None  # prevent Mock auto-creation for await
@@ -486,12 +487,17 @@ class TestLocalDspApplication:
         mock_camilladsp_service.set_mono.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_set_client_eq_local_disconnected(self, multiroom_equalizer_service, mock_camilladsp_service, sample_equalizer_settings):
+    async def test_set_client_eq_local_disconnected_captures_intent(self, multiroom_equalizer_service, mock_camilladsp_service, sample_equalizer_settings):
+        """While CamillaDSP is disconnected the live apply no-ops (set_* guards on
+        `connected`), so the intent is captured into the cache + equalizer.json via
+        update_cache — restore_effects() re-pushes it on reconnect. persist_state is
+        NOT used here (it snapshots the live cache, which was never touched)."""
         mock_camilladsp_service.connected = False
         result = await multiroom_equalizer_service.set_client_eq("local", sample_equalizer_settings)
         assert result is False
         mock_camilladsp_service.set_filter.assert_not_called()
-        mock_camilladsp_service.persist_state.assert_not_called()  # nothing applied → nothing to snapshot
+        mock_camilladsp_service.update_cache.assert_awaited_once_with(sample_equalizer_settings)
+        mock_camilladsp_service.persist_state.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_set_client_eq_local_no_camilladsp(self, mock_registry, sample_equalizer_settings):
@@ -531,6 +537,21 @@ class TestPartialUpdateMethods:
         persisted = mock_registry.set_client_equalizer.call_args.args[1]
         assert persisted.filters[0].gain == 5.0
         mock_camilladsp_service.persist_state.assert_awaited()  # local member snapshotted
+
+    @pytest.mark.asyncio
+    async def test_partial_update_local_disconnected_captures_intent(self, multiroom_equalizer_service, mock_registry, mock_camilladsp_service, sample_zone):
+        """A partial update touching the local member while CamillaDSP is disconnected
+        captures the intended record via update_cache (the router no-op'd on the live
+        cache), so the local member's equalizer.json doesn't drift from the zone's
+        remote members. persist_state is NOT used (the live cache was never updated)."""
+        mock_registry.get_zone.return_value = sample_zone
+        mock_camilladsp_service.connected = False
+        result = await multiroom_equalizer_service.update_filter("zone", "zone-123", "eq_band_00", gain=5.0)
+        assert result is True
+        mock_camilladsp_service.update_cache.assert_awaited_once()
+        captured = mock_camilladsp_service.update_cache.call_args.args[0]
+        assert captured.filters[0].gain == 5.0
+        mock_camilladsp_service.persist_state.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_update_filter_broadcasts(self, multiroom_equalizer_service, mock_registry, mock_state_machine, sample_zone):
