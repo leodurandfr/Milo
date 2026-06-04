@@ -2,7 +2,7 @@
 Pytest fixtures for Milo Client tests.
 """
 import pytest
-from unittest.mock import Mock, AsyncMock, MagicMock, patch
+from unittest.mock import Mock, MagicMock, patch
 import sys
 from pathlib import Path
 
@@ -63,16 +63,3 @@ def snapclient_service():
     """SnapclientService instance."""
     from services.snapclient import SnapclientService
     return SnapclientService()
-
-
-@pytest.fixture
-def mock_subprocess():
-    """Mock asyncio.create_subprocess_exec for snapclient operations."""
-    async def mock_communicate():
-        return (b"snapclient v0.28.0\n", b"")
-
-    mock_proc = AsyncMock()
-    mock_proc.communicate = mock_communicate
-    mock_proc.returncode = 0
-
-    return mock_proc

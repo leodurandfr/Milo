@@ -14,28 +14,6 @@ def create_camilladsp_update_router(camilladsp_update_service: CamillaDSPUpdateS
     """Creates CamillaDSP update router with injected dependencies."""
     router = APIRouter(tags=["camilladsp-update"])
 
-    @router.get("/camilladsp/version")
-    async def get_version():
-        """Gets the installed CamillaDSP version."""
-        try:
-            version = await camilladsp_update_service.get_installed_version()
-
-            if version:
-                return {
-                    "version": version,
-                    "timestamp": int(time.time())
-                }
-            else:
-                return {
-                    "version": None,
-                    "error": "Could not determine CamillaDSP version",
-                    "timestamp": int(time.time())
-                }
-
-        except Exception as e:
-            logger.error(f"Error getting CamillaDSP version: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
     @router.post("/camilladsp/update")
     async def update_camilladsp(background_tasks: BackgroundTasks):
         """Starts the CamillaDSP update from GitHub."""

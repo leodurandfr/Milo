@@ -19,28 +19,6 @@ def create_snapclient_router(snapclient_service: SnapclientService) -> APIRouter
     """Creates snapclient router with injected dependencies."""
     router = APIRouter(tags=["snapclient"])
 
-    @router.get("/version")
-    async def get_version():
-        """Gets only the snapclient version."""
-        try:
-            version = await snapclient_service.get_installed_version()
-
-            if version:
-                return {
-                    "version": version,
-                    "timestamp": int(time.time())
-                }
-            else:
-                return {
-                    "version": None,
-                    "error": "Could not determine snapclient version",
-                    "timestamp": int(time.time())
-                }
-
-        except Exception as e:
-            logger.error(f"Error getting version: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
     @router.post("/update")
     async def update_snapclient(background_tasks: BackgroundTasks):
         """Starts the snapclient update from GitHub."""
