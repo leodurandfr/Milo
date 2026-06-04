@@ -1,4 +1,5 @@
 """Unit tests for load_versioned_json / save_versioned_json."""
+import asyncio
 import json
 from pathlib import Path
 
@@ -69,3 +70,32 @@ async def test_save_overrides_caller_schema_version(tmp_path: Path):
 
     loaded = await load_versioned_json(file, expected_version=2)
     assert loaded["schema_version"] == 2
+
+
+@pytest.mark.asyncio
+async def test_save_concurrent_writes_do_not_race_on_tempfile(tmp_path: Path):
+    """Overlapping writes to the same path must not collide on a shared temp file.
+
+    Regression guard for the EQ persist crash: a fixed ``<file>.tmp`` name lets the
+    first writer's ``os.replace`` rename it away, so a concurrent writer's
+    ``os.replace`` then raises ``FileNotFoundError [Errno 2] '<file>.tmp' -> '<file>'``.
+    The local EQ record reaches this primitive from several uncoordinated paths
+    (debounced persist + the access layer's ``persist_state``/``update_cache``), so
+    concurrent writes are real. A unique temp name per write makes them collision-free.
+    """
+    file = tmp_path / "concurrent.json"
+
+    # Many overlapping writers maximize the chance of hitting the race window on a
+    # shared-tempfile implementation; a unique-tempfile implementation never collides.
+    await asyncio.gather(*[
+        save_versioned_json(file, {"writer": i}, version=1)
+        for i in range(25)
+    ])
+
+    # The final file is a complete payload from exactly one writer (last wins).
+    loaded = await load_versioned_json(file, expected_version=1)
+    assert loaded["schema_version"] == 1
+    assert "writer" in loaded
+
+    # No stray temp files left behind.
+    assert list(tmp_path.glob("*.tmp")) == []

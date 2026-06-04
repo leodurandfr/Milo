@@ -7,12 +7,17 @@ The owning service declares a ``SCHEMA_VERSION`` class constant, loads via
 is raised so main.py can log a clear reset command and exit. See CLAUDE.md
 §"Development & Coding Guidelines §2" and ``BREAKING_CHANGES.md`` at the repo root.
 """
+import contextlib
+import itertools
 import json
 import os
 from pathlib import Path
 from typing import Any, Dict
 
 import aiofiles
+
+# Monotonic counter making each in-flight temp file unique (see save_versioned_json).
+_temp_counter = itertools.count()
 
 
 class SchemaVersionMismatch(RuntimeError):
@@ -71,12 +76,25 @@ async def save_versioned_json(file: Path, data: Dict[str, Any], version: int) ->
     payload["schema_version"] = version
 
     file.parent.mkdir(parents=True, exist_ok=True)
-    temp_file = file.with_suffix(file.suffix + ".tmp")
+    # Unique temp name per write. A shared "<file>.tmp" lets concurrent writers
+    # collide: the first os.replace() renames it onto the final path, and the
+    # loser's os.replace() then raises FileNotFoundError. The same record reaches
+    # this primitive from several uncoordinated paths (e.g. the EQ debounced
+    # persist plus the access layer's persist_state/update_cache), so concurrent
+    # writes are real. PID + counter keep every temp distinct; os.replace stays
+    # atomic, so the final file is always a complete payload (last writer wins).
+    temp_file = file.with_name(f"{file.name}.{os.getpid()}.{next(_temp_counter)}.tmp")
 
-    async with aiofiles.open(temp_file, "w", encoding="utf-8") as f:
-        await f.write(json.dumps(payload, ensure_ascii=False, indent=2))
-        await f.write("\n")
-        await f.flush()
-        os.fsync(f.fileno())
+    try:
+        async with aiofiles.open(temp_file, "w", encoding="utf-8") as f:
+            await f.write(json.dumps(payload, ensure_ascii=False, indent=2))
+            await f.write("\n")
+            await f.flush()
+            os.fsync(f.fileno())
 
-    os.replace(temp_file, file)
+        os.replace(temp_file, file)
+    finally:
+        # On success the temp was renamed away (unlink → FileNotFoundError, suppressed);
+        # on any failure/cancellation, drop our unique temp so it can't leak.
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(temp_file)
