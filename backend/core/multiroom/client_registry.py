@@ -218,10 +218,6 @@ class ClientRegistryService:
 
         return True
 
-    async def delete_client(self, mac_id: str) -> bool:
-        """Alias for unregister_client for API consistency."""
-        return await self.unregister_client(mac_id)
-
     async def set_client_online(self, mac_id: str, online: bool) -> None:
         """
         Update client online status.
@@ -395,21 +391,6 @@ class ClientRegistryService:
         if not client or client.is_local:
             return None
         return client.ip if client.ip else None
-
-    def get_client_by_camilladsp_id(self, camilladsp_id: str) -> Optional[Dict[str, Any]]:
-        """
-        Get a client by equalizer ID (mac_id).
-
-        In Milo architecture, mac_id IS the equalizer ID for volume/equalizer operations.
-
-        Args:
-            camilladsp_id: Client mac_id (MAC address)
-
-        Returns:
-            Client data dict if found, None otherwise
-        """
-        client = self._clients.get(camilladsp_id)
-        return client.to_dict() if client else None
 
     def get_all_clients(self) -> Dict[str, Client]:
         """Get all registered clients."""
@@ -740,11 +721,6 @@ class ClientRegistryService:
             for cid in zone.client_ids
             if cid in self._clients and self._clients[cid].online
         ]
-
-    def has_online_subwoofer(self, zone_id: str) -> bool:
-        """Check if zone has an online subwoofer."""
-        clients = self.get_online_zone_clients(zone_id)
-        return any(c.speaker_type == 'subwoofer' for c in clients)
 
     def get_other_online_zone_clients(self, mac_id: str) -> List[Client]:
         """

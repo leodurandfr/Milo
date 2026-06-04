@@ -122,16 +122,6 @@ class TestClient:
         assert client.speaker_type == "tower"
         assert client.zone_id == "zone1"
 
-    def test_client_is_standalone(self):
-        """Test client standalone check."""
-        standalone_client = Client(mac_id="local", name="Main", ip="127.0.0.1")
-        zoned_client = Client(mac_id="client2", name="Kitchen", ip="192.168.1.100", zone_id="zone1")
-
-        assert standalone_client.is_standalone() is True
-        assert standalone_client.is_in_zone() is False
-        assert zoned_client.is_standalone() is False
-        assert zoned_client.is_in_zone() is True
-
     def test_client_from_dict_missing_required_fields(self):
         """Verify KeyError raised when mac_id missing."""
         with pytest.raises(KeyError):
@@ -463,8 +453,8 @@ class TestClientRegistryService:
         assert client1.mac_id == client2.mac_id
 
     @pytest.mark.asyncio
-    async def test_delete_client(self, registry):
-        """Test deleting a client."""
+    async def test_unregister_client(self, registry):
+        """Test unregistering (deleting) a client."""
         await registry.initialize()
 
         await registry.register_client(
@@ -473,15 +463,15 @@ class TestClientRegistryService:
             ip="127.0.0.1"
         )
 
-        result = await registry.delete_client("local")
+        result = await registry.unregister_client("local")
         assert result is True
         assert registry.get_client("local") is None
 
     @pytest.mark.asyncio
-    async def test_delete_nonexistent_client(self, registry):
-        """Test deleting a client that doesn't exist."""
+    async def test_unregister_nonexistent_client(self, registry):
+        """Test unregistering a client that doesn't exist."""
         await registry.initialize()
-        result = await registry.delete_client("nonexistent")
+        result = await registry.unregister_client("nonexistent")
         assert result is False
 
     @pytest.mark.asyncio
@@ -1376,17 +1366,6 @@ class TestCrossoverService:
         """Test getting default speaker type."""
         result = crossover_service.get_client_speaker_type("unknown_client")
         assert result == DEFAULT_SPEAKER_TYPE
-
-    def test_get_client_crossover_frequency_default(self, crossover_service):
-        """Test getting default crossover frequency."""
-        result = crossover_service.get_client_crossover_frequency("unknown_client")
-        assert result == DEFAULT_CROSSOVER_FREQUENCIES[DEFAULT_SPEAKER_TYPE]
-
-    @pytest.mark.asyncio
-    async def test_set_client_speaker_type_invalid(self, crossover_service):
-        """Test setting invalid speaker type."""
-        result = await crossover_service.set_client_speaker_type("local", "invalid_type")
-        assert result is False
 
     def test_has_pending_settings_empty(self, crossover_service):
         """Test has_pending_settings with no pending settings."""

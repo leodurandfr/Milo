@@ -201,26 +201,6 @@ class TestCrossoverFilterCalculation:
         assert DEFAULT_CROSSOVER_FREQUENCIES['subwoofer'] is None
         assert service.is_client_subwoofer("subwoofer-1") is True
 
-    def test_custom_crossover_frequency_override(self, crossover_service_with_registry):
-        """Test custom crossover frequency overrides speaker_type default."""
-        service, registry = crossover_service_with_registry
-
-        # Create client with custom crossover_frequency
-        client = Client(
-            mac_id="custom-1",
-            name="Custom",
-            ip="192.168.1.14",
-            speaker_type="bookshelf",
-            crossover_frequency=100,  # Override default 80Hz
-            online=True
-        )
-        registry._clients["custom-1"] = client
-
-        # Crossover frequency should return custom value
-        freq = service.get_client_crossover_frequency("custom-1")
-        assert freq == 100
-
-
 # =============================================================================
 # Task 8.2: Test apply_zone_crossover applies filters to online clients
 # =============================================================================
