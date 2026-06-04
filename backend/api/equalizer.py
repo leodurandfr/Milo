@@ -18,12 +18,6 @@ from backend.api.models import (
     ZoneCrossoverRequest,
     EqualizerPresetRequest
 )
-from backend.core.multiroom.models import (
-    EqualizerSettings,
-    CompressorSettings,
-    LoudnessSettings,
-    EqFilter,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -62,58 +56,6 @@ def create_equalizer_router(
             if client.is_local:
                 return client.mac_id
         return None
-
-    def _eqfilter_from_body(fid: str, body: dict) -> EqFilter:
-        """Build an EqFilter from a satellite-shaped filter body (note: the wire
-        body uses 'freq'/'type' while EqFilter uses 'frequency'/'filter_type')."""
-        return EqFilter.from_dict({
-            "id": fid,
-            "frequency": body.get("frequency", body.get("freq", 1000)),
-            "gain": body.get("gain", 0.0),
-            "q": body.get("q", 1.41),
-            "filter_type": body.get("filter_type") or body.get("type", "Peaking"),
-            "enabled": body.get("enabled", True),
-        })
-
-    async def _persist_remote(hostname: str, category: str, data: dict):
-        """Persist an equalizer setting for a remote standalone client into the
-        registry's standalone-equalizer store — the single source of truth for
-        per-client EQ (reconnect sync and the API read both use it).
-
-        Local-client EQ is owned by the local EqualizerService, so it is skipped.
-        """
-        if not client_registry_service or not equalizer_router_service:
-            return
-        if equalizer_router_service.is_local_client(hostname):
-            return
-
-        settings = client_registry_service.get_client_equalizer(hostname) or EqualizerSettings()
-
-        if category == "compressor":
-            settings.compressor = CompressorSettings.from_dict(data)
-        elif category == "loudness":
-            settings.loudness = LoudnessSettings.from_dict(data)
-        elif category == "mono":
-            settings.mono = bool(data.get("enabled", False))
-        elif category == "enabled":
-            settings.enabled = bool(data.get("enabled", True))
-        elif category == "filter":
-            # Single-band upsert (data carries the band id).
-            fid = data.get("id")
-            if not fid:
-                return
-            kept = [f for f in settings.filters if f.id != fid]
-            kept.append(_eqfilter_from_body(fid, data))
-            settings.filters = sorted(kept, key=lambda f: f.id)
-        elif category == "filters":
-            # Full replacement (used by reset → {}).
-            settings.filters = [
-                _eqfilter_from_body(fid, fbody) for fid, fbody in sorted(data.items())
-            ]
-        else:
-            return
-
-        await client_registry_service.set_client_equalizer(hostname, settings, broadcast=False)
 
     # === Equalizer Enable/Disable ===
 
@@ -667,76 +609,107 @@ def create_equalizer_router(
         return await equalizer_router_service.get_filters(hostname)
 
     @router.put("/client/{hostname}/filter/{filter_id}")
-    async def update_client_equalizer_filter(hostname: str, filter_id: str, request: Request):
-        """Proxy filter update to client and persist settings"""
-        body = await request.json()
-        result = await equalizer_router_service.update_filter(hostname, filter_id, body)
-
-        if result.get("status") == "success":
-            if equalizer_router_service.is_local_client(hostname):
-                return {"status": "success", "id": filter_id, **body}
-            # Remote: upsert the band into the standalone-equalizer store (SoT)
-            await _persist_remote(hostname, "filter", {"id": filter_id, **body})
-
-        return result
+    async def update_client_equalizer_filter(hostname: str, filter_id: str, payload: EqualizerFilterUpdateRequest):
+        """Update one EQ band for a client through the unified per-client access
+        layer (applies to the satellite + persists the record; one write path)."""
+        async with api_error_handler(f"Error updating filter for client {hostname}", logger):
+            try:
+                await multiroom_equalizer_service.update_filter(
+                    target_type="client",
+                    target_id=hostname,
+                    filter_id=filter_id,
+                    frequency=payload.freq,
+                    gain=payload.gain,
+                    q=payload.q,
+                    filter_type=payload.filter_type,
+                    enabled=payload.enabled,
+                )
+            except ValueError as e:
+                logger.error(f"Filter update failed for client {hostname}: {e}")
+                raise HTTPException(status_code=404, detail=str(e))
+            return {"status": "success", "id": filter_id}
 
     @router.put("/client/{hostname}/compressor")
-    async def update_client_compressor(hostname: str, request: Request):
-        """Proxy compressor update to client and persist settings"""
-        body = await request.json()
-        result = await equalizer_router_service.set_compressor(hostname, body)
-
-        if result.get("status") == "success":
-            if equalizer_router_service.is_local_client(hostname):
-                compressor = await camilladsp_service.get_compressor()
-                return {"status": "success", **compressor}
-            await _persist_remote(hostname, "compressor", {k: v for k, v in result.items() if k != "status"})
-
-        return result
+    async def update_client_compressor(hostname: str, payload: EqualizerCompressorRequest):
+        """Update compressor for a client through the unified access layer."""
+        async with api_error_handler(f"Error updating compressor for client {hostname}", logger):
+            try:
+                await multiroom_equalizer_service.update_compressor(
+                    target_type="client",
+                    target_id=hostname,
+                    enabled=payload.enabled,
+                    threshold=payload.threshold,
+                    ratio=payload.ratio,
+                    attack=payload.attack,
+                    release=payload.release,
+                    makeup_gain=payload.makeup_gain,
+                )
+            except ValueError as e:
+                logger.error(f"Compressor update failed for client {hostname}: {e}")
+                raise HTTPException(status_code=404, detail=str(e))
+            return {"status": "success", "client_id": hostname}
 
     @router.put("/client/{hostname}/loudness")
-    async def update_client_loudness(hostname: str, request: Request):
-        """Proxy loudness update to client and persist settings"""
-        body = await request.json()
-        result = await equalizer_router_service.set_loudness(hostname, body)
-
-        if result.get("status") == "success":
-            if equalizer_router_service.is_local_client(hostname):
-                loudness = await camilladsp_service.get_loudness()
-                return {"status": "success", **loudness}
-            await _persist_remote(hostname, "loudness", {k: v for k, v in result.items() if k != "status"})
-
-        return result
+    async def update_client_loudness(hostname: str, payload: EqualizerLoudnessRequest):
+        """Update loudness for a client through the unified access layer."""
+        async with api_error_handler(f"Error updating loudness for client {hostname}", logger):
+            try:
+                await multiroom_equalizer_service.update_loudness(
+                    target_type="client",
+                    target_id=hostname,
+                    enabled=payload.enabled,
+                    high_boost=payload.high_boost,
+                    low_boost=payload.low_boost,
+                )
+            except ValueError as e:
+                logger.error(f"Loudness update failed for client {hostname}: {e}")
+                raise HTTPException(status_code=404, detail=str(e))
+            return {"status": "success", "client_id": hostname}
 
     @router.put("/client/{hostname}/mono")
     async def update_client_mono(hostname: str, request: Request):
-        """Proxy mono update to client and persist settings"""
-        body = await request.json()
-        result = await equalizer_router_service.set_mono(hostname, body)
-
-        if result.get("status") == "success":
-            if equalizer_router_service.is_local_client(hostname):
-                mono = await camilladsp_service.get_mono()
-                return {"status": "success", "enabled": mono}
-            await _persist_remote(hostname, "mono", {"enabled": body.get("enabled", False)})
-
-        return result
+        """Update mono for a client through the unified access layer."""
+        async with api_error_handler(f"Error updating mono for client {hostname}", logger):
+            body = await request.json()
+            enabled = body.get("enabled")
+            if enabled is None:
+                raise HTTPException(status_code=400, detail="'enabled' field is required")
+            try:
+                await multiroom_equalizer_service.update_mono(
+                    target_type="client",
+                    target_id=hostname,
+                    enabled=enabled,
+                )
+            except ValueError as e:
+                logger.error(f"Mono update failed for client {hostname}: {e}")
+                raise HTTPException(status_code=404, detail=str(e))
+            return {"status": "success", "client_id": hostname, "mono": enabled}
 
     @router.put("/client/{hostname}/enabled")
     async def update_client_equalizer_enabled(hostname: str, request: Request):
-        """Set equalizer effects enabled state for a specific client (local or remote).
+        """Set equalizer effects enabled state for a client (local or remote)
+        through the unified access layer.
 
-        When enabled=False, Equalizer effects (EQ, compressor, loudness) are bypassed.
-        Volume control remains active regardless of this setting.
+        When enabled=False, Equalizer effects (EQ, compressor, loudness) are
+        bypassed. Volume control remains active regardless of this setting.
         """
-        body = await request.json()
-        enabled = body.get("enabled")
-        result = await equalizer_router_service.set_equalizer_enabled(hostname, enabled, routing_service)
-
-        if result.get("status") == "success":
-            await _persist_remote(hostname, "enabled", {"enabled": enabled})
-
-        return result
+        async with api_error_handler(f"Error updating equalizer enabled for client {hostname}", logger):
+            body = await request.json()
+            enabled = body.get("enabled")
+            if enabled is None:
+                raise HTTPException(status_code=400, detail="'enabled' field is required")
+            try:
+                success = await multiroom_equalizer_service.set_client_equalizer_effects_enabled(
+                    hostname, enabled, routing_service
+                )
+            except ValueError as e:
+                logger.error(f"Equalizer enabled update failed for client {hostname}: {e}")
+                raise HTTPException(status_code=404, detail=str(e))
+            return {
+                "status": "success" if success else "error",
+                "client_id": hostname,
+                "enabled": enabled,
+            }
 
     @router.get("/client/{hostname}/enabled")
     async def get_client_equalizer_enabled(hostname: str):

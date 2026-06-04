@@ -606,6 +606,21 @@ class TestPartialUpdateMethods:
         persisted = mock_registry.set_client_equalizer.call_args.args[1]
         assert persisted.mono is True
 
+    @pytest.mark.asyncio
+    async def test_update_filter_unknown_client_raises(self, multiroom_equalizer_service, mock_registry):
+        """A partial update to a MAC the registry has never seen fails loud (→ 404),
+        rather than silently materializing a phantom per-client record."""
+        mock_registry.get_client.return_value = None
+        with pytest.raises(ValueError, match="Client not found"):
+            await multiroom_equalizer_service.update_filter("client", "unknown-mac", "eq_band_00", gain=5.0)
+        mock_registry.set_client_equalizer.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_update_compressor_unknown_client_raises(self, multiroom_equalizer_service, mock_registry):
+        mock_registry.get_client.return_value = None
+        with pytest.raises(ValueError, match="Client not found"):
+            await multiroom_equalizer_service.update_compressor("client", "unknown-mac", enabled=True)
+
 
 # =============================================================================
 # Event broadcasting
@@ -634,3 +649,128 @@ class TestEventBroadcasting:
         mock_registry.get_zone.return_value = sample_zone
         result = await service.apply_zone_equalizer("zone-123", sample_equalizer_settings)
         assert result is True
+
+
+# =============================================================================
+# Per-client effects-enabled toggle (Phase 3 — Option A)
+#
+# The /client/{mac}/enabled route routes through set_client_equalizer_effects_enabled
+# instead of the old equalizer_router + _persist_remote path; the zone enabled
+# fan-out shares the same per-member primitive (_set_remote_client_enabled).
+# =============================================================================
+
+class TestClientEffectsEnabled:
+    @pytest.fixture
+    def routing_service(self):
+        routing = Mock()
+        routing.set_equalizer_effects_enabled = AsyncMock(return_value=True)
+        return routing
+
+    @pytest.fixture
+    def proxy_service(self):
+        proxy = Mock()
+        proxy.request = AsyncMock(return_value={"status": "success"})
+        return proxy
+
+    @pytest.mark.asyncio
+    async def test_local_uses_routing_service(self, multiroom_equalizer_service, mock_registry, routing_service):
+        """Local client → routing bypass/restore; never persisted to the registry
+        (its EQ lives in equalizer.json)."""
+        multiroom_equalizer_service.set_routing_service(routing_service)
+        result = await multiroom_equalizer_service.set_client_equalizer_effects_enabled("local", False)
+        assert result is True
+        routing_service.set_equalizer_effects_enabled.assert_awaited_once_with(False)
+        mock_registry.set_client_equalizer.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_local_no_routing_returns_false(self, multiroom_equalizer_service):
+        result = await multiroom_equalizer_service.set_client_equalizer_effects_enabled("local", False)
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_remote_online_pushes_and_persists(self, multiroom_equalizer_service, mock_registry, proxy_service, remote_client):
+        multiroom_equalizer_service.set_proxy_service(proxy_service)
+        mock_registry.get_client.return_value = remote_client  # online, 192.168.1.100
+        mock_registry.get_client_equalizer.return_value = None  # fresh → default fallback
+        result = await multiroom_equalizer_service.set_client_equalizer_effects_enabled("milo-client-1", False)
+        assert result is True
+        proxy_service.request.assert_awaited_once_with(
+            "192.168.1.100", "PUT", "/equalizer/enabled", {"enabled": False}
+        )
+        persisted = mock_registry.set_client_equalizer.call_args.args[1]
+        assert persisted.enabled is False
+
+    @pytest.mark.asyncio
+    async def test_remote_offline_persists_only(self, multiroom_equalizer_service, mock_registry, proxy_service):
+        """Offline remote → no push, but the flag is persisted so it syncs on reconnect."""
+        multiroom_equalizer_service.set_proxy_service(proxy_service)
+        offline = Client(mac_id="milo-client-1", name="Bedroom", ip="192.168.1.100", online=False, zone_id=None)
+        mock_registry.get_client.return_value = offline
+        mock_registry.get_client_equalizer.return_value = None
+        result = await multiroom_equalizer_service.set_client_equalizer_effects_enabled("milo-client-1", True)
+        assert result is True
+        proxy_service.request.assert_not_called()
+        persisted = mock_registry.set_client_equalizer.call_args.args[1]
+        assert persisted.enabled is True
+
+    @pytest.mark.asyncio
+    async def test_remote_preserves_existing_record(self, multiroom_equalizer_service, mock_registry, proxy_service, remote_client, sample_equalizer_settings):
+        """Flipping enabled keeps the rest of the record intact (and writes a copy)."""
+        multiroom_equalizer_service.set_proxy_service(proxy_service)
+        mock_registry.get_client.return_value = remote_client
+        mock_registry.get_client_equalizer.return_value = sample_equalizer_settings
+        await multiroom_equalizer_service.set_client_equalizer_effects_enabled("milo-client-1", False)
+        persisted = mock_registry.set_client_equalizer.call_args.args[1]
+        assert persisted.enabled is False
+        assert persisted.compressor.enabled is True  # preserved from existing record
+        assert persisted is not sample_equalizer_settings  # a copy, never the stored object
+
+    @pytest.mark.asyncio
+    async def test_remote_unknown_client_raises(self, multiroom_equalizer_service, mock_registry, proxy_service):
+        """An enabled toggle for a MAC the registry has never seen fails loud (→ 404)."""
+        multiroom_equalizer_service.set_proxy_service(proxy_service)
+        mock_registry.get_client.return_value = None
+        with pytest.raises(ValueError, match="Client not found"):
+            await multiroom_equalizer_service.set_client_equalizer_effects_enabled("unknown-mac", False)
+        mock_registry.set_client_equalizer.assert_not_called()
+
+
+class TestZoneEffectsEnabled:
+    @pytest.fixture
+    def routing_service(self):
+        routing = Mock()
+        routing.set_equalizer_effects_enabled = AsyncMock(return_value=True)
+        return routing
+
+    @pytest.fixture
+    def proxy_service(self):
+        proxy = Mock()
+        proxy.request = AsyncMock(return_value={"status": "success"})
+        return proxy
+
+    @pytest.mark.asyncio
+    async def test_zone_fans_out_local_and_remote_then_broadcasts(self, multiroom_equalizer_service, mock_registry, mock_state_machine, routing_service, proxy_service, sample_zone, remote_client):
+        multiroom_equalizer_service.set_routing_service(routing_service)
+        multiroom_equalizer_service.set_proxy_service(proxy_service)
+        mock_registry.get_zone.return_value = sample_zone  # ["local", "milo-client-1"]
+        mock_registry.get_client.side_effect = lambda mac: remote_client if mac == "milo-client-1" else None
+        mock_registry.get_client_equalizer.return_value = None
+
+        result = await multiroom_equalizer_service.set_zone_equalizer_effects_enabled("zone-123", False)
+
+        assert result is True
+        routing_service.set_equalizer_effects_enabled.assert_awaited_once_with(False)  # local member
+        proxy_service.request.assert_awaited_once_with(
+            "192.168.1.100", "PUT", "/equalizer/enabled", {"enabled": False}
+        )  # remote member pushed
+        persisted = mock_registry.set_client_equalizer.call_args.args[1]
+        assert persisted.enabled is False  # remote member's flag persisted
+        cat, typ, data = mock_state_machine.broadcast_event.call_args.args
+        assert (cat, typ) == ("equalizer", "zone_enabled_changed")
+        assert data == {"zone_id": "zone-123", "enabled": False}
+
+    @pytest.mark.asyncio
+    async def test_zone_not_found_raises(self, multiroom_equalizer_service, mock_registry):
+        mock_registry.get_zone.return_value = None
+        with pytest.raises(ValueError, match="Zone not found"):
+            await multiroom_equalizer_service.set_zone_equalizer_effects_enabled("nope", True)

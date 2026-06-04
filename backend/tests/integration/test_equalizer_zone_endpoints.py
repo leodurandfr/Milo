@@ -411,14 +411,16 @@ class TestAC4ZoneDspBypass:
 # =============================================================================
 
 class TestAC6ClientProxyRoutes:
-    """AC6: Client proxy routes work for standalone clients"""
+    """AC6: Per-client write routes go through the unified access layer
+    (multiroom_equalizer_service), not the old equalizer_router + _persist_remote
+    duplicate path (Phase 3 — Option A)."""
 
     @pytest.mark.asyncio
-    async def test_client_filter_proxy_works(
+    async def test_client_filter_routes_through_access_layer(
         self, mock_camilladsp_service, mock_state_machine, mock_proxy_service,
         mock_equalizer_router_service, mock_multiroom_equalizer_service
     ):
-        """Should proxy filter update to remote client"""
+        """Client filter update delegates to multiroom_equalizer_service.update_filter."""
         router = create_equalizer_router(
             camilladsp_service=mock_camilladsp_service,
             state_machine=mock_state_machine,
@@ -437,24 +439,27 @@ class TestAC6ClientProxyRoutes:
 
         assert route_fn is not None, "Client filter route not found"
 
-        # Create mock request
-        mock_request = AsyncMock()
-        mock_request.json = AsyncMock(return_value={"gain": 3.0})
+        await route_fn("milo-client-01", "eq_band_00", EqualizerFilterUpdateRequest(gain=3.0))
 
-        # Configure equalizer_router_service to handle the call
-        mock_equalizer_router_service.update_filter = AsyncMock(return_value={"status": "success"})
-
-        await route_fn("milo-client-01", "eq_band_00", mock_request)
-
-        # Verify equalizer_router_service was called
-        mock_equalizer_router_service.update_filter.assert_called()
+        mock_multiroom_equalizer_service.update_filter.assert_called_once_with(
+            target_type="client",
+            target_id="milo-client-01",
+            filter_id="eq_band_00",
+            frequency=None,
+            gain=3.0,
+            q=None,
+            filter_type=None,
+            enabled=None,
+        )
+        # The duplicate equalizer_router write path is no longer used.
+        mock_equalizer_router_service.update_filter.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_client_compressor_proxy_works(
+    async def test_client_compressor_routes_through_access_layer(
         self, mock_camilladsp_service, mock_state_machine, mock_proxy_service,
         mock_equalizer_router_service, mock_multiroom_equalizer_service
     ):
-        """Should proxy compressor update to remote client"""
+        """Client compressor update delegates to multiroom_equalizer_service.update_compressor."""
         router = create_equalizer_router(
             camilladsp_service=mock_camilladsp_service,
             state_machine=mock_state_machine,
@@ -473,13 +478,20 @@ class TestAC6ClientProxyRoutes:
 
         assert route_fn is not None, "Client compressor route not found"
 
-        mock_request = AsyncMock()
-        mock_request.json = AsyncMock(return_value={"enabled": True})
+        await route_fn("milo-client-01", EqualizerCompressorRequest(enabled=True))
 
-        await route_fn("milo-client-01", mock_request)
-
-        # Verify equalizer_router_service was called
-        mock_equalizer_router_service.set_compressor.assert_called()
+        mock_multiroom_equalizer_service.update_compressor.assert_called_once_with(
+            target_type="client",
+            target_id="milo-client-01",
+            enabled=True,
+            threshold=None,
+            ratio=None,
+            attack=None,
+            release=None,
+            makeup_gain=None,
+        )
+        # The duplicate equalizer_router write path is no longer used.
+        mock_equalizer_router_service.set_compressor.assert_not_called()
 
 
 # =============================================================================
