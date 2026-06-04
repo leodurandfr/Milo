@@ -27,19 +27,10 @@ class ScreenController:
         self.timeout_seconds = 10
         self.brightness_on = 5
 
-        # Brightness ranges based on screen type
+        # Backlight sysfs path (DSI screen only)
         self.backlight_path = None
-        if self.screen_type == "waveshare_7_usb":
-            self.brightness_min = 0
-            self.brightness_max = 10
-        elif self.screen_type == "waveshare_8_dsi":
-            self.brightness_min = 0
-            self.brightness_max = 255
+        if self.screen_type == "waveshare_8_dsi":
             self.backlight_path = self._detect_backlight_path()
-        else:
-            # No screen or unknown type
-            self.brightness_min = 0
-            self.brightness_max = 10
 
         # Dynamic commands (generated based on screen type)
         self._update_screen_commands()
