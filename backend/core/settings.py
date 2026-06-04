@@ -31,7 +31,7 @@ class SettingsWriteError(RuntimeError):
 class SettingsService:
     """Simplified settings manager with support for 0 = disabled"""
 
-    SCHEMA_VERSION: int = 3
+    SCHEMA_VERSION: int = 4
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
