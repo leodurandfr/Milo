@@ -352,7 +352,7 @@ All persistent data in `/var/lib/milo/`. Versioned JSON files use the `schema_ve
 - `podcast_data.json` - Podcast subscriptions, playback progress, and per-podcast settings (playback speed) — `schema_version: 1` (owned by `PodcastDataService`)
 - `cd_data.json` - CD disc metadata cache (TOC, MusicBrainz lookups) — *no `schema_version` yet*
 - `cd_covers/` - CD cover art cache
-- `equalizer.json` - Equalizer state: filters, active preset, custom gains, compressor, loudness, mono (atomic writes, debounced) — `schema_version: 2` (owned by `EqualizerService`)
+- `equalizer.json` - The **local client's** EQ record: filters, active preset, custom gains, compressor, loudness, mono (atomic writes, debounced) — drives the DAC, boot-loaded, multiroom-independent — `schema_version: 2` (owned by `CamillaDSPService`). **Unified per-client EQ model:** one EQ record per client behind `MultiroomEqualizerService.get/set_client_eq(mac)` — the local client's lives here, remote clients' in `settings.json: multiroom.client_equalizer[mac]`; a **zone holds no EQ** (it derives from its members; `get/set_zone_eq` fans the identical record out to each). HTTP surface is one uniform `GET/PUT/POST /api/equalizer/target/{target}`, `target ∈ local · <mac> · zone:<id>`.
 - `pending_clients.json` - Multiroom clients awaiting approval — *no `schema_version` yet*
 - `routing.env` - ALSA routing environment variables (auto-generated, regenerated on every settings change — no `schema_version`)
 - `mac.env` - ROC receiver env vars consumed by `milo-mac` (auto-generated, no `schema_version`)
