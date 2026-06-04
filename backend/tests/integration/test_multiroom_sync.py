@@ -1018,27 +1018,6 @@ class TestReconnectSyncAppliesMonoAndEnabled:
     in stereo with effects active (regression the EQ map flagged)."""
 
     @pytest.mark.asyncio
-    async def test_zone_sync_pushes_mono_and_enabled(self, mock_settings_service, mock_state_machine):
-        registry = await _setup_registry(
-            mock_settings_service, mock_state_machine,
-            clients=[
-                ("aa:bb", "Speaker", "192.168.1.50", -20.0, True),
-                ("aa:cc", "Speaker B", "192.168.1.53", -20.0, True),
-            ],
-            zones=[("zone1", "Living", ["aa:bb", "aa:cc"])],
-        )
-        ws, proxy = _make_ws_with_proxy(registry)
-        zone = registry.get_zone("zone1")
-        zone.equalizer_settings = EqualizerSettings(mono=True, enabled=False, filters=[])
-
-        result = await ws._sync_zone_equalizer_to_client("aa:bb", zone)
-        assert result is True
-
-        by_path = {c.args[2]: c.args[3] for c in proxy.request.call_args_list}
-        assert "/equalizer/mono" in by_path and by_path["/equalizer/mono"] == {"enabled": True}
-        assert "/equalizer/enabled" in by_path and by_path["/equalizer/enabled"] == {"enabled": False}
-
-    @pytest.mark.asyncio
     async def test_standalone_sync_pushes_saved_mono_and_enabled(self, mock_settings_service, mock_state_machine):
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,

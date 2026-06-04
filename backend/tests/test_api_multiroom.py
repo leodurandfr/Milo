@@ -392,7 +392,7 @@ class TestMaxZoneNameLengthConstant:
 @pytest.fixture
 def mock_zone_registry_service():
     """Create a mock ClientRegistryService with zone support."""
-    from backend.core.multiroom.models import Zone, EqualizerSettings
+    from backend.core.multiroom.models import Zone
 
     service = Mock()
 
@@ -428,12 +428,11 @@ def mock_zone_registry_service():
         speaker_type="subwoofer"
     )
 
-    # Test zone
+    # Test zone (a zone holds no EQ of its own in the unified model)
     test_zone = Zone(
         id="zone-test-123",
         name="Living Room",
         client_ids=["local", "dc:a6:32:7e:d3:43"],
-        equalizer_settings=EqualizerSettings.default()
     )
 
     service._clients = {
@@ -471,7 +470,7 @@ def mock_zone_registry_service():
 
     service.zone_to_enriched_dict = Mock(side_effect=zone_to_enriched_dict)
 
-    async def mock_create_zone(zone_id, name, client_ids, equalizer_settings=None):
+    async def mock_create_zone(zone_id, name, client_ids):
         if len(client_ids) < 2:
             raise ValueError("Zone requires at least 2 clients")
         for cid in client_ids:
@@ -481,7 +480,6 @@ def mock_zone_registry_service():
             id=zone_id,
             name=name,
             client_ids=client_ids,
-            equalizer_settings=equalizer_settings or EqualizerSettings.default()
         )
         service._zones[zone_id] = zone
         return zone
@@ -774,7 +772,7 @@ class TestDeleteZone:
 @pytest.fixture
 def mock_membership_registry_service():
     """Create a mock ClientRegistryService with zone membership support."""
-    from backend.core.multiroom.models import Zone, EqualizerSettings
+    from backend.core.multiroom.models import Zone
 
     service = Mock()
 
@@ -810,12 +808,11 @@ def mock_membership_registry_service():
         speaker_type="satellite"
     )
 
-    # Test zone with 2 clients
+    # Test zone with 2 clients (a zone holds no EQ of its own)
     test_zone = Zone(
         id="zone-test-123",
         name="Living Room",
         client_ids=["local", "dc:a6:32:7e:d3:43"],
-        equalizer_settings=EqualizerSettings.default()
     )
 
     service._clients = {

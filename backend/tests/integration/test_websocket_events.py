@@ -1105,12 +1105,6 @@ class TestMultiroomEventFormat:
                     "id": "uuid-living-room",
                     "name": "Living Room",
                     "client_ids": ["local", "dc:a6:32:7e:d3:43"],
-                    "equalizer_settings": {
-                        "enabled": True,
-                        "filters": [],
-                        "compressor": {"enabled": False},
-                        "loudness": {"enabled": False}
-                    },
                     "crossover_frequency": 80,
                     "crossover_enabled": True,
                     "online_client_count": 2,
@@ -1133,7 +1127,7 @@ class TestMultiroomEventFormat:
         assert "id" in zone
         assert "name" in zone
         assert "client_ids" in zone
-        assert "equalizer_settings" in zone
+        assert "equalizer_settings" not in zone  # a zone holds no EQ of its own
         assert "crossover_frequency" in zone
         # Computed fields for enriched zone
         assert "crossover_enabled" in zone

@@ -890,7 +890,7 @@ class TestInZoneReconnectionSyncIntegration:
         ws_service._volume_service = mock_state_machine.volume_service
 
         # Mock Equalizer sync to avoid errors
-        ws_service._sync_zone_equalizer_to_client = AsyncMock(return_value=True)
+        ws_service._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)
 
         # Get target volume using the unified method
         context = registry.get_reconnection_context("client-1")
@@ -1035,7 +1035,7 @@ class TestInZoneReconnectionSyncIntegration:
         ws_service.set_registry(registry)
         ws_service._snapcast_service = mock_snapcast
         ws_service._volume_service = mock_state_machine.volume_service
-        ws_service._sync_zone_equalizer_to_client = AsyncMock(return_value=True)
+        ws_service._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)
 
         # Mock _state_store._clients to return a proper client state object
         volume_service = mock_state_machine.volume_service
@@ -1057,11 +1057,12 @@ class TestInZoneReconnectionSyncIntegration:
         volume_service._broadcast_volume_state.assert_called()
 
     @pytest.mark.asyncio
-    async def test_equalizer_sync_uses_zone_settings(
+    async def test_equalizer_sync_uses_member_records(
         self, mock_settings_service, mock_state_machine
     ):
         """
-        E2E: Equalizer sync uses zone.equalizer_settings for IN_ZONE contexts (AC3).
+        E2E: zone EQ derives from members — each member owns its EQ record, and the
+        zone holds no EQ of its own (unified per-client model).
         """
         from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.models import EqualizerSettings, EqFilter, FilterType
@@ -1071,23 +1072,25 @@ class TestInZoneReconnectionSyncIntegration:
         )
         await registry.initialize()
 
-        # Register clients and create zone with Equalizer settings
         await registry.register_client("client-1", "Client 1", "192.168.1.1")
         await registry.register_client("client-2", "Client 2", "192.168.1.2")
+        await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2"])
 
-        # Create zone with custom Equalizer settings
+        # The access layer applies the (identical) zone EQ to each member's record.
         equalizer_settings = EqualizerSettings(
             enabled=True,
             filters=[EqFilter(id="eq_band_00", frequency=1000, gain=5.0, filter_type=FilterType.PEAKING)]
         )
-        await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2"], equalizer_settings=equalizer_settings)
+        await registry.set_client_equalizer("client-1", equalizer_settings)
 
-        # Verify zone has Equalizer settings
+        # The zone holds no EQ of its own; the member's record is the source.
         zone = registry.get_zone("zone-1")
-        assert zone.equalizer_settings is not None
-        assert zone.equalizer_settings.enabled is True
-        assert len(zone.equalizer_settings.filters) == 1
-        assert zone.equalizer_settings.filters[0].gain == 5.0
+        assert not hasattr(zone, "equalizer_settings")
+        member_eq = registry.get_client_equalizer("client-1")
+        assert member_eq is not None
+        assert member_eq.enabled is True
+        assert len(member_eq.filters) == 1
+        assert member_eq.filters[0].gain == 5.0
 
 
 # =============================================================================
@@ -1183,7 +1186,7 @@ class TestAC4SyncTimeCompliance:
         ws_service.set_registry(registry)
         ws_service._snapcast_service = mock_state_machine.snapcast_service
         ws_service._volume_service = mock_state_machine.volume_service
-        ws_service._sync_zone_equalizer_to_client = AsyncMock(return_value=True)
+        ws_service._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)
 
         # Simulate reconnection with timing (include mac matching registered mac_id)
         client_data = {
@@ -1225,11 +1228,12 @@ class TestAC4SyncTimeCompliance:
         await registry.initialize()
         attach_registry_broadcaster(registry, mock_state_machine)
 
-        # Register clients and create zone with Equalizer settings
+        # Register clients and create a zone; each member owns its EQ record.
         await registry.register_client("client-1", "Client 1", "192.168.1.1")
         await registry.register_client("client-2", "Client 2", "192.168.1.2")
         await registry.update_volume("client-2", volume_db=-25.0)
 
+        await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2"])
         equalizer_settings = EqualizerSettings(
             enabled=True,
             filters=[
@@ -1238,7 +1242,7 @@ class TestAC4SyncTimeCompliance:
                 EqFilter(id="eq_band_02", frequency=10000, gain=3.0, filter_type=FilterType.PEAKING),
             ]
         )
-        await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2"], equalizer_settings=equalizer_settings)
+        await registry.set_client_equalizer("client-1", equalizer_settings)
         await registry.set_client_online("client-1", False)
         await registry.set_client_online("client-2", True)
 
@@ -1255,7 +1259,7 @@ class TestAC4SyncTimeCompliance:
             await asyncio.sleep(0.1)  # Simulate 100ms for Equalizer operations
             return True
 
-        ws_service._sync_zone_equalizer_to_client = mock_equalizer_sync
+        ws_service._sync_standalone_equalizer_to_client = mock_equalizer_sync
 
         # Include mac matching registered mac_id
         client_data = {
@@ -1342,7 +1346,7 @@ class TestAC6PendingSettingsQueue:
             enabled=True,
             compressor=CompressorSettings(enabled=True, threshold=-20.0, ratio=4.0)
         )
-        await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2"], equalizer_settings=equalizer_settings)
+        await registry.set_client_equalizer("client-1", equalizer_settings)
 
         # Create websocket service
         ws_service = SnapcastWebSocketService(
@@ -1353,9 +1357,8 @@ class TestAC6PendingSettingsQueue:
         ws_service._equalizer_client_proxy_service = mock_state_machine_with_crossover.equalizer_client_proxy_service
         ws_service._crossover_service = mock_state_machine_with_crossover.crossover_service
 
-        # Call _sync_zone_equalizer_to_client - compressor sync will fail
-        zone = registry.get_zone("zone-1")
-        result = await ws_service._sync_zone_equalizer_to_client("client-1", zone)
+        # Call _sync_standalone_equalizer_to_client - compressor sync will fail
+        result = await ws_service._sync_standalone_equalizer_to_client("client-1")
 
         # Assert: sync failed and compressor was queued
         assert result is False
@@ -1397,7 +1400,7 @@ class TestAC6PendingSettingsQueue:
             enabled=True,
             loudness=LoudnessSettings(enabled=True, high_boost=10.0)
         )
-        await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2"], equalizer_settings=equalizer_settings)
+        await registry.set_client_equalizer("client-1", equalizer_settings)
 
         # Create websocket service
         ws_service = SnapcastWebSocketService(
@@ -1408,9 +1411,8 @@ class TestAC6PendingSettingsQueue:
         ws_service._equalizer_client_proxy_service = mock_state_machine_with_crossover.equalizer_client_proxy_service
         ws_service._crossover_service = mock_state_machine_with_crossover.crossover_service
 
-        # Call _sync_zone_equalizer_to_client - loudness sync will fail
-        zone = registry.get_zone("zone-1")
-        result = await ws_service._sync_zone_equalizer_to_client("client-1", zone)
+        # Call _sync_standalone_equalizer_to_client - loudness sync will fail
+        result = await ws_service._sync_standalone_equalizer_to_client("client-1")
 
         # Assert: sync failed and loudness was queued
         assert result is False
@@ -1452,7 +1454,7 @@ class TestAC6PendingSettingsQueue:
                 EqFilter(id="eq_band_01", frequency=1000, gain=-2.0, filter_type=FilterType.PEAKING),
             ]
         )
-        await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2"], equalizer_settings=equalizer_settings)
+        await registry.set_client_equalizer("client-1", equalizer_settings)
 
         # Create websocket service
         ws_service = SnapcastWebSocketService(
@@ -1463,9 +1465,8 @@ class TestAC6PendingSettingsQueue:
         ws_service._equalizer_client_proxy_service = mock_state_machine_with_crossover.equalizer_client_proxy_service
         ws_service._crossover_service = mock_state_machine_with_crossover.crossover_service
 
-        # Call _sync_zone_equalizer_to_client - filter sync will fail
-        zone = registry.get_zone("zone-1")
-        result = await ws_service._sync_zone_equalizer_to_client("client-1", zone)
+        # Call _sync_standalone_equalizer_to_client - filter sync will fail
+        result = await ws_service._sync_standalone_equalizer_to_client("client-1")
 
         # Assert: sync failed and filters were queued
         assert result is False
@@ -1520,7 +1521,7 @@ class TestAC6PendingSettingsQueue:
             enabled=True,
             filters=[EqFilter(id="eq_band_00", frequency=1000, gain=2.0, filter_type=FilterType.PEAKING)]
         )
-        await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2"], equalizer_settings=equalizer_settings)
+        await registry.set_client_equalizer("client-1", equalizer_settings)
 
         # Create websocket service
         ws_service = SnapcastWebSocketService(
@@ -1531,9 +1532,8 @@ class TestAC6PendingSettingsQueue:
         ws_service._equalizer_client_proxy_service = sm.equalizer_client_proxy_service
         ws_service._crossover_service = sm.crossover_service
 
-        # Call _sync_zone_equalizer_to_client - should succeed
-        zone = registry.get_zone("zone-1")
-        result = await ws_service._sync_zone_equalizer_to_client("client-1", zone)
+        # Call _sync_standalone_equalizer_to_client - should succeed
+        result = await ws_service._sync_standalone_equalizer_to_client("client-1")
 
         # Assert: sync succeeded and nothing was queued
         assert result is True

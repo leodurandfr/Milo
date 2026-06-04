@@ -414,21 +414,21 @@ class Zone:
     """
     Zone (linked group) configuration.
 
-    A zone groups multiple clients together for synchronized equalizer settings.
-    Volume remains independent per client within a zone.
+    A zone groups multiple clients together. Each member owns its own EQ record
+    (the unified per-client model); a zone holds no EQ of its own — its EQ is
+    simply the (identical) EQ of its members. Volume remains independent per
+    client within a zone.
 
     Attributes:
         id: Unique zone identifier (UUID v4, auto-generated if not provided)
         name: Display name for UI (max 15 characters, validated at API boundary)
         client_ids: List of mac_ids belonging to this zone
-        equalizer_settings: Shared equalizer settings for all zone members
         crossover_frequency: Crossover frequency in Hz (default 80Hz THX standard)
         crossover_enabled: Whether crossover filtering is active for this zone
     """
     name: str
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     client_ids: List[str] = field(default_factory=list)
-    equalizer_settings: EqualizerSettings = field(default_factory=EqualizerSettings)
     crossover_frequency: Optional[int] = 80  # Default THX standard
     crossover_enabled: Optional[bool] = None  # None = auto (depends on subwoofer presence)
 
@@ -438,7 +438,6 @@ class Zone:
             "id": self.id,
             "name": self.name,
             "client_ids": self.client_ids.copy(),
-            "equalizer_settings": self.equalizer_settings.to_dict(),
             "crossover_frequency": self.crossover_frequency,
             "crossover_enabled": self.crossover_enabled
         }
@@ -446,14 +445,10 @@ class Zone:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Zone':
         """Create from dictionary."""
-        eq_data = data.get("equalizer_settings")
-        equalizer_settings = EqualizerSettings.from_dict(eq_data) if eq_data else EqualizerSettings()
-
         return cls(
             name=data.get("name", data["id"]),
             id=data["id"],
             client_ids=data.get("client_ids", []).copy(),
-            equalizer_settings=equalizer_settings,
             crossover_frequency=data.get("crossover_frequency", 80),
             crossover_enabled=data.get("crossover_enabled")
         )
@@ -512,22 +507,21 @@ class ReconnectionContext(str, Enum):
     """
     Context for client reconnection sync strategy selection.
 
-    Determines which volume and equalizer sync strategy to apply when a client
-    reconnects to the system. Based on FR7-FR10 from PRD.
+    Determines the VOLUME sync strategy to apply when a client reconnects.
+    Equalizer no longer branches on context: every client recovers its own one
+    EQ record (zone members hold identical records). Based on FR7-FR10 from PRD.
 
     Attributes:
         IN_ZONE_OTHERS_ONLINE: Client in zone with other zone members ONLINE (FR7)
             - Volume: zone average from online members
-            - Equalizer: zone.equalizer_settings
         IN_ZONE_ALL_OFFLINE: Client in zone but all other zone members OFFLINE (FR8)
             - Volume: startup_volume_db (DEFAULT_VOLUME_DB)
-            - Equalizer: zone.equalizer_settings (from persistence)
         STANDALONE_OTHERS_ONLINE: Standalone client with other clients ONLINE globally (FR9)
             - Volume: global average from all online clients
-            - Equalizer: client_equalizer[mac_id]
         STANDALONE_ALONE: Standalone client with no other clients ONLINE (FR10)
             - Volume: startup_volume_db (DEFAULT_VOLUME_DB)
-            - Equalizer: client_equalizer[mac_id]
+
+    Equalizer (all contexts): client_equalizer[mac_id] (remote) / equalizer.json (local).
     """
     IN_ZONE_OTHERS_ONLINE = "in_zone_others_online"      # FR7
     IN_ZONE_ALL_OFFLINE = "in_zone_all_offline"          # FR8
