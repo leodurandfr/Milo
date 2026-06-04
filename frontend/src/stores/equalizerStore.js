@@ -1327,15 +1327,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     }
   }
 
-  function handleFiltersReset() {
-    // Don't update if throttling is in progress
-    if (filterThrottleMap.size === 0) {
-      filters.value.forEach(filter => {
-        filter.gain = 0;
-      });
-    }
-  }
-
   function handleStateChanged(payload) {
     state.value = payload.state;
   }
@@ -1558,7 +1549,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     // WebSocket Handlers
     handleEqualizerChanged,
     handleFilterChanged,
-    handleFiltersReset,
     handleStateChanged,
     handlePresetLoaded,
     updateLevels,

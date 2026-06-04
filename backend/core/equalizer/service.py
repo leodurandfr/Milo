@@ -497,26 +497,6 @@ class CamillaDSPService:
 
         return True
 
-    @handle_errors(default=False)
-    async def reset_filters(self) -> bool:
-        if not self._connected:
-            return False
-
-        # Suppress per-filter broadcasts during reset (filters_reset event handles it)
-        for f in self._filters:
-            await self.set_filter(
-                filter_id=f["id"],
-                freq=f["freq"],
-                gain=0,
-                q=f.get("q", 1.0),
-                filter_type=f.get("type", "Peaking"),
-                broadcast=False
-            )
-
-        await self._broadcast_event("filters_reset", {})
-
-        return True
-
     # === Volume Control ===
 
     async def get_volume(self) -> Dict[str, Any]:
