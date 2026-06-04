@@ -80,7 +80,6 @@ class SnapcastWebSocketService:
         self._volume_service = None
         self._crossover_service = None
         self._equalizer_client_proxy_service = None
-        self._camilladsp_service = None
         self._pending_clients_service = None
 
     @property
@@ -200,10 +199,6 @@ class SnapcastWebSocketService:
     def set_equalizer_client_proxy_service(self, service) -> None:
         """Set EqualizerClientProxyService dependency."""
         self._equalizer_client_proxy_service = service
-
-    def set_camilladsp_service(self, service) -> None:
-        """Set CamillaDSPService dependency."""
-        self._camilladsp_service = service
 
     def set_pending_clients_service(self, service) -> None:
         """Set PendingClientsService dependency."""
@@ -708,11 +703,12 @@ class SnapcastWebSocketService:
             sync_status["volume_synced"] = volume_synced
 
             # 5. Sync equalizer settings. In the unified per-client model every
-            #    client (zone member or standalone) recovers its OWN EQ record —
-            #    members of a zone hold identical records, so there is no separate
-            #    zone-EQ path. Only the volume context above still differs by
-            #    zone/standalone. The local client owns equalizer.json (restored
-            #    at boot) and has no registry record, so this is a no-op for it.
+            #    remote client (zone member or standalone) recovers its OWN EQ
+            #    record — members of a zone hold identical records, so there is no
+            #    separate zone-EQ path. Only the volume context above still differs
+            #    by zone/standalone. The local client owns equalizer.json (restored
+            #    at boot by CamillaDSPService) and is skipped via an explicit
+            #    is_local guard inside the callee, so this is a no-op for it.
             equalizer_synced = True
             if self.registry:
                 self.logger.info(
@@ -865,74 +861,63 @@ class SnapcastWebSocketService:
             self.logger.warning(f"Could not push snapclient config to {client_ip}: {e}")
 
     async def _apply_equalizer_setting(
-        self, hostname: str, mac_id: str, setting_type: str, data: Any, is_local: bool = False
+        self, hostname: str, mac_id: str, setting_type: str, data: Any
     ) -> bool:
         """
-        Apply a single DSP setting to a client. Routes to local CamillaDSP or remote proxy.
+        Push a single DSP setting to a REMOTE client via the proxy.
+
+        The local client is restored from equalizer.json by CamillaDSPService and
+        is never driven through this re-sync path.
 
         Args:
             hostname: Client IP address
             mac_id: Client identifier for logging
             setting_type: "filter/<id>", "compressor", "loudness", "mono", or "enabled"
             data: Setting payload dict (for "mono"/"enabled": {"enabled": bool})
-            is_local: Route to local CamillaDSP service instead of proxy
 
         Returns:
             True if applied successfully, False on failure
         """
         try:
-            if is_local:
-                if not self._camilladsp_service:
-                    return False
-                if setting_type.startswith("filter/"):
-                    filter_id = setting_type.split("/", 1)[1]
-                    await self._camilladsp_service.set_filter(filter_id, **data)
-                elif setting_type == "compressor":
-                    await self._camilladsp_service.set_compressor(**data)
-                elif setting_type == "loudness":
-                    await self._camilladsp_service.set_loudness(**data)
-                elif setting_type == "mono":
-                    await self._camilladsp_service.set_mono(enabled=data.get("enabled", False))
-                elif setting_type == "enabled":
-                    # Master bypass parity with the satellite: restore vs strip effects.
-                    if data.get("enabled", True):
-                        await self._camilladsp_service.restore_effects()
-                    else:
-                        await self._camilladsp_service.bypass_effects()
-            else:
-                if not self._equalizer_client_proxy_service:
-                    return False
-                await self._equalizer_client_proxy_service.request(hostname, "PUT", f"/equalizer/{setting_type}", data)
+            if not self._equalizer_client_proxy_service:
+                return False
+            await self._equalizer_client_proxy_service.request(hostname, "PUT", f"/equalizer/{setting_type}", data)
             return True
         except Exception as e:
             self.logger.warning(f"Failed to apply equalizer {setting_type} to {mac_id}: {e}")
             return False
 
     async def _sync_standalone_equalizer_to_client(self, mac_id: str) -> bool:
-        """Apply a reconnecting client's own EQ record to it.
+        """Push a reconnecting REMOTE client's own EQ record to the satellite.
 
         Reads the registry's per-client EQ store (`client_equalizer[mac]`, the
         single source of truth for any remote client — zone members hold
-        identical records), so the client recovers ALL of its state: filters,
-        compressor, loudness, mono and the master enabled/bypass flag. The local
-        client has no registry record (it owns equalizer.json, restored at boot),
-        so this is a natural no-op for it.
+        identical records), so the satellite recovers ALL of its state: filters,
+        compressor, loudness, mono and the master enabled/bypass flag.
+
+        The local client is never driven through this path: it owns
+        equalizer.json and is applied to the DAC at boot by CamillaDSPService
+        (and updated in place by the per-client access layer for live changes),
+        so a local target is an explicit no-op here.
         """
         try:
             client = self.registry.get_client(mac_id) if self.registry else None
             if not client or not client.ip:
-                self.logger.warning(f"Cannot sync standalone equalizer to {mac_id}: no IP address")
+                self.logger.warning(f"Cannot sync equalizer to {mac_id}: no IP address")
                 return False
 
+            # Local client owns equalizer.json (restored at boot) — not re-synced here.
+            if client.is_local:
+                return True
+
             hostname = client.ip
-            is_local = client.is_local
 
             eq = self.registry.get_client_equalizer(mac_id) if self.registry else None
             if not eq:
-                self.logger.info(f"SYNC_STANDALONE: No saved settings for {mac_id}, defaults apply")
+                self.logger.info(f"SYNC_EQ: No saved settings for {mac_id}, defaults apply")
                 return True
 
-            self.logger.info(f"SYNC_STANDALONE: Applying saved settings for {mac_id}")
+            self.logger.info(f"SYNC_EQ: Applying saved settings for {mac_id}")
             synced = []
             failed = []
             filters_failed = []
@@ -946,7 +931,7 @@ class SnapcastWebSocketService:
                         'freq': flt.frequency, 'gain': flt.gain, 'q': flt.q,
                         'filter_type': flt.filter_type.value if hasattr(flt.filter_type, 'value') else flt.filter_type
                     }
-                    if await self._apply_equalizer_setting(hostname, mac_id, f"filter/{flt.id}", filter_data, is_local):
+                    if await self._apply_equalizer_setting(hostname, mac_id, f"filter/{flt.id}", filter_data):
                         synced.append(f"filter:{flt.id}")
                     else:
                         failed.append(f"filter:{flt.id}")
@@ -959,7 +944,7 @@ class SnapcastWebSocketService:
             # Sync compressor
             if eq.compressor:
                 data = eq.compressor.to_dict()
-                if await self._apply_equalizer_setting(hostname, mac_id, "compressor", data, is_local):
+                if await self._apply_equalizer_setting(hostname, mac_id, "compressor", data):
                     synced.append("compressor")
                 else:
                     failed.append("compressor")
@@ -969,7 +954,7 @@ class SnapcastWebSocketService:
             # Sync loudness
             if eq.loudness:
                 data = eq.loudness.to_dict()
-                if await self._apply_equalizer_setting(hostname, mac_id, "loudness", data, is_local):
+                if await self._apply_equalizer_setting(hostname, mac_id, "loudness", data):
                     synced.append("loudness")
                 else:
                     failed.append("loudness")
@@ -978,7 +963,7 @@ class SnapcastWebSocketService:
 
             # Sync mono
             mono_data = {"enabled": eq.mono}
-            if await self._apply_equalizer_setting(hostname, mac_id, "mono", mono_data, is_local):
+            if await self._apply_equalizer_setting(hostname, mac_id, "mono", mono_data):
                 synced.append("mono")
             else:
                 failed.append("mono")
@@ -987,31 +972,22 @@ class SnapcastWebSocketService:
 
             # Sync master enabled/bypass LAST (after the effects it gates).
             enabled_data = {"enabled": eq.enabled}
-            if await self._apply_equalizer_setting(hostname, mac_id, "enabled", enabled_data, is_local):
+            if await self._apply_equalizer_setting(hostname, mac_id, "enabled", enabled_data):
                 synced.append("enabled")
             else:
                 failed.append("enabled")
                 if self._crossover_service:
                     await self._crossover_service.queue_pending_settings(mac_id, "enabled", enabled_data)
 
-            # Local client only: restore the preset NAME onto the local CamillaDSP so it
-            # matches the gains just re-applied. The name lives in a separate store
-            # (CamillaDSPService._active_preset, read by GET /api/equalizer/presets);
-            # without this the local client shows a stale name after a reboot. Remote
-            # clients carry their name in the registry (served via /client/{mac}/status).
-            if is_local and eq.active_preset and self._camilladsp_service:
-                await self._camilladsp_service.set_active_preset(eq.active_preset)
-                synced.append("active_preset")
-
             if synced:
-                self.logger.info(f"SYNC_STANDALONE: Synced {synced} to {mac_id}")
+                self.logger.info(f"SYNC_EQ: Synced {synced} to {mac_id}")
             if failed:
-                self.logger.warning(f"SYNC_STANDALONE: Failed to sync {failed} to {mac_id}")
+                self.logger.warning(f"SYNC_EQ: Failed to sync {failed} to {mac_id}")
 
             return len(failed) == 0
 
         except Exception as e:
-            self.logger.error(f"Error syncing standalone equalizer to {mac_id}: {e}", exc_info=True)
+            self.logger.error(f"Error syncing equalizer to {mac_id}: {e}", exc_info=True)
             return False
 
     async def _sync_reconnecting_client_volume(

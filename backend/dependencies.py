@@ -363,7 +363,6 @@ def initialize_services() -> None:
     snapcast_websocket_service.set_volume_service(volume_service)
     snapcast_websocket_service.set_crossover_service(crossover_service)
     snapcast_websocket_service.set_equalizer_client_proxy_service(equalizer_client_proxy_service)
-    snapcast_websocket_service.set_camilladsp_service(camilladsp_service)
 
     # 2.18 - pending_clients_service → state_machine
     pending_clients_service.set_state_machine(state_machine)
