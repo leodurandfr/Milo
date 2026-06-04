@@ -254,11 +254,6 @@ def create_equalizer_router(equalizer_service: EqualizerService) -> APIRouter:
 
     # === Crossover ===
 
-    @router.get("/crossover")
-    async def get_crossover():
-        """Get crossover highpass filter settings."""
-        return equalizer_service.crossover
-
     @router.put("/crossover")
     async def update_crossover(update: CrossoverUpdate):
         """Update crossover highpass filter settings."""
@@ -277,11 +272,6 @@ def create_equalizer_router(equalizer_service: EqualizerService) -> APIRouter:
         except Exception as e:
             logger.error(f"Error updating crossover: {e}")
             raise HTTPException(status_code=500, detail=str(e))
-
-    @router.get("/lowpass")
-    async def get_lowpass():
-        """Get lowpass filter settings (for subwoofers)."""
-        return equalizer_service.lowpass
 
     @router.put("/lowpass")
     async def update_lowpass(update: LowpassUpdate):

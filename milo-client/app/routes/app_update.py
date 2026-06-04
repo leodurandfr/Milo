@@ -45,20 +45,4 @@ def create_app_update_router(app_update_service: AppUpdateService) -> APIRouter:
             "timestamp": int(time.time())
         }
 
-    @router.get("/update/status")
-    async def get_update_status():
-        """Gets the status of the app update."""
-        return {
-            "update_in_progress": app_update_service.update_in_progress,
-            "timestamp": int(time.time())
-        }
-
-    @router.get("/version")
-    async def get_version():
-        """Gets the current app version."""
-        return {
-            "version": app_update_service.get_app_version(),
-            "timestamp": int(time.time())
-        }
-
     return router

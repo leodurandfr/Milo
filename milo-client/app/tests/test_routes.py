@@ -130,13 +130,6 @@ class TestHealthRoutes:
 class TestSnapclientRoutes:
     """Test snapclient management routes."""
 
-    def test_version_endpoint(self, client):
-        """GET /version should return snapclient version."""
-        response = client.get("/version")
-        assert response.status_code == 200
-        data = response.json()
-        assert data["version"] == "0.28.0"
-
     def test_update_status_endpoint(self, client):
         """GET /update/status should return update status."""
         response = client.get("/update/status")
@@ -216,22 +209,6 @@ class TestEqualizerRoutes:
         data = response.json()
         assert "left" in data
         assert "right" in data
-
-    def test_equalizer_crossover_get(self, client):
-        """GET /equalizer/crossover should return crossover state."""
-        response = client.get("/equalizer/crossover")
-        assert response.status_code == 200
-        data = response.json()
-        assert "enabled" in data
-        assert "frequency" in data
-
-    def test_equalizer_lowpass_get(self, client):
-        """GET /equalizer/lowpass should return lowpass state."""
-        response = client.get("/equalizer/lowpass")
-        assert response.status_code == 200
-        data = response.json()
-        assert "enabled" in data
-        assert "frequency" in data
 
     def test_equalizer_levels_get(self, client):
         """GET /equalizer/levels should return audio levels."""
