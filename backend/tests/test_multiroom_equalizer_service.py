@@ -114,6 +114,34 @@ def zoned_remote_client():
     return Client(mac_id="milo-client-1", name="Kitchen", ip="192.168.1.100", online=True, zone_id="zone-123")
 
 
+@pytest.fixture
+def offline_registry():
+    """Registry as in multiroom-OFF: it knows no clients (Snapcast populates it).
+
+    Crucially it does NOT recognize "local" as the local client, so only the
+    LOCAL_TARGET sentinel can route the local device to CamillaDSP here.
+    """
+    registry = Mock()
+    registry.get_zone = Mock(return_value=None)
+    registry.get_client = Mock(return_value=None)
+    registry.get_client_equalizer = Mock(return_value=None)
+    registry.set_client_equalizer = AsyncMock()
+    registry.get_online_zone_clients = Mock(return_value=[])
+    registry.is_local_client = Mock(return_value=False)  # empty registry → nothing is "local"
+    registry.get_client_ip = Mock(return_value=None)
+    return registry
+
+
+@pytest.fixture
+def offline_service(offline_registry, mock_camilladsp_service, mock_state_machine):
+    service = MultiroomEqualizerService(
+        client_registry_service=offline_registry,
+        camilladsp_service=mock_camilladsp_service,
+    )
+    service.set_state_machine(mock_state_machine)
+    return service
+
+
 # =============================================================================
 # Initialization
 # =============================================================================
@@ -774,3 +802,59 @@ class TestZoneEffectsEnabled:
         mock_registry.get_zone.return_value = None
         with pytest.raises(ValueError, match="Zone not found"):
             await multiroom_equalizer_service.set_zone_equalizer_effects_enabled("nope", True)
+
+
+# =============================================================================
+# LOCAL_TARGET sentinel — the local device is addressable as "local" without a
+# registry entry (multiroom OFF: the registry is empty / unaware of "local").
+# This lets the uniform per-target API address the local client uniformly.
+# =============================================================================
+
+class TestLocalTargetSentinel:
+    @pytest.mark.asyncio
+    async def test_get_client_eq_local_sentinel_reads_camilladsp(self, offline_service, mock_camilladsp_service):
+        snap = EqualizerSettings.default()
+        snap.active_preset = "rock"
+        mock_camilladsp_service.get_equalizer_settings = Mock(return_value=snap)
+        result = await offline_service.get_client_eq("local")
+        assert result is snap  # sentinel → CamillaDSP even though the registry is empty
+
+    @pytest.mark.asyncio
+    async def test_set_client_eq_local_sentinel_applies_no_registry_write(
+        self, offline_service, offline_registry, mock_camilladsp_service, sample_equalizer_settings
+    ):
+        result = await offline_service.set_client_eq("local", sample_equalizer_settings)
+        assert result is True
+        assert mock_camilladsp_service.set_filter.call_count == 2  # applied to the DAC
+        mock_camilladsp_service.persist_state.assert_awaited_once()  # persisted to equalizer.json
+        offline_registry.set_client_equalizer.assert_not_called()  # no phantom registry record
+
+    @pytest.mark.asyncio
+    async def test_update_filter_local_sentinel_no_phantom_record(
+        self, offline_service, offline_registry, mock_camilladsp_service
+    ):
+        # Must NOT raise "Client not found: local" and must NOT write a registry record;
+        # the local member is persisted from its live DSP cache instead.
+        result = await offline_service.update_filter("client", "local", "eq_band_00", gain=4.0)
+        assert result is True
+        offline_registry.set_client_equalizer.assert_not_called()
+        mock_camilladsp_service.persist_state.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_set_client_equalizer_effects_enabled_local_sentinel_routes_to_routing(
+        self, offline_service
+    ):
+        routing = Mock()
+        routing.set_equalizer_effects_enabled = AsyncMock(return_value=True)
+        result = await offline_service.set_client_equalizer_effects_enabled("local", False, routing)
+        assert result is True
+        routing.set_equalizer_effects_enabled.assert_awaited_once_with(False)
+
+    @pytest.mark.asyncio
+    async def test_apply_client_equalizer_local_sentinel_skips_registry_validation(
+        self, offline_service, mock_camilladsp_service, sample_equalizer_settings
+    ):
+        # get_client("local") is None in multiroom-off; must not raise "Client not found".
+        result = await offline_service.apply_client_equalizer("local", sample_equalizer_settings)
+        assert result is True
+        mock_camilladsp_service.persist_state.assert_awaited()
