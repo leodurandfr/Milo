@@ -29,6 +29,7 @@
       :station-icon="screensaverData.stationIcon"
       :station-name="screensaverData.stationName"
       :use-mono-subtitle="screensaverData.useMonoSubtitle"
+      :progress="screensaverProgress"
       @close="closeScreensaver"
     />
   </div>
@@ -57,7 +58,7 @@ const unifiedStore = useUnifiedAudioStore();
 const timer = useTimer();
 
 // === Audio Screensaver ===
-const { isScreensaverVisible, screensaverData, closeScreensaver } = useScreensaver();
+const { isScreensaverVisible, screensaverData, screensaverProgress, closeScreensaver } = useScreensaver();
 
 // Dismiss screensaver when App.vue signals (e.g., new pending client detected)
 const dismissScreensaverSignal = inject('dismissScreensaver', ref(0));

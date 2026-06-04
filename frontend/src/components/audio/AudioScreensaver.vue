@@ -41,6 +41,15 @@
             <AppIcon v-else-if="stationIcon" :name="stationIcon" :size="40" class="station-icon" />
             <span class="station-name heading-4">{{ stationName }}</span>
           </div>
+
+          <div v-if="progress" class="progress-section stagger-4">
+            <ConnectProgressBar
+              :current-position="progress.currentPosition"
+              :duration="progress.duration"
+              :progress-percentage="progress.progressPercentage"
+              :is-ready="progress.isReady"
+              :interactive="false" />
+          </div>
         </div>
       </div>
     </template>
@@ -59,6 +68,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
+import ConnectProgressBar from './ConnectProgressBar.vue';
 import { generateStationAvatarSvg } from '@/utils/stationAvatar';
 import { MIN_IMAGE_SIZE } from '@/constants/imageQuality';
 import { useTimer } from '@/composables/useTimer';
@@ -108,6 +118,10 @@ const props = defineProps({
   useMonoSubtitle: {
     type: Boolean,
     default: false
+  },
+  progress: {
+    type: Object,
+    default: null
   }
 });
 
@@ -258,7 +272,7 @@ watch(() => props.isVisible, (visible) => {
   display: flex;
   width: 100%;
   height: 100%;
-  padding: var(--space-05);
+  padding: var(--space-05) var(--space-06) var(--space-05) var(--space-05);
   gap: var(--space-06);
   position: relative;
   z-index: 1;
@@ -388,6 +402,22 @@ watch(() => props.isVisible, (visible) => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.progress-section {
+  padding-bottom: var(--space-06);
+}
+
+.progress-section :deep(.progress) {
+  background-color: var(--color-text-contrast);
+}
+
+.progress-section :deep(.progress-container) {
+  background-color: var(--color-background-neutral-12);
+}
+
+.progress-section :deep(.time) {
+  color: var(--color-text-contrast-50);
 }
 
 /* === SIMPLE MODE (bluetooth, mac) === */
