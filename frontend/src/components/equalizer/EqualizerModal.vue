@@ -309,6 +309,8 @@ onUnmounted(() => {
 
 <style scoped>
 .equalizer-modal {
+  /* Positioning context for useViewTransition's absolute header crossfade (cf. .settings-modal) */
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--space-03);
