@@ -258,6 +258,22 @@ class TestPerClientAccessLayer:
         assert records[0] is not records[1]  # independent copies, no aliasing
 
     @pytest.mark.asyncio
+    async def test_set_zone_eq_member_copies_are_deep(self, multiroom_equalizer_service, mock_registry, sample_equalizer_settings):
+        """Each member receives a DEEP copy: editing one member's nested filter must
+        not bleed into a sibling (nor into the caller's source record). Guards the
+        from_dict(to_dict()) fan-out against shared EqFilter/list aliasing — the
+        property that lets a later per-member edit stay local."""
+        mock_registry.get_zone.return_value = Zone(id="z", name="Pair", client_ids=["milo-client-1", "milo-client-2"])
+        original_gain = sample_equalizer_settings.filters[0].gain
+        await multiroom_equalizer_service.set_zone_eq("z", sample_equalizer_settings)
+        records = [c.args[1] for c in mock_registry.set_client_equalizer.call_args_list]
+        assert len(records) == 2
+        # Mutate member-0's first filter; member-1 and the source must be untouched.
+        records[0].filters[0].gain = 99.0
+        assert records[1].filters[0].gain == original_gain
+        assert sample_equalizer_settings.filters[0].gain == original_gain
+
+    @pytest.mark.asyncio
     async def test_set_zone_eq_zone_not_found_raises(self, multiroom_equalizer_service, mock_registry, sample_equalizer_settings):
         mock_registry.get_zone.return_value = None
         with pytest.raises(ValueError, match="Zone not found"):
@@ -459,6 +475,52 @@ class TestPresetLoading:
         mock_registry.get_zone.return_value = None
         with pytest.raises(ValueError, match="not found"):
             await multiroom_equalizer_service.save_custom_preset("zone", "nonexistent")
+
+
+# =============================================================================
+# resolve_preset_gains — builtin vs "custom" resolution (name → gains)
+# =============================================================================
+
+class TestResolvePresetGains:
+    """resolve_preset_gains maps a preset id to its gain values. The "custom" id
+    resolves from the target's own custom_gains, falling back to the global
+    CamillaDSP gains, then to a flat default — the branches the indirect
+    load_*_preset tests never exercise."""
+
+    @pytest.mark.asyncio
+    async def test_resolve_builtin_returns_preset_gains(self, multiroom_equalizer_service):
+        from backend.core.equalizer.presets import get_preset_by_id
+
+        gains = await multiroom_equalizer_service.resolve_preset_gains("rock")
+        assert gains == get_preset_by_id("rock")["gains"]
+
+    @pytest.mark.asyncio
+    async def test_resolve_unknown_preset_raises(self, multiroom_equalizer_service):
+        with pytest.raises(ValueError, match="Preset not found"):
+            await multiroom_equalizer_service.resolve_preset_gains("does_not_exist")
+
+    @pytest.mark.asyncio
+    async def test_resolve_custom_from_settings(self, multiroom_equalizer_service):
+        settings = EqualizerSettings(custom_gains=[2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0])
+        gains = await multiroom_equalizer_service.resolve_preset_gains("custom", settings)
+        assert gains == settings.custom_gains
+
+    @pytest.mark.asyncio
+    async def test_resolve_custom_falls_back_to_camilladsp(self, multiroom_equalizer_service, mock_camilladsp_service):
+        # No per-target custom_gains → use the global CamillaDSP gains (distinct from
+        # the flat DEFAULT so the branch is unambiguous).
+        mock_camilladsp_service.get_custom_gains = AsyncMock(return_value=[1.5] * 10)
+        gains = await multiroom_equalizer_service.resolve_preset_gains("custom", None)
+        assert gains == [1.5] * 10
+
+    @pytest.mark.asyncio
+    async def test_resolve_custom_falls_back_to_default(self, mock_registry):
+        from backend.core.equalizer.presets import DEFAULT_CUSTOM_GAINS
+
+        # A service with no CamillaDSP and no per-target gains → the flat default.
+        service = MultiroomEqualizerService(client_registry_service=mock_registry)
+        gains = await service.resolve_preset_gains("custom", None)
+        assert gains == DEFAULT_CUSTOM_GAINS
 
 
 # =============================================================================
