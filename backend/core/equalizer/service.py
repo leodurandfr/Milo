@@ -1152,6 +1152,40 @@ class CamillaDSPService:
             self._persist_debounce_task.cancel()
         await self._persist_state_async()
 
+    async def update_cache(self, settings: EqualizerSettings) -> None:
+        """Unconditionally overwrite the in-memory EQ cache from a full record, then persist.
+
+        Used by the per-client access layer on the DISCONNECTED local path: while
+        CamillaDSP is down the live apply (``set_filter`` etc.) no-ops because it
+        guards on ``connected``, so the live cache would drift from the intended EQ
+        and equalizer.json would go stale. This snapshots the intent into the cache
+        + equalizer.json so the reconnect (``restore_effects``) re-pushes the correct
+        values to the daemon.
+
+        Does NOT talk to the daemon (it is disconnected) and does NOT touch
+        ``_effects_enabled`` (the master toggle, owned by AudioRoutingService /
+        settings.json and restored independently on reconnect).
+        """
+        if settings.filters:
+            self._filters = [
+                {
+                    "id": f.id,
+                    "type": f.filter_type.value if hasattr(f.filter_type, "value") else f.filter_type,
+                    "freq": float(f.frequency),
+                    "gain": float(f.gain),
+                    "q": float(f.q),
+                    "enabled": bool(f.enabled),
+                }
+                for f in settings.filters
+            ]
+        self._compressor = settings.compressor.to_dict()
+        self._loudness = settings.loudness.to_dict()
+        self._mono = bool(settings.mono)
+        self._active_preset = settings.active_preset
+        if settings.custom_gains and len(settings.custom_gains) >= 10:
+            self._custom_gains = [float(g) for g in settings.custom_gains[:10]]
+        await self._persist_state_async()
+
     def get_equalizer_settings(self) -> EqualizerSettings:
         """Snapshot the local client's full EQ as a unified EqualizerSettings record.
 

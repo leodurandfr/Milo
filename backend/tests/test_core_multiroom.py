@@ -2796,6 +2796,54 @@ class TestSyncStandaloneDspToClient:
         assert any(call[0][1] == "filters" for call in calls), "Filter settings should be queued on failure"
 
 
+class TestReconnectRepushesEqualizer:
+    """The secondary reconnect path (`_sync_reconnecting_client_volume`, used by the
+    Server.OnUpdate online-status flip) must re-push the client's EQ record — not
+    just volume — so a member that missed a zone-EQ change while offline recovers it
+    automatically on reconnect. The local client is a no-op (is_local guard inside
+    the callee). EQ re-push happens after volume is confirmed and before the client
+    is shown online."""
+
+    def _make_ws(self):
+        from backend.core.multiroom.websocket import SnapcastWebSocketService
+        from backend.core.multiroom.models import ReconnectionContext
+        sm = MagicMock()
+        sm.broadcast_event = AsyncMock()
+        ws = SnapcastWebSocketService(state_machine=sm, routing_service=MagicMock())
+        ws._registry = MagicMock()
+        ws._registry.get_reconnection_context = MagicMock(return_value=ReconnectionContext.STANDALONE_ALONE)
+        ws._registry.set_client_online = AsyncMock()
+        ws._volume_service = MagicMock()
+        ws._volume_service._broadcast_volume_state = AsyncMock()
+        ws._resolve_target_volume = MagicMock(return_value=-40.0)
+        ws._apply_target_volume_to_client = AsyncMock(return_value=True)
+        ws._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)
+        return ws
+
+    @pytest.mark.asyncio
+    async def test_reconnect_repushes_equalizer_after_volume_sync(self):
+        ws = self._make_ws()
+        ok = await ws._do_sync_reconnecting_client_volume(
+            "milo-client-1", set_online_after=True, max_retries=0, retry_delay=0,
+        )
+        assert ok is True
+        ws._sync_standalone_equalizer_to_client.assert_awaited_once_with("milo-client-1")
+        # EQ pushed before the client is shown online (fully configured first).
+        ws._registry.set_client_online.assert_awaited_once_with("milo-client-1", True)
+
+    @pytest.mark.asyncio
+    async def test_reconnect_skips_equalizer_when_volume_never_syncs(self):
+        """If volume never confirms on hardware, the client stays offline and EQ is
+        not pushed (avoids configuring a client we can't reach)."""
+        ws = self._make_ws()
+        ws._apply_target_volume_to_client = AsyncMock(return_value=False)
+        ok = await ws._do_sync_reconnecting_client_volume(
+            "milo-client-1", set_online_after=True, max_retries=0, retry_delay=0,
+        )
+        assert ok is False
+        ws._sync_standalone_equalizer_to_client.assert_not_called()
+
+
 # =============================================================================
 # IN_ZONE Volume Sync Strategy Tests (Story 5.2)
 # =============================================================================

@@ -1044,6 +1044,14 @@ class SnapcastWebSocketService:
             try:
                 volume_synced = await self._apply_target_volume_to_client(mac_id, target_volume)
                 if volume_synced:
+                    # Re-push the client's EQ record now that it's reachable again.
+                    # This path (Server.OnUpdate online-status flip) historically
+                    # synced volume only; without this, a member that missed a
+                    # zone-EQ change while offline would keep stale EQ until the next
+                    # full Client.OnConnect. No-op for the local client (is_local
+                    # guard inside the callee). Done before showing online so the
+                    # client is fully configured first.
+                    await self._sync_standalone_equalizer_to_client(mac_id)
                     # Volume confirmed on hardware — now safe to show online
                     if set_online_after and self.registry:
                         await self.registry.set_client_online(mac_id, True)

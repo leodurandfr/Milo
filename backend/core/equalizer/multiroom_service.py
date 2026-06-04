@@ -137,13 +137,20 @@ class MultiroomEqualizerService:
         remote client → store in the registry and push to the satellite.
         """
         if self._registry and self._registry.is_local_client(mac_id):
+            cds = self._camilladsp_service
             applied = await self._apply_to_local(settings)
-            # Persist only after a successful apply (applied == connected DSP);
-            # a failed/disconnected apply leaves the live cache uncertain.
-            if applied and self._camilladsp_service:
+            if applied and cds:
+                # Successful apply (connected DSP): snapshot the live cache to disk.
                 if settings.custom_gains is not None:
-                    self._camilladsp_service.set_custom_gains(settings.custom_gains)
-                await self._camilladsp_service.persist_state()
+                    cds.set_custom_gains(settings.custom_gains)
+                await cds.persist_state()
+            elif cds and not cds.connected:
+                # DSP disconnected: the live apply no-op'd without touching the
+                # cache, so capture the intent into the cache + equalizer.json.
+                # restore_effects() re-pushes it on reconnect, so the local record
+                # never drifts from the zone's other members (boot/reconnect window).
+                await cds.update_cache(settings)
+            # else: connected but the apply raised → cache is uncertain, leave it.
             return applied
         if self._registry:
             await self._registry.set_client_equalizer(mac_id, settings)
@@ -615,10 +622,16 @@ class MultiroomEqualizerService:
         else:
             self.logger.warning(f"EqualizerRouter not available, {router_method} not applied to clients")
 
-        # Snapshot the local client's live DSP → equalizer.json (the router already
-        # applied the targeted change to the cache), so its record survives a restart.
-        if local_touched and self._camilladsp_service and self._camilladsp_service.connected:
-            await self._camilladsp_service.persist_state()
+        # Persist the local member's record so it survives a restart. When the DSP
+        # is connected the router already applied the targeted change to the live
+        # cache, so we snapshot it. When it is disconnected the router no-op'd, so
+        # we capture the intended record into the cache + equalizer.json instead —
+        # restore_effects() re-pushes it on reconnect (no drift from remote members).
+        if local_touched and self._camilladsp_service:
+            if self._camilladsp_service.connected:
+                await self._camilladsp_service.persist_state()
+            else:
+                await self._camilladsp_service.update_cache(current)
 
         # Broadcast targeted WebSocket event
         if self._state_machine:

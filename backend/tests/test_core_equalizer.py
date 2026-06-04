@@ -284,6 +284,132 @@ class TestCamillaDSPService:
         assert calls == [True]
 
     @pytest.mark.asyncio
+    async def test_update_cache_overwrites_cache_and_persists_while_disconnected(
+        self, camilladsp_service, monkeypatch
+    ):
+        """update_cache() unconditionally overwrites the in-memory cache from an
+        EqualizerSettings record and persists — even while DISCONNECTED. Used on the
+        disconnected local path so the intent survives to reconnect, where
+        restore_effects() re-pushes it. It must NOT touch _effects_enabled (the
+        master toggle owned by routing/settings.json)."""
+        from backend.core.multiroom.models import (
+            EqualizerSettings, EqFilter, CompressorSettings, LoudnessSettings,
+            FilterType, DEFAULT_EQ_FREQUENCIES,
+        )
+        persisted = []
+
+        async def fake_async():
+            persisted.append(True)
+
+        monkeypatch.setattr(camilladsp_service, "_persist_state_async", fake_async)
+
+        assert camilladsp_service.connected is False  # disconnected by default
+        camilladsp_service._effects_enabled = True  # sentinel: must stay untouched
+
+        settings = EqualizerSettings(
+            enabled=False,
+            filters=[
+                EqFilter(id=f"eq_band_{i:02d}", frequency=DEFAULT_EQ_FREQUENCIES[i],
+                         gain=float(i), q=1.41, filter_type=FilterType.PEAKING)
+                for i in range(10)
+            ],
+            compressor=CompressorSettings(enabled=True, threshold=-25.0),
+            loudness=LoudnessSettings(enabled=True, low_boost=10.0),
+            active_preset="rock",
+            mono=True,
+            custom_gains=[1.0] * 10,
+        )
+
+        await camilladsp_service.update_cache(settings)
+
+        assert camilladsp_service._mono is True
+        assert camilladsp_service._active_preset == "rock"
+        assert camilladsp_service._compressor["enabled"] is True
+        assert camilladsp_service._compressor["threshold"] == -25.0
+        assert camilladsp_service._loudness["enabled"] is True
+        assert camilladsp_service._loudness["low_boost"] == 10.0
+        assert camilladsp_service._custom_gains == [1.0] * 10
+        assert camilladsp_service._filters[5]["gain"] == 5.0
+        assert camilladsp_service._filters[0]["id"] == "eq_band_00"
+        assert camilladsp_service._filters[0]["freq"] == DEFAULT_EQ_FREQUENCIES[0]
+        # Master toggle is owned elsewhere — update_cache must not clobber it.
+        assert camilladsp_service._effects_enabled is True
+        # Intent persisted to equalizer.json.
+        assert persisted == [True]
+
+    @pytest.mark.asyncio
+    async def test_load_saved_config_restores_local_eq_at_boot(self, camilladsp_service, tmp_path):
+        """At boot the local client's EQ is restored from equalizer.json into the
+        in-memory cache (the DAC source of truth). This is the LOCAL client's boot
+        restoration — independent of multiroom and the websocket re-sync, so a
+        restart never reverts the local EQ. (Regression lock for the design's core
+        guarantee.)"""
+        from backend.shared.persistence import save_versioned_json
+        path = tmp_path / "equalizer.json"
+        await save_versioned_json(path, {
+            "active_preset": "rock",
+            "mono": True,
+            "custom_gains": [2.0] * 10,
+            "filters": [{"id": "eq_band_00", "type": "Peaking", "freq": 31, "gain": 3.5, "q": 1.41, "enabled": True}],
+            "compressor": {"enabled": True, "threshold": -25.0, "ratio": 4.0, "attack": 10.0, "release": 100.0, "makeup_gain": 0.0},
+            "loudness": {"enabled": True, "high_boost": 6.0, "low_boost": 9.0},
+        }, camilladsp_service.SCHEMA_VERSION)
+        camilladsp_service.STORAGE_PATH = path
+
+        await camilladsp_service._load_saved_config()
+
+        assert camilladsp_service._active_preset == "rock"
+        assert camilladsp_service._mono is True
+        assert camilladsp_service._custom_gains == [2.0] * 10
+        assert camilladsp_service._filters[0]["gain"] == 3.5
+        assert camilladsp_service._compressor["enabled"] is True
+        assert camilladsp_service._compressor["threshold"] == -25.0
+        assert camilladsp_service._loudness["high_boost"] == 6.0
+
+    @pytest.mark.asyncio
+    async def test_disconnected_set_then_reconnect_restores_eq(self, camilladsp_service, monkeypatch):
+        """End-to-end of the disconnected→reconnect window: update_cache captures the
+        intent while CamillaDSP is DISCONNECTED; on reconnect restore_effects() pushes
+        those exact cache values to the daemon. Proves equalizer.json never drifts from
+        the live DSP across the boot/reconnect window (carried-over Phase 1 fix)."""
+        from backend.core.multiroom.models import (
+            EqualizerSettings, EqFilter, FilterType, DEFAULT_EQ_FREQUENCIES,
+        )
+        monkeypatch.setattr(camilladsp_service, "_persist_state_async", AsyncMock())
+
+        settings = EqualizerSettings(
+            filters=[
+                EqFilter(id=f"eq_band_{i:02d}", frequency=DEFAULT_EQ_FREQUENCIES[i],
+                         gain=4.0 if i == 0 else 0.0, q=1.41, filter_type=FilterType.PEAKING)
+                for i in range(10)
+            ],
+            active_preset="custom",
+        )
+
+        # 1. Disconnected: capture the intent into the cache + equalizer.json.
+        assert camilladsp_service.connected is False
+        await camilladsp_service.update_cache(settings)
+
+        # 2. Reconnect: restore_effects() re-pushes the cache to the daemon.
+        camilladsp_service._connected = True
+        camilladsp_service._client = MagicMock()
+        captured = {}
+
+        async def fake_get_config():
+            return {"filters": {}, "pipeline": [], "processors": {}}
+
+        async def fake_set_config(cfg):
+            captured["cfg"] = cfg
+
+        monkeypatch.setattr(camilladsp_service, "_get_config", fake_get_config)
+        monkeypatch.setattr(camilladsp_service, "_set_config", fake_set_config)
+
+        ok = await camilladsp_service.restore_effects()
+
+        assert ok is True
+        assert captured["cfg"]["filters"]["eq_band_00"]["parameters"]["gain"] == 4.0
+
+    @pytest.mark.asyncio
     async def test_get_volume_disconnected(self, camilladsp_service):
         """Should return cached volume when disconnected"""
         volume = await camilladsp_service.get_volume()
