@@ -649,7 +649,6 @@ onMounted(async () => {
     on('system', 'connectivity_changed', (event) => systemStore.handleConnectivityEvent(event)),
     // Equalizer events
     on('equalizer', 'filter_changed', (event) => equalizerStore.handleFilterChanged(event)),
-    on('equalizer', 'filters_reset', () => equalizerStore.handleFiltersReset()),
     parsedOn('equalizer', 'state_changed', wsEventRegistry['equalizer.state_changed'],
              (payload) => equalizerStore.handleStateChanged(payload)),
     parsedOn('equalizer', 'preset_loaded', wsEventRegistry['equalizer.preset_loaded'],

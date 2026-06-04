@@ -264,17 +264,6 @@ def create_equalizer_router(
 
             return {"status": "error", "message": "Failed to update filter"}
 
-    @router.post("/reset")
-    async def reset_all_filters():
-        """Reset all filters to flat (0 dB gain)"""
-        async with api_error_handler("Error resetting filters"):
-            success = await camilladsp_service.reset_filters()
-
-            if success:
-                return {"status": "success", "message": "All filters reset to flat"}
-
-            return {"status": "error", "message": "Failed to reset filters"}
-
     # === Preset Management ===
 
     @router.get("/presets")
@@ -691,21 +680,6 @@ def create_equalizer_router(
 
         return result
 
-    @router.post("/client/{hostname}/reset")
-    async def reset_client_equalizer_filters(hostname: str):
-        """Proxy filter reset to client and clear saved filter settings"""
-        result = await equalizer_router_service.reset_filters(hostname)
-
-        if result.get("status") == "success":
-            await _persist_remote(hostname, "filters", {})
-
-        return result
-
-    @router.get("/client/{hostname}/compressor")
-    async def get_client_compressor(hostname: str):
-        """Proxy compressor GET to client"""
-        return await equalizer_router_service.get_compressor(hostname)
-
     @router.put("/client/{hostname}/compressor")
     async def update_client_compressor(hostname: str, request: Request):
         """Proxy compressor update to client and persist settings"""
@@ -720,11 +694,6 @@ def create_equalizer_router(
 
         return result
 
-    @router.get("/client/{hostname}/loudness")
-    async def get_client_loudness(hostname: str):
-        """Proxy loudness GET to client"""
-        return await equalizer_router_service.get_loudness(hostname)
-
     @router.put("/client/{hostname}/loudness")
     async def update_client_loudness(hostname: str, request: Request):
         """Proxy loudness update to client and persist settings"""
@@ -738,11 +707,6 @@ def create_equalizer_router(
             await _persist_remote(hostname, "loudness", {k: v for k, v in result.items() if k != "status"})
 
         return result
-
-    @router.get("/client/{hostname}/mono")
-    async def get_client_mono(hostname: str):
-        """Proxy mono GET to client"""
-        return await equalizer_router_service.get_mono(hostname)
 
     @router.put("/client/{hostname}/mono")
     async def update_client_mono(hostname: str, request: Request):
