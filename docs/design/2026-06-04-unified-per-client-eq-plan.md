@@ -376,9 +376,35 @@ of A/B/C plus the local Mono toggle and multiroom-off — pending (human)**. STO
 **Outcome:** Test suites reflect the new model; the original scenarios pass on real hardware.
 
 ### Task 5.1 — Test sweep
-- [ ] Remove tests asserting the old 3-store behavior; ensure access-layer, zone-fan-out, boot-restore
-      have coverage. Full `pytest` green; `ruff` + JS/CSS lint clean.
-- [ ] Commit: `test(eq): align suites with unified per-client EQ`.
+- [x] Remove tests asserting the old 3-store behavior; ensure access-layer, zone-fan-out, boot-restore
+      have coverage. Full `pytest` green (1596); `ruff` + `F401/F841` clean (no frontend files touched).
+- [x] Commit: `test(eq): align suites with unified per-client EQ + drop dead router methods` (`b0df8bea`).
+
+> **Task 5.1 — what actually shipped (audit-driven sweep).** A read-only multi-agent audit classified
+> every EQ test (STALE/VALID/REWORK), adversarially re-checked each delete verdict, and mapped coverage
+> gaps. Outcome:
+> - **Deleted (4 fiction tests, `test_reconnection_scenarios.py`):** `test_fr7_in_zone_equalizer_sync`,
+>   `test_fr8_zone_equalizer_from_persistence`, `test_fr9_standalone_equalizer_sync`,
+>   `test_fr10_standalone_equalizer_defaults_when_none_saved` — each only asserted on a `MagicMock`'s own
+>   attributes or a local dict literal (zero production code). Real replacements verified to remain:
+>   `test_equalizer_sync_uses_member_records` (zone derives from members, real registry),
+>   `test_multiroom_sync.py::TestReconnectSyncAppliesMonoAndEnabled` (reconnect EQ push),
+>   `test_core_multiroom.py::test_create_default_equalizer_settings` (model defaults).
+>   *(The audit flagged fr8/fr10 as REWORK candidates; code investigation confirmed they guard no unique
+>   behavior — resolved to DELETE.)*
+> - **Reworked:** stripped `equalizer_settings` from the `mock_zone` fixture (kept `crossover_enabled`
+>   for the FR13 tests); dropped the incidental EQ assertion from
+>   `test_fr8_in_zone_all_offline_uses_startup_volume`; cleaned stale `standalone_equalizer` docstrings/
+>   comments (incl. `test_standalone_equalizer_sync_uses_client_settings`).
+> - **Added (real coverage gaps, `test_multiroom_equalizer_service.py`):** `TestResolvePresetGains` (the
+>   `resolve_preset_gains` custom/builtin/not-found branches, only hit indirectly before) +
+>   `test_set_zone_eq_member_copies_are_deep` (nested-aliasing guard on the `from_dict(to_dict())` fan-out).
+> - **Skipped (already covered):** the audit's 3 suggested boot-restore tests — locked by
+>   `test_core_equalizer.py::test_load_saved_config_restores_local_eq_at_boot` +
+>   `test_disconnected_set_then_reconnect_restores_eq`; adding more would be redundant.
+> - **Dead code (deferred from Phase 4):** removed `EqualizerRouter.get_filters` /
+>   `get_equalizer_enabled` (zero callers; `CamillaDSPService.get_filters` is a different, live class).
+> Suite: 1594 → 1596 (+6 added − 4 deleted). `code-review` clean (no findings).
 
 ### Task 5.2 — Manual Pi validation (deploy: `sudo systemctl restart milo-backend`)
 - [ ] **A** — zone (local+remote), apply a preset, delete zone → local shows correct name + gains.
