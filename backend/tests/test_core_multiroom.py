@@ -2973,6 +2973,45 @@ class TestSyncZoneDspToClient:
         result = await ws_service._sync_zone_equalizer_to_client("unknown-client", mock_zone)
         assert result is False
 
+    @pytest.mark.asyncio
+    async def test_local_zone_member_restores_active_preset_name(self, mock_state_machine, mock_zone_with_equalizer):
+        """A LOCAL client reconnecting while in a zone restores the zone's preset NAME
+        onto the local CamillaDSP, so the name is correct if the zone is later deleted
+        (deletion carries the zone EQ into standalone but leaves the local DSP untouched)."""
+        from backend.core.multiroom.websocket import SnapcastWebSocketService
+
+        mock_zone_with_equalizer.equalizer_settings.active_preset = "vocal_boost"
+
+        registry = MagicMock()
+        local_client = MagicMock()
+        local_client.ip = "127.0.0.1"
+        local_client.is_local = True
+        local_client.mac_id = "local"
+        registry.get_client = MagicMock(return_value=local_client)
+
+        camilladsp = MagicMock()
+        camilladsp.set_filter = AsyncMock()
+        camilladsp.set_compressor = AsyncMock()
+        camilladsp.set_loudness = AsyncMock()
+        camilladsp.set_mono = AsyncMock()
+        camilladsp.bypass_effects = AsyncMock()
+        camilladsp.restore_effects = AsyncMock()
+        camilladsp.set_active_preset = AsyncMock()
+
+        ws_service = SnapcastWebSocketService(
+            state_machine=mock_state_machine,
+            routing_service=MagicMock()
+        )
+        ws_service._registry = registry
+        ws_service._camilladsp_service = camilladsp
+        ws_service._crossover_service = mock_state_machine.crossover_service
+
+        await ws_service._sync_zone_equalizer_to_client("local", mock_zone_with_equalizer)
+
+        # persist defaults to True here, matching the gains (set_filter persist=True
+        # in this re-sync path) so equalizer.json stays internally consistent.
+        camilladsp.set_active_preset.assert_called_once_with("vocal_boost")
+
 
 class TestSyncStandaloneDspToClient:
     """
@@ -3002,6 +3041,7 @@ class TestSyncStandaloneDspToClient:
         c.set_compressor = AsyncMock()
         c.set_loudness = AsyncMock()
         c.set_mono = AsyncMock()
+        c.set_active_preset = AsyncMock()
         c.bypass_effects = AsyncMock()
         c.restore_effects = AsyncMock()
         return c
@@ -3104,6 +3144,42 @@ class TestSyncStandaloneDspToClient:
         mock_crossover.queue_pending_settings.assert_called()
         calls = mock_crossover.queue_pending_settings.call_args_list
         assert any(call[0][1] == "filters" for call in calls), "Filter settings should be queued on failure"
+
+    @pytest.mark.asyncio
+    async def test_local_client_restores_active_preset_name(self, mock_state_machine, mock_proxy, mock_camilladsp, mock_crossover):
+        """On reconnect/boot, a LOCAL standalone client restores its preset NAME onto
+        the local CamillaDSP (not just the gains), so after a reboot the EQ modal shows
+        the name matching the restored gains. Regression for the zone-delete name bug."""
+        from backend.core.multiroom.models import EqualizerSettings, EqFilter
+        registry = MagicMock()
+        local_client = MagicMock()
+        local_client.ip = "127.0.0.1"
+        local_client.is_local = True
+        local_client.mac_id = "local"
+        registry.get_client = MagicMock(return_value=local_client)
+        registry.get_standalone_equalizer = MagicMock(return_value=EqualizerSettings(
+            filters=[EqFilter(id="eq_band_00", frequency=100, gain=2.0, q=1.41)],
+            mono=False, enabled=True, active_preset="vocal_boost",
+        ))
+        ws = self._make_ws(mock_state_machine, registry, mock_proxy, mock_camilladsp, mock_crossover)
+        await ws._sync_standalone_equalizer_to_client("local")
+        # persist defaults to True here, matching the gains (set_filter persist=True
+        # in this re-sync path) so equalizer.json stays internally consistent.
+        mock_camilladsp.set_active_preset.assert_called_once_with("vocal_boost")
+
+    @pytest.mark.asyncio
+    async def test_remote_client_does_not_touch_local_active_preset(self, mock_state_machine, mock_registry, mock_proxy, mock_camilladsp, mock_crossover):
+        """A REMOTE client's preset NAME lives in the registry (served via
+        /client/{mac}/status); the local CamillaDSP preset name must NOT be set when
+        syncing a remote client."""
+        from backend.core.multiroom.models import EqualizerSettings, EqFilter
+        mock_registry.get_standalone_equalizer.return_value = EqualizerSettings(
+            filters=[EqFilter(id="eq_band_00", frequency=100, gain=2.0, q=1.41)],
+            mono=False, enabled=True, active_preset="vocal_boost",
+        )
+        ws = self._make_ws(mock_state_machine, mock_registry, mock_proxy, mock_camilladsp, mock_crossover)
+        await ws._sync_standalone_equalizer_to_client("test-client")
+        mock_camilladsp.set_active_preset.assert_not_called()
 
 
 # =============================================================================

@@ -903,10 +903,19 @@ class CamillaDSPService:
     async def get_active_preset(self) -> Optional[str]:
         return self._active_preset
 
-    async def set_active_preset(self, preset_id: str) -> None:
-        """Update the active preset id (used by API custom-save flow)."""
+    async def set_active_preset(self, preset_id: str, persist: bool = True) -> None:
+        """Update the active preset id (used by the API custom-save flow and by the
+        multiroom layer to keep the local name in sync with applied gains).
+
+        Args:
+            preset_id: The preset id to record as the active preset.
+            persist: Set to False when the multiroom layer applies the name alongside
+                gains it also applies with persist=False — in multiroom mode the
+                registry is the source of truth, not equalizer.json.
+        """
         self._active_preset = preset_id
-        self._schedule_persist()
+        if persist:
+            self._schedule_persist()
 
     # === Effects Bypass/Restore (for equalizer toggle) ===
 
