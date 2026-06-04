@@ -532,7 +532,8 @@ onMounted(async () => {
         openSettings('multiroom');
       }
     }),
-    on('multiroom', 'equalizer_changed', (event) => equalizerStore.handleEqualizerChanged(event)),
+    parsedOn('multiroom', 'equalizer_changed', wsEventRegistry['multiroom.equalizer_changed'],
+             (payload) => equalizerStore.handleEqualizerChanged(payload)),
     parsedOn('multiroom', 'crossover_changed', wsEventRegistry['multiroom.crossover_changed'],
              (payload) => equalizerStore.handleZoneCrossoverChanged(payload)),
     // Radio favorite events

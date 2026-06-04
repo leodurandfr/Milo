@@ -589,6 +589,12 @@ class TestPartialUpdateMethods:
         cat, typ, data = mock_state_machine.broadcast_event.call_args.args
         assert (cat, typ) == ("multiroom", "equalizer_changed")
         assert data["target_id"] == "zone-123"
+        # The broadcast filter MUST be the frontend wire shape (freq/type), not the
+        # model's persistence shape (frequency/filter_type) — the store reads freq/type.
+        flt = data["equalizer_settings"]["filters"][0]
+        assert "freq" in flt and "type" in flt
+        assert "frequency" not in flt and "filter_type" not in flt
+        assert flt["gain"] == 5.0
 
     @pytest.mark.asyncio
     async def test_update_filter_type(self, multiroom_equalizer_service, mock_registry, sample_zone):

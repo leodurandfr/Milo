@@ -978,14 +978,13 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   /**
    * Handle equalizer changed events from multiroom category.
    * Updates local equalizer state when the target matches selectedTarget.
-   * @param {Object} event - WebSocket event with data:
-   *   { target_type: "zone"|"client", target_id, equalizer_settings }
-   *   equalizer_settings may contain: filters, compressor, loudness
+   * Consumes the validated payload from parsedOn (schema: multiroom.equalizer_changed).
+   * @param {{ target_type: "zone"|"client", target_id: string,
+   *   equalizer_settings: { filters?, compressor?, loudness?, mono?, active_preset?,
+   *   enabled?, custom_gains? } }} payload
    */
-  function handleEqualizerChanged(event) {
-    if (!event.data) return;
-
-    const { target_type, target_id, equalizer_settings } = event.data;
+  function handleEqualizerChanged(payload) {
+    const { target_type, target_id, equalizer_settings } = payload;
     if (!equalizer_settings) return;
 
     // ALWAYS update activePreset for zone events if we have a client in that zone

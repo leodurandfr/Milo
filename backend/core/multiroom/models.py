@@ -66,13 +66,29 @@ class EqFilter:
     enabled: bool = True
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for serialization."""
+        """Convert to the persistence shape (``frequency``/``filter_type``)."""
         return {
             "id": self.id,
             "frequency": self.frequency,
             "gain": self.gain,
             "q": self.q,
             "filter_type": self.filter_type.value,
+            "enabled": self.enabled
+        }
+
+    def to_wire_dict(self) -> Dict[str, Any]:
+        """Convert to the frontend/WS wire shape (``freq``/``type``).
+
+        This is the canonical EQ-filter shape consumed by the store, ParametricEQ
+        and the WS handlers — deliberately NOT the persistence shape from
+        ``to_dict`` (``frequency``/``filter_type``).
+        """
+        return {
+            "id": self.id,
+            "freq": self.frequency,
+            "gain": self.gain,
+            "q": self.q,
+            "type": self.filter_type.value,
             "enabled": self.enabled
         }
 
@@ -258,6 +274,16 @@ class EqualizerSettings:
         }
         if self.custom_gains is not None:
             result["custom_gains"] = self.custom_gains
+        return result
+
+    def to_wire_dict(self) -> Dict[str, Any]:
+        """Like ``to_dict`` but filters use the frontend/WS wire shape (freq/type).
+
+        Used by the ``multiroom.equalizer_changed`` broadcast producers so the
+        store's WS handler reads one canonical filter shape (Pitfall #18).
+        """
+        result = self.to_dict()
+        result["filters"] = [f.to_wire_dict() for f in self.filters]
         return result
 
     @classmethod

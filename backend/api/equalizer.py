@@ -36,23 +36,6 @@ def _resolve_target(target: str) -> tuple[str, str]:
     return "client", target
 
 
-def _eq_filter_to_wire(f) -> dict:
-    """Serialize an EqFilter to the frontend wire shape (``freq``/``type``).
-
-    This is the canonical EQ-filter shape consumed by the store, ParametricEQ and
-    the WS handlers — deliberately NOT the model's ``frequency``/``filter_type``.
-    """
-    filter_type = f.filter_type.value if hasattr(f.filter_type, "value") else f.filter_type
-    return {
-        "id": f.id,
-        "freq": f.frequency,
-        "gain": f.gain,
-        "q": f.q,
-        "type": filter_type,
-        "enabled": f.enabled,
-    }
-
-
 def create_equalizer_router(
     camilladsp_service,
     state_machine,
@@ -860,7 +843,7 @@ def create_equalizer_router(
                 "compressor": record.compressor.to_dict(),
                 "loudness": record.loudness.to_dict(),
                 "custom_gains": record.custom_gains,
-                "filters": [_eq_filter_to_wire(f) for f in record.filters],
+                "filters": [f.to_wire_dict() for f in record.filters],
                 "state": status.get("state", "disconnected"),
                 "sample_rate": status.get("sample_rate"),
                 "available": status.get("available", False),

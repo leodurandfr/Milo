@@ -751,7 +751,8 @@ class MultiroomEqualizerService:
                 },
             },
             broadcast_settings={
-                "filters": [updated_filter.to_dict()],
+                # Wire shape (freq/type) — the frontend WS handler reads freq/type.
+                "filters": [updated_filter.to_wire_dict()],
                 "active_preset": current.active_preset,
             },
         )
