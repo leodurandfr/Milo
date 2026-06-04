@@ -43,15 +43,7 @@ class CdIoctlReader:
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._ready_event = threading.Event()
-        self._current_lba = 0
-        self._lba_lock = threading.Lock()
         self._running = False
-
-    @property
-    def current_lba(self) -> int:
-        """Current read position (LBA). Thread-safe."""
-        with self._lba_lock:
-            return self._current_lba
 
     @property
     def is_running(self) -> bool:
@@ -66,8 +58,6 @@ class CdIoctlReader:
         self.stop()
         self._stop_event.clear()
         self._ready_event.clear()
-        with self._lba_lock:
-            self._current_lba = start_lba
         self._running = True
         self._thread = threading.Thread(
             target=self._read_loop,
@@ -157,8 +147,6 @@ class CdIoctlReader:
                     break
 
                 lba += nframes
-                with self._lba_lock:
-                    self._current_lba = lba
 
         except OSError as e:
             if not self._stop_event.is_set():
@@ -181,16 +169,6 @@ class CdIoctlReader:
                 os.mkfifo(CD_FIFO_PATH, 0o644)
         else:
             os.mkfifo(CD_FIFO_PATH, 0o644)
-
-    @staticmethod
-    def cleanup_fifo() -> None:
-        """Remove the FIFO."""
-        try:
-            if os.path.exists(CD_FIFO_PATH):
-                os.remove(CD_FIFO_PATH)
-        except OSError:
-            pass
-
 
 def stat_is_fifo(path: str) -> bool:
     """Check if path is a FIFO (named pipe)."""

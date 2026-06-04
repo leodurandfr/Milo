@@ -547,52 +547,6 @@ class StationDataService:
 
         return success
 
-    async def update_favorite_image(self, station_id: str, image_filename: str) -> bool:
-        """Update image of a favorite station."""
-        if station_id not in self._favorites:
-            return False
-
-        current_metadata = await self.get_station_metadata(station_id)
-        if not current_metadata:
-            return False
-
-        if station_id in self._modified_metadata:
-            old_image = self._modified_metadata[station_id].get('image_filename')
-            if old_image:
-                await self.image_manager.delete_image(old_image)
-
-        self._modified_metadata[station_id] = {
-            **current_metadata,
-            'image_filename': image_filename,
-            'favicon': f"/api/radio/images/{image_filename}"
-        }
-        self._modified_metadata[station_id].pop('id', None)
-        self._modified_metadata[station_id].pop('is_favorite', None)
-
-        return await self._save()
-
-    async def remove_favorite_image(self, station_id: str) -> bool:
-        """Remove custom image of a favorite station."""
-        if station_id not in self._favorites:
-            return False
-
-        if station_id in self._modified_metadata:
-            old_image = self._modified_metadata[station_id].get('image_filename')
-            if old_image:
-                await self.image_manager.delete_image(old_image)
-
-            current_metadata = await self.get_station_metadata(station_id)
-            if current_metadata:
-                self._modified_metadata[station_id] = {
-                    **current_metadata,
-                    'image_filename': "",
-                    'favicon': ""
-                }
-                self._modified_metadata[station_id].pop('id', None)
-                self._modified_metadata[station_id].pop('is_favorite', None)
-
-        return await self._save()
-
     async def modify_favorite_metadata(
         self,
         station_id: str,

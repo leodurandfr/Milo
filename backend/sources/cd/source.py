@@ -485,16 +485,6 @@ class CdSource(MpvAudioSource):
         except Exception as e:
             self._logger.warning(f"Pre-start failed: {e}")
 
-    @staticmethod
-    async def _cancel_task(task: Optional[asyncio.Task]) -> None:
-        """Cancel a task and wait for it to finish cleanly."""
-        if task and not task.done():
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-
     async def _auto_play_track_1(self) -> None:
         """Auto-play track 1 after disc insertion while source is active."""
         if not self._mpv or not self._sector_offsets or not self._tracks:
@@ -872,10 +862,6 @@ class CdSource(MpvAudioSource):
     @property
     def data_service(self) -> CdDataService:
         return self._data_service
-
-    @property
-    def current_disc(self) -> Optional[DiscInfo]:
-        return self._current_disc
 
     @property
     def tracks(self) -> List[TrackInfo]:

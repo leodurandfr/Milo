@@ -32,7 +32,6 @@ logger = logging.getLogger("source.cd.data")
 
 # ioctl constants for CD drive status
 CDROM_DRIVE_STATUS = 0x5326
-CDS_NO_DISC = 1
 CDS_DRIVE_NOT_READY = 3  # Disc spinning up (detected but not yet readable)
 CDS_DISC_OK = 4  # Disc ready (TOC readable)
 
@@ -77,7 +76,7 @@ class CdDataService:
         """Return raw CDROM_DRIVE_STATUS ioctl value.
 
         Returns CDS_DISC_OK (4) when ready, CDS_DRIVE_NOT_READY (3) when
-        spinning up, CDS_NO_DISC (1) when empty, or -1 on error.
+        spinning up, 1 when empty, or -1 on error.
         """
         try:
             fd = os.open(CD_DEVICE, os.O_RDONLY | os.O_NONBLOCK)

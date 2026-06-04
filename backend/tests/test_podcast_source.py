@@ -461,20 +461,10 @@ class TestPlaybackMetadata:
 class TestProperties:
     """Test public properties."""
 
-    def test_current_episode_property(self, podcast_source):
-        """Test current_episode property."""
-        podcast_source._current_episode = {"uuid": "test"}
-        assert podcast_source.current_episode == {"uuid": "test"}
-
     def test_is_playing_property(self, podcast_source):
         """Test is_playing property."""
         podcast_source._is_playing = True
         assert podcast_source.is_playing is True
-
-    def test_is_buffering_property(self, podcast_source):
-        """Test is_buffering property."""
-        podcast_source._is_buffering = True
-        assert podcast_source.is_buffering is True
 
     def test_position_property(self, podcast_source):
         """Test position property."""

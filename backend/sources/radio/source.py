@@ -530,7 +530,3 @@ class RadioSource(MpvAudioSource):
         """Get RadioBrowser API client."""
         return self._radio_api
 
-    @property
-    def is_buffering(self) -> bool:
-        """Check if currently buffering."""
-        return self._is_buffering

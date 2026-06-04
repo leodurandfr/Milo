@@ -416,45 +416,6 @@ async def remove_custom_station(
         raise HTTPException(status_code=500, detail=f"Remove custom station error: {str(e)}")
 
 
-@router.delete("/custom/{station_id}/image")
-async def remove_station_image(
-    station_id: str,
-    source: RadioSource = Depends(get_source)
-) -> Dict[str, Any]:
-    """
-    Remove the image of a favorite station.
-
-    Args:
-        station_id: Station ID (must be a favorite)
-
-    Returns:
-        Updated station without image
-    """
-    try:
-        if not source.station_data.is_favorite(station_id):
-            raise HTTPException(status_code=400, detail="Only favorites can have their image modified")
-
-        remove_success = await source.station_data.remove_favorite_image(station_id)
-
-        if not remove_success:
-            raise HTTPException(status_code=500, detail="Image removal failed")
-
-        favorites = await source.station_data.get_favorites_with_metadata()
-        station = next((f for f in favorites if f.get('id') == station_id), None)
-
-        return {
-            "success": True,
-            "message": "Image removed",
-            "station": station
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Remove image error: %s", e)
-        raise HTTPException(status_code=500, detail=f"Remove image error: {str(e)}")
-
-
 # === Image Routes ===
 
 @router.get("/images/{filename}")
