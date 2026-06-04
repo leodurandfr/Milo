@@ -247,49 +247,53 @@ already falls back to local CamillaDSP for an unknown mac (so `mac_id="local"` d
 
 ### Task 3.5.1 — Access layer recognizes the `local` sentinel
 **Files:** Modify `backend/core/equalizer/multiroom_service.py`; Test `backend/tests/test_multiroom_equalizer_service.py`.
-- [ ] Failing tests (empty registry, i.e. multiroom-off): `get_client_eq("local")` reads CamillaDSP;
+- [x] Failing tests (empty registry, i.e. multiroom-off): `get_client_eq("local")` reads CamillaDSP;
       `set_client_eq("local", eq)` applies to the DAC + persists (no registry write);
       `update_filter("client","local",…)` persists local + routes via the router and does **not**
       materialize a phantom registry record; `set_client_equalizer_effects_enabled("local",…)` →
       `routing_service` bypass/restore; `apply_client_equalizer("local",…)` skips registry validation.
-- [ ] Run → fail. Implement: module const `LOCAL_TARGET = "local"` + `_is_local(target)` =
+- [x] Run → fail. Implement: module const `LOCAL_TARGET = "local"` + `_is_local(target)` =
       `target == LOCAL_TARGET or (self._registry and self._registry.is_local_client(target))`; route
       `get_client_eq` / `set_client_eq` / `apply_client_equalizer` / `_apply_partial_update`
       (guard + per-member check) / `set_client_equalizer_effects_enabled` through `_is_local`.
-- [ ] Run → pass. `ruff check --select F401,F841` on touched files.
-- [ ] Commit: `feat(eq): access layer recognizes the "local" target sentinel`.
+- [x] Run → pass. `ruff check --select F401,F841` on touched files. Full suite 1602 green.
+- [x] Commit: `feat(eq): access layer recognizes the "local" target sentinel` (`01d6af09`).
 
 ### Task 3.5.2 — `GET /target/{target}` uniform read
 **Files:** Modify `backend/api/equalizer.py`; Test `backend/tests/test_api_equalizer.py`.
-- [ ] Failing tests: `GET /target/local` → local record (filters in `freq`/`type` shape +
+> *(Tasks 3.5.2 + 3.5.3 landed as ONE atomic commit `f934153d` — the GET and the writes
+> share `_resolve_target` and form one cohesive uniform-API unit.)*
+- [x] Failing tests: `GET /target/local` → local record (filters in `freq`/`type` shape +
       `active_preset` + `enabled` + `compressor`/`loudness`/`mono` + `custom_gains` + `state`);
       `GET /target/{mac}` → remote record; `GET /target/zone:{id}` → zone record (derived);
       unknown client/zone → 404.
-- [ ] Run → fail. Implement: `_resolve_target(target)` → `("client","local")` | `("zone",id)` |
+- [x] Run → fail. Implement: `_resolve_target(target)` → `("client","local")` | `("zone",id)` |
       `("client",mac)`; `record = await multiroom_equalizer_service.get_equalizer(tt, tid)` (404 on
       `None`/`ValueError`); assemble the **frontend wire dict** (filters `freq`/`type`) + live
       `state`/`sample_rate` (local/zone → `camilladsp_service.get_status()`; remote mac →
       `equalizer_router_service.get_status(mac)`).
-- [ ] Run → pass.
-- [ ] Commit: `feat(eq): GET /target/{target} uniform per-target EQ read`.
+- [x] Run → pass. **Code-review fix folded in:** explicit unknown-remote-client guard (registry
+      lookup) + `logger.error` on every 404 path; `if record is None` documented as the zone-unknown
+      guard (a client always yields a record).
+- [x] Commit (with 3.5.3): `feat(eq): uniform per-target EQ API (GET + writes)` (`f934153d`).
 
 ### Task 3.5.3 — `PUT/POST /target/{target}/…` uniform writes
 **Files:** Modify `backend/api/equalizer.py`; Test `backend/tests/test_api_equalizer.py`.
-- [ ] Failing tests: `PUT /target/{target}/{filter/{id}|compressor|loudness|mono}` route to the access
+- [x] Failing tests: `PUT /target/{target}/{filter/{id}|compressor|loudness|mono}` route to the access
       layer `update_*` with the resolved `(target_type, target_id)`; `PUT /target/{target}/enabled` →
       `set_client_equalizer_effects_enabled` (client) / `set_zone_equalizer_effects_enabled` (zone);
       `POST /target/{target}/preset` (`EqualizerPresetRequest`) → `load_client_preset` /
       `load_zone_preset` (returns resolved gains); `POST /target/{target}/save-custom` →
       `save_custom_preset(tt, tid)`; **`PUT /target/local/mono` succeeds (the Mono-404 fix)**;
       unknown target → 404 everywhere.
-- [ ] Run → fail. Implement the 6 routes via `_resolve_target` + the access layer; map `ValueError`
+- [x] Run → fail. Implement the 7 routes via `_resolve_target` + the access layer; map `ValueError`
       → 404 like the existing siblings. Reuse `EqualizerFilterUpdateRequest` / `EqualizerCompressorRequest`
       / `EqualizerLoudnessRequest` / `EqualizerPresetRequest` (no dual-key fallbacks — Pitfall #11).
-- [ ] Run → pass. `ruff check backend/` + `--select F401,F841` on touched files.
-- [ ] Commit: `feat(eq): uniform PUT/POST /target/{target} EQ writes`.
+- [x] Run → pass. `ruff check backend/` + `--select F401,F841` on touched files. Suite 1625 green.
+- [x] Commit (with 3.5.2): `feat(eq): uniform per-target EQ API (GET + writes)` (`f934153d`).
 
-**Phase 3.5 acceptance:** new `/target/{target}` routes covered; old routes untouched + still green;
-full `pytest` green; `ruff` clean; `code-review` clean. STOP for review.
+**Phase 3.5 acceptance:** new `/target/{target}` routes covered (1625 green); old routes untouched +
+still green; `ruff` clean; `code-review` clean (2 findings folded in). STOP for review. ✅
 
 ---
 
