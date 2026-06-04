@@ -199,8 +199,7 @@
     "meters": {
       "title": "Niveles de salida de audio"
     },
-    "connecting": "Conectando...",
-    "syncError": "Error de sincronización"
+    "connecting": "Conectando..."
   },
   "status": {
     "loading": "Iniciando...",
@@ -583,6 +582,8 @@
     "discover": "Buscar",
     "discovering": "Buscando...",
     "batteryLow": "Batería baja",
+    "disabledTitle": "Mando desactivado",
+    "disabledDetails": "Actívalo para conectar un mando Bluetooth.",
     "step": "Paso de volumen por clic"
   },
   "irRemoteSettings": {

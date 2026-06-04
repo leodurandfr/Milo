@@ -199,8 +199,7 @@
     "meters": {
       "title": "ऑडियो आउटपुट स्तर"
     },
-    "connecting": "कनेक्ट हो रहा है...",
-    "syncError": "सिंक त्रुटि"
+    "connecting": "कनेक्ट हो रहा है..."
   },
   "status": {
     "loading": "शुरू हो रहा है...",
@@ -583,6 +582,8 @@
     "discover": "खोजें",
     "discovering": "खोज रहा है...",
     "batteryLow": "बैटरी कम",
+    "disabledTitle": "रिमोट अक्षम है",
+    "disabledDetails": "ब्लूटूथ रिमोट कनेक्ट करने के लिए इसे चालू करें।",
     "step": "प्रति क्लिक वॉल्यूम चरण"
   },
   "irRemoteSettings": {

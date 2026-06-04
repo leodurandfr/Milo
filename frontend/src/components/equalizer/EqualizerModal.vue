@@ -20,18 +20,6 @@
 
         <!-- State 3: Equalizer connected - controls -->
         <div v-else key="controls" class="controls-content">
-          <!-- Propagation Error Banner -->
-          <div v-if="equalizerStore.propagationErrors.length > 0" class="error-banner"
-            @click="equalizerStore.clearPropagationErrors">
-            <span class="error-icon">⚠</span>
-            <span class="error-text">
-              {{ t('equalizer.syncError') }}:
-              {{equalizerStore.propagationErrors.map(e => equalizerStore.getClientDisplayName(e.clientId)).join(', ')
-              }}
-            </span>
-            <span class="error-dismiss">×</span>
-          </div>
-
           <!-- Section 1: Zones (tabs) -->
           <ItemSelector ref="zoneTabsRef" :disabled="equalizerStore.isUpdating" />
 
@@ -348,39 +336,6 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--space-03);
-}
-
-/* Error banner for propagation failures */
-.error-banner {
-  display: flex;
-  align-items: center;
-  gap: var(--space-02);
-  padding: var(--space-03);
-  background: var(--color-error-subtle);
-  border: 1px solid var(--color-error);
-  border-radius: var(--radius-04);
-  color: var(--color-text);
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.error-icon {
-  font-size: 16px;
-  flex-shrink: 0;
-}
-
-.error-text {
-  flex: 1;
-}
-
-.error-dismiss {
-  font-size: 18px;
-  opacity: 0.7;
-  flex-shrink: 0;
-}
-
-.error-banner:hover .error-dismiss {
-  opacity: 1;
 }
 
 /* EQ section header layout */

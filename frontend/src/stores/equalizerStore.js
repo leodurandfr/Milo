@@ -17,6 +17,13 @@ const DEFAULT_FREQUENCIES = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 1600
 const THROTTLE_DELAY = 50;
 const FINAL_DELAY = 200;
 
+// Uniform per-target EQ API tokens (mirror backend api/equalizer.py::_resolve_target):
+//   'local'      → the local DAC (addressable without a registry entry)
+//   '<mac>'      → a remote client
+//   'zone:<id>'  → a zone (EQ derived from its members)
+const LOCAL_TARGET = 'local';
+const ZONE_PREFIX = 'zone:';
+
 export const useEqualizerStore = defineStore('equalizer', () => {
   // === STATE ===
   const filters = ref([]);
@@ -106,13 +113,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   // Zone crossover settings - { zoneId: { frequency: 80, enabled: true, has_subwoofer: false } }
   const zoneCrossover = ref({});
 
-  // Propagation errors - for showing failed client syncs
-  // Structure: [{ clientId: 'hostname', setting: 'filter', error: 'Cannot reach client', timestamp: Date }]
-  const propagationErrors = ref([]);
-
-  // Auto-clear errors after 10 seconds
-  let errorClearTimeout = null;
-
   // AbortController for cancelling ongoing requests
   let loadAbortController = null;
 
@@ -158,18 +158,24 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   }
 
   // === API HELPERS ===
-  function getApiBase(targetId = selectedTarget.value) {
-    // If target is part of a zone, use local API (source of truth for zone equalizer)
-    // This ensures zone equalizer works even when some zone members are offline
-    const zone = registryStore.getZoneForClient(targetId);
-    if (zone) {
-      return '/api/equalizer';
-    }
-    // If targeting a standalone remote client, use proxy endpoint
-    if (targetId && !isLocalClient(targetId)) {
-      return `/api/equalizer/client/${targetId}`;
-    }
-    return '/api/equalizer';
+  /**
+   * Resolve the uniform per-target token for the EQ API.
+   * @returns {string} 'local' | '<mac>' | 'zone:<id>'
+   */
+  function targetRef() {
+    // A zone member resolves to its zone (multiroom-gated inside getSelectedZoneId).
+    const zoneId = getSelectedZoneId();
+    if (zoneId) return `${ZONE_PREFIX}${zoneId}`;
+    // The local client has no MAC to address when multiroom is off → the sentinel.
+    const target = selectedTarget.value;
+    if (!target || isLocalClient(target)) return LOCAL_TARGET;
+    // A standalone remote client.
+    return target;
+  }
+
+  /** Base path for every per-target EQ read/write: /api/equalizer/target/{target}. */
+  function targetBase() {
+    return `/api/equalizer/target/${targetRef()}`;
   }
 
   /**
@@ -194,68 +200,33 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   }
 
   // === API CALLS ===
-  async function fetchStatus(signal = null) {
-    const result = await apiCall.get(`${getApiBase()}/status`, {
+  /**
+   * Fetch the complete EQ record for the current target (one GET, one record).
+   * Returns null when cancelled / failed.
+   */
+  async function fetchTargetRecord(signal = null) {
+    const result = await apiCall.get(targetBase(), {
       category: 'store',
-      message: 'Error fetching equalizer status',
+      message: 'Error fetching equalizer record',
       signal,
     });
     return result.ok ? result.data : null;
-  }
-
-  async function fetchZoneEqualizer(zoneId, signal = null) {
-    const result = await apiCall.get(`/api/equalizer/zone/${zoneId}`, {
-      category: 'store',
-      message: 'Error fetching zone equalizer',
-      signal,
-    });
-    return result.ok ? result.data : null;
-  }
-
-  async function fetchFilters(signal = null) {
-    const result = await apiCall.get(`${getApiBase()}/filters`, {
-      category: 'store',
-      message: 'Error fetching equalizer filters',
-      signal,
-    });
-    if (!result.ok) return null;
-    return result.data.filters || [];
   }
 
   async function fetchPresets() {
-    // Presets are always fetched from local Milo
+    // The builtin preset catalog (labels + gains) is global, not per-target.
+    // Per-target custom gains / active preset come from the target record itself.
     const result = await apiCall.get('/api/equalizer/presets', {
       category: 'store',
       message: 'Error fetching equalizer presets',
     });
     if (!result.ok) return [];
     builtinPresets.value = result.data.presets || [];
-    customGains.value = result.data.custom_gains || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-    // The /presets endpoint always reports the LOCAL Pi's active preset. Only
-    // adopt it when the local client is the selected target and it is not in a
-    // zone — otherwise the per-client status (remote standalone) or the zone
-    // equalizer is the source of truth for the active preset. Writing the local
-    // value here would make the dropdown briefly flash the local preset name
-    // before the correct one loads when switching to a remote/zone target.
-    if (!getSelectedZoneId() && (!selectedTarget.value || isLocalClient(selectedTarget.value))) {
-      activePreset.value = result.data.active_preset || 'flat';
-    }
     return builtinPresets.value;
   }
 
   async function sendFilterUpdate(filterId, filterData) {
-    const zoneId = getSelectedZoneId();
-
-    if (zoneId) {
-      // Zone: use zone endpoint
-      const result = await apiCall.patch(`/api/equalizer/zone/${zoneId}/filter/${filterId}`, filterData, {
-        category: 'store',
-        message: 'Error updating filter',
-      });
-      return result.ok && (result.data.status === 'success' || result.data.status === 'partial');
-    }
-    // Direct mode or standalone: use local endpoint
-    const result = await apiCall.put(`${getApiBase()}/filter/${filterId}`, filterData, {
+    const result = await apiCall.put(`${targetBase()}/filter/${filterId}`, filterData, {
       category: 'store',
       message: 'Error updating filter',
       checkStatus: true,
@@ -267,19 +238,13 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   // linkedGroups and clientTypes now delegate to multiroomStore
 
   async function fetchEnabledState() {
-    // Target-aware: a standalone remote client resolves to
-    // /api/equalizer/client/{mac}/enabled; local/zone targets to /api/equalizer/enabled.
-    const result = await apiCall.get(`${getApiBase()}/enabled`, {
-      category: 'store',
-      message: 'Error fetching equalizer enabled state',
-    });
-    return result.ok ? (result.data.enabled ?? true) : true;
+    // The enabled flag travels in the one per-target record.
+    const record = await fetchTargetRecord();
+    return record ? (record.enabled ?? true) : true;
   }
 
   async function setEnabledState(enabled) {
-    // Target-aware (see fetchEnabledState) so toggling a standalone remote client
-    // controls THAT client, not the local Milo.
-    const result = await apiCall.put(`${getApiBase()}/enabled`, { enabled }, {
+    const result = await apiCall.put(`${targetBase()}/enabled`, { enabled }, {
       category: 'store',
       message: 'Error setting equalizer enabled state',
       checkStatus: true,
@@ -489,91 +454,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     return true;
   }
 
-  /**
-   * Propagate any equalizer setting to linked clients.
-   * Only propagates to available (connected) clients.
-   * @param {string} endpoint - API endpoint (e.g., 'mute', 'compressor')
-   * @param {object} data - Data to propagate
-   * @returns {{ success: boolean, errors: Array<{targetId: string, error: string}>, skipped: Array<string> }}
-   */
-  async function propagateToLinkedClients(endpoint, data) {
-
-    // Get linked clients that are available
-    const linkedIds = registryStore.getLinkedClientIds(selectedTarget.value);
-    if (linkedIds.length <= 1) return { success: true, errors: [], skipped: [] };
-
-    // Filter to only online clients (skip offline ones)
-    const otherClients = linkedIds.filter(id => id !== selectedTarget.value);
-    const onlineClients = otherClients.filter(id => registryStore.isClientOnline(id));
-    const skippedClients = otherClients.filter(id => !registryStore.isClientOnline(id));
-
-    if (skippedClients.length > 0) {
-      logger.debug('store', `Skipping offline clients for ${endpoint}`, skippedClients);
-    }
-
-    const errors = [];
-    const promises = onlineClients.map(async (targetId) => {
-      const result = await apiCall.put(`${getApiBase(targetId)}/${endpoint}`, data, {
-        category: 'store',
-        message: `Error propagating ${endpoint} to ${targetId}`,
-      });
-      if (!result.ok) {
-        errors.push({ targetId, endpoint, error: result.error?.detail || 'Unknown error' });
-      }
-    });
-
-    await Promise.all(promises);
-
-    // Track errors for UI notification
-    if (errors.length > 0) {
-      addPropagationErrors(errors.map(e => ({
-        clientId: e.targetId,
-        setting: endpoint,
-        error: e.error
-      })));
-    }
-
-    return { success: errors.length === 0, errors, skipped: skippedClients };
-  }
-
-  /**
-   * Add propagation errors to the list (for UI notification)
-   */
-  function addPropagationErrors(newErrors) {
-    const now = Date.now();
-    const errorEntries = newErrors.map(e => ({
-      ...e,
-      timestamp: now
-    }));
-    propagationErrors.value = [...propagationErrors.value, ...errorEntries];
-
-    // Auto-clear errors after 10 seconds
-    if (errorClearTimeout) {
-      clearTimeout(errorClearTimeout);
-    }
-    errorClearTimeout = setTimeout(() => {
-      clearPropagationErrors();
-    }, 10000);
-  }
-
-  /**
-   * Clear all propagation errors
-   */
-  function clearPropagationErrors() {
-    propagationErrors.value = [];
-    if (errorClearTimeout) {
-      clearTimeout(errorClearTimeout);
-      errorClearTimeout = null;
-    }
-  }
-
-  /**
-   * Get friendly client name for error display
-   */
-  function getClientDisplayName(clientId) {
-    return registryStore.getClientName(clientId);
-  }
-
   // === ACTIONS ===
   async function loadStatus() {
     // Cancel previous request if it exists
@@ -587,24 +467,24 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     filtersLoaded.value = false;
 
     await apiCall('store', 'Error loading equalizer data', async () => {
-      const [statusData, filtersData] = await Promise.all([
-        fetchStatus(signal),
-        fetchFilters(signal),
-        fetchPresets()
+      // One GET returns the complete record (state, filters, compressor, loudness,
+      // mono, active_preset, enabled, custom_gains) for whatever the target is —
+      // local DAC, remote client, or zone. No cross-source reconciliation.
+      const [record] = await Promise.all([
+        fetchTargetRecord(signal),
+        fetchPresets(),  // builtin catalog only (labels + gains)
       ]);
 
-      // Check if request was cancelled
-      if (statusData === null || filtersData === null) {
-        return;
-      }
+      // Cancelled or failed (a newer loadStatus aborted this one).
+      if (record === null) return;
 
-      // Update state
-      state.value = statusData?.state || 'disconnected';
-      sampleRate.value = statusData?.sample_rate || 48000;
+      state.value = record.state || 'disconnected';
+      sampleRate.value = record.sample_rate || 48000;
+      isEqualizerEffectsEnabled.value = record.enabled ?? true;
 
-      // Update filters
-      if (filtersData.length > 0) {
-        filters.value = filtersData.map(f => ({
+      // Filters (already in freq/type wire shape from the API).
+      if (Array.isArray(record.filters) && record.filters.length > 0) {
+        filters.value = record.filters.map(f => ({
           ...f,
           displayName: formatFrequency(f.freq)
         }));
@@ -612,47 +492,20 @@ export const useEqualizerStore = defineStore('equalizer', () => {
         initializeFilters();
       }
 
-      // Presets are already updated by fetchPresets()
-
-      // Update advanced settings from status (preserve defaults for missing fields)
-      if (statusData?.compressor) {
-        compressor.value = { ...compressor.value, ...statusData.compressor };
+      // Advanced settings (preserve defaults for any missing field).
+      if (record.compressor) {
+        compressor.value = { ...compressor.value, ...record.compressor };
       }
-      if (statusData?.loudness) {
-        loudness.value = { ...loudness.value, ...statusData.loudness };
+      if (record.loudness) {
+        loudness.value = { ...loudness.value, ...record.loudness };
       }
-      if (statusData?.mono !== undefined) {
-        mono.value = statusData.mono;
+      if (record.mono !== undefined) {
+        mono.value = record.mono;
       }
-
-      // When in a zone, the zone registry is the source of truth for equalizer settings.
-      // The local CamillaDSP cache may be stale (zone operations use persist=False).
-      // Override loudness/compressor/activePreset with zone data to prevent state desync.
-      const zoneId = getSelectedZoneId();
-      if (zoneId) {
-        const zoneEq = await fetchZoneEqualizer(zoneId, signal);
-        // Guard: abort if a new loadStatus() was triggered while we were fetching
-        if (signal.aborted) return;
-        if (zoneEq) {
-          if (zoneEq.loudness) {
-            loudness.value = { ...loudness.value, ...zoneEq.loudness };
-          }
-          if (zoneEq.compressor) {
-            compressor.value = { ...compressor.value, ...zoneEq.compressor };
-          }
-          if (zoneEq.mono !== undefined) {
-            mono.value = zoneEq.mono;
-          }
-          // Zone is source of truth for active preset
-          if (zoneEq.active_preset) {
-            activePreset.value = zoneEq.active_preset;
-          }
-        }
-      } else if (statusData?.active_preset && selectedTarget.value && !isLocalClient(selectedTarget.value)) {
-        // Standalone remote client: the per-client status carries its active_preset
-        // (injected from the registry store); fetchPresets only knows the local Pi's.
-        activePreset.value = statusData.active_preset;
+      if (Array.isArray(record.custom_gains)) {
+        customGains.value = record.custom_gains;
       }
+      activePreset.value = record.active_preset || 'flat';
 
       // Volume data comes from unifiedAudioStore.volumeState via WebSocket
       // No need to update local cache here
@@ -771,46 +624,14 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
   // === PRESET MANAGEMENT ===
   async function loadPreset(presetId) {
-    // If target is in a zone, use zone endpoint (backend handles propagation)
-    const zoneId = getSelectedZoneId();
-    if (zoneId) {
-      const result = await apiCall.post(`/api/equalizer/zone/${zoneId}/preset`, { preset_id: presetId }, {
-        category: 'store',
-        message: 'Error loading preset',
-      });
-      if (result.ok && (result.data.status === 'success' || result.data.status === 'partial')) {
-        _applyResponseGains(presetId, result.data.gains);
-        return true;
-      }
-      return false;
-    }
-
-    // Standalone client: multiroom or direct
-    const selectedId = selectedTarget.value;
-    if (selectedId && !isLocalClient(selectedId)) {
-      const result = await apiCall.post(`/api/equalizer/client/${selectedId}/preset`, { preset_id: presetId }, {
-        category: 'store',
-        message: 'Error loading preset',
-        checkStatus: true,
-      });
-      if (result.ok) {
-        _applyResponseGains(presetId, result.data.gains);
-        return true;
-      }
-      return false;
-    }
-
-    // Local standalone: no gains in response, use local values
-    const result = await apiCall.put(`/api/equalizer/preset/${presetId}`, null, {
+    // One uniform route for every target; the response carries the resolved gains.
+    const result = await apiCall.post(`${targetBase()}/preset`, { preset_id: presetId }, {
       category: 'store',
       message: 'Error loading preset',
       checkStatus: true,
     });
     if (result.ok) {
-      activePreset.value = presetId;
-      isPresetEdited.value = false;
-      _snapshotPresetGains(presetId);
-      _applyPresetGains(presetId);
+      _applyResponseGains(presetId, result.data.gains);
       return true;
     }
     return false;
@@ -834,16 +655,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
    * Posts to the save-custom endpoint, which persists gains and sets active_preset.
    */
   async function saveCustomPreset() {
-    const zoneId = getSelectedZoneId();
-    let url;
-    if (zoneId) {
-      url = `/api/equalizer/zone/${zoneId}/save-custom`;
-    } else if (selectedTarget.value && !isLocalClient(selectedTarget.value)) {
-      url = `/api/equalizer/client/${selectedTarget.value}/save-custom`;
-    } else {
-      url = '/api/equalizer/save-custom';
-    }
-    const result = await apiCall.post(url, null, {
+    const result = await apiCall.post(`${targetBase()}/save-custom`, null, {
       category: 'store',
       message: 'Error saving custom preset',
       checkStatus: true,
@@ -908,25 +720,14 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     const previous = { ...compressor.value };
     Object.assign(compressor.value, settings);
 
-    const zoneId = getSelectedZoneId();
-    let success;
-    if (zoneId) {
-      const result = await apiCall.patch(`/api/equalizer/zone/${zoneId}/compressor`, settings, {
-        category: 'store',
-        message: 'Error updating compressor',
-      });
-      success = result.ok && (result.data.status === 'success' || result.data.status === 'partial');
-    } else {
-      const result = await apiCall.put(`${getApiBase()}/compressor`, settings, {
-        category: 'store',
-        message: 'Error updating compressor',
-        checkStatus: true,
-      });
-      success = result.ok;
-    }
+    const result = await apiCall.put(`${targetBase()}/compressor`, settings, {
+      category: 'store',
+      message: 'Error updating compressor',
+      checkStatus: true,
+    });
 
-    if (!success) Object.assign(compressor.value, previous);
-    return success;
+    if (!result.ok) Object.assign(compressor.value, previous);
+    return result.ok;
   }
 
   async function updateLoudness(settings) {
@@ -934,43 +735,21 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     const previous = { ...loudness.value };
     Object.assign(loudness.value, settings);
 
-    const zoneId = getSelectedZoneId();
-    let success;
-    if (zoneId) {
-      const result = await apiCall.patch(`/api/equalizer/zone/${zoneId}/loudness`, settings, {
-        category: 'store',
-        message: 'Error updating loudness',
-      });
-      success = result.ok && (result.data.status === 'success' || result.data.status === 'partial');
-    } else {
-      const result = await apiCall.put(`${getApiBase()}/loudness`, settings, {
-        category: 'store',
-        message: 'Error updating loudness',
-        checkStatus: true,
-      });
-      success = result.ok;
-    }
+    const result = await apiCall.put(`${targetBase()}/loudness`, settings, {
+      category: 'store',
+      message: 'Error updating loudness',
+      checkStatus: true,
+    });
 
-    if (!success) Object.assign(loudness.value, previous);
-    return success;
+    if (!result.ok) Object.assign(loudness.value, previous);
+    return result.ok;
   }
 
   async function updateMono(enabled) {
     const previous = mono.value;
     mono.value = enabled;
 
-    const zoneId = getSelectedZoneId();
-    if (zoneId) {
-      const result = await apiCall.patch(`/api/equalizer/zone/${zoneId}/mono`, { enabled }, {
-        category: 'store',
-        message: 'Error updating mono',
-      });
-      if (result.ok && (result.data.status === 'success' || result.data.status === 'partial')) return true;
-      mono.value = previous;
-      return false;
-    }
-
-    const result = await apiCall.put(`${getApiBase()}/mono`, { enabled }, {
+    const result = await apiCall.put(`${targetBase()}/mono`, { enabled }, {
       category: 'store',
       message: 'Error updating mono',
       checkStatus: true,
@@ -978,22 +757,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     if (result.ok) return true;
     mono.value = previous;
     return false;
-  }
-
-  async function updateEqualizerMute(muted) {
-    const result = await apiCall.put(`${getApiBase()}/mute`, { muted }, {
-      category: 'store',
-      message: 'Error updating equalizer mute',
-      checkStatus: true,
-    });
-    if (!result.ok) return false;
-    // Propagate mute to all available linked clients in the zone
-    const linkedIds = registryStore.getLinkedClientIds(selectedTarget.value);
-    if (linkedIds.length > 1) {
-      await propagateToLinkedClients('mute', { muted });
-    }
-    // Unified state will be updated via WebSocket broadcast
-    return true;
   }
 
   // === TARGET MANAGEMENT ===
@@ -1021,27 +784,10 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     cleanup();
     selectedTarget.value = targetId;
 
-    // For remote clients, restore saved settings from Milo first
-    if (targetId && !isLocalClient(targetId)) {
-      await restoreClientSettings(targetId);
-    }
-
-    // Load status + the master enabled state for the NEW target (both are
-    // target-aware now, so the toggle reflects the selected client, not the local Milo).
+    // The record is the source of truth: one GET reflects the selected target.
+    // (Satellites are kept in sync by writes + reconnect re-push, not a restore-on-select.)
     await loadStatus();
     await loadEnabledState();
-  }
-
-  async function restoreClientSettings(hostname) {
-    const result = await apiCall.post(`/api/equalizer/client/${hostname}/restore`, null, {
-      category: 'store',
-      message: `Error restoring settings for ${hostname}`,
-    });
-    if (!result.ok) return null;
-    if (result.data.restored && result.data.restored.length > 0) {
-      logger.info('store', `Restored equalizer settings for ${hostname}`, result.data.restored);
-    }
-    return result.data;
   }
 
   // === LINKED CLIENTS MANAGEMENT ===
@@ -1396,23 +1142,8 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     isTogglingEnabled.value = true;
     isEqualizerEffectsEnabled.value = enabled;
 
-    let success = false;
-    const zoneId = getSelectedZoneId();
-    if (zoneId) {
-      const zoneResult = await apiCall.patch(`/api/equalizer/zone/${zoneId}/enabled`, { enabled }, {
-        category: 'store',
-        message: 'Error updating zone equalizer enabled',
-      });
-      if (zoneResult.ok) {
-        success = zoneResult.data.status === 'success' || zoneResult.data.status === 'partial';
-      } else {
-        // Fall back to direct update
-        success = await setEnabledState(enabled);
-      }
-    } else {
-      // Standalone client: update directly
-      success = await setEnabledState(enabled);
-    }
+    // One uniform write for every target (local / remote / zone).
+    const success = await setEnabledState(enabled);
 
     if (success) {
       if (enabled) {
@@ -1532,7 +1263,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     updateCompressor,
     updateLoudness,
     updateMono,
-    updateEqualizerMute,
 
     // Client equalizer volume/mute (reads from unified store)
     updateClientEqualizerVolume,
@@ -1540,11 +1270,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     getClientEqualizerVolume,
     getClientEqualizerMute,
     updateClientEqualizerMute,  // Use { propagate: true } for zone propagation
-
-    // Propagation Errors
-    propagationErrors,
-    clearPropagationErrors,
-    getClientDisplayName,
 
     // WebSocket Handlers
     handleEqualizerChanged,

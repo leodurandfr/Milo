@@ -199,8 +199,7 @@
     "meters": {
       "title": "Audio-Ausgangspegel"
     },
-    "connecting": "Verbindung wird hergestellt...",
-    "syncError": "Synchronisierungsfehler"
+    "connecting": "Verbindung wird hergestellt..."
   },
   "status": {
     "loading": "Wird gestartet...",
@@ -583,6 +582,8 @@
     "discover": "Suchen",
     "discovering": "Suche...",
     "batteryLow": "Akku schwach",
+    "disabledTitle": "Fernbedienung deaktiviert",
+    "disabledDetails": "Aktivieren Sie sie, um eine Bluetooth-Fernbedienung zu verbinden.",
     "step": "Lautstärkeschritt pro Klick"
   },
   "irRemoteSettings": {

@@ -199,8 +199,7 @@
     "meters": {
       "title": "Niveaux de sortie audio"
     },
-    "connecting": "Connexion en cours...",
-    "syncError": "Erreur de synchronisation"
+    "connecting": "Connexion en cours..."
   },
   "status": {
     "loading": "Démarrage...",
@@ -583,6 +582,8 @@
     "discover": "Rechercher",
     "discovering": "Recherche...",
     "batteryLow": "Batterie faible",
+    "disabledTitle": "Télécommande désactivée",
+    "disabledDetails": "Activez-la pour connecter une télécommande Bluetooth.",
     "step": "Variation du volume par cran"
   },
   "irRemoteSettings": {

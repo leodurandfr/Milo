@@ -199,8 +199,7 @@
     "meters": {
       "title": "Livelli di uscita audio"
     },
-    "connecting": "Connessione in corso...",
-    "syncError": "Errore di sincronizzazione"
+    "connecting": "Connessione in corso..."
   },
   "status": {
     "loading": "Avvio...",
@@ -583,6 +582,8 @@
     "discover": "Cerca",
     "discovering": "Ricerca...",
     "batteryLow": "Batteria scarica",
+    "disabledTitle": "Telecomando disattivato",
+    "disabledDetails": "Attivalo per connettere un telecomando Bluetooth.",
     "step": "Passo volume per clic"
   },
   "irRemoteSettings": {

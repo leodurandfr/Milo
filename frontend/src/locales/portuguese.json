@@ -199,8 +199,7 @@
     "meters": {
       "title": "Níveis de saída de áudio"
     },
-    "connecting": "A conectar...",
-    "syncError": "Erro de sincronização"
+    "connecting": "A conectar..."
   },
   "status": {
     "loading": "A iniciar...",
@@ -583,6 +582,8 @@
     "discover": "Procurar",
     "discovering": "A procurar...",
     "batteryLow": "Bateria fraca",
+    "disabledTitle": "Comando desativado",
+    "disabledDetails": "Ative-o para ligar um comando Bluetooth.",
     "step": "Incremento de volume por clique"
   },
   "irRemoteSettings": {
