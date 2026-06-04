@@ -909,13 +909,14 @@ class SnapcastWebSocketService:
             return False
 
     async def _sync_standalone_equalizer_to_client(self, mac_id: str) -> bool:
-        """Apply the client's persisted standalone equalizer settings to a
-        reconnected client.
+        """Apply a reconnecting client's own EQ record to it.
 
-        Reads the registry standalone-equalizer store (the single source of truth
-        for per-client EQ), so a reconnecting standalone speaker recovers ALL of
-        its state — filters, compressor, loudness, mono and the master enabled/
-        bypass flag — exactly like a zone member does from its zone settings.
+        Reads the registry's per-client EQ store (`client_equalizer[mac]`, the
+        single source of truth for any remote client — zone members hold
+        identical records), so the client recovers ALL of its state: filters,
+        compressor, loudness, mono and the master enabled/bypass flag. The local
+        client has no registry record (it owns equalizer.json, restored at boot),
+        so this is a natural no-op for it.
         """
         try:
             client = self.registry.get_client(mac_id) if self.registry else None

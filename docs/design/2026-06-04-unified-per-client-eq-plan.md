@@ -104,10 +104,10 @@ Test `backend/tests/test_core_multiroom.py`.
 ### Task 1.4 — Schema bump + BREAKING_CHANGES
 **Files:** Modify `backend/core/multiroom/client_registry.py` (`SCHEMA_VERSION`), `BREAKING_CHANGES.md`;
 Test `backend/tests/test_breaking_changes_coherence.py` (keep coherent).
-- [ ] Bump settings `SCHEMA_VERSION`; add a BREAKING_CHANGES entry (file, bump, reason, `rm` command,
+- [x] Bump settings `SCHEMA_VERSION`; add a BREAKING_CHANGES entry (file, bump, reason, `rm` command,
       impact: **EQ settings reset once**).
-- [ ] Run `python -m pytest backend/tests/test_breaking_changes_coherence.py -q` → pass.
-- [ ] Commit: `chore(eq): bump settings schema_version for unified client EQ`.
+- [x] Run `python -m pytest backend/tests/test_breaking_changes_coherence.py -q` → pass.
+- [x] Commit: `chore(eq): bump settings schema_version for unified client EQ`.
 
 > **Phase 1 was expanded (per Léo, 2026-06-04):** dropping `Zone.equalizer_settings` cannot keep the
 > suite green without also reworking the websocket reconnect-sync (Phase 2) and the zone-create /

@@ -15,6 +15,12 @@ When you bump a `SCHEMA_VERSION` in a service, add an entry here with the file p
 
 ## Upcoming
 
+## 2026-06-04 — settings.json schema_version 3 → 4
+
+- Reason: unified per-client equalizer refactor. Two persisted shapes under `settings.json` changed: the multiroom EQ store key was renamed `multiroom.standalone_equalizer` → `multiroom.client_equalizer` (it now holds **one EQ record per client**, covering all remote clients uniformly), and zones dropped their own `multiroom.zones[].equalizer_settings` (a zone holds no EQ of its own — its EQ is the identical EQ of its members, so the per-zone store is gone). Per repo doctrine no migration is provided; the file resets fail-loud on the next boot.
+- Action: `rm /var/lib/milo/settings.json && sudo systemctl restart milo-backend`
+- Impact: full reset to factory defaults (same scope as the entries below) — language, volume limits + startup volume + step sizes, screen (timeout, brightness, screensaver, color filter, UI scale), dock layout, routing (multiroom toggle, equalizer effects toggle), Mac ROC latency profile, audio auto-stop delay, radio Shazam toggle, WiFi country, podcast Taddy credentials, BT/IR remote pairing, multiroom client overrides — all reset. **Per-client and per-zone equalizer tuning resets once** (the local client's own EQ in `equalizer.json` is unaffected and survives). Snapshot the file before upgrade if you want to retype your settings: `cat /var/lib/milo/settings.json`.
+
 ## 2026-06-03 — client_equalizer.json removed (standalone client EQ unified into settings.json)
 
 - Reason: standalone (non-zone) client equalizer state had **two** sources of truth — `client_equalizer.json` (written by the per-axis `/api/equalizer/client/{mac}/…` routes) and `multiroom.standalone_equalizer` in `settings.json` (written by preset/apply). Loading a preset wrote one store while reconnect sync read the other, so per-client preset gains were lost on reconnect. The `EqualizerSettingsSyncService` + `client_equalizer.json` store has been removed; the registry `standalone_equalizer` (in `settings.json`) is now the single source of truth. This file is no longer read or written.
