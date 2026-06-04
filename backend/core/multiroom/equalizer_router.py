@@ -131,19 +131,6 @@ class EqualizerRouter:
 
     # === FILTERS ===
 
-    async def get_filters(self, mac_id: str) -> Dict[str, Any]:
-        """Get all filters for a client."""
-        async def local():
-            if self._camilladsp_service:
-                filters = await self._camilladsp_service.get_filters()
-                return {"filters": filters}
-            return {"filters": [], "error": "Equalizer service not available"}
-
-        async def remote(ip: str):
-            return await self._proxy_service.request(ip, "GET", "/equalizer/filters")
-
-        return await self._route(mac_id, local, remote, "get_filters")
-
     async def update_filter(
         self,
         mac_id: str,
@@ -272,19 +259,6 @@ class EqualizerRouter:
             return result
 
         return await self._route(mac_id, local, remote, "set_equalizer_enabled")
-
-    async def get_equalizer_enabled(self, mac_id: str, routing_service=None) -> Dict[str, Any]:
-        """Get equalizer effects enabled state for a client."""
-        async def local():
-            if routing_service:
-                return {"enabled": routing_service.equalizer_effects_enabled}
-            return {"enabled": True}
-
-        async def remote(ip: str):
-            result = await self._proxy_service.request(ip, "GET", "/equalizer/enabled")
-            return result
-
-        return await self._route(mac_id, local, remote, "get_equalizer_enabled")
 
     # === STATUS ===
 

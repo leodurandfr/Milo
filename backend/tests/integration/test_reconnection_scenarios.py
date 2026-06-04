@@ -25,16 +25,12 @@ from backend.core.multiroom.models import ReconnectionContext
 
 @pytest.fixture
 def mock_zone():
-    """Create a mock zone with Equalizer settings."""
+    """Create a mock zone (the crossover flag drives the FR13 tests; a zone holds
+    no EQ of its own — EQ derives from its members in the unified per-client model)."""
     zone = MagicMock()
     zone.id = "zone-1"
     zone.name = "Living Room"
     zone.client_ids = ["local", "milo-client-01", "milo-client-02"]
-    zone.equalizer_settings = {
-        "filters": {"band_1": {"type": "Peaking", "freq": 1000, "gain": 3.0}},
-        "compressor": {"enabled": False},
-        "loudness": {"enabled": False}
-    }
     zone.crossover_enabled = True
     return zone
 
@@ -108,7 +104,6 @@ class TestReconnectionInZone:
 
         Expected:
         - volume = zone_volume_avg (average of online members)
-        - Equalizer = zone.equalizer_settings
         """
         # Setup: Zone with 3 clients, client-02 offline, others online
         mock_client_02.online = False
@@ -127,31 +122,12 @@ class TestReconnectionInZone:
         assert reconnecting_client_expected_volume == -27.5
 
     @pytest.mark.asyncio
-    async def test_fr7_in_zone_equalizer_sync(self, mock_zone):
-        """
-        FR7: IN_ZONE client reconnects - Equalizer settings sync.
-
-        Expected: Equalizer = zone.equalizer_settings
-        """
-        # Verify zone has Equalizer settings to sync
-        assert mock_zone.equalizer_settings is not None
-        assert "filters" in mock_zone.equalizer_settings
-        assert "compressor" in mock_zone.equalizer_settings
-        assert "loudness" in mock_zone.equalizer_settings
-
-        # Verify filter settings
-        filters = mock_zone.equalizer_settings["filters"]
-        assert "band_1" in filters
-        assert filters["band_1"]["gain"] == 3.0
-
-    @pytest.mark.asyncio
     async def test_fr8_in_zone_all_offline_uses_startup_volume(self, mock_zone):
         """
         FR8: IN_ZONE client reconnects with ALL others OFFLINE.
 
         Expected:
         - volume = startup_volume_db (DEFAULT_VOLUME_DB = -45.0)
-        - Equalizer = zone.equalizer_settings (from persistence)
         """
         # Setup: All clients in zone are offline
         # When first client reconnects, no online clients to average from
@@ -160,24 +136,6 @@ class TestReconnectionInZone:
         expected_volume = DEFAULT_VOLUME_DB
 
         assert expected_volume == -45.0
-
-        # Zone Equalizer settings should still be applied from persistence
-        assert mock_zone.equalizer_settings is not None
-
-    @pytest.mark.asyncio
-    async def test_fr8_zone_equalizer_from_persistence(self, mock_zone):
-        """
-        FR8: Verify zone Equalizer settings come from persistence when all offline.
-        """
-        # Even when all clients are offline, zone.equalizer_settings should be loaded
-        # from persistence (settings.json) and applied to reconnecting client
-
-        persisted_equalizer = mock_zone.equalizer_settings
-
-        # Verify structure matches what's expected
-        assert persisted_equalizer["filters"]["band_1"]["type"] == "Peaking"
-        assert persisted_equalizer["filters"]["band_1"]["freq"] == 1000
-        assert persisted_equalizer["compressor"]["enabled"] is False
 
 
 class TestReconnectionStandalone:
@@ -194,7 +152,6 @@ class TestReconnectionStandalone:
 
         Expected:
         - volume = volume_global (average of all online clients)
-        - Equalizer = standalone_equalizer[mac_id]
         """
         # Setup: Standalone client (not in zone), other clients online
         # Global volume = average of all online clients
@@ -205,35 +162,12 @@ class TestReconnectionStandalone:
         assert expected_global_volume == -27.5
 
     @pytest.mark.asyncio
-    async def test_fr9_standalone_equalizer_sync(self):
-        """
-        FR9: STANDALONE client reconnects - Equalizer settings sync.
-
-        Expected: Equalizer = standalone_equalizer[mac_id] from client_equalizer.json
-        """
-        # Standalone Equalizer settings structure
-        standalone_equalizer = {
-            "milo-client-03": {
-                "filters": {"band_1": {"type": "HighShelf", "gain": -2.0}},
-                "compressor": {"enabled": True, "threshold": -15},
-                "loudness": {"enabled": False}
-            }
-        }
-
-        client_id = "milo-client-03"
-        client_equalizer = standalone_equalizer.get(client_id)
-
-        assert client_equalizer is not None
-        assert client_equalizer["compressor"]["enabled"] is True
-
-    @pytest.mark.asyncio
     async def test_fr10_standalone_first_client_uses_startup_volume(self):
         """
         FR10: STANDALONE client reconnects as FIRST client (none online).
 
         Expected:
         - volume = startup_volume_db (DEFAULT_VOLUME_DB = -45.0)
-        - Equalizer = standalone_equalizer[mac_id]
         """
         # Setup: No clients online (backend just started or all disconnected)
         online_clients = []
@@ -245,23 +179,6 @@ class TestReconnectionStandalone:
             expected_volume = sum(c.volume_db for c in online_clients) / len(online_clients)
 
         assert expected_volume == -45.0
-
-    @pytest.mark.asyncio
-    async def test_fr10_standalone_equalizer_defaults_when_none_saved(self):
-        """
-        FR10: STANDALONE client with no saved Equalizer settings gets defaults.
-
-        Expected: Default Equalizer (flat EQ, compressor off, loudness off)
-        """
-        from backend.core.multiroom.models import EqualizerSettings
-
-        # The registry standalone-equalizer store returns None when nothing is
-        # saved; the effective default is a fresh EqualizerSettings (flat/off).
-        defaults = EqualizerSettings()
-
-        assert defaults.filters == []
-        assert defaults.compressor.enabled is False
-        assert defaults.loudness.enabled is False
 
 
 class TestCrossoverAutomatic:
@@ -1794,7 +1711,9 @@ class TestStandaloneReconnectionSyncIntegration:
         self, mock_settings_service, mock_state_machine
     ):
         """
-        E2E: Equalizer sync for STANDALONE uses client-specific Equalizer settings (AC3).
+        E2E: a lone reconnecting client is detected as STANDALONE — the context that
+        drives its per-client EQ restore (the EQ push itself is covered end-to-end by
+        test_multiroom_sync.py::TestReconnectSyncAppliesMonoAndEnabled).
         """
         from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
@@ -1817,8 +1736,6 @@ class TestStandaloneReconnectionSyncIntegration:
         # Verify context is STANDALONE
         context = registry.get_reconnection_context("client-1")
         assert context == ReconnectionContext.STANDALONE_ALONE
-
-        # Equalizer sync would use standalone_equalizer[mac_id] or defaults
 
     @pytest.mark.asyncio
     async def test_websocket_broadcast_includes_sync_context(
