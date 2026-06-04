@@ -11,30 +11,28 @@
       :cta-click="() => emit('open-hardware')"
     />
 
-    <!-- Paired: regular settings -->
-    <ToggleSection
-      v-else-if="settingsStore.irRemote.paired"
-      heading="3"
-      :enabled="settingsStore.irRemote.enabled"
-      @change="handleToggle"
-    >
-      <template #title>
-        <span class="ir-remote-status">
-          <span class="ir-remote-status__dot" />
-          {{ t('remoteControls.status.paired') }}
-        </span>
-      </template>
-      <template #actions>
-        <Button
-          class="unpair-button unpair-button--desktop"
-          variant="background-strong"
-          size="small"
-          :loading="unpairing"
-          :disabled="unpairing"
-          @click="handleUnpair"
-        >
-          {{ t('irRemoteSettings.unpair') }}
-        </Button>
+    <!-- Paired + enabled: status, unpair action and volume step.
+         The enable/disable toggle lives in the navigation header (SettingsModal). -->
+    <SettingsSection v-else-if="settingsStore.irRemote.paired && settingsStore.irRemote.enabled">
+      <template #header>
+        <div class="ir-remote-header">
+          <h3 class="ir-remote-header__title heading-3">
+            <span class="ir-remote-status">
+              <span class="ir-remote-status__dot" />
+              {{ t('remoteControls.status.paired') }}
+            </span>
+          </h3>
+          <Button
+            class="unpair-button unpair-button--desktop"
+            variant="background-strong"
+            size="small"
+            :loading="unpairing"
+            :disabled="unpairing"
+            @click="handleUnpair"
+          >
+            {{ t('irRemoteSettings.unpair') }}
+          </Button>
+        </div>
       </template>
 
       <SettingItem :label="t('irRemoteSettings.step')">
@@ -56,7 +54,15 @@
       >
         {{ t('irRemoteSettings.unpair') }}
       </Button>
-    </ToggleSection>
+    </SettingsSection>
+
+    <!-- Paired + disabled: invite the user to enable the feature from the header toggle. -->
+    <MessageContent
+      v-else-if="settingsStore.irRemote.paired"
+      icon="infrared"
+      :title="t('irRemoteSettings.disabledTitle')"
+      :details="t('irRemoteSettings.disabledDetails')"
+    />
 
     <!-- Not paired: wizard -->
     <MessageContent
@@ -85,8 +91,8 @@ import { useHardwareConfig } from '@/composables/useHardwareConfig';
 import { useTimer } from '@/composables/useTimer';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
+import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
-import ToggleSection from '@/components/ui/ToggleSection.vue';
 import Button from '@/components/ui/Button.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 
@@ -112,10 +118,6 @@ watch(
   () => settingsStore.volumeSteps.step_ir_remote_db,
   (value) => { stepIrRemoteDb.value = value; }
 );
-
-async function handleToggle(enabled) {
-  await settingsStore.toggleIrRemote(enabled);
-}
 
 async function handleUnpair() {
   unpairing.value = true;
@@ -291,6 +293,17 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.ir-remote-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-04);
+}
+
+.ir-remote-header__title {
+  margin-right: auto;
+  min-width: 0;
+}
+
 .ir-remote-status {
   display: inline-flex;
   align-items: center;

@@ -20,10 +20,11 @@ def create_bt_remote_router(bt_remote_controller):
 
     @router.get("/status")
     async def get_status():
-        """Get BT remote controller status (includes config fields)."""
+        """Get BT remote controller status (includes config + pairing state)."""
         return {
             "status": "success",
-            **bt_remote_controller.get_status()
+            **bt_remote_controller.get_status(),
+            "paired": await bt_remote_controller.is_paired(),
         }
 
     @router.get("/battery")
@@ -44,6 +45,20 @@ def create_bt_remote_router(bt_remote_controller):
         """Trigger an immediate BT device discovery + pair attempt."""
         result = await bt_remote_controller.trigger_discovery()
         return result
+
+    @router.delete("/pairing")
+    async def unpair():
+        """Forget the paired BT remote (disconnect + remove the BlueZ bond)."""
+        try:
+            result = await bt_remote_controller.forget_remote()
+            if result.get("status") == "error":
+                raise HTTPException(status_code=400, detail=result.get("message", "Unpair failed"))
+            return result
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error("Error unpairing BT remote: %s", e)
+            raise HTTPException(status_code=500, detail=str(e))
 
     @router.patch("/config")
     async def update_config(payload: BtRemoteConfigRequest):
