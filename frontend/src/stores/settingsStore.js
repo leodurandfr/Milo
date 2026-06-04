@@ -87,6 +87,9 @@ export const useSettingsStore = defineStore('settings', () => {
   const btRemote = ref({
     enabled: false,
     connected: false,
+    // Durable BlueZ bond — stays true while the remote sleeps/disconnects.
+    // Drives the "Unpair" action (connected is too transient for that).
+    paired: false,
     discovering: false,
     device_name: '',
     battery_percentage: null
@@ -327,6 +330,7 @@ export const useSettingsStore = defineStore('settings', () => {
     btRemote.value.device_name = devices[0]?.name || '';
     if (devices.length === 0) btRemote.value.battery_percentage = null;
     if (data.discovering !== undefined) btRemote.value.discovering = data.discovering;
+    if (data.paired !== undefined) btRemote.value.paired = data.paired;
     // Fetch battery immediately when a device just connected
     if (!wasConnected && devices.length > 0) {
       fetchBtRemoteBattery();
@@ -347,6 +351,9 @@ export const useSettingsStore = defineStore('settings', () => {
   async function toggleBtRemote(enabled) {
     const prev = { ...btRemote.value };
     btRemote.value.enabled = enabled;
+    // Disabling keeps the BlueZ bond (only the explicit "unpair" removes it), so
+    // `paired` persists across a toggle and is driven solely by the backend
+    // status broadcast / unpairBtRemote().
     if (enabled) {
       btRemote.value.connected = false;
       btRemote.value.device_name = '';
@@ -383,6 +390,22 @@ export const useSettingsStore = defineStore('settings', () => {
       return false;
     }
     return result.data.status;
+  }
+
+  async function unpairBtRemote() {
+    const result = await apiCall.delete('/api/bt-remote/pairing', {
+      category: 'settings',
+      message: 'Error unpairing BT remote',
+    });
+    if (result.ok) {
+      // Backend also broadcasts the new status via WS, but clear optimistically
+      // so the "Unpair" button hides immediately.
+      btRemote.value.paired = false;
+      btRemote.value.connected = false;
+      btRemote.value.device_name = '';
+      btRemote.value.battery_percentage = null;
+    }
+    return result.ok;
   }
 
   // === IR REMOTE ACTIONS ===
@@ -554,6 +577,7 @@ export const useSettingsStore = defineStore('settings', () => {
     toggleBtRemote,
     fetchBtRemoteBattery,
     discoverBtRemote,
+    unpairBtRemote,
     applyIrRemoteStatus,
     loadIrRemoteStatus,
     toggleIrRemote,

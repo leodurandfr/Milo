@@ -4,7 +4,7 @@
     <!-- Single NavigationHeader outside transition -->
     <NavigationHeader ref="headerRef" :title="headerTitle" :show-back="canGoBack" :actions-key="currentView"
       @back="back">
-      <template v-if="currentView === 'home' || currentView === 'multiroom' || stationActionIcon" #actions>
+      <template v-if="currentView === 'home' || currentView === 'multiroom' || currentView === 'bt-remote' || showIrRemoteToggle || stationActionIcon" #actions>
         <button v-if="currentView === 'home'" v-press class="power-toggle" @click="togglePowerMenu">
           <SvgIcon name="power" size="large" color="var(--color-text-contrast)"
             class="power-toggle__icon" :class="{ 'power-toggle__icon--hidden': showPowerMenu }" />
@@ -13,6 +13,10 @@
         </button>
         <Toggle v-if="currentView === 'multiroom'" :model-value="isMultiroomActive"
           :disabled="unifiedStore.systemState.transitioning || multiroomStore.isTransitioning" @change="handleMultiroomToggle" />
+        <Toggle v-if="currentView === 'bt-remote'" :model-value="settingsStore.btRemote.enabled"
+          @change="handleBtRemoteToggle" />
+        <Toggle v-if="showIrRemoteToggle" :model-value="settingsStore.irRemote.enabled"
+          @change="handleIrRemoteToggle" />
         <IconButton v-if="stationActionIcon" :icon="stationActionIcon" variant="on-dark"
           @click="toggleStationActionMenu" />
       </template>
@@ -305,7 +309,7 @@ import { preloadNetworkStatus } from '@/composables/useNetwork';
 import { preloadHardwareConfig, useHardwareConfig } from '@/composables/useHardwareConfig';
 import { useTimer } from '@/composables/useTimer';
 
-const { screenType } = useHardwareConfig();
+const { screenType, hardwareConfig } = useHardwareConfig();
 const timer = useTimer();
 const props = defineProps({
   initialView: {
@@ -620,6 +624,25 @@ const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enab
 
 async function handleMultiroomToggle(enabled) {
   await unifiedStore.setMultiroomEnabled(enabled);
+}
+
+// BT remote enable/disable (toggle lives in the navigation header for this view)
+async function handleBtRemoteToggle(enabled) {
+  await settingsStore.toggleBtRemote(enabled);
+}
+
+// IR remote enable/disable (toggle lives in the navigation header, but only once
+// the receiver hardware is on AND a remote is paired — otherwise there is nothing
+// to toggle and the view shows the hardware-disabled redirect or the pairing wizard).
+const irHardwareEnabled = computed(
+  () => hardwareConfig.value?.current?.ir_remote?.enabled !== false
+);
+const showIrRemoteToggle = computed(
+  () => currentView.value === 'ir-remote' && irHardwareEnabled.value && settingsStore.irRemote.paired
+);
+
+async function handleIrRemoteToggle(enabled) {
+  await settingsStore.toggleIrRemote(enabled);
 }
 
 onMounted(async () => {

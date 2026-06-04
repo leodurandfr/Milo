@@ -248,13 +248,20 @@ class BtRemoteController:
         return devices
 
     async def _broadcast_status(self):
-        """Broadcast current connection status via WebSocket."""
+        """Broadcast current connection status via WebSocket.
+
+        Payload: { connected_devices: [...], discovering: bool, paired: bool }.
+        `paired` is the durable BlueZ-bond signal (true even while the remote
+        sleeps/disconnects); the UI uses it to offer the "unpair" action.
+        """
         status = self.get_status()
+        paired = await self.is_paired()
         await self.state_machine.broadcast_event(
             "settings", "bt_remote_status_changed",
             {"source": "settings",
              "connected_devices": status["connected_devices"],
-             "discovering": status["discovering"]}
+             "discovering": status["discovering"],
+             "paired": paired}
         )
 
     # ========================================================================
@@ -414,8 +421,20 @@ class BtRemoteController:
             matches.append((address, name))
         return matches
 
+    async def is_paired(self) -> bool:
+        """Whether a matching remote is bonded in BlueZ.
+
+        This is the durable "a remote is set up" signal: it stays true while
+        the remote sleeps and disconnects (unlike the transient connected
+        state), so the UI uses it to offer the "unpair" action.
+        """
+        return bool(await self._get_matching_devices("Paired"))
+
     async def _disconnect_matching_devices(self):
-        """Disconnect and remove BT devices matching the device name filter.
+        """Disconnect BT remote devices matching the name filter, KEEPING their
+        BlueZ bond so they reconnect automatically later (e.g. after the
+        controller is disabled then re-enabled). Bond removal is done only by
+        forget_remote() — the explicit "unpair" action.
 
         Only affects devices whose name matches self.device_name_filter,
         leaving other BT connections (e.g. A2DP audio sources) untouched.
@@ -423,7 +442,6 @@ class BtRemoteController:
         for address, name in await self._get_matching_devices("Connected"):
             logger.info("Disconnecting BT remote device: %s (%s)", name, address)
             await self._run_bluetoothctl("disconnect", address)
-        await self._remove_matching_bonds()
 
     async def _remove_matching_bonds(self):
         """Remove all paired matching devices from BlueZ (clear stale bonds)."""
@@ -619,6 +637,28 @@ class BtRemoteController:
         if self._monitored_paths:
             return {"status": "success", "message": "Device found and connected"}
         return {"status": "not_found", "message": "No matching device found"}
+
+    async def forget_remote(self) -> dict:
+        """Disconnect and remove the BlueZ bond for all matching remotes.
+
+        Clears the durable pairing so a different remote can be paired on the
+        next discovery. Safe to call whether or not a remote is currently
+        connected (a sleeping remote keeps its bond until removed here).
+        """
+        if not EVDEV_AVAILABLE:
+            return {"status": "error", "message": "evdev not available"}
+
+        logger.info("Unpairing BT remote (disconnect + remove bond)")
+        await self._disconnect_matching_devices()
+        await self._remove_matching_bonds()
+        # Refresh evdev monitoring so a now-disconnected device leaves the
+        # status, then broadcast the new (unpaired) state — covers both the
+        # connected case (scan drops the node) and the asleep case (no node,
+        # explicit broadcast still reflects paired=False).
+        if self.running:
+            await self._scan_devices()
+        await self._broadcast_status()
+        return {"status": "success", "message": "Remote unpaired"}
 
     async def _periodic_discovery(self):
         """Periodically attempt reconnection or full discovery when no device is active.
