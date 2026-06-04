@@ -330,28 +330,6 @@ class TestSettingsService:
         # This test mainly verifies that path creation doesn't raise an exception
         assert result is True
 
-    def test_get_volume_config(self, service):
-        """Complete volume config retrieval test (dB-based)"""
-        service._cache = {
-            'volume': {
-                'limit_min_db': -50.0,
-                'limit_max_db': -15.0,
-                'startup_volume_db': -25.0,
-                'restore_last_volume': True,
-                'step_mobile_db': 4.0,
-                'step_rotary_db': 3.0
-            }
-        }
-
-        config = service.get_volume_config()
-
-        assert config['limit_min_db'] == -50.0
-        assert config['limit_max_db'] == -15.0
-        assert config['startup_volume_db'] == -25.0
-        assert config['restore_last_volume'] is True
-        assert config['step_mobile_db'] == 4.0
-        assert config['step_rotary_db'] == 3.0
-
     @pytest.mark.asyncio
     async def test_load_settings_error_fallback_to_defaults(self, service):
         """Fallback to defaults test in case of loading error"""

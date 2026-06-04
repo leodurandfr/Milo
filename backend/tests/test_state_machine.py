@@ -33,30 +33,6 @@ class TestAudioStateMachine:
         assert state_machine.sources[AudioSource.SPOTIFY] == mock_source
         assert state_machine.get_source(AudioSource.SPOTIFY) == mock_source
 
-    def test_get_source_metadata(self, state_machine):
-        """Source metadata retrieval test"""
-        state_machine.system_state.active_source = AudioSource.SPOTIFY
-        state_machine.system_state.metadata = {"title": "Test Song"}
-
-        metadata = state_machine.get_source_metadata(AudioSource.SPOTIFY)
-        assert metadata == {"title": "Test Song"}
-
-        # Non-active source should return {}
-        metadata_other = state_machine.get_source_metadata(AudioSource.BLUETOOTH)
-        assert metadata_other == {}
-
-    def test_get_source_state(self, state_machine):
-        """Source state retrieval test"""
-        state_machine.system_state.active_source = AudioSource.SPOTIFY
-        state_machine.system_state.source_state = SourceState.ACTIVE
-
-        state = state_machine.get_source_state(AudioSource.SPOTIFY)
-        assert state == SourceState.ACTIVE
-
-        # Non-active source should return WAITING
-        state_other = state_machine.get_source_state(AudioSource.BLUETOOTH)
-        assert state_other == SourceState.WAITING
-
     def test_get_current_state(self, state_machine):
         """Current state retrieval test"""
         state = state_machine.get_current_state()

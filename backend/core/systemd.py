@@ -120,28 +120,3 @@ class SystemdServiceManager:
         except Exception as e:
             self.logger.error(f"Unexpected error during {action} {service}: {e}")
             return False
-
-    async def _unit_file_command(self, service: str, action: str) -> bool:
-        """Runs a systemd unit file command (enable/disable)."""
-        try:
-            self.logger.info(f"{action.capitalize()} service {service}")
-            proc = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", action, service,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.PIPE
-            )
-            _, stderr = await asyncio.wait_for(proc.communicate(), 10.0)
-
-            if proc.returncode != 0:
-                error_msg = stderr.decode().strip() if stderr else "No error details"
-                self.logger.error(f"Failed to {action} {service} (exit code {proc.returncode}): {error_msg}")
-                return False
-
-            return True
-        except asyncio.TimeoutError:
-            proc.kill()
-            self.logger.error(f"Timeout ({action} {service} took more than 10 seconds)")
-            return False
-        except Exception as e:
-            self.logger.error(f"Unexpected error during {action} {service}: {e}")
-            return False

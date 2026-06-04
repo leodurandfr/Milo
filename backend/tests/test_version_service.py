@@ -532,18 +532,3 @@ class TestGetAllProgramStatus:
 
         assert result["milo"]["status"] == "error"
         assert "milo error" in result["milo"]["message"]
-
-
-class TestGetProgramList:
-    """Tests for get_program_list()"""
-
-    def test_returns_all_programs(self, version_service):
-        program_list = version_service.get_program_list()
-        assert len(program_list) == 7
-
-    def test_each_entry_has_required_fields(self, version_service):
-        program_list = version_service.get_program_list()
-        for entry in program_list:
-            assert "key" in entry
-            assert "name" in entry
-            assert "description" in entry

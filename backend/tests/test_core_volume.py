@@ -174,14 +174,6 @@ class TestEqualizerController:
         mock_router.set_mute.assert_called_once_with("local", True, force=False)
 
     @pytest.mark.asyncio
-    async def test_read_current_volume(self, controller, mock_router):
-        """Test reading volume delegates to EqualizerRouter."""
-        result = await controller.read_current_volume("local")
-
-        assert result == -30.0
-        mock_router.get_volume.assert_called_once_with("local")
-
-    @pytest.mark.asyncio
     async def test_apply_volumes_parallel(self, controller):
         """Test parallel volume updates."""
         updates = {
@@ -199,13 +191,6 @@ class TestEqualizerController:
         """Test parallel updates with empty dict."""
         results = await controller.apply_volumes_parallel({})
         assert results == {}
-
-    @pytest.mark.asyncio
-    async def test_wait_for_client_ready_local(self, controller, mock_camilladsp_service):
-        """Test waiting for local client ready."""
-        result = await controller.wait_for_client_ready("local", max_wait=1.0)
-        assert result is True
-        mock_camilladsp_service.wait_for_connection.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_is_success_helper(self):
@@ -650,7 +635,6 @@ class TestZoneReconnectionVolume:
     def mock_equalizer_controller(self):
         """Create mock EqualizerController."""
         controller = Mock(spec=EqualizerController)
-        controller.wait_for_client_ready = AsyncMock(return_value=True)
         controller.set_equalizer_mute = AsyncMock()
         controller.set_equalizer_volume = AsyncMock()
         return controller
@@ -791,7 +775,6 @@ class TestStandaloneReconnectionVolume:
     def mock_equalizer_controller(self):
         """Create mock EqualizerController."""
         controller = Mock(spec=EqualizerController)
-        controller.wait_for_client_ready = AsyncMock(return_value=True)
         controller.set_equalizer_mute = AsyncMock()
         controller.set_equalizer_volume = AsyncMock()
         return controller

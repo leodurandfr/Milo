@@ -10,7 +10,6 @@ Delegates local/remote routing to EqualizerRouter and provides:
 
 import asyncio
 import logging
-import time
 from typing import Dict, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -63,31 +62,6 @@ class EqualizerController:
         status = result.get("status", "")
         return status in ("success", "skipped")
 
-    # ========== Client Readiness ==========
-
-    async def wait_for_client_ready(self, mac_id: str, max_wait: float = 10.0, interval: float = 0.5) -> bool:
-        """Wait for a client's equalizer to become available."""
-        if not self._has_registry():
-            return False
-        if self._registry.is_local_client(mac_id):
-            if self._camilladsp_service and hasattr(self._camilladsp_service, 'wait_for_connection'):
-                return await self._camilladsp_service.wait_for_connection(timeout=max_wait)
-            return True
-
-        client_ip = self._registry.get_client_ip(mac_id)
-        if not client_ip:
-            return False
-
-        start_time = time.time()
-        while (time.time() - start_time) < max_wait:
-            try:
-                if await self._proxy_service.check_available(client_ip):
-                    return True
-            except Exception as e:
-                self.logger.debug("Client readiness probe (%s) failed: %s", client_ip, e)
-            await asyncio.sleep(interval)
-        return False
-
     # ========== Single Client Operations ==========
 
     async def set_equalizer_volume(self, mac_id: str, volume_db: float, retry: int = 0, force: bool = False) -> bool:
@@ -137,21 +111,6 @@ class EqualizerController:
         except Exception as e:
             self.logger.warning(f"Failed to set mute for {mac_id}: {e}")
             return False
-
-    async def read_current_volume(self, mac_id: str) -> Optional[float]:
-        """Read current volume from hardware via EqualizerRouter."""
-        try:
-            if not self._router:
-                return None
-            result = await asyncio.wait_for(
-                self._router.get_volume(mac_id),
-                timeout=self._timeout
-            )
-            if result:
-                return result.get("main") if result.get("main") is not None else result.get("volume_db")
-            return None
-        except Exception:
-            return None
 
     # ========== Parallel Zone Operations ==========
 

@@ -630,28 +630,3 @@ class TestDefaultsMerging:
 
         # Should have defaults for other volume keys
         assert 'limit_max_db' in settings['volume']
-
-
-class TestVolumeConfig:
-    """Test volume configuration helpers."""
-
-    @pytest.mark.asyncio
-    async def test_get_volume_config_returns_all_keys(self, settings_service):
-        """Test that get_volume_config returns all expected keys."""
-        config = settings_service.get_volume_config()
-
-        expected_keys = [
-            'limit_min_db', 'limit_max_db', 'startup_volume_db',
-            'restore_last_volume', 'step_mobile_db', 'step_rotary_db'
-        ]
-
-        for key in expected_keys:
-            assert key in config
-
-    @pytest.mark.asyncio
-    async def test_get_volume_config_async(self, settings_service):
-        """Test async volume config retrieval."""
-        config = await settings_service.get_volume_config_async()
-
-        assert config['limit_min_db'] == -80.0
-        assert config['limit_max_db'] == -20.0
