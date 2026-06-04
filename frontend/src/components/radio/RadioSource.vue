@@ -27,18 +27,18 @@
 
     <!-- Player slot: AudioPlayer component -->
     <template #player="{ isMobile }">
-      <AudioPlayer v-if="radioStore.currentStation" :visible="shouldShowNowPlayingLayout" source="radio"
-        :artwork="playerArtwork" :fallback-name="radioStore.currentStation?.name" :title="playerTitle"
+      <AudioPlayer v-if="displayStation" :visible="shouldShowNowPlayingLayout" source="radio"
+        :artwork="playerArtwork" :fallback-name="displayStation?.name" :title="playerTitle"
         :subtitle="playerSubtitle" :is-playing="isCurrentlyPlaying" :is-loading="isBuffering">
         <!-- Track info: 3-line layout when Shazam recognized a track -->
         <template v-if="radioStore.trackInfo" #info>
           <!-- Desktop: 3-line layout -->
           <p class="player-title heading-2 radio-track--desktop">{{ radioStore.trackInfo.title }}</p>
           <p class="player-subtitle heading-4 radio-track--desktop">{{ radioStore.trackInfo.artist }}</p>
-          <p class="player-subtitle text-mono radio-track--desktop">{{ radioStore.currentStation.name }}</p>
+          <p class="player-subtitle text-mono radio-track--desktop">{{ displayStation?.name }}</p>
           <!-- Mobile: 2-line compact layout -->
           <p class="player-title heading-4 radio-track--mobile">{{ radioStore.trackInfo.title }} · {{ radioStore.trackInfo.artist }}</p>
-          <p class="player-title text-mono radio-track--mobile radio-track-station">{{ radioStore.currentStation.name }}</p>
+          <p class="player-title text-mono radio-track--mobile radio-track-station">{{ displayStation?.name }}</p>
         </template>
         <!-- Radio controls with favorite and play/stop -->
         <template #controls>
@@ -51,7 +51,7 @@
             <!-- Play/stop IconButton for Mobile -->
             <IconButton v-else :icon="isCurrentlyPlaying ? 'stop' : 'play'" variant="on-dark" :loading="isBuffering"
               @click="handlePlayPause" />
-            <IconButton :icon="radioStore.currentStation.is_favorite ? 'heart' : 'heartOff'" variant="on-dark"
+            <IconButton :icon="displayStationIsFavorite ? 'heart' : 'heartOff'" variant="on-dark"
               @click="handleFavorite" />
           </div>
         </template>
@@ -61,11 +61,13 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { apiCall } from '@/services/apiCall'
 import { useRadioStore } from '@/stores/radioStore'
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility'
+import { useTimer } from '@/composables/useTimer'
 import { useI18n } from '@/services/i18n'
 import { logger } from '@/services/logger'
 import { genreOptions as createGenreOptions, getTranslatedGenreName } from '@/constants/musicGenres'
@@ -80,14 +82,52 @@ import { getFaviconUrl } from '@/utils/faviconUrl'
 
 const radioStore = useRadioStore()
 const unifiedStore = useUnifiedAudioStore()
+const settingsStore = useSettingsStore()
 const { t, getCurrentLanguage } = useI18n()
+const timer = useTimer()
 
 // === PLAYBACK VISIBILITY ===
-// Visibility tracks the backend's source_state transitions — the player hides
-// when the source enters 'waiting' (stop or auto-stop via
-// audio.auto_stop_delay), nothing in the frontend competes with that.
+// radioStore.currentStation goes null the instant the backend reports the
+// source stopped (its metadata drops station_id), which would unmount the
+// player immediately. Snapshot the last station into displayStation so the
+// stopped player can linger and fade out instead of vanishing — cleared once
+// the fade-out animation completes (onFadeOutStart below). Mirrors the podcast
+// store's displayEpisode pattern.
+const displayStation = ref(null)
+watch(
+  () => radioStore.currentStation,
+  (station) => {
+    if (station) displayStation.value = station
+  },
+  { immediate: true }
+)
+
+// The backend goes straight to 'waiting' on a radio stop (no pause/auto-stop
+// window). Keep the last station shown for the configured auto_stop_delay
+// (seconds → ms), resolved at stop-time so it tracks the setting. This is a
+// frontend-only persistence: source_state is already 'waiting', so it does not
+// survive a page reload — irrelevant on the kiosk appliance. 0 (auto-stop
+// disabled) hides immediately.
 const { isPlaying: isCurrentlyPlaying, isBuffering, shouldShowPlayer: shouldShowNowPlayingLayout } =
-  useSourcePlaybackVisibility('radio')
+  useSourcePlaybackVisibility('radio', {
+    stoppedLingerMs: () => (settingsStore.audioPlayback.auto_stop_delay || 0) * 1000,
+    onFadeOutStart: () => {
+      // Drop the station once the 600ms CSS fade-out has played — but only if
+      // the player is still meant to be hidden. A stop→replay inside this
+      // window re-shows the player; clearing then would blank a live station.
+      timer.setTimeout(() => {
+        if (!shouldShowNowPlayingLayout.value) displayStation.value = null
+      }, 600)
+    }
+  })
+
+// Reactive favorite state for the displayed station: the snapshot itself is
+// frozen during the linger, so derive the heart icon from the live list.
+const displayStationIsFavorite = computed(() =>
+  displayStation.value
+    ? radioStore.favoriteStations.some(s => s.id === displayStation.value.id)
+    : false
+)
 
 // === STATE ===
 const isSearchMode = ref(false)
@@ -98,12 +138,13 @@ const bufferingStationId = computed(() => {
   if (!isBuffering.value) {
     return null
   }
-  return unifiedStore.systemState.metadata.station_id || null
+  return unifiedStore.systemState.metadata?.station_id || null
 })
 
 // Station favicon URL — empty when missing; AudioPlayer generates the inline
 // SVG fallback from `:fallback-name` so the font cascades correctly.
-const stationArtwork = computed(() => getFaviconUrl(radioStore.currentStation?.favicon))
+// Reads the displayStation snapshot so it survives the stop → fade-out window.
+const stationArtwork = computed(() => getFaviconUrl(displayStation.value?.favicon))
 
 // Player display: use track info when available, fallback to station info
 const playerArtwork = computed(() => {
@@ -113,7 +154,7 @@ const playerArtwork = computed(() => {
 
 const playerTitle = computed(() => {
   if (radioStore.trackInfo) return radioStore.trackInfo.title
-  return radioStore.currentStation?.name
+  return displayStation.value?.name
 })
 
 const playerSubtitle = computed(() => {
@@ -123,7 +164,7 @@ const playerSubtitle = computed(() => {
 
 // Station metadata (genre + bitrate)
 const stationMetadata = computed(() => {
-  const station = radioStore.currentStation
+  const station = displayStation.value
   if (!station) return ''
 
   const genre = getTranslatedGenreName(getCurrentLanguage(), station.genre || '')
@@ -213,14 +254,16 @@ async function playStation(stationId) {
 async function handlePlayPause() {
   if (isCurrentlyPlaying.value) {
     await radioStore.stopPlayback()
-  } else if (radioStore.currentStation) {
-    await radioStore.playStation(radioStore.currentStation.id)
+  } else if (displayStation.value) {
+    // During the stopped-linger window currentStation is already null —
+    // resume the station still shown in the player.
+    await radioStore.playStation(displayStation.value.id)
   }
 }
 
 async function handleFavorite() {
-  if (radioStore.currentStation) {
-    await radioStore.toggleFavorite(radioStore.currentStation.id)
+  if (displayStation.value) {
+    await radioStore.toggleFavorite(displayStation.value.id)
   }
 }
 
