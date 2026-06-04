@@ -131,30 +131,48 @@ remote records pushed to satellites on (re)connect; the local branch of the webs
 
 ### Task 2.1 — Remove the local branch of `_sync_*_to_client`
 **Files:** Modify `backend/core/multiroom/websocket.py`; Test `backend/tests/test_core_multiroom.py`.
-- [ ] Adjust tests: `_sync_standalone_equalizer_to_client` / `_sync_zone_equalizer_to_client` push
+- [x] Adjust tests: `_sync_standalone_equalizer_to_client` / `_sync_zone_equalizer_to_client` push
       to **remote** satellites only; the local client is NOT driven through this path (it owns
       `equalizer.json`). Remote push reads `client_equalizer`.
-- [ ] Run → fail. Implement. Run → pass.
-- [ ] Commit: `refactor(eq): local client no longer restored via websocket re-sync`.
+      *(`_sync_zone_equalizer_to_client` was already removed in Phase 1; only the standalone path
+      remained. New `test_local_client_is_noop` replaces the old local-applies tests.)*
+- [x] Run → fail. Implement. Run → pass.
+- [x] Commit: `refactor(eq): local client no longer restored via websocket re-sync` (`fd9cd44c`).
+      *(Also removed the now-orphaned `_camilladsp_service` field/setter on
+      `SnapcastWebSocketService` + its `dependencies.py` wiring, and the `is_local` branch of
+      `_apply_equalizer_setting` — all dead once the local branch is gone.)*
 
 ### Task 2.2 — Boot application of local EQ + remote push
-**Files:** Modify `backend/dependencies.py`, `backend/core/multiroom/websocket.py`; Test the relevant
-init/sync tests.
-- [ ] Write failing tests: at boot, the local CamillaDSP reflects `equalizer.json`; a remote client
-      that connects (new or already-known) gets its `client_equalizer` pushed.
-- [ ] Run → fail. Implement (ensure remote push isn't lost when already-known). Run → pass.
-- [ ] Commit: `fix(eq): restore local EQ from equalizer.json at boot; push remote on connect`.
-- [ ] **Carried over from Phase 1 code review (disconnected-CamillaDSP cache drift):** when
-      `set_client_eq(local)` / `_apply_partial_update` run while CamillaDSP is **disconnected**,
-      `_apply_to_local` no-ops (set_filter guards on `connected`) and nothing updates the in-memory
-      cache, so the local intent is dropped and `equalizer.json` drifts from the remote members'
-      records. Add a `CamillaDSPService.update_cache(settings)` that unconditionally overwrites the
-      cache (`_filters/_compressor/_loudness/_mono/_active_preset/_custom_gains`) + persists, and call
-      it from the disconnected path so the reconnect (`restore_effects`) pushes the correct values.
-      Connected path is already correct; this only closes the boot/reconnect window. Test: local EQ
-      set while disconnected is persisted and restored on reconnect.
+**Files:** Modified `backend/core/equalizer/service.py`, `backend/core/equalizer/multiroom_service.py`,
+`backend/core/multiroom/websocket.py`; Tests `test_core_equalizer.py`, `test_multiroom_equalizer_service.py`,
+`test_core_multiroom.py`.
 
-**Phase 2 acceptance:** full `pytest` green; `code-review` clean. STOP for review.
+> **Scope clarified with Léo (2026-06-04) — investigation revised the "remote push" sub-task.**
+> Satellites **self-persist** their own EQ (`/var/lib/milo-client/camilladsp/config.yml`, restored on
+> their own boot), and the normal `Client.OnConnect` path already re-pushes the server's record on
+> reconnect — so there was no real "remote EQ lost" bug. Léo's requirement: a member that missed a
+> zone-EQ change while offline **must** auto-recover it on reconnect. Chosen **Option B** (guarantee it
+> on *every* reconnect path): the secondary `Server.OnUpdate` status-flip path
+> (`_do_sync_reconnecting_client_volume`, historically volume-only) now also re-pushes the EQ record.
+> "Boot restores local EQ" is unchanged existing behavior (`_load_saved_config` + `restore_effects`),
+> locked by a characterization test rather than new code.
+
+- [x] Write failing tests: boot restores local EQ from `equalizer.json` (characterization lock);
+      a remote client reconnecting via the secondary path gets its EQ re-pushed; disconnected-set →
+      reconnect → `restore_effects` end-to-end.
+- [x] Run → fail. Implement. Run → pass.
+- [x] **Carried over from Phase 1 code review (disconnected-CamillaDSP cache drift):** added
+      `CamillaDSPService.update_cache(settings)` (unconditional cache overwrite of
+      `_filters/_compressor/_loudness/_mono/_active_preset/_custom_gains` + persist; leaves
+      `_effects_enabled` alone). `set_client_eq(local)` and `_apply_partial_update` call it on the
+      **disconnected** path so the intent survives to reconnect, where `restore_effects` re-pushes it
+      (no `equalizer.json` ↔ remote-member drift).
+- [x] **Option B remote re-push:** `_do_sync_reconnecting_client_volume` re-pushes the client's EQ
+      record after volume confirms / before marking online (no-op for the local client).
+- [x] Commit: `fix(eq): persist local EQ on disconnected DAC; re-push remote EQ on every reconnect`
+      (`419b2cee`).
+
+**Phase 2 acceptance:** full `pytest` green (1573); `ruff` clean; `code-review` clean. STOP for review.
 
 ---
 
