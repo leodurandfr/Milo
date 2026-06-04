@@ -179,17 +179,6 @@ def create_settings_router(
         )
 
     # Volume limits (in dB)
-    @router.get("/volume-limits")
-    async def get_volume_limits():
-        vol = await settings.get_setting('volume') or {}
-        return {
-            "status": "success",
-            "limits": {
-                "min_db": vol.get("limit_min_db", -80.0),
-                "max_db": vol.get("limit_max_db", -20.0)
-            }
-        }
-
     @router.put("/volume-limits")
     async def set_volume_limits(payload: VolumeLimitsRequest):
         async def setter():
@@ -208,17 +197,6 @@ def create_settings_router(
         )
 
     # Volume startup (in dB)
-    @router.get("/volume-startup")
-    async def get_volume_startup():
-        vol = await settings.get_setting('volume') or {}
-        return {
-            "status": "success",
-            "config": {
-                "startup_volume_db": vol.get("startup_volume_db", DEFAULT_VOLUME_DB),
-                "restore_last_volume": vol.get("restore_last_volume", True)
-            }
-        }
-
     @router.put("/volume-startup")
     async def set_volume_startup(payload: VolumeStartupRequest):
         async def setter():
@@ -237,14 +215,6 @@ def create_settings_router(
         )
 
     # Volume steps (mobile, in dB)
-    @router.get("/volume-steps")
-    async def get_volume_steps():
-        vol = await settings.get_setting('volume') or {}
-        return {
-            "status": "success",
-            "config": {"step_mobile_db": vol.get("step_mobile_db", 2.0)}
-        }
-
     @router.put("/volume-steps")
     async def set_volume_steps(payload: VolumeStepsRequest):
         return await _handle_setting_update(
@@ -257,14 +227,6 @@ def create_settings_router(
         )
 
     # Rotary steps (in dB)
-    @router.get("/rotary-steps")
-    async def get_rotary_steps():
-        vol = await settings.get_setting('volume') or {}
-        return {
-            "status": "success",
-            "config": {"step_rotary_db": vol.get("step_rotary_db", 2.0)}
-        }
-
     @router.put("/rotary-steps")
     async def set_rotary_steps(payload: RotaryStepsRequest):
         return await _handle_setting_update(
@@ -301,16 +263,6 @@ def create_settings_router(
         )
 
     # Dock apps – VERSION WITH PROCESS DEACTIVATION
-    @router.get("/dock-apps")
-    async def get_dock_apps():
-        dock = await settings.get_setting('dock') or {}
-        enabled_apps = dock.get('enabled_apps', DEFAULT_DOCK_APPS)
-
-        return {
-            "status": "success",
-            "config": {"enabled_apps": enabled_apps}
-        }
-
     @router.put("/dock-apps")
     async def set_dock_apps(payload: DockAppsRequest):
         """
@@ -464,14 +416,6 @@ def create_settings_router(
             raise HTTPException(status_code=500, detail=str(e))
 
     # Global audio auto-stop (applies to every eligible source)
-    @router.get("/audio-stop")
-    async def get_audio_stop():
-        audio = await settings.get_setting('audio') or {}
-        return {
-            "status": "success",
-            "config": {"auto_stop_delay": audio.get("auto_stop_delay", 120.0)}
-        }
-
     @router.put("/audio-stop")
     async def set_audio_stop(payload: AudioStopRequest):
         delay = payload.auto_stop_delay
@@ -603,21 +547,6 @@ def create_settings_router(
             return {"status": "error", "message": str(e)}
 
     # Screen timeout
-    @router.get("/screen-timeout")
-    async def get_screen_timeout():
-        screen = await settings.get_setting('screen') or {}
-        timeout_seconds = screen.get("timeout_seconds", 120)
-
-        timeout_enabled = timeout_seconds != 0
-
-        return {
-            "status": "success",
-            "config": {
-                "screen_timeout_enabled": timeout_enabled,
-                "screen_timeout_seconds": timeout_seconds
-            }
-        }
-
     @router.put("/screen-timeout")
     async def set_screen_timeout(payload: ScreenTimeoutRequest):
         return await _handle_setting_update(
@@ -630,14 +559,6 @@ def create_settings_router(
         )
 
     # Screen brightness
-    @router.get("/screen-brightness")
-    async def get_screen_brightness():
-        screen = await settings.get_setting('screen') or {}
-        return {
-            "status": "success",
-            "config": {"brightness_on": screen.get("brightness_on", 5)}
-        }
-
     @router.put("/screen-brightness")
     async def set_screen_brightness(payload: ScreenBrightnessRequest):
         return await _handle_setting_update(
@@ -662,17 +583,6 @@ def create_settings_router(
             }
 
     # Screen screensaver
-    @router.get("/screen-screensaver")
-    async def get_screen_screensaver():
-        screen = await settings.get_setting('screen') or {}
-        return {
-            "status": "success",
-            "config": {
-                "screensaver_enabled": screen.get("screensaver_enabled", True),
-                "screensaver_delay_seconds": screen.get("screensaver_delay_seconds", 120)
-            }
-        }
-
     @router.put("/screen-screensaver")
     async def set_screen_screensaver(payload: ScreenScreensaverRequest):
         async def setter():
@@ -1055,19 +965,6 @@ def create_settings_router(
             raise HTTPException(status_code=500, detail=str(e))
 
     # Mac ROC Streaming configuration
-    @router.get("/mac-roc")
-    async def get_mac_roc_config():
-        """Get Mac ROC streaming configuration (latency, profile, frame length)"""
-        mac = await settings.get_setting('mac') or {}
-        return {
-            "status": "success",
-            "config": {
-                "target_latency_ms": mac.get("target_latency_ms", 50),
-                "latency_profile": mac.get("latency_profile", "responsive"),
-                "frame_length_ms": mac.get("frame_length_ms", 4)
-            }
-        }
-
     @router.put("/mac-roc")
     async def set_mac_roc_config(payload: MacRocConfigRequest):
         """
@@ -1121,16 +1018,6 @@ def create_settings_router(
             raise HTTPException(status_code=500, detail=str(e))
 
     # Radio settings (Shazam recognition)
-    @router.get("/radio-settings")
-    async def get_radio_settings():
-        radio = await settings.get_setting('radio') or {}
-        return {
-            "status": "success",
-            "config": {
-                "shazam_enabled": radio.get("shazam_enabled", True)
-            }
-        }
-
     @router.put("/radio-settings")
     async def set_radio_settings(payload: RadioSettingsRequest):
         radio_config = {

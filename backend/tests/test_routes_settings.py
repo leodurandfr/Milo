@@ -152,15 +152,6 @@ class TestSettingsRoutes:
     # VOLUME LIMITS TESTS (dB-based)
     # ===================
 
-    def test_get_volume_limits(self, client):
-        """Test GET /volume-limits"""
-        client._mock_settings.get_setting = AsyncMock(return_value={
-            "limit_min_db": -80.0, "limit_max_db": -21.0
-        })
-        response = client.get("/api/settings/volume-limits")
-        assert response.status_code == 200
-        assert "limits" in response.json()
-
     def test_set_volume_limits_valid(self, client):
         """Test PUT /volume-limits with valid values"""
         response = client.put("/api/settings/volume-limits", json={
@@ -200,15 +191,6 @@ class TestSettingsRoutes:
     # VOLUME STARTUP TESTS
     # ===================
 
-    def test_get_volume_startup(self, client):
-        """Test GET /volume-startup"""
-        client._mock_settings.get_setting = AsyncMock(return_value={
-            "startup_volume": 37, "restore_last_volume": False
-        })
-        response = client.get("/api/settings/volume-startup")
-        assert response.status_code == 200
-        assert "config" in response.json()
-
     def test_set_volume_startup_valid(self, client):
         """Test PUT /volume-startup with valid values (in dB)"""
         response = client.put("/api/settings/volume-startup", json={
@@ -230,14 +212,6 @@ class TestSettingsRoutes:
     # VOLUME STEPS TESTS
     # ===================
 
-    def test_get_volume_steps(self, client):
-        """Test GET /volume-steps"""
-        client._mock_settings.get_setting = AsyncMock(return_value={
-            "mobile_volume_steps": 5
-        })
-        response = client.get("/api/settings/volume-steps")
-        assert response.status_code == 200
-
     def test_set_volume_steps_valid(self, client):
         """Test PUT /volume-steps with valid value (in dB)"""
         response = client.put("/api/settings/volume-steps", json={
@@ -256,14 +230,6 @@ class TestSettingsRoutes:
     # ROTARY STEPS TESTS
     # ===================
 
-    def test_get_rotary_steps(self, client):
-        """Test GET /rotary-steps"""
-        client._mock_settings.get_setting = AsyncMock(return_value={
-            "rotary_volume_steps": 2
-        })
-        response = client.get("/api/settings/rotary-steps")
-        assert response.status_code == 200
-
     def test_set_rotary_steps_valid(self, client):
         """Test PUT /rotary-steps with valid value (in dB)"""
         response = client.put("/api/settings/rotary-steps", json={
@@ -281,15 +247,6 @@ class TestSettingsRoutes:
     # ===================
     # DOCK APPS TESTS
     # ===================
-
-    def test_get_dock_apps(self, client):
-        """Test GET /dock-apps"""
-        client._mock_settings.get_setting = AsyncMock(return_value={
-            "enabled_apps": ["spotify", "bluetooth", "settings"]
-        })
-        response = client.get("/api/settings/dock-apps")
-        assert response.status_code == 200
-        assert "config" in response.json()
 
     def test_set_dock_apps_valid(self, client):
         """Test PUT /dock-apps with valid apps"""
@@ -319,15 +276,6 @@ class TestSettingsRoutes:
     # AUDIO STOP TESTS (global)
     # ===================
 
-    def test_get_audio_stop(self, client):
-        """Test GET /audio-stop"""
-        client._mock_settings.get_setting = AsyncMock(return_value={
-            "auto_stop_delay": 10.0
-        })
-        response = client.get("/api/settings/audio-stop")
-        assert response.status_code == 200
-        assert response.json()["config"]["auto_stop_delay"] == 10.0
-
     def test_set_audio_stop_valid(self, client):
         """Test PUT /audio-stop with valid value"""
         response = client.put("/api/settings/audio-stop", json={
@@ -354,14 +302,6 @@ class TestSettingsRoutes:
     # SCREEN TESTS
     # ===================
 
-    def test_get_screen_timeout(self, client):
-        """Test GET /screen-timeout"""
-        client._mock_settings.get_setting = AsyncMock(return_value={
-            "timeout_seconds": 10
-        })
-        response = client.get("/api/settings/screen-timeout")
-        assert response.status_code == 200
-
     def test_set_screen_timeout_valid(self, client):
         """Test PUT /screen-timeout with valid value"""
         response = client.put("/api/settings/screen-timeout", json={
@@ -376,14 +316,6 @@ class TestSettingsRoutes:
             "screen_timeout_enabled": False,
             "screen_timeout_seconds": 0
         })
-        assert response.status_code == 200
-
-    def test_get_screen_brightness(self, client):
-        """Test GET /screen-brightness"""
-        client._mock_settings.get_setting = AsyncMock(return_value={
-            "brightness_on": 5
-        })
-        response = client.get("/api/settings/screen-brightness")
         assert response.status_code == 200
 
     def test_set_screen_brightness_valid(self, client):
@@ -403,15 +335,6 @@ class TestSettingsRoutes:
     # ===================
     # SCREEN SCREENSAVER TESTS
     # ===================
-
-    def test_get_screen_screensaver(self, client):
-        """Test GET /screen-screensaver"""
-        client._mock_settings.get_setting = AsyncMock(return_value={
-            "screensaver_enabled": True, "screensaver_delay_seconds": 15
-        })
-        response = client.get("/api/settings/screen-screensaver")
-        assert response.status_code == 200
-        assert "config" in response.json()
 
     def test_set_screen_screensaver_valid(self, client):
         """Test PUT /screen-screensaver with valid values"""
@@ -461,15 +384,6 @@ class TestSettingsRoutes:
     # MAC ROC TESTS
     # ===================
 
-    def test_get_mac_roc(self, client):
-        """Test GET /mac-roc"""
-        client._mock_settings.get_setting = AsyncMock(return_value={
-            "target_latency_ms": 200, "latency_profile": "responsive", "frame_length_ms": 6
-        })
-        response = client.get("/api/settings/mac-roc")
-        assert response.status_code == 200
-        assert "config" in response.json()
-
     def test_set_mac_roc_valid(self, client):
         """Test PUT /mac-roc with valid values"""
         # MacEnv.regenerate() writes mac.env to /var/lib/milo — mock it for hermeticity
@@ -493,15 +407,6 @@ class TestSettingsRoutes:
     # ===================
     # RADIO SETTINGS TESTS
     # ===================
-
-    def test_get_radio_settings(self, client):
-        """Test GET /radio-settings"""
-        client._mock_settings.get_setting = AsyncMock(return_value={
-            "shazam_enabled": True
-        })
-        response = client.get("/api/settings/radio-settings")
-        assert response.status_code == 200
-        assert "config" in response.json()
 
     def test_set_radio_settings_valid(self, client):
         """Test PUT /radio-settings with valid value"""
