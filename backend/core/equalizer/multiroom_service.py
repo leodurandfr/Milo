@@ -257,6 +257,33 @@ class MultiroomEqualizerService:
         else:
             await self._registry.set_standalone_equalizer(target_id, current)
 
+        # Keep the LOCAL CamillaDSP preset NAME in sync when the local client is
+        # affected. Unlike apply_*_equalizer this path does not re-apply gains (it
+        # snapshots what is already playing), so only the name store needs updating
+        # — otherwise the local client keeps its previous preset name instead of
+        # "custom" after a target switch or a later zone deletion. persist=False:
+        # the registry is the source of truth in multiroom mode (mirrors _apply_to_local).
+        if (
+            self._affects_local_client(target_type, target_id)
+            and self._camilladsp_service
+            and self._camilladsp_service.connected
+        ):
+            await self._camilladsp_service.set_active_preset(
+                current.active_preset, persist=False
+            )
+
+    def _affects_local_client(self, target_type: str, target_id: str) -> bool:
+        """Whether an EQ change to this target touches the local CamillaDSP instance.
+
+        True for the local standalone client, or for a zone that contains it.
+        """
+        if not self._registry:
+            return False
+        if target_type == "client":
+            return self._registry.is_local_client(target_id)
+        zone = self._registry.get_zone(target_id)
+        return bool(zone and any(self._registry.is_local_client(m) for m in zone.client_ids))
+
     def _build_preset_filters(self, gains: list) -> list:
         """Build EqFilter objects from gain values using standard frequencies."""
         from backend.core.equalizer.presets import DEFAULT_EQ_FREQS
@@ -515,6 +542,18 @@ class MultiroomEqualizerService:
                 persist=False,
                 broadcast=False,
             )
+
+            # Keep the local preset NAME in sync with the gains we just applied.
+            # The local client's name is read from CamillaDSPService._active_preset
+            # (GET /api/equalizer/presets), a store separate from the filter cache.
+            # Without this, the local client shows a stale preset name against fresh
+            # gains — e.g. it keeps the previous name after a zone is deleted, since
+            # deletion leaves the local DSP untouched. persist=False: the registry is
+            # the source of truth in multiroom mode, not equalizer.json.
+            if settings.active_preset:
+                await self._camilladsp_service.set_active_preset(
+                    settings.active_preset, persist=False
+                )
 
             self.logger.debug("Equalizer settings applied to local")
             return True

@@ -53,6 +53,7 @@ def mock_camilladsp_service():
     camilladsp_mock.set_compressor = AsyncMock(return_value=True)
     camilladsp_mock.set_loudness = AsyncMock(return_value=True)
     camilladsp_mock.set_mono = AsyncMock(return_value=True)
+    camilladsp_mock.set_active_preset = AsyncMock(return_value=None)
     camilladsp_mock.settings_service = None  # Prevent Mock auto-creation for await
     return camilladsp_mock
 
@@ -441,6 +442,111 @@ class TestStandaloneClientPresetPersistence:
 
         with pytest.raises(ValueError, match="not found"):
             await multiroom_equalizer_service.save_custom_preset("zone", "nonexistent")
+
+
+# =============================================================================
+# Local Active-Preset Name Sync Tests (zone-delete "wrong name / right gains" bug)
+# =============================================================================
+
+class TestLocalActivePresetSync:
+    """Regression tests for the 'local client shows the wrong preset NAME after a
+    zone is deleted' bug.
+
+    The local client's gains live in the CamillaDSP filter cache (get_filters)
+    while its preset NAME lives in a separate store, CamillaDSPService._active_preset
+    (read by GET /api/equalizer/presets). The multiroom apply path pushed the gains
+    but never the name, so after a zone was deleted the local client kept showing the
+    previous preset's NAME against the zone's GAINS. _apply_to_local must keep the
+    local name in sync with the gains it applies, without persisting to equalizer.json
+    (multiroom uses the registry as the source of truth).
+    """
+
+    @pytest.mark.asyncio
+    async def test_apply_to_local_syncs_active_preset_name(
+        self, multiroom_equalizer_service, mock_camilladsp_service, sample_equalizer_settings
+    ):
+        """Applying settings to the local client syncs the active preset NAME onto
+        the local CamillaDSP (persist=False — the registry is the source of truth)."""
+        sample_equalizer_settings.active_preset = "vocal_boost"
+
+        result = await multiroom_equalizer_service._apply_to_local(sample_equalizer_settings)
+
+        assert result is True
+        mock_camilladsp_service.set_active_preset.assert_called_once_with(
+            "vocal_boost", persist=False
+        )
+
+    @pytest.mark.asyncio
+    async def test_apply_zone_equalizer_syncs_local_preset_name(
+        self, multiroom_equalizer_service, mock_registry, mock_camilladsp_service,
+        sample_zone, sample_equalizer_settings
+    ):
+        """The bug's entry point: applying a zone preset to a zone containing the
+        local client syncs the local CamillaDSP preset NAME, so it stays correct
+        after the zone is later deleted (deletion leaves the local DSP untouched)."""
+        sample_equalizer_settings.active_preset = "vocal_boost"
+        mock_registry.get_zone.return_value = sample_zone
+        local_online = Client(
+            mac_id="local", name="Main", ip="127.0.0.1", online=True, zone_id="zone-123"
+        )
+        mock_registry.get_online_zone_clients.return_value = [local_online]
+        mock_registry.get_client.return_value = local_online
+
+        await multiroom_equalizer_service.apply_zone_equalizer("zone-123", sample_equalizer_settings)
+
+        mock_camilladsp_service.set_active_preset.assert_called_once_with(
+            "vocal_boost", persist=False
+        )
+
+    @pytest.mark.asyncio
+    async def test_save_custom_preset_zone_with_local_member_syncs_local_name(
+        self, multiroom_equalizer_service, mock_registry, mock_camilladsp_service, sample_zone
+    ):
+        """Saving a zone's gains as 'custom' must sync the local member's CamillaDSP
+        preset NAME to 'custom' (gains are unchanged — only the name store needs it),
+        so it shows 'custom' after a target switch or a later zone deletion."""
+        sample_zone.equalizer_settings = EqualizerSettings.default()
+        mock_registry.get_zone.return_value = sample_zone  # client_ids include "local"
+
+        await multiroom_equalizer_service.save_custom_preset("zone", "zone-123")
+
+        mock_camilladsp_service.set_active_preset.assert_called_once_with(
+            "custom", persist=False
+        )
+
+    @pytest.mark.asyncio
+    async def test_save_custom_preset_zone_without_local_member_skips_local(
+        self, multiroom_equalizer_service, mock_registry, mock_camilladsp_service
+    ):
+        """A zone with no local member must NOT touch the local CamillaDSP name."""
+        remote_only_zone = Zone(
+            id="zone-r",
+            name="Remote Pair",
+            client_ids=["milo-client-1", "milo-client-2"],
+            equalizer_settings=EqualizerSettings.default(),
+        )
+        mock_registry.get_zone.return_value = remote_only_zone
+
+        await multiroom_equalizer_service.save_custom_preset("zone", "zone-r")
+
+        mock_camilladsp_service.set_active_preset.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_save_custom_preset_remote_client_skips_local(
+        self, multiroom_equalizer_service, mock_registry, mock_camilladsp_service
+    ):
+        """Saving a custom preset for a REMOTE standalone client must not touch the
+        local CamillaDSP name (the remote name lives in the registry)."""
+        remote_client = Client(
+            mac_id="milo-client-1", name="Bedroom", ip="192.168.1.100",
+            online=True, zone_id=None,
+        )
+        mock_registry.get_standalone_equalizer.return_value = None
+        mock_registry.get_client.return_value = remote_client
+
+        await multiroom_equalizer_service.save_custom_preset("client", "milo-client-1")
+
+        mock_camilladsp_service.set_active_preset.assert_not_called()
 
 
 # =============================================================================

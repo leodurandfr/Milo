@@ -1002,6 +1002,16 @@ class SnapcastWebSocketService:
             if filters_failed and self._crossover_service:
                 await self._crossover_service.queue_pending_settings(mac_id, "filters", filters_failed)
 
+            # Local client only: restore the zone's preset NAME onto the local CamillaDSP
+            # so it matches the gains just re-applied. The name lives in a separate store
+            # (CamillaDSPService._active_preset, read by GET /api/equalizer/presets); this
+            # keeps the name correct if the zone is later deleted (deletion carries the
+            # zone EQ into standalone but leaves the local DSP untouched). Remote members
+            # carry their name in the registry (served via /client/{mac}/status).
+            if is_local and eq.active_preset and self._camilladsp_service:
+                await self._camilladsp_service.set_active_preset(eq.active_preset)
+                synced.append("active_preset")
+
             if synced:
                 self.logger.info(f"SYNC_EQ: Synced {synced} to {mac_id} from zone {zone.id}")
             if failed:
@@ -1097,6 +1107,15 @@ class SnapcastWebSocketService:
                 failed.append("enabled")
                 if self._crossover_service:
                     await self._crossover_service.queue_pending_settings(mac_id, "enabled", enabled_data)
+
+            # Local client only: restore the preset NAME onto the local CamillaDSP so it
+            # matches the gains just re-applied. The name lives in a separate store
+            # (CamillaDSPService._active_preset, read by GET /api/equalizer/presets);
+            # without this the local client shows a stale name after a reboot. Remote
+            # clients carry their name in the registry (served via /client/{mac}/status).
+            if is_local and eq.active_preset and self._camilladsp_service:
+                await self._camilladsp_service.set_active_preset(eq.active_preset)
+                synced.append("active_preset")
 
             if synced:
                 self.logger.info(f"SYNC_STANDALONE: Synced {synced} to {mac_id}")
