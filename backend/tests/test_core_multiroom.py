@@ -682,6 +682,32 @@ class TestClientRegistryService:
         assert retrieved.filters[0].frequency == 1000
 
     @pytest.mark.asyncio
+    async def test_client_equalizer_broadcast_uses_wire_shape(self, registry):
+        """The EQUALIZER_SETTINGS_CHANGED broadcast must carry filters in the
+        frontend wire shape (freq/type), not the model's frequency/filter_type —
+        the store's WS handler reads freq/type."""
+        from backend.core.multiroom.models import EqFilter
+
+        await registry.initialize()
+        await registry.register_client(mac_id="client2", name="Client 2", ip="192.168.1.100")
+
+        events = []
+
+        async def capture(event_type, data):
+            events.append((event_type, data))
+
+        registry.subscribe(capture)
+
+        eq = EqualizerSettings(filters=[EqFilter(id="eq_band_00", frequency=1000, gain=3.0)])
+        await registry.set_client_equalizer("client2", eq)
+
+        eq_events = [d for (t, d) in events if t == RegistryEventType.EQUALIZER_SETTINGS_CHANGED]
+        assert eq_events, "expected an EQUALIZER_SETTINGS_CHANGED broadcast"
+        flt = eq_events[0]["equalizer_settings"]["filters"][0]
+        assert "freq" in flt and "type" in flt
+        assert "frequency" not in flt and "filter_type" not in flt
+
+    @pytest.mark.asyncio
     async def test_client_equalizer_kept_on_zone_join(self, registry):
         """A client's own EQ record is NOT cleared by the registry when it joins a
         zone — members own their record (the access layer overwrites it with the

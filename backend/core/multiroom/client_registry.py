@@ -990,7 +990,8 @@ class ClientRegistryService:
             await self._emit_event(RegistryEventType.EQUALIZER_SETTINGS_CHANGED, {
                 "target_type": "client",
                 "target_id": mac_id,
-                "equalizer_settings": settings.to_dict()
+                # Wire shape (freq/type) — the frontend WS handler reads freq/type.
+                "equalizer_settings": settings.to_wire_dict()
             })
 
     # === STATE SNAPSHOT ===

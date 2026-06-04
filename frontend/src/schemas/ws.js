@@ -39,6 +39,17 @@ const LoudnessPayloadSchema = z.object({
   high_boost: z.number(),
 });
 
+// Backend: backend/core/multiroom/models.py EqFilter.to_wire_dict() — the WS/HTTP
+// wire shape (freq/type), NOT the persistence shape (frequency/filter_type).
+const EqFilterWireSchema = z.object({
+  id: z.string(),
+  freq: z.number().optional(),
+  gain: z.number().optional(),
+  q: z.number().optional(),
+  type: z.string().optional(),
+  enabled: z.boolean().optional(),
+});
+
 export const wsEventRegistry = {
   // Backend: service.py:306,353 → {state: CamillaDspState.value}.
   'equalizer.state_changed': z.object({
@@ -52,6 +63,27 @@ export const wsEventRegistry = {
   'equalizer.compressor_changed': CompressorPayloadSchema,
   // Backend: service.py:784 → self._loudness.
   'equalizer.loudness_changed': LoudnessPayloadSchema,
+  // Backend: two producers, both → state_machine.broadcast_event('multiroom',
+  // 'equalizer_changed', ...):
+  //  - client_registry.py set_client_equalizer → full record (to_wire_dict): all
+  //    of enabled/filters/compressor/loudness/active_preset/mono/custom_gains.
+  //  - multiroom_service.py _apply_partial_update → a partial sub-object
+  //    ({filters,active_preset} | {compressor} | {loudness} | {mono}).
+  // Hence every equalizer_settings field is optional; filters use the freq/type
+  // wire shape (Pitfall #18 — one canonical key).
+  'multiroom.equalizer_changed': z.object({
+    target_type: z.enum(['client', 'zone']),
+    target_id: z.string(),
+    equalizer_settings: z.object({
+      enabled: z.boolean().optional(),
+      filters: z.array(EqFilterWireSchema).optional(),
+      compressor: CompressorPayloadSchema.optional(),
+      loudness: LoudnessPayloadSchema.optional(),
+      active_preset: z.string().nullable().optional(),
+      mono: z.boolean().optional(),
+      custom_gains: z.array(z.number()).optional(),
+    }),
+  }),
   // Backend: backend/core/multiroom/crossover.py:371 — canonical zone shape.
   // Other producers in crossover.py emit per-client variants (client_id-keyed)
   // on the same event type; those are not consumed by the frontend and will

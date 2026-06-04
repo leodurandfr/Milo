@@ -66,6 +66,19 @@ class TestEqFilter:
             "enabled": True
         }
 
+    def test_to_wire_dict(self):
+        """Should serialize to the frontend/WS wire shape (freq/type, NOT frequency/filter_type)."""
+        f = EqFilter(id="eq_band_00", frequency=100, gain=3.0, q=1.5)
+        d = f.to_wire_dict()
+        assert d == {
+            "id": "eq_band_00",
+            "freq": 100,
+            "gain": 3.0,
+            "q": 1.5,
+            "type": "Peaking",
+            "enabled": True
+        }
+
     def test_from_dict(self):
         """Should deserialize from dictionary"""
         data = {
@@ -430,6 +443,31 @@ class TestEqualizerSettings:
         assert d["filters"][0]["frequency"] == 500
         assert d["compressor"]["enabled"] is True
         assert d["loudness"]["enabled"] is False
+
+    def test_to_wire_dict(self):
+        """Should serialize like to_dict() but with filters in the wire shape (freq/type)."""
+        eq = EqualizerSettings(
+            enabled=True,
+            filters=[EqFilter(id="eq_band_00", frequency=500, gain=2.0)],
+            compressor=CompressorSettings(enabled=True),
+            loudness=LoudnessSettings(enabled=False),
+            active_preset="rock",
+            mono=True,
+            custom_gains=[1.0] * 10,
+        )
+        d = eq.to_wire_dict()
+        # Same scalar keys as to_dict (persistence shape) ...
+        assert d["enabled"] is True
+        assert d["active_preset"] == "rock"
+        assert d["mono"] is True
+        assert d["custom_gains"] == [1.0] * 10
+        assert d["compressor"]["enabled"] is True
+        assert d["loudness"]["enabled"] is False
+        # ... but filters use freq/type, NOT frequency/filter_type.
+        assert d["filters"][0] == {
+            "id": "eq_band_00", "freq": 500, "gain": 2.0, "q": 1.41,
+            "type": "Peaking", "enabled": True,
+        }
 
     def test_from_dict(self):
         """Should deserialize from dictionary"""
