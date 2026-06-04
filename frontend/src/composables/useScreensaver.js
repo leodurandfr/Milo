@@ -4,6 +4,7 @@
 // only needs to render the component and wire the returned refs.
 import { ref, computed, watch, onUnmounted } from 'vue';
 import { useTimer } from '@/composables/useTimer';
+import { useSourceProgress } from '@/composables/useSourceProgress';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useRadioStore } from '@/stores/radioStore';
 import { usePodcastStore } from '@/stores/podcastStore';
@@ -33,6 +34,13 @@ export function useScreensaver() {
   const settingsStore = useSettingsStore();
   const { t } = useI18n();
   const timer = useTimer();
+
+  const {
+    currentPosition: podcastPosition,
+    duration: podcastDuration,
+    progressPercentage: podcastProgressPercentage,
+    isPositionInitialized: podcastProgressReady,
+  } = useSourceProgress('podcast');
 
   // --- Reactive state ---
   const isScreensaverVisible = ref(false);
@@ -222,6 +230,16 @@ export function useScreensaver() {
     };
   });
 
+  const screensaverProgress = computed(() => {
+    if (unifiedStore.systemState.active_source !== 'podcast') return null;
+    return {
+      currentPosition: podcastPosition.value,
+      duration: podcastDuration.value,
+      progressPercentage: podcastProgressPercentage.value,
+      isReady: podcastProgressReady.value,
+    };
+  });
+
   // --- Watchers ---
 
   watch(shouldMonitorInactivity, (shouldMonitor) => {
@@ -254,6 +272,7 @@ export function useScreensaver() {
   return {
     isScreensaverVisible,
     screensaverData,
+    screensaverProgress,
     closeScreensaver,
   };
 }
