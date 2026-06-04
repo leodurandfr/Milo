@@ -368,14 +368,3 @@ class VersionService:
                 "status": "error",
                 "message": str(e)
             }
-
-    def get_program_list(self) -> List[Dict[str, Any]]:
-        """Gets the list of configured programs"""
-        return [
-            {
-                "key": key,
-                "name": config["name"],
-                "description": config["description"]
-            }
-            for key, config in self.programs.items()
-        ]

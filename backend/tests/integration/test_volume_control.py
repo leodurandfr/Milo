@@ -88,7 +88,6 @@ def mock_settings_service():
 
     service.get_setting = AsyncMock(side_effect=mock_get_setting)
     service.set_setting = AsyncMock(side_effect=mock_set_setting)
-    service.get_volume_config = Mock(return_value=volume_config)
 
     return service
 
@@ -668,14 +667,6 @@ class TestVolumePersistence:
 
         settings.get_setting = AsyncMock(side_effect=mock_get_setting)
         settings.set_setting = AsyncMock(return_value=True)
-        settings.get_volume_config = Mock(return_value={
-            "limit_min_db": -80.0,
-            "limit_max_db": -21.0,
-            "startup_volume_db": -30.0,
-            "restore_last_volume": True,
-            "step_mobile_db": 3.0,
-            "step_rotary_db": 2.0
-        })
 
         with patch.object(VolumeStateStore, 'STORAGE_PATH', temp_storage_path):
             service = VolumeService(
@@ -807,14 +798,6 @@ class TestVolumePersistence:
 
         settings.get_setting = AsyncMock(side_effect=mock_get_setting)
         settings.set_setting = AsyncMock(return_value=True)
-        settings.get_volume_config = Mock(return_value={
-            "limit_min_db": -80.0,
-            "limit_max_db": -21.0,
-            "startup_volume_db": -30.0,
-            "restore_last_volume": True,
-            "step_mobile_db": 3.0,
-            "step_rotary_db": 2.0
-        })
 
         with patch.object(VolumeStateStore, 'STORAGE_PATH', temp_storage_path):
             service = VolumeService(

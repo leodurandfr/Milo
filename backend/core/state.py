@@ -69,18 +69,6 @@ class AudioStateMachine:
         """Get audio source implementation for a specific source."""
         return self.sources.get(source)
 
-    def get_source_metadata(self, source: AudioSource) -> Dict[str, Any]:
-        """Get metadata for the active source."""
-        if source == self.system_state.active_source:
-            return self.system_state.metadata
-        return {}
-
-    def get_source_state(self, source: AudioSource) -> SourceState:
-        """Get state of the active source."""
-        if source == self.system_state.active_source:
-            return self.system_state.source_state
-        return SourceState.WAITING
-
     def get_current_state(self) -> Dict[str, Any]:
         """Return current system state as dict.
 

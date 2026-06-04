@@ -450,31 +450,3 @@ class SettingsService:
         except Exception as e:
             self.logger.error(f"Error writing settings: {e}")
             return False
-
-    def get_volume_config(self) -> Dict[str, Any]:
-        """Synchronous helper method (uses cache only)"""
-        volume_settings = self._cache.get('volume', {}) if self._cache else {}
-        return {
-            "limit_min_db": volume_settings.get("limit_min_db", -80.0),
-            "limit_max_db": volume_settings.get("limit_max_db", -20.0),
-            "startup_volume_db": volume_settings.get("startup_volume_db", DEFAULT_VOLUME_DB),
-            "restore_last_volume": volume_settings.get("restore_last_volume", True),
-            "step_mobile_db": volume_settings.get("step_mobile_db", 2.0),
-            "step_rotary_db": volume_settings.get("step_rotary_db", 2.0),
-            "step_bt_remote_db": volume_settings.get("step_bt_remote_db", 2.0),
-            "step_ir_remote_db": volume_settings.get("step_ir_remote_db", 2.0)
-        }
-
-    async def get_volume_config_async(self) -> Dict[str, Any]:
-        """Async helper method to get volume config"""
-        volume_settings = await self.get_setting('volume') or {}
-        return {
-            "limit_min_db": volume_settings.get("limit_min_db", -80.0),
-            "limit_max_db": volume_settings.get("limit_max_db", -20.0),
-            "startup_volume_db": volume_settings.get("startup_volume_db", DEFAULT_VOLUME_DB),
-            "restore_last_volume": volume_settings.get("restore_last_volume", True),
-            "step_mobile_db": volume_settings.get("step_mobile_db", 2.0),
-            "step_rotary_db": volume_settings.get("step_rotary_db", 2.0),
-            "step_bt_remote_db": volume_settings.get("step_bt_remote_db", 2.0),
-            "step_ir_remote_db": volume_settings.get("step_ir_remote_db", 2.0)
-        }

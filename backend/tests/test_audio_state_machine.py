@@ -52,21 +52,6 @@ class TestAudioStateMachineBasics:
         assert state_machine.get_source(AudioSource.RADIO) is mock_source
         assert state_machine.get_source(AudioSource.SPOTIFY) is None
 
-    def test_get_source_metadata_active(self, state_machine):
-        """Test get_source_metadata returns metadata for active source."""
-        state_machine.system_state.active_source = AudioSource.RADIO
-        state_machine.system_state.metadata = {"title": "Test"}
-
-        metadata = state_machine.get_source_metadata(AudioSource.RADIO)
-        assert metadata == {"title": "Test"}
-
-    def test_get_source_metadata_inactive(self, state_machine):
-        """Test get_source_metadata returns empty for inactive source."""
-        state_machine.system_state.active_source = AudioSource.RADIO
-
-        metadata = state_machine.get_source_metadata(AudioSource.SPOTIFY)
-        assert metadata == {}
-
 
 class TestSourceActivation:
     """Test source activation and deactivation."""
