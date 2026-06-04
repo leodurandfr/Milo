@@ -305,46 +305,69 @@ rely on lint + `npm run build` + manual Pi validation.)
 
 ### Task 4.1 — Store: one target resolver + one record
 **Files:** Modify `frontend/src/stores/equalizerStore.js`.
-- [ ] Replace `getApiBase` + every zone / `!isLocalClient` branch with `targetRef()` →
+- [x] Replace `getApiBase` + every zone / `!isLocalClient` branch with `targetRef()` →
       `'local' | '<mac>' | 'zone:<id>'` and `targetBase = '/api/equalizer/target/' + targetRef()`.
-- [ ] `loadStatus`: one `GET ${targetBase}` → parse the whole record (state, filters, compressor,
+- [x] `loadStatus`: one `GET ${targetBase}` → parse the whole record (state, filters, compressor,
       loudness, mono, `active_preset`, `enabled`, `custom_gains`). Keep `GET /presets` **only** for the
       builtin catalog (labels + preset gains). Remove the dual `active_preset` reconciliation
       (the `fetchPresets` conditional + the `loadStatus` zone/remote overrides) — the name now comes
       solely from the record. All writes (`sendFilterUpdate`, `updateCompressor`, `updateLoudness`,
       `updateMono`, `loadPreset`, `saveCustomPreset`, enabled toggle) → `${targetBase}/…` uniformly.
       This repoints local Mono to `PUT /target/local/mono` (fixes the 404).
-- [ ] `npm run lint:js` → clean.
-- [ ] Commit: `refactor(eq): frontend store reads/writes one per-target record`.
+- [x] `npm run lint:js` → clean (+ `lint:css` + `npm run build`).
+- [x] Commit: `refactor(eq): frontend store reads/writes one per-target record` (`e91c068b`).
+      *(Also dropped the now-dead `restoreClientSettings`/restore-on-select; removed the confirmed-dead
+      EQ-mute cluster — `updateEqualizerMute`/`propagateToLinkedClients`/`addPropagationErrors`/
+      `propagationErrors`/`clearPropagationErrors`/`getClientDisplayName` — plus the modal's dead "sync
+      error" banner and the orphaned `equalizer.syncError` i18n key (8 locales). Léo-approved removal.)*
 
 ### Task 4.2 — Modal/meters read one record; align WS schema
-**Files:** Modify `frontend/src/components/equalizer/EqualizerModal.vue`,
-`frontend/src/components/equalizer/LevelMeters.vue` (if needed), `frontend/src/schemas/ws.js`.
-- [ ] Name + gains come from the one record; no cross-source reconciliation. Check the
-      `multiroom.equalizer_changed` payload: the broadcast sends `EqFilter.to_dict()`
-      (`frequency`/`filter_type`) while the store reads `freq`/`type` — align the producer to the
-      `freq`/`type` wire shape (one canonical key, Pitfall #18) and add/adjust the Zod schema.
-- [ ] `npm run lint:js && npm run lint:css` → clean.
-- [ ] Commit: `refactor(eq): modal renders one per-target EQ record`.
+**Files:** Modify `backend/core/multiroom/models.py`, `backend/core/multiroom/client_registry.py`,
+`backend/core/equalizer/multiroom_service.py`, `backend/api/equalizer.py`, `frontend/src/schemas/ws.js`,
+`frontend/src/App.vue`, `frontend/src/stores/equalizerStore.js`.
+- [x] Name + gains come from the one record; no cross-source reconciliation. Check the
+      `multiroom.equalizer_changed` payload: the broadcast sent `EqFilter.to_dict()`
+      (`frequency`/`filter_type`) while the store reads `freq`/`type` — aligned the producers to the
+      `freq`/`type` wire shape (one canonical key, Pitfall #18) and added the Zod schema.
+- [x] `npm run lint:js && npm run lint:css` → clean (+ backend pytest 1628, `ruff`, `npm run build`).
+- [x] Commit: `refactor(eq): align equalizer_changed WS payload to the freq/type wire shape` (`376c09cb`).
+
+> **Task 4.2 — what actually shipped (TDD):** the "modal renders one record" goal needed **no modal
+> edit** — the cross-source reconciliation lived in the store (removed in 4.1), so the modal already
+> reads one record. The substance was the WS-payload alignment: added `EqFilter.to_wire_dict()` +
+> `EqualizerSettings.to_wire_dict()` (persistence `to_dict()` unchanged), pointed both
+> `equalizer_changed` producers (registry `set_client_equalizer`, `multiroom_service.update_filter`) at
+> the wire shape, dropped the duplicate `_eq_filter_to_wire` route helper, declared the
+> `multiroom.equalizer_changed` Zod schema (all `equalizer_settings` fields optional — full + partial
+> producers) and migrated the handler to `parsedOn`. `loadEnabledState`/`fetchEnabledState` were
+> **kept** (still consumed by `MultiroomControl.vue`), repointed to read `.enabled` from the one record.
 
 ### Task 4.3 — Delete the legacy split routes
-**Files:** Modify `backend/api/equalizer.py`, `backend/tests/…`; verify no other consumer first.
-- [ ] Grep-confirm nothing (frontend, hardware, IR/rotary, other services) still calls the bare
+**Files:** Modify `backend/api/equalizer.py`, `backend/main.py`, `backend/tests/…`; verify no other consumer first.
+- [x] Grep-confirm nothing (frontend, hardware, IR/rotary, other services) still calls the bare
       `/status` · `/filters` · `/enabled`(GET/PUT) · `/filter/{id}` · `/compressor`(PUT) ·
       `/loudness`(PUT) · `/preset/{id}` · `/save-custom`, the `/client/{mac}/*` family
       (status/filters/filter/compressor/loudness/mono/enabled/preset/save-custom/**restore**), and the
       `/zone/{id}/*` family. Keep `/presets`, `/levels*`, `/mute`, `/links/*` crossover,
-      `/client/{id}/crossover-frequency`. Decide `/client/{mac}/restore`'s fate: under record-as-truth,
-      selecting a remote target just `GET`s its record (the satellite is kept in sync by writes +
-      reconnect, Phase 2) — drop the restore-on-select call + route if confirmed unused.
-- [ ] Remove the dead routes + their now-orphaned helpers (`_get_online_client_ip`, `_get_local_client_mac`,
-      `restore_client_settings`, …) and retarget/trim the tests that asserted them.
-- [ ] `ruff check backend/` + `--select F401,F841`; full `pytest` green.
-- [ ] Commit: `refactor(eq): remove legacy split EQ routes (single per-target path)`.
+      `/client/{id}/crossover-frequency`. `/client/{mac}/restore` confirmed unused → **dropped** (the
+      restore-on-select call went in 4.1; the route here). Satellites stay in sync via writes + reconnect.
+- [x] Remove the dead routes + the now-orphaned `_get_online_client_ip` helper + the unused
+      `proxy_service` param (signature + `main.py` call), and retarget/trim the tests that asserted them.
+      *(`_get_local_client_mac` was KEPT — still used by the retained `PUT /mute`.)*
+- [x] `ruff check backend/` + `--select F401,F841`; full `pytest` green (1594).
+- [x] Commit: `refactor(eq): remove legacy split EQ routes (single per-target path)` (`68f681d9`).
 
-**Phase 4 acceptance:** `npm run lint:js && lint:css` clean; `npm run build` succeeds; backend
-`pytest` green after route removal; `code-review` clean; manual Pi validation of A/B/C **plus** the
-local Mono toggle and multiroom-off. STOP for review.
+> **Test trim (4.3):** the removed-route tests were redundant route-dispatch checks — deleted the 5
+> `TestRemoteClient*` classes + `TestLocalRoutesUnchanged` (test_api_equalizer.py), the whole Story-4-7
+> `test_equalizer_zone_endpoints.py`, the AC3 preset-route classes (test_equalizer_presets_system.py),
+> and 3 route-existence tests (test_global_equalizer_bypass.py); all covered by
+> `test_api_equalizer.py::TestTarget*`. Relocated the `GET /presets` route test to `TestPresetsCatalog`.
+> **Deferred to Phase 5:** the now-dead `EqualizerRouter.get_filters`/`get_equalizer_enabled` service
+> methods (their only callers were the deleted routes) — left for the Phase-5 dead-code/test sweep.
+
+**Phase 4 acceptance:** `npm run lint:js && lint:css` clean ✅; `npm run build` succeeds ✅; backend
+`pytest` green after route removal (1594) ✅; `code-review` clean (3 commits) ✅; **manual Pi validation
+of A/B/C plus the local Mono toggle and multiroom-off — pending (human)**. STOP for review.
 
 ---
 
