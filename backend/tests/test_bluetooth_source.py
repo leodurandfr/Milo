@@ -48,7 +48,6 @@ def bluetooth_source(config):
     source.agent = Mock(spec=BluetoothAgent)
     source.agent.register = AsyncMock(return_value=True)
     source.agent.unregister = AsyncMock(return_value=True)
-    source.agent.is_registered = False
 
     # Mock monitor
     source.monitor = Mock(spec=BlueAlsaMonitor)
@@ -394,5 +393,5 @@ class TestBluetoothAgent:
         """Test agent initial state."""
         agent = BluetoothAgent()
 
-        assert agent.is_registered is False
+        assert agent._registered is False
         assert agent.path.startswith("/org/milo/agent_")

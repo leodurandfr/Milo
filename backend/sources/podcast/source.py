@@ -663,16 +663,6 @@ class PodcastSource(MpvAudioSource):
         return self._taddy_api
 
     @property
-    def current_episode(self) -> Optional[Dict[str, Any]]:
-        """Get current episode."""
-        return self._current_episode
-
-    @property
-    def is_buffering(self) -> bool:
-        """Check if currently buffering."""
-        return self._is_buffering
-
-    @property
     def position(self) -> int:
         """Get current position in seconds."""
         return self._position

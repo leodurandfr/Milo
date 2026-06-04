@@ -37,11 +37,6 @@ class BluetoothAgent(ServiceInterface):
         """Get agent D-Bus path."""
         return self._path
 
-    @property
-    def is_registered(self) -> bool:
-        """Check if agent is registered."""
-        return self._registered
-
     @handle_errors(default=False)
     async def register(self) -> bool:
         """
