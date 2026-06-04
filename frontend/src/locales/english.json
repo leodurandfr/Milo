@@ -199,8 +199,7 @@
     "meters": {
       "title": "Audio output levels"
     },
-    "connecting": "Connecting...",
-    "syncError": "Sync error"
+    "connecting": "Connecting..."
   },
   "status": {
     "loading": "Starting...",
@@ -583,6 +582,8 @@
     "discover": "Search",
     "discovering": "Searching...",
     "batteryLow": "Battery low",
+    "disabledTitle": "Remote disabled",
+    "disabledDetails": "Turn it on to connect a Bluetooth remote.",
     "step": "Volume step per click"
   },
   "irRemoteSettings": {

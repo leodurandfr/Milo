@@ -199,8 +199,7 @@
     "meters": {
       "title": "音频输出电平"
     },
-    "connecting": "正在连接...",
-    "syncError": "同步错误"
+    "connecting": "正在连接..."
   },
   "status": {
     "loading": "正在启动...",
@@ -583,6 +582,8 @@
     "discover": "搜索",
     "discovering": "搜索中...",
     "batteryLow": "电量低",
+    "disabledTitle": "遥控器已禁用",
+    "disabledDetails": "开启后即可连接蓝牙遥控器。",
     "step": "每次点击的音量步进"
   },
   "irRemoteSettings": {
