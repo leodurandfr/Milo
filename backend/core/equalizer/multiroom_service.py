@@ -587,6 +587,12 @@ class MultiroomEqualizerService:
             router_kwargs: Kwargs for the router method (excluding mac_id, persist, broadcast)
             broadcast_settings: Partial equalizer_settings dict for the WebSocket broadcast
         """
+        # A client target must be a known client (a zone target is validated by the
+        # caller via get_zone). Fail loud so an unknown MAC surfaces as 404 instead
+        # of silently materializing a phantom per-client record.
+        if target_type == "client" and self._registry and not self._registry.get_client(target_id):
+            raise ValueError(f"Client not found: {target_id}")
+
         # Resolve the affected members (zone fan-out, or a single client).
         if target_type == "zone":
             zone = self._registry.get_zone(target_id)
@@ -871,13 +877,75 @@ class MultiroomEqualizerService:
             broadcast_settings={"mono": enabled},
         )
 
+    async def set_client_equalizer_effects_enabled(
+        self, mac_id: str, enabled: bool, routing_service=None
+    ) -> bool:
+        """Enable/disable equalizer effects for a single client.
+
+        Local client → ``routing_service`` bypass/restore (its enabled flag lives
+        in settings, not the registry). Remote client → push to the satellite (if
+        online) and persist the flag on its per-client record so an offline /
+        reconnecting member recovers it. This is the single per-client primitive
+        the ``/client/{mac}/enabled`` route and the zone fan-out both build on.
+
+        Returns True when the change reached an online client OR was persisted for
+        an offline one (it syncs on reconnect); False only on a failed online push
+        or a missing routing service for the local client.
+        """
+        routing = routing_service or self._routing_service
+        if self._registry and self._registry.is_local_client(mac_id):
+            if routing:
+                return await routing.set_equalizer_effects_enabled(enabled)
+            self.logger.warning("Routing service not available for local equalizer toggle")
+            return False
+        # Remote: must be a known client (fail loud → 404 for an unknown MAC).
+        if self._registry and not self._registry.get_client(mac_id):
+            raise ValueError(f"Client not found: {mac_id}")
+        return await self._set_remote_client_enabled(
+            mac_id, enabled, fallback=EqualizerSettings.default
+        )
+
+    async def _set_remote_client_enabled(self, client_id: str, enabled: bool, *, fallback) -> bool:
+        """Push the enabled flag to an online satellite and persist it on the
+        client's per-client record (the source of truth).
+
+        ``fallback`` builds the neutral record when the client has none yet —
+        ``EqualizerSettings.default`` for a standalone client, ``default_for_zone``
+        for a zone member (mono on).
+
+        Returns True when an online push succeeded OR the flag was persisted for an
+        offline/unknown client (syncs on reconnect); False only when an online push
+        failed.
+        """
+        client = self._registry.get_client(client_id) if self._registry else None
+
+        pushed = False
+        if client and client.online and client.ip and self._proxy_service:
+            try:
+                result = await self._proxy_service.request(
+                    client.ip, "PUT", "/equalizer/enabled", {"enabled": enabled}
+                )
+                pushed = result.get("status") == "success"
+            except Exception as e:
+                self.logger.warning(f"Failed to push equalizer enabled to {client_id}: {e}")
+
+        if self._registry:
+            existing = self._registry.get_client_equalizer(client_id)
+            record = (
+                EqualizerSettings.from_dict(existing.to_dict()) if existing else fallback()
+            )
+            record.enabled = enabled
+            await self._registry.set_client_equalizer(client_id, record, broadcast=False)
+
+        return pushed if (client and client.online) else True
+
     async def set_zone_equalizer_effects_enabled(self, zone_id: str, enabled: bool) -> bool:
         """
         Enable/disable equalizer effects for all clients in a zone.
 
-        This method uses routing_service for local clients (which properly
-        bypasses/restores equalizer effects in the audio chain) and proxies to
-        remote clients.
+        Fans out to each member through the per-client primitives (local →
+        routing_service bypass/restore; remote → push + persist), then broadcasts
+        the zone-level event.
 
         Args:
             zone_id: The zone ID
@@ -901,35 +969,17 @@ class MultiroomEqualizerService:
 
         for client_id in zone.client_ids:
             if self._registry.is_local_client(client_id):
-                # Local client: use routing_service
+                # Local client: use routing_service (bypass/restore the DSP effects).
                 if self._routing_service:
                     try:
                         if await self._routing_service.set_equalizer_effects_enabled(enabled):
                             success_count += 1
                     except Exception as e:
                         self.logger.warning(f"Failed to set equalizer enabled for local: {e}")
-            else:
-                # Remote client: push to the satellite (if online) and persist the
-                # flag into its per-client record so offline / reconnecting members
-                # recover it (the record is the per-client source of truth).
-                client = self._registry.get_client(client_id)
-                if client and client.online and client.ip and self._proxy_service:
-                    try:
-                        result = await self._proxy_service.request(
-                            client.ip, "PUT", "/equalizer/enabled", {"enabled": enabled}
-                        )
-                        if result.get("status") == "success":
-                            success_count += 1
-                    except Exception as e:
-                        self.logger.warning(f"Failed to set equalizer enabled for {client_id}: {e}")
-
-                existing = self._registry.get_client_equalizer(client_id)
-                record = (
-                    EqualizerSettings.from_dict(existing.to_dict())
-                    if existing else EqualizerSettings.default_for_zone()
-                )
-                record.enabled = enabled
-                await self._registry.set_client_equalizer(client_id, record, broadcast=False)
+            elif await self._set_remote_client_enabled(
+                client_id, enabled, fallback=EqualizerSettings.default_for_zone
+            ):
+                success_count += 1
 
         # Broadcast WebSocket event
         if self._state_machine:

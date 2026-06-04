@@ -181,15 +181,46 @@ remote records pushed to satellites on (re)connect; the local branch of the webs
 **Outcome:** Equalizer routes are per-client and uniform; zone-EQ-specific endpoints removed.
 
 ### Task 3.1 — Per-client equalizer routes
-**Files:** Modify `backend/api/equalizer.py`, `backend/api/multiroom.py`; Test `backend/tests/test_api_multiroom.py`.
-- [ ] Write failing route tests: read/write EQ for any client (incl. local) via one per-client
-      endpoint shape; zone routes apply via `set_zone_eq`; removed endpoints return 404.
-- [ ] Run → fail. Implement: route handlers call `get/set_client_eq` and `set_zone_eq`; delete
-      dead zone-EQ endpoints; zone create → neutral.
-- [ ] Run → pass. Confirm Milo-Mac external client contract isn't broken (grep its endpoints).
-- [ ] Commit: `refactor(eq): unify equalizer API to per-client`.
 
-**Phase 3 acceptance:** full `pytest` green; `code-review` clean. STOP for review.
+> **Phase 3 scoped to Option A (per Léo, 2026-06-04).** Investigation revised this task. With
+> multiroom **OFF** the local Milō has **no entry in the client registry** (it is populated only by
+> Snapcast connections), so a single `/client/{mac}/…` shape cannot address the local device — it has
+> no MAC the frontend can use — and the design deliberately keeps base-audio EQ independent of the
+> multiroom registry. Confirmed **no external client** (Milo-Mac, milo-client satellites) calls the
+> server's `/api/equalizer/*` (comms are server→satellite only). Frontend safety verified: the 5
+> client write routes only read `result.ok`, and `handleEqualizerChanged` already handles
+> `target_type:"client"` (raw `on()`, no schema rejection).
+>
+> Léo chose **Option A**: the local client keeps its dedicated non-scoped `/api/equalizer/…` routes;
+> only the **remote per-client** and **zone** EQ writes are unified. So Phase 3 is an **internal-only**
+> refactor — **no URL changes, no frontend-breakage window**. The remote partial-update routes route
+> through the unified access layer instead of the duplicate `equalizer_router + _persist_remote` path.
+> Side benefit: offline remote clients now **persist** EQ edits (sync on reconnect) instead of
+> silently dropping them. No endpoints are removed (the zone + local routes are still needed by the
+> Phase-4 frontend); the plan's original "removed endpoints return 404" / "zone create → neutral" /
+> "add-client adopts zone EQ" items were already satisfied in Phase 1's atomic commit.
+
+**Files:** Modify `backend/api/equalizer.py`, `backend/core/equalizer/multiroom_service.py`;
+Test `backend/tests/test_api_equalizer.py` (new), `backend/tests/test_multiroom_equalizer_service.py`.
+- [x] Write failing tests: `PUT /client/{mac}/{filter,compressor,loudness,mono}` route through
+      `multiroom_equalizer_service.update_*` with `target_type="client"`; `PUT /client/{mac}/enabled`
+      routes through a new `set_client_equalizer_effects_enabled`; not-found → 404; local non-scoped
+      routes unchanged. Service tests for `set_client_equalizer_effects_enabled` (local→routing,
+      remote-online→push+persist, remote-offline→persist-only). *(New `tests/test_api_equalizer.py`
+      + additions to `test_multiroom_equalizer_service.py`; the old proxy-path asserts in
+      `tests/integration/test_equalizer_zone_endpoints.py` retargeted at the access layer.)*
+- [x] Run → fail. Implement: rewrite the 5 remote partial routes onto the access layer; add
+      `set_client_equalizer_effects_enabled` and share `_set_remote_client_enabled` with the zone
+      enabled fan-out; delete the now-dead `_persist_remote` + `_eqfilter_from_body`.
+- [x] Run → pass. `ruff check backend/` + `--select F401,F841` on touched files.
+- [x] **Code-review fixes folded in:** filter route uses the `EqualizerFilterUpdateRequest` Pydantic
+      model (no `freq`/`frequency` dual-key fallback — Pitfall #11); the 4 `update_*` and
+      `set_client_equalizer_effects_enabled` now **fail loud** (`ValueError` → 404) for an unknown MAC
+      instead of materializing a phantom record; the enabled route maps that `ValueError` → 404 like
+      its siblings; real-path service tests added for the unknown-client guards.
+- [x] Commit: `refactor(eq): unify remote per-client EQ writes onto the access layer`.
+
+**Phase 3 acceptance:** full `pytest` green (1597); `ruff` clean; `code-review` clean. STOP for review.
 
 ---
 
