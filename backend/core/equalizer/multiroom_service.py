@@ -15,7 +15,7 @@ Architecture:
     MultiroomEqualizerService (this module - multiroom-aware)
         │
         ├─── ClientRegistryService (state/persistence)
-        │       └── zone.equalizer_settings, standalone_equalizer
+        │       └── zone.equalizer_settings, client_equalizer
         │
         └─── CamillaDSPService (local daemon control)
 """
@@ -255,7 +255,7 @@ class MultiroomEqualizerService:
         if target_type == "zone":
             await self._registry.set_zone_equalizer(target_id, current)
         else:
-            await self._registry.set_standalone_equalizer(target_id, current)
+            await self._registry.set_client_equalizer(target_id, current)
 
         # Keep the LOCAL CamillaDSP preset NAME in sync when the local client is
         # affected. Unlike apply_*_equalizer this path does not re-apply gains (it
@@ -376,7 +376,7 @@ class MultiroomEqualizerService:
             )
 
         # Update standalone equalizer via registry (handles persistence + broadcast)
-        await self._registry.set_standalone_equalizer(mac_id, settings)
+        await self._registry.set_client_equalizer(mac_id, settings)
 
         # Apply to CamillaDSP
         success = await self._apply_to_camilladsp(mac_id, settings)
@@ -401,7 +401,7 @@ class MultiroomEqualizerService:
         if not self._registry:
             return None
 
-        return self._registry.get_standalone_equalizer(mac_id)
+        return self._registry.get_client_equalizer(mac_id)
 
     # =========================================================================
     # Target-Agnostic Equalizer Methods (AC2, AC3)
@@ -669,7 +669,7 @@ class MultiroomEqualizerService:
         if target_type == "zone":
             await self._registry.set_zone_equalizer(target_id, current, broadcast=False)
         else:
-            await self._registry.set_standalone_equalizer(target_id, current, broadcast=False)
+            await self._registry.set_client_equalizer(target_id, current, broadcast=False)
 
         # Route to clients via EqualizerRouter
         if self._equalizer_router:

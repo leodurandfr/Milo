@@ -480,14 +480,14 @@ class RegistryState:
     """
     clients: Dict[str, Client] = field(default_factory=dict)
     zones: Dict[str, Zone] = field(default_factory=dict)
-    standalone_equalizer: Dict[str, EqualizerSettings] = field(default_factory=dict)
+    client_equalizer: Dict[str, EqualizerSettings] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "clients": {k: v.to_dict() for k, v in self.clients.items()},
             "zones": {k: v.to_dict() for k, v in self.zones.items()},
-            "standalone_equalizer": {k: v.to_dict() for k, v in self.standalone_equalizer.items()}
+            "client_equalizer": {k: v.to_dict() for k, v in self.client_equalizer.items()}
         }
 
     @classmethod
@@ -501,11 +501,11 @@ class RegistryState:
             k: Zone.from_dict(v)
             for k, v in data.get("zones", {}).items()
         }
-        standalone_equalizer = {
+        client_equalizer = {
             k: EqualizerSettings.from_dict(v)
-            for k, v in data.get("standalone_equalizer", {}).items()
+            for k, v in data.get("client_equalizer", {}).items()
         }
-        return cls(clients=clients, zones=zones, standalone_equalizer=standalone_equalizer)
+        return cls(clients=clients, zones=zones, client_equalizer=client_equalizer)
 
 
 class ReconnectionContext(str, Enum):
@@ -524,10 +524,10 @@ class ReconnectionContext(str, Enum):
             - Equalizer: zone.equalizer_settings (from persistence)
         STANDALONE_OTHERS_ONLINE: Standalone client with other clients ONLINE globally (FR9)
             - Volume: global average from all online clients
-            - Equalizer: standalone_equalizer[mac_id]
+            - Equalizer: client_equalizer[mac_id]
         STANDALONE_ALONE: Standalone client with no other clients ONLINE (FR10)
             - Volume: startup_volume_db (DEFAULT_VOLUME_DB)
-            - Equalizer: standalone_equalizer[mac_id]
+            - Equalizer: client_equalizer[mac_id]
     """
     IN_ZONE_OTHERS_ONLINE = "in_zone_others_online"      # FR7
     IN_ZONE_ALL_OFFLINE = "in_zone_all_offline"          # FR8

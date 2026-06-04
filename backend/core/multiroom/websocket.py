@@ -1041,7 +1041,7 @@ class SnapcastWebSocketService:
             hostname = client.ip
             is_local = client.is_local
 
-            eq = self.registry.get_standalone_equalizer(mac_id) if self.registry else None
+            eq = self.registry.get_client_equalizer(mac_id) if self.registry else None
             if not eq:
                 self.logger.info(f"SYNC_STANDALONE: No saved settings for {mac_id}, defaults apply")
                 return True

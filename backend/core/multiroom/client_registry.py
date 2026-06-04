@@ -65,7 +65,7 @@ class ClientRegistryService:
         # Core state - protected by lock
         self._clients: Dict[str, Client] = {}
         self._zones: Dict[str, Zone] = {}
-        self._standalone_equalizer: Dict[str, EqualizerSettings] = {}
+        self._client_equalizer: Dict[str, EqualizerSettings] = {}
         self._lock = asyncio.Lock()
 
         # Subscriber callbacks for event handling (incl. WebSocket broadcasting)
@@ -192,8 +192,8 @@ class ClientRegistryService:
                         zones_modified.append((zone.id, self.zone_to_enriched_dict(zone)))
 
             # Clean up standalone equalizer
-            if mac_id in self._standalone_equalizer:
-                del self._standalone_equalizer[mac_id]
+            if mac_id in self._client_equalizer:
+                del self._client_equalizer[mac_id]
 
             self.logger.info(f"Client unregistered: {mac_id}")
 
@@ -467,8 +467,8 @@ class ClientRegistryService:
             for cid in client_ids:
                 self._clients[cid].zone_id = zone_id
                 # Move standalone equalizer to zone (first client's equalizer becomes zone equalizer)
-                if cid in self._standalone_equalizer:
-                    del self._standalone_equalizer[cid]
+                if cid in self._client_equalizer:
+                    del self._client_equalizer[cid]
 
         await self._persist_state()
         await self._emit_event(RegistryEventType.ZONE_CREATED, {
@@ -488,7 +488,7 @@ class ClientRegistryService:
         for mac_id in mac_ids:
             if mac_id in self._clients:
                 self._clients[mac_id].zone_id = None
-                self._standalone_equalizer[mac_id] = EqualizerSettings.from_dict(zone_eq_dict)
+                self._client_equalizer[mac_id] = EqualizerSettings.from_dict(zone_eq_dict)
 
     async def delete_zone(self, zone_id: str) -> bool:
         """
@@ -610,8 +610,8 @@ class ClientRegistryService:
             client.zone_id = zone_id
 
             # Remove standalone equalizer (client now uses zone's equalizer)
-            if mac_id in self._standalone_equalizer:
-                del self._standalone_equalizer[mac_id]
+            if mac_id in self._client_equalizer:
+                del self._client_equalizer[mac_id]
 
         await self._persist_state()
 
@@ -961,15 +961,15 @@ class ClientRegistryService:
 
         return base
 
-    # === STANDALONE EQUALIZER MANAGEMENT ===
+    # === CLIENT EQUALIZER MANAGEMENT ===
 
-    def get_standalone_equalizer(self, mac_id: str) -> Optional[EqualizerSettings]:
-        """Get standalone equalizer settings for a client."""
-        return self._standalone_equalizer.get(mac_id)
+    def get_client_equalizer(self, mac_id: str) -> Optional[EqualizerSettings]:
+        """Get the stored equalizer settings for a client."""
+        return self._client_equalizer.get(mac_id)
 
-    async def set_standalone_equalizer(self, mac_id: str, settings: EqualizerSettings, broadcast: bool = True) -> None:
+    async def set_client_equalizer(self, mac_id: str, settings: EqualizerSettings, broadcast: bool = True) -> None:
         """
-        Set standalone equalizer settings for a client.
+        Set the stored equalizer settings for a client.
 
         Args:
             mac_id: The client's mac_id
@@ -986,9 +986,9 @@ class ClientRegistryService:
                 self.logger.warning(f"Client {mac_id} is in zone, use zone equalizer instead")
                 return
 
-            self._standalone_equalizer[mac_id] = settings
+            self._client_equalizer[mac_id] = settings
 
-        await self._persist_standalone_equalizer()
+        await self._persist_client_equalizer()
         if broadcast:
             await self._emit_event(RegistryEventType.EQUALIZER_SETTINGS_CHANGED, {
                 "target_type": "client",
@@ -1034,7 +1034,7 @@ class ClientRegistryService:
         return RegistryState(
             clients=self._clients.copy(),
             zones=self._zones.copy(),
-            standalone_equalizer=self._standalone_equalizer.copy()
+            client_equalizer=self._client_equalizer.copy()
         )
 
     # === EVENT SYSTEM ===
@@ -1083,12 +1083,12 @@ class ClientRegistryService:
                     self._zones[zone_id] = zone
                 self.logger.info(f"Loaded {len(self._zones)} zones from settings")
 
-            # Load standalone equalizer
-            standalone_data = await self._settings_service.get_setting("multiroom.standalone_equalizer")
-            if standalone_data:
-                for mac_id, equalizer_data in standalone_data.items():
-                    self._standalone_equalizer[mac_id] = EqualizerSettings.from_dict(equalizer_data)
-                self.logger.info(f"Loaded {len(self._standalone_equalizer)} standalone equalizer configs")
+            # Load client equalizer
+            client_eq_data = await self._settings_service.get_setting("multiroom.client_equalizer")
+            if client_eq_data:
+                for mac_id, equalizer_data in client_eq_data.items():
+                    self._client_equalizer[mac_id] = EqualizerSettings.from_dict(equalizer_data)
+                self.logger.info(f"Loaded {len(self._client_equalizer)} client equalizer configs")
 
         except Exception as e:
             self.logger.error(f"Failed to load persisted state: {e}")
@@ -1097,7 +1097,7 @@ class ClientRegistryService:
         """Persist all state to settings."""
         await self._persist_clients()
         await self._persist_zones()
-        await self._persist_standalone_equalizer()
+        await self._persist_client_equalizer()
 
     async def _persist_clients(self) -> None:
         """Save client configuration to settings."""
@@ -1136,19 +1136,19 @@ class ClientRegistryService:
         except Exception as e:
             self.logger.error(f"Failed to persist zones: {e}")
 
-    async def _persist_standalone_equalizer(self) -> None:
-        """Save standalone equalizer settings to settings."""
+    async def _persist_client_equalizer(self) -> None:
+        """Save client equalizer settings to settings."""
         if not self._settings_service:
             return
 
         try:
             equalizer_data = {
                 mac_id: settings.to_dict()
-                for mac_id, settings in self._standalone_equalizer.items()
+                for mac_id, settings in self._client_equalizer.items()
             }
-            await self._settings_service.set_setting("multiroom.standalone_equalizer", equalizer_data)
+            await self._settings_service.set_setting("multiroom.client_equalizer", equalizer_data)
         except Exception as e:
-            self.logger.error(f"Failed to persist standalone equalizer: {e}")
+            self.logger.error(f"Failed to persist client equalizer: {e}")
 
     # === UTILITY ===
 

@@ -65,13 +65,13 @@ renamed to `client_equalizer`; settings schema bumped. Audio behavior unchanged.
 
 ### Task 1.1 — Rename `standalone_equalizer` → `client_equalizer` (registry)
 **Files:** Modify `backend/core/multiroom/client_registry.py`; Test `backend/tests/test_core_multiroom.py`.
-- [ ] Write/adjust failing tests: registry stores/reads a per-client EQ record via the new
+- [x] Write/adjust failing tests: registry stores/reads a per-client EQ record via the new
       `get_client_equalizer`/`set_client_equalizer` names for a remote client.
-- [ ] Run tests → fail (old names).
-- [ ] Rename `_standalone_equalizer` and its public accessors to `client_equalizer`; update the
+- [x] Run tests → fail (old names).
+- [x] Rename `_standalone_equalizer` and its public accessors to `client_equalizer`; update the
       persisted settings key; update all in-repo callers (`grep -rn standalone_equalizer backend/`).
-- [ ] Run tests → pass. Run `ruff check --select F401,F841` on touched files.
-- [ ] Commit: `refactor(eq): rename standalone_equalizer → client_equalizer`.
+- [x] Run tests → pass. Run `ruff check --select F401,F841` on touched files.
+- [x] Commit: `refactor(eq): rename standalone_equalizer → client_equalizer`.
 
 ### Task 1.2 — Drop `Zone.equalizer_settings`; zone EQ derives from members
 **Files:** Modify `backend/core/multiroom/models.py`, `backend/core/multiroom/client_registry.py`;
