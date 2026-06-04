@@ -29,6 +29,13 @@ from backend.core.multiroom.models import (
 )
 
 
+# The local device is addressable as this sentinel — no registry entry required.
+# The registry is populated only by Snapcast connections, so it is empty when
+# multiroom is off; the sentinel keeps base-audio EQ addressable (and independent
+# of the multiroom registry) in every mode.
+LOCAL_TARGET = "local"
+
+
 class MultiroomEqualizerService:
     """
     Multiroom-aware equalizer coordination service.
@@ -115,6 +122,14 @@ class MultiroomEqualizerService:
     # Per-Client Access Layer — the unified EQ source of truth
     # =========================================================================
 
+    def _is_local(self, target_id: str) -> bool:
+        """True for the local device: the ``LOCAL_TARGET`` sentinel (addressable
+        without a registry entry, e.g. multiroom off) or a registered client
+        flagged ``is_local``."""
+        return target_id == LOCAL_TARGET or bool(
+            self._registry and self._registry.is_local_client(target_id)
+        )
+
     async def get_client_eq(self, mac_id: str) -> EqualizerSettings:
         """Read a client's one EQ record.
 
@@ -122,7 +137,7 @@ class MultiroomEqualizerService:
         cache); remote client → the registry's client_equalizer store (a neutral
         default when nothing has been saved yet). Always returns a record.
         """
-        if self._registry and self._registry.is_local_client(mac_id):
+        if self._is_local(mac_id):
             if self._camilladsp_service:
                 return self._camilladsp_service.get_equalizer_settings()
             return EqualizerSettings.default()
@@ -136,7 +151,7 @@ class MultiroomEqualizerService:
         Local client → apply to the DAC and persist equalizer.json;
         remote client → store in the registry and push to the satellite.
         """
-        if self._registry and self._registry.is_local_client(mac_id):
+        if self._is_local(mac_id):
             cds = self._camilladsp_service
             applied = await self._apply_to_local(settings)
             if applied and cds:
@@ -321,6 +336,14 @@ class MultiroomEqualizerService:
         Raises:
             ValueError: If client not found or client is in a zone
         """
+        # The local device is the DAC — it owns equalizer.json and is never "in a
+        # zone" in this direct-local context; address it as the sentinel without a
+        # registry lookup (the registry is empty when multiroom is off).
+        if self._is_local(mac_id):
+            result = await self.set_client_eq(mac_id, settings)
+            self.logger.info(f"Client {mac_id} equalizer settings updated")
+            return result
+
         if not self._registry:
             self.logger.error("ClientRegistryService not available")
             return False
@@ -589,8 +612,14 @@ class MultiroomEqualizerService:
         """
         # A client target must be a known client (a zone target is validated by the
         # caller via get_zone). Fail loud so an unknown MAC surfaces as 404 instead
-        # of silently materializing a phantom per-client record.
-        if target_type == "client" and self._registry and not self._registry.get_client(target_id):
+        # of silently materializing a phantom per-client record. The local sentinel
+        # is exempt — it has no registry entry when multiroom is off.
+        if (
+            target_type == "client"
+            and not self._is_local(target_id)
+            and self._registry
+            and not self._registry.get_client(target_id)
+        ):
             raise ValueError(f"Client not found: {target_id}")
 
         # Resolve the affected members (zone fan-out, or a single client).
@@ -605,7 +634,7 @@ class MultiroomEqualizerService:
         # is persisted from its live DSP cache below, after the router applies.
         local_touched = False
         for member in members:
-            if self._registry.is_local_client(member):
+            if self._is_local(member):
                 local_touched = True
             else:
                 await self._registry.set_client_equalizer(
@@ -893,7 +922,7 @@ class MultiroomEqualizerService:
         or a missing routing service for the local client.
         """
         routing = routing_service or self._routing_service
-        if self._registry and self._registry.is_local_client(mac_id):
+        if self._is_local(mac_id):
             if routing:
                 return await routing.set_equalizer_effects_enabled(enabled)
             self.logger.warning("Routing service not available for local equalizer toggle")
