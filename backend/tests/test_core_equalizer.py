@@ -311,14 +311,6 @@ class TestCamillaDSPService:
         assert levels["available"] is False
 
     @pytest.mark.asyncio
-    async def test_get_crossover_filter_disconnected(self, camilladsp_service):
-        """Should return default crossover when disconnected"""
-        crossover = await camilladsp_service.get_crossover_filter()
-        assert crossover["enabled"] is False
-        assert crossover["frequency"] == 80
-        assert crossover["q"] == 0.707
-
-    @pytest.mark.asyncio
     async def test_set_crossover_filter_disconnected(self, camilladsp_service):
         """Should fail when disconnected"""
         result = await camilladsp_service.set_crossover_filter(enabled=True)
@@ -376,55 +368,6 @@ class TestCamillaDSPService:
         """Should timeout when not connected"""
         result = await camilladsp_service.wait_for_connection(timeout=0.1)
         assert result is False
-
-    def test_parse_filters_empty(self, camilladsp_service):
-        """Should return empty list for empty config"""
-        result = camilladsp_service._parse_filters({})
-        assert result == []
-
-    def test_parse_filters_with_eq_bands(self, camilladsp_service):
-        """Should parse EQ band filters"""
-        config = {
-            "eq_band_00": {
-                "type": "Biquad",
-                "parameters": {
-                    "type": "Peaking",
-                    "freq": 100,
-                    "gain": 3,
-                    "q": 1.41
-                }
-            },
-            "eq_band_01": {
-                "type": "Biquad",
-                "parameters": {
-                    "type": "Peaking",
-                    "freq": 1000,
-                    "gain": -2,
-                    "q": 1.0
-                }
-            }
-        }
-        result = camilladsp_service._parse_filters(config)
-        assert len(result) == 2
-        assert result[0]["id"] == "eq_band_00"
-        assert result[0]["freq"] == 100
-        assert result[0]["gain"] == 3
-
-    def test_parse_filters_skips_non_eq_filters(self, camilladsp_service):
-        """Should skip non-EQ filters like loudness"""
-        config = {
-            "eq_band_00": {
-                "type": "Biquad",
-                "parameters": {"type": "Peaking", "freq": 100, "gain": 0, "q": 1}
-            },
-            "loudness_low": {
-                "type": "Biquad",
-                "parameters": {"type": "Lowshelf", "freq": 100, "gain": 5, "slope": 6}
-            }
-        }
-        result = camilladsp_service._parse_filters(config)
-        assert len(result) == 1
-        assert result[0]["id"] == "eq_band_00"
 
 
 # =============================================================================

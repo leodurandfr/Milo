@@ -886,36 +886,6 @@ class MultiroomEqualizerService:
             broadcast_settings={"mono": enabled},
         )
 
-    async def update_equalizer_enabled(
-        self,
-        target_type: str,
-        target_id: str,
-        enabled: bool,
-    ) -> bool:
-        """
-        Update global equalizer enabled state, preserving other settings.
-
-        When disabled, equalizer effects are bypassed but settings are preserved.
-
-        Args:
-            target_type: "zone" or "client"
-            target_id: Zone ID or client MAC ID
-            enabled: New equalizer enabled state
-
-        Returns:
-            True if successful
-        """
-        # Get current settings
-        current = await self.get_equalizer(target_type, target_id)
-        if not current:
-            raise ValueError(f"{target_type} not found: {target_id}")
-
-        # Update enabled state
-        current.enabled = enabled
-
-        # Apply updated settings
-        return await self.apply_equalizer(target_type, target_id, current)
-
     async def set_zone_equalizer_effects_enabled(self, zone_id: str, enabled: bool) -> bool:
         """
         Enable/disable equalizer effects for all clients in a zone.

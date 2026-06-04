@@ -705,22 +705,6 @@ class TestPartialUpdateMethods:
         # Other values preserved
         assert loud.high_boost == 5.0
 
-    @pytest.mark.asyncio
-    async def test_update_equalizer_enabled(
-        self, multiroom_equalizer_service, mock_registry, sample_zone
-    ):
-        """Should update global Equalizer enabled state"""
-        sample_zone.equalizer_settings = EqualizerSettings.default()
-        mock_registry.get_zone.return_value = sample_zone
-        mock_registry.get_online_zone_clients.return_value = []
-
-        result = await multiroom_equalizer_service.update_equalizer_enabled(
-            "zone", "zone-123", enabled=False
-        )
-
-        assert result is True
-        assert sample_zone.equalizer_settings.enabled is False
-
 
 # =============================================================================
 # Event Broadcasting Tests

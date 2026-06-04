@@ -438,36 +438,6 @@ class CamillaDSPService:
         """
         return list(self._filters)
 
-    def _parse_filters(self, filters_config: Dict) -> List[Dict[str, Any]]:
-        result = []
-
-        for name, filter_data in filters_config.items():
-            # Only include EQ band filters (skip advanced filters like loudness, compressor)
-            if not name.startswith("eq_band_"):
-                continue
-
-            filter_type = filter_data.get("type", "")
-            parameters = filter_data.get("parameters", {})
-
-            # Handle Biquad filters (most common for EQ)
-            if filter_type == "Biquad":
-                biquad_type = parameters.get("type", "")
-
-                filter_info = {
-                    "id": name,
-                    "type": biquad_type,
-                    "freq": parameters.get("freq", 1000),
-                    "gain": parameters.get("gain", 0),
-                    "q": parameters.get("q", 1.0),
-                    "enabled": True
-                }
-                result.append(filter_info)
-
-        # Sort filters by ID to maintain consistent order (eq_band_00, eq_band_01, etc.)
-        result.sort(key=lambda f: f["id"])
-
-        return result
-
     @handle_errors(default=False)
     async def set_filter(self, filter_id: str, freq: float, gain: float,
                          q: float, filter_type: str = "Peaking",
@@ -869,18 +839,6 @@ class CamillaDSPService:
 
         await self._set_config(config)
         return True
-
-    async def get_crossover_filter(self) -> Dict[str, Any]:
-        if not self._connected:
-            return {"enabled": False, "frequency": 80, "q": 0.707}
-        try:
-            config = await self._get_config()
-            if "crossover_highpass" in config["filters"]:
-                params = config["filters"]["crossover_highpass"].get("parameters", {})
-                return {"enabled": True, "frequency": params.get("freq", 80), "q": params.get("q", 0.707)}
-            return {"enabled": False, "frequency": 80, "q": 0.707}
-        except Exception:
-            return {"enabled": False, "frequency": 80, "q": 0.707}
 
     async def set_crossover_filter(self, enabled: bool, frequency: float = 80.0, q: float = 0.707) -> bool:
         """Apply highpass filter to remove bass from speakers (for subwoofer setups)"""
