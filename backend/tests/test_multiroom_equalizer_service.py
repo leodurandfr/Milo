@@ -35,9 +35,9 @@ def mock_registry():
     registry = Mock()
     registry.get_zone = Mock(return_value=None)
     registry.get_client = Mock(return_value=None)
-    registry.get_standalone_equalizer = Mock(return_value=None)
+    registry.get_client_equalizer = Mock(return_value=None)
     registry.get_online_zone_clients = Mock(return_value=[])
-    registry.set_standalone_equalizer = AsyncMock()
+    registry.set_client_equalizer = AsyncMock()
     registry.set_zone_equalizer = AsyncMock(return_value=True)
     registry.is_local_client = Mock(side_effect=lambda mac_id: mac_id == "local")
     registry.get_client_ip = Mock(side_effect=lambda mac_id: None if mac_id == "local" else "192.168.1.100")
@@ -304,7 +304,7 @@ class TestStandaloneClientEqualizerMethods:
         result = await multiroom_equalizer_service.apply_client_equalizer("local", sample_equalizer_settings)
 
         assert result is True
-        mock_registry.set_standalone_equalizer.assert_called_once_with("local", sample_equalizer_settings)
+        mock_registry.set_client_equalizer.assert_called_once_with("local", sample_equalizer_settings)
 
     @pytest.mark.asyncio
     async def test_apply_client_equalizer_client_not_found(
@@ -331,7 +331,7 @@ class TestStandaloneClientEqualizerMethods:
         self, multiroom_equalizer_service, mock_registry, sample_equalizer_settings
     ):
         """Should return standalone client Equalizer settings"""
-        mock_registry.get_standalone_equalizer.return_value = sample_equalizer_settings
+        mock_registry.get_client_equalizer.return_value = sample_equalizer_settings
 
         result = await multiroom_equalizer_service.get_client_equalizer("local")
 
@@ -342,7 +342,7 @@ class TestStandaloneClientEqualizerMethods:
         self, multiroom_equalizer_service, mock_registry
     ):
         """Should return None when standalone Equalizer not found"""
-        mock_registry.get_standalone_equalizer.return_value = None
+        mock_registry.get_client_equalizer.return_value = None
 
         result = await multiroom_equalizer_service.get_client_equalizer("unknown")
 
@@ -381,7 +381,7 @@ class TestStandaloneClientPresetPersistence:
     ):
         """Picking a preset on a fresh remote client must persist the preset NAME
         (no pre-existing standalone-equalizer entry required)."""
-        mock_registry.get_standalone_equalizer.return_value = None  # never saved
+        mock_registry.get_client_equalizer.return_value = None  # never saved
         mock_registry.get_client.return_value = fresh_standalone_client
 
         result = await multiroom_equalizer_service.load_client_preset(
@@ -389,8 +389,8 @@ class TestStandaloneClientPresetPersistence:
         )
 
         assert result is True
-        mock_registry.set_standalone_equalizer.assert_called_once()
-        persisted = mock_registry.set_standalone_equalizer.call_args.args[1]
+        mock_registry.set_client_equalizer.assert_called_once()
+        persisted = mock_registry.set_client_equalizer.call_args.args[1]
         # The preset NAME is the thing that used to be lost — assert it persists.
         assert persisted.active_preset == "bass_boost"
         # And the gains were built from the chosen preset.
@@ -401,7 +401,7 @@ class TestStandaloneClientPresetPersistence:
         self, multiroom_equalizer_service, mock_registry
     ):
         """A genuinely unknown client still raises (route → 404), unchanged."""
-        mock_registry.get_standalone_equalizer.return_value = None
+        mock_registry.get_client_equalizer.return_value = None
         mock_registry.get_client.return_value = None
 
         with pytest.raises(ValueError, match="Client not found"):
@@ -412,7 +412,7 @@ class TestStandaloneClientPresetPersistence:
         self, multiroom_equalizer_service, mock_registry, sample_zone_client
     ):
         """A client that is in a zone still raises (must use the zone path)."""
-        mock_registry.get_standalone_equalizer.return_value = None
+        mock_registry.get_client_equalizer.return_value = None
         mock_registry.get_client.return_value = sample_zone_client
 
         with pytest.raises(ValueError, match="is in a zone"):
@@ -424,13 +424,13 @@ class TestStandaloneClientPresetPersistence:
     ):
         """Saving a custom preset on a fresh remote client must persist
         active_preset='custom' instead of raising."""
-        mock_registry.get_standalone_equalizer.return_value = None
+        mock_registry.get_client_equalizer.return_value = None
         mock_registry.get_client.return_value = fresh_standalone_client
 
         await multiroom_equalizer_service.save_custom_preset("client", "dc:a6:32:aa:bb:cc")
 
-        mock_registry.set_standalone_equalizer.assert_called_once()
-        persisted = mock_registry.set_standalone_equalizer.call_args.args[1]
+        mock_registry.set_client_equalizer.assert_called_once()
+        persisted = mock_registry.set_client_equalizer.call_args.args[1]
         assert persisted.active_preset == "custom"
 
     @pytest.mark.asyncio
@@ -541,7 +541,7 @@ class TestLocalActivePresetSync:
             mac_id="milo-client-1", name="Bedroom", ip="192.168.1.100",
             online=True, zone_id=None,
         )
-        mock_registry.get_standalone_equalizer.return_value = None
+        mock_registry.get_client_equalizer.return_value = None
         mock_registry.get_client.return_value = remote_client
 
         await multiroom_equalizer_service.save_custom_preset("client", "milo-client-1")
@@ -579,7 +579,7 @@ class TestTargetAgnosticEqualizerMethods:
         result = await multiroom_equalizer_service.apply_equalizer("client", "local", sample_equalizer_settings)
 
         assert result is True
-        mock_registry.set_standalone_equalizer.assert_called_once()
+        mock_registry.set_client_equalizer.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_apply_equalizer_invalid_target_type(
@@ -605,7 +605,7 @@ class TestTargetAgnosticEqualizerMethods:
         self, multiroom_equalizer_service, mock_registry, sample_equalizer_settings
     ):
         """Should route to get_client_equalizer for client target"""
-        mock_registry.get_standalone_equalizer.return_value = sample_equalizer_settings
+        mock_registry.get_client_equalizer.return_value = sample_equalizer_settings
 
         result = await multiroom_equalizer_service.get_equalizer("client", "local")
 
@@ -839,7 +839,7 @@ class TestEventBroadcasting:
         sample_client, sample_equalizer_settings
     ):
         """apply_client_equalizer no longer broadcasts directly — broadcasting
-        is handled by the registry's set_standalone_equalizer and partial update methods."""
+        is handled by the registry's set_client_equalizer and partial update methods."""
         mock_registry.get_client.return_value = sample_client
 
         await multiroom_equalizer_service.apply_client_equalizer("local", sample_equalizer_settings)

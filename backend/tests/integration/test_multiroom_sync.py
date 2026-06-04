@@ -1046,7 +1046,7 @@ class TestReconnectSyncAppliesMonoAndEnabled:
         )
         ws, proxy = _make_ws_with_proxy(registry)
         # Standalone EQ now lives in the registry standalone-equalizer store (SoT).
-        await registry.set_standalone_equalizer(
+        await registry.set_client_equalizer(
             "cc:dd", EqualizerSettings(mono=True, enabled=False, filters=[]), broadcast=False
         )
 
@@ -1065,7 +1065,7 @@ class TestReconnectSyncAppliesMonoAndEnabled:
             clients=[("ee:ff", "Speaker3", "192.168.1.52", -20.0, True)],
         )
         ws, proxy = _make_ws_with_proxy(registry)
-        # No set_standalone_equalizer → get_standalone_equalizer returns None.
+        # No set_client_equalizer → get_client_equalizer returns None.
 
         result = await ws._sync_standalone_equalizer_to_client("ee:ff")
         assert result is True

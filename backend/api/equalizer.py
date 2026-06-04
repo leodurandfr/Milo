@@ -87,7 +87,7 @@ def create_equalizer_router(
         if equalizer_router_service.is_local_client(hostname):
             return
 
-        settings = client_registry_service.get_standalone_equalizer(hostname) or EqualizerSettings()
+        settings = client_registry_service.get_client_equalizer(hostname) or EqualizerSettings()
 
         if category == "compressor":
             settings.compressor = CompressorSettings.from_dict(data)
@@ -113,7 +113,7 @@ def create_equalizer_router(
         else:
             return
 
-        await client_registry_service.set_standalone_equalizer(hostname, settings, broadcast=False)
+        await client_registry_service.set_client_equalizer(hostname, settings, broadcast=False)
 
     # === Equalizer Enable/Disable ===
 
@@ -769,7 +769,7 @@ def create_equalizer_router(
         if not client_ip:
             return {"status": "error", "restored": [], "errors": [f"Client {hostname} not found or offline"]}
 
-        eq = client_registry_service.get_standalone_equalizer(hostname)
+        eq = client_registry_service.get_client_equalizer(hostname)
         if not eq:
             return {"status": "success", "message": "No saved settings to restore", "restored": []}
 

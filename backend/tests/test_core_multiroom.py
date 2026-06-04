@@ -315,7 +315,7 @@ class TestRegistryState:
 
         assert len(state.clients) == 0
         assert len(state.zones) == 0
-        assert len(state.standalone_equalizer) == 0
+        assert len(state.client_equalizer) == 0
 
     def test_state_to_dict(self):
         """Test converting state to dictionary."""
@@ -327,19 +327,19 @@ class TestRegistryState:
             ip="127.0.0.1"
         )
         zone = Zone(name="Zone 1", id="zone1", client_ids=["local", "client2"])
-        standalone_equalizer = EqualizerSettings(filters=[EqFilter(id="eq_band_00", frequency=1000)])
+        client_equalizer = EqualizerSettings(filters=[EqFilter(id="eq_band_00", frequency=1000)])
 
         state = RegistryState(
             clients={"local": client},
             zones={"zone1": zone},
-            standalone_equalizer={"client3": standalone_equalizer}
+            client_equalizer={"client3": client_equalizer}
         )
 
         data = state.to_dict()
 
         assert "local" in data["clients"]
         assert "zone1" in data["zones"]
-        assert "client3" in data["standalone_equalizer"]
+        assert "client3" in data["client_equalizer"]
 
 
 class TestRegistryEventType:
@@ -674,7 +674,7 @@ class TestClientRegistryService:
             ClientRegistryService.compute_mac_id("client", "192.168.1.200", mac="00:00:00:00:00:00")
 
     @pytest.mark.asyncio
-    async def test_standalone_equalizer_storage(self, registry):
+    async def test_client_equalizer_storage(self, registry):
         """Test standalone Equalizer settings storage."""
         from backend.core.multiroom.models import EqFilter
 
@@ -683,20 +683,20 @@ class TestClientRegistryService:
         await registry.register_client(mac_id="local", name="Main", ip="127.0.0.1")
 
         # Initially no standalone Equalizer
-        assert registry.get_standalone_equalizer("local") is None
+        assert registry.get_client_equalizer("local") is None
 
         # Set standalone Equalizer with typed EqFilter
         eq = EqualizerSettings(filters=[EqFilter(id="eq_band_00", frequency=1000, gain=3.0)])
-        await registry.set_standalone_equalizer("local", eq)
+        await registry.set_client_equalizer("local", eq)
 
         # Retrieve standalone Equalizer
-        retrieved = registry.get_standalone_equalizer("local")
+        retrieved = registry.get_client_equalizer("local")
         assert retrieved is not None
         assert len(retrieved.filters) == 1
         assert retrieved.filters[0].frequency == 1000
 
     @pytest.mark.asyncio
-    async def test_standalone_equalizer_cleared_on_zone_join(self, registry):
+    async def test_client_equalizer_cleared_on_zone_join(self, registry):
         """Test that standalone Equalizer is cleared when client joins a zone."""
         from backend.core.multiroom.models import EqFilter
 
@@ -707,13 +707,13 @@ class TestClientRegistryService:
 
         # Set standalone Equalizer for local with typed EqFilter
         eq = EqualizerSettings(filters=[EqFilter(id="eq_band_00", frequency=1000)])
-        await registry.set_standalone_equalizer("local", eq)
+        await registry.set_client_equalizer("local", eq)
 
         # Create zone - standalone Equalizer should be cleared
         await registry.create_zone("zone1", "Test Zone", ["local", "client2"])
 
         # Standalone Equalizer should be cleared
-        assert registry.get_standalone_equalizer("local") is None
+        assert registry.get_client_equalizer("local") is None
 
     @pytest.mark.asyncio
     async def test_zone_equalizer_retained_on_leave(self, registry):
@@ -731,14 +731,14 @@ class TestClientRegistryService:
         await registry.create_zone("zone1", "Test Zone", ["local", "client2", "client3"], equalizer_settings=zone_equalizer)
 
         # Verify no standalone Equalizer for client3
-        assert registry.get_standalone_equalizer("client3") is None
+        assert registry.get_client_equalizer("client3") is None
 
         # Remove client3 from zone
         result = await registry.remove_client_from_zone("zone1", "client3")
         assert result is True
 
         # Client3 should now have zone's Equalizer as standalone (FR14)
-        standalone = registry.get_standalone_equalizer("client3")
+        standalone = registry.get_client_equalizer("client3")
         assert standalone is not None
         assert len(standalone.filters) == 1
         assert standalone.filters[0].frequency == 2000
@@ -2411,7 +2411,7 @@ class TestSnapcastClientDetection:
         await registry.update_client("aa:bb:cc:dd:ee:01", name="A2")
         await registry.update_speaker_type("aa:bb:cc:dd:ee:01", "subwoofer")
         await registry.update_volume("aa:bb:cc:dd:ee:01", volume_db=-30.0, mute=True)
-        await registry.set_standalone_equalizer(
+        await registry.set_client_equalizer(
             "aa:bb:cc:dd:ee:03", EqualizerSettings.default_for_zone()
         )
         await registry.create_zone(
@@ -3061,7 +3061,7 @@ class TestSyncStandaloneDspToClient:
         client.is_local = False
         client.mac_id = "test-client"
         registry.get_client = MagicMock(return_value=client)
-        registry.get_standalone_equalizer = MagicMock(return_value=None)
+        registry.get_client_equalizer = MagicMock(return_value=None)
         return registry
 
     def _make_ws(self, sm, registry, proxy=None, camilladsp=None, crossover=None):
@@ -3085,7 +3085,7 @@ class TestSyncStandaloneDspToClient:
     async def test_saved_settings_applied_via_proxy(self, mock_state_machine, mock_registry, mock_proxy, mock_camilladsp, mock_crossover):
         """Saved settings are pushed to a remote client via the proxy."""
         from backend.core.multiroom.models import EqualizerSettings, EqFilter
-        mock_registry.get_standalone_equalizer.return_value = EqualizerSettings(
+        mock_registry.get_client_equalizer.return_value = EqualizerSettings(
             filters=[EqFilter(id="eq_band_00", frequency=100, gain=2.0, q=1.41)],
             mono=False, enabled=True,
         )
@@ -3104,7 +3104,7 @@ class TestSyncStandaloneDspToClient:
         local_client.is_local = True
         local_client.mac_id = "local"
         registry.get_client = MagicMock(return_value=local_client)
-        registry.get_standalone_equalizer = MagicMock(return_value=EqualizerSettings(
+        registry.get_client_equalizer = MagicMock(return_value=EqualizerSettings(
             filters=[EqFilter(id="eq_band_00", frequency=100, gain=2.0, q=1.41)],
             mono=False, enabled=True,
         ))
@@ -3128,7 +3128,7 @@ class TestSyncStandaloneDspToClient:
     async def test_failed_filter_settings_are_queued_standalone(self, mock_state_machine, mock_registry, mock_camilladsp, mock_crossover):
         """Failed filter pushes are queued for retry via queue_pending_settings()."""
         from backend.core.multiroom.models import EqualizerSettings, EqFilter
-        mock_registry.get_standalone_equalizer.return_value = EqualizerSettings(
+        mock_registry.get_client_equalizer.return_value = EqualizerSettings(
             filters=[
                 EqFilter(id="eq_band_00", frequency=100, gain=2.0, q=1.41),
                 EqFilter(id="eq_band_01", frequency=1000, gain=-1.5, q=1.41),
@@ -3157,7 +3157,7 @@ class TestSyncStandaloneDspToClient:
         local_client.is_local = True
         local_client.mac_id = "local"
         registry.get_client = MagicMock(return_value=local_client)
-        registry.get_standalone_equalizer = MagicMock(return_value=EqualizerSettings(
+        registry.get_client_equalizer = MagicMock(return_value=EqualizerSettings(
             filters=[EqFilter(id="eq_band_00", frequency=100, gain=2.0, q=1.41)],
             mono=False, enabled=True, active_preset="vocal_boost",
         ))
@@ -3173,7 +3173,7 @@ class TestSyncStandaloneDspToClient:
         /client/{mac}/status); the local CamillaDSP preset name must NOT be set when
         syncing a remote client."""
         from backend.core.multiroom.models import EqualizerSettings, EqFilter
-        mock_registry.get_standalone_equalizer.return_value = EqualizerSettings(
+        mock_registry.get_client_equalizer.return_value = EqualizerSettings(
             filters=[EqFilter(id="eq_band_00", frequency=100, gain=2.0, q=1.41)],
             mono=False, enabled=True, active_preset="vocal_boost",
         )

@@ -33,7 +33,7 @@ def mock_settings_service():
     storage = {
         "multiroom.clients": {},
         "multiroom.zones": {},
-        "multiroom.standalone_equalizer": {}
+        "multiroom.client_equalizer": {}
     }
 
     async def mock_get_setting(key):
@@ -678,7 +678,7 @@ class TestZoneEqualizerSettings:
         assert zone.equalizer_settings.compressor.enabled is True
 
     @pytest.mark.asyncio
-    async def test_standalone_equalizer_cleared_when_joining_zone(
+    async def test_client_equalizer_cleared_when_joining_zone(
         self,
         registry_with_clients: ClientRegistryService
     ):
@@ -689,10 +689,10 @@ class TestZoneEqualizerSettings:
 
         # Set standalone Equalizer for local with typed EqFilter
         eq = EqualizerSettings(filters=[EqFilter(id="eq_band_00", frequency=1000)])
-        await registry_with_clients.set_standalone_equalizer("local", eq)
+        await registry_with_clients.set_client_equalizer("local", eq)
 
         # Verify standalone Equalizer exists
-        assert registry_with_clients.get_standalone_equalizer("local") is not None
+        assert registry_with_clients.get_client_equalizer("local") is not None
 
         # Create zone
         await registry_with_clients.create_zone(
@@ -702,7 +702,7 @@ class TestZoneEqualizerSettings:
         )
 
         # Standalone Equalizer should be cleared
-        assert registry_with_clients.get_standalone_equalizer("local") is None
+        assert registry_with_clients.get_client_equalizer("local") is None
 
 
 # ==============================================================================
