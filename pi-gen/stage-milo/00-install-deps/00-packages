@@ -65,6 +65,9 @@ nginx
 sg3-utils
 libdiscid0
 libdiscid-dev
+eject
+ethtool
+ir-keytable
 cage
 seatd
 plymouth

@@ -164,33 +164,12 @@ optimize_boot_performance() {
     log_success "NetworkManager-wait-online.service masked (saves ~13s at boot)"
 }
 
-save_hardware_config() {
-    log_info "Saving default hardware configuration to $MILO_DATA_DIR/hardware.json..."
-
-    sudo tee "$MILO_DATA_DIR/hardware.json" > /dev/null << 'EOF'
-{
-  "screen": {
-    "type": "none",
-    "resolution": null
-  },
-  "audio": {
-    "id": "none"
-  },
-  "rotary_encoder": {
-    "clk_pin": 22,
-    "dt_pin": 27,
-    "sw_pin": 23
-  },
-  "ir_remote": {
-    "enabled": true,
-    "gpio_pin": 17
-  }
-}
-EOF
-
-    sudo chown "$MILO_USER:$MILO_USER" "$MILO_DATA_DIR/hardware.json"
-    log_success "Default hardware configuration saved (configure via setup wizard)"
-}
+# Note: hardware.json is intentionally NOT seeded here. The backend creates it
+# (save_versioned_json, always stamping the current schema_version) when the user
+# picks hardware in the setup wizard. A bash-seeded file cannot track the schema
+# and shipped a stale, unversioned file that crash-looped the backend with
+# SchemaVersionMismatch. Absent file → backend uses in-code defaults
+# (see backend/hardware/registry.py).
 
 enable_services() {
     log_info "Enabling automatic service startup..."
@@ -256,7 +235,6 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     configure_journald
     configure_fan_control
     optimize_boot_performance
-    save_hardware_config
     enable_services
     log_success "System configuration complete"
 fi

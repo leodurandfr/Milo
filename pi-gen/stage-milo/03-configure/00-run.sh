@@ -68,6 +68,32 @@ configure_fan_control
 configure_power_led
 CHROOT
 
+# ── IR remote (Apple Remote via TSOP4838 on GPIO17) ──────────────────────────
+# Parity with install.sh::install_ir_remote. The ir-keytable package is installed
+# in 00-install-deps (apt lists are wiped before this stage, so no apt here).
+# Reuse install/ir-remote.sh as the single source of truth: gpio-ir overlay in
+# config.txt, keymap helper scripts + sudoers, and the boot keytable service.
+on_chroot << 'CHROOT'
+cd /home/milo/milo
+source install/common.sh
+source install/ir-remote.sh
+mkdir -p /etc/rc_keymaps
+configure_ir_overlay
+install_ir_helpers
+install_ir_systemd_service
+CHROOT
+
+# ── BlueZ LE connection parameters ───────────────────────────────────────────
+# Parity with install.sh: tune /etc/bluetooth/main.conf [LE] for low-power BLE
+# HID remotes. Reuse install/bluez-le.sh (file-only sed; its trailing
+# `systemctl restart bluetooth` is guarded with `|| true`, safe in the chroot).
+on_chroot << 'CHROOT'
+cd /home/milo/milo
+source install/common.sh
+source install/bluez-le.sh
+configure_bluez_le
+CHROOT
+
 # ── Journald: persistent storage + limits ─────────────────────────────────────
 # Persistent (on-disk) storage so logs survive a reboot — a RAM-only journal
 # wipes the evidence of any boot-time failure (e.g. NetworkManager not

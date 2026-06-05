@@ -32,6 +32,22 @@ ETH_IP=""
 
 log() { echo "[milo-first-boot] $1"; }
 
+# Keep only the avahi interface-override drop-in matching the active role. The
+# universal image ships both (server: milo-override.conf, client:
+# milo-client-override.conf); leaving both lets the client drop-in's static
+# allow/deny sed fight the server's dynamic interface selection (and vice-versa).
+# Idempotent — safe to call on every boot.
+prune_avahi_override() {
+    local role="$1"  # server | client
+    local dir="/etc/systemd/system/avahi-daemon.service.d"
+    if [[ "$role" == "client" ]]; then
+        rm -f "$dir/milo-override.conf"
+    else
+        rm -f "$dir/milo-client-override.conf"
+    fi
+    systemctl daemon-reload 2>/dev/null || true
+}
+
 # =============================================================================
 # Check for ethernet connection
 # =============================================================================
@@ -171,6 +187,9 @@ EOF
         systemctl disable "$svc.service" 2>/dev/null || true
     done
     log "Server services disabled"
+
+    # 8b. Keep only the client avahi override (drop the server one)
+    prune_avahi_override client
 
     # 9. Enable client services
     local client_services=(
@@ -343,6 +362,9 @@ configure_server() {
     done
     log "Server services enabled"
 
+    # 4b. Keep only the server avahi override (drop the client one)
+    prune_avahi_override server
+
     # 5. Reset only settings.json — other data files (radio, podcast, hardware) are
     # inert on a fresh server and will be overwritten when needed.
     # /var/lib/milo-client, the milo-client user and its symlinks are left in place:
@@ -394,6 +416,15 @@ fi
 
 current_hostname=$(hostname)
 log "Setup not completed (hostname=$current_hostname) — detecting role..."
+
+# Align the avahi override with the current role on every detection boot. The
+# fresh-server path stays a server without ever calling configure_server, so this
+# is the only place a brand-new image drops the unused client override.
+if [[ "$current_hostname" == "milo-client" ]]; then
+    prune_avahi_override client
+else
+    prune_avahi_override server
+fi
 
 if has_ethernet_carrier 15 && wait_for_ethernet_ip; then
     # Let multicast/IGMP fully settle on the freshly-up interface before probing
