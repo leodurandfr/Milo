@@ -543,6 +543,7 @@ class PodcastSource(MpvAudioSource):
         position = await self._mpv.get_property("playback-time")
         duration = await self._mpv.get_property("duration")
         pause_state = await self._mpv.get_property("pause")
+        idle_active = await self._mpv.get_property("idle-active")
 
         if position is not None:
             new_position = int(position)
@@ -586,19 +587,24 @@ class PodcastSource(MpvAudioSource):
             self._logger.info("Stuck at 0.0 with pause=True, forcing unpause")
             await self._mpv.set_property("pause", False)
 
-        # Check if episode ended (position is None when mpv stops)
-        if (self._is_playing and position is None and
-            self._duration > 0 and
-            self._position >= self._duration - 5):  # Within 5 seconds of end
-
-            self._logger.info("Episode finished")
+        # Episode finished: mpv unloaded the file (keep-open=no) and returned to
+        # idle. `idle-active` is the authoritative EOF signal — unlike a
+        # position-vs-duration heuristic it doesn't depend on accurate podcast
+        # duration metadata (frequently over-reported for VBR MP3 streams, which
+        # would otherwise leave the player stuck on the last frame), and it stays
+        # False during mid-stream cache stalls where playback-time momentarily
+        # reads None.
+        if self._is_playing and idle_active is True:
+            self._logger.info("Episode finished (mpv idle)")
 
             await self._podcast_data.clear_playback_progress(
                 self._current_episode['uuid']
             )
 
+            self._stop_progress_save()
             self._current_episode = None
             self._is_playing = False
+            self._is_buffering = False
             self._position = 0
             self._duration = 0
 
