@@ -49,23 +49,8 @@ export function useSettingsAPI() {
     debounceTimers.set(key, id);
   }
 
-  /**
-   * Load a configuration from the API
-   * @param {string} endpoint - API endpoint
-   * @returns {Promise<object>} - API response data
-   */
-  async function loadConfig(endpoint) {
-    const result = await apiCall.get(`/api/settings/${endpoint}`, {
-      category: 'api',
-      message: `Error loading config from ${endpoint}`,
-      rethrow: true
-    });
-    return result.data;
-  }
-
   return {
     updateSetting,
-    debouncedUpdate,
-    loadConfig
+    debouncedUpdate
   };
 }
