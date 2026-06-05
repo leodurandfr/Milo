@@ -2,8 +2,11 @@
 """
 Hardware registry — single source of truth for supported audio cards and screens.
 
-Used by HardwareService (validation, config resolution), API routes (dropdown options),
-and install.sh (via save_hardware_config).
+Used by HardwareService (validation, config resolution) and API routes (dropdown options).
+These in-code defaults are the single source of truth: hardware.json is created by the
+backend (save_versioned_json, which always stamps the current schema_version) when the
+user picks hardware in the setup wizard. The install scripts no longer seed a default
+file — a bash-seeded file cannot track the schema and shipped a stale one that crash-looped.
 """
 
 # =============================================================================

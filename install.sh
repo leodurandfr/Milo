@@ -146,9 +146,9 @@ main() {
     configure_silent_login
     optimize_boot_performance
 
-    # Screen & hardware config
+    # Screen brightness control (hardware.json is created by the backend/setup
+    # wizard, never seeded here — see install/system.sh)
     install_screen_brightness_control
-    save_hardware_config
 
     # Cleanup non-interactive apt overrides (must happen after all apt calls)
     sudo rm -f /etc/apt/apt.conf.d/local

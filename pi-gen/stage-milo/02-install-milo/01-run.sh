@@ -41,18 +41,18 @@ CHROOT
 # ── ALSA configuration ───────────────────────────────────────────────────────
 
 on_chroot << 'CHROOT'
-# ALSA loopback module
+# ALSA loopback module (server: 8 substreams)
 echo "snd-aloop" > /etc/modules-load.d/snd-aloop.conf
 echo "options snd-aloop index=1 enable=1 pcm_substreams=8" > /etc/modprobe.d/snd-aloop.conf
 
-# ALSA device routing
-cp /home/milo/milo/rootfs/etc/asound.conf /etc/asound.conf
-
-# Default routing environment
-tee /var/lib/milo/routing.env > /dev/null << 'EOF'
-MILO_MODE=direct
-EOF
-chown milo:milo /var/lib/milo/routing.env
+# ALSA routing + env files (asound.conf, routing.env, snapclient.env, mac.env).
+# Reuse install/alsa.sh::configure_alsa_complete so pi-gen and the bash installer
+# write identical files — single source of truth. Inline-writing only routing.env
+# (the old behaviour) left snapclient.env and mac.env missing on the image.
+cd /home/milo/milo
+source install/common.sh
+source install/alsa.sh
+configure_alsa_complete
 CHROOT
 
 # ── CamillaDSP configuration ─────────────────────────────────────────────────
@@ -253,6 +253,17 @@ chmod 755 /etc/NetworkManager/dispatcher.d/90-milo-network
 # Captive portal DNS redirect for hotspot mode
 mkdir -p /etc/NetworkManager/dnsmasq-shared.d
 cp /home/milo/milo/rootfs/etc/NetworkManager/dnsmasq-shared.d/milo-captive.conf /etc/NetworkManager/dnsmasq-shared.d/
+
+# NetworkManager connectivity check — drop-in read by the backend connectivity
+# D-Bus subscriber (backend/core/connectivity/service.py). Written inline because
+# install/network.sh::configure_nm_connectivity also reloads/restarts NetworkManager,
+# which is not valid inside the build chroot.
+mkdir -p /etc/NetworkManager/conf.d
+tee /etc/NetworkManager/conf.d/99-milo-connectivity.conf > /dev/null << 'EOF'
+[connectivity]
+uri=http://nmcheck.gnome.org/check_network_status.txt
+interval=300
+EOF
 CHROOT
 
 # ── PolicyKit rules ───────────────────────────────────────────────────────────
@@ -273,39 +284,23 @@ CHROOT
 # ── Scripts and tools ─────────────────────────────────────────────────────────
 
 on_chroot << 'CHROOT'
-# Readiness script
-cp /home/milo/milo/rootfs/usr/local/bin/milo-wait-ready.sh /usr/local/bin/
-chmod +x /usr/local/bin/milo-wait-ready.sh
-
 # Shared hardware helpers library (used by both server and client apply scripts)
 mkdir -p /usr/local/lib/milo
 cp /home/milo/milo/rootfs/usr/local/lib/milo/hardware-helpers.sh /usr/local/lib/milo/
 chmod +x /usr/local/lib/milo/hardware-helpers.sh
 
-# Hardware apply script
-cp /home/milo/milo/rootfs/usr/local/bin/milo-apply-hardware /usr/local/bin/
-chmod +x /usr/local/bin/milo-apply-hardware
+# Deploy ALL server scripts from rootfs/usr/local/bin in one loop. A hand-maintained
+# per-file allowlist silently drops newly-added scripts — that is exactly how
+# milo-apply-avahi-iface, milo-apply-ir-keymap and milo-ir-keytable-setup went
+# missing from the image (avahi-daemon then failed 203/EXEC on the missing helper).
+for script in /home/milo/milo/rootfs/usr/local/bin/*; do
+    if [ -f "$script" ]; then
+        cp "$script" /usr/local/bin/
+        chmod +x "/usr/local/bin/$(basename "$script")"
+    fi
+done
 
-# Update deployment wrapper
-cp /home/milo/milo/rootfs/usr/local/bin/milo-deploy-update /usr/local/bin/
-chmod +x /usr/local/bin/milo-deploy-update
-
-# WiFi country regulatory domain script
-cp /home/milo/milo/rootfs/usr/local/bin/milo-set-wifi-country /usr/local/bin/
-chmod +x /usr/local/bin/milo-set-wifi-country
-
-# Brightness control for Waveshare 7" USB
-cp /home/milo/milo/rootfs/usr/local/bin/milo-brightness-7 /usr/local/bin/
-chmod +x /usr/local/bin/milo-brightness-7
-
-# First-boot auto-detection (server vs client mode)
-cp /home/milo/milo/rootfs/usr/local/bin/milo-first-boot /usr/local/bin/
-chmod +x /usr/local/bin/milo-first-boot
-
-cp /home/milo/milo/rootfs/usr/local/bin/milo-mdns-probe /usr/local/bin/
-chmod +x /usr/local/bin/milo-mdns-probe
-
-# milo-client scripts
+# milo-client scripts (universal image supports both server and client roles)
 if [ -d /home/milo/milo/milo-client/rootfs/usr/local/bin ]; then
     for script in /home/milo/milo/milo-client/rootfs/usr/local/bin/*; do
         if [ -f "$script" ]; then
@@ -316,24 +311,10 @@ if [ -d /home/milo/milo/milo-client/rootfs/usr/local/bin ]; then
 fi
 CHROOT
 
-# ── Default hardware configuration ───────────────────────────────────────────
-
-on_chroot << 'CHROOT'
-tee /var/lib/milo/hardware.json > /dev/null << 'EOF'
-{
-  "screen": {
-    "type": "none",
-    "resolution": null
-  },
-  "audio": {
-    "id": "none"
-  },
-  "rotary_encoder": {
-    "clk_pin": 22,
-    "dt_pin": 27,
-    "sw_pin": 23
-  }
-}
-EOF
-chown milo:milo /var/lib/milo/hardware.json
-CHROOT
+# ── Hardware configuration ───────────────────────────────────────────────────
+# Intentionally NOT seeded. /var/lib/milo/hardware.json is created by the backend
+# (save_versioned_json, which always stamps the current schema_version) when the
+# user picks hardware in the setup wizard. A bash-seeded file cannot be kept in
+# sync with the schema: it shipped a stale, unversioned file that crash-looped the
+# backend with SchemaVersionMismatch. Absent file → backend uses its in-code
+# defaults (see backend/hardware/registry.py).
