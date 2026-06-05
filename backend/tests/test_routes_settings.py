@@ -152,15 +152,6 @@ class TestSettingsRoutes:
     # VOLUME LIMITS TESTS (dB-based)
     # ===================
 
-    def test_get_volume_limits(self, client):
-        """Test GET /volume-limits"""
-        client._mock_settings.get_setting = AsyncMock(return_value={
-            "limit_min_db": -80.0, "limit_max_db": -21.0
-        })
-        response = client.get("/api/settings/volume-limits")
-        assert response.status_code == 200
-        assert "limits" in response.json()
-
     def test_set_volume_limits_valid(self, client):
         """Test PUT /volume-limits with valid values"""
         response = client.put("/api/settings/volume-limits", json={
@@ -230,14 +221,6 @@ class TestSettingsRoutes:
     # VOLUME STEPS TESTS
     # ===================
 
-    def test_get_volume_steps(self, client):
-        """Test GET /volume-steps"""
-        client._mock_settings.get_setting = AsyncMock(return_value={
-            "mobile_volume_steps": 5
-        })
-        response = client.get("/api/settings/volume-steps")
-        assert response.status_code == 200
-
     def test_set_volume_steps_valid(self, client):
         """Test PUT /volume-steps with valid value (in dB)"""
         response = client.put("/api/settings/volume-steps", json={
@@ -281,15 +264,6 @@ class TestSettingsRoutes:
     # ===================
     # DOCK APPS TESTS
     # ===================
-
-    def test_get_dock_apps(self, client):
-        """Test GET /dock-apps"""
-        client._mock_settings.get_setting = AsyncMock(return_value={
-            "enabled_apps": ["spotify", "bluetooth", "settings"]
-        })
-        response = client.get("/api/settings/dock-apps")
-        assert response.status_code == 200
-        assert "config" in response.json()
 
     def test_set_dock_apps_valid(self, client):
         """Test PUT /dock-apps with valid apps"""

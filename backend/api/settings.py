@@ -179,17 +179,6 @@ def create_settings_router(
         )
 
     # Volume limits (in dB)
-    @router.get("/volume-limits")
-    async def get_volume_limits():
-        vol = await settings.get_setting('volume') or {}
-        return {
-            "status": "success",
-            "limits": {
-                "min_db": vol.get("limit_min_db", -80.0),
-                "max_db": vol.get("limit_max_db", -20.0)
-            }
-        }
-
     @router.put("/volume-limits")
     async def set_volume_limits(payload: VolumeLimitsRequest):
         async def setter():
@@ -237,14 +226,6 @@ def create_settings_router(
         )
 
     # Volume steps (mobile, in dB)
-    @router.get("/volume-steps")
-    async def get_volume_steps():
-        vol = await settings.get_setting('volume') or {}
-        return {
-            "status": "success",
-            "config": {"step_mobile_db": vol.get("step_mobile_db", 2.0)}
-        }
-
     @router.put("/volume-steps")
     async def set_volume_steps(payload: VolumeStepsRequest):
         return await _handle_setting_update(
@@ -301,16 +282,6 @@ def create_settings_router(
         )
 
     # Dock apps – VERSION WITH PROCESS DEACTIVATION
-    @router.get("/dock-apps")
-    async def get_dock_apps():
-        dock = await settings.get_setting('dock') or {}
-        enabled_apps = dock.get('enabled_apps', DEFAULT_DOCK_APPS)
-
-        return {
-            "status": "success",
-            "config": {"enabled_apps": enabled_apps}
-        }
-
     @router.put("/dock-apps")
     async def set_dock_apps(payload: DockAppsRequest):
         """
