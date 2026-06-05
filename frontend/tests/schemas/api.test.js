@@ -67,7 +67,7 @@ describe('API Schemas', () => {
         global_volume_db: -25.5,
         global_mute: false,
         clients: {
-          client1: { volume_db: -20, offset_db: 0, mute: false, online: true }
+          client1: { volume_db: -20, offset_db: 0, mute: false, available: true }
         },
         zones: {
           zone1: { id: 'z1', name: 'Zone 1', client_ids: ['client1'] }

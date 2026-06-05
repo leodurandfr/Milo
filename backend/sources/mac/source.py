@@ -156,8 +156,7 @@ class MacSource(BaseAudioSource):
             "rtcp_port": self.rtcp_port,
             "audio_output": self.audio_output,
             "connected": len(self.connected_clients) > 0,
-            "client_names": client_names,
-            "client_count": len(client_names)
+            "client_names": client_names
         }
 
     async def _handle_command(self, cmd: str, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -351,7 +350,6 @@ class MacSource(BaseAudioSource):
         self._set_active_or_waiting(
             bool(self.connected_clients),
             {**base, "connected": True,
-             "client_names": list(self.connected_clients.values()),
-             "client_count": len(self.connected_clients)},
-            {**base, "connected": False, "client_names": [], "client_count": 0}
+             "client_names": list(self.connected_clients.values())},
+            {**base, "connected": False, "client_names": []}
         )

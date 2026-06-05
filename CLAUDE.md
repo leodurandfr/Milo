@@ -16,6 +16,8 @@ The FastAPI REST API + WebSocket have a **second consumer beyond `frontend/`: Mi
 - **REST** (every one already shared with the frontend): `GET /api/audio/state`, `POST /api/audio/source/{id}`, `PUT /api/routing/multiroom`, `GET /api/volume/state`, `POST /api/volume/adjust`, `PUT /api/equalizer/target/local/enabled`, `GET /api/settings/bulk`, `GET /api/radio/stations`, `POST /api/radio/{play,stop}` — including their request-body and response keys.
 - **WebSocket** events `system` / `source` / `volume` / `equalizer` / `routing` / `settings` — relying on the `full_state` envelope, `multiroom_changed`, the `volume_changed` payload (incl. `step_mobile_db`, also consumed by the frontend), and `settings/volume_limits_changed` + `settings/dock_apps_changed` (`data.limits`, `data.config`).
 
+**WS `metadata` is opaque to Milo-Mac** (verified against `WebSocketService.swift`, 2026-06-05): it reads the `full_state` *envelope fields* (`active_source`, `source_state`, `transitioning`, `multiroom_enabled`, `equalizer_effects_enabled`) but takes `metadata` as a whole dict and reads **no** metadata sub-field. So an over-emitted **metadata sub-field** with no `frontend/src/` consumer (e.g. `uri`, `client_count`, `album_art_height`, `track_position`/`track_duration`) is safe to drop — but envelope / volume / routing / limits / config fields are not. (Don't generalize this to "WS is always safe": the envelope and the named payload fields above *are* coupled.)
+
 **Safe to clean without grepping Milo-Mac:** only purely frontend code (Vue components, Pinia stores, frontend Zod schemas) — Milo-Mac is a separate Swift app that imports none of it.
 
 ## Common Development Commands

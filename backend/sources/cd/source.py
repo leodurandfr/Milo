@@ -656,12 +656,14 @@ class CdSource(MpvAudioSource):
         return await self._handle_play_track({"track_number": target})
 
     async def _handle_seek(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Seek within current track: restart reader at target LBA."""
-        position = data.get("position")
-        if position is None and data.get("position_ms") is not None:
-            position = data["position_ms"] / 1000
-        if position is None:
-            return self.error_response("position required")
+        """Seek within current track: restart reader at target LBA.
+
+        The frontend is the only caller and always sends position_ms.
+        """
+        position_ms = data.get("position_ms")
+        if position_ms is None:
+            return self.error_response("position_ms required")
+        position = position_ms / 1000
 
         if not self._current_track or not self._sector_offsets:
             return self.error_response("No track playing")
@@ -807,7 +809,6 @@ class CdSource(MpvAudioSource):
             "disc_present": self._disc_present,
             "is_playing": self._is_playing,
             "is_buffering": self._is_buffering,
-            "album_finished": self._album_finished,
             "ejecting": self._ejecting,
             "cache_ready": bool(self._sector_offsets),
         }
@@ -834,8 +835,6 @@ class CdSource(MpvAudioSource):
                 metadata.update({
                     "current_track": self._current_track,
                     "title": self._tracks[track_idx].title,
-                    "track_position": int(self._track_position),
-                    "track_duration": int(self._track_duration),
                     "position": int(self._track_position * 1000),
                     "duration": int(self._track_duration * 1000),
                 })
