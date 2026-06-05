@@ -15,6 +15,7 @@
         <div class="tracklist-header">
           <span class="heading-3 tracklist-artist">{{ artistName }}</span>
           <span class="heading-3 tracklist-album">{{ albumTitle }}</span>
+          <span v-if="releaseYear" class="text-mono-small tracklist-year">{{ releaseYear }}</span>
         </div>
         <div class="tracklist-scroll">
           <TrackCard v-for="track in cdStore.tracks" :key="track.number" :track="track"
@@ -48,6 +49,9 @@ const artistName = computed(() =>
 const albumTitle = computed(() =>
   cdStore.discInfo?.album || t('audioSources.cdSource.unknownAlbum')
 );
+
+// Release year (MusicBrainz "YYYY" or empty) — shown next to the album when known
+const releaseYear = computed(() => cdStore.discInfo?.year || '');
 </script>
 
 <style scoped>
@@ -80,6 +84,10 @@ const albumTitle = computed(() =>
 }
 
 .tracklist-album {
+  color: var(--color-text-secondary);
+}
+
+.tracklist-year {
   color: var(--color-text-secondary);
 }
 
