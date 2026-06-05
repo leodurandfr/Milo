@@ -458,6 +458,103 @@ class TestPlaybackMetadata:
         assert metadata["playback_speed"] == 1.5
 
 
+class TestEpisodeEndDetection:
+    """Test end-of-episode detection in _on_monitor_tick.
+
+    mpv runs with keep-open=no + --idle=yes, so at EOF it unloads the file and
+    returns to idle: playback-time → None and idle-active → True. Detection must
+    key off idle-active (authoritative) rather than a position-vs-duration
+    heuristic, which breaks whenever the reported duration overshoots the real
+    end-of-audio (common with VBR podcast MP3s / early-terminated HTTP streams).
+    """
+
+    def _mpv_with_props(self, props):
+        mpv = Mock()
+        mpv.is_connected = True
+
+        async def _get(name):
+            return props.get(name)
+
+        mpv.get_property = AsyncMock(side_effect=_get)
+        return mpv
+
+    @pytest.mark.asyncio
+    async def test_episode_ends_on_idle_even_if_position_short_of_duration(self, podcast_source):
+        """EOF (mpv idle) returns to WAITING even when the last observed position
+        is far short of the reported duration — the original 'stuck at the end' bug."""
+        podcast_source._current_episode = {"uuid": "ep1", "name": "Ep"}
+        podcast_source._is_playing = True
+        podcast_source._loading = False
+        podcast_source._position = 3000   # real end of audio
+        podcast_source._duration = 3600   # over-reported duration
+        podcast_source._progress_save_task = None
+        podcast_source._podcast_data.clear_playback_progress = AsyncMock()
+        podcast_source._mpv = self._mpv_with_props(
+            {"playback-time": None, "duration": None, "pause": False, "idle-active": True}
+        )
+
+        await podcast_source._on_monitor_tick()
+
+        assert podcast_source._current_episode is None
+        assert podcast_source._is_playing is False
+        assert podcast_source.state == SourceState.WAITING
+        podcast_source._podcast_data.clear_playback_progress.assert_awaited_once_with("ep1")
+
+    @pytest.mark.asyncio
+    async def test_transient_position_none_does_not_end_episode(self, podcast_source):
+        """A momentary playback-time=None during a mid-stream cache stall (file
+        still loaded → idle-active False) must NOT be mistaken for EOF."""
+        podcast_source._current_episode = {"uuid": "ep1", "name": "Ep"}
+        podcast_source._is_playing = True
+        podcast_source._loading = False
+        podcast_source._position = 1800
+        podcast_source._duration = 3600
+        podcast_source._mpv = self._mpv_with_props(
+            {"playback-time": None, "duration": None, "pause": False, "idle-active": False}
+        )
+
+        await podcast_source._on_monitor_tick()
+
+        assert podcast_source._current_episode is not None
+        assert podcast_source._is_playing is True
+
+    @pytest.mark.asyncio
+    async def test_idle_active_during_loading_does_not_end_episode(self, podcast_source):
+        """idle-active is True while mpv is still in the load window (before
+        _loading is cleared). The _loading guard must return early so the EOF
+        path can't fire prematurely — protects against a future refactor moving
+        _loading = False ahead of the stream actually playing."""
+        podcast_source._current_episode = {"uuid": "ep1", "name": "Ep"}
+        podcast_source._is_playing = False
+        podcast_source._loading = True
+        podcast_source._mpv = self._mpv_with_props(
+            {"playback-time": None, "duration": None, "pause": False, "idle-active": True}
+        )
+
+        await podcast_source._on_monitor_tick()
+
+        assert podcast_source._current_episode is not None
+
+    @pytest.mark.asyncio
+    async def test_normal_end_returns_to_waiting(self, podcast_source):
+        """Well-behaved file: position reaches duration, mpv idles → WAITING."""
+        podcast_source._current_episode = {"uuid": "ep1", "name": "Ep"}
+        podcast_source._is_playing = True
+        podcast_source._loading = False
+        podcast_source._position = 3599
+        podcast_source._duration = 3600
+        podcast_source._progress_save_task = None
+        podcast_source._podcast_data.clear_playback_progress = AsyncMock()
+        podcast_source._mpv = self._mpv_with_props(
+            {"playback-time": None, "duration": None, "pause": False, "idle-active": True}
+        )
+
+        await podcast_source._on_monitor_tick()
+
+        assert podcast_source._current_episode is None
+        assert podcast_source.state == SourceState.WAITING
+
+
 class TestProperties:
     """Test public properties."""
 
