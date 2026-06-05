@@ -6,7 +6,7 @@ Tests the migrated VolumeService, VolumeStateStore,
 and EqualizerController in the new core/volume/ location.
 """
 import pytest
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import Mock, AsyncMock, patch
 import asyncio
 
 from backend.core.volume import (
@@ -502,6 +502,121 @@ class TestVolumeService:
 
         mock_camilladsp_service.is_volume_control_available.return_value = False
         assert service._is_equalizer_available() is False
+
+    @pytest.mark.asyncio
+    async def test_apply_volume_direct_deferred_when_camilladsp_not_ready(self, service, mock_camilladsp_service):
+        """Direct mode defers (does not fail) when CamillaDSP is not yet connected.
+
+        Cold-boot / reconnect window (e.g. the post-wizard reboot): the apply is
+        deferred — reapply_current_volume pushes the stored volume on reconnect —
+        so _apply_volume_to_hardware returns True WITHOUT touching the daemon.
+        """
+        mock_camilladsp_service.is_volume_control_available.return_value = False
+        service._state_store._local_mac_id = "aa:bb:cc:dd:ee:ff"  # intent recordable
+
+        result = await service._apply_volume_to_hardware(-40.0, None)
+
+        assert result is True  # deferred, not failed → no HTTP 500
+        mock_camilladsp_service.set_volume.assert_not_called()  # nothing pushed while down
+
+    @pytest.mark.asyncio
+    async def test_apply_volume_direct_deferred_fails_when_local_unknown(self, service, mock_camilladsp_service):
+        """Deferred apply reports failure (not false success) if the local client
+        isn't known yet, so the intent could not be recorded for reconnect."""
+        mock_camilladsp_service.is_volume_control_available.return_value = False
+        service._state_store._local_mac_id = None  # truly-fresh first boot
+
+        result = await service._apply_volume_to_hardware(-40.0, None)
+
+        assert result is False  # honest failure — nothing was recorded to reconcile
+        mock_camilladsp_service.set_volume.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_apply_volume_direct_genuine_failure_surfaces(self, service, mock_camilladsp_service):
+        """When CamillaDSP IS connected, a set_volume failure is a genuine error."""
+        mock_camilladsp_service.is_volume_control_available.return_value = True
+        mock_camilladsp_service.set_volume = AsyncMock(return_value=False)
+
+        result = await service._apply_volume_to_hardware(-40.0, None)
+
+        assert result is False  # real failure is surfaced (route → 500)
+        mock_camilladsp_service.set_volume.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_set_volume_db_records_intent_when_camilladsp_not_ready(
+        self, service, mock_camilladsp_service, mock_state_machine
+    ):
+        """First volume change on cold boot succeeds optimistically: intent is
+        recorded in the state store and broadcast, hardware reconciles on reconnect."""
+        mock_camilladsp_service.is_volume_control_available.return_value = False
+        service._volume_config.restore_last_volume = False  # don't trigger FR11 write
+        # Local client must be known for the state store to record local volume
+        service._state_store._local_mac_id = "aa:bb:cc:dd:ee:ff"
+        service._state_store.set_local_volume(-30.0)
+
+        result = await service.set_volume_db(-50.0)
+
+        assert result is True  # no silent 500 — the press is accepted
+        assert service._state_store.local_volume_db == -50.0  # desired state recorded
+        mock_camilladsp_service.set_volume.assert_not_called()  # deferred to reconnect
+        mock_state_machine.broadcast_event.assert_called()  # UI reflects it immediately
+
+    @pytest.mark.asyncio
+    async def test_adjust_volume_db_defers_when_camilladsp_not_ready(
+        self, service, mock_camilladsp_service, mock_settings
+    ):
+        """adjust_volume_db (relative) also defers (records intent) rather than
+        failing when CamillaDSP isn't ready."""
+        mock_camilladsp_service.is_volume_control_available.return_value = False
+        mock_settings.get_setting = AsyncMock(return_value=False)
+        service._volume_config.restore_last_volume = False
+        service._state_store._local_mac_id = "aa:bb:cc:dd:ee:ff"
+        service._state_store.set_local_volume(-30.0)
+
+        result = await service.adjust_volume_db(2.0)
+
+        assert result is True  # deferred, not a 500
+        assert service._state_store.local_volume_db == -28.0  # intent recorded (relative)
+        mock_camilladsp_service.set_volume.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_seed_local_client_when_unresolved(self, service):
+        """Fresh direct-mode boot: the local client is seeded from the system MAC,
+        so set_local_volume() works (and direct-mode tracking isn't pinned at DEFAULT)."""
+        assert service._state_store.local_mac_id is None
+        with patch(
+            "backend.core.multiroom.client_registry.ClientRegistryService.get_local_mac",
+            return_value="2c:cf:67:8a:87:53",
+        ):
+            service._seed_local_client_if_needed()
+
+        assert service._state_store.local_mac_id == "2c:cf:67:8a:87:53"
+        service._state_store.set_local_volume(-33.0)
+        assert service._state_store.local_volume_db == -33.0  # no longer dropped
+
+    @pytest.mark.asyncio
+    async def test_seed_local_client_is_idempotent(self, service):
+        """Seeding never overrides an already-resolved local mac (Snapcast/persistence)."""
+        service._state_store._local_mac_id = "aa:bb:cc:dd:ee:ff"
+        with patch(
+            "backend.core.multiroom.client_registry.ClientRegistryService.get_local_mac",
+            return_value="11:22:33:44:55:66",
+        ) as mock_get:
+            service._seed_local_client_if_needed()
+
+        mock_get.assert_not_called()  # short-circuits before resolving
+        assert service._state_store.local_mac_id == "aa:bb:cc:dd:ee:ff"
+
+    @pytest.mark.asyncio
+    async def test_reapply_current_volume_reconciles_deferred(self, service, mock_camilladsp_service):
+        """The reconnect callback pushes the stored local volume — this is what
+        reconciles a deferred direct-mode change once CamillaDSP is back."""
+        service._state_store._local_mac_id = "aa:bb:cc:dd:ee:ff"
+        service._state_store.set_local_volume(-37.0)
+
+        await service.reapply_current_volume()
+
+        mock_camilladsp_service.set_volume.assert_called_once_with(-37.0)
 
     def test_volume_config_access(self, service):
         """Test volume_config property access."""

@@ -270,3 +270,41 @@ class TestZoneVolumeDelta:
         )
 
         assert response.status_code == 404
+
+
+# =============================================================================
+# /api/volume/adjust route — deferred-success vs genuine-failure mapping
+# =============================================================================
+
+class TestVolumeAdjustRoute:
+    """The adjust route maps service success→200 and service failure→500.
+
+    After the cold-boot fix, adjust_volume_db returns True on the deferred path
+    (CamillaDSP reconnecting) and only False on a genuine failure (e.g. local MAC
+    unresolved, or a connected set_volume command failure)."""
+
+    @pytest.fixture
+    def mock_volume_service(self):
+        service = MagicMock()
+        service.adjust_volume_db = AsyncMock(return_value=True)
+        service.get_volume_db = AsyncMock(return_value=-40.0)
+        return service
+
+    @pytest.fixture
+    def test_client(self, mock_volume_service):
+        app = FastAPI()
+        app.include_router(create_volume_router(mock_volume_service))
+        return TestClient(app)
+
+    def test_adjust_success_returns_200(self, test_client, mock_volume_service):
+        response = test_client.post("/api/volume/adjust", json={"delta_db": 2.0})
+        assert response.status_code == 200
+        assert response.json()["status"] == "success"
+        mock_volume_service.adjust_volume_db.assert_awaited_once()
+
+    def test_adjust_genuine_failure_returns_500(self, test_client, mock_volume_service):
+        """A genuine failure (service returns False) surfaces as HTTP 500, not a
+        silent no-op — this is the case the deferred path deliberately preserves."""
+        mock_volume_service.adjust_volume_db.return_value = False
+        response = test_client.post("/api/volume/adjust", json={"delta_db": 2.0})
+        assert response.status_code == 500

@@ -124,6 +124,7 @@ class WebSocketServer:
                 "origin": "volume",
                 "data": {
                     "show_bar": False,
+                    "step_mobile_db": self.volume_service.volume_config.step_mobile_db,
                     "state": volume_state.to_dict(),
                 },
                 "timestamp": time.time(),

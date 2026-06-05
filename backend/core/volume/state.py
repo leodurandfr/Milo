@@ -311,6 +311,29 @@ class VolumeStateStore:
             )
         self._schedule_persist()
 
+    def ensure_local_client(self, mac_id: str, volume_db: float) -> None:
+        """Seed the local client identity + volume when not yet resolved.
+
+        On a fresh direct-mode boot the local client is known via neither Snapcast
+        (multiroom off) nor persistence (no prior session), so _local_mac_id stays
+        None and set_local_volume() silently drops writes — leaving direct-mode
+        volume tracking pinned at DEFAULT. Seeding from the system MAC (which equals
+        the snapclient --hostID, so it stays consistent if multiroom is later
+        enabled) fixes tracking from the first boot. Idempotent: never overrides an
+        already-resolved local mac or an existing client entry.
+        """
+        if self._local_mac_id or not mac_id:
+            return
+        self._local_mac_id = mac_id
+        if mac_id not in self._clients:
+            self._clients[mac_id] = ClientVolume(
+                volume_db=self._clamp_db(volume_db),
+                offset_db=0.0,
+                mute=False,
+                available=True,
+            )
+        self.logger.info(f"Seeded local client {mac_id} at {self.local_volume_db:.1f}dB")
+
     async def _load_zones(self) -> None:
         """Load zone configurations from registry."""
         self._zones.clear()

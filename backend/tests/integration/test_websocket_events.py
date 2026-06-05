@@ -99,6 +99,8 @@ def mock_volume_service():
     """Mock volume service for initial state."""
     service = Mock()
     service.wait_for_availability = AsyncMock(return_value=True)
+    # Handshake payload includes the mobile step (must be JSON-serializable)
+    service.volume_config.step_mobile_db = 3.0
 
     # Mock volume state
     mock_state = Mock()
@@ -312,6 +314,10 @@ class TestWebSocketConnection:
 
         assert len(initial_events) >= 1
         assert len(volume_events) >= 1
+
+        # Handshake must carry step_mobile_db so the mobile +/- step is correct
+        # from the first frame (else the frontend keeps its stale default).
+        assert volume_events[0]["data"]["step_mobile_db"] == 3.0
 
 
 # ==============================================================================
