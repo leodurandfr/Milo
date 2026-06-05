@@ -418,9 +418,12 @@ async def test_source_initialization():
 
 ```bash
 cd frontend
-npm run test        # Run tests
-npm run test:ui     # UI mode
+npm run test            # Watch mode
+npm run test:run        # Single run (CI form)
+npm run test:coverage   # With coverage
 ```
+
+> ⚠️ The Vitest suite (`frontend/tests/`) is currently **skipped in CI** — ~97 tests still mock `axios.*` after the apiCall migration. See the *Lint and typing floor* section below.
 
 **Writing a test:**
 
@@ -718,6 +721,70 @@ sudo systemctl daemon-reload && sudo systemctl restart milo-backend
 sudo journalctl -u milo-backend -n 50 | grep "GitHub token"
 # Expected: "GitHub token detected - using authenticated API (5000 req/hour)"
 ```
+
+## Dev-only symptoms vs production bugs
+
+Milō is a **fixed-purpose Pi appliance**. End users:
+
+- Run the **pre-built** frontend served by nginx from `frontend/dist/`.
+- Do **not** rebuild, hot-reload, or keep stale tabs open across deploys.
+- Do **not** interact with the Vite dev server (`npm run dev`), HMR, source-map URLs, or `localhost:5173`.
+
+When a developer reports a bug they hit *while developing*, classify the symptom **before** writing any code (summary + decision rule in [CLAUDE.md](../CLAUDE.md)).
+
+**A. Dev-only artifact** — diagnose, explain, **do not modify code**. Telltale signs:
+
+- Caused by a rebuild while a browser tab was already open (stale JS bundle, renamed chunks → 404 on dynamic imports → blank page).
+- Errors referencing `localhost:5173`, `192.168.x.x:5173`, `?t=<timestamp>` query strings, or `Vite HMR` / `[vite]` log lines.
+- Stale `sessionStorage` / `localStorage` from a prior dev iteration of the schema.
+- Service worker / PWA cache pollution from experimentation (the prod build has no SW).
+- Anything that disappears with a hard refresh (`⌘ + Shift + R`) or after clearing site data.
+- "Page blanche" / "écran blanc" after `npm run build` while a tab was open — almost always the stale-chunk pattern above.
+
+For these: explain *why* it happened, point to the dev workflow that triggered it, and stop. Do **not** add reload guards, version-check loops, or error-handler fallbacks whose only purpose is to mask a developer's mid-session inconsistency — that code would bloat the prod bundle for a scenario no end user will ever create.
+
+**B. Real bug that would also hit production** — fix in code. Telltale signs:
+
+- Reproduces from a clean prod state (fresh boot, nginx-served `dist/`, no dev tools open).
+- Triggered by user actions the appliance is built for: connecting AirPlay, selecting a radio station, multi-room handoff, screen sleep, etc.
+- Reproduces on the Pi kiosk itself (which always runs the prod build), not just the developer's Mac browser.
+- Backend logs (`journalctl -u milo-backend`) or `errors.log` show a server-side trace independent of how the user got there.
+- Hardware-related: ALSA routing, CamillaDSP, ROC, Snapcast, rotary encoder, screen brightness — these always count as prod-relevant.
+
+**When in doubt, ask explicitly before implementing**: *"Is this reproducible from a clean prod boot, or only because of your dev session state?"*
+
+## Lint and typing floor
+
+The project ships a lightweight lint floor that mechanically locks the conventions of RFCs 15-21. All rules are **built-in** to standard tools (no custom plugins to maintain). CI ([.github/workflows/lint.yml](../.github/workflows/lint.yml)) blocks merges if any of these fail: `ruff check backend/`, `npm run lint:js`, `npm run lint:css`, `pytest backend/`. The vitest `npm run test:run` step is temporarily skipped — the suite (`frontend/tests/`) still mocks `axios.*` directly after the RFC 17 apiCall migration (~97 stale tests); re-enable once retargeted at `apiCall`.
+
+| Tool | Rule | Source RFC | Activated in |
+|---|---|---|---|
+| eslint | `no-restricted-imports: axios` | RFC 17 | Lot A — 2026-05-18 |
+| eslint | `no-restricted-syntax: console.*` | RFC 17 | Lot A — 2026-05-18 |
+| ruff | `S110` (try-except-pass) | RFC 18 | Lot B — 2026-05-18 |
+| ruff | `S112` (try-except-continue) | RFC 18 | Lot B — 2026-05-18 |
+| pytest | `test_breaking_changes_coherence` (`SCHEMA_VERSION` ↔ [BREAKING_CHANGES.md](../BREAKING_CHANGES.md)) | RFC 19 | Lot C — 2026-05-18 |
+| stylelint | `color-no-hex` | RFC 21 | RFC 21 PR3 — 2026-05-18 |
+| stylelint | `declaration-property-value-disallowed-list` (`rgba\|hsla` on any color property) | RFC 21 | RFC 21 PR3 — 2026-05-18 |
+| stylelint | `declaration-property-value-disallowed-list` (typography redefinition in scoped CSS) | RFC 21 + RFC 22 | RFC 21 PR3 — 2026-05-18 |
+| eslint | `no-restricted-globals` (bare `setTimeout`/`setInterval`/`clearTimeout`/`clearInterval` in components/composables/views/directives → use `useTimer()`) | §8 Timers | 2026-05-20 |
+
+**Intentional silent swallows** (Python) — use `contextlib.suppress(ExceptionType)` instead of `try: ... except: pass`. The latter trips `ruff S110/S112`; the former is the documented Pythonic idiom and reads as a deliberate, scoped suppression (cleanup paths, idempotent teardown, transient hardware errors in `finally:` blocks).
+
+**Bypassing a legitimate exception** — add a per-line directive with a written justification after `--`:
+
+- Python: `# noqa: S110 -- <reason>` (or the relevant rule code)
+- JS / Vue: `// eslint-disable-next-line <rule> -- <reason>`
+- CSS / Vue: avoid `// stylelint-disable` inline; extend the design system or whitelist the file in [`frontend/.stylelintrc.cjs`](../frontend/.stylelintrc.cjs).
+
+No file-level or repo-level disabling. No muted `noqa` without a reason.
+
+### Future considerations
+
+- **TypeScript progressive adoption** on stores / composables — deferred to a dedicated RFC.
+- **`pyright` strict** on `backend/core/` + `backend/sources/` — deferred.
+- **`husky` pre-commit + `lint-staged`** — useful if the team grows to 3+ devs. CI feedback (~5 min) is currently enough for solo dev.
+- **Custom eslint plugins** (`no-french-comment`, `no-bare-timer`, `no-raw-ws-event-data`) — not cost-effective at 1-2 devs. Re-arbitrate if recurrence justifies.
 
 ## Resources
 
