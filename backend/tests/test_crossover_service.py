@@ -449,6 +449,35 @@ class TestPendingSettingsQueue:
         mock_camilladsp_service.set_crossover_filter.assert_called_once()
         mock_camilladsp_service.set_lowpass_filter.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_apply_pending_volume_on_reconnect(self, crossover_service_with_registry):
+        """Pending per-client volume is restored via VolumeService on reconnect.
+
+        Regression: apply_pending_settings() previously called the non-existent
+        VolumeService.set_client_volume_db(), whose AttributeError was swallowed
+        by the surrounding try/except -- so a reconnecting client silently lost
+        its queued volume. The call must target the real update_client_volume_db().
+        Spec'ing the mock to VolumeService reproduces that AttributeError so this
+        test fails against the buggy call site.
+        """
+        from backend.core.volume.service import VolumeService
+
+        service, registry = crossover_service_with_registry
+        local_client = Client(mac_id="local", name="Local", ip="127.0.0.1", online=True)
+        registry._clients["local"] = local_client
+
+        volume_service = AsyncMock(spec=VolumeService)
+        service.set_volume_service(volume_service)
+
+        service._pending_settings["local"] = {
+            "volume": {"volume_db": -25.0}
+        }
+
+        result = await service.apply_pending_settings("local")
+
+        assert result is True
+        volume_service.update_client_volume_db.assert_awaited_once_with("local", -25.0)
+
     def test_has_pending_settings_returns_false_for_unknown_client(self, crossover_service):
         """Test has_pending_settings returns False for unknown client."""
         assert crossover_service.has_pending_settings("unknown-client") is False

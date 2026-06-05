@@ -22,7 +22,6 @@ from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
 from backend.config.constants import CLIENT_API_PORT as _CLIENT_API_PORT
 from backend.core.multiroom.models import (
-    SPEAKER_TYPES,
     DEFAULT_SPEAKER_TYPE,
     DEFAULT_CROSSOVER_FREQUENCIES,
 )
@@ -567,7 +566,7 @@ class CrossoverService:
             volume_db = pending["volume"].get("volume_db")
             if volume_db is not None and self.volume_service:
                 try:
-                    await self.volume_service.set_client_volume_db(client_id, volume_db)
+                    await self.volume_service.update_client_volume_db(client_id, volume_db)
                     self.logger.info(f"Applied pending volume {volume_db} dB to {client_id}")
                 except Exception as e:
                     self.logger.warning(f"Failed to apply pending volume to {client_id}: {e}")
