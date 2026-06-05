@@ -35,6 +35,7 @@ source "$INSTALL_DIR/network.sh"
 source "$INSTALL_DIR/display.sh"
 source "$INSTALL_DIR/system.sh"
 source "$INSTALL_DIR/ir-remote.sh"
+source "$INSTALL_DIR/power-button.sh"
 source "$INSTALL_DIR/uninstall.sh"
 
 # --- Orchestrator functions ---
@@ -128,6 +129,7 @@ main() {
     # Hardware
     configure_fan_control
     install_ir_remote
+    install_power_button
 
     # Network & web
     install_seatd
