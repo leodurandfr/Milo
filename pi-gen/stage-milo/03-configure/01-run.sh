@@ -18,6 +18,7 @@ systemctl enable milo-kiosk.service
 systemctl enable milo-bluealsa.service
 systemctl enable milo-bluealsa-aplay.service
 systemctl enable milo-disable-wifi-power-management.service
+systemctl enable milo-eeprom-setup.service
 systemctl enable milo-camilladsp.service
 systemctl enable nqptp.service
 systemctl enable seatd.service

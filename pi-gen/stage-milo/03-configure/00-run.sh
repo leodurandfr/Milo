@@ -51,41 +51,21 @@ if [ -f "$CMDLINE" ]; then
 fi
 CHROOT
 
-# ── Boot parameters (config.txt) ─────────────────────────────────────────────
+# ── Boot config.txt (silent boot, fan, power-button LED) ─────────────────────
+# Single source of truth: reuse the install/ functions so pi-gen and the bash
+# installer write identical config.txt entries (no duplicated sed/cat here).
+# The EEPROM "wait for power button" half cannot be baked into an image — it is
+# applied on the device by milo-eeprom-setup.service (enabled in 01-run.sh).
 
 on_chroot << 'CHROOT'
-CONFIG="/boot/firmware/config.txt"
-if [ ! -f "$CONFIG" ]; then
-    CONFIG="/boot/config.txt"
-fi
-
-if [ -f "$CONFIG" ]; then
-    # Silent boot
-    if ! grep -q "disable_splash=1" "$CONFIG"; then
-        sed -i '/^\[all\]$/a\\n# Milo - Silent boot\ndisable_splash=1' "$CONFIG"
-    fi
-
-    # Fan PWM control
-    if ! grep -q "cooling_fan=on" "$CONFIG"; then
-        cat >> "$CONFIG" << 'EOF'
-
-# Milo - Fan PWM Control (4 paliers, audio-first)
-dtparam=cooling_fan=on
-dtparam=fan_temp0=50000
-dtparam=fan_temp0_hyst=2500
-dtparam=fan_temp0_speed=50
-dtparam=fan_temp1=60000
-dtparam=fan_temp1_hyst=2500
-dtparam=fan_temp1_speed=100
-dtparam=fan_temp2=70000
-dtparam=fan_temp2_hyst=2500
-dtparam=fan_temp2_speed=150
-dtparam=fan_temp3=80000
-dtparam=fan_temp3_hyst=2500
-dtparam=fan_temp3_speed=255
-EOF
-    fi
-fi
+cd /home/milo/milo
+source install/common.sh
+source install/boot-common.sh
+source install/system.sh
+source install/power-button.sh
+configure_silent_boot
+configure_fan_control
+configure_power_led
 CHROOT
 
 # ── Journald: persistent storage + limits ─────────────────────────────────────

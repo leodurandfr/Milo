@@ -32,6 +32,7 @@ configure_power_led() {
     if [[ ! -f "$config_file" ]]; then
         config_file="/boot/config.txt"
     fi
+    [[ ! -f "$config_file" ]] && { log_warning "config.txt not found — skipping power LED"; return 0; }
 
     # Remove any previous managed block (idempotent re-run safety)
     sudo sed -i '/^# BEGIN MILO POWER LED$/,/^# END MILO POWER LED$/d' "$config_file"
@@ -63,6 +64,15 @@ configure_power_on_behavior() {
     # flash. Skip gracefully there so the build never aborts.
     if ! vcgencmd bootloader_version >/dev/null 2>&1; then
         log_warning "No on-board EEPROM access (image-build chroot?) — skipping power-on behaviour; run on the device"
+        return 0
+    fi
+
+    # Idempotent: skip if the EEPROM already carries the desired values, so the
+    # first-boot service can run on every boot without re-flashing once it is set.
+    local active
+    active="$(rpi-eeprom-config 2>/dev/null)"
+    if grep -q '^POWER_OFF_ON_HALT=1' <<< "$active" && grep -q '^WAIT_FOR_POWER_BUTTON=1' <<< "$active"; then
+        log_info "Power-on behaviour already configured — nothing to do"
         return 0
     fi
 

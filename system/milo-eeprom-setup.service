@@ -1,0 +1,28 @@
+[Unit]
+Description=Milo — apply power-on behaviour to the bootloader EEPROM (wait for power button)
+Documentation=https://www.raspberrypi.com/documentation/computers/raspberry-pi.html
+
+# The bootloader EEPROM lives on the board's SPI flash, not on the SD card, so it
+# cannot be baked into an image (pi-gen). This first-boot oneshot applies the
+# config on the real device. It reuses configure_power_on_behavior() from
+# install/power-button.sh (single source of truth) and is idempotent: that
+# function re-flashes only when the EEPROM does not already carry the values, so
+# running on every boot is harmless.
+ConditionPathExists=/home/milo/milo/install/power-button.sh
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# common.sh MUST be sourced before power-button.sh: the latter's fallback
+# `source "$(dirname "$0")/common.sh"` guard resolves $0 to /bin/bash here, so it
+# would look for /bin/common.sh. Sourcing common.sh first defines log_* and makes
+# that guard a no-op.
+ExecStart=/bin/bash -c 'cd /home/milo/milo && source install/common.sh && source install/power-button.sh && configure_power_on_behavior'
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=milo-eeprom-setup
+
+[Install]
+WantedBy=multi-user.target
