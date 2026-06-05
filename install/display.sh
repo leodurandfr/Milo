@@ -85,7 +85,7 @@ configure_boot_display() {
     configure_cmdline "$BOOT_PARAMS_COMMON $BOOT_PARAMS_SCREEN"
 
     # Configure config.txt
-    configure_config "$CONFIG_PARAMS_COMMON" "$CONFIG_PARAMS_SCREEN"
+    configure_config "$CONFIG_PARAMS_SCREEN"
 
     log_success "Boot display configured"
 }
@@ -125,17 +125,14 @@ configure_cmdline() {
 }
 
 configure_config() {
-    local common_params="$1"
-    local screen_params="$2"
+    local screen_params="$1"
 
     local config_file="/boot/firmware/config.txt"
     [[ ! -f "$config_file" ]] && config_file="/boot/config.txt"
     [[ ! -f "$config_file" ]] && return 0
 
-    # Add common params (disable_splash=1)
-    if ! grep -q "disable_splash=1" "$config_file"; then
-        sudo sed -i '/^\[all\]$/a\\n# Milo - Silent boot\ndisable_splash=1' "$config_file"
-    fi
+    # Silent boot (single source of truth in boot-common.sh)
+    configure_silent_boot
 
     # Add screen-specific params
     if [[ -n "$screen_params" ]]; then
