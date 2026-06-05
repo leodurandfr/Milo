@@ -58,7 +58,8 @@ Inputs use internal pull-ups — no external resistors.
 ## 4. Software power button (clean shutdown + wake)
 
 A **momentary / self-reset** button with a white LED. Short press = clean shutdown;
-press while asleep = boot.
+press while asleep = boot. Applying power does **not** auto-boot — you press the button
+to start, like a PC (configured by the installer).
 
 - **Button** (2 terminals) → **J2 pads 1 & 2**. J2 is a small 2-pin header **on the Pi 5
   board itself** (next to the round RTC-battery connector) — *not* the 40-pin header.
@@ -72,9 +73,10 @@ press while asleep = boot.
    running → GPIO26 LOW → LED ON     |     halted → GPIO26 hi-Z → LED OFF
 ```
 
-The status LED (lit while running, off once halted) is set up automatically by the
-installer. If the LED draws > ~16 mA, drive it through an NPN transistor (see
-[power-button.md](power-button.md)).
+The installer configures this automatically: the status LED (GPIO26, lit while running,
+off once halted) **and** "wait for the power button on power-up" (applying power keeps
+Milō off until you press the button). If the LED draws > ~16 mA, drive it through an NPN
+transistor (see [power-button.md](power-button.md)).
 
 ## 5. Hard power switch (master cut)
 
