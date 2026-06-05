@@ -56,7 +56,7 @@ def create_settings_router(
         reload_callback: Optional[Callable] = None
     ) -> Dict[str, Any]:
         """Unified pattern for all settings routes – supports async setters"""
-        try:
+        async with api_error_handler(f"Error updating setting ({event_type})", logger):
             if not validator(payload):
                 raise HTTPException(status_code=400, detail="Invalid payload")
 
@@ -87,11 +87,6 @@ def create_settings_router(
             })
 
             return {"status": "success", **event_data, "reload_success": reload_success}
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
 
     def _get_services_for_source(source: str) -> list:
         """Return the list of systemd services for an audio source"""
@@ -197,17 +192,6 @@ def create_settings_router(
         )
 
     # Volume startup (in dB)
-    @router.get("/volume-startup")
-    async def get_volume_startup():
-        vol = await settings.get_setting('volume') or {}
-        return {
-            "status": "success",
-            "config": {
-                "startup_volume_db": vol.get("startup_volume_db", DEFAULT_VOLUME_DB),
-                "restore_last_volume": vol.get("restore_last_volume", True)
-            }
-        }
-
     @router.put("/volume-startup")
     async def set_volume_startup(payload: VolumeStartupRequest):
         async def setter():
@@ -238,14 +222,6 @@ def create_settings_router(
         )
 
     # Rotary steps (in dB)
-    @router.get("/rotary-steps")
-    async def get_rotary_steps():
-        vol = await settings.get_setting('volume') or {}
-        return {
-            "status": "success",
-            "config": {"step_rotary_db": vol.get("step_rotary_db", 2.0)}
-        }
-
     @router.put("/rotary-steps")
     async def set_rotary_steps(payload: RotaryStepsRequest):
         return await _handle_setting_update(
@@ -290,7 +266,7 @@ def create_settings_router(
         If an app is enabled, start the associated processes (multiroom/equalizer).
         Strict approach: one error = full rollback.
         """
-        try:
+        async with api_error_handler("Unexpected error in dock-apps update", logger):
             enabled_apps = payload.enabled_apps
             # Validation done by Pydantic
 
@@ -428,21 +404,7 @@ def create_settings_router(
                     }
                 )
 
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Unexpected error in dock-apps update: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
     # Global audio auto-stop (applies to every eligible source)
-    @router.get("/audio-stop")
-    async def get_audio_stop():
-        audio = await settings.get_setting('audio') or {}
-        return {
-            "status": "success",
-            "config": {"auto_stop_delay": audio.get("auto_stop_delay", 120.0)}
-        }
-
     @router.put("/audio-stop")
     async def set_audio_stop(payload: AudioStopRequest):
         delay = payload.auto_stop_delay
@@ -574,21 +536,6 @@ def create_settings_router(
             return {"status": "error", "message": str(e)}
 
     # Screen timeout
-    @router.get("/screen-timeout")
-    async def get_screen_timeout():
-        screen = await settings.get_setting('screen') or {}
-        timeout_seconds = screen.get("timeout_seconds", 120)
-
-        timeout_enabled = timeout_seconds != 0
-
-        return {
-            "status": "success",
-            "config": {
-                "screen_timeout_enabled": timeout_enabled,
-                "screen_timeout_seconds": timeout_seconds
-            }
-        }
-
     @router.put("/screen-timeout")
     async def set_screen_timeout(payload: ScreenTimeoutRequest):
         return await _handle_setting_update(
@@ -601,14 +548,6 @@ def create_settings_router(
         )
 
     # Screen brightness
-    @router.get("/screen-brightness")
-    async def get_screen_brightness():
-        screen = await settings.get_setting('screen') or {}
-        return {
-            "status": "success",
-            "config": {"brightness_on": screen.get("brightness_on", 5)}
-        }
-
     @router.put("/screen-brightness")
     async def set_screen_brightness(payload: ScreenBrightnessRequest):
         return await _handle_setting_update(
@@ -633,17 +572,6 @@ def create_settings_router(
             }
 
     # Screen screensaver
-    @router.get("/screen-screensaver")
-    async def get_screen_screensaver():
-        screen = await settings.get_setting('screen') or {}
-        return {
-            "status": "success",
-            "config": {
-                "screensaver_enabled": screen.get("screensaver_enabled", True),
-                "screensaver_delay_seconds": screen.get("screensaver_delay_seconds", 120)
-            }
-        }
-
     @router.put("/screen-screensaver")
     async def set_screen_screensaver(payload: ScreenScreensaverRequest):
         async def setter():
@@ -707,11 +635,9 @@ def create_settings_router(
     @router.post("/screen-activity")
     async def notify_screen_activity():
         """Endpoint to notify screen activity from the frontend (touch, mouse, keyboard)"""
-        try:
+        async with api_error_handler("Error notifying screen activity", logger):
             await screen_controller.on_touch_detected()
             return {"status": "success", "activity_time_reset": True}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
 
     # System temperature
     @router.get("/system-temperature")
@@ -930,7 +856,7 @@ def create_settings_router(
         """Retrieve full hardware config and available options for the Hardware settings page."""
         from backend.hardware.registry import AUDIO_CARDS, SCREENS
         from backend.config.constants import SELECTABLE_GPIO_PINS
-        try:
+        async with api_error_handler("Error getting hardware config", logger):
             current = hardware_service.get_full_config()
 
             # Ensure volume_control is always present (resolved from hardware or auto-detected)
@@ -963,9 +889,6 @@ def create_settings_router(
                     "gpio_pins": gpio_pin_options,
                 }
             }
-        except Exception as e:
-            logger.error(f"Error getting hardware config: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
     @router.put("/hardware-config")
     async def set_hardware_config(payload: HardwareConfigRequest, background_tasks: BackgroundTasks):
@@ -977,7 +900,7 @@ def create_settings_router(
         """
         from backend.hardware.registry import AUDIO_CARDS, SCREENS
 
-        try:
+        async with api_error_handler("Error setting hardware config", logger):
             card = AUDIO_CARDS[payload.audio.id]
             screen = SCREENS[payload.screen.type]
 
@@ -1027,27 +950,7 @@ def create_settings_router(
 
             return {"status": "rebooting"}
 
-        except RuntimeError as e:
-            logger.error(f"Hardware apply failed: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-        except Exception as e:
-            logger.error(f"Error setting hardware config: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
     # Mac ROC Streaming configuration
-    @router.get("/mac-roc")
-    async def get_mac_roc_config():
-        """Get Mac ROC streaming configuration (latency, profile, frame length)"""
-        mac = await settings.get_setting('mac') or {}
-        return {
-            "status": "success",
-            "config": {
-                "target_latency_ms": mac.get("target_latency_ms", 50),
-                "latency_profile": mac.get("latency_profile", "responsive"),
-                "frame_length_ms": mac.get("frame_length_ms", 4)
-            }
-        }
-
     @router.put("/mac-roc")
     async def set_mac_roc_config(payload: MacRocConfigRequest):
         """
@@ -1058,7 +961,7 @@ def create_settings_router(
         2. Regenerates mac.env from the saved settings (does NOT touch routing.env)
         3. Restarts milo-mac.service to apply changes
         """
-        try:
+        async with api_error_handler("Error updating Mac ROC config", logger):
             target_latency_ms = payload.target_latency_ms
             latency_profile = payload.latency_profile
             frame_length_ms = payload.frame_length_ms
@@ -1094,23 +997,7 @@ def create_settings_router(
                 "service_restarted": restart_success
             }
 
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error updating Mac ROC config: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
     # Radio settings (Shazam recognition)
-    @router.get("/radio-settings")
-    async def get_radio_settings():
-        radio = await settings.get_setting('radio') or {}
-        return {
-            "status": "success",
-            "config": {
-                "shazam_enabled": radio.get("shazam_enabled", True)
-            }
-        }
-
     @router.put("/radio-settings")
     async def set_radio_settings(payload: RadioSettingsRequest):
         radio_config = {
