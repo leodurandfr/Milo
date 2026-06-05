@@ -52,8 +52,8 @@ Inputs use internal pull-ups — no external resistors.
 | Receiver pin | Connect to | Header pin |
 |--------------|------------|:----------:|
 | OUT / DATA   | GPIO17     | 11 |
-| VCC          | 3V3        | 1  |
 | GND          | GND        | 6  |
+| VCC          | 3V3        | 1  |
 
 ## 4. Software power button (clean shutdown + wake)
 
