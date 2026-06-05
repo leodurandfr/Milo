@@ -514,8 +514,7 @@ class TestMetadataTransform:
                 "album_name": "Test Album",
                 "album_cover_url": "https://example.com/cover.jpg",
                 "duration": 180000,
-                "position": 45000,
-                "uri": "spotify:track:abc123"
+                "position": 45000
             },
             "paused": False
         })

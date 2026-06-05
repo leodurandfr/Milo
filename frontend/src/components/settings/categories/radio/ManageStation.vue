@@ -233,7 +233,7 @@ function initializeForm() {
 
   if (props.station && isEditMode.value) {
     formData.name = props.station.name || '';
-    formData.url = props.station.url || props.station.url_resolved || '';
+    formData.url = props.station.url || '';
     formData.countrycode = (props.station.countrycode || '').toUpperCase();
     formData.genre = props.station.genre || '';
     formData.codec = props.station.codec || '';

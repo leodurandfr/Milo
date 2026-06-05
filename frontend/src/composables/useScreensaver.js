@@ -215,7 +215,7 @@ export function useScreensaver() {
         mode: 'simple',
         sourceType: 'mac',
         title: t('status.audioReceivedFrom'),
-        subtitle: formatDeviceNames(metadata.client_names || metadata.client_name),
+        subtitle: formatDeviceNames(metadata.client_names),
       };
     }
 

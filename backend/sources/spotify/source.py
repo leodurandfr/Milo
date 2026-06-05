@@ -375,7 +375,6 @@ class SpotifySource(BaseAudioSource):
             "album_art_url": track.get("album_cover_url"),
             "duration": track.get("duration", 0),
             "position": track.get("position", 0),
-            "uri": track.get("uri"),
         }
 
     # === REST API ===

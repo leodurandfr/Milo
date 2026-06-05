@@ -160,7 +160,7 @@ const currentDeviceName = computed(() => {
     case 'bluetooth':
       return meta.device_name || '';
     case 'mac':
-      return meta.client_names || meta.client_name || [];
+      return meta.client_names || [];
     case 'airplay':
       return meta.client_name || '';
     default:

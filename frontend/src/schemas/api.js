@@ -36,10 +36,9 @@ const MetadataSchema = z.object({
   is_buffering: z.boolean().optional(),
   album_art_url: z.string().nullable().optional(),
 
-  // AirPlay-specific: artwork pixel dimensions, used to gate the rich player
+  // AirPlay-specific: artwork pixel width, used to gate the rich player
   // on cover quality (browser audio ships tiny favicons / app icons).
   album_art_width: z.number().nullable().optional(),
-  album_art_height: z.number().nullable().optional(),
 
   // Radio-specific
   station_name: z.string().nullable().optional(),
@@ -70,7 +69,7 @@ const VolumeClientSchema = z.object({
   volume_db: z.number(),
   offset_db: z.number().default(0),
   mute: z.boolean().default(false),
-  online: z.boolean().default(true)  // Renamed from 'available' for consistency with backend
+  available: z.boolean().default(true)  // matches ClientVolume.to_dict() on the backend
 });
 
 const VolumeZoneSchema = z.object({

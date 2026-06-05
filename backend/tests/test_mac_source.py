@@ -172,7 +172,6 @@ class TestMacSourceStatus:
 
         assert "state" in status
         assert status["connected"] is False
-        assert status["client_count"] == 0
         assert status["client_names"] == []
         assert status["rtp_port"] == 10001
 
@@ -187,7 +186,6 @@ class TestMacSourceStatus:
         status = await mac_source.status()
 
         assert status["connected"] is True
-        assert status["client_count"] == 2
         assert "MacBook-Pro" in status["client_names"]
         assert "iMac" in status["client_names"]
 

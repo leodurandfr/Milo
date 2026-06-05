@@ -217,7 +217,6 @@ class AirPlaySource(BaseAudioSource):
         self._artwork_hash = new_hash
         self._metadata["album_art_url"] = f"/api/airplay/artwork?v={new_hash}"
         self._metadata["album_art_width"] = width
-        self._metadata["album_art_height"] = height
         self._logger.info(f"AirPlay artwork {width}x{height} ({self._artwork_mime})")
         self._update_connection_state()
 
