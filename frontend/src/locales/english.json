@@ -81,6 +81,8 @@
     "noSystems": "No systems connected",
     "restarting": "Restarting multiroom...",
     "error": "Error activating multiroom",
+    "enableFailed": "Could not enable multiroom",
+    "disableFailed": "Could not disable multiroom",
     "editSystem": "Edit audio system",
     "systemNameMain": "Main system name",
     "systemNameRemote": "Remote system name",

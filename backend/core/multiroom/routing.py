@@ -668,8 +668,11 @@ class AudioRoutingService:
         if not self.state_machine:
             return
         try:
+            # Emit a stable, machine-readable reason code (canonical key `reason`,
+            # consistent with the multiroom_enabling/disabling events) so the
+            # frontend can localize the message instead of surfacing raw English.
             await self.state_machine.broadcast_event("routing", "multiroom_error", {
-                "error": f"Failed to {'enable' if attempted_state else 'disable'} multiroom",
+                "reason": "enable_failed" if attempted_state else "disable_failed",
             })
         except Exception as e:
             self.logger.warning(f"multiroom_error broadcast failed: {e}")

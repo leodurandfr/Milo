@@ -81,6 +81,8 @@
     "noSystems": "Nessun sistema connesso",
     "restarting": "Riavvio multiroom in corso...",
     "error": "Errore durante l'attivazione del multiroom",
+    "enableFailed": "Impossibile attivare il multiroom",
+    "disableFailed": "Impossibile disattivare il multiroom",
     "editSystem": "Modifica sistema audio",
     "systemNameMain": "Nome del sistema principale",
     "systemNameRemote": "Nome del sistema remoto",

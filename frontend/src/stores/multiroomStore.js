@@ -14,8 +14,17 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
+import { i18n } from '@/services/i18n';
 
 const CACHE_KEY = 'multiroom_cache';
+
+// Backend multiroom_error reason codes → i18n keys. Resolved to a localized
+// display string here so every consumer of `transitionError` renders the same
+// text (WS-event handling and its presentation mapping live in the store).
+const MULTIROOM_ERROR_KEYS = {
+  enable_failed: 'multiroom.enableFailed',
+  disable_failed: 'multiroom.disableFailed',
+};
 
 export const useMultiroomStore = defineStore('multiroom', () => {
   // === STATE ===
@@ -380,11 +389,15 @@ export const useMultiroomStore = defineStore('multiroom', () => {
         transitionState.value = 'idle';
         break;
 
-      case 'multiroom_error':
+      case 'multiroom_error': {
         clearTransitionTimeout();
         transitionState.value = 'error';
-        transitionError.value = event.data?.message || '';
+        // Backend sends a stable reason code (enable_failed / disable_failed);
+        // resolve it to a localized message for all consumers.
+        const errorKey = MULTIROOM_ERROR_KEYS[event.data?.reason];
+        transitionError.value = errorKey ? i18n.t(errorKey) : '';
         break;
+      }
     }
   }
 

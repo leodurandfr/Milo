@@ -172,6 +172,7 @@ const messageIcon = computed(() => {
 
 const messageTitle = computed(() => {
   if (multiroomStore.transitionState === 'error') {
+    // transitionError holds a localized message resolved in the store.
     return multiroomStore.transitionError || t('multiroom.error');
   }
   return t('multiroom.disabled');
