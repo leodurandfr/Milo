@@ -6,6 +6,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Milō is a multiroom audio system for Raspberry Pi that supports Spotify Connect, AirPlay 2, Bluetooth, Mac streaming (ROC), Internet Radio, Podcasts, and CD. Built with FastAPI (Python) backend and Vue 3 frontend, using ALSA for audio without Pipewire/PulseAudio.
 
+## External API Clients
+
+The FastAPI REST API has a **second consumer beyond `frontend/`: Milo-Mac**, a separate macOS app whose repo is **not** in this environment. Milo-Mac remotely drives a Milō unit over REST — reading and writing settings, controlling sources, adjusting volume — in addition to streaming audio to it via ROC.
+
+**Dead-code consequence (read before deleting any HTTP route):** a route with no caller in `frontend/src/` is **not** necessarily dead — Milo-Mac may call it. The per-category settings GETs (`GET /api/settings/volume-limits`, `volume-steps`, `dock-apps`) are exactly this case: the frontend only reads `GET /api/settings/bulk`, but Milo-Mac hits the per-category routes. Deleting those three already broke Milo-Mac once. **Any HTTP route deletion MUST be preceded by a grep of the Milo-Mac repo** (ask the user for its path — it is not in this checkout).
+
+**Safe to clean without the external check:** WebSocket events (Milo-Mac does not consume the WS — it is REST-only), *request* Pydantic models, and purely frontend code.
+
+**Convergence option (dedicated future effort, not now):** rather than maintain routes that only Milo-Mac uses, make Milo-Mac converge onto Milō's existing surface — e.g. `GET /api/settings/bulk` instead of the per-category GETs. Until that lands, the Milo-Mac-only routes stay.
+
 ## Common Development Commands
 
 ### Backend (FastAPI + Python)
@@ -220,6 +230,8 @@ CamillaDSP is ALWAYS in the audio path for volume control. DSP effects (EQ, comp
 
 **Response format**: All API responses use `"status": "success"` for success. Use `"status": "error"` for errors returned as HTTP 200 (resilience pattern for /status endpoints). For actual errors, raise `HTTPException`.
 
+**External consumers — route deletion is not a frontend-only call**: the REST API is also consumed by **Milo-Mac** (external macOS app, not in this repo — see *External API Clients* near the top). A route with no `frontend/src/` caller may still be live for Milo-Mac; grep the Milo-Mac repo before deleting any HTTP route.
+
 **REST verbs**:
 - `PUT` for idempotent updates (settings, routing config)
 - `DELETE` with path params for removals (e.g., `DELETE /radio/favorites/{station_id}`)
@@ -433,6 +445,7 @@ The conventions above are the rules; these are the most common ways they're viol
 17. **Don't read `event.data.x` directly in WS handlers.** Declare a Zod schema in [frontend/src/schemas/ws.js](frontend/src/schemas/ws.js) and consume the validated payload via `parsedOn(category, type, schema, handler)`. Raw access bypasses validation and silently absorbs payload drift.
 18. **Don't use `event.data?.x ?? event.data?.y` fallbacks to absorb dual payload shapes.** Fix the producer side first (one canonical key in the broadcast), then declare a single schema. Dual-shape fallbacks rot — they outlive the producer that justified them.
 19. **Don't add `// stylelint-disable` comments to scoped CSS.** If `stylelint` rejects a value, either (a) extend [`design-system.css`](frontend/src/assets/styles/design-system.css) with the missing token, or (b) the case is sémantiquement one-off (CSS-mask `linear-gradient(#000 0 0)`, SVG inline pure-black, ultra-small meter labels outside the type scale) — add the file to the `overrides` list in [`frontend/.stylelintrc.cjs`](frontend/.stylelintrc.cjs) with a one-line comment explaining why. Inline disables hide the violation from future grep audits and let the dette reform silently.
+20. **Don't delete an HTTP route just because `frontend/src/` has no caller.** The REST API has a second consumer — **Milo-Mac** (external macOS app, not in this repo; see *External API Clients*). Grep the Milo-Mac repo before removing any route (ask the user for its path). Removing `/api/settings/volume-limits`, `volume-steps` and `dock-apps` already broke Milo-Mac once. WebSocket events, *request* Pydantic models, and frontend-only code stay safe to clean without the external check — Milo-Mac is REST-only.
 
 ## Development & Coding Guidelines
 
