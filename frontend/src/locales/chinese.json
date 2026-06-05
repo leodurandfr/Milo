@@ -81,6 +81,8 @@
     "noSystems": "没有系统连接",
     "restarting": "正在重启多房间...",
     "error": "激活多房间时出错",
+    "enableFailed": "无法启用多房间",
+    "disableFailed": "无法停用多房间",
     "editSystem": "编辑音频系统",
     "systemNameMain": "主系统名称",
     "systemNameRemote": "远程系统名称",

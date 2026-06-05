@@ -81,6 +81,8 @@
     "noSystems": "Ningún sistema conectado",
     "restarting": "Reiniciando Multizona...",
     "error": "Error al activar Multizona",
+    "enableFailed": "No se pudo activar Multizona",
+    "disableFailed": "No se pudo desactivar Multizona",
     "editSystem": "Modificar el sistema de audio",
     "systemNameMain": "Nombre del sistema principal",
     "systemNameRemote": "Nombre del sistema remoto",
