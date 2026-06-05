@@ -85,13 +85,6 @@ class VolumeService:
     # HELPERS
     # ============================================================================
 
-    async def _check_equalizer_or_error(self) -> bool:
-        """Check equalizer availability. Returns True if OK."""
-        if self._is_multiroom_enabled() or self._is_equalizer_available():
-            return True
-        self.logger.warning("Equalizer not available, volume change blocked")
-        return False
-
     async def _get_controllable_client_ids(self) -> list:
         """Fetch online client IDs that have volume control (excludes DAC clients)."""
         client_ids = await get_online_client_ids(self.snapcast_service) if self._is_multiroom_enabled() else []
@@ -136,7 +129,29 @@ class VolumeService:
             updates: Per-client updates from _compute_multiroom_updates, or None for direct mode.
         """
         if updates is None:
-            # Direct mode: apply to local CamillaDSP
+            # Direct mode: record-intent + reconcile. The state store already holds
+            # the target (set in _compute_multiroom_updates). If CamillaDSP is not
+            # connected yet (cold boot / reconnect window — e.g. the wizard reboot
+            # just applied the DAC overlay), the apply is *deferred*, not failed:
+            # the reconnect callback (reapply_current_volume) pushes the stored
+            # volume once the daemon is back. Fail open instead of returning 500.
+            if not self._is_equalizer_available():  # also covers _camilladsp_service is None
+                # Only report success if the intent was durably recorded — i.e. the
+                # local client is known, so the reconnect restore has a target to
+                # apply. Otherwise (local MAC unresolved — e.g. no eth0/wlan0)
+                # surface a failure rather than a false success.
+                if self._state_store.local_mac_id is None:
+                    self.logger.warning(
+                        f"Direct mode: CamillaDSP not ready and local client unknown — "
+                        f"volume {target_db:.1f}dB not recorded"
+                    )
+                    return False
+                self.logger.info(
+                    f"Direct mode: CamillaDSP not ready — volume {target_db:.1f}dB recorded, "
+                    "will apply on reconnect"
+                )
+                return True
+            # Connected: a False here is a genuine command failure, surface it.
             success = await self._camilladsp_service.set_volume(target_db)
             if not success:
                 self.logger.warning(f"Direct mode: CamillaDSP set_volume({target_db:.1f}dB) failed — audio may be silent")
@@ -478,7 +493,10 @@ class VolumeService:
         """Internal push implementation (called under _push_lock)."""
         client_ids = await get_online_client_ids(self.snapcast_service)
         if not client_ids:
-            self.logger.warning("PUSH_VOLUME: No online clients found — nothing to push")
+            # Benign boot-ordering case: the snapserver WS is ready but the local
+            # snapclient has not registered yet. Push is a no-op (returns True) and
+            # the CLIENT_CONNECT handler + delayed sync apply volumes once it joins.
+            self.logger.info("PUSH_VOLUME: No online clients yet — nothing to push (will sync on client connect)")
             return True
         self.logger.info(f"PUSH_VOLUME: Found {len(client_ids)} online clients: {client_ids}")
 
@@ -619,6 +637,11 @@ class VolumeService:
             await self._state_store.initialize()
             self.logger.info("VolumeStateStore initialized")
 
+            # Seed the local client on a fresh direct-mode boot (no Snapcast, no
+            # persisted state) so volume tracking works before multiroom is ever
+            # enabled. No-op once the mac is resolved via Snapcast or persistence.
+            self._seed_local_client_if_needed()
+
             # Apply persisted volume to CamillaDSP (safe startup at -50dB, then restore)
             await self._apply_startup_volume()
 
@@ -633,6 +656,24 @@ class VolumeService:
             self.logger.error(f"Volume service initialization failed: {e}")
             self._availability_ready.set()
             return False
+
+    def _seed_local_client_if_needed(self) -> None:
+        """Resolve and seed the local client identity when not yet known.
+
+        On a truly-fresh direct-mode boot the local mac is set via neither Snapcast
+        nor persisted state, so the state store can't track local volume. The system
+        MAC (eth0→wlan0) equals the snapclient --hostID, so seeding it stays
+        consistent if multiroom is later enabled. No-op once the mac is resolved.
+        """
+        if self._state_store.local_mac_id is not None:
+            return
+        # Lazy import to avoid a circular dependency at module load.
+        from backend.core.multiroom.client_registry import ClientRegistryService
+        local_mac = ClientRegistryService.get_local_mac()
+        if not local_mac:
+            self.logger.warning("Could not resolve local MAC — direct-mode volume tracking degraded until Snapcast registers it")
+            return
+        self._state_store.ensure_local_client(local_mac, self._volume_config.startup_volume_db)
 
     async def set_local_volume_control(self, enabled: bool) -> None:
         """Update local device's volume_control at runtime (persists + broadcasts)."""
@@ -759,8 +800,6 @@ class VolumeService:
         """Set volume to specific level in dB (-80 to 0)."""
         if not self._volume_control and not self._is_multiroom_enabled():
             return True  # Direct + DAC: no clients to control
-        if not await self._check_equalizer_or_error():
-            return False
         target_db = self._volume_config.clamp(volume_db)
         client_ids = await self._get_controllable_client_ids()
         try:
@@ -781,8 +820,6 @@ class VolumeService:
         """Adjust volume by delta in dB (positive = louder, negative = quieter)."""
         if not self._volume_control and not self._is_multiroom_enabled():
             return True  # Direct + DAC: no clients to control
-        if not await self._check_equalizer_or_error():
-            return False
         client_ids = await self._get_controllable_client_ids()
         try:
             async with asyncio.timeout(2.0):
