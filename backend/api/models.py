@@ -5,6 +5,8 @@ Pydantic models for API request validation
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, Dict, Any, List, Literal
 
+from backend.config.constants import GPIO_MIN_PIN, GPIO_MAX_PIN
+
 
 # =============================================================================
 # AUDIO CONTROL
@@ -410,9 +412,9 @@ class HardwareScreenRequest(BaseModel):
 class HardwareRotaryEncoderRequest(BaseModel):
     """Rotary encoder configuration (enabled flag + GPIO pins)"""
     enabled: bool = True
-    clk_pin: int = Field(default=22, ge=2, le=27)
-    dt_pin: int = Field(default=27, ge=2, le=27)
-    sw_pin: int = Field(default=23, ge=2, le=27)
+    clk_pin: int = Field(default=22, ge=GPIO_MIN_PIN, le=GPIO_MAX_PIN)
+    dt_pin: int = Field(default=27, ge=GPIO_MIN_PIN, le=GPIO_MAX_PIN)
+    sw_pin: int = Field(default=23, ge=GPIO_MIN_PIN, le=GPIO_MAX_PIN)
 
     @model_validator(mode='after')
     def validate_unique_pins(self):
@@ -426,7 +428,7 @@ class HardwareRotaryEncoderRequest(BaseModel):
 class HardwareIrRemoteRequest(BaseModel):
     """IR remote configuration (enabled flag + TSOP4838 data line GPIO pin)"""
     enabled: bool = True
-    gpio_pin: int = Field(default=17, ge=2, le=27)
+    gpio_pin: int = Field(default=17, ge=GPIO_MIN_PIN, le=GPIO_MAX_PIN)
 
 
 class HardwareConfigRequest(BaseModel):
