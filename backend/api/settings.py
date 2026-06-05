@@ -958,6 +958,7 @@ def create_settings_router(
     async def get_hardware_config():
         """Retrieve full hardware config and available options for the Hardware settings page."""
         from backend.hardware.registry import AUDIO_CARDS, SCREENS
+        from backend.config.constants import SELECTABLE_GPIO_PINS
         try:
             current = hardware_service.get_full_config()
 
@@ -974,6 +975,13 @@ def create_settings_router(
                 {"value": screen_id, "label": screen["label"]}
                 for screen_id, screen in SCREENS.items()
             ]
+            # Selectable BCM GPIO pins — single source of truth shared with the
+            # rotary/IR validators so the frontend dropdown can never offer a pin
+            # the backend would reject with HTTP 422.
+            gpio_pin_options = [
+                {"value": pin, "label": f"GPIO {pin}"}
+                for pin in SELECTABLE_GPIO_PINS
+            ]
 
             return {
                 "status": "success",
@@ -981,6 +989,7 @@ def create_settings_router(
                 "options": {
                     "audio_cards": audio_options,
                     "screens": screen_options,
+                    "gpio_pins": gpio_pin_options,
                 }
             }
         except Exception as e:

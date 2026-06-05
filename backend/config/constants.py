@@ -50,6 +50,18 @@ MAC_RTCP_PORT = 10003
 MAC_AUDIO_OUTPUT = "hw:1,0"
 
 # =============================================================================
+# HARDWARE GPIO (BCM numbering)
+# =============================================================================
+# General-purpose BCM GPIO pins exposed on the Raspberry Pi 40-pin header
+# (GPIO 0/1 are reserved for the HAT EEPROM ID line). Single source of truth
+# for the rotary-encoder / IR-remote pin validators (api/models.py) AND the pin
+# dropdown options served to the frontend (GET /api/settings/hardware-config),
+# so the selectable range can never drift between backend and frontend.
+GPIO_MIN_PIN = 2
+GPIO_MAX_PIN = 27
+SELECTABLE_GPIO_PINS = list(range(GPIO_MIN_PIN, GPIO_MAX_PIN + 1))
+
+# =============================================================================
 # VOLUME SETTINGS (in dB)
 # =============================================================================
 DEFAULT_VOLUME_DB = -45.0       # Default volume for new clients and startup

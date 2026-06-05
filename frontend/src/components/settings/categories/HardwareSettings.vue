@@ -139,11 +139,11 @@ const { t } = useI18n();
 const { loadHardwareConfig, hardwareConfig } = useHardwareConfig();
 const timer = useTimer();
 
-// GPIO pin options (1–40 for RPi 40-pin header)
-const gpioPinOptions = Array.from({ length: 40 }, (_, i) => ({
-  label: `GPIO ${i + 1}`,
-  value: i + 1
-}));
+// GPIO pin dropdown options — sourced from the backend (GET /hardware-config)
+// so the selectable range stays the single source of truth shared with the
+// rotary/IR pin validators and can never offer a pin the backend rejects (422).
+// Populated in syncFromData(), like audioCardOptions / screenOptions.
+const gpioPinOptions = ref([]);
 
 // Local config for instant UI responsiveness
 const config = ref({
@@ -235,6 +235,7 @@ function syncFromData(data) {
 
   audioCardOptions.value = data.options.audio_cards;
   screenOptions.value = data.options.screens;
+  gpioPinOptions.value = data.options.gpio_pins;
 }
 
 const applyButtonLabel = computed(() => {
