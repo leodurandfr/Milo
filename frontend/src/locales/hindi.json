@@ -585,14 +585,14 @@
     "discovering": "खोज रहा है...",
     "unpair": "अनपेयर करें",
     "batteryLow": "बैटरी कम",
-    "disabledTitle": "Milō को दूर से नियंत्रित करें",
+    "disabledTitle": "ब्लूटूथ रिसीवर सक्षम नहीं है",
     "disabledDetails": "ANTICATER VK-01 ब्लूटूथ रिमोट का उपयोग करने के लिए इसे चालू करें।",
     "step": "प्रति क्लिक वॉल्यूम चरण"
   },
   "irRemoteSettings": {
     "step": "प्रति प्रेस वॉल्यूम चरण",
     "unpair": "अनपेयर करें",
-    "disabledTitle": "Milō को दूर से नियंत्रित करें",
+    "disabledTitle": "इन्फ्रारेड रिसीवर सक्षम नहीं है",
     "disabledDetails": "अपने Apple Remote का उपयोग करने के लिए इसे चालू करें।",
     "hardwareDisabledTitle": "इन्फ्रारेड रिसीवर निष्क्रिय",
     "hardwareDisabledDetails": "रिमोट को पेयर करने के लिए हार्डवेयर सेटिंग्स में इन्फ्रारेड रिसीवर सक्षम करें।",

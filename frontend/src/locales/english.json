@@ -585,14 +585,14 @@
     "discovering": "Searching...",
     "unpair": "Unpair",
     "batteryLow": "Battery low",
-    "disabledTitle": "Control Milō remotely",
+    "disabledTitle": "Bluetooth receiver not enabled",
     "disabledDetails": "Turn it on to use the ANTICATER VK-01 Bluetooth remote.",
     "step": "Volume step per click"
   },
   "irRemoteSettings": {
     "step": "Volume step per click",
     "unpair": "Unpair",
-    "disabledTitle": "Control Milō remotely",
+    "disabledTitle": "Infrared receiver not enabled",
     "disabledDetails": "Turn it on to use your Apple Remote.",
     "hardwareDisabledTitle": "Infrared receiver disabled",
     "hardwareDisabledDetails": "Enable the infrared receiver in the hardware settings to pair a remote.",

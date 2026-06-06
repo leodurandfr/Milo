@@ -585,14 +585,14 @@
     "discovering": "Buscando...",
     "unpair": "Desemparejar",
     "batteryLow": "Batería baja",
-    "disabledTitle": "Controla Milō a distancia",
+    "disabledTitle": "Receptor Bluetooth no activado",
     "disabledDetails": "Actívala para usar el mando Bluetooth ANTICATER VK-01.",
     "step": "Paso de volumen por clic"
   },
   "irRemoteSettings": {
     "step": "Paso de volumen por pulsación",
     "unpair": "Desemparejar",
-    "disabledTitle": "Controla Milō a distancia",
+    "disabledTitle": "Receptor de infrarrojos no activado",
     "disabledDetails": "Actívala para usar tu Apple Remote.",
     "hardwareDisabledTitle": "Receptor infrarrojo desactivado",
     "hardwareDisabledDetails": "Activa el receptor infrarrojo en los ajustes de hardware para emparejar un mando.",

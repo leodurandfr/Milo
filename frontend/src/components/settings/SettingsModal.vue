@@ -631,14 +631,13 @@ async function handleBtRemoteToggle(enabled) {
   await settingsStore.toggleBtRemote(enabled);
 }
 
-// IR remote enable/disable (toggle lives in the navigation header, but only once
-// the receiver hardware is on AND a remote is paired — otherwise there is nothing
-// to toggle and the view shows the hardware-disabled redirect or the pairing wizard).
+// IR remote master toggle (nav header), shown whenever the receiver hardware is
+// on — paired or not. Hardware off → the view shows the hardware-disabled redirect.
 const irHardwareEnabled = computed(
   () => hardwareConfig.value?.current?.ir_remote?.enabled !== false
 );
 const showIrRemoteToggle = computed(
-  () => currentView.value === 'ir-remote' && irHardwareEnabled.value && settingsStore.irRemote.paired
+  () => currentView.value === 'ir-remote' && irHardwareEnabled.value
 );
 
 async function handleIrRemoteToggle(enabled) {

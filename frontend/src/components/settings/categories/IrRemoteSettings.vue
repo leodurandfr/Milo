@@ -11,60 +11,30 @@
       :cta-click="() => emit('open-hardware')"
     />
 
-    <!-- Paired + enabled: status, unpair action and volume step.
-         The enable/disable toggle lives in the navigation header (SettingsModal). -->
-    <SettingsSection v-else-if="settingsStore.irRemote.paired && settingsStore.irRemote.enabled">
-      <template #header>
-        <div class="ir-remote-header">
-          <h3 class="ir-remote-header__title heading-3">
-            <span class="ir-remote-status">
-              <span class="ir-remote-status__dot" />
-              {{ t('remoteControls.status.paired') }}
-            </span>
-          </h3>
-          <Button
-            class="unpair-button unpair-button--desktop"
-            variant="background-strong"
-            size="small"
-            :loading="unpairing"
-            :disabled="unpairing"
-            @click="handleUnpair"
-          >
-            {{ t('irRemoteSettings.unpair') }}
-          </Button>
-        </div>
-      </template>
-
-      <SettingItem :label="t('irRemoteSettings.step')">
-        <RangeSlider
-          v-model="stepIrRemoteDb"
-          :min="1" :max="6" :step="1"
-          value-unit=" dB"
-          @input="debouncedUpdate('ir-remote-steps', 'ir-remote-steps', { step_ir_remote_db: $event })"
-        />
-      </SettingItem>
-
-      <Button
-        class="unpair-button unpair-button--mobile"
-        variant="background-strong"
-        size="small"
-        :loading="unpairing"
-        :disabled="unpairing"
-        @click="handleUnpair"
-      >
-        {{ t('irRemoteSettings.unpair') }}
-      </Button>
-    </SettingsSection>
-
-    <!-- Paired + disabled: invite the user to enable the feature from the header toggle. -->
+    <!-- Disabled: invite the user to enable the feature from the header toggle. -->
     <MessageContent
-      v-else-if="settingsStore.irRemote.paired"
+      v-else-if="!settingsStore.irRemote.enabled"
       icon="infrared"
       :title="t('irRemoteSettings.disabledTitle')"
       :details="t('irRemoteSettings.disabledDetails')"
     />
 
-    <!-- Not paired: wizard -->
+    <!-- Paired: status card (shared with BT) — status, volume step and unpair. -->
+    <RemoteStatusSection
+      v-else-if="settingsStore.irRemote.paired"
+      v-model="stepIrRemoteDb"
+      :ok="true"
+      :status-label="t('remoteControls.status.paired')"
+      :step-label="t('irRemoteSettings.step')"
+      :show-unpair="true"
+      :unpair-label="t('irRemoteSettings.unpair')"
+      :unpair-loading="unpairing"
+      :unpair-click="handleUnpair"
+      @step-input="debouncedUpdate('ir-remote-steps', 'ir-remote-steps', { step_ir_remote_db: $event })"
+    />
+
+    <!-- Not paired: pairing wizard. The user must press a key on the remote, so the
+         centered message carries the icon + instructions + countdown the card can't. -->
     <MessageContent
       v-else
       :loading="fsmState === 'waiting'"
@@ -75,9 +45,6 @@
       :cta-label="primaryCtaLabel"
       :cta-variant="primaryCtaVariant"
       :cta-click="primaryCtaClick"
-      :cta-loading="ctaLoading"
-      :cta-secondary-label="secondaryCtaLabel"
-      :cta-secondary-click="secondaryCtaClick"
     />
   </SettingsContainer>
 </template>
@@ -89,12 +56,9 @@ import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
 import { useTimer } from '@/composables/useTimer';
-import RangeSlider from '@/components/ui/RangeSlider.vue';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
-import SettingItem from '@/components/settings/SettingItem.vue';
-import Button from '@/components/ui/Button.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
+import RemoteStatusSection from '@/components/settings/categories/RemoteStatusSection.vue';
 
 const emit = defineEmits(['open-hardware']);
 
@@ -136,27 +100,21 @@ async function handleUnpair() {
 //
 // Success has no FSM branch: when the backend captures a scancode it sets
 // `paired = true` and broadcasts the status via WS before the HTTP response
-// resolves, which flips the v-if to the paired view. The paired view IS the
-// success confirmation.
+// resolves, which flips to the paired view. The paired view IS the success
+// confirmation.
 
 const fsmState = ref('idle');           // 'idle' | 'waiting' | 'timeout' | 'unsupported' | 'error'
 const errorMessage = ref('');
 const remainingSeconds = ref(PAIRING_TIMEOUT_SECONDS);
 let countdownTimer = null;
 
-const ctaLoading = computed(() => fsmState.value === 'waiting');
-
 const messageIcon = computed(() => {
   switch (fsmState.value) {
     case 'idle':
     case 'waiting':
       return null;
-    case 'timeout':
-    case 'unsupported':
-    case 'error':
-      return 'stop';
     default:
-      return null;
+      return 'stop';
   }
 });
 
@@ -186,32 +144,13 @@ const primaryCtaLabel = computed(() => {
   switch (fsmState.value) {
     case 'idle':         return t('irRemoteSettings.wizard.startCta');
     case 'waiting':      return t('irRemoteSettings.wizard.cancelCta');
-    case 'timeout':
-    case 'unsupported':
-    case 'error':
-      return t('irRemoteSettings.wizard.retryCta');
-    default:             return null;
+    default:             return t('irRemoteSettings.wizard.retryCta');
   }
 });
 
-const primaryCtaVariant = computed(() => {
-  return fsmState.value === 'waiting' ? 'background-strong' : 'brand';
-});
+const primaryCtaVariant = computed(() => (fsmState.value === 'waiting' ? 'background-strong' : 'brand'));
 
-const primaryCtaClick = computed(() => {
-  switch (fsmState.value) {
-    case 'idle':         return startPairing;
-    case 'waiting':      return cancelPairing;
-    case 'timeout':
-    case 'unsupported':
-    case 'error':
-      return startPairing;
-    default:             return null;
-  }
-});
-
-const secondaryCtaLabel = computed(() => null);
-const secondaryCtaClick = computed(() => null);
+const primaryCtaClick = computed(() => (fsmState.value === 'waiting' ? cancelPairing : startPairing));
 
 function startCountdown() {
   remainingSeconds.value = PAIRING_TIMEOUT_SECONDS;
@@ -251,10 +190,9 @@ async function startPairing() {
     return;
   }
   if (result.status === 'success') {
-    // Backend has already set paired=true + broadcast status; the parent
-    // view re-renders to the paired branch via the reactive `paired` flag,
-    // unmounting this wizard. We don't transition the FSM here — the
-    // 'paired' view is the success feedback.
+    // Backend already set paired=true + broadcast status; the view re-renders to
+    // the paired branch via the reactive `paired` flag. The paired view is the
+    // success feedback, so we don't transition the FSM here.
     return;
   }
   if (result.status === 'timeout') {
@@ -291,48 +229,3 @@ onBeforeUnmount(() => {
   stopCountdown();
 });
 </script>
-
-<style scoped>
-.ir-remote-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-04);
-}
-
-.ir-remote-header__title {
-  margin-right: auto;
-  min-width: 0;
-}
-
-.ir-remote-status {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-02);
-  vertical-align: top;
-}
-
-.ir-remote-status__dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--color-success);
-}
-
-/* Desktop: button lives in the header actions slot. Mobile: full-width below the slider. */
-.unpair-button--mobile {
-  display: none;
-}
-
-@media (max-aspect-ratio: 4/3) {
-  .unpair-button--desktop {
-    display: none;
-  }
-
-  .unpair-button--mobile {
-    display: flex;
-    width: 100%;
-    margin-top: var(--space-04);
-  }
-}
-</style>
