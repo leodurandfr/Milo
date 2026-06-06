@@ -64,27 +64,17 @@ chown -R milo:milo /var/lib/milo/camilladsp
 CHROOT
 
 # ── go-librespot configuration ───────────────────────────────────────────────
+# Reuse install/go-librespot.sh::configure_go_librespot so pi-gen and the bash
+# installer write an identical config.yml — single source of truth. Inline-writing
+# it here is what shipped the image without `zeroconf_backend: avahi`, letting
+# go-librespot's embedded mDNS responder broadcast milo._spotify-connect on wlan0
+# and race Avahi into the milo.local → milo-2.local rename (HostnameConflict popup).
 
 on_chroot << 'CHROOT'
-mkdir -p /var/lib/milo/go-librespot
-tee /var/lib/milo/go-librespot/config.yml > /dev/null << 'EOF'
-device_name: "Milō"
-device_type: "speaker"
-bitrate: 320
-
-audio_backend: "alsa"
-audio_device: "milo_spotify"
-
-external_volume: true
-
-server:
-  enabled: true
-  address: localhost
-  port: 3678
-  allow_origin: "*"
-  image_size: 'xlarge'
-EOF
-chown -R milo:audio /var/lib/milo/go-librespot
+cd /home/milo/milo
+source install/common.sh
+source install/go-librespot.sh
+configure_go_librespot
 CHROOT
 
 # ── Snapserver configuration ─────────────────────────────────────────────────
