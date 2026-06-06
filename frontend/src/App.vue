@@ -270,8 +270,10 @@ const notificationTitle = computed(() => {
   if (showConnectionLost.value) {
     return t('notification.connectionLostTitle');
   }
-  // Priority 2: Internet offline (most sources need internet to function)
-  if (!systemStore.isOnline) {
+  // Priority 2: Internet offline (most sources need internet to function).
+  // Suppressed during the setup wizard: the device is in hotspot mode with no
+  // upstream internet yet, so "no internet" is expected noise, not actionable.
+  if (!systemStore.isOnline && settingsStore.setupCompleted !== false) {
     return t('notification.offlineTitle');
   }
   // Priority 3: System/source errors
@@ -282,7 +284,7 @@ const notificationDetail = computed(() => {
   if (showConnectionLost.value) {
     return t('notification.connectionLostDescription');
   }
-  if (!systemStore.isOnline) {
+  if (!systemStore.isOnline && settingsStore.setupCompleted !== false) {
     return t('notification.offlineDescription');
   }
   return currentError.value?.detail || null;
