@@ -1,9 +1,17 @@
 [Unit]
 Description=Milo First Boot — Auto-detect server or client mode
 # Run after NetworkManager so ethernet can get an IP,
-# but before avahi-daemon to avoid hostname conflicts
+# but before avahi-daemon to avoid hostname conflicts.
+# NOTE: order before avahi-daemon.SERVICE only, never avahi-daemon.SOCKET.
+# The socket lives in early boot (sockets.target -> basic.target), and basic.target
+# is ordered before every normal service (including this one and NetworkManager),
+# so Before=avahi-daemon.socket forms an ordering cycle. systemd breaks the cycle by
+# dropping an arbitrary job in it — on some boots that job is NetworkManager.service/
+# start, leaving the device with no network at all and the first-boot setup hotspot
+# unable to start. Ordering before the .service still guarantees the hostname is set
+# before avahi advertises mDNS.
 After=NetworkManager.service
-Before=avahi-daemon.socket avahi-daemon.service milo-backend.service milo-readiness.service
+Before=avahi-daemon.service milo-backend.service milo-readiness.service
 
 [Service]
 Type=oneshot
