@@ -155,7 +155,6 @@ main() {
     configure_alsa
 
     # System configuration
-    install_apply_hardware_script
     save_hardware_config
     create_systemd_services
     enable_services
