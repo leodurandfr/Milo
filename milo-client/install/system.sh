@@ -20,16 +20,6 @@ if ! type log_info &>/dev/null; then
     source "$(dirname "$0")/../../install/common.sh"
 fi
 
-install_apply_hardware_script() {
-    log_info "Installing hardware apply script..."
-
-    sudo cp "$MILO_CLIENT_ROOTFS_DIR/usr/local/bin/milo-client-apply-hardware" /usr/local/bin/
-    sudo chmod +x /usr/local/bin/milo-client-apply-hardware
-    sudo chown root:root /usr/local/bin/milo-client-apply-hardware
-
-    log_success "Hardware apply script installed"
-}
-
 save_hardware_config() {
     log_info "Saving hardware configuration..."
 
@@ -86,20 +76,19 @@ enable_services() {
 install_wrapper_scripts() {
     log_info "Installing secure wrapper scripts..."
 
-    # Snapclient install wrapper
-    sudo cp "$MILO_CLIENT_ROOTFS_DIR/usr/local/bin/milo-client-install-snapclient" /usr/local/bin/
-    sudo chmod 755 /usr/local/bin/milo-client-install-snapclient
-    sudo chown root:root /usr/local/bin/milo-client-install-snapclient
-
-    # Deploy update wrapper
-    sudo cp "$MILO_CLIENT_ROOTFS_DIR/usr/local/bin/milo-client-deploy-update" /usr/local/bin/
-    sudo chmod 755 /usr/local/bin/milo-client-deploy-update
-    sudo chown root:root /usr/local/bin/milo-client-deploy-update
-
-    # Snapclient launcher (resolves MILO_PRINCIPAL_IP at start to avoid mDNS in reconnect loop)
-    sudo cp "$MILO_CLIENT_ROOTFS_DIR/usr/local/bin/milo-client-snapclient-launcher" /usr/local/bin/
-    sudo chmod 755 /usr/local/bin/milo-client-snapclient-launcher
-    sudo chown root:root /usr/local/bin/milo-client-snapclient-launcher
+    # Bulk-deploy every milo-client wrapper (apply-hardware, deploy-update,
+    # install-snapclient, install-camilladsp, snapclient-launcher) in one loop.
+    # A hand-maintained per-file allowlist silently drops newly-added scripts —
+    # that is exactly how milo-client-install-camilladsp went missing here while
+    # the sudoers rule and camilladsp_update.py still invoked it (CamillaDSP
+    # updates then failed every time, with no working rollback). pi-gen already
+    # deploys these with a bulk loop; this keeps both install paths in sync.
+    for script in "$MILO_CLIENT_ROOTFS_DIR"/usr/local/bin/*; do
+        [ -f "$script" ] || continue
+        sudo cp "$script" /usr/local/bin/
+        sudo chmod 755 "/usr/local/bin/$(basename "$script")"
+        sudo chown root:root "/usr/local/bin/$(basename "$script")"
+    done
 
     log_success "Wrapper scripts installed"
 }
@@ -120,7 +109,6 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         log_error "MILO_PRINCIPAL_IP must be set (run base.sh first or export it manually)"
         exit 1
     fi
-    install_apply_hardware_script
     save_hardware_config
     create_systemd_services
     enable_services

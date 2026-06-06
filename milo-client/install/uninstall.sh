@@ -62,7 +62,9 @@ uninstall_milo_client() {
     log_info "Removing sudoers rules and scripts..."
     sudo rm -f /etc/sudoers.d/milo-client
     sudo rm -f /usr/local/bin/milo-client-install-snapclient
+    sudo rm -f /usr/local/bin/milo-client-install-camilladsp
     sudo rm -f /usr/local/bin/milo-client-deploy-update
+    sudo rm -f /usr/local/bin/milo-client-snapclient-launcher
     sudo rm -f /usr/local/bin/milo-client-apply-hardware
 
     # 4. Uninstall Snapclient
