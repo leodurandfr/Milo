@@ -585,14 +585,14 @@
     "discovering": "Recherche...",
     "unpair": "Désappairer",
     "batteryLow": "Batterie faible",
-    "disabledTitle": "Contrôlez à distance",
+    "disabledTitle": "Récepteur Bluetooth non activé",
     "disabledDetails": "Activez-la pour utiliser la télécommande Bluetooth ANTICATER VK-01.",
     "step": "Variation du volume par cran"
   },
   "irRemoteSettings": {
     "step": "Variation du volume par appui",
     "unpair": "Désappairer",
-    "disabledTitle": "Contrôlez à distance",
+    "disabledTitle": "Récepteur Infrarouge non activé",
     "disabledDetails": "Activez-la pour utiliser votre télécommande Apple Remote.",
     "hardwareDisabledTitle": "Récepteur infrarouge désactivé",
     "hardwareDisabledDetails": "Activez le récepteur infrarouge dans les réglages matériel pour pouvoir appairer une télécommande.",

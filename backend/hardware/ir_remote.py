@@ -543,7 +543,7 @@ class IrRemoteController:
         self.paired = False
         self.device_id = None
         self.paired_at = None
-        # Keep enabled=False so the runtime listener doesn't auto-restart on next pair.
-        self.enabled = False
+        # Leave `enabled` untouched: it's the header master switch, orthogonal to
+        # pairing, so an unpaired-but-enabled remote returns to the pairing wizard.
         await self._persist_config()
         await self._broadcast_status()

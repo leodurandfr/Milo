@@ -585,14 +585,14 @@
     "discovering": "搜索中...",
     "unpair": "取消配对",
     "batteryLow": "电量低",
-    "disabledTitle": "远程控制 Milō",
+    "disabledTitle": "蓝牙接收器未启用",
     "disabledDetails": "开启后即可使用 ANTICATER VK-01 蓝牙遥控器。",
     "step": "每次点击的音量步进"
   },
   "irRemoteSettings": {
     "step": "每次按键的音量步进",
     "unpair": "取消配对",
-    "disabledTitle": "远程控制 Milō",
+    "disabledTitle": "红外接收器未启用",
     "disabledDetails": "开启后即可使用您的 Apple Remote 遥控器。",
     "hardwareDisabledTitle": "红外接收器已禁用",
     "hardwareDisabledDetails": "在硬件设置中启用红外接收器以配对遥控器。",

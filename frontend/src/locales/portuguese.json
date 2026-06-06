@@ -585,14 +585,14 @@
     "discovering": "A procurar...",
     "unpair": "Desemparelhar",
     "batteryLow": "Bateria fraca",
-    "disabledTitle": "Controle o Milō à distância",
+    "disabledTitle": "Recetor Bluetooth não ativado",
     "disabledDetails": "Ative-o para usar o comando Bluetooth ANTICATER VK-01.",
     "step": "Incremento de volume por clique"
   },
   "irRemoteSettings": {
     "step": "Incremento de volume por toque",
     "unpair": "Desemparelhar",
-    "disabledTitle": "Controle o Milō à distância",
+    "disabledTitle": "Recetor de infravermelhos não ativado",
     "disabledDetails": "Ative-o para usar o seu Apple Remote.",
     "hardwareDisabledTitle": "Recetor de infravermelhos desativado",
     "hardwareDisabledDetails": "Ative o recetor de infravermelhos nas definições de hardware para emparelhar um comando.",
