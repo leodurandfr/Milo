@@ -20,7 +20,8 @@
       <template v-else>
         <!-- Ethernet row -->
         <div class="connection-row">
-          <SvgIcon name="network" :size="24" />
+          <SvgIcon name="network" :size="24"
+            :color="status.ethernet.connected ? 'var(--color-text-secondary)' : 'var(--color-text-light)'" />
           <span class="text-body">{{ t('network.ethernet') }}</span>
           <span class="connection-badge text-mono-small"
             :class="status.ethernet.connected ? 'connection-badge--connected' : 'connection-badge--disconnected'">
