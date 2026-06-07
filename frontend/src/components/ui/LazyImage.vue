@@ -1,18 +1,20 @@
 <template>
   <div class="lazy-image">
     <!-- Baseline layer: SVG generated from name, or static image fallback.
-         Always mounted at opacity 1 — the parent's skeleton overlay sits on
-         top until either this layer or the favicon below it is the final
-         visible. -->
+         Mounted at opacity 1, then faded out once the real image loads — so a
+         transparent favicon shows the card background, not this layer, through
+         its transparent areas. -->
     <div
       v-if="fallbackName"
       class="lazy-image-placeholder"
+      :class="{ hidden: imageLoaded }"
       v-html="resolvedFallbackSvg"
     />
     <img
       v-else-if="fallback"
       :src="fallback"
       class="lazy-image-placeholder"
+      :class="{ hidden: imageLoaded }"
       alt=""
     />
 
@@ -135,6 +137,11 @@ img.lazy-image-placeholder {
 
 .lazy-image-placeholder {
   z-index: 0;
+  transition: opacity 200ms ease-out;
+}
+
+.lazy-image-placeholder.hidden {
+  opacity: 0;
 }
 
 .lazy-image-main {
