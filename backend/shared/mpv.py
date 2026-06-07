@@ -4,6 +4,7 @@ mpv controller via IPC socket for playing radio streams
 import asyncio
 import json
 import logging
+import time
 from typing import Optional, Dict, Any
 from pathlib import Path
 
@@ -53,7 +54,7 @@ class MpvController:
                 # Use get_property with idle-active (always available even when idle)
                 test_response = await self._send_command("get_property", "idle-active")
                 if test_response is None:
-                    self.logger.warning("mpv socket connected but not responding, retrying...")
+                    self.logger.debug("mpv socket connected but not responding, retrying...")
                     await self.disconnect()
                     if attempt < max_retries - 1:
                         await asyncio.sleep(retry_delay)
@@ -112,16 +113,17 @@ class MpvController:
             JSON response from mpv or None if error
         """
         if not self.is_connected:
-            self.logger.warning("Not connected to mpv, attempting reconnect...")
+            self.logger.debug("Not connected to mpv, attempting reconnect...")
             if not await self.connect():
                 return None
 
         async with self._command_lock:
             try:
                 self._command_id += 1
+                request_id = self._command_id
                 request = {
                     "command": [command, *args],
-                    "request_id": self._command_id
+                    "request_id": request_id
                 }
 
                 # Send the command
@@ -129,13 +131,22 @@ class MpvController:
                 self.writer.write(command_json.encode('utf-8'))
                 await self.writer.drain()
 
-                # Read the response by matching request_id (with timeout)
+                # Read the response by matching request_id. mpv interleaves async
+                # event lines (no request_id) on the same socket; during a stream
+                # load or rapid station change it can burst many events before the
+                # reply, so bound the search by a wall-clock deadline rather than a
+                # fixed line count and keep skipping events until our reply arrives.
+                deadline = time.monotonic() + 5.0
                 try:
-                    # Read up to 10 lines max to find the right response
-                    for _ in range(10):
-                        response_line = await asyncio.wait_for(self.reader.readline(), timeout=5.0)
+                    while True:
+                        timeout = deadline - time.monotonic()
+                        if timeout <= 0:
+                            raise asyncio.TimeoutError
+                        response_line = await asyncio.wait_for(self.reader.readline(), timeout=timeout)
                         if not response_line:
-                            break
+                            self.logger.debug(f"mpv socket closed while awaiting request {request_id}")
+                            await self.disconnect()
+                            return None
 
                         response = json.loads(response_line.decode('utf-8'))
 
@@ -144,24 +155,23 @@ class MpvController:
                             continue
 
                         # If it's the response to our request, return it
-                        if response.get('request_id') == self._command_id:
+                        if response.get('request_id') == request_id:
                             error = response.get('error')
                             # Only log real errors, not transient errors
                             if error not in ('success', None, 'null', 'property unavailable'):
                                 self.logger.warning(f"mpv command error: {error}")
                             return response
-
-                    # No matching response found
-                    self.logger.warning(f"No matching response for request {self._command_id}")
-                    return None
+                        # Else: a reply to a stale/earlier request (shouldn't happen
+                        # under _command_lock) — skip and keep reading until ours
+                        # or the deadline.
 
                 except asyncio.TimeoutError:
-                    self.logger.warning(f"Timeout waiting for mpv response to: {command}")
+                    self.logger.debug(f"Timeout waiting for mpv response to: {command}")
                     return None
 
             except Exception as e:
                 self.logger.error(f"Error sending command to mpv: {e}")
-                self._connected = False
+                await self.disconnect()
                 return None
 
     async def command(self, command: str, *args) -> Optional[Dict[str, Any]]:
@@ -196,7 +206,7 @@ class MpvController:
         # mpv can return transient errors (None, "property unavailable")
         # during initial stream loading. We accept these errors.
         if response is None:
-            self.logger.warning("loadfile returned None")
+            self.logger.info("loadfile returned None")
             return False
 
         error = response.get('error')

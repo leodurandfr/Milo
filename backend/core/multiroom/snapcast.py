@@ -49,11 +49,11 @@ class SnapcastService:
                     if response.status == 200:
                         data = await response.json()
                         if elapsed > 500:
-                            self.logger.warning(f"SNAPCAST_SLOW: {method} took {elapsed:.0f}ms")
+                            self.logger.debug(f"SNAPCAST_SLOW: {method} took {elapsed:.0f}ms")
                         return data.get("result", {})
             return {}
         except Exception as e:
-            self.logger.warning(f"Snapcast request failed: {method} - {type(e).__name__}: {e}")
+            self.logger.info(f"Snapcast request failed: {method} - {type(e).__name__}: {e}")
             return {}
 
     # === CLIENT COMMANDS ===

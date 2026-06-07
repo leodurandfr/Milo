@@ -137,7 +137,7 @@ class RadioBrowserAPI:
                 timeout=15,
             )
         except NetworkUnavailableError as e:
-            self.logger.warning(f"Network unavailable for query '{query}': {e}")
+            self.logger.info(f"Network unavailable for query '{query}': {e}")
             return []
 
         if not stations:
@@ -175,7 +175,7 @@ class RadioBrowserAPI:
                 timeout=10,
             )
         except NetworkUnavailableError as e:
-            self.logger.warning(f"Network unavailable for station {station_id}: {e}")
+            self.logger.info(f"Network unavailable for station {station_id}: {e}")
             return None
 
         if not stations:

@@ -317,7 +317,7 @@ class BtRemoteController:
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                logger.warning("D-Bus listener error: %s — reconnecting in %.0fs", e, DBUS_RECONNECT_DELAY)
+                logger.info("D-Bus listener error: %s — reconnecting in %.0fs", e, DBUS_RECONNECT_DELAY)
                 await asyncio.sleep(DBUS_RECONNECT_DELAY)
 
     async def _connect_dbus_listener(self):
