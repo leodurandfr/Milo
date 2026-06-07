@@ -13,8 +13,10 @@
     <template #content-replace>
       <div class="tracklist-content">
         <div class="tracklist-header">
-          <span class="heading-3 tracklist-artist">{{ artistName }}</span>
-          <span class="heading-3 tracklist-album">{{ albumTitle }}</span>
+          <div class="tracklist-titles">
+            <span class="heading-3 tracklist-artist">{{ artistName }}</span>
+            <span class="heading-4 tracklist-album">{{ albumTitle }}</span>
+          </div>
           <span v-if="releaseYear" class="text-mono-small tracklist-year">{{ releaseYear }}</span>
         </div>
         <div class="tracklist-scroll">
@@ -72,11 +74,19 @@ const releaseYear = computed(() => cdStore.discInfo?.year || '');
 
 .tracklist-header {
   display: flex;
-  align-items: baseline;
+  justify-content: space-between;
+  align-items: last baseline;
   gap: var(--space-03);
   padding-top: var(--space-06);
   padding-bottom: var(--space-04);
   flex-shrink: 0;
+}
+
+.tracklist-titles {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-01);
+  min-width: 0;
 }
 
 .tracklist-artist {
@@ -88,6 +98,8 @@ const releaseYear = computed(() => cdStore.discInfo?.year || '');
 }
 
 .tracklist-year {
+  flex-shrink: 0;
+  white-space: nowrap;
   color: var(--color-text-secondary);
 }
 
