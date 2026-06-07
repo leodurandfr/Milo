@@ -597,9 +597,20 @@ class PodcastSource(MpvAudioSource):
         if self._is_playing and idle_active is True:
             self._logger.info("Episode finished (mpv idle)")
 
-            await self._podcast_data.clear_playback_progress(
-                self._current_episode['uuid']
-            )
+            finished_uuid = self._current_episode['uuid']
+
+            # Persist completion so the episode shows "already listened" and drops
+            # out of the in-progress queue. Write a final row first (covers a short
+            # clip that never hit a periodic save), then force completed: _save_progress
+            # routes through the position>=duration-30 heuristic, which yields False
+            # when mpv over-reports VBR duration (see above) — the explicit mark is
+            # what actually guarantees completion. Wrapped so a persistence error
+            # can't strand the source as "playing".
+            try:
+                await self._save_progress()
+                await self._podcast_data.mark_episode_completed(finished_uuid)
+            except Exception as e:
+                self._logger.error(f"Failed to persist episode completion: {e}")
 
             self._stop_progress_save()
             self._current_episode = None
@@ -608,9 +619,12 @@ class PodcastSource(MpvAudioSource):
             self._position = 0
             self._duration = 0
 
+            # WAITING metadata: {episode_ended: bool, episode_uuid: str, completed: bool}.
+            # episode_uuid + completed let the frontend flip the just-finished card to
+            # "already listened" reactively, without a re-fetch.
             self.set_state(
                 SourceState.WAITING,
-                {"episode_ended": True}
+                {"episode_ended": True, "episode_uuid": finished_uuid, "completed": True}
             )
 
     # === Progress Save ===

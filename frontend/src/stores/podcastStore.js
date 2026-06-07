@@ -175,6 +175,18 @@ export const usePodcastStore = defineStore('podcast', () => {
   function _applyMetadata(metadata) {
     // Handle episode end FIRST (before updating any other state)
     if (metadata.episode_ended === true) {
+      // Flip the just-finished episode to "already listened" in the reactive
+      // cache so its EpisodeCard shows the badge without a re-fetch. Capture the
+      // uuid before nulling currentEpisode below; merge to preserve position/duration.
+      const finishedUuid = metadata.episode_uuid;
+      if (finishedUuid && metadata.completed === true) {
+        progressCache.value.set(finishedUuid, {
+          ...(progressCache.value.get(finishedUuid) || {}),
+          completed: true,
+          last_played: Date.now()
+        });
+      }
+
       // Clear currentEpisode immediately (for state consistency)
       currentEpisode.value = null;
 

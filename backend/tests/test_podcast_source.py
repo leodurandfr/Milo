@@ -480,15 +480,17 @@ class TestEpisodeEndDetection:
 
     @pytest.mark.asyncio
     async def test_episode_ends_on_idle_even_if_position_short_of_duration(self, podcast_source):
-        """EOF (mpv idle) returns to WAITING even when the last observed position
-        is far short of the reported duration — the original 'stuck at the end' bug."""
+        """EOF (mpv idle) returns to WAITING and persists completion even when the
+        last observed position is far short of the reported duration — the original
+        'stuck at the end' bug. The explicit mark_episode_completed forces the
+        'already listened' state despite the position-vs-duration heuristic failing
+        on the over-reported duration."""
         podcast_source._current_episode = {"uuid": "ep1", "name": "Ep"}
         podcast_source._is_playing = True
         podcast_source._loading = False
         podcast_source._position = 3000   # real end of audio
         podcast_source._duration = 3600   # over-reported duration
         podcast_source._progress_save_task = None
-        podcast_source._podcast_data.clear_playback_progress = AsyncMock()
         podcast_source._mpv = self._mpv_with_props(
             {"playback-time": None, "duration": None, "pause": False, "idle-active": True}
         )
@@ -498,7 +500,9 @@ class TestEpisodeEndDetection:
         assert podcast_source._current_episode is None
         assert podcast_source._is_playing is False
         assert podcast_source.state == SourceState.WAITING
-        podcast_source._podcast_data.clear_playback_progress.assert_awaited_once_with("ep1")
+        # Final row is saved (so a short clip has a row), then forced completed.
+        assert podcast_source._podcast_data.update_playback_progress.await_count == 1
+        podcast_source._podcast_data.mark_episode_completed.assert_awaited_once_with("ep1")
 
     @pytest.mark.asyncio
     async def test_transient_position_none_does_not_end_episode(self, podcast_source):
@@ -544,7 +548,6 @@ class TestEpisodeEndDetection:
         podcast_source._position = 3599
         podcast_source._duration = 3600
         podcast_source._progress_save_task = None
-        podcast_source._podcast_data.clear_playback_progress = AsyncMock()
         podcast_source._mpv = self._mpv_with_props(
             {"playback-time": None, "duration": None, "pause": False, "idle-active": True}
         )
@@ -553,6 +556,7 @@ class TestEpisodeEndDetection:
 
         assert podcast_source._current_episode is None
         assert podcast_source.state == SourceState.WAITING
+        podcast_source._podcast_data.mark_episode_completed.assert_awaited_once_with("ep1")
 
 
 class TestProperties:
