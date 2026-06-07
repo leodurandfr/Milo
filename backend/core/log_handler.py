@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 class WebSocketLogHandler(logging.Handler):
     """
-    Logging handler that forwards ERROR/WARNING logs to WebSocket clients.
+    Logging handler that forwards ERROR logs to WebSocket clients.
 
     Schedules async broadcasts from the synchronous logging.Handler.emit()
     method via BackgroundTaskSet.
@@ -19,7 +19,7 @@ class WebSocketLogHandler(logging.Handler):
     # Minimum interval between broadcasts (seconds) to avoid flooding
     MIN_BROADCAST_INTERVAL = 1.0
 
-    def __init__(self, level=logging.WARNING):
+    def __init__(self, level=logging.ERROR):
         super().__init__(level)
         self._state_machine = None
         self._last_broadcast_time = 0

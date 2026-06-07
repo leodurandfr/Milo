@@ -495,9 +495,8 @@ onMounted(async () => {
       currentError.value = { title: `${capitalize(source)} Error`, detail: message };
     }),
     on('system', 'backend_error', (event) => {
-      const level = event.data?.level || 'ERROR';
       const message = event.data?.message || 'Backend error';
-      currentError.value = { title: `${t('notification.backendErrorTitle')} · ${level === 'WARNING' ? 'Warning' : 'Error'}`, detail: message, source: 'backend' };
+      currentError.value = { title: t('notification.backendErrorTitle'), detail: message, source: 'backend' };
     }),
     on('system', 'cd_drive_status', (event) => {
       cdStore.handleSystemEvent(event);
