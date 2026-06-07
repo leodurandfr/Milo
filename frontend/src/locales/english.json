@@ -27,6 +27,7 @@
     "updates": "Updates",
     "information": "Information",
     "hardware": "Hardware",
+    "fan": "Fan",
     "audioPlayback": "Audio playback",
     "restart": "Restart",
     "confirmRestart": "Confirm restart",
@@ -257,6 +258,21 @@
     "applyAndReboot": "Apply and reboot",
     "confirmReboot": "Confirm reboot",
     "rebooting": "Rebooting..."
+  },
+  "fanSettings": {
+    "status": "Status",
+    "temperature": "Temperature",
+    "speed": "Fan speed",
+    "rpm": "Rotation",
+    "rpmUnit": "RPM",
+    "mode": "Mode",
+    "modeAuto": "Auto",
+    "modeManual": "Manual",
+    "manualSpeed": "Fan speed",
+    "curveNote": "Fan speed ramps smoothly between points.",
+    "addPoint": "Add a point",
+    "removePoint": "Remove point",
+    "disabledNote": "The fan is off — the processor relies on its thermal throttling (85°C) to stay safe."
   },
   "audioPlayback": {
     "autoStop": "Auto stop on pause",

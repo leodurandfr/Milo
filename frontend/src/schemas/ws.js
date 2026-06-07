@@ -50,6 +50,18 @@ const EqFilterWireSchema = z.object({
   enabled: z.boolean().optional(),
 });
 
+// Backend: backend/hardware/fan.py FanController.get_status() — config + telemetry.
+const FanStatusSchema = z.object({
+  available: z.boolean(),
+  enabled: z.boolean(),
+  mode: z.enum(['auto', 'manual']),
+  manual_percent: z.number(),
+  curve: z.array(z.object({ temp_c: z.number(), percent: z.number() })),
+  temp_c: z.number(),
+  rpm: z.number(),
+  pwm_percent: z.number(),
+});
+
 export const wsEventRegistry = {
   // Backend: service.py:306,353 → {state: CamillaDspState.value}.
   'equalizer.state_changed': z.object({
@@ -93,6 +105,11 @@ export const wsEventRegistry = {
     crossover_enabled: z.boolean(),
     crossover_frequency: z.number(),
   }),
+  // Backend: backend/hardware/fan.py FanController.get_status() — emitted as
+  // both fan_config_changed (config edit) and fan_status_changed (telemetry
+  // tick). Same shape; the store routes config vs telemetry to separate slices.
+  'settings.fan_config_changed': FanStatusSchema,
+  'settings.fan_status_changed': FanStatusSchema,
   // Backend: backend/core/audio_source.py:583 — broadcast_position_update.
   // Position and duration are in milliseconds.
   'source.position_update': z.object({

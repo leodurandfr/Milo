@@ -1,0 +1,14 @@
+# Milo Fan Control - udev rules
+# Allows the milo user to drive the cooling fan at runtime without sudo.
+#
+# dtparam=cooling_fan=on instantiates a pwm-fan driver under the stable
+# platform device /sys/devices/platform/cooling_fan (its hwmonN index is
+# dynamic, so match the parent rather than the number). The backend writes
+# pwm1/pwm1_enable to set the speed and toggles the thermal governor via
+# thermal_zone0/mode to take over / hand back control.
+
+# pwm-fan hwmon controls (speed + manual/auto mode)
+SUBSYSTEM=="hwmon", KERNELS=="cooling_fan", ACTION=="add", RUN+="/bin/chmod 0666 /sys/class/hwmon/%k/pwm1", RUN+="/bin/chmod 0666 /sys/class/hwmon/%k/pwm1_enable"
+
+# Thermal governor toggle (disable to take over, enable to hand back)
+SUBSYSTEM=="thermal", KERNEL=="thermal_zone0", ACTION=="add", RUN+="/bin/chmod 0666 /sys/class/thermal/%k/mode"

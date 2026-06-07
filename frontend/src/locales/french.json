@@ -27,6 +27,7 @@
     "updates": "Mises à jour",
     "information": "Informations",
     "hardware": "Matériel",
+    "fan": "Ventilateur",
     "audioPlayback": "Lecture audio",
     "restart": "Redémarrer",
     "confirmRestart": "Confirmer le redémarrage",
@@ -257,6 +258,21 @@
     "applyAndReboot": "Appliquer et redémarrer",
     "confirmReboot": "Confirmer le redémarrage",
     "rebooting": "Redémarrage en cours..."
+  },
+  "fanSettings": {
+    "status": "État",
+    "temperature": "Température",
+    "speed": "Vitesse du ventilateur",
+    "rpm": "Rotation",
+    "rpmUnit": "tr/min",
+    "mode": "Mode",
+    "modeAuto": "Auto",
+    "modeManual": "Manuel",
+    "manualSpeed": "Vitesse du ventilateur",
+    "curveNote": "La vitesse augmente progressivement entre les points.",
+    "addPoint": "Ajouter un point",
+    "removePoint": "Supprimer le point",
+    "disabledNote": "Le ventilateur est coupé — le processeur s'appuie sur sa limitation thermique (85 °C) pour rester en sécurité."
   },
   "audioPlayback": {
     "autoStop": "Arrêt automatique",

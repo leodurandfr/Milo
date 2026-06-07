@@ -28,6 +28,7 @@ from backend.api.system import create_system_router
 from backend.api.programs import create_programs_router
 from backend.hardware.bt_remote_routes import create_bt_remote_router
 from backend.hardware.ir_remote_routes import create_ir_remote_router
+from backend.hardware.fan_routes import create_fan_router
 from backend.api.health import create_health_router
 from backend.api.errors import create_errors_router
 from backend.api.setup import create_setup_router
@@ -68,6 +69,7 @@ rotary_controller = get_service("rotary_controller")
 screen_controller = get_service("screen_controller")
 bt_remote_controller = get_service("bt_remote_controller")
 ir_remote_controller = get_service("ir_remote_controller")
+fan_controller = get_service("fan_controller")
 systemd_manager = get_service("systemd_manager")
 hardware_service = get_service("hardware_service")
 crossover_service = get_service("crossover_service")
@@ -130,6 +132,7 @@ async def lifespan(app: FastAPI):
         screen_controller.cleanup()
         await bt_remote_controller.cleanup()
         await ir_remote_controller.cleanup()
+        await fan_controller.cleanup()
         await get_service("connectivity_service").cleanup()
         await network_service.cleanup()
         logger.info("Cleanup completed")
@@ -240,6 +243,9 @@ app.include_router(bt_remote_router)
 
 ir_remote_router = create_ir_remote_router(ir_remote_controller)
 app.include_router(ir_remote_router)
+
+fan_router = create_fan_router(fan_controller, settings_service)
+app.include_router(fan_router)
 
 setup_router = create_setup_router(settings_service, hardware_service, systemd_manager, network_service)
 app.include_router(setup_router)

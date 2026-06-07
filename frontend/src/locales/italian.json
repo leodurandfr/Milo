@@ -27,6 +27,7 @@
     "updates": "Aggiornamenti",
     "information": "Informazioni",
     "hardware": "Hardware",
+    "fan": "Ventola",
     "audioPlayback": "Riproduzione audio",
     "restart": "Riavvia",
     "confirmRestart": "Conferma riavvio",
@@ -257,6 +258,21 @@
     "applyAndReboot": "Applica e riavvia",
     "confirmReboot": "Conferma riavvio",
     "rebooting": "Riavvio in corso..."
+  },
+  "fanSettings": {
+    "status": "Stato",
+    "temperature": "Temperatura",
+    "speed": "Velocità della ventola",
+    "rpm": "Rotazione",
+    "rpmUnit": "RPM",
+    "mode": "Modalità",
+    "modeAuto": "Auto",
+    "modeManual": "Manuale",
+    "manualSpeed": "Velocità della ventola",
+    "curveNote": "La velocità aumenta gradualmente tra i punti.",
+    "addPoint": "Aggiungi un punto",
+    "removePoint": "Rimuovi punto",
+    "disabledNote": "La ventola è spenta — il processore si affida alla sua limitazione termica (85 °C) per la sicurezza."
   },
   "audioPlayback": {
     "autoStop": "Stop automatico in pausa",

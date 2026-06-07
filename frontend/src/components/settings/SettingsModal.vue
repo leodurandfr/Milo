@@ -4,7 +4,7 @@
     <!-- Single NavigationHeader outside transition -->
     <NavigationHeader ref="headerRef" :title="headerTitle" :show-back="canGoBack" :actions-key="currentView"
       @back="back">
-      <template v-if="currentView === 'home' || currentView === 'multiroom' || currentView === 'bt-remote' || showIrRemoteToggle || stationActionIcon" #actions>
+      <template v-if="currentView === 'home' || currentView === 'multiroom' || currentView === 'bt-remote' || showIrRemoteToggle || showFanToggle || stationActionIcon" #actions>
         <button v-if="currentView === 'home'" v-press class="power-toggle" @click="togglePowerMenu">
           <SvgIcon name="power" size="large" color="var(--color-text-contrast)"
             class="power-toggle__icon" :class="{ 'power-toggle__icon--hidden': showPowerMenu }" />
@@ -17,6 +17,8 @@
           @change="handleBtRemoteToggle" />
         <Toggle v-if="showIrRemoteToggle" :model-value="settingsStore.irRemote.enabled"
           @change="handleIrRemoteToggle" />
+        <Toggle v-if="showFanToggle" :model-value="fanStore.config.enabled"
+          @change="handleFanToggle" />
         <IconButton v-if="stationActionIcon" :icon="stationActionIcon" variant="on-dark"
           @click="toggleStationActionMenu" />
       </template>
@@ -150,6 +152,12 @@
                 </template>
               </ListItemButton>
 
+              <ListItemButton v-if="fanStore.available" variant="background" :title="t('settings.fan')" action="caret" @click="push('fan')">
+                <template #icon>
+                  <img :src="fanIcon" alt="Fan" />
+                </template>
+              </ListItemButton>
+
               <ListItemButton variant="background" :title="t('settings.updates')" action="caret" @click="push('updates')">
                 <template #icon>
                   <img :src="updatesIcon" alt="Updates" />
@@ -183,6 +191,9 @@
 
       <!-- Hardware view -->
       <HardwareSettings v-else-if="currentView === 'hardware'" key="hardware" class="view-content" />
+
+      <!-- Fan view -->
+      <FanSettings v-else-if="currentView === 'fan'" key="fan" class="view-content" />
 
       <!-- Audio playback view -->
       <AudioPlaybackSettings v-else-if="currentView === 'audio-playback'" key="audio-playback" class="view-content" />
@@ -257,6 +268,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useRadioStore } from '@/stores/radioStore';
+import { useFanStore } from '@/stores/fanStore';
 import { useNavigationStack } from '@/composables/useNavigationStack';
 import { useViewTransition } from '@/composables/useViewTransition';
 import { logger } from '@/services/logger';
@@ -283,6 +295,7 @@ import radioIcon from '@/assets/settings-icons/radio.svg';
 import podcastIcon from '@/assets/settings-icons/podcast.svg';
 import macosIcon from '@/assets/settings-icons/macos.svg';
 import hardwareIcon from '@/assets/settings-icons/hardware.svg';
+import fanIcon from '@/assets/settings-icons/fan.svg';
 import networkIcon from '@/assets/settings-icons/network.svg';
 import rebootIcon from '@/assets/settings-icons/reboot.svg';
 import shutdownIcon from '@/assets/settings-icons/shutdown.svg';
@@ -302,6 +315,7 @@ import ManageStation from '@/components/settings/categories/radio/ManageStation.
 import PodcastSettings from '@/components/settings/categories/PodcastSettings.vue';
 import MacSettings from '@/components/settings/categories/MacSettings.vue';
 import HardwareSettings from '@/components/settings/categories/HardwareSettings.vue';
+import FanSettings from '@/components/settings/categories/FanSettings.vue';
 import UpdateManager from '@/components/settings/categories/UpdateManager.vue';
 import InfoSettings from '@/components/settings/categories/InfoSettings.vue';
 import NetworkSettings from '@/components/settings/categories/NetworkSettings.vue';
@@ -325,6 +339,7 @@ const settingsStore = useSettingsStore();
 const unifiedStore = useUnifiedAudioStore();
 const multiroomStore = useMultiroomStore();
 const radioStore = useRadioStore();
+const fanStore = useFanStore();
 
 // Inject modal refs for scroll detection and height pre-calculation
 const modalContentRef = inject('modalContentRef', null);
@@ -385,6 +400,7 @@ const headerTitle = computed(() => {
     'screen': t('settings.screen'),
     'network': t('settings.network'),
     'hardware': t('settings.hardware'),
+    'fan': t('settings.fan'),
     'audio-playback': t('settings.audioPlayback'),
     'remote-controls': t('settings.remoteControls'),
     'bt-remote': t('settings.btRemote'),
@@ -642,6 +658,13 @@ const showIrRemoteToggle = computed(
 
 async function handleIrRemoteToggle(enabled) {
   await settingsStore.toggleIrRemote(enabled);
+}
+
+// Fan master toggle (nav header) — ON drives the fan (auto/manual), OFF stops it.
+const showFanToggle = computed(() => currentView.value === 'fan' && fanStore.available === true);
+
+async function handleFanToggle(enabled) {
+  await fanStore.updateConfig({ enabled });
 }
 
 onMounted(async () => {

@@ -102,6 +102,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useSystemStore } from '@/stores/systemStore';
+import { useFanStore } from '@/stores/fanStore';
 import { i18n, useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { wsEventRegistry } from '@/schemas/ws';
@@ -131,6 +132,7 @@ const settingsStore = useSettingsStore();
 const multiroomStore = useMultiroomStore();
 const equalizerStore = useEqualizerStore();
 const systemStore = useSystemStore();
+const fanStore = useFanStore();
 const { on, parsedOn, onReconnect, onVisibilityChange, isConnected } = useWebSocket();
 const { loadHardwareInfo } = useHardwareConfig();
 const timer = useTimer();
@@ -662,6 +664,10 @@ onMounted(async () => {
         });
       }
     }),
+    parsedOn('settings', 'fan_config_changed', wsEventRegistry['settings.fan_config_changed'],
+             (payload) => fanStore.applyConfig(payload)),
+    parsedOn('settings', 'fan_status_changed', wsEventRegistry['settings.fan_status_changed'],
+             (payload) => fanStore.applyTelemetry(payload)),
     on('system', 'hostname_conflict_changed', (event) => systemStore.handleConflictEvent(event)),
     on('system', 'connectivity_changed', (event) => systemStore.handleConnectivityEvent(event)),
     // Equalizer events
@@ -706,6 +712,9 @@ onMounted(async () => {
 
   // Load BT remote status in background (separate endpoint, may not be available)
   settingsStore.loadBtRemoteStatus();
+
+  // Load fan config + telemetry in background (sets `available` to gate the UI)
+  fanStore.loadStatus();
 
   // Initialize client registry (loads from cache + fetches fresh state)
   multiroomStore.initialize();

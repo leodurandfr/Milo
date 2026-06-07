@@ -29,6 +29,10 @@ install_udev_rules() {
     sudo cp "$MILO_APP_DIR/rootfs/etc/udev/rules.d/90-milo-cd.rules" /etc/udev/rules.d/90-milo-cd.rules
     sudo chmod 0644 /etc/udev/rules.d/90-milo-cd.rules
 
+    # Fan control rules (runtime PWM fan control without sudo)
+    sudo cp "$MILO_APP_DIR/rootfs/etc/udev/rules.d/99-milo-fan.rules" /etc/udev/rules.d/99-milo-fan.rules
+    sudo chmod 0644 /etc/udev/rules.d/99-milo-fan.rules
+
     # Reload udev rules
     sudo udevadm control --reload-rules
     sudo udevadm trigger
@@ -36,8 +40,11 @@ install_udev_rules() {
     # Apply permissions immediately for existing devices
     sudo chmod 0666 /dev/hidraw* 2>/dev/null || true
     sudo chmod 0666 /sys/class/backlight/*/brightness 2>/dev/null || true
+    sudo chmod 0666 /sys/devices/platform/cooling_fan/hwmon/hwmon*/pwm1 2>/dev/null || true
+    sudo chmod 0666 /sys/devices/platform/cooling_fan/hwmon/hwmon*/pwm1_enable 2>/dev/null || true
+    sudo chmod 0666 /sys/class/thermal/thermal_zone0/mode 2>/dev/null || true
 
-    log_success "Udev rules installed (screen brightness without sudo)"
+    log_success "Udev rules installed (screen brightness + fan control without sudo)"
 }
 
 install_readiness_script() {

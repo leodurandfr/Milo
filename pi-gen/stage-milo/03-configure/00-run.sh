@@ -123,6 +123,10 @@ chmod 0644 /etc/udev/rules.d/90-milo-cd.rules
 cp /home/milo/milo/rootfs/etc/udev/rules.d/99-milo-screen.rules /etc/udev/rules.d/
 chmod 0644 /etc/udev/rules.d/99-milo-screen.rules
 
+# Fan control (runtime PWM fan control without sudo)
+cp /home/milo/milo/rootfs/etc/udev/rules.d/99-milo-fan.rules /etc/udev/rules.d/
+chmod 0644 /etc/udev/rules.d/99-milo-fan.rules
+
 # DSI backlight permissions
 tee /etc/udev/rules.d/99-backlight.rules > /dev/null << 'EOF'
 SUBSYSTEM=="backlight", RUN+="/bin/chmod 0666 /sys/class/backlight/%k/brightness"

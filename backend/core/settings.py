@@ -80,6 +80,17 @@ class SettingsService:
             },
             "wifi": {
                 "country": ""
+            },
+            "fan": {
+                "enabled": True,
+                "mode": "auto",
+                "manual_percent": 50,
+                "curve": [
+                    {"temp_c": 55, "percent": 0},
+                    {"temp_c": 66, "percent": 22},
+                    {"temp_c": 79, "percent": 47},
+                    {"temp_c": 82, "percent": 100}
+                ]
             }
         }
 
@@ -300,6 +311,18 @@ class SettingsService:
                 }
             if validated_hardware:
                 validated['hardware'] = validated_hardware
+
+        # Fan control (optional — runtime PWM fan curve, see hardware/fan.py)
+        fan_input = settings.get('fan', {})
+        if fan_input:
+            from backend.hardware.fan import sanitize_curve
+            mode = fan_input.get('mode', 'auto')
+            validated['fan'] = {
+                'enabled': bool(fan_input.get('enabled', True)),
+                'mode': mode if mode in ('auto', 'manual') else 'auto',
+                'manual_percent': max(0, min(100, int(fan_input.get('manual_percent', 50)))),
+                'curve': sanitize_curve(fan_input.get('curve'))
+            }
 
         return validated
 
