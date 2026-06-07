@@ -89,6 +89,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch, inject } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore'
 import { useNavigationStack } from '@/composables/useNavigationStack'
 import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility'
 import { useSourceProgress } from '@/composables/useSourceProgress'
@@ -115,6 +116,7 @@ import CredentialsRequired from './CredentialsRequired.vue'
 
 const podcastStore = usePodcastStore()
 const settingsStore = useSettingsStore()
+const unifiedStore = useUnifiedAudioStore()
 const { t } = useI18n()
 
 // Ref to AudioSourceLayout — used to access its scroll container ($el) for position save/restore
@@ -250,15 +252,24 @@ async function openPodcastDetails(podcastOrUuid) {
     // Podcast object with UUID already resolved
     uuid = podcastOrUuid.uuid
   } else if (podcastOrUuid && podcastOrUuid.itunes_id) {
-    // Podcast object from iTunes RSS without UUID - need to lookup
+    // Podcast object from iTunes RSS without UUID - need to lookup.
+    // A miss means Taddy doesn't index this podcast (expected for some charts
+    // entries), so log it as info and tell the user instead of failing silently.
     loadingPodcastId.value = podcastOrUuid.itunes_id
     const result = await apiCall.get(`/api/podcast/lookup/itunes/${podcastOrUuid.itunes_id}`, {
       category: 'podcast',
-      message: 'Error looking up podcast UUID',
-      params: { name: podcastOrUuid.name || '' },
+      message: 'Podcast not found in catalog',
+      params: { name: podcastOrUuid.name || '', artist: podcastOrUuid.artist || '' },
+      logLevel: 'info',
     })
     loadingPodcastId.value = null
-    if (!result.ok || !result.data.uuid) return
+    if (!result.ok || !result.data?.uuid) {
+      unifiedStore.transientNotice = {
+        title: t('podcasts.notAvailable'),
+        detail: podcastOrUuid.name || null,
+      }
+      return
+    }
     uuid = result.data.uuid
   } else {
     logger.error('podcast', 'Invalid podcast data', podcastOrUuid)

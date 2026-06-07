@@ -4,6 +4,8 @@ Complete implementation with all GraphQL queries
 """
 import aiohttp
 import logging
+import re
+import unicodedata
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 
@@ -419,52 +421,67 @@ class TaddyAPI:
             self.logger.error(f"Error in get_itunes_top_podcasts_by_genre: {e}")
             return {"results": [], "total": 0}
 
+    @staticmethod
+    def _normalize_title(title: Optional[str]) -> str:
+        """Fold accents/case/punctuation so podcast titles compare reliably."""
+        folded = unicodedata.normalize("NFKD", title or "").encode("ascii", "ignore").decode()
+        return re.sub(r"[^a-z0-9]+", " ", folded.lower()).strip()
+
     @handle_errors(default=None)
-    async def lookup_podcast_uuid_by_itunes_id(self, itunes_id: str, podcast_name: str = None) -> Optional[str]:
+    async def lookup_podcast_uuid_by_itunes_id(
+        self, itunes_id: str, podcast_name: str = None, podcast_artist: str = None
+    ) -> Optional[str]:
         """
-        Lookup Taddy UUID for a podcast using its iTunes ID
+        Resolve a Taddy UUID for an iTunes top-charts entry (which carries only an
+        iTunes ID + name + artist, no UUID).
 
-        Args:
-            itunes_id: iTunes ID from iTunes RSS
-            podcast_name: Optional podcast name for fallback search
-
-        Returns:
-            Taddy UUID if found, None otherwise
+        Taddy stores `itunesId` inconsistently — null, or a *different* iTunes ID
+        than Apple's — so an iTunes-ID lookup alone misses many podcasts Taddy has.
+        Strategy:
+          1. Look up by iTunes ID (unambiguous when it matches Taddy's record).
+          2. Fall back to a multi-result name search. Distinct podcasts can share a
+             title (e.g. two "À la régulière"), so accept a title match only when the
+             author/publisher also matches — otherwise we'd open the wrong show.
+        Returns None when neither path yields a confident match (caller shows
+        "not available" rather than a wrong podcast).
         """
-        # Search by podcast name (simple and effective)
-        if podcast_name:
-            # Limit to first 8 words (Taddy API limitation)
-            words = podcast_name.split()
-            search_term = ' '.join(words[:8])
+        # 1. Direct, unambiguous lookup by iTunes ID
+        if itunes_id:
+            try:
+                itunes_id_int = int(itunes_id)
+            except (TypeError, ValueError):
+                self.logger.warning(f"Invalid iTunes ID for lookup: {itunes_id!r}")
+            else:
+                data = await self._make_graphql_request(
+                    f"{{ getPodcastSeries(itunesId: {itunes_id_int}) {{ uuid }} }}"
+                )
+                series = data.get("getPodcastSeries") if data else None
+                if series and series.get("uuid"):
+                    self.logger.debug(f"Resolved iTunes ID {itunes_id} -> {series['uuid']}")
+                    return series["uuid"]
 
-            result = await self.search_mixed(
-                term=search_term,
-                sort_by="EXACTNESS",
-                limit=5
+        # 2. Name + author fallback: scan ranked search results (series-only;
+        # searchId is required by the API) for an exact title match whose author
+        # also matches. Both signals are required to reject same-title homonyms.
+        if podcast_name and podcast_artist:
+            escaped = podcast_name.replace("\\", "\\\\").replace('"', '\\"')
+            data = await self._make_graphql_request(
+                f'{{ search(term: "{escaped}" filterForTypes: [PODCASTSERIES] '
+                f"sortBy: EXACTNESS page: 1 limitPerPage: 10) "
+                f"{{ searchId podcastSeries {{ uuid name authorName itunesInfo {{ uuid publisherName }} }} }} }}"
             )
+            results = (data.get("search") or {}).get("podcastSeries") or [] if data else []
+            target_name = self._normalize_title(podcast_name)
+            target_artist = self._normalize_title(podcast_artist)
+            for series in results:
+                if not series.get("uuid") or self._normalize_title(series.get("name")) != target_name:
+                    continue
+                author = series.get("authorName") or (series.get("itunesInfo") or {}).get("publisherName") or ""
+                if self._normalize_title(author) == target_artist:
+                    self.logger.debug(f"Resolved '{podcast_name}' / '{podcast_artist}' -> {series['uuid']}")
+                    return series["uuid"]
 
-            podcasts = result.get('podcasts', [])
-
-            # Strategy 1: Match by iTunes ID (most reliable)
-            if itunes_id:
-                itunes_id_str = str(itunes_id)
-                for podcast in podcasts:
-                    taddy_itunes_id = podcast.get('itunes_id')
-                    if taddy_itunes_id and str(taddy_itunes_id) == itunes_id_str:
-                        uuid = podcast.get('uuid')
-                        self.logger.debug(f"Found UUID {uuid} for iTunes ID {itunes_id}")
-                        return uuid
-
-            # Strategy 2: Match by name (fallback)
-            podcast_name_lower = podcast_name.lower().strip()
-            for podcast in podcasts:
-                taddy_name_lower = podcast.get('name', '').lower().strip()
-                if taddy_name_lower == podcast_name_lower:
-                    uuid = podcast.get('uuid')
-                    self.logger.debug(f"Found UUID {uuid} for name '{podcast_name}'")
-                    return uuid
-
-        self.logger.debug(f"No UUID found for iTunes ID {itunes_id} / name '{podcast_name}'")
+        self.logger.debug(f"No Taddy UUID for iTunes ID {itunes_id} / '{podcast_name}' / '{podcast_artist}'")
         return None
 
     # ========== SEARCH QUERIES ==========

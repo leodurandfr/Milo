@@ -138,13 +138,15 @@ async def get_content_by_genre(
 async def lookup_podcast_by_itunes_id(
     itunes_id: str,
     source: PodcastSource = Depends(get_source),
-    name: str = Query(None, description="Podcast name for fallback search")
+    name: str = Query(None, description="Podcast name for fallback lookup"),
+    artist: str = Query(None, description="Podcast author/publisher to disambiguate same-title homonyms")
 ) -> Dict[str, Any]:
     """Lookup Taddy UUID for a podcast using its iTunes ID."""
     try:
         uuid = await source.taddy_api.lookup_podcast_uuid_by_itunes_id(
             itunes_id=itunes_id,
-            podcast_name=name
+            podcast_name=name,
+            podcast_artist=artist
         )
 
         if not uuid:

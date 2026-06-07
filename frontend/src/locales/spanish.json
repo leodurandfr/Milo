@@ -495,6 +495,7 @@
     "noSubscriptions": "Sin suscripciones",
     "noSubscriptionsHint": "Busca podcasts y suscríbete para encontrarlos aquí",
     "noPodcastsInGenre": "No se encontraron podcasts en esta categoría",
+    "notAvailable": "Podcast no disponible",
     "noInternet": "Sin conexión a internet",
     "noInternetHint": "Comprueba tu conexión de red e inténtalo de nuevo",
     "retry": "Reintentar",

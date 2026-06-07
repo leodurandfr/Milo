@@ -315,6 +315,20 @@ watch(() => unifiedStore.commandError, (err) => {
   }, 4000);
 });
 
+// Auto-show generic transient notices ({ title, detail }) pushed by any feature
+let transientNoticeTimer = null;
+watch(() => unifiedStore.transientNotice, (notice) => {
+  if (!notice) return;
+  unifiedStore.transientNotice = null;
+  if (transientNoticeTimer) timer.clear(transientNoticeTimer);
+  currentError.value = { title: notice.title, detail: notice.detail || null };
+  transientNoticeTimer = timer.setTimeout(() => {
+    if (currentError.value?.title === notice.title) {
+      currentError.value = null;
+    }
+  }, 4000);
+});
+
 // Fire Taddy credentials check during the Podcasts source transition (~500ms+).
 // PodcastSource.vue only mounts once `transitioning` clears, so under normal
 // network conditions the status is resolved before its first render.
