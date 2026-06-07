@@ -263,16 +263,6 @@ class PodcastDataService:
 
         return True
 
-    async def clear_playback_progress(self, episode_uuid: str) -> bool:
-        """Clear playback progress for an episode (remove from queue)."""
-        data = await self.load_data()
-
-        if episode_uuid in data.get('playback_progress', {}):
-            del data['playback_progress'][episode_uuid]
-            return await self.save_data(data)
-
-        return True
-
     # ========== SETTINGS ==========
 
     async def get_podcast_settings(self) -> Dict[str, Any]:
