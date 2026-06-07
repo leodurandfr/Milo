@@ -210,7 +210,10 @@ async function loadData() {
       params: { content_type: 'PODCASTEPISODE', limit: 10 },
     })
     if (episodesResult.ok) {
-      topEpisodes.value = podcastStore.enrichEpisodesWithProgress(episodesResult.data.results || [])
+      // Hide episodes already listened to from "top episodes"
+      topEpisodes.value = podcastStore
+        .enrichEpisodesWithProgress(episodesResult.data.results || [])
+        .filter((ep) => !ep.playback_progress?.completed)
     }
     loadingTopEpisodes.value = false
   } else {

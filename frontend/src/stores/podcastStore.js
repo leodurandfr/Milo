@@ -297,6 +297,7 @@ export const usePodcastStore = defineStore('podcast', () => {
           progressCache.value.set(episode.uuid, {
             position: progress.position,
             duration: progress.duration,
+            completed: progress.completed === true,
             last_played: progress.last_played || Date.now()
           });
         }
@@ -374,9 +375,10 @@ export const usePodcastStore = defineStore('podcast', () => {
           },
         );
         if (epResult.ok) {
+          // Hide episodes already listened to from "new episodes"
           latestSubscriptionEpisodes.value = enrichEpisodesWithProgress(
             epResult.data.results || []
-          );
+          ).filter((ep) => !ep.playback_progress?.completed);
         }
       } else {
         latestSubscriptionEpisodes.value = [];

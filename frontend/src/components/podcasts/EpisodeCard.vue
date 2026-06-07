@@ -16,6 +16,7 @@
         <div class="episode-meta text-mono">
           <span class="duration">
             <template v-if="isCurrentlyPlaying">{{ t('podcasts.nowPlaying') }}</template>
+            <template v-else-if="isCompleted">{{ t('podcasts.alreadyListened') }}</template>
             <template v-else-if="hasProgress">{{ timeRemaining }}</template>
             <template v-else>{{ formattedDuration }}</template>
           </span>
@@ -123,14 +124,24 @@ async function handlePlayClick() {
   }
 }
 
+// Progress for a non-current episode: prefer the live cache entry (kept fresh
+// via WebSocket while something plays), fall back to the API snapshot on the prop.
+const episodeProgress = computed(() =>
+  podcastStore.getEpisodeProgress(props.episode.uuid) || props.episode.playback_progress || null
+)
+
+const isCompleted = computed(() => {
+  // The current episode is shown as playing/remaining, never "already listened"
+  if (isCurrentEpisode.value) return false
+  return episodeProgress.value?.completed === true
+})
+
 const hasProgress = computed(() => {
   // If this is the current episode, read live position from unified store (ms)
   if (isCurrentEpisode.value) {
     return (unifiedStore.systemState.metadata?.position || 0) > 0
   }
-  // Otherwise, read from reactive progress cache (updated via WebSocket)
-  const progress = podcastStore.getEpisodeProgress(props.episode.uuid)
-  return progress && progress.position > 0
+  return (episodeProgress.value?.position || 0) > 0
 })
 
 const timeRemaining = computed(() => {
@@ -141,8 +152,7 @@ const timeRemaining = computed(() => {
     const meta = unifiedStore.systemState.metadata
     remaining = Math.floor(((meta?.duration || 0) - (meta?.position || 0)) / 1000)
   } else {
-    // Otherwise, use reactive progress cache (updated via WebSocket)
-    const progress = podcastStore.getEpisodeProgress(props.episode.uuid)
+    const progress = episodeProgress.value
     if (!progress) return ''
     remaining = progress.duration - progress.position
   }
