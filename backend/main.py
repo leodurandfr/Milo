@@ -52,9 +52,11 @@ _file_handler.setLevel(logging.WARNING)
 _file_handler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s %(name)s - %(message)s'))
 logging.getLogger().addHandler(_file_handler)
 
-# Broadcast backend errors/warnings to frontend via WebSocket
+# Broadcast backend errors to frontend via WebSocket. ERROR-only: WARNINGs are
+# operational noise (radio mirror hiccups, Snapcast/fan/mpv) and would surface as
+# misleading user-facing banners. Genuine user-facing failures use broadcast_error().
 from backend.core.log_handler import WebSocketLogHandler
-_ws_log_handler = WebSocketLogHandler(level=logging.WARNING)
+_ws_log_handler = WebSocketLogHandler(level=logging.ERROR)
 logging.getLogger("backend").addHandler(_ws_log_handler)
 
 # Get services from registry
