@@ -265,7 +265,7 @@ class SnapcastWebSocketService:
                     break
 
         except aiohttp.ClientConnectorError:
-            self.logger.warning("Cannot connect to Snapcast server - server may not be running")
+            self.logger.info("Cannot connect to Snapcast server - server may not be running")
         except Exception as e:
             self.logger.error(f"WebSocket connection failed: {e}")
         finally:

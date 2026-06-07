@@ -189,7 +189,7 @@ class TaddyAPI:
                 timeout=aiohttp.ClientTimeout(total=15)
             ) as resp:
                 if resp.status == 429:
-                    self.logger.warning("Taddy API rate limit exceeded")
+                    self.logger.info("Taddy API rate limit exceeded")
                     return {"_rate_limited": True}
 
                 if resp.status != 200:
@@ -215,7 +215,7 @@ class TaddyAPI:
 
         except Exception as e:
             if is_network_error(e):
-                self.logger.warning(f"Taddy API network error: {e}")
+                self.logger.info(f"Taddy API network error: {e}")
                 return {"_network_error": True}
             self.logger.error(f"Taddy API unexpected error: {e}")
             return None

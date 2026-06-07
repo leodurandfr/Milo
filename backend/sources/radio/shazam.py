@@ -218,7 +218,7 @@ class ShazamRecognitionService:
             logger.info("Shazam recognition timed out")
             return False
         except (aiohttp.ClientError, ValueError) as e:
-            logger.warning(f"Shazam recognition transient failure: {e}")
+            logger.info(f"Shazam recognition transient failure: {e}")
             return False
         except Exception as e:
             logger.error(f"Shazam recognition unexpected error: {e}")
@@ -342,5 +342,5 @@ class ShazamRecognitionService:
             radio_settings = await self._settings_service.get_setting("radio") or {}
             return radio_settings.get("shazam_enabled", True)
         except Exception as e:
-            logger.warning(f"Shazam is_enabled check failed, defaulting to True: {e}")
+            logger.debug(f"Shazam is_enabled check failed, defaulting to True: {e}")
             return True

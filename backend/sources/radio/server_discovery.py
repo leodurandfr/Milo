@@ -88,7 +88,7 @@ class ServerDiscovery:
                 socket.gethostbyname_ex, self.DISCOVERY_HOST
             )
         except (socket.gaierror, OSError) as e:
-            self._logger.warning(
+            self._logger.info(
                 f"DNS resolution of {self.DISCOVERY_HOST} failed: {e}; "
                 f"falling back to {self.FALLBACK_SERVER}"
             )

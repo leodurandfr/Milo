@@ -511,7 +511,7 @@ class RadioSource(MpvAudioSource):
                 idle = await self._mpv.get_property("idle-active")
                 if idle:
                     station_name = self._current_station.get('name', 'Unknown') if self._current_station else 'Unknown'
-                    self._logger.warning(f"Stream load failed for {station_name} (mpv returned to idle)")
+                    self._logger.info(f"Stream load failed for {station_name} (mpv returned to idle)")
                     self._is_buffering = False
                     self._current_station = None
                     self._metadata = {}
