@@ -754,7 +754,7 @@ class RadioBrowserAPI:
 
         return deduplicated_stations
 
-    @handle_errors(default=False, level='warning')
+    @handle_errors(default=False, level='debug')
     async def increment_station_clicks(self, station_id: str) -> bool:
         """
         Increments click counter for a station
