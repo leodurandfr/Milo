@@ -76,7 +76,7 @@ def create_setup_router(settings_service, hardware_service, systemd_manager, net
 
         On failure: rolls back setup_completed to false so the wizard reappears.
         """
-        from backend.hardware.registry import AUDIO_CARDS, SCREENS
+        from backend.hardware.registry import AUDIO_CARDS, DEFAULT_IR_REMOTE, SCREENS
         from backend.core.settings import VALID_LANGUAGES
 
         # Idempotency guard — prevent double-submit triggering two reboots
@@ -125,6 +125,10 @@ def create_setup_router(settings_service, hardware_service, systemd_manager, net
                     "dt_pin": 27,
                     "sw_pin": 23,
                 }),
+                # Preserve the install-time gpio-ir overlay: milo-apply-hardware
+                # strips the IR block from config.txt unless ir_remote.enabled is
+                # True here, so a missing key would silently disable the receiver.
+                "ir_remote": hardware_service.get_full_config().get("ir_remote", DEFAULT_IR_REMOTE),
             }
 
             await hardware_service.save_config(config)
