@@ -269,7 +269,6 @@
     "modeAuto": "Auto",
     "modeManual": "Manuale",
     "manualSpeed": "Velocità della ventola",
-    "curveNote": "La velocità aumenta gradualmente tra i punti.",
     "addPoint": "Aggiungi un punto",
     "removePoint": "Rimuovi punto",
     "disabledNote": "La ventola è spenta — il processore si affida alla sua limitazione termica (85 °C) per la sicurezza."

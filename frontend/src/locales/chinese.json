@@ -269,7 +269,6 @@
     "modeAuto": "自动",
     "modeManual": "手动",
     "manualSpeed": "风扇转速",
-    "curveNote": "转速在各点之间平滑递增。",
     "addPoint": "添加点",
     "removePoint": "删除点",
     "disabledNote": "风扇已关闭 — 处理器依靠其热降频（85°C）来保证安全。"

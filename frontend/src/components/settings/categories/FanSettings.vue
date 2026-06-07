@@ -44,7 +44,6 @@
         </SettingItem>
 
         <template v-if="config.mode === 'auto'">
-          <p class="fan-note text-mono">{{ t('fanSettings.curveNote') }}</p>
           <div class="curve">
             <div class="curve__head">
               <span class="curve__col text-mono-small">{{ t('fanSettings.temperature') }}</span>
@@ -68,12 +67,13 @@
                 value-unit="%"
                 @change="saveCurve"
               />
-              <button
-                class="curve__remove"
+              <IconButton
+                icon="close"
+                size="small"
                 :class="{ 'curve__remove--hidden': config.curve.length <= 2 }"
                 :aria-label="t('fanSettings.removePoint')"
                 @click="removePoint(i)"
-              >×</button>
+              />
             </div>
             <button v-if="config.curve.length < MAX_POINTS" class="curve__add text-mono" @click="addPoint">
               + {{ t('fanSettings.addPoint') }}
@@ -95,6 +95,7 @@ import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
+import IconButton from '@/components/ui/IconButton.vue';
 
 const MAX_POINTS = 6;
 
@@ -267,10 +268,6 @@ onMounted(() => {
   transition: width var(--transition-normal);
 }
 
-.fan-note {
-  color: var(--color-text-secondary);
-}
-
 .fan-warning {
   color: var(--color-brand);
 }
@@ -285,26 +282,13 @@ onMounted(() => {
 .curve__head,
 .curve__point {
   display: grid;
-  grid-template-columns: 1fr 1fr var(--space-06);
+  grid-template-columns: 1fr 1fr var(--space-07);
   align-items: center;
   gap: var(--space-03);
 }
 
 .curve__col {
   color: var(--color-text-secondary);
-}
-
-.curve__remove {
-  display: grid;
-  place-items: center;
-  width: var(--space-06);
-  height: var(--space-06);
-  border: none;
-  border-radius: var(--radius-full);
-  background: var(--color-background-strong);
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: var(--transition-press);
 }
 
 .curve__remove--hidden {
@@ -332,7 +316,6 @@ onMounted(() => {
   }
 
   .curve__point {
-    grid-template-columns: 1fr 1fr var(--space-05);
     gap: var(--space-02);
   }
 }

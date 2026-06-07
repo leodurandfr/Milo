@@ -269,7 +269,6 @@
     "modeAuto": "Auto",
     "modeManual": "Manuell",
     "manualSpeed": "Lüftergeschwindigkeit",
-    "curveNote": "Die Geschwindigkeit steigt gleichmäßig zwischen den Punkten an.",
     "addPoint": "Punkt hinzufügen",
     "removePoint": "Punkt entfernen",
     "disabledNote": "Der Lüfter ist aus — der Prozessor verlässt sich auf seine thermische Drosselung (85 °C) zum Schutz."
