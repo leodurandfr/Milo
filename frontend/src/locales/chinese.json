@@ -27,6 +27,7 @@
     "updates": "更新",
     "information": "信息",
     "hardware": "硬件",
+    "fan": "风扇",
     "audioPlayback": "音频播放",
     "restart": "重启",
     "confirmRestart": "确认重启",
@@ -257,6 +258,21 @@
     "applyAndReboot": "应用并重启",
     "confirmReboot": "确认重启",
     "rebooting": "正在重启..."
+  },
+  "fanSettings": {
+    "status": "状态",
+    "temperature": "温度",
+    "speed": "风扇转速",
+    "rpm": "转速",
+    "rpmUnit": "RPM",
+    "mode": "模式",
+    "modeAuto": "自动",
+    "modeManual": "手动",
+    "manualSpeed": "风扇转速",
+    "curveNote": "转速在各点之间平滑递增。",
+    "addPoint": "添加点",
+    "removePoint": "删除点",
+    "disabledNote": "风扇已关闭 — 处理器依靠其热降频（85°C）来保证安全。"
   },
   "audioPlayback": {
     "autoStop": "暂停时自动停止",

@@ -27,6 +27,7 @@
     "updates": "अपडेट",
     "information": "जानकारी",
     "hardware": "हार्डवेयर",
+    "fan": "पंखा",
     "audioPlayback": "ऑडियो प्लेबैक",
     "restart": "पुनः आरंभ करें",
     "confirmRestart": "पुनः आरंभ की पुष्टि करें",
@@ -257,6 +258,21 @@
     "applyAndReboot": "लागू करें और पुनः आरंभ करें",
     "confirmReboot": "पुनः आरंभ की पुष्टि करें",
     "rebooting": "पुनः आरंभ हो रहा है..."
+  },
+  "fanSettings": {
+    "status": "स्थिति",
+    "temperature": "तापमान",
+    "speed": "पंखे की गति",
+    "rpm": "घूर्णन",
+    "rpmUnit": "RPM",
+    "mode": "मोड",
+    "modeAuto": "ऑटो",
+    "modeManual": "मैनुअल",
+    "manualSpeed": "पंखे की गति",
+    "curveNote": "गति बिंदुओं के बीच क्रमिक रूप से बढ़ती है।",
+    "addPoint": "एक बिंदु जोड़ें",
+    "removePoint": "बिंदु हटाएँ",
+    "disabledNote": "पंखा बंद है — सुरक्षा के लिए प्रोसेसर अपनी थर्मल थ्रॉटलिंग (85°C) पर निर्भर करता है।"
   },
   "audioPlayback": {
     "autoStop": "विराम पर स्वतः बंद",

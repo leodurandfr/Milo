@@ -27,6 +27,7 @@
     "updates": "Aktualisierungen",
     "information": "Informationen",
     "hardware": "Hardware",
+    "fan": "Lüfter",
     "audioPlayback": "Audiowiedergabe",
     "restart": "Neustart",
     "confirmRestart": "Neustart bestätigen",
@@ -257,6 +258,21 @@
     "applyAndReboot": "Anwenden und neu starten",
     "confirmReboot": "Neustart bestätigen",
     "rebooting": "Neustart läuft..."
+  },
+  "fanSettings": {
+    "status": "Status",
+    "temperature": "Temperatur",
+    "speed": "Lüftergeschwindigkeit",
+    "rpm": "Drehzahl",
+    "rpmUnit": "U/min",
+    "mode": "Modus",
+    "modeAuto": "Auto",
+    "modeManual": "Manuell",
+    "manualSpeed": "Lüftergeschwindigkeit",
+    "curveNote": "Die Geschwindigkeit steigt gleichmäßig zwischen den Punkten an.",
+    "addPoint": "Punkt hinzufügen",
+    "removePoint": "Punkt entfernen",
+    "disabledNote": "Der Lüfter ist aus — der Prozessor verlässt sich auf seine thermische Drosselung (85 °C) zum Schutz."
   },
   "audioPlayback": {
     "autoStop": "Auto-Stopp bei Pause",

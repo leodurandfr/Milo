@@ -27,6 +27,7 @@
     "updates": "Actualizaciones",
     "information": "Información",
     "hardware": "Hardware",
+    "fan": "Ventilador",
     "audioPlayback": "Reproducción de audio",
     "restart": "Reiniciar",
     "confirmRestart": "Confirmar reinicio",
@@ -257,6 +258,21 @@
     "applyAndReboot": "Aplicar y reiniciar",
     "confirmReboot": "Confirmar reinicio",
     "rebooting": "Reiniciando..."
+  },
+  "fanSettings": {
+    "status": "Estado",
+    "temperature": "Temperatura",
+    "speed": "Velocidad del ventilador",
+    "rpm": "Rotación",
+    "rpmUnit": "RPM",
+    "mode": "Modo",
+    "modeAuto": "Auto",
+    "modeManual": "Manual",
+    "manualSpeed": "Velocidad del ventilador",
+    "curveNote": "La velocidad aumenta gradualmente entre los puntos.",
+    "addPoint": "Añadir un punto",
+    "removePoint": "Eliminar punto",
+    "disabledNote": "El ventilador está apagado — el procesador depende de su limitación térmica (85 °C) para mantenerse seguro."
   },
   "audioPlayback": {
     "autoStop": "Auto-detener en pausa",

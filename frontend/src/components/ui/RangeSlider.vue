@@ -65,7 +65,10 @@ function roundToStep(value) {
 
 // Thumb positioning via CSS calc (same formula as DoubleRangeSlider)
 const thumbStyle = computed(() => {
-  const pct = (effectiveValue.value - props.min) / (props.max - props.min);
+  // Guard a zero/negative range (min === max, e.g. a curve point pinned between
+  // adjacent neighbours) so the thumb position stays a finite number, not NaN.
+  const range = props.max - props.min;
+  const pct = range > 0 ? clamp((effectiveValue.value - props.min) / range, 0, 1) : 0;
   const size = thumbAxisSize.value;
   const half = size / 2;
   if (props.orientation === 'horizontal') {
@@ -77,7 +80,8 @@ const thumbStyle = computed(() => {
 
 // Progress percentage for CSS gradient (accounts for thumb size)
 const percentage = computed(() => {
-  const rawPercentage = ((effectiveValue.value - props.min) / (props.max - props.min)) * 100;
+  const range = props.max - props.min;
+  const rawPercentage = range > 0 ? ((effectiveValue.value - props.min) / range) * 100 : 0;
   const size = thumbAxisSize.value;
 
   if (props.orientation === 'horizontal') {

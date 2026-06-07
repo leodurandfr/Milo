@@ -27,6 +27,7 @@
     "updates": "Atualizações",
     "information": "Informações",
     "hardware": "Hardware",
+    "fan": "Ventoinha",
     "audioPlayback": "Reprodução de áudio",
     "restart": "Reiniciar",
     "confirmRestart": "Confirmar reinício",
@@ -257,6 +258,21 @@
     "applyAndReboot": "Aplicar e reiniciar",
     "confirmReboot": "Confirmar reinício",
     "rebooting": "A reiniciar..."
+  },
+  "fanSettings": {
+    "status": "Estado",
+    "temperature": "Temperatura",
+    "speed": "Velocidade da ventoinha",
+    "rpm": "Rotação",
+    "rpmUnit": "RPM",
+    "mode": "Modo",
+    "modeAuto": "Auto",
+    "modeManual": "Manual",
+    "manualSpeed": "Velocidade da ventoinha",
+    "curveNote": "A velocidade aumenta gradualmente entre os pontos.",
+    "addPoint": "Adicionar um ponto",
+    "removePoint": "Remover ponto",
+    "disabledNote": "A ventoinha está desligada — o processador depende da sua limitação térmica (85 °C) para se manter seguro."
   },
   "audioPlayback": {
     "autoStop": "Auto-parar em pausa",
