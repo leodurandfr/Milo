@@ -269,7 +269,6 @@
     "modeAuto": "Auto",
     "modeManual": "Manual",
     "manualSpeed": "Velocidade da ventoinha",
-    "curveNote": "A velocidade aumenta gradualmente entre os pontos.",
     "addPoint": "Adicionar um ponto",
     "removePoint": "Remover ponto",
     "disabledNote": "A ventoinha está desligada — o processador depende da sua limitação térmica (85 °C) para se manter seguro."

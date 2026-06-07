@@ -269,7 +269,6 @@
     "modeAuto": "Auto",
     "modeManual": "Manual",
     "manualSpeed": "Velocidad del ventilador",
-    "curveNote": "La velocidad aumenta gradualmente entre los puntos.",
     "addPoint": "Añadir un punto",
     "removePoint": "Eliminar punto",
     "disabledNote": "El ventilador está apagado — el procesador depende de su limitación térmica (85 °C) para mantenerse seguro."
