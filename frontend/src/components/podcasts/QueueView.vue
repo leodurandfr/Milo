@@ -64,6 +64,7 @@ const { loading, execute: loadQueue } = useAsyncData(async () => {
   })
   if (result.ok) {
     episodes.value = result.data.episodes || []
+    podcastStore.enrichEpisodesWithProgress(episodes.value.map(formatQueueEpisode))
   }
 })
 
