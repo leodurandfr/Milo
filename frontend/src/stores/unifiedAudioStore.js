@@ -41,6 +41,10 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   // Transient command error (set on sendCommand failure, consumed by App.vue)
   const commandError = ref(null);
 
+  // Generic transient notice ({ title, detail }) surfaced in the global banner.
+  // Set by any feature, consumed + auto-dismissed by App.vue.
+  const transientNotice = ref(null);
+
 
   // === AUDIO ACTIONS ===
   async function changeSource(source) {
@@ -240,6 +244,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     volumeState,
     showVolumeBar,
     commandError,
+    transientNotice,
 
     // Actions
     changeSource,

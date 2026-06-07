@@ -495,6 +495,7 @@
     "noSubscriptions": "没有订阅",
     "noSubscriptionsHint": "搜索播客并订阅以在此处找到它们",
     "noPodcastsInGenre": "此类别中没有找到播客",
+    "notAvailable": "播客不可用",
     "noInternet": "无网络连接",
     "noInternetHint": "请检查您的网络连接并重试",
     "retry": "重试",
