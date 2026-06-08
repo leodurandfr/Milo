@@ -258,8 +258,6 @@ function getProgramIcon(programKey) {
     'milo': 'milo',
     'go-librespot': 'spotify',
     'multiroom': 'multiroom',
-    'bluez-alsa': 'bluetooth',
-    'roc-toolkit': 'mac',
     'shairport-sync': 'airplay',
     'camilladsp': 'equalizer'
   };
@@ -270,8 +268,6 @@ function getProgramDisplayName(program, key) {
   const nameOverrides = {
     'go-librespot': t('audioSources.spotify'),
     'multiroom': t('audioSources.multiroom'),
-    'bluez-alsa': t('audioSources.bluetooth'),
-    'roc-toolkit': t('audioSources.macOS'),
     'shairport-sync': t('audioSources.airplay'),
     'camilladsp': t('equalizer.title')
   };
@@ -356,8 +352,6 @@ if (typeof window !== 'undefined') {
 const programToDockApp = {
   'go-librespot': 'spotify',
   'multiroom': 'multiroom',
-  'bluez-alsa': 'bluetooth',
-  'roc-toolkit': 'mac',
   'shairport-sync': 'airplay'
 };
 
