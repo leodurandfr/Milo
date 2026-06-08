@@ -692,6 +692,8 @@ onMounted(async () => {
       cdStore.fetchDriveStatus();
       // Resync system status (hostname conflict + internet connectivity)
       systemStore.fetchStatus();
+      // Resync fan config (not pushed on backend boot)
+      fanStore.loadStatus();
     }),
     onVisibilityChange(() => {
       // Refresh stores when tab becomes visible (fixes stale data after background)
@@ -699,6 +701,7 @@ onMounted(async () => {
       equalizerStore.loadStatus();
       cdStore.fetchDriveStatus();
       systemStore.fetchStatus();
+      fanStore.loadStatus();
     })
   );
 
