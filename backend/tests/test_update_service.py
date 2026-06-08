@@ -44,7 +44,7 @@ class TestUpdateProgram:
 
     @pytest.mark.asyncio
     async def test_unsupported_program(self, update_service):
-        result = await update_service.update_program("bluez-alsa")
+        result = await update_service.update_program("unknown-program")
         assert result["success"] is False
         assert "not supported" in result["error"].lower()
 
@@ -460,7 +460,7 @@ class TestCanUpdateProgram:
 
     @pytest.mark.asyncio
     async def test_unsupported_program(self, update_service):
-        result = await update_service.can_update_program("bluez-alsa")
+        result = await update_service.can_update_program("unknown-program")
         assert result["can_update"] is False
         assert "not supported" in result["reason"].lower()
 

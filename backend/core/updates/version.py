@@ -74,24 +74,6 @@ class VersionService:
                 "repo": "badaix/snapcast",
                 "version_regex": r"v(\d+\.\d+\.\d+)"
             },
-            "bluez-alsa": {
-                "name": "BlueZ ALSA",
-                "description": "updates.bluetoothAudio",
-                "commands": {
-                    "main": ["bluealsa", "--version"]
-                },
-                "repo": "arkq/bluez-alsa",
-                "version_regex": r"v(\d+\.\d+\.\d+)"
-            },
-            "roc-toolkit": {
-                "name": "ROC Streaming",
-                "description": "updates.macStreaming",
-                "commands": {
-                    "recv": ["roc-recv", "--version"]
-                },
-                "repo": "roc-streaming/roc-toolkit",
-                "version_regex": r"roc-recv (\d+\.\d+\.\d+)"
-            },
             "camilladsp": {
                 "name": "CamillaDSP",
                 "description": "updates.audioProcessor",

@@ -35,7 +35,7 @@ class TestVersionServiceInit:
         assert version_service_with_token.github_token == "ghp_testtoken123"
 
     def test_programs_configured(self, version_service):
-        expected_keys = {"milo", "go-librespot", "shairport-sync", "multiroom", "bluez-alsa", "roc-toolkit", "camilladsp"}
+        expected_keys = {"milo", "go-librespot", "shairport-sync", "multiroom", "camilladsp"}
         assert set(version_service.programs.keys()) == expected_keys
 
     def test_cache_initialized_empty(self, version_service):
@@ -147,7 +147,7 @@ class TestGetInstalledVersion:
     @pytest.mark.asyncio
     async def test_no_version_detected(self, version_service):
         with patch.object(version_service, "_execute_version_command", return_value=None):
-            result = await version_service.get_installed_version("bluez-alsa")
+            result = await version_service.get_installed_version("go-librespot")
 
         assert result["status"] == "not_installed"
         assert result["versions"] == {}
@@ -158,7 +158,7 @@ class TestGetInstalledVersion:
             version_service, "_execute_version_command",
             side_effect=Exception("Command not found")
         ):
-            result = await version_service.get_installed_version("bluez-alsa")
+            result = await version_service.get_installed_version("go-librespot")
 
         assert result["status"] == "not_installed"
         assert len(result["errors"]) > 0
