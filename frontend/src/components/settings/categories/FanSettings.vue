@@ -207,9 +207,9 @@ watch(() => fanStore.config, syncFromStore, { deep: true });
 
 onMounted(() => {
   syncFromStore();
+  fanStore.loadStatus();
   // Keep telemetry live while the page is open (the backend only pushes
   // fan_status_changed while it drives the fan).
-  fanStore.refreshTelemetry();
   timer.setInterval(() => fanStore.refreshTelemetry(), 3000);
 });
 </script>
