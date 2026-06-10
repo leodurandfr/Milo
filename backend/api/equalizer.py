@@ -4,7 +4,6 @@ API routes for CamillaDSP digital signal processing
 Full equalizer capabilities including EQ, compressor, loudness, and volume control
 Supports multi-client equalizer control for multiroom setups
 """
-import asyncio
 import logging
 from fastapi import APIRouter, HTTPException, Request
 
@@ -14,6 +13,7 @@ from backend.api.models import (
     EqualizerFilterUpdateRequest,
     EqualizerCompressorRequest,
     EqualizerLoudnessRequest,
+    LevelsMonitorRequest,
     ZoneCrossoverRequest,
     EqualizerPresetRequest
 )
@@ -42,7 +42,8 @@ def create_equalizer_router(
     client_registry_service=None,
     equalizer_router_service=None,
     multiroom_equalizer_service=None,
-    volume_service=None
+    volume_service=None,
+    levels_monitor=None
 ):
     """Creates equalizer router with injected dependencies"""
     router = APIRouter(prefix="/api/equalizer", tags=["equalizer"])
@@ -60,58 +61,17 @@ def create_equalizer_router(
 
     # === Audio Levels ===
 
-    @router.get("/levels")
-    async def get_local_levels():
-        """Get audio levels directly from local CamillaDSP (no routing/registry needed)."""
-        try:
-            return await camilladsp_service.get_levels()
-        except Exception as e:
-            logger.debug(f"Failed to get local levels: {e}")
-            return {"available": False, "input_peak": [-80.0, -80.0], "output_peak": [-80.0, -80.0]}
+    @router.post("/levels/monitor")
+    async def keepalive_levels_monitor(payload: LevelsMonitorRequest):
+        """Arm the WS levels push (`equalizer`/`levels`, ~4 Hz) for the next ~15 s.
 
-    @router.get("/levels/zone/{client_ids}")
-    async def get_zone_levels(client_ids: str):
-        """Get aggregated (AVERAGE) audio levels for multiple clients in a zone."""
-        ids = client_ids.split(",")
-
-        async def get_client_levels(client_id: str):
-            """Get levels from a single client using equalizer_router_service."""
-            try:
-                # equalizer_router_service.get_levels handles MAC → IP routing automatically
-                return await equalizer_router_service.get_levels(client_id)
-            except Exception as e:
-                logger.debug(f"Failed to get equalizer levels for {client_id}: {e}")
-                return None
-
-        # Poll all clients in parallel
-        results = await asyncio.gather(*[get_client_levels(cid) for cid in ids])
-
-        # Collect available readings
-        input_peaks = []
-        output_peaks = []
-
-        for r in results:
-            if r and r.get("available"):
-                input_peaks.append(r.get("input_peak", [-80.0, -80.0]))
-                output_peaks.append(r.get("output_peak", [-80.0, -80.0]))
-
-        # Aggregate: AVERAGE of all available readings
-        if input_peaks:
-            input_peak = [
-                sum(p[0] for p in input_peaks) / len(input_peaks),
-                sum(p[1] for p in input_peaks) / len(input_peaks)
-            ]
-            output_peak = [
-                sum(p[0] for p in output_peaks) / len(output_peaks),
-                sum(p[1] for p in output_peaks) / len(output_peaks)
-            ]
-            available = True
-        else:
-            input_peak = [-80.0, -80.0]
-            output_peak = [-80.0, -80.0]
-            available = False
-
-        return {"available": available, "input_peak": input_peak, "output_peak": output_peak}
+        Open EQ views re-POST this keepalive every few seconds while visible;
+        the monitor stops by itself once the last keepalive expires.
+        client_ids selects the clients to aggregate (empty = local DAC).
+        """
+        async with api_error_handler("Error arming levels monitor", logger):
+            levels_monitor.keepalive(payload.client_ids)
+            return {"status": "success"}
 
     # === Preset Catalog ===
 

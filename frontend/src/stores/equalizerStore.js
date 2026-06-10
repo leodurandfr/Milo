@@ -893,8 +893,27 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     state.value = payload.state;
   }
 
-  function updateLevels(output) {
-    outputPeak.value = output;
+  /**
+   * Handle pushed level samples while the monitor is armed.
+   * Schema in @/schemas/ws.js → 'equalizer.levels'.
+   * @param {{available: boolean, output_peak: number[]}} payload
+   */
+  function handleLevelsChanged(payload) {
+    outputPeak.value = payload.available ? payload.output_peak : [-80, -80];
+  }
+
+  /**
+   * Keepalive for the backend levels monitor (WS push, ~4 Hz). Open meter
+   * views re-call this every few seconds; the backend stops sampling ~15 s
+   * after the last call.
+   * @param {string[]} clientIds - clients to aggregate (empty = local DAC)
+   */
+  async function keepLevelsMonitorAlive(clientIds = []) {
+    await apiCall.post('/api/equalizer/levels/monitor', { client_ids: clientIds }, {
+      category: 'equalizer',
+      message: 'Error arming levels monitor',
+      logLevel: 'debug',
+    });
   }
 
   function handleCompressorChanged(payload) {
@@ -1053,11 +1072,14 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     getClientEqualizerMute,
     updateClientEqualizerMute,  // Use { propagate: true } for zone propagation
 
+    // Levels monitor
+    keepLevelsMonitorAlive,
+
     // WebSocket Handlers
     handleEqualizerChanged,
     handleFilterChanged,
     handleStateChanged,
-    updateLevels,
+    handleLevelsChanged,
     handleCompressorChanged,
     handleLoudnessChanged,
     handleMonoChanged,

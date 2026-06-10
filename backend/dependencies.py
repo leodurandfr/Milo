@@ -150,6 +150,11 @@ def _create_service(name: str) -> Any:
             camilladsp_service=get_service("camilladsp_service")
         ),
         "equalizer_router": lambda: _create_equalizer_router(),
+        "levels_monitor": lambda: _import("backend.core.equalizer", "LevelsMonitor")(
+            state_machine=get_service("audio_state_machine"),
+            equalizer_router=get_service("equalizer_router"),
+            camilladsp_service=get_service("camilladsp_service")
+        ),
 
         # Network service (Ethernet + WiFi)
         "network_service": lambda: _import("backend.core.network", "NetworkService")(

@@ -284,6 +284,11 @@ class EqualizerLoudnessRequest(BaseModel):
     low_boost: Optional[float] = Field(None, ge=0, le=15, description="Low frequency boost in dB")
 
 
+class LevelsMonitorRequest(BaseModel):
+    """Keepalive for the WS levels push; client MACs to aggregate (empty = local DAC)."""
+    client_ids: List[str] = Field(default_factory=list)
+
+
 # =============================================================================
 # ZONE MANAGEMENT
 # =============================================================================

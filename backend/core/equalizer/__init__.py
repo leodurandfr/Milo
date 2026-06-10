@@ -19,12 +19,15 @@ from backend.core.equalizer.presets import (
     BUILTIN_PRESETS,
 )
 from backend.core.equalizer.client_proxy import EqualizerClientProxyService, is_ip_address
+from backend.core.equalizer.levels_monitor import LevelsMonitor
 from backend.core.equalizer.multiroom_service import MultiroomEqualizerService
 
 __all__ = [
     # Service
     "CamillaDSPService",
     "CamillaDspState",
+    # Levels push
+    "LevelsMonitor",
     # Multiroom Equalizer
     "MultiroomEqualizerService",
     # Proxy
