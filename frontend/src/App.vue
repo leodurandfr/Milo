@@ -103,6 +103,7 @@ import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useSystemStore } from '@/stores/systemStore';
 import { useFanStore } from '@/stores/fanStore';
+import { useUpdatesStore } from '@/stores/updatesStore';
 import { i18n, useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { wsEventRegistry } from '@/schemas/ws';
@@ -133,6 +134,7 @@ const multiroomStore = useMultiroomStore();
 const equalizerStore = useEqualizerStore();
 const systemStore = useSystemStore();
 const fanStore = useFanStore();
+const updatesStore = useUpdatesStore();
 const { on, parsedOn, onReconnect, onVisibilityChange, isConnected } = useWebSocket();
 const { loadHardwareInfo } = useHardwareConfig();
 const timer = useTimer();
@@ -682,6 +684,23 @@ onMounted(async () => {
     on('equalizer', 'mono_changed', (event) => equalizerStore.handleMonoChanged(event)),
     on('equalizer', 'enabled_changed', (event) => equalizerStore.handleEnabledChanged(event)),
     on('equalizer', 'zone_enabled_changed', (event) => equalizerStore.handleZoneEnabledChanged(event)),
+    // Program/satellite update events
+    parsedOn('programs', 'program_update_progress', wsEventRegistry['programs.program_update_progress'],
+             (payload) => updatesStore.handleProgramUpdateProgress(payload)),
+    parsedOn('programs', 'program_update_complete', wsEventRegistry['programs.program_update_complete'],
+             (payload) => updatesStore.handleProgramUpdateComplete(payload)),
+    parsedOn('programs', 'satellite_update_progress', wsEventRegistry['programs.satellite_update_progress'],
+             (payload) => updatesStore.handleSatelliteUpdateProgress(payload)),
+    parsedOn('programs', 'satellite_update_complete', wsEventRegistry['programs.satellite_update_complete'],
+             (payload) => updatesStore.handleSatelliteUpdateComplete(payload)),
+    parsedOn('programs', 'satellite_app_update_progress', wsEventRegistry['programs.satellite_app_update_progress'],
+             (payload) => updatesStore.handleSatelliteAppUpdateProgress(payload)),
+    parsedOn('programs', 'satellite_app_update_complete', wsEventRegistry['programs.satellite_app_update_complete'],
+             (payload) => updatesStore.handleSatelliteAppUpdateComplete(payload)),
+    parsedOn('programs', 'satellite_camilladsp_update_progress', wsEventRegistry['programs.satellite_camilladsp_update_progress'],
+             (payload) => updatesStore.handleSatelliteCamillaUpdateProgress(payload)),
+    parsedOn('programs', 'satellite_camilladsp_update_complete', wsEventRegistry['programs.satellite_camilladsp_update_complete'],
+             (payload) => updatesStore.handleSatelliteCamillaUpdateComplete(payload)),
     onReconnect(() => {
       logger.info('websocket', 'WebSocket reconnected');
       // Refresh registry state on reconnect (AC3: State Resync)
