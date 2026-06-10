@@ -131,7 +131,7 @@ async def lifespan(app: FastAPI):
         await equalizer_proxy_service.cleanup()
         if rotary_controller:
             await rotary_controller.cleanup()
-        screen_controller.cleanup()
+        await screen_controller.cleanup()
         await bt_remote_controller.cleanup()
         await ir_remote_controller.cleanup()
         await fan_controller.cleanup()
