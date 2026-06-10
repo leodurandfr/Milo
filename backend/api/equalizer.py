@@ -149,15 +149,6 @@ def create_equalizer_router(
             return {"status": "success", "client_id": client_id, "speaker_type": ct.get("speaker_type"),
                     "crossover_frequency": ct.get("crossover_frequency")}
 
-    @router.get("/links/{zone_id}/auto-crossover")
-    async def get_zone_auto_crossover(zone_id: str):
-        """Get automatic crossover frequency for a zone (MIN of speaker frequencies)"""
-        try:
-            return {"zone_id": zone_id, "frequency": await crossover_service.get_zone_auto_crossover(zone_id)}
-        except Exception as e:
-            logger.error(f"Error getting zone auto crossover: {e}")
-            return {"zone_id": zone_id, "frequency": 80}
-
     @router.put("/links/{zone_id}/crossover")
     async def set_zone_crossover(zone_id: str, payload: ZoneCrossoverRequest):
         """Set crossover frequency for a zone"""
@@ -166,14 +157,6 @@ def create_equalizer_router(
             if not await cs.set_zone_crossover_frequency(zone_id, payload.frequency):
                 raise HTTPException(status_code=500, detail="Failed to update zone crossover")
             return {"status": "success", "zone_id": zone_id, **await cs.get_zone_crossover(zone_id)}
-
-    @router.post("/links/{zone_id}/crossover/apply")
-    async def apply_zone_crossover(zone_id: str):
-        """Manually apply crossover settings to all clients in a zone"""
-        async with api_error_handler("Error applying zone crossover", logger):
-            if not await crossover_service.apply_zone_crossover(zone_id):
-                raise HTTPException(status_code=500, detail="Failed to apply crossover")
-            return {"status": "success", "message": f"Crossover applied to zone {zone_id}"}
 
     # === Unified Per-Target Routes (one grammar for local / remote / zone) ===
 
