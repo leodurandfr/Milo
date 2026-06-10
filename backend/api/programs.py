@@ -165,22 +165,6 @@ def create_programs_router(update_service, satellite_update_service, state_machi
                 "count": 0
             }
 
-    @router.get("/satellites/{mac_id}")
-    async def get_satellite_status(mac_id: str):
-        """Retrieve the status of a specific satellite"""
-        try:
-            result = await get_satellites()
-            if result["status"] != "success":
-                return result
-
-            satellite = next((s for s in result["satellites"] if s["mac_id"] == mac_id), None)
-            if not satellite:
-                return {"status": "error", "message": f"Satellite {mac_id} not found or offline"}
-
-            return {"status": "success", "satellite": satellite}
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
-
     @router.post("/satellites/{mac_id}/update")
     async def update_satellite(mac_id: str, background_tasks: BackgroundTasks):
         """Launch a satellite update in the background"""
@@ -267,40 +251,7 @@ def create_programs_router(update_service, satellite_update_service, state_machi
             "message": f"CamillaDSP update started for satellite {mac_id}"
         }
 
-    @router.get("/satellites/{mac_id}/update-status")
-    async def get_satellite_update_status(mac_id: str):
-        """Retrieve the update status of a satellite (any update type)"""
-        for key in (f"satellite_{mac_id}", f"satellite_app_{mac_id}", f"satellite_camilladsp_{mac_id}"):
-            if key in active_updates:
-                return {
-                    "status": "success",
-                    "updating": True,
-                    **active_updates[key]
-                }
-
-        return {
-            "status": "success",
-            "updating": False,
-            "message": "No update in progress"
-        }
-
     # === GENERIC ROUTES (must come AFTER specific routes) ===
-
-    @router.get("/{program_key}")
-    async def get_program_details(program_key: str):
-        """Retrieve the details of a specific program"""
-        try:
-            result = await update_service.get_program_full_status(program_key)
-            return {
-                "status": "success",
-                "program": result
-            }
-        except Exception as e:
-            return {
-                "status": "error",
-                "message": str(e),
-                "program": None
-            }
 
     @router.get("/{program_key}/installed")
     async def get_program_installed_version(program_key: str):

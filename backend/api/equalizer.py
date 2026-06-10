@@ -12,7 +12,6 @@ from backend.api.route_helpers import api_error_handler
 
 from backend.api.models import (
     EqualizerFilterUpdateRequest,
-    EqualizerMuteRequest,
     EqualizerCompressorRequest,
     EqualizerLoudnessRequest,
     ZoneCrossoverRequest,
@@ -133,29 +132,6 @@ def create_equalizer_router(
         except Exception as e:
             return {"presets": [], "custom_gains": [0]*10, "active_preset": None, "error": str(e)}
 
-    # === Mute Control ===
-
-    @router.put("/mute")
-    async def set_mute(payload: EqualizerMuteRequest):
-        """
-        Mute/unmute local CamillaDSP.
-
-        In multiroom mode, this only mutes the local client without affecting others.
-        """
-        # Update local CamillaDSP hardware
-        result = await camilladsp_service.set_mute(payload.muted)
-
-        if not result:
-            raise HTTPException(status_code=500, detail="Failed to set mute")
-
-        # Update volume state store
-        if volume_service:
-            local_mac = _get_local_client_mac()
-            if local_mac:
-                await volume_service.set_client_mute(local_mac, payload.muted, broadcast=True)
-
-        return {"status": "success", "mute": payload.muted}
-
     # === Speaker Type / Crossover Management ===
     # Note: Zone CRUD moved to /api/multiroom/zones, speaker-type to /api/multiroom/clients
 
@@ -174,15 +150,6 @@ def create_equalizer_router(
             ct = await cs.get_client_type(client_id)
             return {"status": "success", "client_id": client_id, "speaker_type": ct.get("speaker_type"),
                     "crossover_frequency": ct.get("crossover_frequency")}
-
-    @router.get("/links/{zone_id}/crossover")
-    async def get_zone_crossover(zone_id: str):
-        """Get crossover settings for a zone"""
-        try:
-            return {"zone_id": zone_id, **await crossover_service.get_zone_crossover(zone_id)}
-        except Exception as e:
-            logger.error(f"Error getting zone crossover: {e}")
-            return {"zone_id": zone_id, "frequency": 80, "enabled": False, "has_subwoofer": False}
 
     @router.get("/links/{zone_id}/auto-crossover")
     async def get_zone_auto_crossover(zone_id: str):

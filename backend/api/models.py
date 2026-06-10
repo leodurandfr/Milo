@@ -273,11 +273,6 @@ class EqualizerFilterUpdateRequest(BaseModel):
     enabled: Optional[bool] = None
 
 
-class EqualizerMuteRequest(BaseModel):
-    """Equalizer mute request"""
-    muted: bool
-
-
 class EqualizerCompressorRequest(BaseModel):
     """Equalizer compressor settings request"""
     enabled: Optional[bool] = None

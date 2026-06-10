@@ -67,11 +67,6 @@ def create_network_router(network_service):
             status = await network_service.get_network_status()
             return {"status": "success", "data": status.model_dump()}
 
-    @router.get("/wifi/hotspot/status")
-    async def get_hotspot_status():
-        """Return whether the setup hotspot is currently active."""
-        return {"status": "success", "data": {"active": network_service.hotspot_active}}
-
     @router.get("/wifi/country")
     async def get_wifi_country():
         """Get the configured WiFi regulatory domain country code."""

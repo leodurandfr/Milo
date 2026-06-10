@@ -115,26 +115,6 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
 
     # === CLIENT ENDPOINTS ===
 
-    @router.get("/clients/{mac_id}")
-    async def get_client(mac_id: str):
-        """
-        Get a specific client by mac_id.
-
-        Returns:
-            Client data with runtime 'online' status
-
-        Raises:
-            404: Client not found
-        """
-        async with api_error_handler(f"Error getting client {mac_id}", logger):
-            client = registry_service.get_client(mac_id)
-            if not client:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Client with mac_id '{mac_id}' not found"
-                )
-            return _client_with_online(client)
-
     @router.patch("/clients/{mac_id}")
     async def update_client(mac_id: str, request: ClientUpdateRequest):
         """
@@ -248,43 +228,6 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
             return {"status": "success", "message": f"Client {mac_id} audio changed, rebooting"}
 
     # === ZONE ENDPOINTS ===
-
-    @router.get("/zones")
-    async def get_zones():
-        """
-        Get all zones with enriched data.
-
-        Returns:
-            {"zones": [...]} with each zone including computed fields:
-            - online_client_count: Number of currently online clients
-            - has_subwoofer: Whether zone has a subwoofer client
-            - crossover_enabled: Whether crossover is active
-        """
-        async with api_error_handler("Error getting zones", logger):
-            zones = registry_service.get_all_zones()
-            return {
-                "zones": [registry_service.zone_to_enriched_dict(z) for z in zones.values()]
-            }
-
-    @router.get("/zones/{zone_id}")
-    async def get_zone(zone_id: str):
-        """
-        Get a specific zone by ID with enriched data.
-
-        Returns:
-            Zone data with computed fields (online_client_count, has_subwoofer, crossover_enabled)
-
-        Raises:
-            404: Zone not found
-        """
-        async with api_error_handler(f"Error getting zone {zone_id}", logger):
-            zone = registry_service.get_zone(zone_id)
-            if not zone:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Zone '{zone_id}' not found"
-                )
-            return registry_service.zone_to_enriched_dict(zone)
 
     @router.post("/zones", status_code=201)
     async def create_zone(request: ZoneCreate):
