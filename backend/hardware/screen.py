@@ -8,6 +8,7 @@ import logging
 from pathlib import Path
 from time import monotonic
 
+from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
 
 class ScreenController:
@@ -18,6 +19,7 @@ class ScreenController:
         self.settings_service = settings_service
         self.hardware_service = hardware_service
         self.logger = logging.getLogger(__name__)
+        self._bg = BackgroundTaskSet(self.logger, "screen")
 
         # Screen type detection
         self.screen_type = hardware_service.get_screen_type()
@@ -161,8 +163,8 @@ class ScreenController:
         self.logger.info(f"Screen controller initialized with {self.boot_grace_period}s boot grace period (timeout_seconds={self.timeout_seconds}s)")
 
         # Start monitoring
-        asyncio.create_task(self._monitor_source_state())
-        asyncio.create_task(self._monitor_timeout())
+        self._bg.spawn(self._monitor_source_state(), label="monitor_source_state")
+        self._bg.spawn(self._monitor_timeout(), label="monitor_timeout")
         # Touch-event monitoring intentionally not started here — touch wake is
         # handled in the frontend.
 
@@ -284,6 +286,7 @@ class ScreenController:
         await self._screen_cmd(self.screen_off_cmd)
         await self._broadcast_sleep_state(True)
 
-    def cleanup(self):
+    async def cleanup(self):
         """Cleans up resources"""
         self.running = False
+        await self._bg.cancel_all()

@@ -14,6 +14,7 @@ import asyncio
 import logging
 from typing import Optional, Dict
 
+from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
 from backend.core.volume.state import VolumeStateStore
 from backend.core.volume.equalizer_controller import EqualizerController
@@ -49,6 +50,7 @@ class VolumeService:
         self._proxy_service = equalizer_client_proxy_service
         self._hardware_service = hardware_service
         self.logger = logging.getLogger(__name__)
+        self._bg = BackgroundTaskSet(self.logger, "volume")
         self._volume_lock = asyncio.Lock()
         self._push_lock = asyncio.Lock()
 
@@ -650,7 +652,7 @@ class VolumeService:
             self.logger.info("ALSA set to 100% passthrough mode")
 
             # Start initial broadcast task (waits for Snapcast WebSocket in multiroom mode)
-            asyncio.create_task(self._startup_broadcast_after_websocket_ready())
+            self._bg.spawn(self._startup_broadcast_after_websocket_ready(), label="startup_broadcast")
             return True
         except Exception as e:
             self.logger.error(f"Volume service initialization failed: {e}")
@@ -841,23 +843,11 @@ class VolumeService:
         async def _post_update():
             await self._update_startup_volume_if_needed(target_db)
             await self._broadcast_volume_state(show_bar)
-        task = asyncio.create_task(_post_update())
-        task.add_done_callback(self._handle_broadcast_task_error)
+        self._bg.spawn(_post_update(), label="post_volume_update")
 
     # ============================================================================
     # WEBSOCKET BROADCASTING
     # ============================================================================
-
-    def _handle_broadcast_task_error(self, task: asyncio.Task) -> None:
-        """Handle errors from background broadcast tasks."""
-        try:
-            # This will raise the exception if the task failed
-            task.result()
-        except asyncio.CancelledError:
-            # Task was cancelled, this is normal during shutdown
-            pass
-        except Exception as e:
-            self.logger.error(f"Background broadcast task failed: {e}", exc_info=True)
 
     @handle_errors(default=None, level='warning')
     async def initialize_client_availability(self) -> None:
@@ -916,5 +906,6 @@ class VolumeService:
 
     async def cleanup(self) -> None:
         """Clean up resources. Flushes pending volume state to disk."""
+        await self._bg.cancel_all()
         await self._state_store.cleanup()
         self.logger.info("VolumeService cleanup completed")

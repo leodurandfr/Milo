@@ -15,6 +15,8 @@ import socket
 import time
 from typing import Any, Dict, List, Optional, Set
 
+from backend.shared.background import BackgroundTaskSet
+
 logger = logging.getLogger(__name__)
 
 EXPECTED_SERVER_HOSTNAME = "milo"
@@ -44,6 +46,7 @@ class HostnameConflictService:
         self._reclaim_attempted_ts: Optional[float] = None
         self._lock = asyncio.Lock()
         self._periodic_task: Optional[asyncio.Task] = None
+        self._bg = BackgroundTaskSet(logger, "hostname_conflict")
 
     def set_state_machine(self, state_machine) -> None:
         self._state_machine = state_machine
@@ -133,7 +136,7 @@ class HostnameConflictService:
             conflict = self._conflict
 
         if should_reclaim:
-            asyncio.create_task(self._attempt_avahi_reclaim())
+            self._bg.spawn(self._attempt_avahi_reclaim(), label="avahi_reclaim")
 
         return conflict
 
