@@ -39,7 +39,6 @@ THERMAL_ZONE = "/sys/class/thermal/thermal_zone0"
 PWM_MAX = 255  # pwm-fan duty-cycle range is 0..255
 
 LOOP_INTERVAL = 3.0       # seconds between temperature samples
-STATUS_HEARTBEAT = 5.0    # seconds between telemetry broadcasts when PWM is stable
 # Only rewrite PWM when the computed target moves by more than this (in % points)
 # from what was last written, to avoid jitter writes around a stable temperature.
 PWM_HYSTERESIS_PCT = 2
@@ -54,6 +53,15 @@ DEFAULT_CURVE: List[dict] = [
     {"temp_c": 79, "percent": 47},
     {"temp_c": 82, "percent": 100},
 ]
+
+
+def _read_int(path: str) -> Optional[int]:
+    try:
+        with open(path) as f:
+            return int(f.read().strip())
+    except (OSError, ValueError) as e:
+        logger.warning("Failed to read %s: %s", path, e)
+        return None
 
 
 def _clamp_pct(value) -> int:
@@ -301,20 +309,14 @@ class FanController:
         return curve[-1]["percent"]
 
     async def _sample(self) -> None:
-        raw_temp = await self._read_int(f"{THERMAL_ZONE}/temp")
+        # Both sysfs reads in a single executor hop.
+        raw_temp, rpm = await asyncio.to_thread(
+            lambda: (_read_int(f"{THERMAL_ZONE}/temp"), _read_int(self._rpm_path))
+        )
         if raw_temp is not None:
             self._temp_c = round(raw_temp / 1000.0, 1)
-        rpm = await self._read_int(self._rpm_path)
         if rpm is not None:
             self._rpm = rpm
-
-    async def _read_int(self, path: str) -> Optional[int]:
-        try:
-            async with aiofiles.open(path, "r") as f:
-                return int((await f.read()).strip())
-        except (OSError, ValueError) as e:
-            logger.warning("Failed to read %s: %s", path, e)
-            return None
 
     async def _write_sysfs(self, path: str, value) -> bool:
         try:
@@ -344,13 +346,16 @@ class FanController:
                 await task
 
     async def _monitor_loop(self) -> None:
-        """Sample temperature/RPM, drive PWM in auto mode, broadcast telemetry."""
-        last_broadcast = 0.0
-        loop = asyncio.get_running_loop()
+        """Sample temperature/RPM, drive PWM in auto mode, broadcast telemetry on change.
+
+        No periodic heartbeat: the fan settings page resyncs over HTTP when it
+        opens, so an unchanged status needs no WS traffic (and lets the kiosk
+        renderer sleep).
+        """
+        last_telemetry = None
         while True:
             try:
                 await self._sample()
-                prev_pct = self._pwm_percent
 
                 if self.mode == "auto":
                     target = self._curve_target_percent(self._temp_c)
@@ -362,10 +367,10 @@ class FanController:
                     if abs(target - self._pwm_percent) >= PWM_HYSTERESIS_PCT or crossed_zero:
                         await self._set_pwm_percent(target)
 
-                now = loop.time()
-                if self._pwm_percent != prev_pct or now - last_broadcast >= STATUS_HEARTBEAT:
+                telemetry = (self._temp_c, self._rpm, self._pwm_percent)
+                if telemetry != last_telemetry:
                     await self._broadcast_status("fan_status_changed")
-                    last_broadcast = now
+                    last_telemetry = telemetry
             except asyncio.CancelledError:
                 raise
             except Exception as e:
