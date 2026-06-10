@@ -1,7 +1,7 @@
 <template>
   <div class="progress-bar" v-if="duration > 0 && isReady">
     <span class="text-mono time">{{ formatTime(currentPosition) }}</span>
-    <div ref="progressContainer" class="progress-container" :class="{ interactive }" @click="onProgressClick">
+    <div class="progress-container" :class="{ interactive }" @click="onProgressClick">
       <div class="progress" :style="progressStyle"></div>
     </div>
     <span class="text-mono time">{{ formatTime(duration) }}</span>
@@ -9,7 +9,7 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted } from 'vue';
+import { computed } from 'vue';
 
 const props = defineProps({
   currentPosition: {
@@ -36,43 +36,19 @@ const props = defineProps({
 
 const emit = defineEmits(['seek']);
 
-const progressContainer = ref(null);
-const containerWidth = ref(400);
-
 // Computed to guarantee a valid numeric value
 const progressPercent = computed(() => {
   const val = parseFloat(props.progressPercentage);
   return isNaN(val) ? 0 : Math.min(100, Math.max(0, val));
 });
 
-// Computed for progress bar styles
-const progressStyle = computed(() => {
-  const percent = progressPercent.value;
-  const height = 8;
-
-  // Actual width the bar should have at this percentage
-  const actualWidth = (percent / 100) * containerWidth.value;
-
-  if (actualWidth <= height) {
-    // Circle mode: movement from -8px to 0px
-    return {
-      width: `${height}px`,
-      left: `${actualWidth - height}px`
-    };
-  } else {
-    // Normal bar mode
-    return {
-      width: `${percent}%`,
-      left: '0px'
-    };
-  }
-});
-
-onMounted(() => {
-  if (progressContainer.value) {
-    containerWidth.value = progressContainer.value.offsetWidth;
-  }
-});
+// The full-width fill is translated rather than resized so the 10 Hz progress
+// ticks animate on the compositor (no layout). The visible region is [0, p%]
+// with the rounded right cap emerging at low percentages, and the percentage
+// is relative to the fill's own width — no pixel measurement needed.
+const progressStyle = computed(() => ({
+  transform: `translateX(${progressPercent.value - 100}%)`
+}));
 
 function formatTime(ms) {
   if (!ms) return '0:00';
@@ -118,10 +94,13 @@ function onProgressClick(event) {
 }
 
 .progress {
+  width: 100%;
   height: 100%;
   background-color: var(--color-background-contrast);
   border-radius: var(--radius-01);
   position: absolute;
+  left: 0;
+  top: 0;
 }
 
 .time {
