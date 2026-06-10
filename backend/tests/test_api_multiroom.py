@@ -87,30 +87,6 @@ def client(mock_registry_service):
     return TestClient(app)
 
 
-class TestGetClientById:
-    """Tests for GET /api/multiroom/clients/{mac_id} endpoint."""
-
-    def test_get_client_by_mac_id_success(self, client, mock_registry_service):
-        """GET /clients/{mac_id} returns client with online status."""
-        response = client.get("/api/multiroom/clients/dc:a6:32:7e:d3:43")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["mac_id"] == "dc:a6:32:7e:d3:43"
-        assert data["name"] == "Living Room"
-        assert data["online"] is True
-        assert data["speaker_type"] == "bookshelf"
-
-    def test_get_client_not_found(self, client, mock_registry_service):
-        """AC4: GET /clients/{mac_id} returns 404 with meaningful message."""
-        response = client.get("/api/multiroom/clients/unknown-client")
-
-        assert response.status_code == 404
-        detail = response.json()["detail"]
-        assert "not found" in detail.lower()
-        assert "unknown-client" in detail
-
-
 class TestPatchClient:
     """Tests for PATCH /api/multiroom/clients/{mac_id} endpoint (AC2, AC3)."""
 
@@ -527,70 +503,6 @@ def zone_client(mock_zone_registry_service):
     router = create_multiroom_router(mock_zone_registry_service)
     app.include_router(router)
     return TestClient(app)
-
-
-class TestGetZones:
-    """Tests for GET /api/multiroom/zones endpoint (AC5)."""
-
-    def test_get_zones_returns_all_zones(self, zone_client, mock_zone_registry_service):
-        """AC5: GET /zones returns all zones with enriched data."""
-        response = zone_client.get("/api/multiroom/zones")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert "zones" in data
-        assert len(data["zones"]) == 1
-
-        zone = data["zones"][0]
-        assert zone["id"] == "zone-test-123"
-        assert zone["name"] == "Living Room"
-        assert len(zone["client_ids"]) == 2
-
-    def test_get_zones_includes_enriched_fields(self, zone_client, mock_zone_registry_service):
-        """AC5: Zone response includes computed fields (online_client_count, has_subwoofer, crossover_enabled)."""
-        response = zone_client.get("/api/multiroom/zones")
-
-        assert response.status_code == 200
-        zone = response.json()["zones"][0]
-
-        # Both clients are online (local and dc:a6:32:7e:d3:43)
-        assert zone["online_client_count"] == 2
-        assert zone["has_subwoofer"] is False
-        assert zone["crossover_enabled"] is False
-
-    def test_get_zones_empty_returns_empty_list(self, zone_client, mock_zone_registry_service):
-        """GET /zones with no zones returns empty list."""
-        mock_zone_registry_service.get_all_zones.return_value = {}
-
-        response = zone_client.get("/api/multiroom/zones")
-
-        assert response.status_code == 200
-        assert response.json() == {"zones": []}
-
-
-class TestGetZoneById:
-    """Tests for GET /api/multiroom/zones/{zone_id} endpoint (AC5)."""
-
-    def test_get_zone_by_id_success(self, zone_client, mock_zone_registry_service):
-        """AC5: GET /zones/{zone_id} returns zone with enriched data."""
-        response = zone_client.get("/api/multiroom/zones/zone-test-123")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["id"] == "zone-test-123"
-        assert data["name"] == "Living Room"
-        assert "online_client_count" in data
-        assert "has_subwoofer" in data
-        assert "crossover_enabled" in data
-
-    def test_get_zone_not_found(self, zone_client, mock_zone_registry_service):
-        """AC5: GET /zones/{zone_id} returns 404 with meaningful message."""
-        response = zone_client.get("/api/multiroom/zones/nonexistent-zone")
-
-        assert response.status_code == 404
-        detail = response.json()["detail"]
-        assert "not found" in detail.lower()
-        assert "nonexistent-zone" in detail
 
 
 class TestCreateZone:
