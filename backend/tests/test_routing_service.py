@@ -4,6 +4,7 @@ Unit tests for AudioRoutingService
 """
 import asyncio
 import pytest
+from contextlib import asynccontextmanager
 from unittest.mock import Mock, AsyncMock, patch
 from backend.core.multiroom import AudioRoutingService
 from backend.core.models.audio_state import AudioSource
@@ -69,7 +70,14 @@ class TestAudioRoutingService:
         service._initial_detection_done = True
         # Set up state machine (normally done via set_state_machine())
         mock_state_machine = Mock()
-        mock_state_machine._transition_lock = asyncio.Lock()
+        _transition_lock = asyncio.Lock()
+
+        @asynccontextmanager
+        async def _exclusive_transition():
+            async with _transition_lock:
+                yield
+
+        mock_state_machine.exclusive_transition = _exclusive_transition
         mock_state_machine.broadcast_event = AsyncMock()
         mock_state_machine.update_source_state = AsyncMock()
         service.state_machine = mock_state_machine

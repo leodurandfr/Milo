@@ -530,9 +530,9 @@ class AudioRoutingService:
         its upstream link in a separate process from the ALSA writer (Bluetooth)
         can rebounce only the writer and keep the sender connected.
 
-        Acquires `state_machine._transition_lock` to prevent concurrent source
-        lifecycle operations with `transition_to_source()`. Lock order is
-        always: `_routing_lock` (held by caller) → `_transition_lock`.
+        Acquires the state machine's exclusive_transition() context to prevent
+        concurrent source lifecycle operations with `transition_to_source()`.
+        Lock order is always: `_routing_lock` (held by caller) → transition lock.
 
         Snapcast reconcile is idempotent. routing.env is regenerated AFTER
         snapcast settles and BEFORE the source restart so systemd sees the new
@@ -550,7 +550,7 @@ class AudioRoutingService:
         if active_source and self.get_source:
             source_instance = self.get_source(active_source)
 
-        async with self.state_machine._transition_lock:
+        async with self.state_machine.exclusive_transition():
             # Step 1: Notify STARTING state to show loading UI.
             # metadata=None: state-only change — keep the current track metadata
             # visible during the reroute (update_source_state replaces metadata

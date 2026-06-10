@@ -83,6 +83,21 @@ class VolumeService:
         """Set routing service reference (circular dependency resolution)."""
         self._routing_service = routing_service
 
+    @property
+    def volume_control(self) -> bool:
+        """Whether the local device handles volume (False = external DAC/amp)."""
+        return self._volume_control
+
+    @property
+    def state_store(self) -> VolumeStateStore:
+        """Volume state store (single source of truth for volume state)."""
+        return self._state_store
+
+    @property
+    def equalizer_controller(self) -> EqualizerController:
+        """Hardware abstraction used to apply volume/mute to clients."""
+        return self._equalizer_controller
+
     # ============================================================================
     # HELPERS
     # ============================================================================
@@ -281,7 +296,7 @@ class VolumeService:
         # DAC mode: switch mode and broadcast (any_volume_control depends on mode)
         if not self._volume_control:
             await self._state_store.set_mode("multiroom" if multiroom_enabled else "direct")
-            await self._broadcast_volume_state(show_bar=False)
+            await self.broadcast_volume_state(show_bar=False)
             return None
 
         if multiroom_enabled:
@@ -310,7 +325,7 @@ class VolumeService:
             except Exception as e:
                 self.logger.warning(f"Failed to apply volume/mute to CamillaDSP: {e}")
 
-            await self._broadcast_volume_state(show_bar=False)
+            await self.broadcast_volume_state(show_bar=False)
             return current_global
 
     # ============================================================================
@@ -362,7 +377,7 @@ class VolumeService:
             center_db = (new_min + new_max) / 2.0
             await self.set_volume_db(center_db, show_bar=False)
         else:
-            await self._broadcast_volume_state(show_bar=False)
+            await self.broadcast_volume_state(show_bar=False)
 
         return True
 
@@ -426,7 +441,7 @@ class VolumeService:
         """Helper: reload config with optional broadcast."""
         await self._load_volume_config()
         if broadcast:
-            await self._broadcast_volume_state(show_bar=False)
+            await self.broadcast_volume_state(show_bar=False)
         return True
 
     async def reload_startup_config(self) -> bool:
@@ -471,7 +486,7 @@ class VolumeService:
             await self._state_store.register_client(cid, volume_db=volume, available=client.get("available", True))
 
         self.logger.info(f"Synced {len(clients)} clients from equalizer")
-        await self._broadcast_volume_state(show_bar=False)
+        await self.broadcast_volume_state(show_bar=False)
         return True
 
     @handle_errors(default=False)
@@ -555,7 +570,7 @@ class VolumeService:
                 except Exception as e:
                     self.logger.warning(f"PUSH_VOLUME: Failed to apply mute to {cid}: {e}")
 
-        await self._broadcast_volume_state(show_bar=False)
+        await self.broadcast_volume_state(show_bar=False)
         return len(failures) == 0
 
     @handle_errors(default=None)
@@ -564,7 +579,7 @@ class VolumeService:
         await self._state_store.set_client_volume(client_id, volume_db)
         await self._equalizer_controller.set_equalizer_volume(client_id, volume_db)
         if broadcast and self._is_multiroom_enabled():
-            await self._broadcast_volume_state(show_bar=False)
+            await self.broadcast_volume_state(show_bar=False)
 
     @handle_errors(default=None)
     async def set_client_mute(self, client_id: str, mute: bool, broadcast: bool = True) -> None:
@@ -572,7 +587,7 @@ class VolumeService:
         await self._state_store.set_client_mute(client_id, mute)
         await self._equalizer_controller.set_equalizer_mute(client_id, mute)
         if broadcast:
-            await self._broadcast_volume_state(show_bar=False)
+            await self.broadcast_volume_state(show_bar=False)
 
     # ============================================================================
     # ATOMIC ZONE OPERATIONS
@@ -609,7 +624,7 @@ class VolumeService:
         local_volume = updates.get(local_mac_id) if local_mac_id else None
         local_volume = local_volume or self._state_store.local_volume_db
         await self._update_startup_volume_if_needed(local_volume)
-        await self._broadcast_volume_state(show_bar=False)
+        await self.broadcast_volume_state(show_bar=False)
 
         new_avg = self._state_store.compute_zone_average(zone_id)
         self.logger.info(f"Zone {zone_id} updated: {new_avg:.1f}dB ({len(successful)}/{len(updates)} success)")
@@ -699,7 +714,7 @@ class VolumeService:
                 self._state_store.local_mac_id, volume_control=enabled
             )
         self.logger.info(f"Local volume_control set to {enabled}")
-        await self._broadcast_volume_state(show_bar=False)
+        await self.broadcast_volume_state(show_bar=False)
 
     @handle_errors(default=None)
     async def reapply_current_volume(self) -> None:
@@ -787,7 +802,7 @@ class VolumeService:
         else:
             await asyncio.sleep(0.5)
 
-        await self._broadcast_volume_state(show_bar=False)
+        await self.broadcast_volume_state(show_bar=False)
 
     # ============================================================================
     # PUBLIC API (all in dB)
@@ -815,7 +830,7 @@ class VolumeService:
         success = await self._apply_volume_to_hardware(target_db, updates)
         if success:
             await self._update_startup_volume_if_needed(target_db)
-            await self._broadcast_volume_state(show_bar)
+            await self.broadcast_volume_state(show_bar)
         return success
 
     async def adjust_volume_db(self, delta_db: float, show_bar: bool = True) -> bool:
@@ -842,7 +857,7 @@ class VolumeService:
         """Schedule FR11 check and WebSocket broadcast as background tasks."""
         async def _post_update():
             await self._update_startup_volume_if_needed(target_db)
-            await self._broadcast_volume_state(show_bar)
+            await self.broadcast_volume_state(show_bar)
         self._bg.spawn(_post_update(), label="post_volume_update")
 
     # ============================================================================
@@ -861,7 +876,7 @@ class VolumeService:
                 self.logger.debug(f"Initialized availability: {mac_id} -> {available}")
         self.logger.info(f"Initialized availability for {len(clients)} clients")
 
-    async def _broadcast_volume_state(self, show_bar: bool = True) -> None:
+    async def broadcast_volume_state(self, show_bar: bool = True) -> None:
         """Broadcast volume state immediately to WebSocket clients."""
         try:
             volume_state = await self.get_volume_state()

@@ -331,10 +331,10 @@ def initialize_services() -> None:
     # 2.8 - crossover_service → state_machine
     crossover_service.set_state_machine(state_machine)
 
-    # 2.9 - volume_service._state_store → client_registry_service
+    # 2.9 - volume_service.state_store → client_registry_service
     # (Subscribed BEFORE snapcast_websocket_service so volume state is up to
     # date by the time the broadcast goes out.)
-    volume_service._state_store.set_registry(client_registry_service)
+    volume_service.state_store.set_registry(client_registry_service)
 
     # 2.11 - volume_service → snapcast_websocket_service
     volume_service.set_snapcast_websocket_service(snapcast_websocket_service)

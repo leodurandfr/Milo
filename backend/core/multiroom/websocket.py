@@ -327,7 +327,7 @@ class SnapcastWebSocketService:
                         is_local = (ip == "127.0.0.1")
                         if is_local and self._volume_service:
                             # Sync hardware volume_control to registry (e.g. DAC mode read at boot)
-                            kwargs["volume_control"] = self._volume_service._volume_control
+                            kwargs["volume_control"] = self._volume_service.volume_control
                         await self.registry.register_client(mac_id, client_name, ip, **kwargs)
                         await self.registry.set_client_online(mac_id, True)
 
@@ -537,7 +537,7 @@ class SnapcastWebSocketService:
                     kwargs["volume_control"] = pending.get("volume_control", True)
                 elif is_local and self._volume_service:
                     # Sync hardware volume_control to registry (e.g. DAC mode read at boot)
-                    kwargs["volume_control"] = self._volume_service._volume_control
+                    kwargs["volume_control"] = self._volume_service.volume_control
                 # When no pending entry and not local, volume_control is not passed —
                 # register_client preserves existing value for known clients
                 await self.registry.register_client(mac_id, reg_name, client_ip, **kwargs)
@@ -723,7 +723,7 @@ class SnapcastWebSocketService:
             if volume_synced:
                 if self._volume_service:
                     try:
-                        await self._volume_service._broadcast_volume_state(show_bar=False)
+                        await self._volume_service.broadcast_volume_state(show_bar=False)
                         self.logger.info(
                             f"[{time.time():.3f}] SYNC_BROADCAST: Volume state broadcast for {mac_id}"
                         )
@@ -803,7 +803,7 @@ class SnapcastWebSocketService:
                 return False
 
             # Always update state store and registry first (UI correctness)
-            await self._volume_service._state_store.set_client_volume(mac_id, target_volume_db)
+            await self._volume_service.state_store.set_client_volume(mac_id, target_volume_db)
             if self.registry:
                 await self.registry.update_volume(mac_id, volume_db=target_volume_db)
 
@@ -811,14 +811,14 @@ class SnapcastWebSocketService:
             # router so we can sync clients that are registered but not yet
             # marked online (they stay offline/muted in the frontend until
             # this succeeds).
-            eq = self._volume_service._equalizer_controller
+            eq = self._volume_service.equalizer_controller
             volume_ok = await eq.set_equalizer_volume(mac_id, target_volume_db, force=True)
 
             # Always attempt unmute even if volume failed — a muted client with
             # wrong volume is worse than an unmuted client with wrong volume.
             # CamillaDSP starts muted with -m flag, so skipping unmute on volume
             # failure would leave the client permanently silent.
-            persisted_mute = self._volume_service._state_store.get_client_mute(mac_id)
+            persisted_mute = self._volume_service.state_store.get_client_mute(mac_id)
             await eq.set_equalizer_mute(mac_id, persisted_mute, force=True)
             self.logger.info(f"[{time.time():.3f}] MUTE_APPLY: Set {mac_id} mute={persisted_mute}")
 
@@ -1056,7 +1056,7 @@ class SnapcastWebSocketService:
                     if set_online_after and self.registry:
                         await self.registry.set_client_online(mac_id, True)
                     if self._volume_service:
-                        await self._volume_service._broadcast_volume_state(show_bar=False)
+                        await self._volume_service.broadcast_volume_state(show_bar=False)
                     self.logger.info(f"SYNC_RECONNECT: {mac_id} synced to {target_volume:.1f} dB (attempt {attempt + 1})")
                     return True
                 else:

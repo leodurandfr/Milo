@@ -16,6 +16,7 @@ Usage:
 import asyncio
 import time
 import logging
+from contextlib import asynccontextmanager
 from time import monotonic
 from typing import Dict, Any, Optional
 
@@ -85,6 +86,15 @@ class AudioStateMachine:
             self.equalizer_service.effects_enabled if self.equalizer_service else False
         )
         return state
+
+    @asynccontextmanager
+    async def exclusive_transition(self):
+        """Hold the transition lock for an externally-orchestrated source
+        lifecycle (e.g. the multiroom reroute), mutually exclusive with
+        transition_to_source(). State updates inside the block are buffered
+        and replayed like any in-transition update."""
+        async with self._transition_lock:
+            yield
 
     async def transition_to_source(
         self,

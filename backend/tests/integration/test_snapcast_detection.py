@@ -89,13 +89,13 @@ class TestSnapcastDetectionIntegration:
 
         # Mock volume service so _apply_target_volume_to_client succeeds
         mock_volume_service = MagicMock()
-        mock_volume_service._state_store = MagicMock()
-        mock_volume_service._state_store.set_client_volume = AsyncMock()
-        mock_volume_service._state_store.get_client_mute = MagicMock(return_value=False)
-        mock_volume_service._equalizer_controller = MagicMock()
-        mock_volume_service._equalizer_controller.set_equalizer_volume = AsyncMock(return_value=True)
-        mock_volume_service._equalizer_controller.set_equalizer_mute = AsyncMock()
-        mock_volume_service._broadcast_volume_state = AsyncMock()
+        mock_volume_service.state_store = MagicMock()
+        mock_volume_service.state_store.set_client_volume = AsyncMock()
+        mock_volume_service.state_store.get_client_mute = MagicMock(return_value=False)
+        mock_volume_service.equalizer_controller = MagicMock()
+        mock_volume_service.equalizer_controller.set_equalizer_volume = AsyncMock(return_value=True)
+        mock_volume_service.equalizer_controller.set_equalizer_mute = AsyncMock()
+        mock_volume_service.broadcast_volume_state = AsyncMock()
         mock_volume_service.volume_config = MagicMock()
         mock_volume_service.volume_config.startup_volume_db = DEFAULT_VOLUME_DB
         service._volume_service = mock_volume_service

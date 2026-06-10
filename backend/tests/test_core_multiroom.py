@@ -2002,13 +2002,13 @@ class TestSnapcastClientDetection:
         ws_service._snapcast_service = mock_snapcast
 
         mock_volume_service = MagicMock()
-        mock_volume_service._state_store = MagicMock()
-        mock_volume_service._state_store.set_client_volume = AsyncMock()
-        mock_volume_service._state_store.get_client_mute = MagicMock(return_value=False)
-        mock_volume_service._equalizer_controller = MagicMock()
-        mock_volume_service._equalizer_controller.set_equalizer_volume = AsyncMock(return_value=True)
-        mock_volume_service._equalizer_controller.set_equalizer_mute = AsyncMock()
-        mock_volume_service._broadcast_volume_state = AsyncMock()
+        mock_volume_service.state_store = MagicMock()
+        mock_volume_service.state_store.set_client_volume = AsyncMock()
+        mock_volume_service.state_store.get_client_mute = MagicMock(return_value=False)
+        mock_volume_service.equalizer_controller = MagicMock()
+        mock_volume_service.equalizer_controller.set_equalizer_volume = AsyncMock(return_value=True)
+        mock_volume_service.equalizer_controller.set_equalizer_mute = AsyncMock()
+        mock_volume_service.broadcast_volume_state = AsyncMock()
         mock_volume_service.volume_config = MagicMock()
         mock_volume_service.volume_config.startup_volume_db = -45.0
         ws_service._volume_service = mock_volume_service
@@ -2155,13 +2155,13 @@ class TestSnapcastClientDetection:
         ws_service._snapcast_service = mock_snapcast
 
         mock_volume_service = MagicMock()
-        mock_volume_service._state_store = MagicMock()
-        mock_volume_service._state_store.set_client_volume = AsyncMock()
-        mock_volume_service._state_store.get_client_mute = MagicMock(return_value=False)
-        mock_volume_service._equalizer_controller = MagicMock()
-        mock_volume_service._equalizer_controller.set_equalizer_volume = AsyncMock(return_value=True)
-        mock_volume_service._equalizer_controller.set_equalizer_mute = AsyncMock()
-        mock_volume_service._broadcast_volume_state = AsyncMock()
+        mock_volume_service.state_store = MagicMock()
+        mock_volume_service.state_store.set_client_volume = AsyncMock()
+        mock_volume_service.state_store.get_client_mute = MagicMock(return_value=False)
+        mock_volume_service.equalizer_controller = MagicMock()
+        mock_volume_service.equalizer_controller.set_equalizer_volume = AsyncMock(return_value=True)
+        mock_volume_service.equalizer_controller.set_equalizer_mute = AsyncMock()
+        mock_volume_service.broadcast_volume_state = AsyncMock()
         mock_volume_service.volume_config = MagicMock()
         mock_volume_service.volume_config.startup_volume_db = DEFAULT_VOLUME_DB
         ws_service._volume_service = mock_volume_service
@@ -2831,7 +2831,7 @@ class TestReconnectRepushesEqualizer:
         ws._registry.get_reconnection_context = MagicMock(return_value=ReconnectionContext.STANDALONE_ALONE)
         ws._registry.set_client_online = AsyncMock()
         ws._volume_service = MagicMock()
-        ws._volume_service._broadcast_volume_state = AsyncMock()
+        ws._volume_service.broadcast_volume_state = AsyncMock()
         ws._resolve_target_volume = MagicMock(return_value=-40.0)
         ws._apply_target_volume_to_client = AsyncMock(return_value=True)
         ws._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)
@@ -3140,13 +3140,13 @@ class TestApplyTargetVolumeToClient:
         state_machine = MagicMock()
         volume_service = AsyncMock()
         # Mock state store (used by _apply_target_volume_to_client)
-        volume_service._state_store = MagicMock()
-        volume_service._state_store.set_client_volume = AsyncMock()
-        volume_service._state_store.get_client_mute = MagicMock(return_value=False)
+        volume_service.state_store = MagicMock()
+        volume_service.state_store.set_client_volume = AsyncMock()
+        volume_service.state_store.get_client_mute = MagicMock(return_value=False)
         # Mock equalizer controller (used for hardware apply)
-        volume_service._equalizer_controller = MagicMock()
-        volume_service._equalizer_controller.set_equalizer_volume = AsyncMock(return_value=True)
-        volume_service._equalizer_controller.set_equalizer_mute = AsyncMock()
+        volume_service.equalizer_controller = MagicMock()
+        volume_service.equalizer_controller.set_equalizer_volume = AsyncMock(return_value=True)
+        volume_service.equalizer_controller.set_equalizer_mute = AsyncMock()
         state_machine.volume_service = volume_service
         return state_machine
 
@@ -3172,11 +3172,11 @@ class TestApplyTargetVolumeToClient:
         result = await ws_service._apply_target_volume_to_client("client-1", -30.0)
 
         assert result is True
-        mock_state_machine.volume_service._state_store.set_client_volume.assert_called_once_with(
+        mock_state_machine.volume_service.state_store.set_client_volume.assert_called_once_with(
             "client-1", -30.0
         )
         mock_registry.update_volume.assert_called_once_with("client-1", volume_db=-30.0)
-        mock_state_machine.volume_service._equalizer_controller.set_equalizer_volume.assert_called_once_with(
+        mock_state_machine.volume_service.equalizer_controller.set_equalizer_volume.assert_called_once_with(
             "client-1", -30.0, force=True
         )
 
@@ -3214,8 +3214,8 @@ class TestApplyTargetVolumeToClient:
         result = await ws_service._apply_target_volume_to_client("client-1", -30.0)
 
         assert result is True
-        mock_state_machine.volume_service._state_store.set_client_volume.assert_called_once()
-        mock_state_machine.volume_service._equalizer_controller.set_equalizer_volume.assert_called_once()
+        mock_state_machine.volume_service.state_store.set_client_volume.assert_called_once()
+        mock_state_machine.volume_service.equalizer_controller.set_equalizer_volume.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_apply_volume_handles_volume_service_exception(self, mock_registry):
@@ -3224,8 +3224,8 @@ class TestApplyTargetVolumeToClient:
 
         mock_state_machine = MagicMock()
         volume_service = AsyncMock()
-        volume_service._state_store = MagicMock()
-        volume_service._state_store.set_client_volume = AsyncMock(
+        volume_service.state_store = MagicMock()
+        volume_service.state_store.set_client_volume = AsyncMock(
             side_effect=Exception("Equalizer connection failed")
         )
 
@@ -3261,7 +3261,7 @@ class TestApplyTargetVolumeToClient:
         result = await ws_service._apply_target_volume_to_client("client-1", -30.0)
 
         # state_store was called successfully before registry failed
-        mock_state_machine.volume_service._state_store.set_client_volume.assert_called_once()
+        mock_state_machine.volume_service.state_store.set_client_volume.assert_called_once()
         # registry was attempted but failed
         mock_registry.update_volume.assert_called_once()
         # Result is False due to exception handling
