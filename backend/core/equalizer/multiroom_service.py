@@ -371,7 +371,7 @@ class MultiroomEqualizerService:
         return await self.get_client_eq(mac_id)
 
     # =========================================================================
-    # Target-Agnostic Equalizer Methods (AC2, AC3)
+    # Target-Agnostic Equalizer Methods
     # =========================================================================
 
     async def apply_equalizer(
@@ -424,7 +424,7 @@ class MultiroomEqualizerService:
             raise ValueError(f"Invalid target_type: {target_type}. Must be 'zone' or 'client'")
 
     # =========================================================================
-    # CamillaDSP Application with Error Handling (AC4)
+    # CamillaDSP Application with Error Handling
     #
     # _apply_to_local / _apply_to_remote are the DSP-application halves of
     # set_client_eq (local vs remote). They apply settings to the audio chain;
@@ -582,7 +582,7 @@ class MultiroomEqualizerService:
             return False
 
     # =========================================================================
-    # Partial Equalizer Update Methods (AC2, AC3)
+    # Partial Equalizer Update Methods
     # =========================================================================
 
     async def _apply_partial_update(

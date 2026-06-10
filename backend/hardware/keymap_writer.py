@@ -6,7 +6,7 @@ Given a captured device_id (the per-remote pairing byte at bits 15..8 of the
 32-bit Apple NEC scancode), generate a TOML keymap that targets only that
 remote and load it into the kernel via the sudoers-protected helper.
 
-The 6 button command bytes are documented in §5.3 of docs/plans/remote-controls.md.
+The 6 button command bytes are defined inline in APPLE_BUTTON_CMDS below.
 For each button we emit both parity variants because the Apple variant disables
 the standard NEC checksum check and the kernel emits whichever parity the
 remote's device_id yields.

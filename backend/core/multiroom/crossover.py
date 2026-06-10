@@ -302,7 +302,7 @@ class CrossoverService:
 
         self.logger.info(f"Zone {zone_id} crossover frequency set to {frequency} Hz")
 
-        # Get updated crossover state for complete event data (AC4)
+        # Get updated crossover state for complete event data
         crossover_state = await self.get_zone_crossover(zone_id)
 
         await self._broadcast_event({

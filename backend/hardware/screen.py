@@ -1,4 +1,4 @@
-# backend/infrastructure/hardware/screen_controller.py
+# backend/hardware/screen.py
 """
 Screen Controller - OPTIM Version with timeout_seconds = 0 for never
 Multi-screen support: Waveshare 7" USB and Waveshare 8" DSI

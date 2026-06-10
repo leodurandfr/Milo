@@ -184,7 +184,7 @@ def create_volume_router(volume_service, client_registry_service=None):
         return volume_db
 
     # ============================================================================
-    # MAC ADDRESS BASED CLIENT ENDPOINTS (Story 3.4 - AC1, AC3)
+    # MAC ADDRESS BASED CLIENT ENDPOINTS
     # ============================================================================
 
     @router.patch("/client/mac/{mac_url}")

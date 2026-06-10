@@ -12,7 +12,7 @@ extend-exclude = [
 ]
 
 [tool.ruff.lint]
-# Rules activated progressively per lot — see docs/plans/exec-lint-floor.md.
+# Rules activated progressively per lot — history in docs/development.md (lint floor).
 #   Lot B: S110 (try-except-pass) + S112 (try-except-continue) — locks RFC 18
 #          silent-swallow doctrine. Intentional swallows must use
 #          `contextlib.suppress(...)` (Pythonic idiom, exempt by design).
