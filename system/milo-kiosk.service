@@ -47,9 +47,7 @@ ExecStart=/usr/bin/cage -- /usr/bin/chromium \
   --disable-popup-blocking \
   --disable-session-crashed-bubble \
   --disable-restore-session-state \
-  --disable-background-timer-throttling \
-  --disable-backgrounding-occluded-windows \
-  --disable-renderer-backgrounding \
+  --disable-renderer-accessibility \
   --disable-translate \
   --disable-sync \
   --hide-scrollbars \
