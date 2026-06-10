@@ -29,6 +29,7 @@ from backend.api.models import (
     HardwareConfigRequest,
 )
 from backend.core.multiroom.routing import MacEnv
+import contextlib
 import logging
 import asyncio
 
@@ -693,26 +694,17 @@ def create_settings_router(
                     throttle_code = throttle_output.replace("throttled=", "").strip()
                     throttle_status["code"] = throttle_code
 
-                    try:
+                    # Stable snake_case codes (current bits 0-3, past bits 19-22);
+                    # display/translation is the consumer's concern.
+                    with contextlib.suppress(ValueError):
                         throttle_value = int(throttle_code, 16)
 
-                        if throttle_value & 0x1:
-                            throttle_status["current"].append("Sous-tension")
-                        if throttle_value & 0x2:
-                            throttle_status["current"].append("Surchauffe")
-                        if throttle_value & 0x4:
-                            throttle_status["current"].append("Fréquence réduite (alimentation)")
-                        if throttle_value & 0x8:
-                            throttle_status["current"].append("Fréquence réduite (température)")
-
-                        if throttle_value & 0x80000:
-                            throttle_status["past"].append("Sous-tension détectée")
-                        if throttle_value & 0x100000:
-                            throttle_status["past"].append("Surchauffe détectée")
-                        if throttle_value & 0x200000:
-                            throttle_status["past"].append("Fréquence réduite (alimentation)")
-                        if throttle_value & 0x400000:
-                            throttle_status["past"].append("Fréquence réduite (température)")
+                        for bit, code in ((0x1, "under_voltage"), (0x2, "overheating"),
+                                          (0x4, "freq_capped_power"), (0x8, "freq_capped_temp")):
+                            if throttle_value & bit:
+                                throttle_status["current"].append(code)
+                            if throttle_value & (bit << 19):
+                                throttle_status["past"].append(code)
 
                         if throttle_status["current"]:
                             throttle_status["severity"] = "critical"
@@ -720,9 +712,6 @@ def create_settings_router(
                             throttle_status["severity"] = "warning"
                         else:
                             throttle_status["severity"] = "ok"
-
-                    except ValueError:
-                        pass
 
             result["throttling"] = throttle_status
             return result
