@@ -47,7 +47,9 @@ DEFAULT_KEY_MAP = {
 }
 DEFAULT_DEVICE_FILTER = "ANTICATER"
 SCAN_INTERVAL = 30.0        # Fallback interval — D-Bus listener handles instant reconnect
-DISCOVERY_INTERVAL = 60.0   # Seconds between BT reconnect/discovery cycles
+# Fallback only: the D-Bus InterfacesAdded/PropertiesChanged listener handles
+# instant reconnection; this cycle just catches anything it missed.
+DISCOVERY_INTERVAL = 300.0  # Seconds between BT reconnect/discovery cycles
 DISCOVERY_DURATION = 5      # Seconds to run BT scan
 DBUS_RECONNECT_DELAY = 5.0  # Seconds before reconnecting a dropped D-Bus listener
 DBUS_EVDEV_SETTLE = 1.0     # Seconds to wait for evdev nodes after BLE reconnect signal
