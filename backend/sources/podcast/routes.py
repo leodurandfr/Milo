@@ -12,7 +12,7 @@ Provides REST API for:
 - Settings (podcast-specific settings)
 """
 from fastapi import APIRouter, HTTPException, Query, Depends
-from backend.api.route_helpers import run_source_command
+from backend.api.route_helpers import api_error_handler, run_source_command
 from typing import Dict, Any
 import logging
 
@@ -56,7 +56,7 @@ async def get_top_charts(
     limit: int = Query(25, ge=1, le=25)
 ) -> Dict[str, Any]:
     """Get top charts using user's language from settings."""
-    try:
+    async with api_error_handler("Error getting top charts", logger):
         from backend.dependencies import get_service
         settings_service = get_service("settings_service")
         settings = await settings_service.load_settings()
@@ -87,12 +87,6 @@ async def get_top_charts(
 
         return result
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting top charts: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 
 @router.get("/discover/by-genre")
 async def get_content_by_genre(
@@ -101,7 +95,7 @@ async def get_content_by_genre(
     limit: int = Query(30, ge=1, le=200)
 ) -> Dict[str, Any]:
     """Get top podcasts for a specific genre using user's language."""
-    try:
+    async with api_error_handler("Error getting content by genre", logger):
         from backend.dependencies import get_service
         settings_service = get_service("settings_service")
         settings = await settings_service.load_settings()
@@ -127,12 +121,6 @@ async def get_content_by_genre(
             response["network_error"] = True
         return response
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting content by genre: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 
 @router.get("/lookup/itunes/{itunes_id}")
 async def lookup_podcast_by_itunes_id(
@@ -142,7 +130,7 @@ async def lookup_podcast_by_itunes_id(
     artist: str = Query(None, description="Podcast author/publisher to disambiguate same-title homonyms")
 ) -> Dict[str, Any]:
     """Lookup Taddy UUID for a podcast using its iTunes ID."""
-    try:
+    async with api_error_handler("Error looking up podcast by iTunes ID", logger):
         uuid = await source.taddy_api.lookup_podcast_uuid_by_itunes_id(
             itunes_id=itunes_id,
             podcast_name=name,
@@ -150,15 +138,10 @@ async def lookup_podcast_by_itunes_id(
         )
 
         if not uuid:
+            logger.error("No podcast found for iTunes ID: %s", itunes_id)
             raise HTTPException(status_code=404, detail=f"No podcast found for iTunes ID: {itunes_id}")
 
         return {"uuid": uuid, "itunes_id": itunes_id}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error looking up podcast by iTunes ID: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 # === Search Routes ===
@@ -177,7 +160,7 @@ async def search_mixed(
     limit: int = Query(25, ge=1, le=25)
 ) -> Dict[str, Any]:
     """Search for podcasts AND episodes simultaneously."""
-    try:
+    async with api_error_handler("Error in mixed search", logger):
         # Only return empty if BOTH term is empty AND no filters are active
         if not term and not genres and not languages and not duration_min and not duration_max:
             return {
@@ -221,12 +204,6 @@ async def search_mixed(
 
         return result
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error in mixed search: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 
 # === Content Routes ===
 
@@ -239,7 +216,7 @@ async def get_podcast_series(
     sort_order: str = Query("LATEST", description="LATEST, OLDEST, or SEARCH")
 ) -> Dict[str, Any]:
     """Get podcast series details with episodes."""
-    try:
+    async with api_error_handler("Error getting podcast series", logger):
         series = await source.taddy_api.get_podcast_series(
             uuid=uuid,
             episodes_page=page,
@@ -248,6 +225,7 @@ async def get_podcast_series(
         )
 
         if not series:
+            logger.error("Podcast not found: %s", uuid)
             raise HTTPException(status_code=404, detail="Podcast not found")
 
         # Add subscription status
@@ -261,12 +239,6 @@ async def get_podcast_series(
 
         return series
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting podcast series: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 
 @router.get("/episode/{uuid}")
 async def get_episode(
@@ -274,9 +246,10 @@ async def get_episode(
     source: PodcastSource = Depends(get_source)
 ) -> Dict[str, Any]:
     """Get episode details."""
-    try:
+    async with api_error_handler("Error getting episode", logger):
         episode = await source.taddy_api.get_episode(uuid)
         if not episode:
+            logger.error("Episode not found: %s", uuid)
             raise HTTPException(status_code=404, detail="Episode not found")
 
         # Add progress
@@ -285,12 +258,6 @@ async def get_episode(
             episode['playback_progress'] = progress
 
         return episode
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting episode: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 # === Playback Routes ===
@@ -361,12 +328,9 @@ async def get_subscriptions(
     source: PodcastSource = Depends(get_source)
 ) -> Dict[str, Any]:
     """Get all subscriptions with metadata."""
-    try:
+    async with api_error_handler("Error getting subscriptions", logger):
         subscriptions = await source.podcast_data.get_subscriptions()
         return {"subscriptions": subscriptions, "total": len(subscriptions)}
-    except Exception as e:
-        logger.error(f"Error getting subscriptions: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/subscriptions")
@@ -375,7 +339,7 @@ async def add_subscription(
     source: PodcastSource = Depends(get_source)
 ) -> Dict[str, Any]:
     """Subscribe to a podcast with metadata."""
-    try:
+    async with api_error_handler("Error subscribing", logger):
         success = await source.podcast_data.add_subscription(
             podcast_uuid=request.uuid,
             name=request.name,
@@ -383,9 +347,6 @@ async def add_subscription(
             children_hash=request.children_hash
         )
         return {"success": success}
-    except Exception as e:
-        logger.error(f"Error subscribing: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/subscriptions/{uuid}")
@@ -394,12 +355,9 @@ async def remove_subscription(
     source: PodcastSource = Depends(get_source)
 ) -> Dict[str, Any]:
     """Unsubscribe from a podcast."""
-    try:
+    async with api_error_handler("Error unsubscribing", logger):
         success = await source.podcast_data.remove_subscription(uuid)
         return {"success": success}
-    except Exception as e:
-        logger.error(f"Error unsubscribing: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/subscriptions/latest-episodes")
@@ -409,7 +367,7 @@ async def get_latest_episodes_from_subscriptions(
     limit: int = Query(50, ge=1, le=50)
 ) -> Dict[str, Any]:
     """Get latest episodes from all subscribed podcasts."""
-    try:
+    async with api_error_handler("Error getting latest episodes", logger):
         # Get subscription UUIDs
         uuids = await source.podcast_data.get_subscription_uuids()
 
@@ -430,10 +388,6 @@ async def get_latest_episodes_from_subscriptions(
 
         return result
 
-    except Exception as e:
-        logger.error(f"Error getting latest episodes: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 
 # === Queue Routes ===
 
@@ -442,12 +396,9 @@ async def get_queue(
     source: PodcastSource = Depends(get_source)
 ) -> Dict[str, Any]:
     """Get in-progress episodes (queue)."""
-    try:
+    async with api_error_handler("Error getting queue", logger):
         episodes = await source.podcast_data.get_in_progress_episodes()
         return {"episodes": episodes, "total": len(episodes)}
-    except Exception as e:
-        logger.error(f"Error getting queue: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/queue/{episode_uuid}/complete")
@@ -456,12 +407,9 @@ async def mark_episode_complete(
     source: PodcastSource = Depends(get_source)
 ) -> Dict[str, Any]:
     """Mark episode as completed."""
-    try:
+    async with api_error_handler("Error marking complete", logger):
         success = await source.podcast_data.mark_episode_completed(episode_uuid)
         return {"success": success}
-    except Exception as e:
-        logger.error(f"Error marking complete: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 # === Settings Routes ===
@@ -471,12 +419,9 @@ async def get_settings(
     source: PodcastSource = Depends(get_source)
 ) -> Dict[str, Any]:
     """Get podcast settings."""
-    try:
+    async with api_error_handler("Error getting settings", logger):
         settings = await source.podcast_data.get_podcast_settings()
         return {"settings": settings}
-    except Exception as e:
-        logger.error(f"Error getting settings: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/settings")
@@ -485,14 +430,10 @@ async def update_settings(
     source: PodcastSource = Depends(get_source)
 ) -> Dict[str, Any]:
     """Update podcast settings."""
-    try:
+    async with api_error_handler("Error updating settings", logger):
         updates = {}
         if request.playback_speed is not None:
             updates['playback_speed'] = request.playback_speed
 
         success = await source.podcast_data.update_podcast_settings(updates)
         return {"success": success}
-
-    except Exception as e:
-        logger.error(f"Error updating settings: {e}")
-        raise HTTPException(status_code=500, detail=str(e))

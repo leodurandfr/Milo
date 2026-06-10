@@ -26,9 +26,13 @@ export const useRadioStore = defineStore('radio', () => {
   const networkError = ref(false);
   const favoritesInitialized = ref(false);
 
-  // Auto-retry timer for network errors
+  // Auto-retry timer for network errors — bounded: it gives up after
+  // MAX_RETRY_ATTEMPTS or as soon as the user leaves the radio source
+  // (the store never unmounts), the error state offers a manual retry.
   let retryTimer = null;
+  let retryAttempts = 0;
   const RETRY_INTERVAL_MS = 5000;
+  const MAX_RETRY_ATTEMPTS = 12;
 
   // Active filters
   const searchQuery = ref('');
@@ -162,9 +166,16 @@ export const useRadioStore = defineStore('radio', () => {
 
   function startRetry() {
     if (retryTimer !== null) return;
+    retryAttempts = 0;
     retryTimer = setInterval(() => {
       if (loading.value) return; // Prevent concurrent requests
-      logger.debug('radio', 'Auto-retrying after network error...');
+      const unifiedStore = useUnifiedAudioStore();
+      if (unifiedStore.systemState.active_source !== 'radio' || retryAttempts >= MAX_RETRY_ATTEMPTS) {
+        stopRetry();
+        return;
+      }
+      retryAttempts += 1;
+      logger.debug('radio', `Auto-retrying after network error (${retryAttempts}/${MAX_RETRY_ATTEMPTS})...`);
       loadStations(false);
     }, RETRY_INTERVAL_MS);
   }
