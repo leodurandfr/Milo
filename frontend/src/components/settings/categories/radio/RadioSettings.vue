@@ -103,7 +103,7 @@ onMounted(() => {
 });
 
 // Listen for metadata modifications to refresh custom stations
-// (favorites are already updated in real-time via RadioSource's WebSocket handlers)
+// (favorites are already updated in real-time by the favorite_modified WS handler in App.vue)
 on('source', 'favorite_modified', (event) => {
   if (event.data?.source === 'radio') {
     logger.debug('radio', 'Station modified, reloading custom stations for settings');

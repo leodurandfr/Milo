@@ -3,14 +3,9 @@
 API routes for multiroom client and zone management.
 
 Provides endpoints under /api/multiroom/ prefix for multiroom operations.
-This router delegates to ClientRegistryService for all operations.
-
-Added in Story 2.2 to provide:
+This router delegates to ClientRegistryService for all operations:
 - /api/multiroom/clients/ prefix for client endpoints (PATCH updates)
 - /api/multiroom/zones/ prefix for zone CRUD operations
-
-This is the canonical API for zone management. The /api/registry/zones
-endpoints are deprecated in favor of these endpoints.
 
 Features:
 - PATCH method for partial updates
@@ -90,7 +85,7 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
         Get complete registry state (all clients and zones).
 
         Used for initial frontend sync. This is the canonical endpoint
-        for fetching the full multiroom state. Replaces /api/registry/state.
+        for fetching the full multiroom state.
 
         Returns:
             {

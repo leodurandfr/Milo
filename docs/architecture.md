@@ -510,7 +510,7 @@ Allowed origins only:
 
 ### Adding an audio source
 
-1. Create source implementing `AudioSourceProtocol`
+1. Create source subclassing `BaseAudioSource` (backend/core/audio_source.py)
 2. Register in `dependencies.py`
 3. Add ALSA devices in `/etc/asound.conf`
 4. Create Vue component for UI

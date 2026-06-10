@@ -1,4 +1,4 @@
-# backend/infrastructure/services/settings_service.py
+# backend/core/settings.py
 """
 Settings management service - OPTIM version with async I/O
 """

@@ -718,7 +718,7 @@ class SnapcastWebSocketService:
                 equalizer_synced = await self._sync_standalone_equalizer_to_client(mac_id)
             sync_status["equalizer_synced"] = equalizer_synced
 
-            # 6. Broadcast volume state to frontend (AC5)
+            # 6. Broadcast volume state to frontend
             # This notifies UI about the reconnected client with its synced volume
             if volume_synced:
                 if self._volume_service:
