@@ -50,8 +50,6 @@ async function initApp() {
 
   app.config.globalProperties.$t = i18n.t.bind(i18n)
 
-  app.config.devtools = true
-
   // Capture Vue component errors (render, lifecycle, watchers)
   app.config.errorHandler = (err, instance, info) => {
     const component = instance?.$options?.name || instance?.$.type?.name || 'unknown'
