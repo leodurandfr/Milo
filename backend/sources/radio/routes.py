@@ -9,13 +9,12 @@ Provides REST API endpoints for:
 - Search: Search RadioBrowser API
 - Images: Serve station artwork
 """
-import asyncio
 import logging
 from typing import Dict, Any, Optional
 
 import aiohttp
 from fastapi import APIRouter, HTTPException, Query, File, UploadFile, Form, Depends
-from backend.api.route_helpers import run_source_command
+from backend.api.route_helpers import api_error_handler, run_source_command
 from fastapi.responses import FileResponse, Response
 
 from backend.api.source_dependency import make_source_dependency
@@ -100,7 +99,7 @@ async def search_stations(
     Returns:
         Dict with stations and total
     """
-    try:
+    async with api_error_handler("Search error", logger):
         if favorites_only:
             favorites = await source.station_data.get_favorites_with_metadata()
 
@@ -148,10 +147,6 @@ async def search_stations(
                 response["network_error"] = True
             return response
 
-    except Exception as e:
-        logger.error("Search error: %s", e)
-        raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")
-
 
 @router.get("/countries")
 async def get_countries(source: RadioSource = Depends(get_source)):
@@ -161,11 +156,8 @@ async def get_countries(source: RadioSource = Depends(get_source)):
     Returns:
         List of countries with station counts
     """
-    try:
+    async with api_error_handler("Countries error", logger):
         return await source.radio_api.get_available_countries()
-    except Exception as e:
-        logger.error("Countries error: %s", e)
-        raise HTTPException(status_code=500, detail=f"Countries error: {str(e)}")
 
 
 # === Favorites Routes ===
@@ -227,7 +219,7 @@ async def modify_favorite_metadata(
     """
     Modify metadata of a favorite station.
     """
-    try:
+    async with api_error_handler("Modify favorite error", logger):
         image_filename = None
         should_remove_image = remove_image.lower() == "true"
 
@@ -239,6 +231,7 @@ async def modify_favorite_metadata(
             )
 
             if not success:
+                logger.error("Modify favorite image error: %s", error)
                 raise HTTPException(status_code=400, detail=f"Image error: {error}")
 
             image_filename = saved_filename
@@ -261,13 +254,8 @@ async def modify_favorite_metadata(
         else:
             if image_filename:
                 await source.station_data.image_manager.delete_image(image_filename)
+            logger.error("Modify favorite failed: %s", result.get("error", "Unknown error"))
             raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Modify favorite error: %s", e)
-        raise HTTPException(status_code=500, detail=f"Modify favorite error: {str(e)}")
 
 
 @router.post("/favorites/restore-metadata")
@@ -278,7 +266,7 @@ async def restore_favorite_metadata(
     """
     Restore original metadata of a modified favorite station.
     """
-    try:
+    async with api_error_handler("Restore favorite error", logger):
         result = await source.station_data.restore_favorite_metadata(
             station_id=station_id,
             radio_api=source.radio_api
@@ -287,13 +275,8 @@ async def restore_favorite_metadata(
         if result["success"]:
             return {"success": True}
         else:
+            logger.error("Restore favorite failed: %s", result.get("error", "Unknown error"))
             raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Restore favorite error: %s", e)
-        raise HTTPException(status_code=500, detail=f"Restore favorite error: {str(e)}")
 
 
 # === Custom Stations Routes ===
@@ -306,13 +289,10 @@ async def get_custom_stations(source: RadioSource = Depends(get_source)) -> Dict
     Returns:
         Dict of station_id → metadata
     """
-    try:
+    async with api_error_handler("Custom stations error", logger):
         modified_metadata = source.station_data.get_modified_metadata()
         manual_stations = source.station_data.get_manual_stations()
         return {**modified_metadata, **manual_stations}
-    except Exception as e:
-        logger.error("Custom stations error: %s", e)
-        raise HTTPException(status_code=500, detail=f"Custom stations error: {str(e)}")
 
 
 @router.post("/custom/add")
@@ -343,7 +323,7 @@ async def add_custom_station(
     Returns:
         Created station with ID
     """
-    try:
+    async with api_error_handler("Add custom station error", logger):
         image_filename = ""
 
         if image and image.filename:
@@ -354,6 +334,7 @@ async def add_custom_station(
             )
 
             if not success:
+                logger.error("Add custom station image error: %s", error)
                 raise HTTPException(status_code=400, detail=f"Image error: {error}")
 
             image_filename = saved_filename
@@ -373,18 +354,13 @@ async def add_custom_station(
         if not result.get("success"):
             if image_filename:
                 await source.station_data.image_manager.delete_image(image_filename)
+            logger.error("Add custom station failed: %s", result.get("error", "Add custom station failed"))
             raise HTTPException(
                 status_code=400,
                 detail=result.get("error", "Add custom station failed")
             )
 
         return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Add custom station error: %s", e)
-        raise HTTPException(status_code=500, detail=f"Add custom station error: {str(e)}")
 
 
 @router.delete("/custom/{station_id}")
@@ -401,19 +377,14 @@ async def remove_custom_station(
     Returns:
         Operation result
     """
-    try:
+    async with api_error_handler("Remove custom station error", logger):
         success = await source.station_data.remove_custom_station(station_id)
 
         if not success:
+            logger.error("Remove custom station failed: %s", station_id)
             raise HTTPException(status_code=400, detail="Remove custom station failed")
 
         return {"success": True, "message": "Custom station removed"}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Remove custom station error: %s", e)
-        raise HTTPException(status_code=500, detail=f"Remove custom station error: {str(e)}")
 
 
 # === Image Routes ===
@@ -432,10 +403,11 @@ async def get_station_image(
     Returns:
         Image file
     """
-    try:
+    async with api_error_handler("Image error", logger):
         image_path = source.station_data.image_manager.get_image_path(filename)
 
         if not image_path or not image_path.exists():
+            logger.error("Image not found: %s", filename)
             raise HTTPException(status_code=404, detail="Image not found")
 
         ext = image_path.suffix.lower()
@@ -456,12 +428,6 @@ async def get_station_image(
                 "Content-Disposition": f"inline; filename={filename}"
             }
         )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Image error: %s", e)
-        raise HTTPException(status_code=500, detail=f"Image error: {str(e)}")
 
 
 @router.get("/favicon")
@@ -531,5 +497,8 @@ async def get_favicon_proxy(url: str = Query(..., description="Favicon URL to pr
                     }
                 )
 
-    except (asyncio.TimeoutError, aiohttp.ClientError, Exception):
+    except Exception as e:
+        # Resilience by design: an unreachable favicon host must never surface
+        # as an error — the UI falls back to its inline SVG on 204.
+        logger.debug("Favicon proxy fallback for %s: %s", url, e)
         return Response(status_code=204, headers=cors_headers)
