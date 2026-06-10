@@ -273,23 +273,16 @@ function handleEditClient(macId) {
   emit('edit-client', macId);
 }
 
-const audioPresets = computed(() => [
-  {
-    id: 'lan',
-    name: t('multiroomSettings.lan'),
-    config: { buffer_ms: 300, codec: 'flac', chunk_ms: 20, snapclient_buffer_time: 120 }
-  },
-  {
-    id: 'wifi_stable',
-    name: t('multiroomSettings.wifiStable'),
-    config: { buffer_ms: 700, codec: 'flac', chunk_ms: 20, snapclient_buffer_time: 120 }
-  },
-  {
-    id: 'wifi_weak',
-    name: t('multiroomSettings.wifiWeak'),
-    config: { buffer_ms: 1500, codec: 'opus', chunk_ms: 20, snapclient_buffer_time: 200 }
-  }
-]);
+// Presets come from the backend capabilities (single source of truth);
+// only the display name is resolved here, via i18n keyed on the preset id
+// (snake_case id → camelCase key: lan, wifiStable, wifiWeak).
+const audioPresets = computed(() =>
+  snapcastStore.capabilities.presets.map(preset => ({
+    id: preset.id,
+    name: t(`multiroomSettings.${preset.id.replace(/_([a-z])/g, (_, c) => c.toUpperCase())}`),
+    config: preset.config
+  }))
+);
 
 // ButtonGroup options for presets
 const presetOptions = computed(() =>
@@ -311,12 +304,15 @@ const activePresetId = computed(() => {
   return active?.id || null;
 });
 
-// Codec options for ButtonGroup
-const codecOptions = [
-  { label: 'Opus', value: 'opus' },
-  { label: 'FLAC', value: 'flac' },
-  { label: 'PCM', value: 'pcm' }
-];
+// Codec options for ButtonGroup — the list comes from the backend
+// capabilities; only the display casing is presentation-side.
+const CODEC_LABELS = { flac: 'FLAC', pcm: 'PCM', opus: 'Opus', ogg: 'Ogg' };
+const codecOptions = computed(() =>
+  snapcastStore.capabilities.codecs.map(codec => ({
+    label: CODEC_LABELS[codec] || codec.toUpperCase(),
+    value: codec
+  }))
+);
 
 // === MULTIROOM - CLIENTS ===
 

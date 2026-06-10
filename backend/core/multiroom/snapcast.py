@@ -18,6 +18,22 @@ from backend.config.constants import get_client_display_name, DEPLOY_UPDATE_CMD
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.shared.decorators import handle_errors
 
+# Codec whitelist — single source for _validate_config and the /server-config
+# capabilities payload the frontend builds its codec options from.
+SUPPORTED_CODECS = ["flac", "pcm", "opus", "ogg"]
+
+# Network-quality presets surfaced by the UI (ids are i18n'd client-side).
+# Buffer/codec values from real-world testing (e5fb91d2); chunk_ms follows
+# the 40 ms idle-wakeup default adopted in 9635166b.
+NETWORK_PRESETS = [
+    {"id": "lan",
+     "config": {"buffer_ms": 300, "codec": "flac", "chunk_ms": 40, "snapclient_buffer_time": 120}},
+    {"id": "wifi_stable",
+     "config": {"buffer_ms": 700, "codec": "flac", "chunk_ms": 40, "snapclient_buffer_time": 120}},
+    {"id": "wifi_weak",
+     "config": {"buffer_ms": 1500, "codec": "opus", "chunk_ms": 40, "snapclient_buffer_time": 200}},
+]
+
 
 class SnapcastService:
     """
@@ -320,7 +336,7 @@ class SnapcastService:
         """Validate configuration parameters."""
         validators = {
             "buffer_ms": lambda x: isinstance(x, int) and 200 <= x <= 3000,
-            "codec": lambda x: x in ["flac", "pcm", "opus", "ogg"],
+            "codec": lambda x: x in SUPPORTED_CODECS,
             "chunk_ms": lambda x: isinstance(x, int) and 15 <= x <= 50,
             "snapclient_buffer_time": lambda x: isinstance(x, int) and 60 <= x <= 300,
             "snapclient_fragments": lambda x: isinstance(x, int) and 2 <= x <= 8

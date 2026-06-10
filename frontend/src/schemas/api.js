@@ -105,6 +105,22 @@ export const SnapcastServerConfigSchema = z.object({
   snapclient_buffer_time: z.number().int().catch(80),
 });
 
+// Backend: backend/core/multiroom/routes.py GET /server-config `capabilities`
+// — codec whitelist + network-quality presets (SUPPORTED_CODECS /
+// NETWORK_PRESETS in snapcast.py). Single source for the UI options.
+export const SnapcastCapabilitiesSchema = z.object({
+  codecs: z.array(z.string()).catch([]),
+  presets: z.array(z.object({
+    id: z.string(),
+    config: z.object({
+      buffer_ms: z.number().int(),
+      codec: z.string(),
+      chunk_ms: z.number().int(),
+      snapclient_buffer_time: z.number().int(),
+    }),
+  })).catch([]),
+});
+
 // === HELPER FUNCTIONS ===
 
 /**

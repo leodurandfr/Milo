@@ -11,7 +11,7 @@ import { useMultiroomStore } from './multiroomStore';
 import { useUnifiedAudioStore } from './unifiedAudioStore';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
-import { SnapcastServerConfigSchema, validateSchema } from '@/schemas/api';
+import { SnapcastCapabilitiesSchema, SnapcastServerConfigSchema, validateSchema } from '@/schemas/api';
 import { dbToPercent } from '@/constants/volumeConversion';
 
 const DISPLAY_CACHE_KEY = 'multiroom_display_cache';
@@ -47,17 +47,23 @@ export const useSnapcastStore = defineStore('snapcast', () => {
   let serverConfigAbortController = null;
   const isLoading = computed(() => !registryStore.isInitialized);
 
-  // Server config with defaults (overwritten when loaded from backend)
-  const DEFAULT_SERVER_CONFIG = {
+  // Placeholder shape only — template v-models need an object before the
+  // first fetch; real values come from GET /server-config (backend is the
+  // single source for config, codec list, and presets).
+  const PLACEHOLDER_SERVER_CONFIG = {
     buffer: 1000,
     codec: 'flac',
     chunk_ms: 20,
     sampleformat: '48000:32:2',
     snapclient_buffer_time: 80
   };
-  const serverConfig = ref({ ...DEFAULT_SERVER_CONFIG });
-  const originalServerConfig = ref({ ...DEFAULT_SERVER_CONFIG });
+  const serverConfig = ref({ ...PLACEHOLDER_SERVER_CONFIG });
+  const originalServerConfig = ref({ ...PLACEHOLDER_SERVER_CONFIG });
   const isApplyingServerConfig = ref(false);
+
+  // Backend-declared capabilities (codec whitelist + quality presets),
+  // populated alongside the server config fetch.
+  const capabilities = ref({ codecs: [], presets: [] });
 
   // Memorization of the last known number of clients (for skeletons)
   const lastKnownClientCount = ref(3);
@@ -122,7 +128,15 @@ export const useSnapcastStore = defineStore('snapcast', () => {
       message: 'Error fetching server config',
       signal,
     });
-    if (!result.ok || !result.data?.config) return null;
+    if (!result.ok) return null;
+
+    // Capabilities are static and served even when snapserver is down.
+    const caps = validateSchema(SnapcastCapabilitiesSchema, result.data.capabilities, 'snapcast.capabilities');
+    if (caps.success) {
+      capabilities.value = caps.data;
+    }
+
+    if (!result.data?.config) return null;
 
     const parsed = validateSchema(SnapcastServerConfigSchema, result.data.config, 'snapcast.server-config');
     if (!parsed.success) return null;
@@ -219,6 +233,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     clients,
     isLoading,
     serverConfig,
+    capabilities,
     isApplyingServerConfig,
     lastKnownDisplayItems,
 
