@@ -303,22 +303,6 @@
 
 
 
-.rounded-01 {
-    border-radius: var(--radius-01);
-}
-
-.rounded-02 {
-    border-radius: var(--radius-02);
-}
-
-.rounded-03 {
-    border-radius: var(--radius-03);
-}
-
-.rounded-full {
-    border-radius: var(--radius-full);
-}
-
 /* === GLASSMORPHISM === */
 /* Usage: apply .glass-surface for backdrop blur, .glass-border for stroke.
    Customize via local CSS custom properties:

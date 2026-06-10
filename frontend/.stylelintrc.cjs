@@ -94,10 +94,6 @@ module.exports = {
     {
       files: [
         'src/assets/styles/design-system.css',
-        'src/assets/styles/app.css',
-        'src/views/StyleGuide.vue',
-        'src/views/UIComponentsGuide.vue',
-        'src/views/CardsStyleGuide.vue',
         // Pure-black overlays + brand gradients (one-off visuals).
         'src/components/audio/AudioScreensaver.vue',
         'src/components/audio/AudioSourceLayout.vue',
