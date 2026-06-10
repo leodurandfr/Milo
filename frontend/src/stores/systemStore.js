@@ -14,8 +14,6 @@ export const useSystemStore = defineStore('system', () => {
   const hostnameConflict = ref(false);
   const advertisedName = ref(null);
   const localIp = ref(null);
-  const expectedName = ref('milo.local');
-  const lastChecked = ref(null);
   const rechecking = ref(false);
   // Default true (fail-open): if the backend hasn't reported yet, don't flash an offline banner.
   const isOnline = ref(true);
@@ -30,12 +28,6 @@ export const useSystemStore = defineStore('system', () => {
     }
     if (state.local_ip !== undefined) {
       localIp.value = state.local_ip;
-    }
-    if (state.expected_name !== undefined) {
-      expectedName.value = state.expected_name;
-    }
-    if (state.last_checked !== undefined) {
-      lastChecked.value = state.last_checked;
     }
     if (typeof state.online === 'boolean') {
       isOnline.value = state.online;
@@ -82,8 +74,6 @@ export const useSystemStore = defineStore('system', () => {
     hostnameConflict,
     advertisedName,
     localIp,
-    expectedName,
-    lastChecked,
     rechecking,
     isOnline,
     fetchStatus,

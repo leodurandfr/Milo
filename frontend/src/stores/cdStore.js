@@ -17,13 +17,7 @@ export const useCdStore = defineStore('cd', () => {
     unifiedStore.systemState.active_source === 'cd'
       && !!unifiedStore.systemState.metadata?.is_playing
   );
-  const isBuffering = computed(() =>
-    unifiedStore.systemState.active_source === 'cd'
-      && !!unifiedStore.systemState.metadata?.is_buffering
-  );
-
   // === DRIVE STATE ===
-  const driveConnected = ref(false);
   const discPresent = ref(false);
 
   // === UI STATE ===
@@ -50,7 +44,6 @@ export const useCdStore = defineStore('cd', () => {
       message: 'Error fetching drive status',
     });
     if (result.ok) {
-      driveConnected.value = result.data.connected ?? false;
       discPresent.value = result.data.disc_present ?? false;
     }
   }
@@ -105,7 +98,6 @@ export const useCdStore = defineStore('cd', () => {
 
   function handleSystemEvent(event) {
     if (event.type === 'cd_drive_status') {
-      driveConnected.value = event.data?.drive_connected ?? false;
       discPresent.value = event.data?.disc_present ?? false;
 
       // Clear disc state when disc is removed (eject or physical removal)
@@ -123,9 +115,6 @@ export const useCdStore = defineStore('cd', () => {
     tracks,
     currentTrack,
     isPlaying,
-    isBuffering,
-    driveConnected,
-    discPresent,
     showTracklist,
 
     // Actions

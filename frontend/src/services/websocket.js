@@ -4,49 +4,29 @@ import { apiCall } from '@/services/apiCall';
 import { logger } from '@/services/logger';
 
 /**
- * WebSocket singleton with smart disconnect when the tab is hidden
+ * WebSocket singleton with smart disconnect when the tab is hidden.
  *
- * Event Categories & Handlers:
- * ────────────────────────────────────────────────────────────────
- * system:
- *   - initial_state, state_changed, transition_*, error → App.vue → unifiedAudioStore
- *   - ping → handled internally (health check)
+ * Wire format: { category, type, origin, data, timestamp } (see
+ * state_machine.broadcast_event on the backend). Handlers are registered
+ * centrally in App.vue via on()/parsedOn() and dispatch into Pinia stores —
+ * components react to store state, never to raw events. parsedOn() validates
+ * payloads against the Zod registry in @/schemas/ws.js before dispatching.
  *
- * volume:
- *   - volume_changed → App.vue (global), Dock.vue
- *
- * source:
- *   - state_changed, metadata → App.vue → unifiedAudioStore, podcastStore, cdStore
- *   - position_update → App.vue → unifiedAudioStore
- *   - error_cleared → App.vue (dismiss notification)
- *   - favorite_added, favorite_removed, favorite_modified (origin=radio) → App.vue → radioStore
- *
- * settings:
- *   - All settings.* events → App.vue → settingsStore (centralized)
- *   - Components watch store refs for local config sync
- *
- * multiroom: (Standardized format per architecture spec, Story 6.1/6.2)
- *   - client_state_changed → multiroomStore (client online/offline, volume, mute, speaker_type)
- *     Data: { mac_id, client: { complete client object with all fields } }
- *   - zone_changed → multiroomStore (zone create/delete/update, membership changes)
- *     Data: { zone_id, zone: { enriched zone with online_client_count, has_subwoofer, crossover_enabled } | null }
- *   - equalizer_changed → equalizerStore (zone/client equalizer settings)
- *     Data: { target_type: "zone"|"client", target_id, equalizer_settings }
- *   - crossover_changed → equalizerStore (crossover enable/disable, frequency)
- *     Data: { zone_id, crossover_enabled, crossover_frequency }
- *
- * snapcast: (low-level Snapcast events - kept for debugging/monitoring)
- *   - client_* events → MultiroomControl.vue → multiroomStore
- *   - client_name_changed → also EqualizerModal.vue, MultiroomSettings.vue (sync names)
- *
- * equalizer:
- *   - filter_*, state_changed, preset_*, compressor_*, loudness_* → EqualizerModal.vue → equalizerStore
- *   - links_changed, enabled_changed → EqualizerModal, MultiroomSettings, MultiroomControl
- *   - client_volumes_pushed → MultiroomSettings, MultiroomControl
- *
- * routing:
- *   - multiroom_enabling, multiroom_disabling → MultiroomModal, MultiroomControl, SettingsModal
- *   - multiroom_ready, multiroom_error → MultiroomModal, MultiroomControl
+ * Categories currently emitted by the backend:
+ *   system    → unifiedAudioStore / systemStore (initial_state, state_changed,
+ *               transition_*, hostname_conflict_changed, connectivity_changed;
+ *               ping is consumed internally as the keepalive)
+ *   source    → unifiedAudioStore + per-source stores (state_changed,
+ *               position_update, favorite_* with data.source discriminator)
+ *   volume    → unifiedAudioStore (volume_changed)
+ *   routing   → multiroomStore (multiroom_* transition events)
+ *   multiroom → multiroomStore / equalizerStore (client_state_changed,
+ *               zone_changed, equalizer_changed, crossover_changed)
+ *   equalizer → equalizerStore (state_changed, filter_changed,
+ *               compressor_changed, loudness_changed, mono_changed,
+ *               enabled_changed, zone_enabled_changed)
+ *   settings  → settingsStore / fanStore (settings.*_changed)
+ *   programs  → update/install progress (UpdateManager)
  */
 class WebSocketSingleton {
   constructor() {
@@ -325,8 +305,8 @@ class WebSocketSingleton {
     const eventKey = `${message.category}.${message.type}`;
     const handlers = this.eventHandlers.get(eventKey);
 
-    // Log received events (except frequent ones like levels)
-    if (message.type !== 'levels' && message.type !== 'ping') {
+    // Log received events (except the keepalive ping)
+    if (message.type !== 'ping') {
       logger.ws('received', eventKey, message.data);
     }
 

@@ -34,10 +34,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   const showVolumeBar = ref(false);
   let volumeBarHideTimer = null;
 
-  // Loading states for async operations
-  const isChangingSource = ref(false);
-  const isSendingCommand = ref(false);
-
   // Transient command error (set on sendCommand failure, consumed by App.vue)
   const commandError = ref(null);
 
@@ -48,34 +44,24 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
 
   // === AUDIO ACTIONS ===
   async function changeSource(source) {
-    isChangingSource.value = true;
-    try {
-      const result = await apiCall.post(`/api/audio/source/${source}`, null, {
-        category: 'store',
-        message: `Change source failed: ${source}`,
-        checkStatus: true,
-      });
-      return result.ok;
-    } finally {
-      isChangingSource.value = false;
-    }
+    const result = await apiCall.post(`/api/audio/source/${source}`, null, {
+      category: 'store',
+      message: `Change source failed: ${source}`,
+      checkStatus: true,
+    });
+    return result.ok;
   }
 
   async function sendCommand(source, command, data = {}) {
-    isSendingCommand.value = true;
-    try {
-      const result = await apiCall.post(`/api/audio/control/${source}`, { command, data }, {
-        category: 'store',
-        message: `Command failed: ${source}/${command}`,
-        checkStatus: true,
-      });
-      if (!result.ok) {
-        commandError.value = { source, command };
-      }
-      return result.ok;
-    } finally {
-      isSendingCommand.value = false;
+    const result = await apiCall.post(`/api/audio/control/${source}`, { command, data }, {
+      category: 'store',
+      message: `Command failed: ${source}/${command}`,
+      checkStatus: true,
+    });
+    if (!result.ok) {
+      commandError.value = { source, command };
     }
+    return result.ok;
   }
 
   async function setMultiroomEnabled(enabled) {
