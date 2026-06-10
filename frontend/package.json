@@ -32,7 +32,6 @@
     "eslint": "^9.39.4",
     "eslint-plugin-vue": "^9.33.0",
     "happy-dom": "^20.1.0",
-    "knip": "^5.82.1",
     "postcss-html": "^1.8.1",
     "stylelint": "^17.11.1",
     "stylelint-config-recommended-vue": "^1.6.1",

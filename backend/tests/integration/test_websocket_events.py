@@ -19,7 +19,7 @@ import time
 from unittest.mock import Mock, AsyncMock
 from typing import List, Dict, Any
 
-from starlette.websockets import WebSocketState
+from fastapi.websockets import WebSocketState
 
 from backend.ws import WebSocketManager, WebSocketServer
 from backend.core.models.audio_state import AudioSource, SourceState, SystemAudioState

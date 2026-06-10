@@ -1,7 +1,7 @@
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 pydantic>=2.10.0
-websockets>=14.0
+websockets>=14.0  # no direct import — runtime dep of uvicorn[standard] WebSocket support
 pytest>=8.0.0
 pytest-asyncio>=0.24.0
 httpx>=0.28.0  # required by fastapi.testclient.TestClient (tests only)
@@ -13,9 +13,10 @@ lgpio>=0.2.2.0; platform_machine == "aarch64"  # Pi GPIO (rotary encoder) — ne
 evdev>=1.7.0
 Pillow>=10.0.0
 python-multipart>=0.0.6
-camilladsp @ git+https://github.com/HEnquist/pycamilladsp.git
+camilladsp @ git+https://github.com/HEnquist/pycamilladsp.git@v4.0.0
 pyyaml>=6.0.0
 shazamio>=0.7.0
-audioop-lts>=0.2.2
+aiohttp-retry>=2.9.0  # direct import in sources/radio/shazam.py (otherwise only transitive via shazamio)
+audioop-lts>=0.2.2; python_version >= "3.13"  # stdlib audioop removed in 3.13 (needed by pydub via shazamio)
 discid>=1.2.0
 musicbrainzngs>=0.7.1
