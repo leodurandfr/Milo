@@ -3,7 +3,7 @@
 CD audio source using direct ioctl sector reading + FIFO.
 
 Architecture:
-- Disc watcher (500ms poll) detects disc -> broadcasts presence, then reads TOC
+- Disc watcher (2s poll) detects disc -> broadcasts presence, then reads TOC
 - TOC read via libdiscid provides sector offsets for each track (instant, no mpv)
 - Playback: ioctl reader thread reads sectors from /dev/sr0, writes PCM to FIFO
 - mpv reads FIFO with --demuxer=rawaudio (44100Hz, s16le, stereo)
@@ -41,6 +41,9 @@ logger = logging.getLogger(__name__)
 # Retry MusicBrainz when the initial lookup fell through to the fallback DiscInfo
 # (typically because DNS wasn't ready at boot when the disc was first detected).
 METADATA_RETRY_INTERVAL_S = 60.0
+
+# Disc insertion/removal detection latency — one blocking probe per tick.
+DISC_POLL_INTERVAL_S = 2.0
 
 
 class CdSource(MpvAudioSource):
@@ -262,10 +265,10 @@ class CdSource(MpvAudioSource):
     # =========================================================================
 
     async def _disc_watcher_loop(self) -> None:
-        """Poll for disc drive and disc presence every 500ms."""
+        """Poll for disc drive and disc presence every DISC_POLL_INTERVAL_S."""
         while True:
             try:
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(DISC_POLL_INTERVAL_S)
                 await self._check_drive_and_disc()
                 await self._retry_metadata_if_pending()
             except asyncio.CancelledError:
@@ -325,8 +328,8 @@ class CdSource(MpvAudioSource):
                  Read TOC, metadata lookup, auto-play.
         """
         was_connected = self._drive_connected
-        self._drive_connected = await asyncio.to_thread(
-            self._data_service.check_drive_present
+        self._drive_connected, status = await asyncio.to_thread(
+            self._data_service.probe_drive_and_disc
         )
 
         if self._drive_connected != was_connected:
@@ -351,7 +354,6 @@ class CdSource(MpvAudioSource):
         if not self._drive_connected:
             return
 
-        status = await asyncio.to_thread(self._data_service.check_disc_status)
         disc_detected = status in (CDS_DRIVE_NOT_READY, CDS_DISC_OK)
         disc_ready = status == CDS_DISC_OK
 

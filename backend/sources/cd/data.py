@@ -68,9 +68,14 @@ class CdDataService:
     # DISC DETECTION
     # =========================================================================
 
-    def check_drive_present(self) -> bool:
-        """Check if a CD drive is connected at /dev/sr0."""
-        return os.path.exists(CD_DEVICE)
+    def probe_drive_and_disc(self) -> Tuple[bool, int]:
+        """Check drive presence and disc status in one blocking call (single executor hop).
+
+        Returns (drive_connected, status); status is -1 when no drive is connected.
+        """
+        if not os.path.exists(CD_DEVICE):
+            return False, -1
+        return True, self.check_disc_status()
 
     def check_disc_status(self) -> int:
         """Return raw CDROM_DRIVE_STATUS ioctl value.
