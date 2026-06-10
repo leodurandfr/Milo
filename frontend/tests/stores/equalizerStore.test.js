@@ -651,30 +651,6 @@ describe('equalizerStore - Preset Management (Story 4.6)', () => {
     });
   });
 
-  describe('handlePresetLoaded WebSocket handler', () => {
-    it('should update activePreset from WebSocket event', () => {
-      useMultiroomStore.mockReturnValue(createStandaloneMock());
-      setActivePinia(createPinia());
-      const store = useEqualizerStore();
-      store.activePreset = 'manual';
-
-      store.handlePresetLoaded({ data: { id: 'electronic' } });
-
-      expect(store.activePreset).toBe('electronic');
-    });
-
-    it('should support both id and name formats in event data', () => {
-      useMultiroomStore.mockReturnValue(createStandaloneMock());
-      setActivePinia(createPinia());
-      const store = useEqualizerStore();
-      store.activePreset = 'jazz';
-
-      // Some events use 'name' instead of 'id'
-      store.handlePresetLoaded({ data: { name: 'rock' } });
-
-      expect(store.activePreset).toBe('rock');
-    });
-  });
 });
 
 // =============================================================================
@@ -1619,18 +1595,6 @@ describe('equalizerStore - Real-Time Sync (Story 6.4)', () => {
   });
 
   describe('AC3: Preset Change to Manual', () => {
-    it('should update activePreset when preset_loaded event sets preset to manual', () => {
-      useMultiroomStore.mockReturnValue(createStandaloneMock());
-      setActivePinia(createPinia());
-      const store = useEqualizerStore();
-
-      store.activePreset = 'jazz';
-
-      store.handlePresetLoaded({ data: { id: 'manual' } });
-
-      expect(store.activePreset).toBe('manual');
-    });
-
     it('should show isManualMode as true when preset is manual', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
@@ -1728,7 +1692,6 @@ describe('equalizerStore - Real-Time Sync (Story 6.4)', () => {
       // Verify handler methods exist and are functions (not polling)
       expect(typeof store.handleEqualizerChanged).toBe('function');
       expect(typeof store.handleFilterChanged).toBe('function');
-      expect(typeof store.handlePresetLoaded).toBe('function');
       expect(typeof store.handleEnabledChanged).toBe('function');
       expect(typeof store.handleCompressorChanged).toBe('function');
       expect(typeof store.handleLoudnessChanged).toBe('function');

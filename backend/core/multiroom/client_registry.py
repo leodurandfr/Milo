@@ -385,13 +385,6 @@ class ClientRegistryService:
         client = self._clients.get(mac_id)
         return client.is_local if client else False
 
-    def get_client_ip(self, mac_id: str) -> Optional[str]:
-        """Get IP address for a remote client. Returns None for local clients or if not found."""
-        client = self._clients.get(mac_id)
-        if not client or client.is_local:
-            return None
-        return client.ip if client.ip else None
-
     def get_all_clients(self) -> Dict[str, Client]:
         """Get all registered clients."""
         return self._clients.copy()

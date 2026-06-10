@@ -673,8 +673,6 @@ onMounted(async () => {
     on('equalizer', 'filter_changed', (event) => equalizerStore.handleFilterChanged(event)),
     parsedOn('equalizer', 'state_changed', wsEventRegistry['equalizer.state_changed'],
              (payload) => equalizerStore.handleStateChanged(payload)),
-    parsedOn('equalizer', 'preset_loaded', wsEventRegistry['equalizer.preset_loaded'],
-             (payload) => equalizerStore.handlePresetLoaded(payload)),
     parsedOn('equalizer', 'compressor_changed', wsEventRegistry['equalizer.compressor_changed'],
              (payload) => equalizerStore.handleCompressorChanged(payload)),
     parsedOn('equalizer', 'loudness_changed', wsEventRegistry['equalizer.loudness_changed'],

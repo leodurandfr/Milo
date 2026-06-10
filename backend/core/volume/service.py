@@ -893,24 +893,6 @@ class VolumeService:
     # UTILITY METHODS
     # ============================================================================
 
-    async def get_status(self) -> dict:
-        """Get complete volume service status."""
-        try:
-            vs = await self._state_store.get_complete_state()
-            return {
-                "volume_db": vs.global_volume_db,
-                "multiroom_enabled": self._is_multiroom_enabled(),
-                "equalizer_available": self._is_equalizer_available(),
-                "config": self._volume_config.to_dict(),
-                "clients": {h: {"volume_db": c.volume_db, "offset_db": c.offset_db, "mute": c.mute, "available": c.available}
-                           for h, c in vs.clients.items()},
-                "zones": {zid: {"name": z.name, "average_volume_db": z.average_volume_db, "client_ids": z.client_ids, "all_muted": z.all_muted}
-                          for zid, z in vs.zones.items()}
-            }
-        except Exception as e:
-            self.logger.error(f"Error getting status: {e}")
-            return {"volume_db": DEFAULT_VOLUME_DB, "error": str(e)}
-
     async def get_volume_state(self) -> VolumeState:
         """
         Get unified volume state (single source of truth).

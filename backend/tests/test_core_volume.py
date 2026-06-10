@@ -97,7 +97,6 @@ class TestEqualizerController:
     def mock_proxy_service(self):
         """Create mock proxy service."""
         proxy = Mock()
-        proxy.check_available = AsyncMock(return_value=True)
         return proxy
 
     @pytest.fixture
@@ -126,12 +125,6 @@ class TestEqualizerController:
             client = get_client(mac_id)
             return client.is_local if client else False
         registry.is_local_client = is_local_client
-        def get_client_ip(mac_id):
-            client = get_client(mac_id)
-            if not client or client.is_local:
-                return None
-            return client.ip if client.ip else None
-        registry.get_client_ip = get_client_ip
         return registry
 
     @pytest.fixture
@@ -463,7 +456,6 @@ class TestVolumeService:
         """Create mock proxy service."""
         proxy = Mock()
         proxy.request = AsyncMock(return_value={"status": "success"})
-        proxy.check_available = AsyncMock(return_value=True)
         return proxy
 
     @pytest.fixture
@@ -655,18 +647,6 @@ class TestVolumeService:
 
         assert result is True
         mock_camilladsp_service.set_volume.assert_called()
-
-    @pytest.mark.asyncio
-    async def test_get_status(self, service, mock_settings):
-        """Test getting service status."""
-        mock_settings.get_setting = AsyncMock(return_value=False)
-
-        status = await service.get_status()
-
-        assert isinstance(status, dict)
-        assert "volume_db" in status
-        assert "multiroom_enabled" in status
-        assert "equalizer_available" in status
 
     @pytest.mark.asyncio
     async def test_get_volume_state(self, service, mock_settings):
@@ -1083,7 +1063,6 @@ class TestStartupVolumeAutoUpdate:
         """Create mock proxy service."""
         proxy = Mock()
         proxy.request = AsyncMock(return_value={"status": "success"})
-        proxy.check_available = AsyncMock(return_value=True)
         return proxy
 
     @pytest.fixture
@@ -1298,7 +1277,6 @@ class TestStartupVolumeOnRestart:
         """Create mock proxy service."""
         proxy = Mock()
         proxy.request = AsyncMock(return_value={"status": "success"})
-        proxy.check_available = AsyncMock(return_value=True)
         return proxy
 
     @pytest.fixture

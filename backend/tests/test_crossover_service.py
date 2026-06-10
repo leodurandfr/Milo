@@ -381,7 +381,7 @@ class TestPendingSettingsQueue:
         })
 
         assert crossover_service.has_pending_settings("192.168.1.100") is True
-        settings = crossover_service.get_pending_settings("192.168.1.100")
+        settings = crossover_service._pending_settings.get("192.168.1.100", {})
         assert settings["crossover"]["enabled"] is True
         assert settings["crossover"]["frequency"] == 80
 
@@ -394,7 +394,7 @@ class TestPendingSettingsQueue:
         })
 
         assert crossover_service.has_pending_settings("192.168.1.101") is True
-        settings = crossover_service.get_pending_settings("192.168.1.101")
+        settings = crossover_service._pending_settings.get("192.168.1.101", {})
         assert settings["lowpass"]["enabled"] is True
 
     @pytest.mark.asyncio
@@ -576,7 +576,7 @@ class TestRemoteClientProxy:
 
             assert result is False
             assert crossover_service.has_pending_settings("192.168.1.101") is True
-            settings = crossover_service.get_pending_settings("192.168.1.101")
+            settings = crossover_service._pending_settings.get("192.168.1.101", {})
             assert "lowpass" in settings
 
 
@@ -1640,7 +1640,7 @@ class TestCrossoverOnReconnection:
             assert result is False
             # Settings should be queued
             assert service.has_pending_settings("remote-1") is True
-            settings = service.get_pending_settings("remote-1")
+            settings = service._pending_settings.get("remote-1", {})
             assert "crossover" in settings
             assert settings["crossover"]["enabled"] is True
             assert settings["crossover"]["frequency"] == 80
@@ -1660,7 +1660,7 @@ class TestCrossoverOnReconnection:
 
             assert result is False
             assert service.has_pending_settings("remote-1") is True
-            settings = service.get_pending_settings("remote-1")
+            settings = service._pending_settings.get("remote-1", {})
             assert "lowpass" in settings
 
     @pytest.mark.asyncio

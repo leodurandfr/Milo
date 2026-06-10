@@ -48,11 +48,6 @@ def mock_camilladsp():
     cam = Mock()
     cam.get_status = AsyncMock(return_value={"available": True, "state": "running"})
     cam.get_filters = AsyncMock(return_value=[])
-    cam.get_compressor = AsyncMock(return_value={"enabled": False})
-    cam.get_loudness = AsyncMock(return_value={"enabled": False})
-    cam.get_mono = AsyncMock(return_value=False)
-    cam.load_preset = AsyncMock(return_value=True)
-    cam.save_custom_gains = AsyncMock(return_value=None)
     cam.set_active_preset = AsyncMock(return_value=None)
     cam.set_mute = AsyncMock(return_value=True)
     return cam

@@ -669,10 +669,6 @@ class CrossoverService:
         """Check if a client has pending settings."""
         return client_id in self._pending_settings and len(self._pending_settings[client_id]) > 0
 
-    def get_pending_settings(self, client_id: str) -> Dict[str, Any]:
-        """Read a client's queued pending settings (inspection accessor)."""
-        return self._pending_settings.get(client_id, {}).copy()
-
     def clear_pending_settings(self, client_id: str) -> None:
         """Clear pending settings for a client."""
         if client_id in self._pending_settings:

@@ -1076,14 +1076,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     state.value = payload.state;
   }
 
-  function handlePresetLoaded(payload) {
-    const presetId = payload.id;
-    activePreset.value = presetId;
-    isPresetEdited.value = false;
-    _snapshotPresetGains(presetId);
-    _applyPresetGains(presetId);
-  }
-
   function updateLevels(output) {
     outputPeak.value = output;
   }
@@ -1274,7 +1266,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     handleEqualizerChanged,
     handleFilterChanged,
     handleStateChanged,
-    handlePresetLoaded,
     updateLevels,
     handleCompressorChanged,
     handleLoudnessChanged,

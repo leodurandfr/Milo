@@ -105,73 +105,6 @@ def camilladsp_service_with_jazz_preset(connected_camilladsp_service):
 
 
 # =============================================================================
-# AC1: Apply preset to zone/client
-# =============================================================================
-
-class TestAC1ApplyPreset:
-    """AC1: Apply preset → gains overwritten, WebSocket preset_loaded broadcast"""
-
-    @pytest.mark.asyncio
-    async def test_load_preset_applies_correct_gains(self, connected_camilladsp_service, mock_settings_service):
-        """Should apply preset gains to EQ bands"""
-        jazz_gains = [4, 3, 2, 2, -2, -2, 0, 2, 3, 4]
-        mock_config = {"filters": {}, "pipeline": []}
-
-        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
-                result = await connected_camilladsp_service.load_preset("jazz")
-
-                assert result is True
-                # Verify gains were applied
-                for i, expected_gain in enumerate(jazz_gains):
-                    assert connected_camilladsp_service._filters[i]["gain"] == expected_gain, \
-                        f"Filter {i} should have gain={expected_gain}, got {connected_camilladsp_service._filters[i]['gain']}"
-
-    @pytest.mark.asyncio
-    async def test_load_preset_saves_active_preset_to_settings(self, connected_camilladsp_service):
-        """Should save active preset ID to in-memory state."""
-        mock_config = {"filters": {}, "pipeline": []}
-
-        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
-                await connected_camilladsp_service.load_preset("rock")
-
-                assert connected_camilladsp_service._active_preset == "rock"
-
-    @pytest.mark.asyncio
-    async def test_load_preset_broadcasts_preset_loaded_event(self, connected_camilladsp_service, mock_state_machine):
-        """Should broadcast preset_loaded WebSocket event"""
-        mock_config = {"filters": {}, "pipeline": []}
-
-        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
-                await connected_camilladsp_service.load_preset("classical")
-
-                # Check preset_loaded event was broadcast
-                calls = [c for c in mock_state_machine.broadcast_event.call_args_list
-                         if c[0][1] == "preset_loaded"]
-                assert len(calls) >= 1, "Should broadcast preset_loaded event"
-                assert calls[-1][0][2] == {"id": "classical"}
-
-    @pytest.mark.asyncio
-    async def test_load_preset_returns_false_for_unknown_preset(self, connected_camilladsp_service):
-        """Should return False for unknown preset ID"""
-        result = await connected_camilladsp_service.load_preset("unknown_preset_xyz")
-        assert result is False
-
-    @pytest.mark.asyncio
-    async def test_load_preset_skips_if_already_active(self, connected_camilladsp_service, mock_state_machine):
-        """Should skip if preset is already active (no redundant API calls)"""
-        connected_camilladsp_service._active_preset = "jazz"
-
-        result = await connected_camilladsp_service.load_preset("jazz")
-
-        assert result is True
-        # No set_config should be called if already on the same preset
-        mock_state_machine.broadcast_event.assert_not_called()
-
-
-# =============================================================================
 # AC2: No auto-switch when modifying filter (edited state is frontend-only)
 # =============================================================================
 
@@ -202,31 +135,6 @@ class TestAC2NoAutoSwitch:
                 preset_calls = [c for c in mock_settings_service.set_setting.call_args_list
                                if c[0][0] == "equalizer.active_preset"]
                 assert len(preset_calls) == 0, "Should NOT switch preset on manual filter edit"
-
-    @pytest.mark.asyncio
-    async def test_manual_modification_does_not_broadcast_preset_loaded(self, camilladsp_service_with_jazz_preset, mock_settings_service, mock_state_machine):
-        """Should NOT broadcast preset_loaded when modifying filter"""
-        mock_settings_service.get_setting = AsyncMock(side_effect=lambda key: {
-            "equalizer.active_preset": "jazz",
-            "equalizer.custom_gains": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        }.get(key))
-
-        mock_config = {"filters": {}, "pipeline": []}
-
-        with patch.object(camilladsp_service_with_jazz_preset, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(camilladsp_service_with_jazz_preset, '_set_config', new_callable=AsyncMock):
-                await camilladsp_service_with_jazz_preset.set_filter(
-                    filter_id="eq_band_05",
-                    freq=1000,
-                    gain=-3.0,
-                    q=1.41,
-                    filter_type="Peaking"
-                )
-
-                # Should NOT broadcast preset_loaded
-                calls = [c for c in mock_state_machine.broadcast_event.call_args_list
-                         if len(c[0]) > 1 and c[0][1] == "preset_loaded"]
-                assert len(calls) == 0, "Should NOT broadcast preset_loaded on manual filter edit"
 
     @pytest.mark.asyncio
     async def test_manual_modification_does_not_save_custom_gains(self, camilladsp_service_with_jazz_preset, mock_settings_service):
@@ -321,79 +229,6 @@ class TestAC4PresetsList:
         assert len(presets) == 22
         assert active == "rock"
         assert custom == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-
-    @pytest.mark.asyncio
-    async def test_custom_preset_selectable_via_api(self, connected_camilladsp_service):
-        """Custom preset should be loadable via load_preset('custom')"""
-        saved_custom_gains = [3, 2, 1, 0, -1, -2, -3, -4, -5, -6]
-
-        connected_camilladsp_service._active_preset = "jazz"
-        connected_camilladsp_service._custom_gains = list(saved_custom_gains)
-
-        mock_config = {"filters": {}, "pipeline": []}
-
-        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
-                result = await connected_camilladsp_service.load_preset("custom")
-
-                assert result is True
-                # Verify saved custom gains were applied
-                for i, expected_gain in enumerate(saved_custom_gains):
-                    assert connected_camilladsp_service._filters[i]["gain"] == expected_gain
-
-                # Verify active preset set to custom
-                assert connected_camilladsp_service._active_preset == "custom"
-
-
-# =============================================================================
-# AC5: Custom preset persistence
-# =============================================================================
-
-class TestAC5CustomPresetPersistence:
-    """AC5: Custom gains restored when loading custom preset"""
-
-    @pytest.mark.asyncio
-    async def test_switching_preset_does_not_auto_save_custom_gains(self, connected_camilladsp_service, mock_settings_service):
-        """Should NOT auto-save custom gains when switching to another preset"""
-        # Start with custom gains (simulating custom mode)
-        for i, gain in enumerate([5, 4, 3, 2, 1, 0, -1, -2, -3, -4]):
-            connected_camilladsp_service._filters[i]["gain"] = gain
-
-        # Currently on "custom" preset
-        mock_settings_service.get_setting = AsyncMock(side_effect=lambda key: {
-            "equalizer.active_preset": "custom",
-            "equalizer.custom_gains": None,
-        }.get(key))
-
-        mock_config = {"filters": {}, "pipeline": []}
-
-        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
-                await connected_camilladsp_service.load_preset("jazz")
-
-                # Should NOT auto-save custom gains (user must use save-custom endpoint)
-                save_calls = [c for c in mock_settings_service.set_setting.call_args_list
-                              if c[0][0] == "equalizer.custom_gains"]
-                assert len(save_calls) == 0, "Should NOT auto-save custom gains when switching preset"
-
-    @pytest.mark.asyncio
-    async def test_load_custom_preset_restores_saved_gains(self, connected_camilladsp_service):
-        """Switching to Custom should restore previously saved custom gains"""
-        saved_custom_gains = [2, 4, 6, 8, 10, 8, 6, 4, 2, 0]
-
-        connected_camilladsp_service._active_preset = "jazz"
-        connected_camilladsp_service._custom_gains = list(saved_custom_gains)
-
-        mock_config = {"filters": {}, "pipeline": []}
-
-        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
-                await connected_camilladsp_service.load_preset("custom")
-
-                # Verify saved custom gains were applied
-                for i, expected_gain in enumerate(saved_custom_gains):
-                    assert connected_camilladsp_service._filters[i]["gain"] == expected_gain, \
-                        f"Filter {i} should have gain={expected_gain}"
 
 
 # =============================================================================

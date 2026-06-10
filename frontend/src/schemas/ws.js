@@ -67,10 +67,6 @@ export const wsEventRegistry = {
   'equalizer.state_changed': z.object({
     state: CamillaDspStateSchema,
   }),
-  // Backend: service.py:965 → {id: preset_id} (string).
-  'equalizer.preset_loaded': z.object({
-    id: z.string(),
-  }),
   // Backend: service.py:699 → self._compressor.
   'equalizer.compressor_changed': CompressorPayloadSchema,
   // Backend: service.py:784 → self._loudness.
