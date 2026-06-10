@@ -2,8 +2,11 @@
 """
 Shared version utilities for update services.
 """
+import logging
 import re
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 def extract_base_tag(version: Optional[str]) -> Optional[str]:
@@ -45,5 +48,6 @@ def compare_versions(current: Optional[str], latest: Optional[str]) -> bool:
 
         return False
 
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Version comparison failed ({current!r} vs {latest!r}): {e}")
         return False

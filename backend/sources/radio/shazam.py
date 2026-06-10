@@ -7,6 +7,7 @@ to identify the playing track. Provides track title, artist, and artwork
 to enrich the radio player display.
 """
 import asyncio
+import contextlib
 import io
 import logging
 import wave
@@ -116,10 +117,8 @@ class ShazamRecognitionService:
         # Cancel recognition loop
         if self._loop_task:
             self._loop_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._loop_task
-            except asyncio.CancelledError:
-                pass
             self._loop_task = None
 
         previous_track = self._current_track

@@ -31,6 +31,7 @@ Important codes:
     - snam: client name (X-Apple-Client-Name, e.g. "Mac mini de Léo")
 """
 import asyncio
+import contextlib
 import base64
 import logging
 import os
@@ -97,10 +98,8 @@ class MetadataReader:
         self._running = False
         if self._task:
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
             self._task = None
         logger.info("MetadataReader stopped")
 
@@ -239,7 +238,7 @@ class MetadataReader:
         if not self._on_progress:
             return
 
-        try:
+        with contextlib.suppress((ValueError, IndexError)):
             text = data.decode("utf-8", errors="replace").strip()
             parts = text.split("/")
             if len(parts) == 3:
@@ -247,5 +246,3 @@ class MetadataReader:
                 current = int(parts[1])
                 end = int(parts[2])
                 await self._on_progress(start, current, end)
-        except (ValueError, IndexError):
-            pass

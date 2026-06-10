@@ -18,6 +18,7 @@ Integration with ClientRegistryService:
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 from pathlib import Path
@@ -395,11 +396,9 @@ class VolumeStateStore:
             self._persist_debounce_task.cancel()
 
         async def _debounced():
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await asyncio.sleep(self._PERSIST_DEBOUNCE_S)
                 await self._persist_state_async()
-            except asyncio.CancelledError:
-                pass
 
         self._persist_debounce_task = self._bg.spawn(_debounced(), label="persist_state")
 

@@ -15,6 +15,7 @@ They stay in pending storage until:
 Persistence: /var/lib/milo/pending_clients.json
 """
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -78,10 +79,8 @@ class PendingClientsService:
         """Cancel the background cleanup task."""
         if self._cleanup_task:
             self._cleanup_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._cleanup_task
-            except asyncio.CancelledError:
-                pass
 
     # === CRUD ===
 

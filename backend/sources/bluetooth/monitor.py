@@ -6,6 +6,7 @@ Monitors `bluealsa-cli monitor` output to detect device
 connections and disconnections via PCM add/remove events.
 """
 import asyncio
+import contextlib
 import logging
 import re
 from typing import Dict, Any, Optional, Callable, Awaitable
@@ -80,10 +81,8 @@ class BlueAlsaMonitor:
         # Cancel read task
         if self._read_task and not self._read_task.done():
             self._read_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._read_task
-            except asyncio.CancelledError:
-                pass
             self._read_task = None
 
         # Stop monitor process

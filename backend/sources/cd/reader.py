@@ -8,6 +8,7 @@ mpv reads the FIFO with --demuxer=rawaudio.
 
 CD audio format: 44100 Hz, 16-bit signed LE, stereo, 2352 bytes/sector, 75 sectors/second.
 """
+import contextlib
 import ctypes
 import fcntl
 import logging
@@ -78,11 +79,9 @@ class CdIoctlReader:
         self._stop_event.set()
         self._running = False
         # Unblock writer if stuck waiting for a reader on the FIFO
-        try:
+        with contextlib.suppress(OSError):
             fd = os.open(CD_FIFO_PATH, os.O_RDONLY | os.O_NONBLOCK)
             os.close(fd)
-        except OSError:
-            pass
         self._thread.join(timeout=3.0)
         if self._thread.is_alive():
             logger.warning("CD reader thread did not stop within timeout")
@@ -155,10 +154,8 @@ class CdIoctlReader:
             self._running = False
             for fd in (fifo_fd, cd_fd):
                 if fd >= 0:
-                    try:
+                    with contextlib.suppress(OSError):
                         os.close(fd)
-                    except OSError:
-                        pass
 
     @staticmethod
     def _ensure_fifo() -> None:

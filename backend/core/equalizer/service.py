@@ -4,6 +4,7 @@ CamillaDSP service for Milo - WebSocket client for CamillaDSP daemon.
 Replaces alsaequal with full parametric EQ capabilities.
 """
 import asyncio
+import contextlib
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -1069,11 +1070,9 @@ class CamillaDSPService:
             self._persist_debounce_task.cancel()
 
         async def _debounced():
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await asyncio.sleep(self.PERSIST_DEBOUNCE_S)
                 await self._persist_state_async()
-            except asyncio.CancelledError:
-                pass
 
         self._persist_debounce_task = self._bg.spawn(_debounced(), label="persist_state")
 
@@ -1194,10 +1193,8 @@ class CamillaDSPService:
         self._running = False
         if self._reconnect_task and not self._reconnect_task.done():
             self._reconnect_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._reconnect_task
-            except asyncio.CancelledError:
-                pass
 
         # Disconnect from daemon
         await self.disconnect()

@@ -230,7 +230,8 @@ class SnapcastService:
         try:
             result = await self._request("Server.GetRPCVersion")
             return bool(result)
-        except Exception:
+        except Exception as e:
+            self.logger.debug(f"Snapcast availability check failed: {e}")
             return False
 
     async def get_server_status(self) -> dict:

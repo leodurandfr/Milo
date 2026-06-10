@@ -910,11 +910,9 @@ class NetworkService:
         )
 
     async def _debounced_refresh(self) -> None:
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await asyncio.sleep(self.SIGNAL_DEBOUNCE_S)
             await self._refresh_and_broadcast()
-        except asyncio.CancelledError:
-            pass
 
     async def _refresh_and_broadcast(self) -> None:
         """Re-read full network status and broadcast it, dedup against last sent.

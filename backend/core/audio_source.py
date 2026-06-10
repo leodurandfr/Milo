@@ -493,7 +493,8 @@ class BaseAudioSource(ABC):
 
         try:
             return await self._service_manager.is_active(name)
-        except Exception:
+        except Exception as e:
+            self._logger.error(f"Failed to check if service '{name}' is active: {e}")
             return False
 
     async def _start_service_and_wait(self, settle: float = 0.5) -> bool:
