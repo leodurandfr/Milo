@@ -789,7 +789,7 @@ class NetworkService:
             introspect = await self._bus.introspect(NM_SERVICE, path)
             proxy = self._bus.get_proxy_object(NM_SERVICE, path, introspect)
             properties_iface = proxy.get_interface(DBUS_PROPERTIES_IFACE)
-            handler = self._make_ip4_handler(iface_name)
+            handler = self._make_ip4_handler()
             properties_iface.on_properties_changed(handler)
             self._ip4_listener[iface_name] = (properties_iface, handler)
         except Exception as exc:
@@ -803,7 +803,7 @@ class NetworkService:
         with contextlib.suppress(Exception):
             properties_iface.off_properties_changed(handler)
 
-    def _make_ip4_handler(self, iface_name: str):
+    def _make_ip4_handler(self):
         def _handler(iface: str, changed: dict, _invalidated: list) -> None:
             if iface != NM_IP4_CONFIG_IFACE:
                 return

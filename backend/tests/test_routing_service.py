@@ -347,18 +347,6 @@ class TestAudioRoutingService:
         assert routing_service.equalizer_effects_enabled is True
         mock_settings_service.set_setting.assert_called_with('routing.equalizer_effects_enabled', True)
 
-    @pytest.mark.asyncio
-    async def test_set_equalizer_effects_enabled_with_source_restart(self, routing_service, mock_source, mock_settings_service):
-        """Equalizer effects activation test with active source restart"""
-        routing_service.camilladsp_service = _CamillaStub(enabled=False)
-        routing_service.set_source_callback(lambda source: mock_source if source == AudioSource.SPOTIFY else None)
-
-        result = await routing_service.set_equalizer_effects_enabled(True, active_source=AudioSource.SPOTIFY)
-
-        assert result is True
-        # Note: Source restart is no longer done by set_equalizer_effects_enabled
-        # Equalizer effects toggle doesn't require source restart with CamillaDSP
-
     def test_regenerate_env_files_writes_routing_env_from_settings(
         self, routing_service, mock_settings_service
     ):

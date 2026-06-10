@@ -16,7 +16,6 @@ MILO_DATA_DIR = Path("/var/lib/milo")
 # =============================================================================
 SETTINGS_FILE = MILO_DATA_DIR / "settings.json"
 HARDWARE_FILE = MILO_DATA_DIR / "hardware.json"
-CLIENT_EQUALIZER_FILE = MILO_DATA_DIR / "client_equalizer.json"
 ERROR_LOG_FILE = MILO_DATA_DIR / "errors.log"
 
 # =============================================================================

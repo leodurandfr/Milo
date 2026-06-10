@@ -37,8 +37,6 @@ def _resolve_target(target: str) -> tuple[str, str]:
 
 def create_equalizer_router(
     camilladsp_service,
-    state_machine,
-    settings_service=None,
     routing_service=None,
     crossover_service=None,
     client_registry_service=None,

@@ -17,7 +17,7 @@ from backend.core.multiroom.routing import SnapclientEnv, DEFAULT_SNAPCLIENT_CON
 logger = logging.getLogger(__name__)
 
 
-def create_snapcast_router(routing_service, snapcast_service, state_machine, camilladsp_service=None, proxy_service=None, settings_service=None, client_registry_service=None):
+def create_snapcast_router(routing_service, snapcast_service, state_machine, settings_service=None, client_registry_service=None):
     """Create Snapcast router with all endpoints."""
     router = APIRouter(prefix="/api/routing/snapcast", tags=["snapcast"])
 
