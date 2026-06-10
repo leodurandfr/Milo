@@ -43,6 +43,17 @@
           />
         </SettingItem>
 
+        <SettingItem v-if="config.mode === 'target'" :label="t('fanSettings.targetTemp')">
+          <RangeSlider
+            v-model="config.target_temp_c"
+            :min="55"
+            :max="80"
+            :step="1"
+            value-unit="°C"
+            @change="onTargetChange"
+          />
+        </SettingItem>
+
         <template v-if="config.mode === 'auto'">
           <div class="curve">
             <div class="curve__head">
@@ -108,11 +119,13 @@ const config = reactive({
   enabled: true,
   mode: 'auto',
   manual_percent: 50,
+  target_temp_c: 65,
   curve: [],
 });
 
 const modeOptions = computed(() => [
   { value: 'auto', label: t('fanSettings.modeAuto') },
+  { value: 'target', label: t('fanSettings.modeTarget') },
   { value: 'manual', label: t('fanSettings.modeManual') },
 ]);
 
@@ -124,6 +137,7 @@ function syncFromStore() {
   config.enabled = fanStore.config.enabled;
   config.mode = fanStore.config.mode;
   config.manual_percent = fanStore.config.manual_percent;
+  config.target_temp_c = fanStore.config.target_temp_c;
   config.curve = (fanStore.config.curve ?? []).map(p => ({ ...p }));
 }
 
@@ -132,6 +146,7 @@ function save() {
     enabled: config.enabled,
     mode: config.mode,
     manual_percent: config.manual_percent,
+    target_temp_c: config.target_temp_c,
     curve: config.curve.map(p => ({ ...p })),
   });
 }
@@ -162,6 +177,12 @@ function onManualInput(value) {
 
 function onManualChange(value) {
   config.manual_percent = value;
+  save();
+}
+
+// No live /test preview here — a temperature setpoint has no instant effect.
+function onTargetChange(value) {
+  config.target_temp_c = value;
   save();
 }
 

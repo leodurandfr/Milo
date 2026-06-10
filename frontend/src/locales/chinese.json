@@ -267,8 +267,10 @@
     "rpmUnit": "RPM",
     "mode": "模式",
     "modeAuto": "自动",
+    "modeTarget": "目标",
     "modeManual": "手动",
     "manualSpeed": "风扇转速",
+    "targetTemp": "目标温度",
     "addPoint": "添加点",
     "removePoint": "删除点",
     "disabledNote": "风扇已关闭 — 处理器依靠其热降频（85°C）来保证安全。"

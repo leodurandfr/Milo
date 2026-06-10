@@ -43,7 +43,17 @@ LOOP_INTERVAL = 3.0       # seconds between temperature samples
 # from what was last written, to avoid jitter writes around a stable temperature.
 PWM_HYSTERESIS_PCT = 2
 
-VALID_MODES = ("auto", "manual")
+VALID_MODES = ("auto", "manual", "target")
+
+# Target mode: slow incremental controller with a deadband. Acoustic stability
+# is the priority — temp may drift ±2-3 °C around the setpoint, but the duty
+# only ever moves by TARGET_STEP_PCT per tick (full 0→100 sweep ≈ 2.5 min).
+TARGET_TEMP_MIN_C = 55      # below ~55 °C the controller would chase idle temps
+TARGET_TEMP_MAX_C = 80      # keeps target+deadband under the safety override
+TARGET_TEMP_DEFAULT_C = 65
+TARGET_DEADBAND_C = 1.5     # wider than sensor jitter so the duty doesn't hunt
+TARGET_STEP_PCT = 2
+SAFETY_OVERRIDE_TEMP_C = 82.0  # immediate 100% — 3 °C before the SoC throttle
 
 # Default curve mirrors the config.txt fallback paliers (55/66/79/82 °C tiers)
 # expressed as percentages, so enabling custom control changes nothing audible.
@@ -69,6 +79,15 @@ def _clamp_pct(value) -> int:
         return max(0, min(100, int(value)))
     except (TypeError, ValueError):
         return 0
+
+
+def clamp_target_temp(value) -> int:
+    """Clamp a target-mode setpoint to its valid range. Shared with the
+    settings validator so the persisted shape and the runtime shape agree."""
+    try:
+        return max(TARGET_TEMP_MIN_C, min(TARGET_TEMP_MAX_C, int(value)))
+    except (TypeError, ValueError):
+        return TARGET_TEMP_DEFAULT_C
 
 
 def sanitize_curve(curve) -> List[dict]:
@@ -106,8 +125,9 @@ class FanController:
 
         # Persisted config (loaded from settings on init, updated via reload_config)
         self.enabled: bool = True           # False = fan stopped (user-disabled)
-        self.mode: str = "auto"             # auto | manual (applies when enabled)
+        self.mode: str = "auto"             # auto | manual | target (applies when enabled)
         self.manual_percent: int = 50
+        self.target_temp_c: int = TARGET_TEMP_DEFAULT_C
         self.curve: List[dict] = [dict(p) for p in DEFAULT_CURVE]
 
         # Live telemetry (refreshed by the monitor loop / read_status)
@@ -179,6 +199,7 @@ class FanController:
         mode = cfg.get("mode", "auto")
         self.mode = mode if mode in VALID_MODES else "auto"
         self.manual_percent = _clamp_pct(cfg.get("manual_percent", 50))
+        self.target_temp_c = clamp_target_temp(cfg.get("target_temp_c", self.target_temp_c))
         self.curve = sanitize_curve(cfg.get("curve"))
 
     async def reload_config(self, cfg: dict) -> None:
@@ -188,6 +209,7 @@ class FanController:
             mode = cfg.get("mode", self.mode)
             self.mode = mode if mode in VALID_MODES else "auto"
             self.manual_percent = _clamp_pct(cfg.get("manual_percent", self.manual_percent))
+            self.target_temp_c = clamp_target_temp(cfg.get("target_temp_c", self.target_temp_c))
             if cfg.get("curve") is not None:
                 self.curve = sanitize_curve(cfg.get("curve"))
 
@@ -220,6 +242,7 @@ class FanController:
             "enabled": self.enabled,
             "mode": self.mode,
             "manual_percent": self.manual_percent,
+            "target_temp_c": self.target_temp_c,
             "curve": self.curve,
             "temp_c": self._temp_c,
             "rpm": self._rpm,
@@ -268,7 +291,8 @@ class FanController:
         await self._take_control()
         if self.mode == "manual":
             await self._set_pwm_percent(self.manual_percent)
-        # Both modes are then re-asserted continuously by the monitor loop.
+        # All modes are then re-asserted continuously by the monitor loop;
+        # target mode ramps from the current duty, so nothing to apply here.
 
     async def _take_control(self) -> None:
         """Stop the kernel governor and switch pwm-fan to manual so our writes stick."""
@@ -307,6 +331,22 @@ class FanController:
                 ratio = (temp_c - lo["temp_c"]) / span
                 return round(lo["percent"] + ratio * (hi["percent"] - lo["percent"]))
         return curve[-1]["percent"]
+
+    def _target_mode_percent(self, temp_c: float) -> int:
+        """Incremental setpoint controller: nudge the duty toward the target.
+
+        The integrator state IS self._pwm_percent — nothing to reset on mode
+        change, reload or enable toggle; entering target mode ramps from the
+        current duty. After a safety override the descent resumes from 100
+        by TARGET_STEP_PCT per tick once temp drops below target + deadband.
+        """
+        if temp_c >= SAFETY_OVERRIDE_TEMP_C:
+            return 100
+        if temp_c > self.target_temp_c + TARGET_DEADBAND_C:
+            return min(100, self._pwm_percent + TARGET_STEP_PCT)
+        if temp_c < self.target_temp_c - TARGET_DEADBAND_C:
+            return max(0, self._pwm_percent - TARGET_STEP_PCT)
+        return self._pwm_percent
 
     async def _sample(self) -> None:
         # Both sysfs reads in a single executor hop.
@@ -363,15 +403,26 @@ class FanController:
                 # within LOOP_INTERVAL instead of persisting until restart.
                 if self.mode == "auto":
                     target = self._curve_target_percent(self._temp_c)
+                elif self.mode == "target":
+                    target = self._target_mode_percent(self._temp_c)
                 else:
                     target = self.manual_percent
                 # Compare against the ACTUAL last-written duty (self._pwm_percent),
                 # not a loop-local var — otherwise a manual/disabled excursion
                 # leaves the loop's memory stale and hysteresis suppresses the
                 # corrective write when switching back to auto.
-                crossed_zero = (target == 0) != (self._pwm_percent == 0)
-                if abs(target - self._pwm_percent) >= PWM_HYSTERESIS_PCT or crossed_zero:
-                    await self._set_pwm_percent(target)
+                # Target mode bypasses the hysteresis: it suppresses jitter from
+                # a continuously recomputed absolute target, but the incremental
+                # law only proposes hold/±STEP/100, so every change is
+                # intentional — and a clamped step (e.g. 99→100, delta 1) must
+                # not be swallowed while the SoC is hot.
+                if self.mode == "target":
+                    if target != self._pwm_percent:
+                        await self._set_pwm_percent(target)
+                else:
+                    crossed_zero = (target == 0) != (self._pwm_percent == 0)
+                    if abs(target - self._pwm_percent) >= PWM_HYSTERESIS_PCT or crossed_zero:
+                        await self._set_pwm_percent(target)
 
                 telemetry = (self._temp_c, self._rpm, self._pwm_percent)
                 if telemetry != last_telemetry:

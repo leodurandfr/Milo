@@ -315,12 +315,13 @@ class SettingsService:
         # Fan control (optional — runtime PWM fan curve, see hardware/fan.py)
         fan_input = settings.get('fan', {})
         if fan_input:
-            from backend.hardware.fan import sanitize_curve
+            from backend.hardware.fan import VALID_MODES, clamp_target_temp, sanitize_curve
             mode = fan_input.get('mode', 'auto')
             validated['fan'] = {
                 'enabled': bool(fan_input.get('enabled', True)),
-                'mode': mode if mode in ('auto', 'manual') else 'auto',
+                'mode': mode if mode in VALID_MODES else 'auto',
                 'manual_percent': max(0, min(100, int(fan_input.get('manual_percent', 50)))),
+                'target_temp_c': clamp_target_temp(fan_input.get('target_temp_c')),
                 'curve': sanitize_curve(fan_input.get('curve'))
             }
 

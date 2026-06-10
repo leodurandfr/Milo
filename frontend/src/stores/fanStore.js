@@ -19,8 +19,9 @@ export const useFanStore = defineStore('fan', () => {
 
   const config = ref({
     enabled: false,
-    mode: 'auto', // 'auto' | 'manual' (disabled is enabled=false, not a mode)
+    mode: 'auto', // 'auto' | 'manual' | 'target' (disabled is enabled=false, not a mode)
     manual_percent: 50,
+    target_temp_c: 65,
     curve: [],
   });
 
@@ -37,6 +38,7 @@ export const useFanStore = defineStore('fan', () => {
       enabled: data.enabled,
       mode: data.mode,
       manual_percent: data.manual_percent,
+      target_temp_c: data.target_temp_c,
       curve: data.curve ?? [],
     };
   }

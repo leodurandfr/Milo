@@ -267,8 +267,10 @@
     "rpmUnit": "U/min",
     "mode": "Modus",
     "modeAuto": "Auto",
+    "modeTarget": "Ziel",
     "modeManual": "Manuell",
     "manualSpeed": "Lüftergeschwindigkeit",
+    "targetTemp": "Zieltemperatur",
     "addPoint": "Punkt hinzufügen",
     "removePoint": "Punkt entfernen",
     "disabledNote": "Der Lüfter ist aus — der Prozessor verlässt sich auf seine thermische Drosselung (85 °C) zum Schutz."
