@@ -201,10 +201,10 @@ class FanController:
     async def test_speed(self, percent: int) -> None:
         """Drive the fan to a given speed momentarily (manual preview / test).
 
-        Does not change mode or persist. In auto mode the monitor loop will
-        resume curve control on its next tick (~LOOP_INTERVAL). No-op when the
-        fan is user-disabled — otherwise a test would spin a "stopped" fan with
-        no loop running to bring it back to 0.
+        Does not change mode or persist. The monitor loop re-asserts the mode's
+        target (curve or manual duty) on its next tick (~LOOP_INTERVAL). No-op
+        when the fan is user-disabled — otherwise a test would spin a "stopped"
+        fan with no loop running to bring it back to 0.
         """
         if not self.available or not self.enabled:
             return
@@ -268,7 +268,7 @@ class FanController:
         await self._take_control()
         if self.mode == "manual":
             await self._set_pwm_percent(self.manual_percent)
-        # 'auto' is driven continuously by the monitor loop.
+        # Both modes are then re-asserted continuously by the monitor loop.
 
     async def _take_control(self) -> None:
         """Stop the kernel governor and switch pwm-fan to manual so our writes stick."""
@@ -346,7 +346,7 @@ class FanController:
                 await task
 
     async def _monitor_loop(self) -> None:
-        """Sample temperature/RPM, drive PWM in auto mode, broadcast telemetry on change.
+        """Sample temperature/RPM, re-assert the target PWM, broadcast telemetry on change.
 
         No periodic heartbeat: the fan settings page resyncs over HTTP when it
         opens, so an unchanged status needs no WS traffic (and lets the kiosk
@@ -357,15 +357,21 @@ class FanController:
             try:
                 await self._sample()
 
+                # Re-assert the mode's target every tick (curve in auto, fixed
+                # duty in manual) so a transient excursion — a test preview
+                # whose follow-up PUT never landed, a mode-flip race — self-heals
+                # within LOOP_INTERVAL instead of persisting until restart.
                 if self.mode == "auto":
                     target = self._curve_target_percent(self._temp_c)
-                    # Compare against the ACTUAL last-written duty (self._pwm_percent),
-                    # not a loop-local var — otherwise a manual/disabled excursion
-                    # leaves the loop's memory stale and hysteresis suppresses the
-                    # corrective write when switching back to auto.
-                    crossed_zero = (target == 0) != (self._pwm_percent == 0)
-                    if abs(target - self._pwm_percent) >= PWM_HYSTERESIS_PCT or crossed_zero:
-                        await self._set_pwm_percent(target)
+                else:
+                    target = self.manual_percent
+                # Compare against the ACTUAL last-written duty (self._pwm_percent),
+                # not a loop-local var — otherwise a manual/disabled excursion
+                # leaves the loop's memory stale and hysteresis suppresses the
+                # corrective write when switching back to auto.
+                crossed_zero = (target == 0) != (self._pwm_percent == 0)
+                if abs(target - self._pwm_percent) >= PWM_HYSTERESIS_PCT or crossed_zero:
+                    await self._set_pwm_percent(target)
 
                 telemetry = (self._temp_c, self._rpm, self._pwm_percent)
                 if telemetry != last_telemetry:
