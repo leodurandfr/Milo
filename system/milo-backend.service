@@ -11,7 +11,7 @@ WorkingDirectory=/home/milo/milo
 ExecStart=/home/milo/milo/venv/bin/python3 backend/main.py
 
 Restart=always
-RestartSec=5
+RestartSec=10
 TimeoutStopSec=10
 
 StateDirectory=milo
