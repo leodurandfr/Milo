@@ -267,8 +267,10 @@
     "rpmUnit": "RPM",
     "mode": "Modo",
     "modeAuto": "Auto",
+    "modeTarget": "Objetivo",
     "modeManual": "Manual",
     "manualSpeed": "Velocidad del ventilador",
+    "targetTemp": "Temperatura objetivo",
     "addPoint": "Añadir un punto",
     "removePoint": "Eliminar punto",
     "disabledNote": "El ventilador está apagado — el procesador depende de su limitación térmica (85 °C) para mantenerse seguro."

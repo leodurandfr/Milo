@@ -267,8 +267,10 @@
     "rpmUnit": "tr/min",
     "mode": "Mode",
     "modeAuto": "Auto",
+    "modeTarget": "Cible",
     "modeManual": "Manuel",
     "manualSpeed": "Vitesse du ventilateur",
+    "targetTemp": "Température cible",
     "addPoint": "Ajouter un point",
     "removePoint": "Supprimer le point",
     "disabledNote": "Le ventilateur est coupé — le processeur s'appuie sur sa limitation thermique (85 °C) pour rester en sécurité."

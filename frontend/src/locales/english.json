@@ -267,8 +267,10 @@
     "rpmUnit": "RPM",
     "mode": "Mode",
     "modeAuto": "Auto",
+    "modeTarget": "Target",
     "modeManual": "Manual",
     "manualSpeed": "Fan speed",
+    "targetTemp": "Target temperature",
     "addPoint": "Add a point",
     "removePoint": "Remove point",
     "disabledNote": "The fan is off — the processor relies on its thermal throttling (85°C) to stay safe."

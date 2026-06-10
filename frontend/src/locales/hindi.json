@@ -267,8 +267,10 @@
     "rpmUnit": "RPM",
     "mode": "मोड",
     "modeAuto": "ऑटो",
+    "modeTarget": "लक्ष्य",
     "modeManual": "मैनुअल",
     "manualSpeed": "पंखे की गति",
+    "targetTemp": "लक्ष्य तापमान",
     "addPoint": "एक बिंदु जोड़ें",
     "removePoint": "बिंदु हटाएँ",
     "disabledNote": "पंखा बंद है — सुरक्षा के लिए प्रोसेसर अपनी थर्मल थ्रॉटलिंग (85°C) पर निर्भर करता है।"

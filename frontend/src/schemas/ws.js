@@ -75,8 +75,9 @@ const SatelliteUpdateCompleteSchema = z.object({
 const FanStatusSchema = z.object({
   available: z.boolean(),
   enabled: z.boolean(),
-  mode: z.enum(['auto', 'manual']),
+  mode: z.enum(['auto', 'manual', 'target']),
   manual_percent: z.number(),
+  target_temp_c: z.number(),
   curve: z.array(z.object({ temp_c: z.number(), percent: z.number() })),
   temp_c: z.number(),
   rpm: z.number(),
