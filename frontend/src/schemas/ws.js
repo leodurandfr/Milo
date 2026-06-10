@@ -67,6 +67,12 @@ export const wsEventRegistry = {
   'equalizer.state_changed': z.object({
     state: CamillaDspStateSchema,
   }),
+  // Backend: backend/core/equalizer/levels_monitor.py — pushed at ~4 Hz while
+  // an EQ view holds the levels-monitor keepalive.
+  'equalizer.levels': z.object({
+    available: z.boolean(),
+    output_peak: z.array(z.number()),
+  }),
   // Backend: service.py:699 → self._compressor.
   'equalizer.compressor_changed': CompressorPayloadSchema,
   // Backend: service.py:784 → self._loudness.

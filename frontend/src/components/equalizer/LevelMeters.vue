@@ -29,7 +29,6 @@ import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import LevelMeter from './LevelMeter.vue';
-import { apiCall } from '@/services/apiCall';
 import { useTimer } from '@/composables/useTimer';
 
 const props = defineProps({
@@ -44,12 +43,14 @@ const equalizerStore = useEqualizerStore();
 const audioStore = useUnifiedAudioStore();
 const timer = useTimer();
 
+// Levels arrive over WS (`equalizer`/`levels`, ~4 Hz) while this keepalive is
+// re-posted; the backend stops sampling ~15 s after the meters unmount.
+const KEEPALIVE_INTERVAL = 5000;
+
 // Fixed metering range: 0 dBFS is the standard reference for audio level meters,
 // regardless of volume control settings (which define the volume knob range, not signal range)
 const meterMin = -60;
 const meterMax = 0;
-
-let pollInterval = null;
 
 // Convert array levels to individual channels
 const outputLeft = computed(() => {
@@ -71,45 +72,18 @@ const activeClientIds = computed(() => {
   });
 });
 
-// Poll levels from API
-async function pollLevels() {
-  const ids = activeClientIds.value;
-  const silent = [meterMin, meterMin];
-
-  // Use zone endpoint when clients are known, otherwise direct local endpoint
-  const endpoint = ids.length > 0
-    ? `/api/equalizer/levels/zone/${ids.join(',')}`
-    : '/api/equalizer/levels';
-
-  const result = await apiCall.get(endpoint, {
-    category: 'equalizer',
-    message: 'Error polling equalizer levels',
-    logLevel: 'debug',
-  });
-  if (!result.ok) return; // Levels are optional - debug-logged only
-
-  if (result.data.available) {
-    equalizerStore.updateLevels(result.data.output_peak || silent);
-  } else {
-    equalizerStore.updateLevels(silent);
-  }
+function keepalive() {
+  equalizerStore.keepLevelsMonitorAlive(activeClientIds.value);
 }
 
-function startPolling() {
-  if (pollInterval) return;
-  pollLevels();
-  pollInterval = timer.setInterval(pollLevels, 100); // 10Hz update rate (auto-cleared on unmount)
-}
-
-// Start polling when component mounts
 onMounted(() => {
-  startPolling();
+  keepalive();
+  timer.setInterval(keepalive, KEEPALIVE_INTERVAL); // auto-cleared on unmount
 });
 
-// Re-poll immediately when clientIds or mute states change
-watch([() => props.clientIds, activeClientIds], () => {
-  pollLevels();
-}, { deep: true });
+// Re-arm immediately when clientIds or mute states change (updates the
+// aggregation target on the backend without waiting for the next interval)
+watch([() => props.clientIds, activeClientIds], keepalive, { deep: true });
 </script>
 
 <style scoped>

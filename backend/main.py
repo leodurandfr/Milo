@@ -78,6 +78,7 @@ crossover_service = get_service("crossover_service")
 equalizer_proxy_service = get_service("equalizer_client_proxy_service")
 client_registry_service = get_service("client_registry_service")
 equalizer_router_service = get_service("equalizer_router")
+levels_monitor = get_service("levels_monitor")
 network_service = get_service("network_service")
 wifi_adoption_service = get_service("wifi_adoption_service")
 ws_manager = get_service("websocket_manager")
@@ -129,6 +130,7 @@ async def lifespan(app: FastAPI):
         await get_service("pending_clients_service").shutdown()
         await volume_service.cleanup()
         await equalizer_proxy_service.cleanup()
+        await levels_monitor.cleanup()
         if rotary_controller:
             await rotary_controller.cleanup()
         await screen_controller.cleanup()
@@ -175,7 +177,7 @@ equalizer_router = create_equalizer_router(
     camilladsp_service, routing_service,
     crossover_service,
     client_registry_service, equalizer_router_service, multiroom_equalizer_service,
-    volume_service
+    volume_service, levels_monitor
 )
 app.include_router(equalizer_router)
 
