@@ -37,13 +37,23 @@ export function useSourceProgress(source) {
     { immediate: true }
   );
 
-  // Local animation while playing
-  watch(() => unifiedStore.systemState.metadata?.is_playing, (isPlaying) => {
-    stopProgressTimer();
-    if (isPlaying) {
-      startProgressTimer();
-    }
-  }, { immediate: true });
+  // Local animation while playing. Gated on the active source: systemState
+  // metadata belongs to the active source, so an instance created for another
+  // source (e.g. the screensaver's podcast tracker while Spotify plays) must
+  // not tick — it would interpolate someone else's position.
+  watch(
+    [
+      () => unifiedStore.systemState.active_source === source,
+      () => unifiedStore.systemState.metadata?.is_playing,
+    ],
+    ([isActiveSource, isPlaying]) => {
+      stopProgressTimer();
+      if (isActiveSource && isPlaying) {
+        startProgressTimer();
+      }
+    },
+    { immediate: true }
+  );
 
   function startProgressTimer() {
     if (!intervalId) {
