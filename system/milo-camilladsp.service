@@ -36,7 +36,6 @@ Restart=on-failure
 RestartSec=3s
 
 # Resource limits
-CPUQuota=80%
 MemoryMax=256M
 
 # Security hardening
