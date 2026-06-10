@@ -113,30 +113,6 @@ class EqualizerClientProxyService:
         # Assume it's a hostname, add .local suffix for mDNS
         return f"{identifier}.local"
 
-    async def check_available(self, hostname: str) -> bool:
-        """
-        Check if a client's equalizer API is available AND equalizer is ready.
-
-        Args:
-            hostname: The client hostname or IP address
-
-        Returns:
-            True if the client's health endpoint responds with 200 AND equalizer_ready is true
-        """
-        try:
-            host = self._get_host(hostname)
-            url = f"http://{host}:{CLIENT_API_PORT}/health"
-            timeout = aiohttp.ClientTimeout(total=HEALTH_CHECK_TIMEOUT)
-            async with self._get_session().get(url, timeout=timeout) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    # Check equalizer_ready flag (default True for backward compatibility)
-                    return data.get("equalizer_ready", True)
-                return False
-        except Exception as e:
-            self.logger.debug(f"Health check failed for {hostname}: {e}")
-            return False
-
     async def request(
         self,
         hostname: str,

@@ -1392,15 +1392,6 @@ class TestCrossoverService:
 
         assert crossover_service.has_pending_settings("192.168.1.100") is True
 
-    def test_get_pending_settings(self, crossover_service):
-        """Test getting pending settings."""
-        crossover_service._pending_settings["192.168.1.100"] = {
-            "crossover": {"enabled": True, "frequency": 80}
-        }
-
-        settings = crossover_service.get_pending_settings("192.168.1.100")
-        assert "crossover" in settings
-
     def test_clear_pending_settings(self, crossover_service):
         """Test clearing pending settings."""
         crossover_service._pending_settings["192.168.1.100"] = {
@@ -1566,7 +1557,7 @@ class TestPendingEqualizerSettings:
         await crossover_service.queue_pending_settings("192.168.1.100", "filters", filters)
 
         assert crossover_service.has_pending_settings("192.168.1.100")
-        pending = crossover_service.get_pending_settings("192.168.1.100")
+        pending = crossover_service._pending_settings.get("192.168.1.100", {})
         assert "filters" in pending
         assert len(pending["filters"]) == 2
 
@@ -1577,7 +1568,7 @@ class TestPendingEqualizerSettings:
 
         await crossover_service.queue_pending_settings("192.168.1.100", "compressor", compressor)
 
-        pending = crossover_service.get_pending_settings("192.168.1.100")
+        pending = crossover_service._pending_settings.get("192.168.1.100", {})
         assert "compressor" in pending
         assert pending["compressor"]["threshold"] == -20
 
@@ -1588,7 +1579,7 @@ class TestPendingEqualizerSettings:
 
         await crossover_service.queue_pending_settings("192.168.1.100", "loudness", loudness)
 
-        pending = crossover_service.get_pending_settings("192.168.1.100")
+        pending = crossover_service._pending_settings.get("192.168.1.100", {})
         assert "loudness" in pending
         assert pending["loudness"]["high_boost"] == -25
 

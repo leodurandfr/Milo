@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 from enum import Enum
 
-from backend.core.equalizer.presets import get_builtin_presets, get_preset_by_id, DEFAULT_CUSTOM_GAINS, DEFAULT_EQ_FREQS
+from backend.core.equalizer.presets import get_builtin_presets, DEFAULT_CUSTOM_GAINS, DEFAULT_EQ_FREQS
 from backend.core.multiroom.models import (
     CompressorSettings,
     EqFilter,
@@ -567,9 +567,6 @@ class CamillaDSPService:
 
     # === Compressor ===
 
-    async def get_compressor(self) -> Dict[str, Any]:
-        return self._compressor.copy()
-
     async def set_compressor(
         self,
         enabled: bool = None,
@@ -652,9 +649,6 @@ class CamillaDSPService:
 
     # === Loudness Compensation ===
 
-    async def get_loudness(self) -> Dict[str, Any]:
-        return self._loudness.copy()
-
     async def set_loudness(
         self,
         enabled: bool = None,
@@ -736,9 +730,6 @@ class CamillaDSPService:
         return True
 
     # === Mono Mixing ===
-
-    async def get_mono(self) -> bool:
-        return self._mono
 
     async def set_mono(
         self,
@@ -868,39 +859,6 @@ class CamillaDSPService:
                 self.logger.info(f"Filter {filter_id} not in cache, creating with freq={freq}")
                 await self.set_filter(filter_id, freq, gain, 1.41, "Peaking",
                                        broadcast=False)
-
-    async def _get_preset_gains(self, preset_id: str) -> Optional[List[float]]:
-        """Get gains for a preset ID (builtin or custom)"""
-        if preset_id == "custom":
-            return await self.get_custom_gains()
-        preset = get_preset_by_id(preset_id)
-        return preset["gains"] if preset else None
-
-    @handle_errors(default=False)
-    async def load_preset(self, preset_id: str) -> bool:
-        """Load a builtin or custom preset"""
-        # Early return if already on the same preset (avoids overwriting current values)
-        current = await self.get_active_preset()
-        if preset_id == current:
-            self.logger.debug(f"Already on preset {preset_id}, skipping")
-            return True
-
-        gains = await self._get_preset_gains(preset_id)
-        if gains is None:
-            self.logger.warning(f"Preset not found: {preset_id}")
-            return False
-
-        await self._apply_gains(gains)
-
-        self._active_preset = preset_id
-        self._schedule_persist()
-        self.logger.info(f"Saved active preset: {preset_id}")
-        await self._broadcast_event("preset_loaded", {"id": preset_id})
-        return True
-
-    async def save_custom_gains(self) -> None:
-        self._custom_gains = [float(f.get("gain", 0)) for f in self._filters[:10]]
-        self._schedule_persist()
 
     def set_custom_gains(self, gains: List[float]) -> None:
         """Replace the saved custom-preset gains.

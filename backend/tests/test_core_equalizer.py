@@ -115,57 +115,6 @@ class TestEqualizerClientProxyService:
         proxy_service.set_routing_service(mock_routing)
         assert proxy_service.routing_service == mock_routing
 
-    @pytest.mark.asyncio
-    async def test_check_available_success(self, proxy_service):
-        """Should return True when client is available"""
-        with patch("aiohttp.ClientSession") as mock_session:
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            mock_response.json = AsyncMock(return_value={"equalizer_ready": True})
-
-            mock_context = AsyncMock()
-            mock_context.__aenter__.return_value = mock_response
-
-            mock_session_instance = MagicMock()
-            mock_session_instance.get.return_value = mock_context
-            mock_session_instance.__aenter__ = AsyncMock(return_value=mock_session_instance)
-            mock_session_instance.__aexit__ = AsyncMock()
-
-            mock_session.return_value = mock_session_instance
-
-            result = await proxy_service.check_available("192.168.1.100")
-            assert result is True
-
-    @pytest.mark.asyncio
-    async def test_check_available_not_ready(self, proxy_service):
-        """Should return False when Equalizer not ready"""
-        with patch("aiohttp.ClientSession") as mock_session:
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            mock_response.json = AsyncMock(return_value={"equalizer_ready": False})
-
-            mock_context = AsyncMock()
-            mock_context.__aenter__.return_value = mock_response
-
-            mock_session_instance = MagicMock()
-            mock_session_instance.get.return_value = mock_context
-            mock_session_instance.__aenter__ = AsyncMock(return_value=mock_session_instance)
-            mock_session_instance.__aexit__ = AsyncMock()
-
-            mock_session.return_value = mock_session_instance
-
-            result = await proxy_service.check_available("192.168.1.100")
-            assert result is False
-
-    @pytest.mark.asyncio
-    async def test_check_available_connection_error(self, proxy_service):
-        """Should return False on connection error"""
-        with patch("backend.core.equalizer.client_proxy.aiohttp.ClientSession") as mock_session:
-            mock_session.side_effect = Exception("Connection refused")
-
-            result = await proxy_service.check_available("192.168.1.100")
-            assert result is False
-
 
 # =============================================================================
 # CamillaDSPService Tests
@@ -235,21 +184,6 @@ class TestCamillaDSPService:
         """Should have default volume settings"""
         assert camilladsp_service._volume["main"] == 0.0
         assert camilladsp_service._volume["mute"] is False
-
-    @pytest.mark.asyncio
-    async def test_get_compressor(self, camilladsp_service):
-        """Should return compressor settings copy"""
-        compressor = await camilladsp_service.get_compressor()
-        assert compressor == camilladsp_service._compressor
-        # Modify returned value should not affect internal state
-        compressor["enabled"] = True
-        assert camilladsp_service._compressor["enabled"] is False
-
-    @pytest.mark.asyncio
-    async def test_get_loudness(self, camilladsp_service):
-        """Should return loudness settings copy"""
-        loudness = await camilladsp_service.get_loudness()
-        assert loudness == camilladsp_service._loudness
 
     def test_get_equalizer_settings_snapshots_local_cache(self, camilladsp_service):
         """get_equalizer_settings() returns the local client's full EQ record from cache."""
@@ -496,18 +430,6 @@ class TestCamillaDSPService:
         """Should return default gains when none saved"""
         gains = await camilladsp_service.get_custom_gains()
         assert gains == DEFAULT_CUSTOM_GAINS
-
-    @pytest.mark.asyncio
-    async def test_load_preset_skips_when_already_active(self, camilladsp_service, mock_settings_service):
-        """Should skip loading when already on the same preset"""
-        # Setup: preset is already active
-        mock_settings_service.get_setting = AsyncMock(return_value="acoustic")
-
-        # Should return True without applying gains
-        result = await camilladsp_service.load_preset("acoustic")
-        assert result is True
-        # set_setting should NOT be called (no change needed)
-        mock_settings_service.set_setting.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_bypass_effects_disconnected(self, camilladsp_service):

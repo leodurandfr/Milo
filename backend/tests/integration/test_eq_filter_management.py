@@ -367,28 +367,6 @@ class TestAC4NoAutoSwitch:
                 assert len(preset_calls) == 0
 
     @pytest.mark.asyncio
-    async def test_manual_modification_does_not_broadcast_preset_loaded(self, connected_camilladsp_service_on_preset):
-        """Should NOT broadcast preset_loaded event when filter is modified"""
-        mock_config = {"filters": {}}
-        state_machine = connected_camilladsp_service_on_preset.state_machine
-
-        with patch.object(connected_camilladsp_service_on_preset, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service_on_preset, '_set_config', new_callable=AsyncMock):
-                await connected_camilladsp_service_on_preset.set_filter(
-                    filter_id="eq_band_00",
-                    freq=100,
-                    gain=5.0,
-                    q=1.41,
-                )
-
-                # Should NOT have preset_loaded broadcasts
-                preset_events = [
-                    c for c in state_machine.broadcast_event.call_args_list
-                    if len(c[0]) >= 2 and c[0][1] == "preset_loaded"
-                ]
-                assert len(preset_events) == 0
-
-    @pytest.mark.asyncio
     async def test_manual_modification_does_not_save_custom_gains(self, connected_camilladsp_service_on_preset, mock_settings_service):
         """Should NOT save custom gains when filter is modified"""
         mock_config = {"filters": {}}
