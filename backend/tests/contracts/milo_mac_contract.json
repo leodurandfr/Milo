@@ -1,0 +1,65 @@
+{
+  "_about": "Wire contract consumed by Milo-Mac (github.com/leodurandfr/Milo-Mac), a SECOND API client beyond frontend/. Milo-Mac is a separate macOS app, not in this checkout, with no API versioning: if the backend drops a route or WS event listed here, Milo-Mac breaks silently at runtime. This manifest is the SOURCE OF TRUTH for that contract. Seeded 2026-06-10 from MiloAPIService.swift (REST) and WebSocketService.swift (WS). Enforced offline on every pytest run by test_milo_mac_contract.py; drift against Milo-Mac's real source is re-checked by the non-blocking CI job check_milo_mac_freshness.py. Update this file CONSCIOUSLY when Milo-Mac evolves — there is no auto-grep anymore.",
+
+  "rest": [
+    { "method": "GET",  "path": "/api/audio/state",                  "consumer": "MiloAPIService.fetchState" },
+    { "method": "POST", "path": "/api/audio/source/{source}",        "consumer": "MiloAPIService.changeSource" },
+    { "method": "PUT",  "path": "/api/routing/multiroom",            "consumer": "MiloAPIService.setMultiroom" },
+    { "method": "GET",  "path": "/api/volume/state",                 "consumer": "MiloAPIService.getVolumeStatus" },
+    { "method": "POST", "path": "/api/volume/adjust",                "consumer": "MiloAPIService.adjustVolumeDb" },
+    { "method": "PUT",  "path": "/api/equalizer/target/local/enabled", "consumer": "MiloAPIService.setEqualizer",
+      "note": "Calls the {target} route with the literal target 'local'. The backend route is templated /api/equalizer/target/{target}/enabled." },
+    { "method": "GET",  "path": "/api/settings/bulk",                "consumer": "MiloAPIService.fetchBulkSettings",
+      "note": "Single bulk call that replaced the per-category /api/settings/{volume-limits,volume-steps,dock-apps} GET routes. Reads volume_limits.{min_db,max_db} and dock_apps.enabled_apps from the response." },
+    { "method": "GET",  "path": "/api/radio/stations",              "consumer": "MiloAPIService.getRadioFavorites",
+      "note": "Called with ?favorites_only=true (query string is not part of the path contract)." },
+    { "method": "POST", "path": "/api/radio/play",                  "consumer": "MiloAPIService.playRadioStation" },
+    { "method": "POST", "path": "/api/radio/stop",                  "consumer": "MiloAPIService.stopRadioPlayback" }
+  ],
+
+  "ws": {
+    "_about": "Each (category, type) below MUST have at least one backend broadcast_event() site. The offline test enforces existence only; payload_invariants are documented for humans + the freshness job, not statically verified.",
+    "events": [
+      { "category": "system",    "type": "state_changed",        "consumer": "handleSystemStateChange (reads full_state)" },
+      { "category": "system",    "type": "transition_start",     "consumer": "handleSystemStateChange (reads full_state)" },
+      { "category": "system",    "type": "transition_complete",  "consumer": "handleSystemStateChange (reads full_state)" },
+      { "category": "source",    "type": "state_changed",        "consumer": "handleSystemStateChange (reads full_state)" },
+      { "category": "volume",    "type": "volume_changed",       "consumer": "handleVolumeChange" },
+      { "category": "equalizer", "type": "enabled_changed",      "consumer": "handleSystemStateChange (reads full_state)" },
+      { "category": "routing",   "type": "multiroom_error",      "consumer": "didReceiveMultiroomTransitionComplete(success: false)" },
+      { "category": "settings",  "type": "volume_limits_changed", "consumer": "handleVolumeLimitsChange",
+        "note": "Emitted via the variable event_type path in api/settings.py::_handle_setting_update (broadcast_event(\"settings\", event_type, ...)), not as a literal pair." },
+      { "category": "settings",  "type": "dock_apps_changed",    "consumer": "handleDockAppsChange" }
+    ],
+
+    "payload_invariants": {
+      "full_state_envelope": {
+        "carried_by": ["system/state_changed", "system/transition_start", "system/transition_complete", "source/state_changed", "equalizer/enabled_changed"],
+        "data_key": "full_state",
+        "required_subkeys": ["active_source", "source_state", "transitioning", "multiroom_enabled", "equalizer_effects_enabled", "metadata"]
+      },
+      "multiroom_changed_discriminator": {
+        "carried_by": ["any full_state-bearing event"],
+        "data_key": "multiroom_changed",
+        "meaning": "boolean sibling of full_state; true marks the authoritative end of a routing transition (multiroom loading spinner completion)."
+      },
+      "volume_changed": {
+        "data_keys": ["state.global_volume_db", "state.mode", "multiroom_enabled"],
+        "fallback": "data.volume_db (Double or Int) when state is absent",
+        "step_note": "step_mobile_db is NO LONGER consumed — Milo-Mac's keyboard step is a local setting (GlobalHotkeyManager.volumeDeltaDb). Do not re-couple to it."
+      },
+      "settings/volume_limits_changed": { "data_key": "limits", "subkeys": ["min_db", "max_db"] },
+      "settings/dock_apps_changed": { "data_key": "config", "subkeys": ["enabled_apps"] },
+      "routing/multiroom_error": { "data_keys": [], "note": "presence only; no payload field is read" }
+    },
+
+    "metadata_is_opaque": "Milo-Mac reads full_state.metadata as an opaque [String: Any] dict. NO metadata SUB-field is coupled (uri, client_count, album_art_height, track_position/duration, etc.). An over-emitted metadata sub-field with no frontend/src/ consumer is therefore safe to drop without touching this manifest.",
+
+    "consumer_side_only_NOT_enforced": [
+      { "category": "plugin", "type": "state_changed",
+        "reason": "Milo-Mac has a defensive handler for category 'plugin', but the backend never broadcasts it. NOT a required contract — excluded from the offline test so it stays green." },
+      { "category": "system", "type": "ping",
+        "reason": "Keepalive; Milo-Mac explicitly ignores it. Emitted by the WS ping loop, not by broadcast_event(). NOT enforced." }
+    ]
+  }
+}

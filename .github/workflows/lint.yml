@@ -5,6 +5,12 @@ on:
     branches: [main]
   push:
     branches: [main]
+  # Weekly + on-demand drift check for the Milo-Mac contract manifest (see the
+  # milo-mac-freshness job). Scheduled rather than per-PR because it clones an
+  # external repo over the network.
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
 
 jobs:
   backend:
@@ -52,3 +58,26 @@ jobs:
       # mocks `axios.*` directly, but RFC 17 migrated stores to apiCall, so 97
       # tests are stale. Re-enable once the suite has been retargeted at
       # `apiCall` / fetch mocking.
+
+  milo-mac-freshness:
+    name: Milo-Mac contract freshness (non-blocking)
+    # Drift detector for backend/tests/contracts/milo_mac_contract.json: re-clones
+    # the external Milo-Mac app and verifies the manifest still covers everything
+    # it consumes. The OFFLINE half (test_milo_mac_contract.py) already gates every
+    # PR inside the backend job; this is the network half. Scheduled + manual only,
+    # and continue-on-error, so a network/repo hiccup or an upstream refactor never
+    # blocks a merge — it surfaces an annotation a human acts on.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Clone Milo-Mac
+        run: git clone --depth 1 https://github.com/leodurandfr/Milo-Mac /tmp/milo-mac
+      - name: Check manifest covers Milo-Mac's consumed surface
+        run: python backend/tests/contracts/check_milo_mac_freshness.py /tmp/milo-mac
