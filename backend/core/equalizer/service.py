@@ -844,23 +844,6 @@ class CamillaDSPService:
     def get_presets(self) -> List[Dict]:
         return get_builtin_presets()
 
-    async def _apply_gains(self, gains: List[float]) -> None:
-        """Apply gain values to EQ bands"""
-        for i, gain in enumerate(gains):
-            filter_id = f"eq_band_{i:02d}"
-            existing = next((f for f in self._filters if f["id"] == filter_id), None)
-            if existing:
-                # Suppress per-filter broadcasts during preset load (preset_loaded event handles it)
-                await self.set_filter(filter_id, existing["freq"], gain,
-                                       existing.get("q", 1.41), existing.get("type", "Peaking"),
-                                       broadcast=False)
-            else:
-                # Filter doesn't exist in cache - use default frequency
-                freq = DEFAULT_EQ_FREQS[i] if i < len(DEFAULT_EQ_FREQS) else 1000
-                self.logger.info(f"Filter {filter_id} not in cache, creating with freq={freq}")
-                await self.set_filter(filter_id, freq, gain, 1.41, "Peaking",
-                                       broadcast=False)
-
     def set_custom_gains(self, gains: List[float]) -> None:
         """Replace the saved custom-preset gains.
 
