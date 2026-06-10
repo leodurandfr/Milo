@@ -115,14 +115,6 @@ export const useRadioStore = defineStore('radio', () => {
     return displayedCount.value < searchResults.value.length;
   });
 
-  // Remaining stations count
-  const remainingStations = computed(() => {
-    return Math.max(0, searchResults.value.length - displayedCount.value);
-  });
-
-  // Total stations from last search
-  const totalStations = computed(() => totalResults.value);
-
   // Sorted favorite stations
   const sortedFavorites = computed(() => {
     return [...favoriteStations.value]
@@ -531,8 +523,6 @@ export const useRadioStore = defineStore('radio', () => {
     // Getters
     displayedStations,
     hasMoreStations,
-    remainingStations,
-    totalStations,
     favoriteStations: sortedFavorites,
     customStations,
 

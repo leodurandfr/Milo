@@ -12,7 +12,7 @@ import { useUnifiedAudioStore } from './unifiedAudioStore';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
 import { SnapcastServerConfigSchema, validateSchema } from '@/schemas/api';
-import { dbToPercent, percentToDb } from '@/constants/volumeConversion';
+import { dbToPercent } from '@/constants/volumeConversion';
 
 const DISPLAY_CACHE_KEY = 'multiroom_display_cache';
 
@@ -22,7 +22,6 @@ export const useSnapcastStore = defineStore('snapcast', () => {
   const audioStore = useUnifiedAudioStore();
 
   // Clients derived from multiroomStore with Snapcast-compatible format
-  // This replaces the old ref([]) and provides backward compatibility
   const clients = computed(() => {
     return registryStore.clientList.map(client => {
       const volumeState = audioStore.volumeState.clients[client.mac_id];
@@ -33,7 +32,6 @@ export const useSnapcastStore = defineStore('snapcast', () => {
         name: client.name,
         host: client.host,
         ip: client.ip,
-        mac: client.mac_id, // MAC address for backwards compatibility
         online: client.online,
         is_local: client.is_local,
         volume_control: client.volume_control,
@@ -60,7 +58,6 @@ export const useSnapcastStore = defineStore('snapcast', () => {
   const serverConfig = ref({ ...DEFAULT_SERVER_CONFIG });
   const originalServerConfig = ref({ ...DEFAULT_SERVER_CONFIG });
   const isApplyingServerConfig = ref(false);
-  const isLoadingServerConfig = ref(false);
 
   // Memorization of the last known number of clients (for skeletons)
   const lastKnownClientCount = ref(3);
@@ -144,8 +141,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
   // Note: Client loading functions removed - clients are derived from multiroomStore
 
   /**
-   * Initialize client registry (backward compatibility)
-   * Now delegates to multiroomStore.initialize()
+   * Ensure the client registry is initialized (delegates to multiroomStore).
    */
   async function loadClients() {
     if (!registryStore.isInitialized) {
@@ -156,8 +152,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
   }
 
   /**
-   * Preload cache (backward compatibility)
-   * Returns the number of clients
+   * Returns the number of clients (last known count for skeleton rendering).
    */
   function preloadCache() {
     return clients.value.length || lastKnownClientCount.value;
@@ -172,7 +167,6 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     serverConfigAbortController = new AbortController();
     const signal = serverConfigAbortController.signal;
 
-    isLoadingServerConfig.value = true;
     await apiCall('store', 'Error loading server config', async () => {
       const config = await fetchServerConfig(signal);
       if (config) {
@@ -180,7 +174,6 @@ export const useSnapcastStore = defineStore('snapcast', () => {
         originalServerConfig.value = { ...config };
       }
     });
-    isLoadingServerConfig.value = false;
     serverConfigAbortController = null;
   }
 
@@ -205,10 +198,6 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     return false;
   }
 
-  function updateServerConfig(updates) {
-    serverConfig.value = { ...serverConfig.value, ...updates };
-  }
-
   function selectCodec(codecName) {
     serverConfig.value.codec = codecName;
   }
@@ -225,29 +214,18 @@ export const useSnapcastStore = defineStore('snapcast', () => {
   // Note: WebSocket handlers for client events removed
   // Client state is now derived from multiroomStore which handles all registry events
 
-  // === CLEANUP ===
-  function cancelPendingRequests() {
-    if (serverConfigAbortController) {
-      serverConfigAbortController.abort();
-      serverConfigAbortController = null;
-    }
-  }
-
   return {
     // State (clients is computed from multiroomStore, already sorted: local first, then alphabetical)
     clients,
     isLoading,
     serverConfig,
-    originalServerConfig,
     isApplyingServerConfig,
-    isLoadingServerConfig,
-    lastKnownClientCount,
     lastKnownDisplayItems,
 
     // Computed
     hasServerConfigChanges,
 
-    // Actions - Clients (backward compatibility)
+    // Actions - Clients
     preloadCache,
     loadClients,
 
@@ -258,15 +236,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     // Actions - Server Config
     loadServerConfig,
     applyServerConfig,
-    updateServerConfig,
     selectCodec,
     applyPreset,
-
-    // Volume conversion utilities (exported for components that need them)
-    dbToPercent,
-    percentToDb,
-
-    // Cleanup
-    cancelPendingRequests
   };
 });

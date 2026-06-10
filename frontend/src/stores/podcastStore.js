@@ -74,10 +74,6 @@ export const usePodcastStore = defineStore('podcast', () => {
   });
 
   // === COMPUTED ===
-  const hasCurrentEpisode = computed(() => currentEpisode.value !== null);
-
-  const hasDisplayEpisode = computed(() => displayEpisode.value !== null);
-
   const hasSubscriptions = computed(() => subscriptions.value.size > 0);
 
   // === PLAYBACK ACTIONS ===
@@ -113,16 +109,6 @@ export const usePodcastStore = defineStore('podcast', () => {
     });
   }
 
-  async function stop() {
-    const result = await apiCall.post('/api/podcast/stop', null, {
-      category: 'store',
-      message: 'Error stopping',
-    });
-    if (result.ok) {
-      currentEpisode.value = null;
-    }
-  }
-
   async function setSpeed(speed) {
     const result = await apiCall.post('/api/podcast/speed', { speed }, {
       category: 'store',
@@ -154,16 +140,6 @@ export const usePodcastStore = defineStore('podcast', () => {
     if (result.ok && result.data.settings) {
       settings.value = { ...settings.value, ...result.data.settings };
       playbackSpeed.value = result.data.settings.playback_speed || 1.0;
-    }
-  }
-
-  async function updateSettings(newSettings) {
-    const result = await apiCall.post('/api/podcast/settings', newSettings, {
-      category: 'store',
-      message: 'Error updating settings',
-    });
-    if (result.ok) {
-      settings.value = { ...settings.value, ...newSettings };
     }
   }
 
@@ -283,15 +259,6 @@ export const usePodcastStore = defineStore('podcast', () => {
 
   function getEpisodeProgress(episodeUuid) {
     return progressCache.value.get(episodeUuid) || null;
-  }
-
-  function setEpisodeProgress(episodeUuid, position, duration) {
-    progressCache.value.set(episodeUuid, {
-      position,
-      duration,
-      last_played: Date.now()
-    });
-    enforceProgressCacheLimit();
   }
 
   function enrichEpisodesWithProgress(episodes) {
@@ -423,16 +390,6 @@ export const usePodcastStore = defineStore('podcast', () => {
     );
   }
 
-  // O(1) subscription check
-  function isSubscribed(uuid) {
-    return subscriptions.value.has(uuid);
-  }
-
-  // Get subscription by uuid (O(1))
-  function getSubscription(uuid) {
-    return subscriptions.value.get(uuid);
-  }
-
   // === SEARCH ACTIONS ===
 
   function setSearchResults(podcasts, episodes, pagination) {
@@ -481,16 +438,6 @@ export const usePodcastStore = defineStore('podcast', () => {
     searchLoadingMore.value = { podcasts: false, episodes: false };
   }
 
-  // === CLEAR STATE ===
-  function clearState() {
-    // Clear all podcast state (called when switching away from podcast source)
-    currentEpisode.value = null;
-    displayEpisode.value = null;
-
-    // Note: playback state comes from unifiedAudioStore, no need to clear locally
-    // Keep progress cache for displaying "X min restantes" on paused episodes
-  }
-
   // Clear display metadata after fade-out animation completes
   function clearDisplayEpisode() {
     displayEpisode.value = null;
@@ -504,9 +451,8 @@ export const usePodcastStore = defineStore('podcast', () => {
     playbackSpeed,
     playbackSpeeds,
     pendingEpisodeUuid,
-    settings,
     progressCache,
-    subscriptions: subscriptionsList, // Expose as array for iteration (backward compatible)
+    subscriptions: subscriptionsList, // exposed as array for iteration
     latestSubscriptionEpisodes,
     subscriptionsLoaded,
 
@@ -525,22 +471,17 @@ export const usePodcastStore = defineStore('podcast', () => {
     searchLoadingMore,
 
     // Computed
-    hasCurrentEpisode,
-    hasDisplayEpisode,
     hasSubscriptions,
 
     // Actions
     play,
     pause,
     resume,
-    stop,
     setSpeed,
     loadPlaybackSpeeds,
     loadSettings,
-    updateSettings,
     handleInitialMetadata,
     handleSourceEvent,
-    clearState,
     clearDisplayEpisode,
 
     // Pending state helper
@@ -548,7 +489,6 @@ export const usePodcastStore = defineStore('podcast', () => {
 
     // Progress cache helpers
     getEpisodeProgress,
-    setEpisodeProgress,
     enrichEpisodesWithProgress,
 
     // Subscriptions
@@ -556,8 +496,6 @@ export const usePodcastStore = defineStore('podcast', () => {
     loadSubscriptions,
     addSubscription,
     removeSubscription,
-    isSubscribed,
-    getSubscription,
 
     // Search
     setSearchResults,

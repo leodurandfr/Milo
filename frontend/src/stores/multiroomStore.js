@@ -86,30 +86,11 @@ export const useMultiroomStore = defineStore('multiroom', () => {
   });
 
   /**
-   * Only online (connected) clients.
-   */
-  const onlineClients = computed(() => {
-    return clientList.value.filter(c => c.online);
-  });
-
-  /**
-   * All online client mac_ids.
-   */
-  const onlineClientIds = computed(() => {
-    return onlineClients.value.map(c => c.mac_id);
-  });
-
-  /**
    * All zones as an array.
    */
   const zoneList = computed(() => {
     return Array.from(zones.value.values());
   });
-
-  /**
-   * Number of zones.
-   */
-  const zoneCount = computed(() => zones.value.size);
 
   /**
    * Pending clients as an array.
@@ -205,14 +186,6 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     return client ? client.online : false;
   }
 
-  /**
-   * Get client display name.
-   */
-  function getClientName(macId) {
-    const client = clients.value.get(macId);
-    return client?.name || macId;
-  }
-
   // === ZONE QUERIES ===
 
   /**
@@ -228,23 +201,6 @@ export const useMultiroomStore = defineStore('multiroom', () => {
   }
 
   /**
-   * Get all client mac_ids in a zone.
-   */
-  function getZoneClientIds(zoneId) {
-    const zone = zones.value.get(zoneId);
-    return zone?.client_ids || [];
-  }
-
-  /**
-   * Get only online client mac_ids in a zone.
-   */
-  function getOnlineZoneClientIds(zoneId) {
-    const zone = zones.value.get(zoneId);
-    if (!zone) return [];
-    return zone.client_ids.filter(id => isClientOnline(id));
-  }
-
-  /**
    * Get linked client IDs for a given client (including itself).
    * If client is in a zone, returns all zone members.
    * If not in a zone, returns just the client itself.
@@ -255,15 +211,6 @@ export const useMultiroomStore = defineStore('multiroom', () => {
       return zone.client_ids;
     }
     return [macId];
-  }
-
-  /**
-   * Get online linked client IDs for a given client.
-   * Same as getLinkedClientIds but filtered to online clients only.
-   */
-  function getOnlineLinkedClientIds(macId) {
-    const linkedIds = getLinkedClientIds(macId);
-    return linkedIds.filter(id => isClientOnline(id));
   }
 
   /**
@@ -415,7 +362,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
 
   /**
    * Create a new zone.
-   * Uses canonical /api/multiroom/zones endpoint (Story 2-4).
+   * Uses the canonical /api/multiroom/zones endpoint.
    */
   async function createZone(name, clientIds = []) {
     const result = await apiCall.post('/api/multiroom/zones', { name, client_ids: clientIds }, {
@@ -433,7 +380,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
 
   /**
    * Delete a zone.
-   * Uses canonical /api/multiroom/zones endpoint (Story 2-4).
+   * Uses the canonical /api/multiroom/zones endpoint.
    */
   async function deleteZone(zoneId) {
     await apiCall.delete(`/api/multiroom/zones/${zoneId}`, {
@@ -448,7 +395,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
 
   /**
    * Update zone properties (name).
-   * Uses canonical /api/multiroom/zones endpoint (Story 2-4).
+   * Uses the canonical /api/multiroom/zones endpoint.
    */
   async function updateZone(zoneId, updates) {
     const result = await apiCall.patch(`/api/multiroom/zones/${zoneId}`, updates, {
@@ -504,17 +451,6 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     }
     saveCache();
     return result.data;
-  }
-
-  /**
-   * Update client speaker type.
-   * Uses canonical PATCH /api/multiroom/clients/{mac_id} endpoint.
-   * @param {string} macId - Client mac_id
-   * @param {string} speakerType - New speaker type
-   * @returns {Promise<Object>} Updated client data
-   */
-  async function updateClientType(macId, speakerType) {
-    return await updateClient(macId, { speaker_type: speakerType });
   }
 
   /**
@@ -660,9 +596,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
   return {
     // State
     clients,
-    zones,
     pendingClients,
-    configuringClients,
     isLoading,
     isInitialized,
     transitionState,
@@ -670,10 +604,8 @@ export const useMultiroomStore = defineStore('multiroom', () => {
 
     // Computed
     clientList,
-    onlineClientIds,
     zoneList,
     pendingClientList,
-    zoneCount,
     isTransitioning,
 
     // Initialization
@@ -682,14 +614,10 @@ export const useMultiroomStore = defineStore('multiroom', () => {
 
     // Client queries
     isClientOnline,
-    getClientName,
 
     // Zone queries
     getZoneForClient,
-    getZoneClientIds,
-    getOnlineZoneClientIds,
     getLinkedClientIds,
-    getOnlineLinkedClientIds,
     hasOnlineSubwoofer,
 
     // WebSocket handlers
@@ -703,7 +631,6 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     updateZone,
     addClientToZone,
     removeClientFromZone,
-    updateClientType,
     updateClient,
     deleteClient,
 
@@ -715,6 +642,5 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     fetchPendingClients,
     configurePendingClient,
     isClientConfiguring,
-    clearConfiguringClient,
   };
 });

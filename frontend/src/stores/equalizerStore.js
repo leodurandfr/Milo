@@ -31,10 +31,8 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   const customGains = ref([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]); // Saved custom EQ gains
   const activePreset = ref('flat'); // Preset ID ('flat' default, 'custom' or builtin ID)
   const state = ref('disconnected'); // disconnected, inactive, running, paused
-  const isLoading = ref(false);
   const isUpdating = ref(false);
   const filtersLoaded = ref(false);
-  const sampleRate = ref(48000);
 
   // Equalizer effects enabled state (persisted in settings)
   // Note: Volume always works via CamillaDSP, this controls EQ/compressor/loudness
@@ -102,14 +100,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     return types;
   });
 
-  // Default crossover frequencies per speaker type (mirrors backend)
-  const DEFAULT_CROSSOVER_FREQUENCIES = {
-    satellite: 120,
-    bookshelf: 80,
-    tower: 50,
-    subwoofer: null
-  };
-
   // Zone crossover settings - { zoneId: { frequency: 80, enabled: true, has_subwoofer: false } }
   const zoneCrossover = ref({});
 
@@ -121,7 +111,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
   // === COMPUTED ===
   const isConnected = computed(() => state.value !== 'disconnected');
-  const isRunning = computed(() => state.value === 'running');
 
   // Custom mode: active when preset is 'custom' or no preset selected
   const isCustomMode = computed(() => {
@@ -191,14 +180,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     return zone ? zone.id : null;
   }
 
-  /**
-   * Check if the selected target is part of a zone.
-   * @returns {boolean} True if in a zone
-   */
-  function isTargetInZone() {
-    return getSelectedZoneId() !== null;
-  }
-
   // === API CALLS ===
   /**
    * Fetch the complete EQ record for the current target (one GET, one record).
@@ -260,35 +241,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       }
     }
     return [clientId]; // Not linked, return just itself
-  }
-
-  // Check if a client is linked to another client
-  function isClientLinked(clientId) {
-    return linkedGroups.value.some(
-      group => group.client_ids && group.client_ids.includes(clientId)
-    );
-  }
-
-  // Get zone name for a client or zone ID
-  function getZoneName(clientIdOrZoneId) {
-    // If it's a zone: prefix, extract client IDs and find the group
-    if (typeof clientIdOrZoneId === 'string' && clientIdOrZoneId.startsWith('zone:')) {
-      const clientIds = clientIdOrZoneId.replace('zone:', '').split(',');
-      for (const group of linkedGroups.value) {
-        if (group.client_ids && clientIds.some(id => group.client_ids.includes(id))) {
-          return group.name || null;
-        }
-      }
-      return null;
-    }
-
-    // Find group containing this client
-    for (const group of linkedGroups.value) {
-      if (group.client_ids && group.client_ids.includes(clientIdOrZoneId)) {
-        return group.name || null;
-      }
-    }
-    return null;
   }
 
   // Get zone group for a client ID
@@ -463,7 +415,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     loadAbortController = new AbortController();
     const signal = loadAbortController.signal;
 
-    isLoading.value = true;
     filtersLoaded.value = false;
 
     await apiCall('store', 'Error loading equalizer data', async () => {
@@ -479,7 +430,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       if (record === null) return;
 
       state.value = record.state || 'disconnected';
-      sampleRate.value = record.sample_rate || 48000;
       isEqualizerEffectsEnabled.value = record.enabled ?? true;
 
       // Filters (already in freq/type wire shape from the API).
@@ -516,7 +466,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       isPresetEdited.value = false;
       _snapshotPresetGains(activePreset.value);
     });
-    isLoading.value = false;
     loadAbortController = null;
   }
 
@@ -790,35 +739,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     await loadEnabledState();
   }
 
-  // === LINKED CLIENTS MANAGEMENT ===
-
-  async function clearAllLinks() {
-    return apiCall('store', 'Error clearing links', async () => {
-      // Delete all zones via multiroomStore
-      const allZones = [...registryStore.zoneList];
-      for (const zone of allZones) {
-        await registryStore.deleteZone(zone.id);
-      }
-      return true;
-    });
-  }
-
-  async function deleteZone(groupId) {
-    return apiCall('store', 'Error deleting zone', async () => {
-      // Delegate to multiroomStore
-      await registryStore.deleteZone(groupId);
-      return true;
-    });
-  }
-
-  async function updateZoneName(groupId, name) {
-    return apiCall('store', 'Error updating zone name', async () => {
-      // Delegate to multiroomStore
-      await registryStore.updateZone(groupId, { name });
-      return true;
-    });
-  }
-
   // === SPEAKER TYPE / CROSSOVER MANAGEMENT ===
 
   /**
@@ -830,95 +750,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     const clientData = clientTypes.value[clientId];
     if (!clientData) return 'bookshelf';
     return clientData.speaker_type || 'bookshelf';
-  }
-
-  /**
-   * Get the crossover frequency for a client
-   * @param {string} clientId - Client ID (mac_id)
-   * @returns {number|null} Crossover frequency in Hz, or null for subwoofer
-   */
-  function getClientCrossoverFrequency(clientId) {
-    const clientData = clientTypes.value[clientId];
-    if (clientData?.crossover_frequency !== undefined) {
-      return clientData.crossover_frequency;
-    }
-    // Return default based on speaker type
-    const speakerType = getClientSpeakerType(clientId);
-    return DEFAULT_CROSSOVER_FREQUENCIES[speakerType] ?? 80;
-  }
-
-  /**
-   * Check if a client is marked as a subwoofer (derived from speaker_type)
-   * @param {string} clientId - Client ID (mac_id)
-   * @returns {boolean} True if client is a subwoofer
-   */
-  function isClientSubwoofer(clientId) {
-    return getClientSpeakerType(clientId) === 'subwoofer';
-  }
-
-  /**
-   * Set the speaker type for a client
-   * @param {string} clientId - Client ID (mac_id)
-   * @param {string} speakerType - 'satellite', 'bookshelf', 'tower', or 'subwoofer'
-   * @returns {Promise<boolean>} Success status
-   */
-  async function setClientSpeakerType(clientId, speakerType) {
-    return apiCall('store', 'Error setting client speaker type', async () => {
-      // Delegate to multiroomStore
-      await registryStore.updateClient(clientId, { speaker_type: speakerType });
-      return true;
-    });
-  }
-
-  /**
-   * Set custom crossover frequency for a client
-   * @param {string} clientId - Client ID (mac_id)
-   * @param {number} frequency - Crossover frequency in Hz (20-200)
-   * @returns {Promise<boolean>} Success status
-   */
-  async function setClientCrossoverFrequency(clientId, frequency) {
-    const result = await apiCall.put(`/api/equalizer/client/${clientId}/crossover-frequency`, {
-      frequency,
-    }, {
-      category: 'store',
-      message: 'Error setting client crossover frequency',
-      checkStatus: true,
-    });
-    // State update happens via WebSocket (registry.speaker_type_changed)
-    return result.ok;
-  }
-
-  /**
-   * Check if a zone has a subwoofer
-   * @param {string} zoneId - Zone ID
-   * @returns {boolean} True if zone contains a subwoofer client
-   */
-  function hasSubwooferInZone(zoneId) {
-    const zone = linkedGroups.value.find(g => g.id === zoneId);
-    if (!zone) return false;
-    return zone.client_ids?.some(clientId => isClientSubwoofer(clientId)) || false;
-  }
-
-  /**
-   * Get crossover settings for a zone
-   * @param {string} zoneId - Zone ID
-   * @returns {Object} Crossover settings { frequency, enabled, has_subwoofer }
-   */
-  function getZoneCrossoverSettings(zoneId) {
-    return zoneCrossover.value[zoneId] || { frequency: 80, enabled: false, has_subwoofer: false };
-  }
-
-  /**
-   * Get auto-calculated crossover frequency for a zone from API
-   * @param {string} zoneId - Zone ID
-   * @returns {Promise<number>} Crossover frequency in Hz
-   */
-  async function getZoneAutoCrossover(zoneId) {
-    const result = await apiCall.get(`/api/equalizer/links/${zoneId}/auto-crossover`, {
-      category: 'store',
-      message: 'Error getting zone auto crossover',
-    });
-    return result.ok ? (result.data.frequency || 80) : 80;
   }
 
   /**
@@ -943,20 +774,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       return true;
     }
     return false;
-  }
-
-  /**
-   * Manually apply crossover to all clients in a zone
-   * @param {string} zoneId - Zone ID
-   * @returns {Promise<boolean>} Success status
-   */
-  async function applyZoneCrossover(zoneId) {
-    const result = await apiCall.post(`/api/equalizer/links/${zoneId}/crossover/apply`, null, {
-      category: 'store',
-      message: 'Error applying zone crossover',
-      checkStatus: true,
-    });
-    return result.ok;
   }
 
   /**
@@ -1172,11 +989,8 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     // State
     filters,
     activePreset,
-    state,
-    isLoading,
     isUpdating,
     filtersLoaded,
-    sampleRate,
     outputPeak,
 
     // Equalizer Effects Enabled State
@@ -1195,10 +1009,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
     // Computed
     isConnected,
-    isRunning,
-
-    // Utils
-    formatFrequency,
 
     // Actions
     initializeFilters,
@@ -1216,35 +1026,16 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     selectTarget,
 
     // Linked Clients Management
-    clearAllLinks,
-    deleteZone,
-    updateZoneName,
-    isClientLinked,
     getLinkedClientIds,
-    getZoneName,
     getZoneGroup,
-    getSelectedZoneId,
-    isTargetInZone,
 
     // Speaker Type / Crossover Management
-    clientTypes,
-    zoneCrossover,
-    DEFAULT_CROSSOVER_FREQUENCIES,
     getClientSpeakerType,
-    getClientCrossoverFrequency,
-    setClientSpeakerType,
-    setClientCrossoverFrequency,
-    isClientSubwoofer,
-    hasSubwooferInZone,
-    getZoneCrossoverSettings,
-    getZoneAutoCrossover,
     setZoneCrossoverFrequency,
-    applyZoneCrossover,
     handleZoneCrossoverChanged,
 
     // Preset Management
     builtinPresets,
-    customGains,
     isCustomMode,
     isPresetEdited,
     loadPreset,

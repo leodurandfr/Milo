@@ -119,11 +119,9 @@ export const useDiscoveryStore = defineStore('discovery', () => {
   return {
     // State
     hotspots,
-    scanning,
     serverWifiCreds,
 
     // Actions
-    scanHotspots,
     loadServerWifiCreds,
     adoptSpeaker,
     startPolling,

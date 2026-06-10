@@ -421,12 +421,6 @@ describe('equalizerStore - EQ Filter Zone Propagation', () => {
       expect(freshStore.activePreset).toBeDefined;
     });
 
-    it('should have manual gains storage', () => {
-      const freshStore = useEqualizerStore();
-      expect(Array.isArray(freshStore.manualGains)).toBe(true);
-      expect(freshStore.manualGains.length).toBe(10);
-    });
-
     it('should switch to manual preset on filter modification', async () => {
       axios.put.mockResolvedValue({ data: { status: 'success' } });
 
@@ -552,105 +546,6 @@ describe('equalizerStore - Preset Management (Story 4.6)', () => {
 
   });
 
-  describe('preset propagation via loadPreset', () => {
-    it('should track propagation errors array for UI notification', async () => {
-      useMultiroomStore.mockReturnValue(createStandaloneMock());
-      setActivePinia(createPinia());
-      const store = useEqualizerStore();
-      // propagationErrors should be available for UI to display
-      expect(Array.isArray(store.propagationErrors)).toBe(true);
-    });
-
-    it('should have clearPropagationErrors function', async () => {
-      useMultiroomStore.mockReturnValue(createStandaloneMock());
-      setActivePinia(createPinia());
-      const store = useEqualizerStore();
-      // clearPropagationErrors should be available
-      expect(typeof store.clearPropagationErrors).toBe('function');
-    });
-  });
-
-  describe('isManualMode computed', () => {
-    it('should be a computed property that exists', () => {
-      useMultiroomStore.mockReturnValue(createStandaloneMock());
-      setActivePinia(createPinia());
-      const store = useEqualizerStore();
-      // isManualMode should be defined
-      expect(store.isManualMode !== undefined).toBe(true);
-    });
-
-    it('should return true when activePreset is "manual"', () => {
-      useMultiroomStore.mockReturnValue(createStandaloneMock());
-      setActivePinia(createPinia());
-      const store = useEqualizerStore();
-      store.activePreset = 'manual';
-      store.filters = [];
-      store.builtinPresets = [];
-
-      expect(store.isManualMode).toBe(true);
-    });
-
-    it('should return true when no preset is selected', () => {
-      useMultiroomStore.mockReturnValue(createStandaloneMock());
-      setActivePinia(createPinia());
-      const store = useEqualizerStore();
-      store.activePreset = null;
-
-      expect(store.isManualMode).toBe(true);
-    });
-
-    // Note: isLoadingPreset is internal state and not directly testable
-    // The flicker prevention is an implementation detail tested by inspection
-
-    it('should return false when gains match active preset', () => {
-      useMultiroomStore.mockReturnValue(createStandaloneMock());
-      setActivePinia(createPinia());
-      const store = useEqualizerStore();
-      store.activePreset = 'jazz';
-      store.builtinPresets = [
-        { id: 'jazz', gains: [4, 3, 2, 2, -2, -2, 0, 2, 3, 4] }
-      ];
-      store.filters = [
-        { id: 'eq_band_00', freq: 31, gain: 4 },
-        { id: 'eq_band_01', freq: 63, gain: 3 },
-        { id: 'eq_band_02', freq: 125, gain: 2 },
-        { id: 'eq_band_03', freq: 250, gain: 2 },
-        { id: 'eq_band_04', freq: 500, gain: -2 },
-        { id: 'eq_band_05', freq: 1000, gain: -2 },
-        { id: 'eq_band_06', freq: 2000, gain: 0 },
-        { id: 'eq_band_07', freq: 4000, gain: 2 },
-        { id: 'eq_band_08', freq: 8000, gain: 3 },
-        { id: 'eq_band_09', freq: 16000, gain: 4 }
-      ];
-
-      expect(store.isManualMode).toBe(false);
-    });
-
-    it('should return true when gains differ from active preset', () => {
-      useMultiroomStore.mockReturnValue(createStandaloneMock());
-      setActivePinia(createPinia());
-      const store = useEqualizerStore();
-      store.activePreset = 'jazz';
-      store.builtinPresets = [
-        { id: 'jazz', gains: [4, 3, 2, 2, -2, -2, 0, 2, 3, 4] }
-      ];
-      store.filters = [
-        { id: 'eq_band_00', freq: 31, gain: 6 }, // Different from jazz preset (4)
-        { id: 'eq_band_01', freq: 63, gain: 3 },
-        { id: 'eq_band_02', freq: 125, gain: 2 },
-        { id: 'eq_band_03', freq: 250, gain: 2 },
-        { id: 'eq_band_04', freq: 500, gain: -2 },
-        { id: 'eq_band_05', freq: 1000, gain: -2 },
-        { id: 'eq_band_06', freq: 2000, gain: 0 },
-        { id: 'eq_band_07', freq: 4000, gain: 2 },
-        { id: 'eq_band_08', freq: 8000, gain: 3 },
-        { id: 'eq_band_09', freq: 16000, gain: 4 }
-      ];
-
-      expect(store.isManualMode).toBe(true);
-    });
-  });
-
 });
 
 // =============================================================================
@@ -695,31 +590,6 @@ const createStandaloneMock = () => ({
 
 describe('equalizerStore - Zone Equalizer Endpoints (Story 4.7)', () => {
   // Note: Each test must set up mock BEFORE creating store instance
-
-  describe('Zone endpoint detection', () => {
-    it('should detect when target is in a zone', () => {
-      // Setup mock BEFORE creating store
-      useMultiroomStore.mockReturnValue(createZoneMock('zone-living-room', 'Living Room'));
-      setActivePinia(createPinia());
-      const store = useEqualizerStore();
-
-      store.selectedTarget = 'local';
-      expect(store.selectedTarget).toBe('local');
-      expect(store.isTargetInZone()).toBe(true);
-    });
-
-    it('should detect when target is a standalone client (not in zone)', () => {
-      // Setup mock BEFORE creating store
-      useMultiroomStore.mockReturnValue(createStandaloneMock());
-      setActivePinia(createPinia());
-      const store = useEqualizerStore();
-
-      store.selectedTarget = 'local';
-      expect(store.selectedTarget).toBe('local');
-      // Standalone client: getSelectedZoneId returns null
-      expect(store.getSelectedZoneId()).toBe(null);
-    });
-  });
 
   describe('updateCompressor with zone endpoint', () => {
     it('should use PATCH /api/equalizer/zone/{zone_id}/compressor when in zone', async () => {
@@ -1112,38 +982,6 @@ describe('equalizerStore - Preset Display Integration (Story 4.8)', () => {
       expect(store.activePreset).toBe('flat');
     });
   });
-
-  describe('currentPresetValue behavior', () => {
-    it('should return manual when isManualMode is true', () => {
-      useMultiroomStore.mockReturnValue(createStandaloneMock());
-      setActivePinia(createPinia());
-      const store = useEqualizerStore();
-
-      store.activePreset = 'jazz';
-      store.builtinPresets = [{ id: 'jazz', gains: [4, 3, 2, 2, -2, -2, 0, 2, 3, 4] }];
-      store.filters = [
-        { id: 'eq_band_00', gain: 10 } // Different from jazz preset
-      ];
-
-      // isManualMode should be true because gains differ
-      expect(store.isManualMode).toBe(true);
-    });
-
-    it('should return active preset when gains match', () => {
-      useMultiroomStore.mockReturnValue(createStandaloneMock());
-      setActivePinia(createPinia());
-      const store = useEqualizerStore();
-
-      store.activePreset = 'flat';
-      store.builtinPresets = [{ id: 'flat', gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }];
-      store.filters = Array.from({ length: 10 }, (_, i) => ({
-        id: `eq_band_${i.toString().padStart(2, '0')}`,
-        gain: 0
-      }));
-
-      expect(store.isManualMode).toBe(false);
-    });
-  });
 });
 
 describe('equalizerStore - WebSocket Event Handlers (Story 4.8)', () => {
@@ -1200,52 +1038,6 @@ describe('equalizerStore - WebSocket Event Handlers (Story 4.8)', () => {
 
       // Gain should still be 3.0 (not reverted to 0)
       expect(store.filters[0].gain).toBe(3.0);
-    });
-  });
-
-  describe('handleFiltersReset', () => {
-    it('should reset all filter gains to 0', () => {
-      useMultiroomStore.mockReturnValue(createStandaloneMock());
-      setActivePinia(createPinia());
-      const store = useEqualizerStore();
-
-      store.filters = [
-        { id: 'eq_band_00', gain: 5 },
-        { id: 'eq_band_01', gain: -3 },
-        { id: 'eq_band_02', gain: 7 }
-      ];
-
-      store.handleFiltersReset();
-
-      expect(store.filters[0].gain).toBe(0);
-      expect(store.filters[1].gain).toBe(0);
-      expect(store.filters[2].gain).toBe(0);
-    });
-  });
-
-  describe('handleStateChanged', () => {
-    it('should update Equalizer state from WebSocket event', () => {
-      useMultiroomStore.mockReturnValue(createStandaloneMock());
-      setActivePinia(createPinia());
-      const store = useEqualizerStore();
-
-      store.state = 'disconnected';
-
-      store.handleStateChanged({ data: { state: 'running' } });
-
-      expect(store.state).toBe('running');
-    });
-
-    it('should default to disconnected when state is missing', () => {
-      useMultiroomStore.mockReturnValue(createStandaloneMock());
-      setActivePinia(createPinia());
-      const store = useEqualizerStore();
-
-      store.state = 'running';
-
-      store.handleStateChanged({ data: {} });
-
-      expect(store.state).toBe('disconnected');
     });
   });
 
@@ -1594,43 +1386,6 @@ describe('equalizerStore - Real-Time Sync (Story 6.4)', () => {
     });
   });
 
-  describe('AC3: Preset Change to Manual', () => {
-    it('should show isManualMode as true when preset is manual', () => {
-      useMultiroomStore.mockReturnValue(createStandaloneMock());
-      setActivePinia(createPinia());
-      const store = useEqualizerStore();
-
-      store.activePreset = 'manual';
-      store.filters = [];
-      store.builtinPresets = [];
-
-      expect(store.isManualMode).toBe(true);
-    });
-
-    it('should detect manual mode when filter gains differ from active preset', () => {
-      useMultiroomStore.mockReturnValue(createStandaloneMock());
-      setActivePinia(createPinia());
-      const store = useEqualizerStore();
-
-      store.activePreset = 'rock';
-      store.builtinPresets = [{ id: 'rock', gains: [5, 4, 3, 0, -1, -1, 0, 3, 4, 5] }];
-      store.filters = [
-        { id: 'eq_band_00', gain: 7 }, // Different from rock preset (5)
-        { id: 'eq_band_01', gain: 4 },
-        { id: 'eq_band_02', gain: 3 },
-        { id: 'eq_band_03', gain: 0 },
-        { id: 'eq_band_04', gain: -1 },
-        { id: 'eq_band_05', gain: -1 },
-        { id: 'eq_band_06', gain: 0 },
-        { id: 'eq_band_07', gain: 3 },
-        { id: 'eq_band_08', gain: 4 },
-        { id: 'eq_band_09', gain: 5 }
-      ];
-
-      expect(store.isManualMode).toBe(true);
-    });
-  });
-
   describe('AC4: Remote User Equalizer Changes', () => {
     it('should update local UI immediately on remote equalizer_changed event (no conflict)', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
@@ -1802,86 +1557,7 @@ describe('equalizerStore - Real-Time Sync (Story 6.4)', () => {
 });
 
 describe('equalizerStore - handleZoneCrossoverChanged (Story 6.2)', () => {
-  describe('legacy format support', () => {
-    it('should handle legacy crossover event format', () => {
-      useMultiroomStore.mockReturnValue(createStandaloneMock());
-      setActivePinia(createPinia());
-      const store = useEqualizerStore();
-
-      store.handleZoneCrossoverChanged({
-        data: {
-          zone_id: 'zone-living',
-          frequency: 80,
-          enabled: true,
-          has_subwoofer: true
-        }
-      });
-
-      expect(store.zoneCrossover['zone-living']).toBeDefined();
-      expect(store.zoneCrossover['zone-living'].frequency).toBe(80);
-      expect(store.zoneCrossover['zone-living'].enabled).toBe(true);
-      expect(store.zoneCrossover['zone-living'].has_subwoofer).toBe(true);
-    });
-  });
-
-  describe('new multiroom format support', () => {
-    it('should handle new multiroom.crossover_changed format', () => {
-      useMultiroomStore.mockReturnValue(createStandaloneMock());
-      setActivePinia(createPinia());
-      const store = useEqualizerStore();
-
-      store.handleZoneCrossoverChanged({
-        data: {
-          zone_id: 'zone-bedroom',
-          crossover_frequency: 100,
-          crossover_enabled: true
-          // No has_subwoofer in new format (handled by enriched zone)
-        }
-      });
-
-      expect(store.zoneCrossover['zone-bedroom']).toBeDefined();
-      expect(store.zoneCrossover['zone-bedroom'].frequency).toBe(100);
-      expect(store.zoneCrossover['zone-bedroom'].enabled).toBe(true);
-      expect(store.zoneCrossover['zone-bedroom'].has_subwoofer).toBe(false);
-    });
-
-    it('should prefer new field names over legacy when both present', () => {
-      useMultiroomStore.mockReturnValue(createStandaloneMock());
-      setActivePinia(createPinia());
-      const store = useEqualizerStore();
-
-      store.handleZoneCrossoverChanged({
-        data: {
-          zone_id: 'zone-mixed',
-          frequency: 80, // Legacy
-          crossover_frequency: 120, // New (takes precedence)
-          enabled: false, // Legacy
-          crossover_enabled: true // New (takes precedence)
-        }
-      });
-
-      expect(store.zoneCrossover['zone-mixed'].frequency).toBe(120);
-      expect(store.zoneCrossover['zone-mixed'].enabled).toBe(true);
-    });
-  });
-
   describe('missing data handling', () => {
-    it('should ignore event with missing zone_id', () => {
-      useMultiroomStore.mockReturnValue(createStandaloneMock());
-      setActivePinia(createPinia());
-      const store = useEqualizerStore();
-
-      store.handleZoneCrossoverChanged({
-        data: {
-          crossover_frequency: 80,
-          crossover_enabled: true
-          // No zone_id
-        }
-      });
-
-      expect(Object.keys(store.zoneCrossover).length).toBe(0);
-    });
-
     it('should handle empty data gracefully', () => {
       useMultiroomStore.mockReturnValue(createStandaloneMock());
       setActivePinia(createPinia());
