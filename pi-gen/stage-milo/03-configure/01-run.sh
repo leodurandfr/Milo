@@ -17,8 +17,8 @@ systemctl enable milo-readiness.service
 systemctl enable milo-kiosk.service
 systemctl enable milo-bluealsa.service
 systemctl enable milo-bluealsa-aplay.service
-systemctl enable milo-disable-wifi-power-management.service
 systemctl enable milo-eeprom-setup.service
+systemctl enable milo-cpu-governor.service
 systemctl enable milo-camilladsp.service
 systemctl enable nqptp.service
 systemctl enable seatd.service
@@ -41,6 +41,10 @@ systemctl disable snapclient.service 2>/dev/null || true
 systemctl disable milo-client.service 2>/dev/null || true
 systemctl disable milo-client-snapclient.service 2>/dev/null || true
 systemctl disable milo-client-camilladsp.service 2>/dev/null || true
+
+# First-boot user wizard: the milo user is pre-created, and the wizard would
+# block multi-user.target forever waiting for input on tty8
+systemctl disable userconfig.service 2>/dev/null || true
 CHROOT
 
 # ── Optimize boot performance ────────────────────────────────────────────────

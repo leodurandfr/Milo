@@ -85,6 +85,10 @@ EOF
     sudo mkdir -p /etc/NetworkManager/dnsmasq-shared.d
     sudo cp "$MILO_APP_DIR/rootfs/etc/NetworkManager/dnsmasq-shared.d/milo-captive.conf" /etc/NetworkManager/dnsmasq-shared.d/
 
+    # Disable WiFi power saving (replaces the old one-shot iw unit)
+    sudo mkdir -p /etc/NetworkManager/conf.d
+    sudo cp "$MILO_APP_DIR/rootfs/etc/NetworkManager/conf.d/90-milo-wifi-powersave.conf" /etc/NetworkManager/conf.d/
+
     log_success "Avahi configured (access via milo.local)"
 }
 

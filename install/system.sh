@@ -202,8 +202,8 @@ enable_services() {
     sudo systemctl enable milo-kiosk.service
     sudo systemctl enable milo-bluealsa.service
     sudo systemctl enable milo-bluealsa-aplay.service
-    sudo systemctl enable milo-disable-wifi-power-management.service
     sudo systemctl enable milo-camilladsp.service
+    sudo systemctl enable milo-cpu-governor.service
     sudo systemctl enable avahi-daemon
     sudo systemctl enable nginx
 
@@ -228,6 +228,10 @@ enable_services() {
     # section, but the symlinks persist until explicitly removed.
     sudo systemctl disable milo-snapserver-multiroom.service 2>/dev/null || true
     sudo systemctl disable milo-snapclient-multiroom.service 2>/dev/null || true
+
+    # Replaced by rootfs/etc/NetworkManager/conf.d/90-milo-wifi-powersave.conf
+    sudo systemctl disable milo-disable-wifi-power-management.service 2>/dev/null || true
+    sudo rm -f /etc/systemd/system/milo-disable-wifi-power-management.service
 
     log_success "Automatic startup configured"
 }
