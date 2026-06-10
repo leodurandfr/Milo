@@ -23,7 +23,7 @@ class RadioBrowserAPI:
     """
 
     def __init__(self, station_manager=None):
-        self.logger = logging.getLogger(__name__)
+        self.logger = logging.getLogger("source.radio.browser_api")
         self.session: Optional[aiohttp.ClientSession] = None
         self.station_manager = station_manager
         self._discovery = ServerDiscovery()
