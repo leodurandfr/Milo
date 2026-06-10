@@ -28,15 +28,15 @@ from backend.core.models.volume import VolumeConfig
 def _make_volume_service(startup_volume_db: float = DEFAULT_VOLUME_DB):
     """Create a mock VolumeService wired for sync tests."""
     vs = MagicMock()
-    vs._state_store = MagicMock()
-    vs._state_store.set_client_volume = AsyncMock()
-    vs._state_store.get_client_mute = MagicMock(return_value=False)
-    vs._state_store.has_client = MagicMock(return_value=True)
-    vs._equalizer_controller = MagicMock()
-    vs._equalizer_controller.set_equalizer_volume = AsyncMock(return_value=True)
-    vs._equalizer_controller.set_equalizer_mute = AsyncMock()
-    vs._equalizer_controller.apply_volumes_parallel = AsyncMock(return_value={})
-    vs._broadcast_volume_state = AsyncMock()
+    vs.state_store = MagicMock()
+    vs.state_store.set_client_volume = AsyncMock()
+    vs.state_store.get_client_mute = MagicMock(return_value=False)
+    vs.state_store.has_client = MagicMock(return_value=True)
+    vs.equalizer_controller = MagicMock()
+    vs.equalizer_controller.set_equalizer_volume = AsyncMock(return_value=True)
+    vs.equalizer_controller.set_equalizer_mute = AsyncMock()
+    vs.equalizer_controller.apply_volumes_parallel = AsyncMock(return_value={})
+    vs.broadcast_volume_state = AsyncMock()
     vs.volume_config = VolumeConfig(startup_volume_db=startup_volume_db)
     return vs
 
@@ -129,7 +129,7 @@ class TestSyncReconnectRetryLoop:
 
         assert result is True
         # Hardware called exactly once
-        ws._volume_service._equalizer_controller.set_equalizer_volume.assert_called_once()
+        ws._volume_service.equalizer_controller.set_equalizer_volume.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_retries_until_success(self, mock_settings_service, mock_state_machine):
@@ -139,7 +139,7 @@ class TestSyncReconnectRetryLoop:
             clients=[("client-a", "A", "192.168.1.1", -30.0, True)],
         )
         ws = _make_ws_service(registry)
-        eq = ws._volume_service._equalizer_controller
+        eq = ws._volume_service.equalizer_controller
         eq.set_equalizer_volume = AsyncMock(side_effect=[False, False, True])
 
         result = await ws._sync_reconnecting_client_volume("client-a", max_retries=5, retry_delay=0)
@@ -155,7 +155,7 @@ class TestSyncReconnectRetryLoop:
             clients=[("client-a", "A", "192.168.1.1", -30.0, True)],
         )
         ws = _make_ws_service(registry)
-        eq = ws._volume_service._equalizer_controller
+        eq = ws._volume_service.equalizer_controller
         eq.set_equalizer_volume = AsyncMock(return_value=False)
 
         result = await ws._sync_reconnecting_client_volume("client-a", max_retries=2, retry_delay=0)
@@ -171,7 +171,7 @@ class TestSyncReconnectRetryLoop:
             clients=[("client-a", "A", "192.168.1.1", -30.0, True)],
         )
         ws = _make_ws_service(registry)
-        eq = ws._volume_service._equalizer_controller
+        eq = ws._volume_service.equalizer_controller
         eq.set_equalizer_volume = AsyncMock(side_effect=[ConnectionError("timeout"), True])
 
         result = await ws._sync_reconnecting_client_volume("client-a", max_retries=2, retry_delay=0)
@@ -187,13 +187,13 @@ class TestSyncReconnectRetryLoop:
             clients=[("client-a", "A", "192.168.1.1", -30.0, True)],
         )
         ws = _make_ws_service(registry)
-        eq = ws._volume_service._equalizer_controller
+        eq = ws._volume_service.equalizer_controller
         eq.set_equalizer_volume = AsyncMock(return_value=False)
 
         await ws._sync_reconnecting_client_volume("client-a", max_retries=0, retry_delay=0)
 
         # State store was still updated (UI shows correct target)
-        ws._volume_service._state_store.set_client_volume.assert_called()
+        ws._volume_service.state_store.set_client_volume.assert_called()
 
     @pytest.mark.asyncio
     async def test_broadcast_only_on_success(self, mock_settings_service, mock_state_machine):
@@ -203,12 +203,12 @@ class TestSyncReconnectRetryLoop:
             clients=[("client-a", "A", "192.168.1.1", -30.0, True)],
         )
         ws = _make_ws_service(registry)
-        eq = ws._volume_service._equalizer_controller
+        eq = ws._volume_service.equalizer_controller
         eq.set_equalizer_volume = AsyncMock(return_value=False)
 
         await ws._sync_reconnecting_client_volume("client-a", max_retries=0, retry_delay=0)
 
-        ws._volume_service._broadcast_volume_state.assert_not_called()
+        ws._volume_service.broadcast_volume_state.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_no_volume_service_returns_false(self, mock_settings_service, mock_state_machine):
@@ -259,7 +259,7 @@ class TestSetOnlineAfterGate:
             clients=[("client-a", "A", "192.168.1.1", -30.0, False)],
         )
         ws = _make_ws_service(registry)
-        ws._volume_service._equalizer_controller.set_equalizer_volume = AsyncMock(return_value=False)
+        ws._volume_service.equalizer_controller.set_equalizer_volume = AsyncMock(return_value=False)
 
         result = await ws._sync_reconnecting_client_volume(
             "client-a", set_online_after=True, max_retries=1, retry_delay=0
@@ -653,7 +653,7 @@ class TestFireAndForgetTaskRecovery:
         )
         ws = _make_ws_service(registry)
         # Hardware always fails
-        ws._volume_service._equalizer_controller.set_equalizer_volume = AsyncMock(return_value=False)
+        ws._volume_service.equalizer_controller.set_equalizer_volume = AsyncMock(return_value=False)
 
         all_clients = [{"mac_id": "client-a", "id": "snap-a", "online": True, "last_seen_age": 0}]
         await ws._process_online_status_changes(all_clients)
@@ -707,7 +707,7 @@ class TestFireAndForgetTaskRecovery:
             clients=[],
         )
         ws = _make_ws_service(registry)
-        ws._volume_service._equalizer_controller.set_equalizer_volume = AsyncMock(return_value=False)
+        ws._volume_service.equalizer_controller.set_equalizer_volume = AsyncMock(return_value=False)
 
         await registry.register_client("client-new", "New", "192.168.1.10")
 
@@ -735,17 +735,17 @@ class TestApplyTargetVolumeToClient:
             clients=[("client-a", "A", "192.168.1.1", -30.0, True)],
         )
         ws = _make_ws_service(registry)
-        ws._volume_service._state_store.get_client_mute = MagicMock(return_value=True)
+        ws._volume_service.state_store.get_client_mute = MagicMock(return_value=True)
 
         result = await ws._apply_target_volume_to_client("client-a", -25.0)
 
         assert result is True
         # Volume applied with force=True
-        ws._volume_service._equalizer_controller.set_equalizer_volume.assert_called_once_with(
+        ws._volume_service.equalizer_controller.set_equalizer_volume.assert_called_once_with(
             "client-a", -25.0, force=True
         )
         # Mute state restored
-        ws._volume_service._equalizer_controller.set_equalizer_mute.assert_called_once_with(
+        ws._volume_service.equalizer_controller.set_equalizer_mute.assert_called_once_with(
             "client-a", True, force=True
         )
         # Registry updated
@@ -760,16 +760,16 @@ class TestApplyTargetVolumeToClient:
             clients=[("client-a", "A", "192.168.1.1", -30.0, True)],
         )
         ws = _make_ws_service(registry)
-        ws._volume_service._equalizer_controller.set_equalizer_volume = AsyncMock(return_value=False)
+        ws._volume_service.equalizer_controller.set_equalizer_volume = AsyncMock(return_value=False)
 
         result = await ws._apply_target_volume_to_client("client-a", -25.0)
 
         assert result is False
         # State store was still updated (UI correctness)
-        ws._volume_service._state_store.set_client_volume.assert_called_with("client-a", -25.0)
+        ws._volume_service.state_store.set_client_volume.assert_called_with("client-a", -25.0)
         # Mute is still applied even on hardware volume failure — CamillaDSP
         # starts muted, so skipping unmute would leave the client silent.
-        ws._volume_service._equalizer_controller.set_equalizer_mute.assert_called_once_with(
+        ws._volume_service.equalizer_controller.set_equalizer_mute.assert_called_once_with(
             "client-a", False, force=True
         )
 
@@ -820,7 +820,7 @@ class TestEndToEndReconnectionSync:
 
         # Track the volume sent to hardware
         applied_volumes = []
-        original_eq = ws._volume_service._equalizer_controller
+        original_eq = ws._volume_service.equalizer_controller
 
         async def capture_volume(mac_id, volume, force=False):
             applied_volumes.append((mac_id, volume))
@@ -849,7 +849,7 @@ class TestEndToEndReconnectionSync:
         startup = ws._volume_service.volume_config.startup_volume_db
 
         applied_volumes = []
-        original_eq = ws._volume_service._equalizer_controller
+        original_eq = ws._volume_service.equalizer_controller
 
         async def capture_volume(mac_id, volume, force=False):
             applied_volumes.append((mac_id, volume))
@@ -881,7 +881,7 @@ class TestEndToEndReconnectionSync:
         ws = _make_ws_service(registry)
 
         attempts = []
-        eq = ws._volume_service._equalizer_controller
+        eq = ws._volume_service.equalizer_controller
 
         async def flaky_hw(mac_id, volume, force=False):
             attempts.append(volume)

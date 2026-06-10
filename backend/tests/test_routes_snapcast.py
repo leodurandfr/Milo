@@ -43,9 +43,9 @@ class TestSnapcastRoutes:
         """State machine mock"""
         sm = Mock()
         sm.broadcast_event = AsyncMock()
-        # Mock volume_service with async _broadcast_volume_state for mute tests
+        # Mock volume_service with async broadcast_volume_state for mute tests
         sm.volume_service = Mock()
-        sm.volume_service._broadcast_volume_state = AsyncMock()
+        sm.volume_service.broadcast_volume_state = AsyncMock()
         return sm
 
     @pytest.fixture

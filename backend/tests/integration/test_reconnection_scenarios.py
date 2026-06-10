@@ -739,16 +739,16 @@ class TestInZoneReconnectionSyncIntegration:
         volume_service = AsyncMock()
         volume_service.volume_config = VolumeConfig(startup_volume_db=-45.0)
         volume_service.update_client_volume_db = AsyncMock()
-        volume_service._broadcast_volume_state = AsyncMock()
+        volume_service.broadcast_volume_state = AsyncMock()
         # Mock _state_store._clients to return proper client state objects
         mock_client_state = MagicMock()
         mock_client_state.mute = False
-        volume_service._state_store._clients = {
+        volume_service.state_store._clients = {
             "client-1": mock_client_state,
             "client-2": mock_client_state,
             "client-3": mock_client_state,
         }
-        volume_service._equalizer_controller = AsyncMock()
+        volume_service.equalizer_controller = AsyncMock()
         sm.volume_service = volume_service
 
         return sm
@@ -958,8 +958,8 @@ class TestInZoneReconnectionSyncIntegration:
         volume_service = mock_state_machine.volume_service
         mock_client_state = MagicMock()
         mock_client_state.mute = False
-        volume_service._state_store._clients = {"client-1": mock_client_state}
-        volume_service._equalizer_controller = AsyncMock()
+        volume_service.state_store._clients = {"client-1": mock_client_state}
+        volume_service.equalizer_controller = AsyncMock()
 
         # Simulate reconnection (include mac matching registered mac_id)
         client_data = {
@@ -971,7 +971,7 @@ class TestInZoneReconnectionSyncIntegration:
         await ws_service._sync_existing_client_volume("snapcast-client-123", client_data)
 
         # Verify broadcast was called
-        volume_service._broadcast_volume_state.assert_called()
+        volume_service.broadcast_volume_state.assert_called()
 
     @pytest.mark.asyncio
     async def test_equalizer_sync_uses_member_records(
@@ -1046,15 +1046,15 @@ class TestAC4SyncTimeCompliance:
         volume_service = AsyncMock()
         volume_service.volume_config = VolumeConfig(startup_volume_db=-45.0)
         volume_service.update_client_volume_db = AsyncMock()
-        volume_service._broadcast_volume_state = AsyncMock()
+        volume_service.broadcast_volume_state = AsyncMock()
         # Mock _state_store._clients to return proper client state objects
         mock_client_state = MagicMock()
         mock_client_state.mute = False
-        volume_service._state_store._clients = {
+        volume_service.state_store._clients = {
             "client-1": mock_client_state,
             "client-2": mock_client_state,
         }
-        volume_service._equalizer_controller = AsyncMock()
+        volume_service.equalizer_controller = AsyncMock()
         sm.volume_service = volume_service
 
         # Mock Equalizer services
@@ -1493,17 +1493,17 @@ class TestStandaloneReconnectionSyncIntegration:
         volume_service = AsyncMock()
         volume_service.volume_config = VolumeConfig(startup_volume_db=-45.0)
         volume_service.update_client_volume_db = AsyncMock()
-        volume_service._broadcast_volume_state = AsyncMock()
+        volume_service.broadcast_volume_state = AsyncMock()
         # Mock _state_store._clients to return proper client state objects
         mock_client_state = MagicMock()
         mock_client_state.mute = False
-        volume_service._state_store._clients = {
+        volume_service.state_store._clients = {
             "local-main": mock_client_state,
             "client-1": mock_client_state,
             "client-2": mock_client_state,
             "client-3": mock_client_state,
         }
-        volume_service._equalizer_controller = AsyncMock()
+        volume_service.equalizer_controller = AsyncMock()
         sm.volume_service = volume_service
 
         return sm
