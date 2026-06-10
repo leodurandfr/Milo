@@ -37,7 +37,7 @@ class PodcastDataService:
     SCHEMA_VERSION: int = 1
 
     def __init__(self, state_machine=None):
-        self._logger = logging.getLogger(__name__)
+        self._logger = logging.getLogger("source.podcast.data")
         self._data_file: Path = Path('/var/lib/milo/podcast_data.json')
         self._file_lock = asyncio.Lock()
         self._state_machine = state_machine

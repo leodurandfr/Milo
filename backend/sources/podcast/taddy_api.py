@@ -145,7 +145,7 @@ class TaddyAPI:
     MAX_CACHE_ENTRIES = 200
 
     def __init__(self, user_id: str, api_key: str, cache_duration_minutes: int = 120):
-        self.logger = logging.getLogger(__name__)
+        self.logger = logging.getLogger("source.podcast.taddy_api")
         self.user_id = user_id
         self.api_key = api_key
         self.session: Optional[aiohttp.ClientSession] = None

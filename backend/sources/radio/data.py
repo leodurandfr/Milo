@@ -44,7 +44,7 @@ class ImageManager:
     WEBP_QUALITY = 80
 
     def __init__(self):
-        self.logger = logging.getLogger(__name__)
+        self.logger = logging.getLogger("source.radio.images")
         self._ensure_directory()
 
     @handle_errors(default=None)
@@ -185,7 +185,7 @@ class StationDataService:
     """
 
     def __init__(self, state_machine=None):
-        self.logger = logging.getLogger(__name__)
+        self.logger = logging.getLogger("source.radio.data")
         self._state_machine = state_machine
         self.image_manager = ImageManager()
 

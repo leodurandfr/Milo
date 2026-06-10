@@ -34,7 +34,7 @@ class ServerDiscovery:
     TTL = timedelta(hours=1)
 
     def __init__(self) -> None:
-        self._logger = logging.getLogger(__name__)
+        self._logger = logging.getLogger("source.radio.discovery")
         self._servers: List[str] = []
         self._cursor: int = 0
         self._resolved_at: Optional[datetime] = None
