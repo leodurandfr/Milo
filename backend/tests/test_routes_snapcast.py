@@ -72,7 +72,11 @@ class TestSnapcastRoutes:
         """Test GET /api/routing/snapcast/server-config"""
         response = client.get("/api/routing/snapcast/server-config")
         assert response.status_code == 200
-        assert "config" in response.json()
+        body = response.json()
+        assert "config" in body
+        # Capabilities are the single source for the UI codec/preset options
+        assert body["capabilities"]["codecs"]
+        assert {p["id"] for p in body["capabilities"]["presets"]} == {"lan", "wifi_stable", "wifi_weak"}
 
     def test_get_server_config_unavailable(self, client):
         """Test GET /api/routing/snapcast/server-config when unavailable"""
@@ -81,6 +85,8 @@ class TestSnapcastRoutes:
         assert response.status_code == 200
         assert response.json()["config"] is None
         assert "error" in response.json()
+        # Static capabilities are served even when snapserver is down
+        assert response.json()["capabilities"]["codecs"]
 
     def test_update_server_config(self, client):
         """Test POST /api/routing/snapcast/server/config"""

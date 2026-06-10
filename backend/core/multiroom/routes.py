@@ -13,6 +13,7 @@ from backend.api.models import (
 )
 from backend.config.constants import CLIENT_API_PORT
 from backend.core.multiroom.routing import SnapclientEnv, DEFAULT_SNAPCLIENT_CONFIG
+from backend.core.multiroom.snapcast import NETWORK_PRESETS, SUPPORTED_CODECS
 
 logger = logging.getLogger(__name__)
 
@@ -81,11 +82,18 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine, set
 
     @router.get("/server-config")
     async def get_snapcast_server_config():
-        """Get server configuration."""
+        """Get server configuration + static capabilities (codec list, presets).
+
+        Capabilities are the single source the frontend builds its codec
+        options and quality presets from — they are returned even when the
+        snapserver itself is unavailable.
+        """
+        capabilities = {"codecs": SUPPORTED_CODECS, "presets": NETWORK_PRESETS}
         try:
             available = await snapcast_service.is_available()
             if not available:
-                return {"config": None, "error": "Snapcast server not available"}
+                return {"config": None, "capabilities": capabilities,
+                        "error": "Snapcast server not available"}
 
             config = await snapcast_service.get_server_config()
 
@@ -96,10 +104,10 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine, set
                     snapclient_buffer_time = 80  # Default value
                 config["snapclient_buffer_time"] = snapclient_buffer_time
 
-            return {"config": config}
+            return {"config": config, "capabilities": capabilities}
         except Exception as e:
             logger.error(f"Error getting server config: {e}")
-            return {"config": None, "error": str(e)}
+            return {"config": None, "capabilities": capabilities, "error": str(e)}
 
     # === Server configuration routes ===
 
