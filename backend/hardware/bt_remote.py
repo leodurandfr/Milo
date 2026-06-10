@@ -391,10 +391,8 @@ class BtRemoteController:
             return
 
         logger.debug("D-Bus: BLE device connected at %s", msg.path)
-        try:
+        with contextlib.suppress(asyncio.QueueFull):
             self._dbus_reconnect_queue.put_nowait(msg.path)
-        except asyncio.QueueFull:
-            pass  # Already have a pending reconnect event
 
     # ========================================================================
     # BLUETOOTHCTL HELPERS
@@ -733,10 +731,8 @@ class BtRemoteController:
             await asyncio.sleep(DISCOVERY_DURATION)
             scan_proc.stdin.write(b"scan off\nquit\n")
             await scan_proc.stdin.drain()
-            try:
+            with contextlib.suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(scan_proc.wait(), timeout=5)
-            except asyncio.TimeoutError:
-                pass
         except asyncio.CancelledError:
             raise
         finally:
@@ -775,10 +771,8 @@ class BtRemoteController:
 
             pair_proc.stdin.write(f"connect {address}\nquit\n".encode())
             await pair_proc.stdin.drain()
-            try:
+            with contextlib.suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(pair_proc.wait(), timeout=10)
-            except asyncio.TimeoutError:
-                pass
         except asyncio.CancelledError:
             raise
         except Exception as e:

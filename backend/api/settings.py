@@ -769,6 +769,7 @@ def create_settings_router(
             }
 
         except Exception as e:
+            logger.warning(f"Failed to retrieve network info: {e}")
             return {
                 "status": "error",
                 "message": str(e),

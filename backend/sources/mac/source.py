@@ -13,6 +13,7 @@ Features:
 - Active detection: Check recent journalctl logs for existing connections on start
 """
 import asyncio
+import contextlib
 import re
 import ipaddress
 from typing import Dict, Any, Optional, Tuple
@@ -134,10 +135,8 @@ class MacSource(BaseAudioSource):
         # Cancel monitoring task
         if self._monitor_task:
             self._monitor_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._monitor_task
-            except asyncio.CancelledError:
-                pass
             self._monitor_task = None
 
         self._reset_playback_state()
@@ -248,11 +247,9 @@ class MacSource(BaseAudioSource):
             self._logger.error(f"Monitoring error: {e}")
         finally:
             if proc and proc.returncode is None:
-                try:
+                with contextlib.suppress(ProcessLookupError):
                     proc.terminate()
                     await proc.wait()
-                except ProcessLookupError:
-                    pass
 
     @handle_errors(default=None)
     async def _process_log_line(self, line: str) -> None:

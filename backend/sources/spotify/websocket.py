@@ -6,6 +6,7 @@ Manages WebSocket connection to go-librespot for real-time
 event notifications (playback state, metadata updates, etc).
 """
 import asyncio
+import contextlib
 import json
 import logging
 from typing import Callable, Awaitable, Optional
@@ -74,10 +75,8 @@ class LibrespotWebSocket:
 
         if self._task and not self._task.done():
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
             self._task = None
 
         self._connected = False

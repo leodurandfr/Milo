@@ -14,6 +14,7 @@ Usage:
     await state_machine.transition_to_source(AudioSource.RADIO)
 """
 import asyncio
+import contextlib
 import time
 import logging
 from contextlib import asynccontextmanager
@@ -358,7 +359,7 @@ class AudioStateMachine:
 
     async def _monitor_inactivity(self) -> None:
         """Deactivate source after inactivity timeout without ACTIVE state."""
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             while True:
                 await asyncio.sleep(60)
 
@@ -385,9 +386,6 @@ class AudioStateMachine:
                     await self.transition_to_source(
                         AudioSource.NONE, expected_source=source
                     )
-
-        except asyncio.CancelledError:
-            pass
 
     def cleanup(self) -> None:
         """Cancel background tasks."""
