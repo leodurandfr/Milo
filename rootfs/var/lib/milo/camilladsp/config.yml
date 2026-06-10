@@ -8,7 +8,10 @@ devices:
   enable_rate_adjust: true
   target_level: 2048
   adjust_period: 10.0
-  silence_timeout: 0
+  # Pause the pipeline (and the I2S/DMA stream to the DAC) after 10 s of
+  # silence; resumes on signal. Threshold well below the noise floor.
+  silence_threshold: -90
+  silence_timeout: 10
   capture:
     type: Alsa
     channels: 2
