@@ -90,12 +90,6 @@ class VolumeStartupRequest(BaseModel):
     restore_last_volume: bool
 
 
-class VolumeSettingsPatchRequest(BaseModel):
-    """Partial update request for volume settings (AC4, AC5)"""
-    startup_volume_db: Optional[float] = Field(None, ge=-80, le=0, description="Startup volume in dB")
-    restore_last_volume: Optional[bool] = Field(None, description="Whether to restore last volume on startup")
-
-
 class VolumeControlRequest(BaseModel):
     """Toggle local device volume control (DAC mode)."""
     volume_control: bool
@@ -365,13 +359,6 @@ class ZoneCrossoverRequest(BaseModel):
     )
 
 
-class CrossoverFilterRequest(BaseModel):
-    """Direct crossover filter configuration (for milo-client API)"""
-    enabled: bool = Field(..., description="Enable or disable crossover highpass filter")
-    frequency: float = Field(default=80.0, ge=40, le=200, description="Crossover frequency in Hz")
-    q: float = Field(default=0.707, ge=0.5, le=1.5, description="Filter Q factor (0.707 = Butterworth)")
-
-
 class EqualizerPresetRequest(BaseModel):
     """Equalizer preset loading request"""
     preset_id: str = Field(..., min_length=1, max_length=50, description="Preset ID to load")
@@ -521,20 +508,6 @@ class RegisterClientRequest(BaseModel):
             return v
         stripped = v.strip()
         return stripped or None
-
-    @field_validator('speaker_type')
-    @classmethod
-    def validate_speaker_type(cls, v):
-        if v is not None and v not in SPEAKER_TYPES:
-            raise ValueError(f"Invalid speaker_type '{v}'. Must be one of: {', '.join(SPEAKER_TYPES)}")
-        return v
-
-
-class UpdatePendingClientRequest(BaseModel):
-    """Request to update a pending client's metadata."""
-    name: Optional[str] = None
-    speaker_type: Optional[Literal['satellite', 'bookshelf', 'tower', 'subwoofer']] = None
-    audio_id: Optional[str] = None
 
     @field_validator('speaker_type')
     @classmethod

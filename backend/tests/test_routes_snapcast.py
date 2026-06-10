@@ -49,28 +49,19 @@ class TestSnapcastRoutes:
         return sm
 
     @pytest.fixture
-    def mock_camilladsp_service(self):
-        """Equalizer service mock for local mute control"""
-        service = Mock()
-        service.set_mute = AsyncMock(return_value=True)
-        return service
-
-    @pytest.fixture
-    def client(self, mock_routing_service, mock_snapcast_service, mock_state_machine, mock_camilladsp_service):
+    def client(self, mock_routing_service, mock_snapcast_service, mock_state_machine):
         """Fixture to create a TestClient"""
         app = FastAPI()
         router = create_snapcast_router(
             mock_routing_service,
             mock_snapcast_service,
             mock_state_machine,
-            camilladsp_service=mock_camilladsp_service
         )
         app.include_router(router)
         client = TestClient(app)
         client._mock_routing = mock_routing_service
         client._mock_snapcast = mock_snapcast_service
         client._mock_state_machine = mock_state_machine
-        client._mock_camilladsp_service = mock_camilladsp_service
         return client
 
     # ===================

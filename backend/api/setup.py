@@ -65,7 +65,7 @@ def _atomic_write_json(path, data: dict) -> None:
     os.replace(tmp, path)
 
 
-def create_setup_router(settings_service, hardware_service, systemd_manager, network_service):
+def create_setup_router(settings_service, hardware_service, network_service):
     """Create setup wizard router with injected services."""
     router = APIRouter(prefix="/api/setup", tags=["setup"])
 

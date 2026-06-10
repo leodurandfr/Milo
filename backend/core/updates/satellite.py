@@ -54,7 +54,7 @@ class SatelliteUpdateService:
             return []
 
         # Probe all candidates in parallel
-        tasks = [self._check_satellite_api(mac_id, client.ip) for mac_id, client in candidates]
+        tasks = [self._check_satellite_api(client.ip) for _mac_id, client in candidates]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         satellites = []
@@ -78,7 +78,7 @@ class SatelliteUpdateService:
         return satellites
 
     @handle_errors(default={"online": False}, level='debug')
-    async def _check_satellite_api(self, mac_id: str, ip: str) -> Dict[str, Any]:
+    async def _check_satellite_api(self, ip: str) -> Dict[str, Any]:
         """Checks if a satellite API responds and retrieves its info."""
         url = f"http://{ip}:{self.satellite_api_port}/status"
 

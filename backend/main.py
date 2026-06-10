@@ -165,7 +165,6 @@ app.include_router(routing_router)
 
 snapcast_router = create_snapcast_router(
     routing_service, snapcast_service, state_machine,
-    camilladsp_service=camilladsp_service, proxy_service=equalizer_proxy_service,
     settings_service=settings_service,
     client_registry_service=client_registry_service,
 )
@@ -173,7 +172,7 @@ app.include_router(snapcast_router)
 
 multiroom_equalizer_service = get_service("multiroom_equalizer_service")
 equalizer_router = create_equalizer_router(
-    camilladsp_service, state_machine, settings_service, routing_service,
+    camilladsp_service, routing_service,
     crossover_service,
     client_registry_service, equalizer_router_service, multiroom_equalizer_service,
     volume_service
@@ -228,7 +227,7 @@ programs_router = create_programs_router(
 app.include_router(programs_router)
 
 health_router = create_health_router(
-    state_machine, routing_service, snapcast_service,
+    state_machine, routing_service,
     settings_service=settings_service, network_service=network_service
 )
 app.include_router(health_router)
@@ -249,7 +248,7 @@ app.include_router(ir_remote_router)
 fan_router = create_fan_router(fan_controller, settings_service)
 app.include_router(fan_router)
 
-setup_router = create_setup_router(settings_service, hardware_service, systemd_manager, network_service)
+setup_router = create_setup_router(settings_service, hardware_service, network_service)
 app.include_router(setup_router)
 
 network_router = create_network_router(network_service)

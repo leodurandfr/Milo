@@ -6,7 +6,7 @@ import time
 from fastapi import APIRouter
 from typing import Dict, Any
 
-def create_health_router(state_machine, routing_service, snapcast_service,
+def create_health_router(state_machine, routing_service,
                          settings_service, network_service):
     """Creates health check router"""
     router = APIRouter(prefix="/api", tags=["health"])

@@ -333,13 +333,13 @@ def create_settings_router(
 
                     # === EQUALIZER ===
                     elif app == 'equalizer':
-                        # Get the active source to restart the source
+                        # Get the active source for logging
                         current_state = state_machine.get_current_state()
                         active_source = coerce_audio_source_or_none(current_state["active_source"])
 
                         operations_log.append("Disabling equalizer effects")
                         logger.info(f"Disabling equalizer effects for active source: {active_source.value if active_source else 'none'}")
-                        await routing_service.set_equalizer_effects_enabled(False, active_source)
+                        await routing_service.set_equalizer_effects_enabled(False)
 
                 # === HANDLE ENABLES ===
                 for app in enabled_apps_new:
@@ -364,13 +364,13 @@ def create_settings_router(
 
                     # === EQUALIZER ===
                     elif app == 'equalizer':
-                        # Get the active source to restart the source
+                        # Get the active source for logging
                         current_state = state_machine.get_current_state()
                         active_source = coerce_audio_source_or_none(current_state["active_source"])
 
                         operations_log.append("Enabling equalizer effects")
                         logger.info(f"Enabling equalizer effects for active source: {active_source.value if active_source else 'none'}")
-                        await routing_service.set_equalizer_effects_enabled(True, active_source)
+                        await routing_service.set_equalizer_effects_enabled(True)
 
                 # All operations succeeded → save settings
                 operations_log.append("Saving new settings")

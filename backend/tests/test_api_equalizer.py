@@ -54,14 +54,6 @@ def mock_camilladsp():
 
 
 @pytest.fixture
-def mock_state_machine():
-    sm = Mock()
-    sm.broadcast_event = AsyncMock()
-    sm.system_state = Mock(active_source=None)
-    return sm
-
-
-@pytest.fixture
 def mock_mre():
     """Mock MultiroomEqualizerService — the unified access layer."""
     mre = Mock()
@@ -103,12 +95,10 @@ def mock_registry():
 
 
 @pytest.fixture
-def client(mock_camilladsp, mock_state_machine, mock_mre, mock_equalizer_router, mock_registry):
+def client(mock_camilladsp, mock_mre, mock_equalizer_router, mock_registry):
     app = FastAPI()
     router = create_equalizer_router(
         camilladsp_service=mock_camilladsp,
-        state_machine=mock_state_machine,
-        settings_service=Mock(),
         routing_service=Mock(),
         crossover_service=Mock(),
         client_registry_service=mock_registry,

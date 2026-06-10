@@ -677,7 +677,7 @@ class AudioRoutingService:
         except Exception as e:
             self.logger.warning(f"multiroom_error broadcast failed: {e}")
 
-    async def set_equalizer_effects_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
+    async def set_equalizer_effects_enabled(self, enabled: bool) -> bool:
         """
         Enables/disables equalizer effects (not the service itself).
 
