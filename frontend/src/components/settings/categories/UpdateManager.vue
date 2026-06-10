@@ -242,7 +242,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
-import { apiCall } from '@/services/apiCall';
+import { storeToRefs } from 'pinia';
 import useWebSocket from '@/services/websocket';
 import Button from '@/components/ui/Button.vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
@@ -250,6 +250,7 @@ import { useI18n } from '@/services/i18n';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useUpdatesStore } from '@/stores/updatesStore';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 
@@ -294,30 +295,30 @@ function formatGitVersion(version) {
 }
 
 const { t } = useI18n();
-const { on, onReconnect } = useWebSocket();
+const { onReconnect } = useWebSocket();
 const unifiedStore = useUnifiedAudioStore();
 const multiroomStore = useMultiroomStore();
 const settingsStore = useSettingsStore();
+const updatesStore = useUpdatesStore();
+
+// Update state and `programs/*` WS handling live in updatesStore (handlers
+// registered centrally in App.vue); this component only renders store state.
+const {
+  localPrograms, localProgramsLoading, localProgramsError,
+  satellitesError, satelliteByMacId,
+} = storeToRefs(updatesStore);
+const {
+  loadLocalPrograms, loadSatellites,
+  canUpdateLocal, startLocalUpdate,
+  startSatelliteUpdate, startSatelliteAppUpdate, startSatelliteCamillaUpdate,
+  isLocalUpdating, isLocalUpdateCompleted,
+  isSatelliteUpdating, isSatelliteUpdateCompleted,
+  isSatelliteAppUpdating, isSatelliteAppUpdateCompleted,
+  isSatelliteCamillaUpdating, isSatelliteCamillaUpdateCompleted,
+  isAnyUpdateInProgress,
+} = updatesStore;
 
 const isMultiroomEnabled = computed(() => unifiedStore.systemState.multiroom_enabled);
-
-// Local state
-const localPrograms = ref({});
-const localProgramsLoading = ref(true);
-const localProgramsError = ref(false);
-
-const satellites = ref(null); // null = not loaded, [] = loaded empty, [...] = loaded
-const satellitesError = ref(false);
-
-// Lookup map: mac_id → satellite data (for matching anticipated clients to loaded satellites)
-const satelliteByMacId = computed(() => {
-  if (!satellites.value) return {};
-  const map = {};
-  for (const sat of satellites.value) {
-    map[sat.mac_id] = sat;
-  }
-  return map;
-});
 
 // Non-local satellites: online clients + clients with an active update (anticipates snapclient restart during update)
 const anticipatedSatellites = computed(() =>
@@ -327,21 +328,6 @@ const anticipatedSatellites = computed(() =>
     return isSatelliteUpdating(c.mac_id) || isSatelliteAppUpdating(c.mac_id) || isSatelliteCamillaUpdating(c.mac_id);
   })
 );
-
-// Update states
-const localUpdateStates = ref({});
-const localCompletedUpdates = ref(new Set());
-
-const satelliteUpdateStates = ref({});
-const satelliteCompletedUpdates = ref(new Set());
-
-const satelliteAppUpdateStates = ref({});
-const satelliteAppCompletedUpdates = ref(new Set());
-
-const satelliteCamillaUpdateStates = ref({});
-const satelliteCamillaCompletedUpdates = ref(new Set());
-
-const supportedLocalUpdates = ['milo', 'go-librespot', 'shairport-sync', 'multiroom', 'camilladsp'];
 
 // Debug: toggle via console with window.__miloDebugUpdating(true/false)
 const debugForceUpdating = ref(false);
@@ -366,23 +352,7 @@ const enabledProgramCount = computed(() =>
   Object.keys(programToDockApp).filter(isProgramEnabled).length + 1
 );
 
-// === LOCAL PROGRAMS ===
-
-async function loadLocalPrograms() {
-  localProgramsLoading.value = true;
-  localProgramsError.value = false;
-  const result = await apiCall.get('/api/programs', {
-    category: 'updates',
-    message: 'Error loading programs',
-    checkStatus: true
-  });
-  if (result.ok) {
-    localPrograms.value = result.data.programs || {};
-  } else {
-    localProgramsError.value = true;
-  }
-  localProgramsLoading.value = false;
-}
+// === DISPLAY HELPERS ===
 
 function getLocalInstalledVersion(program) {
   const versions = program.installed?.versions || {};
@@ -394,208 +364,9 @@ function getLocalLatestVersion(program) {
   return program.latest?.version || null;
 }
 
-function canUpdateLocal(programKey) {
-  return supportedLocalUpdates.includes(programKey);
-}
-
-function isLocalUpdating(programKey) {
-  return localUpdateStates.value[programKey]?.updating || false;
-}
-
-function isLocalUpdateCompleted(programKey) {
-  return localCompletedUpdates.value.has(programKey);
-}
-
-async function startLocalUpdate(programKey) {
-  if (!canUpdateLocal(programKey) || isLocalUpdating(programKey)) return;
-  localUpdateStates.value[programKey] = { updating: true };
-  const result = await apiCall.post(`/api/programs/${programKey}/update`, null, {
-    category: 'updates',
-    message: `Error starting update for ${programKey}`,
-    checkStatus: true
-  });
-  if (!result.ok) {
-    delete localUpdateStates.value[programKey];
-  }
-}
-
-// === SATELLITES ===
-
-async function loadSatellites() {
-  satellites.value = null;
-  satellitesError.value = false;
-  const result = await apiCall.get('/api/programs/satellites', {
-    category: 'updates',
-    message: 'Error loading satellites',
-    checkStatus: true
-  });
-  if (result.ok) {
-    satellites.value = result.data.satellites || [];
-  } else {
-    satellitesError.value = true;
-  }
-}
-
-function isSatelliteUpdating(macId) {
-  return satelliteUpdateStates.value[macId]?.updating || false;
-}
-
-function isSatelliteUpdateCompleted(macId) {
-  return satelliteCompletedUpdates.value.has(macId);
-}
-
-async function startSatelliteUpdate(macId) {
-  if (isSatelliteUpdating(macId)) return;
-  satelliteUpdateStates.value[macId] = { updating: true };
-  const result = await apiCall.post(`/api/programs/satellites/${macId}/update`, null, {
-    category: 'updates',
-    message: `Error starting update for satellite ${macId}`,
-    checkStatus: true
-  });
-  if (!result.ok) {
-    delete satelliteUpdateStates.value[macId];
-  }
-}
-
-// === SATELLITE APP UPDATES ===
-
-function isSatelliteAppUpdating(macId) {
-  return satelliteAppUpdateStates.value[macId]?.updating || false;
-}
-
-function isSatelliteAppUpdateCompleted(macId) {
-  return satelliteAppCompletedUpdates.value.has(macId);
-}
-
-async function startSatelliteAppUpdate(macId) {
-  if (isSatelliteAppUpdating(macId)) return;
-  satelliteAppUpdateStates.value[macId] = { updating: true };
-  const result = await apiCall.post(`/api/programs/satellites/${macId}/update-app`, null, {
-    category: 'updates',
-    message: `Error starting app update for satellite ${macId}`,
-    checkStatus: true
-  });
-  if (!result.ok) {
-    delete satelliteAppUpdateStates.value[macId];
-  }
-}
-
-// === SATELLITE CAMILLADSP UPDATES ===
-
-function isSatelliteCamillaUpdating(macId) {
-  return satelliteCamillaUpdateStates.value[macId]?.updating || false;
-}
-
-function isSatelliteCamillaUpdateCompleted(macId) {
-  return satelliteCamillaCompletedUpdates.value.has(macId);
-}
-
-async function startSatelliteCamillaUpdate(macId) {
-  if (isSatelliteCamillaUpdating(macId)) return;
-  satelliteCamillaUpdateStates.value[macId] = { updating: true };
-  const result = await apiCall.post(`/api/programs/satellites/${macId}/update-camilladsp`, null, {
-    category: 'updates',
-    message: `Error starting CamillaDSP update for satellite ${macId}`,
-    checkStatus: true
-  });
-  if (!result.ok) {
-    delete satelliteCamillaUpdateStates.value[macId];
-  }
-}
-
-function isAnyUpdateInProgress() {
-  return Object.values(localUpdateStates.value).some(state => state.updating) ||
-    Object.values(satelliteUpdateStates.value).some(state => state.updating) ||
-    Object.values(satelliteAppUpdateStates.value).some(state => state.updating) ||
-    Object.values(satelliteCamillaUpdateStates.value).some(state => state.updating);
-}
-
-// === WEBSOCKET HANDLERS ===
-
-const wsListeners = {
-  'program_update_progress': (msg) => {
-    const { program, status } = msg.data;
-    if (program && localUpdateStates.value[program]) {
-      localUpdateStates.value[program].updating = status === 'updating';
-    }
-  },
-  'program_update_complete': (msg) => {
-    const { program, success, message, error, old_version, new_version } = msg.data;
-
-    if (program) {
-      delete localUpdateStates.value[program];
-
-      if (success) {
-        localCompletedUpdates.value.add(program);
-        loadLocalPrograms();
-      }
-    }
-  },
-  'satellite_update_progress': (msg) => {
-    const { mac_id, status } = msg.data;
-    if (mac_id && satelliteUpdateStates.value[mac_id]) {
-      satelliteUpdateStates.value[mac_id].updating = status === 'updating';
-    }
-  },
-  'satellite_update_complete': (msg) => {
-    const { mac_id, success } = msg.data;
-
-    if (mac_id) {
-      delete satelliteUpdateStates.value[mac_id];
-
-      if (success) {
-        satelliteCompletedUpdates.value.add(mac_id);
-        loadSatellites();
-      }
-    }
-  },
-  'satellite_app_update_progress': (msg) => {
-    const { mac_id, status } = msg.data;
-    if (mac_id && satelliteAppUpdateStates.value[mac_id]) {
-      satelliteAppUpdateStates.value[mac_id].updating = status === 'updating';
-    }
-  },
-  'satellite_app_update_complete': (msg) => {
-    const { mac_id, success } = msg.data;
-
-    if (mac_id) {
-      delete satelliteAppUpdateStates.value[mac_id];
-
-      if (success) {
-        satelliteAppCompletedUpdates.value.add(mac_id);
-        loadSatellites();
-      }
-    }
-  },
-  'satellite_camilladsp_update_progress': (msg) => {
-    const { mac_id, status } = msg.data;
-    if (mac_id && satelliteCamillaUpdateStates.value[mac_id]) {
-      satelliteCamillaUpdateStates.value[mac_id].updating = status === 'updating';
-    }
-  },
-  'satellite_camilladsp_update_complete': (msg) => {
-    const { mac_id, success } = msg.data;
-
-    if (mac_id) {
-      delete satelliteCamillaUpdateStates.value[mac_id];
-
-      if (success) {
-        satelliteCamillaCompletedUpdates.value.add(mac_id);
-        loadSatellites();
-      }
-    }
-  }
-};
-
 // === LIFECYCLE ===
 
-
 onMounted(async () => {
-  // Register WebSocket listeners first so no events are missed during loading
-  Object.entries(wsListeners).forEach(([eventType, handler]) => {
-    on('programs', eventType, handler);
-  });
-
   // Re-sync state after WS reconnect (prevents stuck update buttons if events were missed)
   onReconnect(() => {
     loadLocalPrograms();

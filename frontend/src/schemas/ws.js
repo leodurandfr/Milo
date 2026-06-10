@@ -50,6 +50,27 @@ const EqFilterWireSchema = z.object({
   enabled: z.boolean().optional(),
 });
 
+// Backend: backend/api/programs.py _create_background_update — progress events
+// carry {program|mac_id, status, progress, message}; completion events carry
+// {program|mac_id, success} plus message/error/old_version/new_version, which
+// the store does not consume.
+const ProgramUpdateProgressSchema = z.object({
+  program: z.string(),
+  status: z.string(),
+});
+const ProgramUpdateCompleteSchema = z.object({
+  program: z.string(),
+  success: z.boolean(),
+});
+const SatelliteUpdateProgressSchema = z.object({
+  mac_id: z.string(),
+  status: z.string(),
+});
+const SatelliteUpdateCompleteSchema = z.object({
+  mac_id: z.string(),
+  success: z.boolean(),
+});
+
 // Backend: backend/hardware/fan.py FanController.get_status() — config + telemetry.
 const FanStatusSchema = z.object({
   available: z.boolean(),
@@ -112,6 +133,16 @@ export const wsEventRegistry = {
   // tick). Same shape; the store routes config vs telemetry to separate slices.
   'settings.fan_config_changed': FanStatusSchema,
   'settings.fan_status_changed': FanStatusSchema,
+  // Backend: backend/api/programs.py — local program + satellite update
+  // progress/completion, consumed by updatesStore.
+  'programs.program_update_progress': ProgramUpdateProgressSchema,
+  'programs.program_update_complete': ProgramUpdateCompleteSchema,
+  'programs.satellite_update_progress': SatelliteUpdateProgressSchema,
+  'programs.satellite_update_complete': SatelliteUpdateCompleteSchema,
+  'programs.satellite_app_update_progress': SatelliteUpdateProgressSchema,
+  'programs.satellite_app_update_complete': SatelliteUpdateCompleteSchema,
+  'programs.satellite_camilladsp_update_progress': SatelliteUpdateProgressSchema,
+  'programs.satellite_camilladsp_update_complete': SatelliteUpdateCompleteSchema,
   // Backend: backend/core/audio_source.py:583 — broadcast_position_update.
   // Position and duration are in milliseconds.
   'source.position_update': z.object({
