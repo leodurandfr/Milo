@@ -89,12 +89,12 @@ These services are **NOT enabled at boot**. They are started/stopped by the Milo
 
 ### Utility Services (Always Enabled)
 
-#### milo-disable-wifi-power-management.service
-- **Role**: Disables WiFi power saving to prevent audio dropouts
+#### milo-cpu-governor.service
+- **Role**: Sets the CPU frequency governor to schedutil (idle heat reduction)
 - **Type**: oneshot
 - **Dependencies**: multi-user.target
 - **Startup**: Enabled at boot
-- **Notes**: Executes once at boot
+- **Notes**: WiFi power saving is disabled via NetworkManager config (rootfs/etc/NetworkManager/conf.d/90-milo-wifi-powersave.conf), not a unit
 
 ## Service Dependencies Graph
 
@@ -108,7 +108,7 @@ graphical.target
 
 multi-user.target
   ├─ milo-backend.service
-  ├─ milo-disable-wifi-power-management.service
+  ├─ milo-cpu-governor.service
   │
   └─ (dynamically started by backend)
        ├─ milo-spotify.service
@@ -156,7 +156,7 @@ sudo systemctl enable milo-readiness.service
 sudo systemctl enable milo-kiosk.service
 sudo systemctl enable milo-bluealsa.service
 sudo systemctl enable milo-bluealsa-aplay.service
-sudo systemctl enable milo-disable-wifi-power-management.service
+sudo systemctl enable milo-cpu-governor.service
 ```
 
 Audio source services (librespot, roc, radio, podcast) and multiroom services (snapcast) are **NOT enabled** - they are managed dynamically by the backend.

@@ -1,0 +1,10 @@
+[Unit]
+Description=Milo — set CPU frequency governor to schedutil
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'for p in /sys/devices/system/cpu/cpufreq/policy*/scaling_governor; do echo schedutil > "$p"; done'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

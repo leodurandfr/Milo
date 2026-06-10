@@ -244,6 +244,10 @@ chmod 755 /etc/NetworkManager/dispatcher.d/90-milo-network
 mkdir -p /etc/NetworkManager/dnsmasq-shared.d
 cp /home/milo/milo/rootfs/etc/NetworkManager/dnsmasq-shared.d/milo-captive.conf /etc/NetworkManager/dnsmasq-shared.d/
 
+# Disable WiFi power saving (replaces the old one-shot iw unit)
+mkdir -p /etc/NetworkManager/conf.d
+cp /home/milo/milo/rootfs/etc/NetworkManager/conf.d/90-milo-wifi-powersave.conf /etc/NetworkManager/conf.d/
+
 # NetworkManager connectivity check — drop-in read by the backend connectivity
 # D-Bus subscriber (backend/core/connectivity/service.py). Written inline because
 # install/network.sh::configure_nm_connectivity also reloads/restarts NetworkManager,
