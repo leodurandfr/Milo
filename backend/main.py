@@ -45,12 +45,16 @@ _log_level = getattr(logging, _log_level_name, logging.WARNING)
 logging.basicConfig(level=_log_level)
 logger = logging.getLogger(__name__)
 
-# Persist errors/warnings to rotating log file
+# Persist errors/warnings to rotating log file. Fail open if the data dir is
+# missing (CI, non-Pi dev) — systemd's StateDirectory guarantees it in production.
 from backend.config.constants import ERROR_LOG_FILE
-_file_handler = RotatingFileHandler(ERROR_LOG_FILE, maxBytes=2*1024*1024, backupCount=3)
-_file_handler.setLevel(logging.WARNING)
-_file_handler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s %(name)s - %(message)s'))
-logging.getLogger().addHandler(_file_handler)
+try:
+    _file_handler = RotatingFileHandler(ERROR_LOG_FILE, maxBytes=2*1024*1024, backupCount=3)
+    _file_handler.setLevel(logging.WARNING)
+    _file_handler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s %(name)s - %(message)s'))
+    logging.getLogger().addHandler(_file_handler)
+except OSError as e:
+    logger.warning(f"Error log persistence disabled ({ERROR_LOG_FILE}): {e}")
 
 # Broadcast backend errors to frontend via WebSocket. ERROR-only: WARNINGs are
 # operational noise (radio mirror hiccups, Snapcast/fan/mpv) and would surface as
