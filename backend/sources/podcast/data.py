@@ -95,6 +95,11 @@ class PodcastDataService:
             await save_versioned_json(self._data_file, data, self.SCHEMA_VERSION)
         return True
 
+    async def _broadcast_event(self, event_type: str, data: Dict[str, Any]) -> None:
+        """Broadcast podcast event via state machine (WebSocket)."""
+        if self._state_machine:
+            await self._state_machine.broadcast_event("source", event_type, {**data, "source": "podcast"})
+
     # ========== SUBSCRIPTIONS ==========
 
     async def add_subscription(
@@ -127,17 +132,25 @@ class PodcastDataService:
             existing['image_url'] = image_url
             existing['children_hash'] = children_hash
             existing['last_checked'] = int(time.time())
+            subscription = existing
         else:
-            data['subscriptions'].append({
+            subscription = {
                 'uuid': podcast_uuid,
                 'name': name,
                 'image_url': image_url,
                 'children_hash': children_hash,
                 'added_at': int(time.time()),
                 'last_checked': int(time.time())
-            })
+            }
+            data['subscriptions'].append(subscription)
 
-        return await self.save_data(data)
+        success = await self.save_data(data)
+
+        if success:
+            # WS payload: {"source": "podcast", "podcast": <subscription dict>}
+            await self._broadcast_event("favorite_added", {"podcast": subscription})
+
+        return success
 
     async def remove_subscription(self, podcast_uuid: str) -> bool:
         """Remove podcast from subscriptions."""
@@ -150,7 +163,13 @@ class PodcastDataService:
         ]
 
         if len(data['subscriptions']) != original_count:
-            return await self.save_data(data)
+            success = await self.save_data(data)
+
+            if success:
+                # WS payload: {"source": "podcast", "uuid": <podcast series uuid>}
+                await self._broadcast_event("favorite_removed", {"uuid": podcast_uuid})
+
+            return success
 
         return True
 

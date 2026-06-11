@@ -300,8 +300,13 @@ export const usePodcastStore = defineStore('podcast', () => {
 
   // Preload subscriptions list only (no Taddy API call)
   // Called at app startup for instant hasSubscriptions check
-  async function preloadSubscriptionsList() {
-    if (subscriptionsListLoaded.value) return;
+  //
+  // force=true refetches even when already loaded (reconnect/tab-visible
+  // resync — favorite_* WS deltas may have been missed) and invalidates the
+  // latest-episodes cache so the next HomeView open refetches with fresh
+  // subscription and progress state (lazy: no Taddy call during the resync).
+  async function preloadSubscriptionsList({ force = false } = {}) {
+    if (subscriptionsListLoaded.value && !force) return;
     const result = await apiCall.get('/api/podcast/subscriptions', {
       category: 'store',
       message: 'Error preloading subscriptions list',
@@ -311,6 +316,9 @@ export const usePodcastStore = defineStore('podcast', () => {
         result.data.subscriptions || []
       );
       subscriptionsListLoaded.value = true;
+      if (force) {
+        subscriptionsLoaded.value = false;
+      }
     }
   }
 
@@ -373,11 +381,10 @@ export const usePodcastStore = defineStore('podcast', () => {
     }
   }
 
+  // Called after a local subscribe AND from the favorite_added WS handler
+  // (cross-device sync) — upsert so a re-subscribe refreshes metadata
   function addSubscription(subscription) {
-    // Add to subscriptions Map if not already present (O(1) lookup)
-    if (!subscriptions.value.has(subscription.uuid)) {
-      subscriptions.value.set(subscription.uuid, subscription);
-    }
+    subscriptions.value.set(subscription.uuid, subscription);
     // Mark as needing refresh to fetch latest episodes on next HomeView load
     subscriptionsLoaded.value = false;
   }

@@ -143,6 +143,18 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   /**
+   * Assign a config ref only when its content actually changed. loadAllSettings
+   * re-runs on every reconnect/tab-visible resync; a fresh object with identical
+   * values would retrigger watchers (e.g. PodcastSettings syncs its local input
+   * fields from the store and would clobber in-flight edits).
+   */
+  function setIfChanged(target, value) {
+    if (JSON.stringify(target.value) !== JSON.stringify(value)) {
+      target.value = value;
+    }
+  }
+
+  /**
    * Load all settings in parallel
    */
   async function loadAllSettings() {
@@ -159,15 +171,15 @@ export const useSettingsStore = defineStore('settings', () => {
       if (d) {
         language.value = d.language ?? 'english';
 
-        volumeLimits.value = {
+        setIfChanged(volumeLimits, {
           min_db: d.volume_limits?.min_db ?? -80.0,
           max_db: d.volume_limits?.max_db ?? -20.0
-        };
+        });
 
-        volumeStartup.value = {
+        setIfChanged(volumeStartup, {
           startup_volume_db: d.volume_startup?.startup_volume_db ?? -45.0,
           restore_last_volume: d.volume_startup?.restore_last_volume ?? true
-        };
+        });
 
         volumeSteps.value.step_rotary_db = d.rotary_steps?.step_rotary_db ?? 2.0;
         volumeSteps.value.step_bt_remote_db = d.bt_remote_steps?.step_bt_remote_db ?? 2.0;
@@ -175,7 +187,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
         if (d.dock_apps?.enabled_apps) {
           const enabledApps = d.dock_apps.enabled_apps;
-          dockApps.value = {
+          setIfChanged(dockApps, {
             spotify: enabledApps.includes('spotify'),
             bluetooth: enabledApps.includes('bluetooth'),
             radio: enabledApps.includes('radio'),
@@ -186,52 +198,52 @@ export const useSettingsStore = defineStore('settings', () => {
             equalizer: enabledApps.includes('equalizer'),
             multiroom: enabledApps.includes('multiroom'),
             settings: enabledApps.includes('settings')
-          };
+          });
           syncSourceOrder(enabledApps);
         }
 
-        podcastCredentials.value = {
+        setIfChanged(podcastCredentials, {
           taddy_user_id: d.podcast_credentials?.taddy_user_id ?? '',
           taddy_api_key: d.podcast_credentials?.taddy_api_key ?? ''
-        };
+        });
 
-        audioPlayback.value = {
+        setIfChanged(audioPlayback, {
           auto_stop_delay: d.audio_stop?.auto_stop_delay ?? 120.0
-        };
+        });
 
-        screenTimeout.value = {
+        setIfChanged(screenTimeout, {
           screen_timeout_enabled: d.screen_timeout?.screen_timeout_enabled ?? true,
           screen_timeout_seconds: d.screen_timeout?.screen_timeout_seconds ?? 120
-        };
+        });
 
-        screenBrightness.value = {
+        setIfChanged(screenBrightness, {
           brightness_on: d.screen_brightness?.brightness_on ?? 5
-        };
+        });
 
-        screenScreensaver.value = {
+        setIfChanged(screenScreensaver, {
           screensaver_enabled: d.screen_screensaver?.screensaver_enabled ?? true,
           screensaver_delay_seconds: d.screen_screensaver?.screensaver_delay_seconds ?? 120
-        };
+        });
 
-        screenUiScale.value = {
+        setIfChanged(screenUiScale, {
           ui_scale: d.screen_ui_scale?.ui_scale ?? 1.0
-        };
+        });
         applyUiScale(screenUiScale.value.ui_scale);
 
-        screenColorFilter.value = {
+        setIfChanged(screenColorFilter, {
           enabled: d.screen_color_filter?.enabled ?? false,
           warmth: d.screen_color_filter?.warmth ?? 50
-        };
+        });
 
-        radioSettings.value = {
+        setIfChanged(radioSettings, {
           shazam_enabled: d.radio_settings?.shazam_enabled ?? true
-        };
+        });
 
-        macRocSettings.value = {
+        setIfChanged(macRocSettings, {
           target_latency_ms: d.mac_roc?.target_latency_ms ?? 50,
           latency_profile: d.mac_roc?.latency_profile ?? 'responsive',
           frame_length_ms: d.mac_roc?.frame_length_ms ?? 4
-        };
+        });
       }
 
       hasLoaded.value = true;
@@ -279,7 +291,9 @@ export const useSettingsStore = defineStore('settings', () => {
     const audioFromServer = enabledApps.filter(a => ALL_AUDIO_SOURCES.includes(a));
     const enabledSet = new Set(audioFromServer);
     let i = 0;
-    sourceOrder.value = sourceOrder.value.map(s => enabledSet.has(s) ? audioFromServer[i++] : s);
+    // setIfChanged: a same-content reassign would reset an in-progress dock
+    // reorder (DockSettings watches sourceOrder) on every resync
+    setIfChanged(sourceOrder, sourceOrder.value.map(s => enabledSet.has(s) ? audioFromServer[i++] : s));
   }
 
   /**

@@ -193,9 +193,13 @@ export const useRadioStore = defineStore('radio', () => {
   /**
    * Preload favorites at app boot (fire-and-forget, like podcastStore.preloadSubscriptionsList)
    * Ensures favorites are available instantly when the user opens Radio.
+   *
+   * force=true refetches even when already initialized (reconnect/tab-visible
+   * resync — favorite_* WS deltas may have been missed). favoritesInitialized
+   * stays true during the refetch so FavoritesView doesn't flash skeletons.
    */
-  async function preloadFavorites() {
-    if (favoritesInitialized.value) return;
+  async function preloadFavorites({ force = false } = {}) {
+    if (favoritesInitialized.value && !force) return;
     if (preloadPromise) return preloadPromise;
     preloadPromise = (async () => {
       const result = await apiCall.get('/api/radio/stations', {
