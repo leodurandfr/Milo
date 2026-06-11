@@ -6,7 +6,6 @@ Uses event-triggered processing: detent detection immediately triggers
 volume adjustment via VolumeAccumulator for minimal latency.
 """
 import contextlib
-import lgpio
 import asyncio
 import logging
 from typing import Optional
@@ -14,6 +13,12 @@ from time import monotonic
 
 from backend.hardware.playback_dispatch import PlaybackDispatcher
 from backend.hardware.volume_accumulator import VolumeAccumulator
+
+try:
+    import lgpio
+    LGPIO_AVAILABLE = True
+except ImportError:
+    LGPIO_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +55,9 @@ class RotaryVolumeController:
 
     async def initialize(self) -> bool:
         """Initialize the rotary controller."""
+        if not LGPIO_AVAILABLE:
+            logger.info("lgpio not installed — rotary controller disabled")
+            return True
         try:
             logger.info("Initializing rotary controller (CLK=%d, DT=%d, SW=%d)", self.CLK, self.DT, self.SW)
             self.chip_handle = lgpio.gpiochip_open(0)
