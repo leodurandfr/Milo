@@ -177,11 +177,24 @@ function processInitialState(event) {
     cdStore.handleInitialMetadata(fullState.metadata);
   }
 
-  if (isBootComplete.value && showDockFn && unifiedStore.systemState.active_source === 'none') {
-    showDockFn();
-  }
-
   isReady.value = true;
+}
+
+// Refetch every store whose WS updates are delta-based: events missed while
+// disconnected or backgrounded leave them stale until refetched. Stores fed
+// by full_state snapshots (unifiedAudioStore) heal via initial_state instead.
+async function resyncStores() {
+  multiroomStore.fetchState();
+  equalizerStore.loadStatus();
+  cdStore.fetchDriveStatus();
+  systemStore.fetchStatus();
+  fanStore.loadStatus();
+  radioStore.preloadFavorites({ force: true });
+  podcastStore.preloadSubscriptionsList({ force: true });
+  await settingsStore.loadAllSettings();
+  // The locale switch lives in the language_changed WS handler, so a language
+  // change missed while offline must be applied here too (no-op if unchanged)
+  i18n.handleLanguageChanged(settingsStore.language);
 }
 
 // === Boot timeout handling ===
@@ -465,9 +478,9 @@ onMounted(async () => {
   // Register WebSocket event listeners FIRST (before any async operations)
   // This prevents race condition where initial_state arrives before listeners are ready
   cleanupFunctions.push(
-    on('system', 'initial_state', (event) => {
-      if (!isReady.value) processInitialState(event);
-    }),
+    // No isReady guard: the backend re-sends initial_state on every reconnect
+    // (ready handshake) and that snapshot heals state missed while offline
+    on('system', 'initial_state', (event) => processInitialState(event)),
     on('volume', 'volume_changed', (event) => unifiedStore.handleVolumeEvent(event)),
     on('system', 'state_changed', (event) => unifiedStore.updateState(event)),
     on('system', 'transition_start', (event) => unifiedStore.updateState(event)),
@@ -555,15 +568,19 @@ onMounted(async () => {
              (payload) => equalizerStore.handleEqualizerChanged(payload)),
     parsedOn('multiroom', 'crossover_changed', wsEventRegistry['multiroom.crossover_changed'],
              (payload) => equalizerStore.handleZoneCrossoverChanged(payload)),
-    // Radio favorite events
+    // Favorite events (data.source discriminator: radio stations, podcast subscriptions)
     on('source', 'favorite_added', (event) => {
       if (event.data?.source === 'radio' && event.data?.station_id) {
         radioStore.handleFavoriteEvent(event.data.station_id, true);
+      } else if (event.data?.source === 'podcast' && event.data?.podcast) {
+        podcastStore.addSubscription(event.data.podcast);
       }
     }),
     on('source', 'favorite_removed', (event) => {
       if (event.data?.source === 'radio' && event.data?.station_id) {
         radioStore.handleFavoriteEvent(event.data.station_id, false);
+      } else if (event.data?.source === 'podcast' && event.data?.uuid) {
+        podcastStore.removeSubscription(event.data.uuid);
       }
     }),
     on('source', 'favorite_modified', (event) => {
@@ -703,24 +720,11 @@ onMounted(async () => {
              (payload) => updatesStore.handleSatelliteCamillaUpdateComplete(payload)),
     onReconnect(() => {
       logger.info('websocket', 'WebSocket reconnected');
-      // Refresh registry state on reconnect (AC3: State Resync)
-      multiroomStore.fetchState();
-      // Refresh equalizer state for current target
-      equalizerStore.loadStatus();
-      // Refresh CD drive status (may have changed during disconnect)
-      cdStore.fetchDriveStatus();
-      // Resync system status (hostname conflict + internet connectivity)
-      systemStore.fetchStatus();
-      // Resync fan config (not pushed on backend boot)
-      fanStore.loadStatus();
+      resyncStores();
     }),
     onVisibilityChange(() => {
-      // Refresh stores when tab becomes visible (fixes stale data after background)
-      multiroomStore.fetchState();
-      equalizerStore.loadStatus();
-      cdStore.fetchDriveStatus();
-      systemStore.fetchStatus();
-      fanStore.loadStatus();
+      // Tab back to foreground with a live socket: refetch delta-based stores
+      resyncStores();
     })
   );
 

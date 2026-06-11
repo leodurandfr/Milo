@@ -42,6 +42,7 @@ class WebSocketSingleton {
     this.visibilityChangeCallbacks = new Set();
     this.reconnectAttempts = 0;
     this.maxReconnectDelay = 30000; // Max 30 seconds
+    this.pingStaleMs = 90000; // 3x the backend keepalive interval (30s)
   }
 
   addSubscriber(subscriberId) {
@@ -161,8 +162,20 @@ class WebSocketSingleton {
 
     this.visibilityHandler = async () => {
       if (!document.hidden) {
+        if (this.subscribers.size === 0) return;
+
+        // readyState can still report OPEN on a dead connection after system
+        // sleep or tab suspension; trust the keepalive age instead and force
+        // a clean reconnect (onclose reschedules, onopen re-requests state)
+        if (this.socket?.readyState === WebSocket.OPEN &&
+            Date.now() - this.lastPingTime > this.pingStaleMs) {
+          logger.warn('websocket', 'Tab visible - stale connection, forcing reconnect');
+          this.closeConnection();
+          return;
+        }
+
         if (this.socket?.readyState === WebSocket.OPEN) {
-          // Socket is open - fetch fresh state via HTTP
+          // Socket is open and alive - fetch fresh state via HTTP
           logger.debug('websocket', 'Tab visible - fetching fresh state');
           const [audioRes, volumeRes] = await Promise.all([
             apiCall.get('/api/audio/state', {
@@ -195,7 +208,7 @@ class WebSocketSingleton {
             });
           }
           this.notifyVisibilityChange();
-        } else if (this.subscribers.size > 0) {
+        } else {
           // Socket is closed - trigger reconnection
           logger.info('websocket', 'Tab visible - socket closed, reconnecting');
           this.createConnection();
@@ -222,8 +235,8 @@ class WebSocketSingleton {
     this.pingCheckInterval = setInterval(() => {
       const timeSinceLastPing = Date.now() - this.lastPingTime;
 
-      // If no ping for 90 seconds (3x the interval), reconnect
-      if (timeSinceLastPing > 90000 && !document.hidden) {
+      // If the keepalive went stale, reconnect
+      if (timeSinceLastPing > this.pingStaleMs && !document.hidden) {
         logger.warn('websocket', 'Ping timeout, reconnecting...');
         this.closeConnection();
         // onclose handler will reconnect with exponential backoff
