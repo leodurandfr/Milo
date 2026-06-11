@@ -46,6 +46,23 @@ export const useUpdatesStore = defineStore('updates', () => {
 
   // === API CALLS ===
 
+  // Mirror the server's in-flight update set into a per-id states ref. In-flight
+  // status is delta-only over WS (progress/complete), so a client that loads
+  // fresh — reload, second device, backend restarted mid-update, or missed
+  // events — has no other way to know an update is running. Adding the server's
+  // ids makes the button show "updating" (and lets later progress deltas, which
+  // only touch existing entries, attach); clearing ids the server no longer
+  // reports recovers from a completion event missed while away.
+  function reconcileActiveUpdates(states, activeIds) {
+    const active = new Set(activeIds);
+    for (const id of active) {
+      if (!states.value[id]?.updating) states.value[id] = { updating: true };
+    }
+    for (const id of Object.keys(states.value)) {
+      if (!active.has(id)) delete states.value[id];
+    }
+  }
+
   async function loadLocalPrograms() {
     localProgramsLoading.value = true;
     localProgramsError.value = false;
@@ -56,6 +73,7 @@ export const useUpdatesStore = defineStore('updates', () => {
     });
     if (result.ok) {
       localPrograms.value = result.data.programs || {};
+      reconcileActiveUpdates(localUpdateStates, result.data.active_updates || []);
     } else {
       localProgramsError.value = true;
     }
@@ -71,7 +89,11 @@ export const useUpdatesStore = defineStore('updates', () => {
       checkStatus: true
     });
     if (result.ok) {
-      satellites.value = result.data.satellites || [];
+      const list = result.data.satellites || [];
+      satellites.value = list;
+      reconcileActiveUpdates(satelliteUpdateStates, list.filter(s => s.updating).map(s => s.mac_id));
+      reconcileActiveUpdates(satelliteAppUpdateStates, list.filter(s => s.app_updating).map(s => s.mac_id));
+      reconcileActiveUpdates(satelliteCamillaUpdateStates, list.filter(s => s.camilladsp_updating).map(s => s.mac_id));
     } else {
       satellitesError.value = true;
     }

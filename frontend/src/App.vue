@@ -191,6 +191,10 @@ async function resyncStores() {
   fanStore.loadStatus();
   radioStore.preloadFavorites({ force: true });
   podcastStore.preloadSubscriptionsList({ force: true });
+  // Reconciles in-flight update flags from the server so "updating" survives a
+  // reconnect/foreground even when UpdateManager isn't mounted (satellites
+  // resync within UpdateManager itself, the only view that shows them).
+  updatesStore.loadLocalPrograms();
   await settingsStore.loadAllSettings();
   // The locale switch lives in the language_changed WS handler, so a language
   // change missed while offline must be applied here too (no-op if unchanged)
