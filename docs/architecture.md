@@ -123,7 +123,7 @@ User Action → API Call → Backend Update → WebSocket Event → Store Update
 ### 4. Internet Radio (mpv + Radio Browser API)
 
 **What is it?**
-- Web radio streaming via mpv media player
+- Internet radio streaming via mpv media player
 - Station discovery via Radio Browser API (community-driven database)
 - 50,000+ stations from around the world
 - [**Go to Radio Browser API**](https://www.radio-browser.info/)
