@@ -97,19 +97,26 @@ def create_programs_router(update_service, satellite_update_service, state_machi
     @router.get("")
     async def get_all_programs():
         """Retrieve the status of all local programs (installed + GitHub)"""
+        # In-flight local update keys (satellite keys are prefixed, excluded here).
+        # Lets a freshly loaded client reconstruct "updating" state it never saw the
+        # WS progress deltas for — after a reload, on a second device, or when the
+        # backend restarted mid-update (e.g. a milo self-update).
+        active = [k for k in active_updates if not k.startswith("satellite_")]
         try:
             results = await update_service.get_all_program_status()
             return {
                 "status": "success",
                 "programs": results,
-                "count": len(results)
+                "count": len(results),
+                "active_updates": active
             }
         except Exception as e:
             return {
                 "status": "error",
                 "message": str(e),
                 "programs": {},
-                "count": 0
+                "count": 0,
+                "active_updates": active
             }
 
     # === SATELLITE ROUTES (specific, before generic routes) ===
@@ -134,6 +141,14 @@ def create_programs_router(update_service, satellite_update_service, state_machi
             camilladsp_latest = camilladsp_github.get("version") if camilladsp_github.get("status") == "success" else None
 
             for satellite in satellites:
+                mac = satellite.get("mac_id")
+                # In-flight update flags, keyed to the same active_updates entries
+                # the POST routes register — so a freshly loaded client can show
+                # "updating" without having seen the WS progress deltas.
+                satellite["updating"] = f"satellite_{mac}" in active_updates
+                satellite["app_updating"] = f"satellite_app_{mac}" in active_updates
+                satellite["camilladsp_updating"] = f"satellite_camilladsp_{mac}" in active_updates
+
                 satellite["latest_version"] = latest_version
                 satellite["update_available"] = compare_versions(
                     satellite.get("snapclient_version"),

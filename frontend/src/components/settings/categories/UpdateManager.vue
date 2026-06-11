@@ -367,9 +367,10 @@ function getLocalLatestVersion(program) {
 // === LIFECYCLE ===
 
 onMounted(async () => {
-  // Re-sync state after WS reconnect (prevents stuck update buttons if events were missed)
+  // Local programs resync centrally in App.vue::resyncStores on reconnect;
+  // satellites only surface here, so refetch them on reconnect while mounted
+  // (reconciles in-flight flags if progress/complete events were missed).
   onReconnect(() => {
-    loadLocalPrograms();
     if (isMultiroomEnabled.value) loadSatellites();
   });
 
