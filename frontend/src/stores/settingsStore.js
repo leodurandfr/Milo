@@ -155,11 +155,18 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   /**
-   * Load all settings in parallel
+   * Load all settings in parallel. Single-flight: concurrent callers share
+   * the in-flight request and all await its completion.
    */
-  async function loadAllSettings() {
-    if (isLoading.value) return;
+  let loadAllPromise = null;
 
+  function loadAllSettings() {
+    if (loadAllPromise) return loadAllPromise;
+    loadAllPromise = doLoadAllSettings();
+    return loadAllPromise;
+  }
+
+  async function doLoadAllSettings() {
     isLoading.value = true;
     try {
       const bulkResult = await apiCall.get('/api/settings/bulk', {
@@ -250,6 +257,7 @@ export const useSettingsStore = defineStore('settings', () => {
       logger.info('settings', 'All settings loaded successfully');
     } finally {
       isLoading.value = false;
+      loadAllPromise = null;
     }
   }
 

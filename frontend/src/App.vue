@@ -142,6 +142,11 @@ const timer = useTimer();
 // Enable screen activity detection (touch, mouse, keyboard)
 useScreenActivity();
 
+// The locale derives from settingsStore.language (single source of truth):
+// every writer (WS language_changed, bulk load, resync) converges here.
+// main.js seeds i18n before mount, so no immediate run is needed.
+watch(() => settingsStore.language, (lang) => i18n.handleLanguageChanged(lang));
+
 // === State ===
 const isReady = ref(false);
 const isBootComplete = ref(false);
@@ -195,10 +200,9 @@ async function resyncStores() {
   // reconnect/foreground even when UpdateManager isn't mounted (satellites
   // resync within UpdateManager itself, the only view that shows them).
   updatesStore.loadLocalPrograms();
+  // Covers language too: the bulk load updates settingsStore.language and the
+  // locale watcher applies it (a change missed while offline is never replayed)
   await settingsStore.loadAllSettings();
-  // The locale switch lives in the language_changed WS handler, so a language
-  // change missed while offline must be applied here too (no-op if unchanged)
-  i18n.handleLanguageChanged(settingsStore.language);
 }
 
 // === Boot timeout handling ===
@@ -522,7 +526,6 @@ onMounted(async () => {
     }),
     on('settings', 'language_changed', (event) => {
       if (event.data?.language) {
-        i18n.handleLanguageChanged(event.data.language);
         settingsStore.updateLanguage(event.data.language);
       }
     }),
