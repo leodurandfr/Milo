@@ -43,7 +43,7 @@
         :min="1" :max="6" :step="1"
         value-unit=" dB"
         @update:model-value="$emit('update:modelValue', $event)"
-        @input="$emit('step-input', $event)"
+        @change="$emit('step-change', $event)"
       />
     </SettingItem>
 
@@ -83,7 +83,7 @@ defineProps({
   unpairClick: { type: Function, default: null }
 });
 
-defineEmits(['update:modelValue', 'step-input']);
+defineEmits(['update:modelValue', 'step-change']);
 </script>
 
 <style scoped>

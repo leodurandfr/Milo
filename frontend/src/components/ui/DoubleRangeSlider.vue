@@ -212,6 +212,10 @@ function stopDrag() {
     emit('drag-end', 'max');
   }
 
+  if (wasMin || wasMax) {
+    emit('change', { min: props.modelValue.min, max: props.modelValue.max });
+  }
+
   document.removeEventListener('pointermove', handleDrag);
   document.removeEventListener('pointerup', stopDrag);
   document.removeEventListener('pointercancel', stopDrag);

@@ -24,7 +24,7 @@
       :unpair-label="t('btRemoteSettings.unpair')"
       :unpair-loading="unpairing"
       :unpair-click="handleUnpair"
-      @step-input="debouncedUpdate('bt-remote-steps', 'bt-remote-steps', { step_bt_remote_db: $event })"
+      @step-change="updateSetting('bt-remote-steps', { step_bt_remote_db: $event })"
     >
       <template #status>{{ btRemoteConnected ? t('btRemoteSettings.connected') : t('btRemoteSettings.notConnected') }}<span
         v-if="btRemoteConnected && settingsStore.btRemote.battery_percentage !== null"
@@ -46,7 +46,7 @@ import MessageContent from '@/components/ui/MessageContent.vue';
 import RemoteStatusSection from '@/components/settings/categories/RemoteStatusSection.vue';
 
 const { t } = useI18n();
-const { debouncedUpdate } = useSettingsAPI();
+const { updateSetting } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 
 const stepBtRemoteDb = ref(settingsStore.volumeSteps.step_bt_remote_db);

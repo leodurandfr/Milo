@@ -10,12 +10,12 @@
     <SettingsSection :title="t('volumeSettings.controls')">
       <SettingItem v-if="rotaryEnabled" :label="t('volumeSettings.rotaryStep')">
         <RangeSlider v-model="config.step_rotary_db" :min="1" :max="6" :step="1" value-unit=" dB"
-          @input="debouncedUpdate('rotary-steps', 'rotary-steps', { step_rotary_db: $event })" />
+          @change="updateSetting('rotary-steps', { step_rotary_db: $event })" />
       </SettingItem>
 
       <SettingItem :label="t('volumeSettings.mobileStep')">
         <RangeSlider v-model="config.step_mobile_db" :min="1" :max="6" :step="1" value-unit=" dB"
-          @input="debouncedUpdate('volume-steps', 'volume-steps', { step_mobile_db: $event })" />
+          @change="updateSetting('volume-steps', { step_mobile_db: $event })" />
       </SettingItem>
     </SettingsSection>
 
@@ -23,7 +23,7 @@
     <SettingsSection :title="t('volumeSettings.limits')">
       <SettingItem :label="t('volumeSettings.minMax')">
         <DoubleRangeSlider v-model="config.limits" :min="-80" :max="0" :step="1" :gap="6" value-unit=" dB"
-          @input="updateVolumeLimits" />
+          @change="updateVolumeLimits" />
       </SettingItem>
     </SettingsSection>
 
@@ -38,7 +38,7 @@
 
       <SettingItem v-if="!config.restore_last_volume" :label="t('volumeSettings.fixedStartup')">
         <RangeSlider v-model="config.startup_volume_db" :min="config.limits.min" :max="config.limits.max" :step="1" value-unit=" dB"
-          @input="debouncedUpdate('volume-startup', 'volume-startup', { startup_volume_db: $event, restore_last_volume: false })" />
+          @change="updateSetting('volume-startup', { startup_volume_db: $event, restore_last_volume: false })" />
       </SettingItem>
     </SettingsSection>
   </SettingsContainer>
@@ -59,7 +59,7 @@ import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 
 const { t } = useI18n();
-const { updateSetting, debouncedUpdate } = useSettingsAPI();
+const { updateSetting } = useSettingsAPI();
 const { rotaryEnabled } = useHardwareConfig();
 const settingsStore = useSettingsStore();
 const unifiedStore = useUnifiedAudioStore();
@@ -98,7 +98,7 @@ function syncFromStore() {
 }
 
 function updateVolumeLimits(limits) {
-  debouncedUpdate('volume-limits', 'volume-limits', {
+  updateSetting('volume-limits', {
     min_db: limits.min,
     max_db: limits.max
   });
