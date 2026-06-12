@@ -76,7 +76,7 @@ to start, like a PC (configured by the installer).
 The installer configures this automatically: the status LED (GPIO26, lit while running,
 off once halted) **and** "wait for the power button on power-up" (applying power keeps
 Milō off until you press the button). If the LED draws > ~16 mA, drive it through an NPN
-transistor (see [power-button.md](power-button.md)).
+transistor.
 
 ## 5. Hard power switch (master cut)
 
@@ -113,8 +113,3 @@ streaming.
   through the header.
 - **Speakers** → the amp's screw terminals.
 - **Main power:** DC brick → AMP4 Pro barrel jack (through the hard switch, section 5).
-
-## See also
-
-- [power-button.md](power-button.md) — power button + LED build guide
-- [cm5-board-spec.md](cm5-board-spec.md) — future custom CM5 carrier (collapses all of the above onto one board)
