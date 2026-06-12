@@ -8,8 +8,7 @@ This service manages:
 - User settings (playback_speed)
 
 Data is persisted to /var/lib/milo/podcast_data.json — uses the
-schema_version protocol (see CLAUDE.md §"Development & Coding Guidelines §2"
-and BREAKING_CHANGES.md at the repo root).
+schema_version protocol (see CLAUDE.md §"Persistence & schema-version protocol").
 """
 import asyncio
 import logging
@@ -75,8 +74,7 @@ class PodcastDataService:
         if missing:
             raise RuntimeError(
                 f"podcast_data.json missing required keys: {missing} — "
-                f"delete it to reset (rm {self._data_file}), "
-                f"see BREAKING_CHANGES.md at the repo root for context"
+                f"delete it to reset (rm {self._data_file})"
             )
 
     def _get_default_structure(self) -> Dict[str, Any]:

@@ -118,7 +118,7 @@ Persistent data lives in `/var/lib/milo/` (settings, hardware, radio/podcast/cd 
 
 **Unified per-client EQ:** one EQ record per client behind `MultiroomEqualizerService.get/set_client_eq(mac)` — the local client's lives in `equalizer.json`, remote clients' in `settings.json: multiroom.client_equalizer[mac]`; a zone holds no EQ (it derives from its members). One HTTP surface: `GET/PUT/POST /api/equalizer/target/{target}`, `target ∈ local · <mac> · zone:<id>`.
 
-**Schema bumps — fail-loud + reset, never migrate.** Each versioned JSON carries `"schema_version": N`; the owning service declares `SCHEMA_VERSION` and uses `load_versioned_json`/`save_versioned_json` ([backend/shared/persistence.py](backend/shared/persistence.py)). On mismatch they raise `SchemaVersionMismatch`; `initialize_services` logs a banner (exact `rm` + pointer) and `SystemExit(1)`, so systemd loops the banner until the operator deletes the file. When bumping, add an entry to [BREAKING_CHANGES.md](BREAKING_CHANGES.md).
+**Schema bumps — fail-loud + reset, never migrate.** Each versioned JSON carries `"schema_version": N`; the owning service declares `SCHEMA_VERSION` and uses `load_versioned_json`/`save_versioned_json` ([backend/shared/persistence.py](backend/shared/persistence.py)). On mismatch they raise `SchemaVersionMismatch`; `initialize_services` logs a banner (exact `rm` + pointer) and `SystemExit(1)`, so systemd loops the banner until the operator deletes the file.
 
 ## Constraints (invariants)
 
@@ -158,7 +158,6 @@ CI ([.github/workflows/lint.yml](.github/workflows/lint.yml)) blocks merge on: `
 - **eslint:** `no-restricted-imports` (axios outside `apiCall.js`), `no-restricted-syntax` (`console.*`), `no-restricted-globals` (bare timers).
 - **ruff:** `S110`/`S112` (try-except-pass/continue).
 - **stylelint:** `color-no-hex`, no `rgba|hsla` on color properties, no typography redefinition in scoped CSS.
-- **pytest:** `test_breaking_changes_coherence` (`SCHEMA_VERSION` ↔ BREAKING_CHANGES.md).
 
 **Frontend Vitest** suite exists in `frontend/tests/` but is **temporarily skipped in CI** — ~97 tests still mock `axios.*` after the apiCall migration; re-enable once retargeted at `apiCall`. Bypass a rule only with a per-line directive + reason (`# noqa: S110 -- <why>`, `// eslint-disable-next-line <rule> -- <why>`); no file/repo-level disables. History + deferred items (TypeScript, pyright strict, husky): [docs/development.md](docs/development.md).
 
@@ -166,6 +165,6 @@ CI ([.github/workflows/lint.yml](.github/workflows/lint.yml)) blocks merge on: `
 
 - [docs/architecture.md](docs/architecture.md) — technologies, audio routing, persistence inventory, systemd, security.
 - [docs/development.md](docs/development.md) — setup, adding a source (full), testing, debugging, lint history, dev-vs-prod detail.
-- [README.md](README.md) — install + hardware. [BREAKING_CHANGES.md](BREAKING_CHANGES.md) — schema resets.
+- [README.md](README.md) — install + hardware.
 
 **Vendored upstream docs:** to verify a bundled binary's behavior (API shape, config, events), read `docs/vendor/<tool>/` (pinned to the shipped version) instead of guessing. Currently [go-librespot](docs/vendor/go-librespot/VENDOR.md) — Spotify Connect REST+WS contract + config schema.

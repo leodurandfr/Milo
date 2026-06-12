@@ -19,8 +19,7 @@ A separate, non-blocking CI job (`check_milo_mac_freshness.py`) re-clones
 Milo-Mac and verifies the *manifest itself* still matches what Milo-Mac
 consumes — that is the network half of the guard.
 
-Same philosophy as `test_breaking_changes_coherence`: a static check that turns
-a silent contract break into an actionable failing test.
+A static check that turns a silent contract break into an actionable failing test.
 """
 import ast
 import json
