@@ -763,7 +763,6 @@ The project ships a lightweight lint floor that mechanically locks the conventio
 | eslint | `no-restricted-syntax: console.*` | RFC 17 | Lot A — 2026-05-18 |
 | ruff | `S110` (try-except-pass) | RFC 18 | Lot B — 2026-05-18 |
 | ruff | `S112` (try-except-continue) | RFC 18 | Lot B — 2026-05-18 |
-| pytest | `test_breaking_changes_coherence` (`SCHEMA_VERSION` ↔ [BREAKING_CHANGES.md](../BREAKING_CHANGES.md)) | RFC 19 | Lot C — 2026-05-18 |
 | stylelint | `color-no-hex` | RFC 21 | RFC 21 PR3 — 2026-05-18 |
 | stylelint | `declaration-property-value-disallowed-list` (`rgba\|hsla` on any color property) | RFC 21 | RFC 21 PR3 — 2026-05-18 |
 | stylelint | `declaration-property-value-disallowed-list` (typography redefinition in scoped CSS) | RFC 21 + RFC 22 | RFC 21 PR3 — 2026-05-18 |

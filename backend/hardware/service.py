@@ -3,7 +3,7 @@
 
 Handles screen type, audio card, rotary encoder GPIO pins, and IR remote
 configuration. Uses the schema_version protocol — see CLAUDE.md
-§"Development & Coding Guidelines §2" and BREAKING_CHANGES.md.
+§"Persistence & schema-version protocol".
 """
 import asyncio
 import json

@@ -5,7 +5,7 @@ The owning service declares a ``SCHEMA_VERSION`` class constant, loads via
 ``load_versioned_json``, and saves via ``save_versioned_json``. When a file's
 ``schema_version`` doesn't match what the service expects, ``SchemaVersionMismatch``
 is raised so main.py can log a clear reset command and exit. See CLAUDE.md
-§"Development & Coding Guidelines §2" and ``BREAKING_CHANGES.md`` at the repo root.
+§"Persistence & schema-version protocol".
 """
 import contextlib
 import itertools
@@ -40,7 +40,6 @@ class SchemaVersionMismatch(RuntimeError):
             f"  Found:    {found_str}\n"
             f"  Fix:      delete the file to reset its state: rm {self.file}\n"
             f"            then restart the service: sudo systemctl restart milo-backend\n"
-            "            see BREAKING_CHANGES.md at the repo root for context\n"
         )
 
 
