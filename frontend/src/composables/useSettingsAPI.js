@@ -1,15 +1,17 @@
 // frontend/src/composables/useSettingsAPI.js
+import { onBeforeUnmount } from 'vue';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
 import { useTimer } from '@/composables/useTimer';
 
 /**
  * Composable to manage settings API calls with debouncing.
- * Pending debounced timers are auto-cleared on unmount via useTimer.
+ * Debounced updates still pending on unmount are flushed (sent immediately),
+ * never dropped — navigating away must not lose a write.
  */
 export function useSettingsAPI() {
   const timer = useTimer();
-  const debounceTimers = new Map();
+  const pending = new Map(); // key → { timerId, endpoint, payload }
 
   /**
    * Send a settings update to the API
@@ -27,6 +29,16 @@ export function useSettingsAPI() {
     }
   }
 
+  function flush(key) {
+    const entry = pending.get(key);
+    if (!entry) return;
+    pending.delete(key);
+    timer.clear(entry.timerId);
+    // updateSetting rethrows; swallow here so the timer callback does not
+    // surface an unhandled rejection (the error was already logged).
+    updateSetting(entry.endpoint, entry.payload).catch(() => {});
+  }
+
   /**
    * Update with debouncing
    * @param {string} key - Unique key to identify the timer
@@ -35,19 +47,18 @@ export function useSettingsAPI() {
    * @param {number} delay - Delay in ms (default: 800ms)
    */
   function debouncedUpdate(key, endpoint, payload, delay = 800) {
-    if (debounceTimers.has(key)) {
-      timer.clear(debounceTimers.get(key));
+    const existing = pending.get(key);
+    if (existing) {
+      timer.clear(existing.timerId);
     }
 
-    const id = timer.setTimeout(() => {
-      // updateSetting rethrows; swallow here so the timer callback does not
-      // surface an unhandled rejection (the error was already logged).
-      updateSetting(endpoint, payload).catch(() => {});
-      debounceTimers.delete(key);
-    }, delay);
-
-    debounceTimers.set(key, id);
+    const timerId = timer.setTimeout(() => flush(key), delay);
+    pending.set(key, { timerId, endpoint, payload });
   }
+
+  onBeforeUnmount(() => {
+    for (const key of [...pending.keys()]) flush(key);
+  });
 
   return {
     updateSetting,

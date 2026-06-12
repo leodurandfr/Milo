@@ -30,7 +30,7 @@
       :unpair-label="t('irRemoteSettings.unpair')"
       :unpair-loading="unpairing"
       :unpair-click="handleUnpair"
-      @step-input="debouncedUpdate('ir-remote-steps', 'ir-remote-steps', { step_ir_remote_db: $event })"
+      @step-change="updateSetting('ir-remote-steps', { step_ir_remote_db: $event })"
     />
 
     <!-- Not paired: pairing wizard. The user must press a key on the remote, so the
@@ -63,7 +63,7 @@ import RemoteStatusSection from '@/components/settings/categories/RemoteStatusSe
 const emit = defineEmits(['open-hardware']);
 
 const { t } = useI18n();
-const { debouncedUpdate } = useSettingsAPI();
+const { updateSetting } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 const { hardwareConfig } = useHardwareConfig();
 const timer = useTimer();
