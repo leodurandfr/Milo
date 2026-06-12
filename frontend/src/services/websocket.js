@@ -32,6 +32,7 @@ class WebSocketSingleton {
   constructor() {
     this.socket = null;
     this.isConnected = ref(false);
+    this.hasEverConnected = false;
     this.eventHandlers = new Map();
     this.subscribers = new Set();
     this.lastSystemState = null;
@@ -88,7 +89,10 @@ class WebSocketSingleton {
     this.socket = new WebSocket(wsUrl);
 
     this.socket.onopen = () => {
-      const wasReconnecting = this.isConnected.value === false;
+      // isConnected starts false, so it can't distinguish the first connection
+      // of a page load from a real reconnection — hasEverConnected can
+      const wasReconnecting = this.hasEverConnected;
+      this.hasEverConnected = true;
       this.isConnected.value = true;
       this.lastPingTime = Date.now();
       this.reconnectAttempts = 0; // Reset backoff counter on successful connection
