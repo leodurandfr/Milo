@@ -220,6 +220,7 @@ settings_router = create_settings_router(
 app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
 
 system_router = create_system_router(
+    systemd_manager,
     hostname_conflict_service=get_service("hostname_conflict_service"),
     connectivity_service=get_service("connectivity_service"),
 )
@@ -254,7 +255,7 @@ app.include_router(ir_remote_router)
 fan_router = create_fan_router(fan_controller, settings_service)
 app.include_router(fan_router)
 
-setup_router = create_setup_router(settings_service, hardware_service, network_service)
+setup_router = create_setup_router(settings_service, hardware_service, network_service, systemd_manager)
 app.include_router(setup_router)
 
 network_router = create_network_router(network_service)

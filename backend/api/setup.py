@@ -65,7 +65,7 @@ def _atomic_write_json(path, data: dict) -> None:
     os.replace(tmp, path)
 
 
-def create_setup_router(settings_service, hardware_service, network_service):
+def create_setup_router(settings_service, hardware_service, network_service, systemd_manager):
     """Create setup wizard router with injected services."""
     router = APIRouter(prefix="/api/setup", tags=["setup"])
 
@@ -253,24 +253,8 @@ def create_setup_router(settings_service, hardware_service, network_service):
                 raise HTTPException(status_code=500, detail="Failed to persist setup_completed flag")
             logger.info("become-client: setup_completed=true persisted")
 
-            async def _delayed_reboot():
-                await asyncio.sleep(1)
-                try:
-                    proc = await asyncio.create_subprocess_exec(
-                        "sudo", "/usr/sbin/reboot",
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                    )
-                    _, stderr = await proc.communicate()
-                    if proc.returncode is not None and proc.returncode > 0:
-                        logger.error(
-                            "become-client: reboot failed (rc=%d): %s",
-                            proc.returncode, stderr.decode().strip() if stderr else "",
-                        )
-                except Exception as e:
-                    logger.error("become-client: reboot subprocess failed: %s", e)
-
-            background_tasks.add_task(_delayed_reboot)
+            # 1s delay lets the HTTP response flush before the box reboots.
+            background_tasks.add_task(systemd_manager.power, "reboot", 1.0)
             return {"status": "rebooting"}
 
     return router

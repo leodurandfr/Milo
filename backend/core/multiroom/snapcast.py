@@ -43,9 +43,10 @@ class SnapcastService:
     WebSocket notifications are handled by SnapcastWebSocketService.
     """
 
-    def __init__(self, host: str = "localhost", port: int = 1780):
+    def __init__(self, systemd_manager, host: str = "localhost", port: int = 1780):
         self.base_url = f"http://{host}:{port}/jsonrpc"
         self.logger = logging.getLogger(__name__)
+        self._systemd = systemd_manager
         self._request_id = 0
         self.snapserver_conf = Path("/etc/snapserver.conf")
 
@@ -431,19 +432,10 @@ class SnapcastService:
         """Restart Snapcast server."""
         self.logger.info("Restarting snapserver...")
 
-        proc = await asyncio.create_subprocess_exec(
-            "sudo", "systemctl", "restart", "milo-snapserver-multiroom.service",
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE
-        )
-
-        _, stderr = await proc.communicate()
-
-        if proc.returncode != 0:
-            self.logger.error(f"Failed to restart snapserver: {stderr.decode()}")
+        if not await self._systemd.restart("milo-snapserver-multiroom.service"):
             return False
 
-        # Check availability
+        # Check availability (app-level readiness, beyond the unit being active)
         await asyncio.sleep(3)
         for _ in range(10):
             if await self.is_available():

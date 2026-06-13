@@ -1209,7 +1209,7 @@ class TestSnapcastService:
     @pytest.fixture
     def snapcast_service(self):
         """Create a SnapcastService instance."""
-        return SnapcastService()
+        return SnapcastService(systemd_manager=MagicMock())
 
     def test_compute_mac_id_local_via_service(self, snapcast_service):
         """Test computing mac_id for local client via ClientRegistryService."""
