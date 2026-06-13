@@ -87,6 +87,11 @@ class SnapcastWebSocketService:
         """Get the client registry."""
         return self._registry
 
+    @property
+    def connected(self) -> bool:
+        """True when the snapserver control WebSocket is open."""
+        return self.websocket is not None and not self.websocket.closed
+
     async def initialize(self) -> bool:
         """Initialize the WebSocket service."""
         try:
@@ -280,7 +285,7 @@ class SnapcastWebSocketService:
     async def _initialize_existing_clients(self) -> None:
         """Initialize clients already connected at WebSocket connection time."""
         try:
-            self.logger.info(f"[{time.time():.3f}] INIT_CLIENTS: Starting initialization")
+            self.logger.debug(f"[{time.time():.3f}] INIT_CLIENTS: Starting initialization")
 
             if not self._snapcast_service:
                 self.logger.warning("SnapcastService not available")
@@ -319,7 +324,7 @@ class SnapcastWebSocketService:
                     if is_new_client:
                         is_local = (ip == "127.0.0.1")
                         local_marker = " LOCAL CLIENT" if is_local else ""
-                        self.logger.info(f"[{time.time():.3f}] INIT_CLIENTS: New client {client_id} (mac_id: {mac_id}){local_marker}")
+                        self.logger.debug(f"[{time.time():.3f}] INIT_CLIENTS: New client {client_id} (mac_id: {mac_id}){local_marker}")
 
                     # Register/update client in registry
                     if self.registry:
@@ -332,16 +337,16 @@ class SnapcastWebSocketService:
                         await self.registry.set_client_online(mac_id, True)
 
                     if is_new_client:
-                        self.logger.info(f"[{time.time():.3f}] INIT_CLIENTS: Registered {mac_id}")
+                        self.logger.debug(f"[{time.time():.3f}] INIT_CLIENTS: Registered {mac_id}")
                         # Sync volume from snapserver for new clients
                         snapcast_volume = client.get("config", {}).get("volume", {}).get("percent", 0)
-                        self.logger.info(f"[{time.time():.3f}] INIT_CLIENTS: Syncing volume from snapserver: {snapcast_volume}%")
+                        self.logger.debug(f"[{time.time():.3f}] INIT_CLIENTS: Syncing volume from snapserver: {snapcast_volume}%")
                         await self._sync_existing_client_volume(client_id, client)
 
             client_count = len(self.registry.get_all_clients()) if self.registry else 0
             has_local = any(c.is_local for c in self.registry.get_all_clients().values()) if self.registry else False
             local_status = "LOCAL FOUND" if has_local else "LOCAL NOT YET CONNECTED"
-            self.logger.info(f"[{time.time():.3f}] INIT_CLIENTS: Complete. Registered: {client_count} clients. {local_status}")
+            self.logger.debug(f"[{time.time():.3f}] INIT_CLIENTS: Complete. Registered: {client_count} clients. {local_status}")
 
         except Exception as e:
             self.logger.error(f"Error initializing existing clients: {e}", exc_info=True)
@@ -385,7 +390,7 @@ class SnapcastWebSocketService:
         if self._is_initializing:
             self.logger.debug(f"SNAPCAST NOTIFICATION (init phase): {method}")
         else:
-            self.logger.info(f"SNAPCAST NOTIFICATION RECEIVED: {method}")
+            self.logger.debug(f"SNAPCAST NOTIFICATION RECEIVED: {method}")
 
         non_volume_notifications = {
             "Client.OnConnect": lambda p: self._handle_client_connect(p),
@@ -408,9 +413,9 @@ class SnapcastWebSocketService:
                 self.logger.warning("SnapcastService not available for online status detection")
                 return
 
-            self.logger.info("SERVER_UPDATE: Fetching client list from Snapcast...")
+            self.logger.debug("SERVER_UPDATE: Fetching client list from Snapcast...")
             all_clients = await self._snapcast_service.get_clients()
-            self.logger.info(f"SERVER_UPDATE: Got {len(all_clients)} clients from Snapcast")
+            self.logger.debug(f"SERVER_UPDATE: Got {len(all_clients)} clients from Snapcast")
             current_mac_ids = {c["mac_id"] for c in all_clients}
             known_mac_ids = set(self.registry.get_client_ids()) if self.registry else set()
 
@@ -513,9 +518,9 @@ class SnapcastWebSocketService:
 
             is_local = (client_ip == "127.0.0.1")
             local_marker = " LOCAL CLIENT" if is_local else ""
-            self.logger.info(f"[{time.time():.3f}] CLIENT_CONNECT: New client {client_id} (mac_id: {mac_id}){local_marker}")
-            self.logger.info(f"  - Name: {client_name}, Host: {client_host}, IP: {client_ip}")
-            self.logger.info(f"  - Snapcast volume: {snapcast_volume}% (passthrough)")
+            self.logger.debug(f"[{time.time():.3f}] CLIENT_CONNECT: New client {client_id} (mac_id: {mac_id}){local_marker}")
+            self.logger.debug(f"  - Name: {client_name}, Host: {client_host}, IP: {client_ip}")
+            self.logger.debug(f"  - Snapcast volume: {snapcast_volume}% (passthrough)")
 
             # Check if this client has pending configuration (registered via API before Snapcast)
             pending = None
@@ -542,7 +547,7 @@ class SnapcastWebSocketService:
                 # register_client preserves existing value for known clients
                 await self.registry.register_client(mac_id, reg_name, client_ip, **kwargs)
 
-            self.logger.info(f"[{time.time():.3f}] CLIENT_CONNECT: Calling volume sync for {client_id}")
+            self.logger.debug(f"[{time.time():.3f}] CLIENT_CONNECT: Calling volume sync for {client_id}")
             sync_status = await self._notify_volume_service_client_connected(client_id, client, mac_id)
 
             # Only set online if volume was successfully applied to hardware.
@@ -630,7 +635,7 @@ class SnapcastWebSocketService:
             "pending_applied": False
         }
         try:
-            self.logger.info(f"[{time.time():.3f}] NOTIFY_VOLUME: Starting volume sync for {client_id}")
+            self.logger.debug(f"[{time.time():.3f}] NOTIFY_VOLUME: Starting volume sync for {client_id}")
 
             sync_status = await self._sync_existing_client_volume(client_id, client)
 
@@ -668,7 +673,7 @@ class SnapcastWebSocketService:
             "context": None
         }
         try:
-            self.logger.info(f"[{time.time():.3f}] SYNC_VOLUME: Starting for {client_id}")
+            self.logger.debug(f"[{time.time():.3f}] SYNC_VOLUME: Starting for {client_id}")
 
             if not self._snapcast_service:
                 self.logger.warning("SnapcastService not available")
@@ -685,17 +690,17 @@ class SnapcastWebSocketService:
             if self.registry:
                 context = self.registry.get_reconnection_context(mac_id)
             sync_status["context"] = context.value
-            self.logger.info(
+            self.logger.debug(
                 f"[{time.time():.3f}] SYNC_VOLUME: Detected reconnection context for {mac_id}: {context.value}"
             )
 
             # 2. Set Snapcast volume to 100% passthrough
             await self._snapcast_service.set_volume(client_id, 100)
-            self.logger.info(f"[{time.time():.3f}] SYNC_VOLUME: Snapcast volume set to 100% for {client_id}")
+            self.logger.debug(f"[{time.time():.3f}] SYNC_VOLUME: Snapcast volume set to 100% for {client_id}")
 
             # 4. Apply correct equalizer volume based on context (FR7-FR10)
             target_volume = self._resolve_target_volume(mac_id, context)
-            self.logger.info(
+            self.logger.debug(
                 f"[{time.time():.3f}] SYNC_VOLUME: Applying target volume "
                 f"{target_volume:.1f} dB for {mac_id} (context: {context.value})"
             )
@@ -711,7 +716,7 @@ class SnapcastWebSocketService:
             #    is_local guard inside the callee, so this is a no-op for it.
             equalizer_synced = True
             if self.registry:
-                self.logger.info(
+                self.logger.debug(
                     f"[{time.time():.3f}] SYNC_EQ: Syncing per-client equalizer for {mac_id} "
                     f"(context: {context.value})"
                 )
@@ -724,13 +729,13 @@ class SnapcastWebSocketService:
                 if self._volume_service:
                     try:
                         await self._volume_service.broadcast_volume_state(show_bar=False)
-                        self.logger.info(
+                        self.logger.debug(
                             f"[{time.time():.3f}] SYNC_BROADCAST: Volume state broadcast for {mac_id}"
                         )
                     except Exception as e:
                         self.logger.warning(f"Failed to broadcast volume state: {e}")
 
-            self.logger.info(
+            self.logger.debug(
                 f"[{time.time():.3f}] SYNC_VOLUME: Client {client_id} fully initialized "
                 f"(context: {context.value})"
             )
@@ -820,13 +825,13 @@ class SnapcastWebSocketService:
             # failure would leave the client permanently silent.
             persisted_mute = self._volume_service.state_store.get_client_mute(mac_id)
             await eq.set_equalizer_mute(mac_id, persisted_mute, force=True)
-            self.logger.info(f"[{time.time():.3f}] MUTE_APPLY: Set {mac_id} mute={persisted_mute}")
+            self.logger.debug(f"[{time.time():.3f}] MUTE_APPLY: Set {mac_id} mute={persisted_mute}")
 
             if not volume_ok:
                 self.logger.warning(f"VOLUME_APPLY: Hardware failed for {mac_id}, state updated to {target_volume_db:.1f} dB (unmute still applied)")
                 return False
 
-            self.logger.info(
+            self.logger.debug(
                 f"[{time.time():.3f}] VOLUME_APPLY: Set {mac_id} to {target_volume_db:.1f} dB"
             )
             return True

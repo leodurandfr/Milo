@@ -8,6 +8,7 @@ Type=simple
 User=milo
 Group=milo
 WorkingDirectory=/home/milo/milo
+Environment=MILO_LOG_LEVEL=INFO
 ExecStart=/home/milo/milo/venv/bin/python3 backend/main.py
 
 Restart=always

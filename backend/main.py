@@ -235,7 +235,9 @@ app.include_router(programs_router)
 
 health_router = create_health_router(
     state_machine, routing_service,
-    settings_service=settings_service, network_service=network_service
+    settings_service=settings_service, network_service=network_service,
+    camilladsp_service=camilladsp_service,
+    snapcast_websocket_service=snapcast_websocket_service
 )
 app.include_router(health_router)
 

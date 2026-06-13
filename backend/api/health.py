@@ -2,12 +2,14 @@
 """
 Health check and initial state endpoints
 """
+import asyncio
 import time
 from fastapi import APIRouter
 from typing import Dict, Any
 
 def create_health_router(state_machine, routing_service,
-                         settings_service, network_service):
+                         settings_service, network_service,
+                         camilladsp_service, snapcast_websocket_service):
     """Creates health check router"""
     router = APIRouter(prefix="/api", tags=["health"])
 
@@ -50,13 +52,15 @@ def create_health_router(state_machine, routing_service,
         try:
             if routing_state.get('multiroom_enabled', False):
                 snapcast_status = await routing_service.get_snapcast_status()
+                ws_connected = snapcast_websocket_service.connected
                 checks["services"]["snapcast"] = {
                     "healthy": snapcast_status.get("multiroom_available", False),
                     "server_active": snapcast_status.get("server_active", False),
-                    "client_active": snapcast_status.get("client_active", False)
+                    "client_active": snapcast_status.get("client_active", False),
+                    "ws_connected": ws_connected
                 }
 
-                if not snapcast_status.get("multiroom_available", False):
+                if not snapcast_status.get("multiroom_available", False) or not ws_connected:
                     checks["status"] = "degraded"
             else:
                 checks["services"]["snapcast"] = {
@@ -69,6 +73,27 @@ def create_health_router(state_machine, routing_service,
                 "error": str(e)
             }
             checks["status"] = "degraded"
+
+        # CamillaDSP is always in the audio path (volume + EQ), so a down daemon
+        # is a hard failure — not merely degraded. wait_for guards against a
+        # hung daemon socket stalling the whole health response.
+        try:
+            if not camilladsp_service.connected:
+                checks["services"]["camilladsp"] = {"healthy": False, "state": "disconnected"}
+                checks["status"] = "unhealthy"
+            else:
+                cd_status = await asyncio.wait_for(camilladsp_service.get_status(), timeout=2.0)
+                available = cd_status.get("available", False)
+                checks["services"]["camilladsp"] = {
+                    "healthy": available,
+                    "state": cd_status.get("state")
+                }
+                if not available:
+                    checks["status"] = "unhealthy"
+        except Exception as e:
+            checks["services"]["camilladsp"] = {"healthy": False, "error": str(e)}
+            checks["status"] = "unhealthy"
+
         source_status = {}
         for source, instance in state_machine.sources.items():
             if instance:
