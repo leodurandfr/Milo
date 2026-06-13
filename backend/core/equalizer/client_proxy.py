@@ -8,17 +8,34 @@ in a multiroom setup, including:
 - Request proxying (GET, PUT, POST) with proper error handling
 - Multiroom mode validation before sending requests
 """
+import asyncio
 import ipaddress
 import logging
 from typing import Optional, Dict, Any
 
 import aiohttp
-from fastapi import HTTPException
 
 from backend.config.constants import (
     CLIENT_API_PORT,
     HEALTH_CHECK_TIMEOUT,
 )
+
+
+class SatelliteUnreachable(Exception):
+    """A request to a remote milo-client satellite failed.
+
+    Raised by the core proxy layer so it never depends on a web-layer
+    exception (the error-handling doctrine forbids raising HTTPException
+    from a service). The api/ layer maps this to an HTTPException with the
+    carried ``status_code`` (api_error_handler in route_helpers.py); the
+    background sync paths catch it via their generic ``except Exception``.
+    """
+
+    def __init__(self, hostname: str, detail: str, status_code: int = 503):
+        self.hostname = hostname
+        self.detail = detail
+        self.status_code = status_code
+        super().__init__(detail)
 
 
 # =============================================================================
@@ -135,18 +152,18 @@ class EqualizerClientProxyService:
             The JSON response from the client
 
         Raises:
-            HTTPException: If the request fails or multiroom is disabled
+            SatelliteUnreachable: If the request fails or multiroom is disabled.
+                Mapped to an HTTPException in the api/ layer only.
         """
         # Check if multiroom is disabled - skip remote client requests
         if not skip_multiroom_check:
             try:
                 if self.routing_service and not self.routing_service.multiroom_enabled:
                     self.logger.warning(f"Skipping proxy request to {hostname} - multiroom is disabled")
-                    raise HTTPException(
-                        status_code=503,
-                        detail=f"Multiroom is disabled, cannot reach {hostname}"
+                    raise SatelliteUnreachable(
+                        hostname, f"Multiroom is disabled, cannot reach {hostname}", status_code=503
                     )
-            except HTTPException:
+            except SatelliteUnreachable:
                 raise
             except Exception as e:
                 # Log but continue if we can't check multiroom status
@@ -170,19 +187,62 @@ class EqualizerClientProxyService:
             async with ctx as response:
                 if response.status == 200:
                     return await response.json()
-                raise HTTPException(
-                    status_code=response.status,
-                    detail=f"Client error: {response.status}"
+                raise SatelliteUnreachable(
+                    hostname, f"Client error: {response.status}", status_code=response.status
                 )
 
-        except aiohttp.ClientError as e:
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             self.logger.warning(f"Cannot reach client {hostname}: {e}")
-            raise HTTPException(status_code=503, detail=f"Cannot reach client {hostname}")
-        except HTTPException:
+            raise SatelliteUnreachable(hostname, f"Cannot reach client {hostname}", status_code=503)
+        except SatelliteUnreachable:
             raise
         except Exception as e:
             self.logger.error(f"Unexpected error proxying to {hostname}: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+            raise SatelliteUnreachable(hostname, str(e), status_code=500)
+
+    async def try_request(
+        self,
+        hostname: str,
+        method: str,
+        path: str,
+        body: Optional[Dict[str, Any]] = None,
+        timeout: float = 5.0,
+    ) -> int:
+        """Non-raising request variant for background callers with their own
+        retry / queue-pending semantics (e.g. CrossoverService).
+
+        Returns the HTTP status code, or 0 if the client is unreachable. Reuses
+        the shared keep-alive session instead of a throwaway per-request
+        ClientSession, so it benefits from the same TCP keep-alive as request().
+
+        Args:
+            hostname: The client hostname or IP address
+            method: HTTP method (GET, PUT, POST)
+            path: API path (e.g. "/equalizer/crossover")
+            body: Optional request body for PUT/POST
+            timeout: Total request timeout in seconds
+        """
+        try:
+            host = self._get_host(hostname)
+            url = f"http://{host}:{CLIENT_API_PORT}{path}"
+            client_timeout = aiohttp.ClientTimeout(total=timeout)
+            session = self._get_session()
+
+            if method == "GET":
+                ctx = session.get(url, timeout=client_timeout)
+            elif method == "PUT":
+                ctx = session.put(url, json=body, timeout=client_timeout)
+            elif method == "POST":
+                ctx = session.post(url, json=body, timeout=client_timeout)
+            else:
+                raise ValueError(f"Unsupported HTTP method: {method}")
+
+            async with ctx as response:
+                return response.status
+
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            self.logger.debug(f"Cannot reach client {hostname}: {e}")
+            return 0
 
     async def get_equalizer_levels(self, hostname: str) -> Optional[Dict[str, Any]]:
         """

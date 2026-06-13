@@ -12,8 +12,7 @@ Tests:
 - WebSocket event broadcasting for crossover changes (Story 5.5 AC#4)
 """
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-import aiohttp
+from unittest.mock import AsyncMock, MagicMock
 
 from backend.core.multiroom.models import (
     Client,
@@ -104,11 +103,20 @@ def mock_registry():
 
 
 @pytest.fixture
-def crossover_service(mock_settings_service, mock_camilladsp_service):
+def mock_proxy_service():
+    """Mock EqualizerClientProxyService — non-raising try_request returns a status code."""
+    proxy = MagicMock()
+    proxy.try_request = AsyncMock(return_value=200)
+    return proxy
+
+
+@pytest.fixture
+def crossover_service(mock_settings_service, mock_camilladsp_service, mock_proxy_service):
     """Create a CrossoverService instance."""
     return CrossoverService(
         settings_service=mock_settings_service,
-        camilladsp_service=mock_camilladsp_service
+        camilladsp_service=mock_camilladsp_service,
+        proxy_service=mock_proxy_service
     )
 
 
@@ -500,84 +508,53 @@ class TestRemoteClientProxy:
 
     @pytest.mark.asyncio
     async def test_proxy_crossover_to_remote_client_success(self, crossover_service):
-        """Test successful HTTP proxy call for crossover."""
-        with patch('aiohttp.ClientSession') as mock_session_class:
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            mock_response.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_response.__aexit__ = AsyncMock()
+        """Test successful proxy call for crossover via the shared session."""
+        crossover_service._proxy_service.try_request.return_value = 200
 
-            mock_context = AsyncMock()
-            mock_context.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_context.__aexit__ = AsyncMock()
+        result = await crossover_service._proxy_filter_to_client(
+            "crossover", "192.168.1.100", True, 80
+        )
 
-            mock_session = AsyncMock()
-            mock_session.put = MagicMock(return_value=mock_context)
-            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-            mock_session.__aexit__ = AsyncMock()
-
-            mock_session_class.return_value = mock_session
-
-            result = await crossover_service._proxy_filter_to_client(
-                "crossover", "192.168.1.100", True, 80
-            )
-
-            assert result is True
+        assert result is True
+        crossover_service._proxy_service.try_request.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_proxy_crossover_to_remote_client_timeout(self, crossover_service):
-        """Test HTTP proxy timeout queues pending settings."""
-        with patch('aiohttp.ClientSession') as mock_session_class:
-            mock_session_class.side_effect = aiohttp.ClientError("Connection timeout")
+        """Test unreachable client (status 0) queues pending settings."""
+        crossover_service._proxy_service.try_request.return_value = 0
 
-            result = await crossover_service._proxy_filter_to_client(
-                "crossover", "192.168.1.100", True, 80
-            )
+        result = await crossover_service._proxy_filter_to_client(
+            "crossover", "192.168.1.100", True, 80
+        )
 
-            assert result is False
-            # Settings should be queued for later
-            assert crossover_service.has_pending_settings("192.168.1.100") is True
+        assert result is False
+        # Settings should be queued for later
+        assert crossover_service.has_pending_settings("192.168.1.100") is True
 
     @pytest.mark.asyncio
     async def test_proxy_lowpass_to_remote_client_success(self, crossover_service):
-        """Test successful HTTP proxy call for lowpass."""
-        with patch('aiohttp.ClientSession') as mock_session_class:
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            mock_response.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_response.__aexit__ = AsyncMock()
+        """Test successful proxy call for lowpass via the shared session."""
+        crossover_service._proxy_service.try_request.return_value = 200
 
-            mock_context = AsyncMock()
-            mock_context.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_context.__aexit__ = AsyncMock()
+        result = await crossover_service._proxy_filter_to_client(
+            "lowpass", "192.168.1.101", True, 80
+        )
 
-            mock_session = AsyncMock()
-            mock_session.put = MagicMock(return_value=mock_context)
-            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-            mock_session.__aexit__ = AsyncMock()
-
-            mock_session_class.return_value = mock_session
-
-            result = await crossover_service._proxy_filter_to_client(
-                "lowpass", "192.168.1.101", True, 80
-            )
-
-            assert result is True
+        assert result is True
 
     @pytest.mark.asyncio
     async def test_proxy_lowpass_to_remote_client_failure(self, crossover_service):
-        """Test HTTP proxy failure queues pending lowpass settings."""
-        with patch('aiohttp.ClientSession') as mock_session_class:
-            mock_session_class.side_effect = aiohttp.ClientError("Connection refused")
+        """Test proxy failure (status 0) queues pending lowpass settings."""
+        crossover_service._proxy_service.try_request.return_value = 0
 
-            result = await crossover_service._proxy_filter_to_client(
-                "lowpass", "192.168.1.101", True, 80
-            )
+        result = await crossover_service._proxy_filter_to_client(
+            "lowpass", "192.168.1.101", True, 80
+        )
 
-            assert result is False
-            assert crossover_service.has_pending_settings("192.168.1.101") is True
-            settings = crossover_service._pending_settings.get("192.168.1.101", {})
-            assert "lowpass" in settings
+        assert result is False
+        assert crossover_service.has_pending_settings("192.168.1.101") is True
+        settings = crossover_service._pending_settings.get("192.168.1.101", {})
+        assert "lowpass" in settings
 
 
 # =============================================================================
@@ -1268,30 +1245,15 @@ class TestFilterApplicationMethods:
         remote_client = Client(mac_id="remote-1", name="Remote", ip="192.168.1.100", online=True)
         registry._clients["remote-1"] = remote_client
 
-        with patch('aiohttp.ClientSession') as mock_session_class:
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            mock_response.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_response.__aexit__ = AsyncMock()
+        service._proxy_service.try_request.return_value = 200
 
-            mock_context = AsyncMock()
-            mock_context.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_context.__aexit__ = AsyncMock()
+        result = await service._set_client_filter("remote-1", "crossover", True, 80)
 
-            mock_session = AsyncMock()
-            mock_session.put = MagicMock(return_value=mock_context)
-            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-            mock_session.__aexit__ = AsyncMock()
-
-            mock_session_class.return_value = mock_session
-
-            result = await service._set_client_filter("remote-1", "crossover", True, 80)
-
-            assert result is True
-            # Verify PUT was called with correct URL and payload
-            mock_session.put.assert_called()
-            call_args = mock_session.put.call_args
-            assert "/equalizer/crossover" in str(call_args)
+        assert result is True
+        # Verify the proxy was called with the crossover path
+        service._proxy_service.try_request.assert_awaited_once()
+        call_args = service._proxy_service.try_request.call_args
+        assert "/equalizer/crossover" in str(call_args)
 
     @pytest.mark.asyncio
     async def test_set_client_lowpass_local_calls_camilladsp_service(self, service_with_local_client, mock_camilladsp_service):
@@ -1327,29 +1289,14 @@ class TestFilterApplicationMethods:
         remote_client = Client(mac_id="remote-1", name="Remote", ip="192.168.1.100", online=True)
         registry._clients["remote-1"] = remote_client
 
-        with patch('aiohttp.ClientSession') as mock_session_class:
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            mock_response.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_response.__aexit__ = AsyncMock()
+        service._proxy_service.try_request.return_value = 200
 
-            mock_context = AsyncMock()
-            mock_context.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_context.__aexit__ = AsyncMock()
+        result = await service._set_client_filter("remote-1", "lowpass", True, 80)
 
-            mock_session = AsyncMock()
-            mock_session.put = MagicMock(return_value=mock_context)
-            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-            mock_session.__aexit__ = AsyncMock()
-
-            mock_session_class.return_value = mock_session
-
-            result = await service._set_client_filter("remote-1", "lowpass", True, 80)
-
-            assert result is True
-            mock_session.put.assert_called()
-            call_args = mock_session.put.call_args
-            assert "/equalizer/lowpass" in str(call_args)
+        assert result is True
+        service._proxy_service.try_request.assert_awaited_once()
+        call_args = service._proxy_service.try_request.call_args
+        assert "/equalizer/lowpass" in str(call_args)
 
     @pytest.mark.asyncio
     async def test_set_client_lowpass_without_camilladsp_service_returns_false(self, mock_settings_service, mock_registry):
@@ -1631,19 +1578,18 @@ class TestCrossoverOnReconnection:
         remote_client = Client(mac_id="remote-1", name="Remote", ip="192.168.1.100", online=True)
         registry._clients["remote-1"] = remote_client
 
-        with patch('aiohttp.ClientSession') as mock_session_class:
-            mock_session_class.side_effect = aiohttp.ClientError("Connection refused")
+        service._proxy_service.try_request.return_value = 0  # unreachable
 
-            # Attempt to apply crossover to unreachable client
-            result = await service._set_client_filter("remote-1", "crossover", True, 80)
+        # Attempt to apply crossover to unreachable client
+        result = await service._set_client_filter("remote-1", "crossover", True, 80)
 
-            assert result is False
-            # Settings should be queued
-            assert service.has_pending_settings("remote-1") is True
-            settings = service._pending_settings.get("remote-1", {})
-            assert "crossover" in settings
-            assert settings["crossover"]["enabled"] is True
-            assert settings["crossover"]["frequency"] == 80
+        assert result is False
+        # Settings should be queued
+        assert service.has_pending_settings("remote-1") is True
+        settings = service._pending_settings.get("remote-1", {})
+        assert "crossover" in settings
+        assert settings["crossover"]["enabled"] is True
+        assert settings["crossover"]["frequency"] == 80
 
     @pytest.mark.asyncio
     async def test_pending_lowpass_queued_for_offline_subwoofer(self, crossover_service_with_registry):
@@ -1653,15 +1599,14 @@ class TestCrossoverOnReconnection:
         remote_client = Client(mac_id="remote-1", name="Remote", ip="192.168.1.100", online=True)
         registry._clients["remote-1"] = remote_client
 
-        with patch('aiohttp.ClientSession') as mock_session_class:
-            mock_session_class.side_effect = aiohttp.ClientError("Connection refused")
+        service._proxy_service.try_request.return_value = 0  # unreachable
 
-            result = await service._set_client_filter("remote-1", "lowpass", True, 80)
+        result = await service._set_client_filter("remote-1", "lowpass", True, 80)
 
-            assert result is False
-            assert service.has_pending_settings("remote-1") is True
-            settings = service._pending_settings.get("remote-1", {})
-            assert "lowpass" in settings
+        assert result is False
+        assert service.has_pending_settings("remote-1") is True
+        settings = service._pending_settings.get("remote-1", {})
+        assert "lowpass" in settings
 
     @pytest.mark.asyncio
     async def test_pending_crossover_applied_on_reconnect(self, crossover_service_with_registry, mock_camilladsp_service):

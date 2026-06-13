@@ -153,7 +153,8 @@ def _create_service(name: str) -> Any:
             settings_service=get_service("settings_service"),
             camilladsp_service=get_service("camilladsp_service"),
             state_machine=get_service("audio_state_machine"),
-            volume_service=get_service("volume_service")
+            volume_service=get_service("volume_service"),
+            proxy_service=get_service("equalizer_client_proxy_service")
         ),
         "multiroom_equalizer_service": lambda: _import("backend.core.equalizer", "MultiroomEqualizerService")(
             client_registry_service=get_service("client_registry_service"),
