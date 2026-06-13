@@ -133,7 +133,7 @@ class EqualizerController:
         if not updates:
             return {}
 
-        self.logger.info(f"Applying parallel volume updates to {len(updates)} clients")
+        self.logger.debug(f"Applying parallel volume updates to {len(updates)} clients")
 
         if not self._has_registry():
             self.logger.warning("Cannot apply parallel volumes: client registry not available")

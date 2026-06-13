@@ -415,7 +415,7 @@ class VolumeService:
         persisted_value = self._volume_config.startup_volume_db
         await self._broadcast_startup_volume_changed(persisted_value)
 
-        self.logger.info(f"FR11: Auto-updated startup_volume_db to {persisted_value:.1f} dB")
+        self.logger.debug(f"FR11: Auto-updated startup_volume_db to {persisted_value:.1f} dB")
 
     @handle_errors(default=None)
     async def _broadcast_startup_volume_changed(self, volume_db: float) -> None:
