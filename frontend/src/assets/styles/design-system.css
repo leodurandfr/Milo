@@ -229,9 +229,14 @@
 
 @font-face {
     font-family: 'Space Mono Bold';
-    src: url('../fonts/SpaceMono-Bold.woff2') format('woff2'),
-         url('../fonts/SpaceMono-Bold.ttf') format('truetype');
+    src: url('../fonts/SpaceMono-Bold.woff2') format('woff2');
     font-weight: 700;
+}
+
+@font-face {
+    font-family: 'Noto Sans SC';
+    src: url('../fonts/NotoSansSC-Regular.woff2') format('woff2');
+    font-weight: 400 500;
 }
 
 /* === UTILITY CLASSES === */
