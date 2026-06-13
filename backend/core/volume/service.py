@@ -48,6 +48,7 @@ class VolumeService:
         self.settings_service = settings_service
         self._camilladsp_service = camilladsp_service
         self._proxy_service = equalizer_client_proxy_service
+        self._equalizer_router = equalizer_router
         self._hardware_service = hardware_service
         self.logger = logging.getLogger(__name__)
         self._bg = BackgroundTaskSet(self.logger, "volume")
@@ -480,16 +481,14 @@ class VolumeService:
             cid = client.get("mac_id", "")
             if not cid:
                 continue
-            # Read equalizer volume (local client uses local CamillaDSP, others use proxy)
+            # Read equalizer volume via the router, which owns local/remote
+            # dispatch (local CamillaDSP vs satellite proxy) — VolumeService no
+            # longer reaches a satellite directly.
             client_info = registry.get_client(cid) if registry else None
-            if client_info and client_info.ip == "127.0.0.1":
-                vol_data = await self._camilladsp_service.get_volume()
-            elif client_info and client_info.ip:
-                # Use IP address for proxy request (never mac_id)
-                vol_data = await self._proxy_service.request(client_info.ip, "GET", "/equalizer/volume")
-            else:
+            if not (client_info and client_info.ip):
                 self.logger.warning(f"Cannot sync client {cid}: no IP address in registry")
                 continue
+            vol_data = await self._equalizer_router.get_volume(cid)
             volume = vol_data.get("main", DEFAULT_VOLUME_DB) if vol_data else DEFAULT_VOLUME_DB
             await self._state_store.register_client(cid, volume_db=volume, available=client.get("available", True))
 

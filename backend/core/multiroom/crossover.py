@@ -16,11 +16,8 @@ import asyncio
 import logging
 from typing import Dict, Any, Optional, TYPE_CHECKING
 
-import aiohttp
-
 from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
-from backend.config.constants import CLIENT_API_PORT as _CLIENT_API_PORT
 from backend.core.multiroom.models import (
     DEFAULT_SPEAKER_TYPE,
     DEFAULT_CROSSOVER_FREQUENCIES,
@@ -44,10 +41,9 @@ class CrossoverService:
 
     DEFAULT_CROSSOVER_FREQUENCY = 80  # Hz (THX/Dolby recommended)
     DEFAULT_Q = 0.707  # Butterworth (flattest passband)
-    CLIENT_API_PORT = _CLIENT_API_PORT
 
     def __init__(self, settings_service=None, camilladsp_service=None,
-                 state_machine=None, volume_service=None):
+                 state_machine=None, volume_service=None, proxy_service=None):
         self.logger = logging.getLogger(__name__)
         self.settings_service = settings_service
         self.camilladsp_service = camilladsp_service
@@ -55,6 +51,9 @@ class CrossoverService:
         # Acyclic deps (constructor-injected; neither holds a back-reference).
         self.state_machine = state_machine
         self.volume_service = volume_service
+        # Satellite HTTP transport — shared keep-alive session, non-raising
+        # try_request() (this service owns its queue-pending retry semantics).
+        self._proxy_service = proxy_service
 
         # Client registry reference (set via set_registry after construction)
         self._registry: Optional["ClientRegistryService"] = None
@@ -435,46 +434,38 @@ class CrossoverService:
             client_id: MAC address for logging and queue_pending_settings (optional)
         """
         identifier = client_id or ip_address
+        if not self._proxy_service:
+            self.logger.error(f"Cannot proxy {filter_name} to {identifier}: proxy service not available")
+            return False
         try:
-            url = f"http://{ip_address}:{self.CLIENT_API_PORT}/equalizer/{filter_name}"
-
             payload = {
                 "enabled": enabled,
                 "frequency": frequency,
                 "q": self.DEFAULT_Q
             }
 
-            timeout = aiohttp.ClientTimeout(total=5)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.put(url, json=payload) as response:
-                    if response.status == 200:
-                        self.logger.info(
-                            f"{filter_name.capitalize()} {'enabled' if enabled else 'disabled'} "
-                            f"on client {identifier} at {frequency} Hz"
-                        )
-                        return True
-                    else:
-                        # Expected when CamillaDSP is not ready (e.g. after reboot).
-                        # Queue as pending so the next reconnect retries.
-                        self.logger.debug(
-                            f"Client {identifier} rejected {filter_name} "
-                            f"(HTTP {response.status}), queued as pending"
-                        )
-                        await self.queue_pending_settings(identifier, filter_name, {
-                            "enabled": enabled,
-                            "frequency": frequency
-                        })
-                        return False
+            status = await self._proxy_service.try_request(
+                ip_address, "PUT", f"/equalizer/{filter_name}", payload, timeout=5.0
+            )
+            if status == 200:
+                self.logger.info(
+                    f"{filter_name.capitalize()} {'enabled' if enabled else 'disabled'} "
+                    f"on client {identifier} at {frequency} Hz"
+                )
+                return True
 
-        except aiohttp.ClientError:
+            # status 0 = unreachable; non-200 = rejected (e.g. CamillaDSP not
+            # ready after reboot). Either way queue as pending for the next sync.
+            reason = "unreachable" if status == 0 else f"HTTP {status}"
             self.logger.debug(
-                f"Cannot reach client {identifier} for {filter_name} update, queued as pending"
+                f"Client {identifier} did not apply {filter_name} ({reason}), queued as pending"
             )
             await self.queue_pending_settings(identifier, filter_name, {
                 "enabled": enabled,
                 "frequency": frequency
             })
             return False
+
         except Exception as e:
             self.logger.error(f"Error proxying {filter_name} to client {identifier}: {e}")
             return False
@@ -657,12 +648,13 @@ class CrossoverService:
             if not client or not client.ip:
                 self.logger.warning(f"Cannot apply pending {label}: client {client_id} has no IP address")
                 return False
-            url = f"http://{client.ip}:{self.CLIENT_API_PORT}{endpoint}"
-
-            timeout = aiohttp.ClientTimeout(total=5)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.put(url, json=payload) as response:
-                    return response.status == 200
+            if not self._proxy_service:
+                self.logger.warning(f"Cannot apply pending {label}: proxy service not available")
+                return False
+            status = await self._proxy_service.try_request(
+                client.ip, "PUT", endpoint, payload, timeout=5.0
+            )
+            return status == 200
 
     def has_pending_settings(self, client_id: str) -> bool:
         """Check if a client has pending settings."""

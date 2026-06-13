@@ -14,6 +14,7 @@ from typing import Optional
 
 from fastapi import HTTPException
 
+from backend.core.equalizer.client_proxy import SatelliteUnreachable
 from backend.core.models.audio_state import AudioSource
 
 
@@ -41,6 +42,8 @@ async def run_source_command(source, cmd: str, data: dict, context: str = "Comma
         return result
     except HTTPException:
         raise
+    except SatelliteUnreachable as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"{context}: {str(e)}")
 
@@ -52,6 +55,8 @@ async def api_error_handler(context: str, log=None):
 
     Handles:
     - HTTPException: re-raised as-is (passthrough for 400/404/etc.)
+    - SatelliteUnreachable: mapped to HTTPException with the carried status_code
+      (the one place the core's satellite domain error becomes a web error)
     - Exception: optionally logged, then raised as HTTP 500
 
     Args:
@@ -67,6 +72,10 @@ async def api_error_handler(context: str, log=None):
         yield
     except HTTPException:
         raise
+    except SatelliteUnreachable as e:
+        if log:
+            log.error(f"{context}: {e.detail}")
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
     except Exception as e:
         if log:
             log.error(f"{context}: {e}")
