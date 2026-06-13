@@ -101,7 +101,12 @@ export const useFanStore = defineStore('fan', () => {
     });
   }
 
+  async function resync() {
+    return loadStatus();
+  }
+
   return {
+    resync,
     available,
     config,
     status,

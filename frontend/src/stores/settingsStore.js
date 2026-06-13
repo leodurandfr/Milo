@@ -549,7 +549,13 @@ export const useSettingsStore = defineStore('settings', () => {
     hotspotActive.value = value;
   }
 
+  // Also re-applies language: the locale watcher reacts to settingsStore.language
+  async function resync() {
+    return loadAllSettings();
+  }
+
   return {
+    resync,
     // State
     setupCompleted,
     hotspotActive,

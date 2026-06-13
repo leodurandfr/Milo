@@ -523,7 +523,12 @@ export const useRadioStore = defineStore('radio', () => {
     }
   }
 
+  async function resync() {
+    return preloadFavorites({ force: true });
+  }
+
   return {
+    resync,
     // State
     currentStation,
     trackInfo,

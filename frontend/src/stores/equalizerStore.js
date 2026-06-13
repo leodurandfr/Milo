@@ -1004,7 +1004,12 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     }
   }
 
+  async function resync() {
+    return loadStatus();
+  }
+
   return {
+    resync,
     // State
     filters,
     activePreset,

@@ -593,7 +593,12 @@ export const useMultiroomStore = defineStore('multiroom', () => {
 
   // === RETURN PUBLIC API ===
 
+  async function resync() {
+    return fetchState();
+  }
+
   return {
+    resync,
     // State
     clients,
     pendingClients,

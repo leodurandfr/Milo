@@ -451,7 +451,12 @@ export const usePodcastStore = defineStore('podcast', () => {
   }
 
   // === RETURN ===
+  async function resync() {
+    return preloadSubscriptionsList({ force: true });
+  }
+
   return {
+    resync,
     // State
     currentEpisode,
     displayEpisode,

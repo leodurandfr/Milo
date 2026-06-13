@@ -109,7 +109,12 @@ export const useCdStore = defineStore('cd', () => {
     }
   }
 
+  async function resync() {
+    return fetchDriveStatus();
+  }
+
   return {
+    resync,
     // State
     discInfo,
     tracks,

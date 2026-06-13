@@ -185,24 +185,17 @@ function processInitialState(event) {
   isReady.value = true;
 }
 
-// Refetch every store whose WS updates are delta-based: events missed while
-// disconnected or backgrounded leave them stale until refetched. Stores fed
-// by full_state snapshots (unifiedAudioStore) heal via initial_state instead.
+// Stores whose WS-fed state is delta-based: events missed while disconnected or
+// backgrounded leave them stale until refetched. Each exposes a uniform resync();
+// a new delta-based store MUST implement resync() and be listed here. Stores fed by
+// full_state snapshots (unifiedAudioStore) heal via initial_state instead.
+const deltaStores = [
+  multiroomStore, equalizerStore, cdStore, systemStore, fanStore,
+  radioStore, podcastStore, updatesStore, settingsStore,
+];
+
 async function resyncStores() {
-  multiroomStore.fetchState();
-  equalizerStore.loadStatus();
-  cdStore.fetchDriveStatus();
-  systemStore.fetchStatus();
-  fanStore.loadStatus();
-  radioStore.preloadFavorites({ force: true });
-  podcastStore.preloadSubscriptionsList({ force: true });
-  // Reconciles in-flight update flags from the server so "updating" survives a
-  // reconnect/foreground even when UpdateManager isn't mounted (satellites
-  // resync within UpdateManager itself, the only view that shows them).
-  updatesStore.loadLocalPrograms();
-  // Covers language too: the bulk load updates settingsStore.language and the
-  // locale watcher applies it (a change missed while offline is never replayed)
-  await settingsStore.loadAllSettings();
+  await Promise.allSettled(deltaStores.map((store) => store.resync()));
 }
 
 // === Boot timeout handling ===
