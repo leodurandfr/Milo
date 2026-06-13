@@ -1,19 +1,24 @@
 // frontend/src/schemas/ws.js
 /**
- * Zod schemas for WebSocket event payloads.
+ * Zod schemas for WebSocket event payloads, consumed via
+ * `parsedOn(category, type, schema, handler)` — handlers MUST NOT read
+ * `event.data.x` directly. Each entry maps a `(category, type)` pair
+ * (key format: `category.type`) to the schema for its `event.data` shape.
  *
- * Each entry maps a `(category, type)` pair (key format: `category.type`) to
- * the Zod schema describing the expected `event.data` shape. Handlers consume
- * the validated payload via `parsedOn(category, type, schema, handler)` — they
- * MUST NOT read `event.data.x` directly.
+ * Admission rule — a `(category, type)` earns an entry here IFF:
+ *   (a) more than one app consumes it (e.g. Milo-Mac + frontend), or
+ *   (b) it has already caused a shape bug.
+ * This partiality is by design, NOT an unfinished migration: pairs meeting
+ * neither test stay on raw `on(...)` dispatch — schematizing them would be
+ * churn with no payoff. Do NOT bulk-schematize the remaining pairs.
  *
- * The registry is intentionally partial: only fautive pairs (where the
- * frontend used to read `event.data.x` with dual-shape fallbacks) are
- * schematized. Other pairs continue to dispatch raw `event` via `on(...)`
- * until a future PR migrates them.
+ * This registry is not the only validation seam. The two highest-traffic
+ * payloads are already validated by their own schemas in unifiedAudioStore.js
+ * — `full_state` (SystemStateSchema) and `volume_changed` state
+ * (VolumeStateSchema) — so they need no entry here.
  *
- * To add a new schema: declare it below, expose it via `wsEventRegistry`,
- * and switch the consumer to `parsedOn('category', 'type', schema, handler)`.
+ * To add a schema (when the rule above is met): declare it below, expose it
+ * via `wsEventRegistry`, and switch the consumer to `parsedOn(...)`.
  */
 import { z } from 'zod';
 

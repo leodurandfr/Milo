@@ -457,49 +457,56 @@ class TestErrorHandling:
         assert sm.system_state.source_state == SourceState.WAITING
 
 
-class TestUpdateBuffering:
-    """Tests for update buffering during transitions."""
+class TestUpdateSourceStateGuards:
+    """Tests for update_source_state's drop guards: updates emitted during a
+    transition are dropped (no buffer/replay) and recovered by the post-start
+    resync; updates from an inactive source are ignored."""
 
     @pytest.mark.asyncio
-    async def test_updates_buffered_during_transition(
+    async def test_in_transition_update_dropped_then_resynced(
         self,
         integration_state_machine: AudioStateMachine,
         websocket_collector: WebSocketEventCollector
     ):
         """
-        Updates arriving during transition should be buffered and replayed.
+        An update emitted from a source's start() (while transitioning=True) is
+        dropped — never broadcast, no replay queue — but the source's final
+        state/metadata is recovered by the post-start resync in
+        transition_to_source().
         """
         sm = integration_state_machine
-
-        # Create a source that sends an update during start
         source_instance = create_mock_source(AudioSource.RADIO)
 
         async def start_with_update():
-            # Simulate source sending update during transition
+            # Emitted while transitioning=True → dropped, never broadcast.
             await sm.update_source_state(
                 AudioSource.RADIO,
                 SourceState.ACTIVE,
-                {"buffered": True}
+                {"in_flight": True}
             )
+            # What _do_start actually achieved — recovered by the resync.
+            source_instance.state = SourceState.ACTIVE
+            source_instance.metadata = {"title": "Resynced"}
             return True
 
         source_instance.start = start_with_update
         sm.register_source(AudioSource.RADIO, source_instance)
-
         websocket_collector.clear()
 
-        # Perform transition
         await sm.transition_to_source(AudioSource.RADIO)
 
-        # Update should have been replayed
+        # The in-transition update was dropped: no state_changed carried it.
         state_events = websocket_collector.get_events_by_type("state_changed")
-        [
-            e for e in state_events
-            if e.get("data", {}).get("metadata", {}).get("buffered")
-        ]
+        assert not any(
+            (e.get("data", {}).get("metadata") or {}).get("in_flight")
+            for e in state_events
+        ), "in-transition update must not be broadcast (no buffer/replay)"
 
-        # Either the update was buffered and replayed, or state reflects the update
+        # ...but the source's post-start state was resynced into system_state.
         assert sm.system_state.active_source == AudioSource.RADIO
+        assert sm.system_state.source_state == SourceState.ACTIVE
+        assert sm.system_state.metadata == {"title": "Resynced"}
+        assert sm.system_state.transitioning is False
 
     @pytest.mark.asyncio
     async def test_updates_from_inactive_source_ignored(
