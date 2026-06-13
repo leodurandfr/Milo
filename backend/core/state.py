@@ -92,8 +92,10 @@ class AudioStateMachine:
     async def exclusive_transition(self):
         """Hold the transition lock for an externally-orchestrated source
         lifecycle (e.g. the multiroom reroute), mutually exclusive with
-        transition_to_source(). State updates inside the block are buffered
-        and replayed like any in-transition update."""
+        transition_to_source(). It does NOT set system_state.transitioning,
+        so update_source_state() calls inside the block broadcast live — the
+        reroute relies on this to push its STARTING state to the UI. No
+        in-transition buffer exists, here or anywhere; none is needed."""
         async with self._transition_lock:
             yield
 
@@ -167,8 +169,10 @@ class AudioStateMachine:
                     async with self._state_lock:
                         self.system_state.transitioning = False
                         if target_source != AudioSource.NONE:
-                            # Sync with source's actual post-start state
-                            # (_do_start may have set CONNECTED with metadata)
+                            # Resync from the source's actual post-start state.
+                            # This recovers any update_source_state dropped while
+                            # transitioning (_do_start may have set CONNECTED with
+                            # metadata) — there is no buffer/replay, just this re-read.
                             source = self.sources.get(target_source)
                             if source:
                                 self.system_state.source_state = source.state
@@ -232,6 +236,8 @@ class AudioStateMachine:
                 logger.debug(f"Ignoring state update from inactive source: {source.value}")
                 return
 
+            # Dropped, not buffered: updates from _do_start during a transition
+            # are recovered by the post-start resync in transition_to_source().
             if self.system_state.transitioning:
                 logger.debug(f"Ignoring state update during transition: {source.value}")
                 return

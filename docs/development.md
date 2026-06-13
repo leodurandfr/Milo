@@ -461,7 +461,7 @@ class MyService:
 
 ### State machine transitions
 
-Transitions are protected by `_transition_lock`. During a transition, state updates are **buffered** and replayed after.
+Transitions are protected by `_transition_lock`. State updates arriving while `transitioning` is set are **dropped, not buffered**; the post-start resync in `transition_to_source()` re-reads `source.state`/`source.metadata` to recover the final state. There is no replay queue.
 
 ```python
 # ✅ Good: uses update_source_state
