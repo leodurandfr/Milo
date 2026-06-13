@@ -236,13 +236,25 @@
 @font-face {
     font-family: 'Noto Sans SC';
     src: url('../fonts/NotoSansSC-Regular.woff2') format('woff2');
+    font-weight: 400;
+}
+
+@font-face {
+    font-family: 'Noto Sans SC';
+    src: url('../fonts/NotoSansSC-Medium.woff2') format('woff2');
+    font-weight: 500;
+}
+
+@font-face {
+    font-family: 'Noto Sans Devanagari';
+    src: url('../fonts/NotoSansDevanagari.woff2') format('woff2');
     font-weight: 400 500;
 }
 
 /* === UTILITY CLASSES === */
 
 .display-1 {
-    font-family: 'Neue Montreal Medium', 'Noto Sans SC', sans-serif;
+    font-family: 'Neue Montreal Medium', 'Noto Sans Devanagari', 'Noto Sans SC', sans-serif;
     font-size: var(--font-size-d1);
     line-height: var(--line-height-d1);
     letter-spacing: var(--letter-spacing-sans-serif);
@@ -250,7 +262,7 @@
 }
 
 .heading-1 {
-    font-family: 'Neue Montreal Medium', 'Noto Sans SC', sans-serif;
+    font-family: 'Neue Montreal Medium', 'Noto Sans Devanagari', 'Noto Sans SC', sans-serif;
     font-size: var(--font-size-h1);
     line-height: var(--line-height-h1);
     letter-spacing: var(--letter-spacing-sans-serif);
@@ -258,7 +270,7 @@
 }
 
 .heading-2 {
-    font-family: 'Neue Montreal Medium', 'Noto Sans SC', sans-serif;
+    font-family: 'Neue Montreal Medium', 'Noto Sans Devanagari', 'Noto Sans SC', sans-serif;
     font-size: var(--font-size-h2);
     line-height: var(--line-height-h2);
     letter-spacing: var(--letter-spacing-sans-serif);
@@ -266,7 +278,7 @@
 }
 
 .heading-3 {
-    font-family: 'Neue Montreal Medium', 'Noto Sans SC', sans-serif;
+    font-family: 'Neue Montreal Medium', 'Noto Sans Devanagari', 'Noto Sans SC', sans-serif;
     font-size: var(--font-size-h3);
     line-height: var(--line-height-h3);
     letter-spacing: var(--letter-spacing-sans-serif);
@@ -274,7 +286,7 @@
 }
 
 .heading-4 {
-    font-family: 'Neue Montreal Medium', 'Noto Sans SC', sans-serif;
+    font-family: 'Neue Montreal Medium', 'Noto Sans Devanagari', 'Noto Sans SC', sans-serif;
     font-size: var(--font-size-h4);
     line-height: var(--line-height-h4);
     letter-spacing: var(--letter-spacing-sans-serif);
@@ -282,7 +294,7 @@
 }
 
 .text-body {
-    font-family: 'Neue Montreal Regular', 'Noto Sans SC', sans-serif;
+    font-family: 'Neue Montreal Regular', 'Noto Sans Devanagari', 'Noto Sans SC', sans-serif;
     font-size: var(--font-size-body);
     line-height: var(--line-height-body);
     letter-spacing: var(--letter-spacing-sans-serif);
@@ -290,7 +302,7 @@
 }
 
 .text-mono {
-    font-family: 'Space Mono Regular', 'Noto Sans SC', monospace;
+    font-family: 'Space Mono Regular', 'Noto Sans Devanagari', 'Noto Sans SC', monospace;
     font-size: var(--font-size-mono);
     line-height: var(--line-height-mono);
     letter-spacing: var(--letter-spacing-mono);
@@ -298,7 +310,7 @@
 }
 
 .text-mono-small {
-    font-family: 'Space Mono Regular', 'Noto Sans SC', monospace;
+    font-family: 'Space Mono Regular', 'Noto Sans Devanagari', 'Noto Sans SC', monospace;
     font-size: var(--font-size-mono-small);
     line-height: var(--line-height-mono-small);
     letter-spacing: var(--letter-spacing-mono);
