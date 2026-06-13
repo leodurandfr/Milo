@@ -70,7 +70,12 @@ export const useSystemStore = defineStore('system', () => {
     applyState(event?.data);
   }
 
+  async function resync() {
+    return fetchStatus();
+  }
+
   return {
+    resync,
     hostnameConflict,
     advertisedName,
     localIp,

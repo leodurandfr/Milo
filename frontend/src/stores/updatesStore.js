@@ -208,7 +208,13 @@ export const useUpdatesStore = defineStore('updates', () => {
   const handleSatelliteCamillaUpdateProgress = makeProgressHandler(satelliteCamillaUpdateStates, 'mac_id');
   const handleSatelliteCamillaUpdateComplete = makeCompleteHandler(satelliteCamillaUpdateStates, satelliteCamillaCompletedUpdates, 'mac_id', loadSatellites);
 
+  // Reconciles in-flight update flags so "updating" survives a reconnect/foreground
+  async function resync() {
+    return loadLocalPrograms();
+  }
+
   return {
+    resync,
     // State
     localPrograms,
     localProgramsLoading,
