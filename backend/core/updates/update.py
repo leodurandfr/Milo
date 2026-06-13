@@ -18,8 +18,9 @@ from backend.config.constants import DEPLOY_UPDATE_CMD
 class UpdateService(VersionService):
     """Update service - Extends VersionService"""
 
-    def __init__(self):
+    def __init__(self, systemd_manager):
         super().__init__()
+        self._systemd = systemd_manager
         self.update_logger = logging.getLogger(f"{__name__}.update")
 
         # Update-specific configuration
@@ -161,9 +162,11 @@ class UpdateService(VersionService):
             if progress_callback:
                 await progress_callback("updates.progress.rollbackRestarting", 96)
 
-            # Restart services
-            await self._restart_service(config["service_name"])
+            # Restart services. Kiosk first (observable); milo-backend LAST and
+            # fire-and-forget — restarting our own unit tears this process down
+            # mid-call, so anything after it would not run.
             await self._restart_service("milo-kiosk.service")
+            await self._systemd.restart_self(config["service_name"])
 
             self.update_logger.info("Milo rollback completed successfully")
             return True
@@ -1293,96 +1296,23 @@ class UpdateService(VersionService):
         self.update_logger.info("Package installed successfully")
         return {"success": True}
 
+    # Service control delegates to the central SystemdServiceManager — one
+    # implementation of the privileged `sudo systemctl` gesture (see invariant #1).
     async def _is_service_active(self, service_name: str) -> bool:
-        """Checks if a systemd service is currently active"""
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "systemctl", "is-active", service_name,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL
-            )
-            stdout, _ = await proc.communicate()
-            return stdout.decode().strip() == "active"
-        except Exception as e:
-            self.update_logger.error(f"Failed to check service status for {service_name}: {e}")
-            return False
+        """Checks if a systemd service is currently active."""
+        return await self._systemd.is_active(service_name)
 
     async def _stop_service(self, service_name: str) -> bool:
-        """Stops a systemd service"""
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", "stop", service_name,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.PIPE
-            )
-            _, stderr = await proc.communicate()
-
-            return proc.returncode == 0
-
-        except Exception as e:
-            self.update_logger.error(f"Failed to stop {service_name}: {e}")
-            return False
+        """Stops a systemd service."""
+        return await self._systemd.stop(service_name)
 
     async def _start_service(self, service_name: str) -> bool:
-        """Starts a systemd service"""
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", "start", service_name,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.PIPE
-            )
-            _, stderr = await proc.communicate()
-
-            if proc.returncode != 0:
-                return False
-
-            # Wait for the service to actually start
-            await asyncio.sleep(2)
-
-            # Check status
-            proc = await asyncio.create_subprocess_exec(
-                "systemctl", "is-active", service_name,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, _ = await proc.communicate()
-
-            return stdout.decode().strip() == "active"
-
-        except Exception as e:
-            self.update_logger.error(f"Failed to start {service_name}: {e}")
-            return False
+        """Starts a systemd service."""
+        return await self._systemd.start(service_name)
 
     async def _restart_service(self, service_name: str) -> bool:
-        """Restarts a systemd service"""
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", "restart", service_name,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.PIPE
-            )
-            _, stderr = await proc.communicate()
-
-            if proc.returncode != 0:
-                self.update_logger.error(f"Failed to restart {service_name}: {stderr.decode()}")
-                return False
-
-            # Wait for the service to actually start
-            await asyncio.sleep(2)
-
-            # Check status
-            proc = await asyncio.create_subprocess_exec(
-                "systemctl", "is-active", service_name,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, _ = await proc.communicate()
-
-            return stdout.decode().strip() == "active"
-
-        except Exception as e:
-            self.update_logger.error(f"Failed to restart {service_name}: {e}")
-            return False
+        """Restarts a systemd service."""
+        return await self._systemd.restart(service_name)
 
     async def _verify_go_librespot_update(self, expected_version: str) -> Dict[str, Any]:
         """Verifies that go-librespot was updated by checking binary exists and service runs"""

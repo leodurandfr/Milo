@@ -85,7 +85,7 @@ def _create_service(name: str) -> Any:
         "systemd_manager": lambda: _import("backend.core.systemd", "SystemdServiceManager")(),
         "settings_service": lambda: _import("backend.core.settings", "SettingsService")(),
         "hardware_service": lambda: _import("backend.hardware.service", "HardwareService")(),
-        "snapcast_service": lambda: _import("backend.core.multiroom.snapcast", "SnapcastService")(host="127.0.0.1"),
+        "snapcast_service": lambda: _import("backend.core.multiroom.snapcast", "SnapcastService")(systemd_manager=get_service("systemd_manager"), host="127.0.0.1"),
         "websocket_manager": lambda: _import("backend.ws", "WebSocketManager")(),
 
         # Services with dependencies
@@ -166,11 +166,11 @@ def _create_service(name: str) -> Any:
         ),
 
         # System utilities
-        "hostname_conflict_service": lambda: _import("backend.core.system", "HostnameConflictService")(),
+        "hostname_conflict_service": lambda: _import("backend.core.system", "HostnameConflictService")(systemd_manager=get_service("systemd_manager")),
         "connectivity_service": lambda: _import("backend.core.connectivity", "ConnectivityService")(),
 
         # Update services
-        "update_service": lambda: _import("backend.core.updates", "UpdateService")(),
+        "update_service": lambda: _import("backend.core.updates", "UpdateService")(systemd_manager=get_service("systemd_manager")),
         "satellite_update_service": lambda: _import("backend.core.updates", "SatelliteUpdateService")(
             snapcast_service=get_service("snapcast_service"),
             client_registry_service=get_service("client_registry_service")

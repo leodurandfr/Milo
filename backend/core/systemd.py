@@ -25,6 +25,70 @@ class SystemdServiceManager:
         """Restarts a systemd service."""
         return await self._control_service(service, "restart")
 
+    async def restart_self(self, service: str) -> None:
+        """Fire-and-forget restart of the unit hosting THIS process (milo-backend).
+
+        Restarting our own unit makes systemd tear this process down mid-call, so
+        the settling loop in _control_service can never observe the result. Use
+        --no-block to enqueue the job and return immediately; systemd carries out
+        the restart after this client exits. Failure to even enqueue (e.g. broken
+        sudoers) is logged — fail-loud.
+        """
+        self.logger.info(f"Self-restart (fire-and-forget) of {service}")
+        proc = None
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", "systemctl", "restart", "--no-block", service,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE
+            )
+            _, stderr = await asyncio.wait_for(proc.communicate(), 10.0)
+            if proc.returncode != 0:
+                error_msg = stderr.decode().strip() if stderr else "No error details"
+                self.logger.error(f"Failed to enqueue self-restart of {service}: {error_msg}")
+        except asyncio.TimeoutError:
+            if proc:
+                proc.kill()
+            self.logger.error(f"Timeout enqueuing self-restart of {service}")
+        except Exception as e:
+            self.logger.error(f"Self-restart of {service} failed: {e}")
+
+    async def power(self, action: str, delay: float = 0.0) -> bool:
+        """Reboot or power off the machine (action ∈ {"reboot", "poweroff"}).
+
+        Centralizes the privileged power path (was inline `sudo reboot`/`poweroff`
+        in api/system.py and api/setup.py). `delay` lets the caller flush its HTTP
+        response before the box goes down. stderr + returncode are checked so a
+        broken sudoers rule surfaces in errors.log instead of turning the Restart/
+        Shutdown buttons into a silent no-op — fail-loud.
+        """
+        if action not in ("reboot", "poweroff"):
+            raise ValueError(f"Invalid power action: {action!r}")
+        if delay:
+            await asyncio.sleep(delay)
+        self.logger.info(f"System {action}")
+        proc = None
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", "systemctl", action,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE
+            )
+            _, stderr = await asyncio.wait_for(proc.communicate(), 10.0)
+            if proc.returncode != 0:
+                error_msg = stderr.decode().strip() if stderr else "No error details"
+                self.logger.error(f"System {action} failed (exit code {proc.returncode}): {error_msg}")
+                return False
+            return True
+        except asyncio.TimeoutError:
+            if proc:
+                proc.kill()
+            self.logger.error(f"System {action} timed out")
+            return False
+        except Exception as e:
+            self.logger.error(f"System {action} failed: {e}")
+            return False
+
     @handle_errors(default=False)
     async def is_active(self, service: str) -> bool:
         """Checks if a service is active."""

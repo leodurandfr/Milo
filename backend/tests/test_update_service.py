@@ -8,13 +8,18 @@ import pytest
 from unittest.mock import AsyncMock, patch
 
 from backend.core.updates.update import UpdateService
+from backend.core.systemd import SystemdServiceManager
 
 
 @pytest.fixture
 def update_service():
-    """Fresh UpdateService instance"""
+    """Fresh UpdateService instance.
+
+    Injects a real SystemdServiceManager so the service-control helpers (which
+    now delegate to it) still exercise the subprocess layer patched by tests.
+    """
     with patch.dict("os.environ", {}, clear=True):
-        return UpdateService()
+        return UpdateService(systemd_manager=SystemdServiceManager())
 
 
 def _make_mock_proc(returncode=0, stdout=b"", stderr=b""):

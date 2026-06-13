@@ -122,7 +122,7 @@ Persistent data lives in `/var/lib/milo/` (settings, hardware, radio/podcast/cd 
 
 ## Constraints (invariants)
 
-1. **No `sudo` in code** — service control via `SystemdServiceManager` (PolicyKit handles permissions).
+1. **Privileged exec is centralized, never ad hoc** — systemd + power actions go through `SystemdServiceManager` (which shells `sudo systemctl …`, incl. `power()` for reboot/poweroff and `restart_self()` for the updater's own-unit restart); privileged file deploys go through the pinned sudoers helpers (`/usr/local/bin/milo-*`: `milo-deploy-update`, `milo-apply-hardware`, `milo-set-wifi-country`). No bare `sudo` anywhere else. Permissions come from a `milo` sudoers policy pinning those commands `NOPASSWD`; PolicyKit covers only NetworkManager.
 2. **ALSA only** — no Pipewire/PulseAudio (HiFiBerry compatibility).
 3. **Async everywhere** — all file/network/subprocess I/O is async; shared state under `asyncio.Lock()`.
 4. **Runs as the `milo` user** — no root.

@@ -483,7 +483,7 @@ Allowed origins only:
 
 ### Permissions
 - Backend runs as `milo` user (not root)
-- Systemctl commands via PolicyKit (no sudo in code)
+- Privileged exec is centralized (see CLAUDE.md invariant #1): systemd + power actions via `SystemdServiceManager` (`sudo systemctl …`), file deploys via pinned `/usr/local/bin/milo-*` sudoers helpers — all `NOPASSWD` for the `milo` user. PolicyKit covers only NetworkManager.
 
 ## Performance
 

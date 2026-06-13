@@ -35,7 +35,8 @@ RENAMED_MILO_PATTERN = re.compile(r"^milo-\d+\.local$")
 class HostnameConflictService:
     """Detects whether another device on the LAN owns `milo.local`."""
 
-    def __init__(self):
+    def __init__(self, systemd_manager):
+        self._systemd = systemd_manager
         self._state_machine = None
         self._conflict: bool = False
         self._last_checked: Optional[float] = None
@@ -254,22 +255,9 @@ class HostnameConflictService:
             "Restarting avahi-daemon to reclaim '%s' (currently advertised as '%s', no peer holds it)",
             EXPECTED_FQDN, self._advertised_name,
         )
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", "restart", "avahi-daemon",
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=10.0)
-            if proc.returncode != 0:
-                logger.error(
-                    "avahi-daemon restart failed (exit %s): %s",
-                    proc.returncode, stderr.decode("utf-8", errors="ignore").strip(),
-                )
-        except asyncio.TimeoutError:
-            logger.error("avahi-daemon restart timed out")
-        except Exception as exc:
-            logger.error("avahi-daemon restart failed: %s", exc)
+        # restart() logs + returns False on failure (fail-loud); the caller can't
+        # act on a failed reclaim beyond the warning above, so the bool is unused.
+        await self._systemd.restart("avahi-daemon")
 
     async def _broadcast_if_changed(self, previous: bool) -> None:
         if previous == self._conflict or self._state_machine is None:
