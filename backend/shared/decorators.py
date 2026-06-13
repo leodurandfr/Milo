@@ -49,7 +49,7 @@ def handle_errors(
 
     Args:
         default: Value to return on error. If omitted, the exception is re-raised.
-        level: Log level: 'error' (default), 'warning', or 'debug'.
+        level: Log level: 'error' (default), 'warning', 'info', or 'debug'.
 
     Usage:
         @handle_errors(default=False)
@@ -58,8 +58,8 @@ def handle_errors(
         @handle_errors(default=[], level='warning')
         async def get_items(self) -> list: ...
     """
-    if level not in ('error', 'warning', 'debug'):
-        raise ValueError(f"Invalid log level '{level}'. Must be: error, warning, debug")
+    if level not in ('error', 'warning', 'info', 'debug'):
+        raise ValueError(f"Invalid log level '{level}'. Must be: error, warning, info, debug")
 
     has_default = default is not _MISSING
     needs_copy = has_default and not isinstance(default, _IMMUTABLE_TYPES)
