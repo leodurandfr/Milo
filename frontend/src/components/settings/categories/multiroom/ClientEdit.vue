@@ -458,7 +458,7 @@ onMounted(async () => {
 
 .skeleton-dropdown::before {
   content: '\200b';
-  font-family: 'Neue Montreal Medium', 'Noto Sans SC', sans-serif;
+  font-family: 'Neue Montreal Medium', 'Noto Sans Devanagari', 'Noto Sans SC', sans-serif;
   font-size: var(--font-size-h3);
   line-height: var(--line-height-h3);
 }
