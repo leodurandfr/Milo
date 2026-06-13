@@ -337,7 +337,7 @@ def initialize_services() -> None:
     # Cycle: state_machine ↔ camilladsp_service
     #   state_machine reads effects_enabled when aggregating full_state for
     #   source/system broadcasts; camilladsp needs state_machine to broadcast.
-    state_machine.equalizer_service = camilladsp_service
+    state_machine.camilladsp_service = camilladsp_service
     camilladsp_service.set_state_machine(state_machine)
 
     # Cycle: camilladsp_service ↔ volume_service

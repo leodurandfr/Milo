@@ -55,11 +55,13 @@ class AudioStateMachine:
         self._inactivity_monitor_task: Optional[asyncio.Task] = None
 
         # Set after creation in dependencies.py (circular dependency resolution).
-        # routing_service / equalizer_service expose multiroom_enabled and
-        # effects_enabled, which broadcast_event aggregates into full_state.
+        # Ownership map of the back-references aggregated into full_state:
+        #   routing_service    → multiroom_enabled
+        #   camilladsp_service → effects_enabled (DSP plane; named for what it
+        #                        holds — EQ is just one of its effects)
         self.ws_manager = None
         self.routing_service = None
-        self.equalizer_service = None
+        self.camilladsp_service = None
 
     def register_source(self, source: AudioSource, instance: BaseAudioSource) -> None:
         """Register an audio source implementation."""
@@ -75,7 +77,7 @@ class AudioStateMachine:
         """Return current system state as dict.
 
         Mirrors the aggregation in `broadcast_event`: pulls multiroom_enabled
-        from routing_service and equalizer_effects_enabled from equalizer_service
+        from routing_service and equalizer_effects_enabled from camilladsp_service
         so the wire payload (notably the initial_state on WS connect) carries
         both global flags.
         """
@@ -84,7 +86,7 @@ class AudioStateMachine:
             self.routing_service.multiroom_enabled if self.routing_service else False
         )
         state["equalizer_effects_enabled"] = (
-            self.equalizer_service.effects_enabled if self.equalizer_service else False
+            self.camilladsp_service.effects_enabled if self.camilladsp_service else False
         )
         return state
 

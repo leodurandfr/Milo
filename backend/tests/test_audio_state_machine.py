@@ -247,7 +247,7 @@ class TestWebSocketBroadcasting:
         equalizer = Mock()
         equalizer.effects_enabled = False
         state_machine.routing_service = routing
-        state_machine.equalizer_service = equalizer
+        state_machine.camilladsp_service = equalizer
 
         await state_machine.broadcast_event("source", "state_changed", {"source": "radio"})
 
