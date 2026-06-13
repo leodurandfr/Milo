@@ -59,6 +59,7 @@ class MultiroomEqualizerService:
         proxy_service=None,
         routing_service=None,
         equalizer_router=None,
+        state_machine=None,
     ):
         """
         Initialize MultiroomEqualizerService.
@@ -82,8 +83,8 @@ class MultiroomEqualizerService:
         self._routing_service = routing_service
         self._equalizer_router = equalizer_router
 
-        # State machine for event broadcasting (set via setter)
-        self._state_machine = None
+        # State machine for event broadcasting (constructor-injected; acyclic)
+        self._state_machine = state_machine
 
         # Async lock for thread safety
         self._lock = asyncio.Lock()
@@ -113,10 +114,6 @@ class MultiroomEqualizerService:
     def set_routing_service(self, routing_service) -> None:
         """Set AudioRoutingService dependency."""
         self._routing_service = routing_service
-
-    def set_equalizer_router(self, equalizer_router) -> None:
-        """Set EqualizerRouter dependency."""
-        self._equalizer_router = equalizer_router
 
     # =========================================================================
     # Per-Client Access Layer — the unified EQ source of truth

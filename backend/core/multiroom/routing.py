@@ -210,17 +210,20 @@ class AudioRoutingService:
     broadcasts.
     """
 
-    def __init__(self, get_source_callback: Optional[Callable] = None, settings_service=None, systemd_manager=None):
+    def __init__(self, get_source_callback: Optional[Callable] = None, settings_service=None,
+                 systemd_manager=None, snapcast_service=None, camilladsp_service=None):
         self.logger = logging.getLogger(__name__)
         self.service_manager = systemd_manager
         self.get_source = get_source_callback
         self.settings_service = settings_service
         self._initial_detection_done = False
 
+        # Acyclic deps (constructor-injected). snapcast_websocket_service /
+        # state_machine / volume_service close real cycles → set post-construction.
+        self.snapcast_service = snapcast_service
+        self.camilladsp_service = camilladsp_service
         self.snapcast_websocket_service = None
-        self.snapcast_service = None
         self.state_machine = None
-        self.camilladsp_service = None
         self.volume_service = None
 
         # Lock to guarantee atomicity of routing operations

@@ -74,10 +74,18 @@ class VolumeService:
         # Event to signal when client availability has been initialized (for WebSocket handshake)
         self._availability_ready = asyncio.Event()
 
-    def set_client_registry(self, registry):
-        """Set client registry (for dependency injection after init)."""
+    def attach_registry(self, registry):
+        """Attach the ClientRegistryService: subscribe the volume state store to
+        its availability events and wire registry-dependent helpers (IP lookup
+        for EqualizerController).
+
+        Ordering matters — initialize_services calls this BEFORE the snapcast
+        WebSocket subscribes, so volume state is current by the time a registry
+        event triggers a multiroom broadcast.
+        """
         self._client_registry = registry
         self._equalizer_controller.set_registry(registry)
+        self._state_store.set_registry(registry)
 
     def set_routing_service(self, routing_service) -> None:
         """Set routing service reference (circular dependency resolution)."""
