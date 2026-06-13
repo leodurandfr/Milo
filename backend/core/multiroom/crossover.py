@@ -46,16 +46,15 @@ class CrossoverService:
     DEFAULT_Q = 0.707  # Butterworth (flattest passband)
     CLIENT_API_PORT = _CLIENT_API_PORT
 
-    def __init__(self, settings_service=None, camilladsp_service=None):
+    def __init__(self, settings_service=None, camilladsp_service=None,
+                 state_machine=None, volume_service=None):
         self.logger = logging.getLogger(__name__)
         self.settings_service = settings_service
         self.camilladsp_service = camilladsp_service
 
-        # State machine reference (set by container)
-        self.state_machine = None
-
-        # Volume service (set via set_volume_service after construction)
-        self.volume_service = None
+        # Acyclic deps (constructor-injected; neither holds a back-reference).
+        self.state_machine = state_machine
+        self.volume_service = volume_service
 
         # Client registry reference (set via set_registry after construction)
         self._registry: Optional["ClientRegistryService"] = None

@@ -44,15 +44,11 @@ class PendingClientsService:
     clients that stop sending heartbeats (powered off / disconnected).
     """
 
-    def __init__(self):
+    def __init__(self, state_machine=None):
         self._clients: Dict[str, Dict[str, Any]] = {}
         self._lock = asyncio.Lock()
-        self._state_machine = None
-        self._cleanup_task: Optional[asyncio.Task] = None
-
-    def set_state_machine(self, state_machine) -> None:
-        """Set state machine for event broadcasting."""
         self._state_machine = state_machine
+        self._cleanup_task: Optional[asyncio.Task] = None
 
     async def initialize(self) -> bool:
         """Load persisted pending clients from disk and start cleanup task."""

@@ -98,14 +98,20 @@ def _create_service(name: str) -> Any:
         ),
         "audio_routing_service": lambda: _import("backend.core.multiroom", "AudioRoutingService")(
             settings_service=get_service("settings_service"),
-            systemd_manager=get_service("systemd_manager")
+            systemd_manager=get_service("systemd_manager"),
+            snapcast_service=get_service("snapcast_service"),
+            camilladsp_service=get_service("camilladsp_service")
         ),
         "snapcast_websocket_service": lambda: _import("backend.core.multiroom.websocket", "SnapcastWebSocketService")(
             state_machine=get_service("audio_state_machine"),
             routing_service=get_service("audio_routing_service"),
             settings_service=get_service("settings_service"),
             host="127.0.0.1",
-            port=1780
+            port=1780,
+            snapcast_service=get_service("snapcast_service"),
+            crossover_service=get_service("crossover_service"),
+            equalizer_client_proxy_service=get_service("equalizer_client_proxy_service"),
+            pending_clients_service=get_service("pending_clients_service")
         ),
         "equalizer_client_proxy_service": lambda: _import("backend.core.equalizer", "EqualizerClientProxyService")(
             routing_service=get_service("audio_routing_service")
@@ -140,14 +146,22 @@ def _create_service(name: str) -> Any:
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service")
         ),
-        "pending_clients_service": lambda: _import("backend.core.multiroom.pending_clients", "PendingClientsService")(),
+        "pending_clients_service": lambda: _import("backend.core.multiroom.pending_clients", "PendingClientsService")(
+            state_machine=get_service("audio_state_machine")
+        ),
         "crossover_service": lambda: _import("backend.core.multiroom.crossover", "CrossoverService")(
             settings_service=get_service("settings_service"),
-            camilladsp_service=get_service("camilladsp_service")
+            camilladsp_service=get_service("camilladsp_service"),
+            state_machine=get_service("audio_state_machine"),
+            volume_service=get_service("volume_service")
         ),
         "multiroom_equalizer_service": lambda: _import("backend.core.equalizer", "MultiroomEqualizerService")(
             client_registry_service=get_service("client_registry_service"),
-            camilladsp_service=get_service("camilladsp_service")
+            camilladsp_service=get_service("camilladsp_service"),
+            proxy_service=get_service("equalizer_client_proxy_service"),
+            routing_service=get_service("audio_routing_service"),
+            equalizer_router=get_service("equalizer_router"),
+            state_machine=get_service("audio_state_machine")
         ),
         "equalizer_router": lambda: _create_equalizer_router(),
         "levels_monitor": lambda: _import("backend.core.equalizer", "LevelsMonitor")(
@@ -287,9 +301,10 @@ def initialize_services() -> None:
     crossover_service = get_service("crossover_service")
     client_registry_service = get_service("client_registry_service")
     websocket_manager = get_service("websocket_manager")
-    equalizer_client_proxy_service = get_service("equalizer_client_proxy_service")
-    multiroom_equalizer_service = get_service("multiroom_equalizer_service")
     pending_clients_service = get_service("pending_clients_service")
+    # Created at boot for API access; all deps are constructor-injected, so no
+    # STEP 2 wiring and no local handle is needed.
+    get_service("multiroom_equalizer_service")
     hostname_conflict_service = get_service("hostname_conflict_service")
     connectivity_service = get_service("connectivity_service")
     network_service = get_service("network_service")
@@ -299,86 +314,53 @@ def initialize_services() -> None:
     connectivity_service.set_state_machine(state_machine)
 
     # =========================================================================
-    # STEP 2: Resolve circular dependencies (CRITICAL ORDER)
+    # STEP 2: Wire the dependencies that CANNOT be constructor-injected.
     # =========================================================================
+    # Acyclic deps are injected in _create_service (lazy get_service() guarantees
+    # creation order). What remains here breaks a genuine A↔B cycle, or enforces a
+    # subscription ordering — each block says which. Adding a new acyclic dep goes
+    # in the factory, NOT here.
 
-    # 2.1 - routing_service → state_machine.get_source()
+    # Cycle: routing_service ↔ state_machine
+    #   routing resolves sources via state_machine.get_source(); state_machine
+    #   reads routing back for mode/transition decisions.
     routing_service.set_source_callback(lambda source: state_machine.get_source(source))
-
-    # 2.2 - routing_service ↔ snapcast_websocket_service
-    routing_service.set_snapcast_websocket_service(snapcast_websocket_service)
-
-    # 2.3 - routing_service → snapcast_service
-    routing_service.set_snapcast_service(get_service("snapcast_service"))
-
-    # 2.4 - routing_service → state_machine
     routing_service.set_state_machine(state_machine)
-
-    # 2.5 - state_machine ← routing_service (circular reference)
     state_machine.routing_service = routing_service
 
-    # 2.5b - state_machine ← camilladsp_service (read effects_enabled when
-    # aggregating full_state for source/system broadcasts)
+    # Cycle: routing_service ↔ snapcast_websocket_service
+    #   snapcast_ws is constructed with routing_service; routing needs it back to
+    #   start/stop the control WS on a multiroom toggle.
+    routing_service.set_snapcast_websocket_service(snapcast_websocket_service)
+
+    # Cycle: state_machine ↔ camilladsp_service
+    #   state_machine reads effects_enabled when aggregating full_state for
+    #   source/system broadcasts; camilladsp needs state_machine to broadcast.
     state_machine.equalizer_service = camilladsp_service
-
-    # (crossover_service, equalizer_client_proxy_service are wired directly to
-    # their consumers — no longer stored on state_machine)
-
-    # 2.6 - camilladsp_service → state_machine
     camilladsp_service.set_state_machine(state_machine)
 
-    # 2.6b - camilladsp_service → volume restore callback (re-apply volume after reconnection)
+    # Cycle: camilladsp_service ↔ volume_service
+    #   volume is constructed with camilladsp; camilladsp calls back to re-apply
+    #   the current volume after a reconnection.
     camilladsp_service.set_on_reconnect_callback(volume_service.reapply_current_volume)
 
-    # 2.7 - routing_service → camilladsp_service
-    routing_service.set_camilladsp_service(camilladsp_service)
-
-    # 2.8 - crossover_service → state_machine
-    crossover_service.set_state_machine(state_machine)
-
-    # 2.9 - volume_service.state_store → client_registry_service
-    # (Subscribed BEFORE snapcast_websocket_service so volume state is up to
-    # date by the time the broadcast goes out.)
-    volume_service.state_store.set_registry(client_registry_service)
-
-    # 2.11 - volume_service → snapcast_websocket_service
+    # Cycle: volume_service ↔ snapcast_websocket_service
     volume_service.set_snapcast_websocket_service(snapcast_websocket_service)
-
-    # 2.11b - volume_service → client_registry (for EqualizerController IP lookup)
-    volume_service.set_client_registry(client_registry_service)
-
-    # 2.11c - volume_service → routing_service (for multiroom mode detection)
-    volume_service.set_routing_service(routing_service)
-
-    # 2.12 - crossover_service → client_registry_service
-    crossover_service.set_registry(client_registry_service)
-
-    # 2.13 - routing_service + crossover_service → volume_service (direct injection)
-    routing_service.set_volume_service(volume_service)
-    crossover_service.set_volume_service(volume_service)
-
-    # 2.14 - multiroom_equalizer_service → state_machine (for event broadcasting)
-    multiroom_equalizer_service.set_state_machine(state_machine)
-
-    # 2.15 - multiroom_equalizer_service → proxy_service + routing_service (for remote client control)
-    multiroom_equalizer_service.set_proxy_service(equalizer_client_proxy_service)
-    multiroom_equalizer_service.set_routing_service(routing_service)
-
-    # 2.16 - multiroom_equalizer_service → equalizer_router (for targeted filter updates)
-    multiroom_equalizer_service.set_equalizer_router(get_service("equalizer_router"))
-
-    # 2.17 - snapcast_websocket_service → direct service references
-    snapcast_websocket_service.set_registry(client_registry_service)
-    snapcast_websocket_service.set_snapcast_service(get_service("snapcast_service"))
     snapcast_websocket_service.set_volume_service(volume_service)
-    snapcast_websocket_service.set_crossover_service(crossover_service)
-    snapcast_websocket_service.set_equalizer_client_proxy_service(equalizer_client_proxy_service)
 
-    # 2.18 - pending_clients_service → state_machine
-    pending_clients_service.set_state_machine(state_machine)
+    # Cycle: volume_service ↔ routing_service
+    #   volume reads routing for multiroom-mode detection; routing pushes volume
+    #   on mode changes.
+    volume_service.set_routing_service(routing_service)
+    routing_service.set_volume_service(volume_service)
 
-    # 2.19 - snapcast_websocket_service → pending_clients_service
-    snapcast_websocket_service.set_pending_clients_service(pending_clients_service)
+    # Ordered registry subscriptions (NOT cycles — ClientRegistryService holds no
+    # back-reference; the constraint is subscription order, not construction).
+    # The volume state store MUST subscribe before the snapcast WS broadcaster,
+    # so volume state is current when a registry event fires a multiroom broadcast.
+    volume_service.attach_registry(client_registry_service)
+    crossover_service.set_registry(client_registry_service)
+    snapcast_websocket_service.set_registry(client_registry_service)
 
     # =========================================================================
     # STEP 3: Register sources (MUST be done BEFORE init_async)

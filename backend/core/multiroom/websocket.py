@@ -39,7 +39,11 @@ class SnapcastWebSocketService:
         routing_service,
         settings_service=None,
         host: str = "localhost",
-        port: int = 1780
+        port: int = 1780,
+        snapcast_service=None,
+        crossover_service=None,
+        equalizer_client_proxy_service=None,
+        pending_clients_service=None,
     ):
         self.state_machine = state_machine
         self.routing_service = routing_service
@@ -75,12 +79,13 @@ class SnapcastWebSocketService:
         # Ready event - signaled when WebSocket is connected and initialized
         self._ready_event = asyncio.Event()
 
-        # Services injected post-construction via setters (resolved in initialize_services)
-        self._snapcast_service = None
+        # Acyclic deps (constructor-injected). volume_service / registry close a
+        # real cycle / need ordered subscription → set post-construction.
+        self._snapcast_service = snapcast_service
+        self._crossover_service = crossover_service
+        self._equalizer_client_proxy_service = equalizer_client_proxy_service
+        self._pending_clients_service = pending_clients_service
         self._volume_service = None
-        self._crossover_service = None
-        self._equalizer_client_proxy_service = None
-        self._pending_clients_service = None
 
     @property
     def registry(self) -> Optional["ClientRegistryService"]:
@@ -189,25 +194,9 @@ class SnapcastWebSocketService:
         mapped_type = REGISTRY_EVENT_TYPE_MAP.get(event_type, event_type.lower())
         await self.state_machine.broadcast_event("multiroom", mapped_type, data)
 
-    def set_snapcast_service(self, service) -> None:
-        """Set SnapcastService dependency."""
-        self._snapcast_service = service
-
     def set_volume_service(self, service) -> None:
-        """Set VolumeService dependency."""
+        """Set VolumeService dependency (closes the volume ↔ snapcast_ws cycle)."""
         self._volume_service = service
-
-    def set_crossover_service(self, service) -> None:
-        """Set CrossoverService dependency."""
-        self._crossover_service = service
-
-    def set_equalizer_client_proxy_service(self, service) -> None:
-        """Set EqualizerClientProxyService dependency."""
-        self._equalizer_client_proxy_service = service
-
-    def set_pending_clients_service(self, service) -> None:
-        """Set PendingClientsService dependency."""
-        self._pending_clients_service = service
 
     async def _connection_loop(self) -> None:
         """Connection loop with intelligent reconnection."""
