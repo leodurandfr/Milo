@@ -241,7 +241,7 @@ Audio source → ALSA Loopback → Snapserver → Network
 **Configuration:**
 - Server: http://localhost:1780 (REST API + WebSocket)
 - Buffer: 1000ms (adjustable based on network latency)
-- Format: PCM 48kHz 16-bit stereo
+- Format: PCM 48kHz 32-bit stereo (`48000:32:2`, forced in `snapcast.py`)
 
 ## DSP Processing (CamillaDSP)
 
@@ -307,6 +307,18 @@ Loopback subdevice layout:
 - subdevice 7: CD (multiroom)
 
 Sources are strictly contiguous in slots 1..7; DSP is isolated in slot 0 so adding a future source (`pcm_substreams` bump → slot 8) does not require reshuffling.
+
+### High-quality resampling (44.1 → 48 kHz)
+
+The pipeline runs at a fixed **48 kHz**, so any natively-44.1 kHz source (CD, Spotify, AirPlay, Bluetooth, some radio stations) is resampled by the `type plug` PCM that wraps it. Both `asound.conf` files set:
+
+```
+defaults.pcm.rate_converter "speexrate_medium"
+```
+
+This replaces ALSA's default low-quality linear-interpolation converter with a **sinc/polyphase resampler** (`speexrate_medium`, from `libasound2-plugins`) for every `type plug` — a good CPU/quality balance on the Pi. The resampling runs **in the address space of the client that opens the PCM** (e.g. inside `go-librespot` for Spotify), not in CamillaDSP; the measured cost is ~+0.6 pt of one core for a 44.1 kHz source. The gain is measurable but inaudible — this is polishing, not a transformation; source quality (lossless vs lossy) remains the real lever.
+
+**Multiroom:** the 44.1→48 conversion still happens at the source's `type plug` (`milo_<src>_multiroom`), *before* the loopback, so it is covered by the same `rate_converter`. Snapserver opens every loopback capture at `48000:32:2` and therefore only ever sees already-48 kHz audio — it is pass-through and does **not** resample (its bundled soxr is present but not exercised on this path). See [docs/plans/plan-resampler.md](plans/plan-resampler.md) for the full investigation.
 
 ## Hardware control
 
