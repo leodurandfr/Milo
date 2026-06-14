@@ -37,7 +37,7 @@ install_dependencies() {
     log_info "Installing base dependencies..."
 		# Configuration optimized for Raspberry Pi OS Lite
         sudo apt install -y \
-            git python3-pip python3-venv python3-dev libasound2-dev libssl-dev \
+            git python3-pip python3-venv python3-dev libasound2-dev libasound2-plugins libssl-dev \
             cmake build-essential pkg-config swig liblgpio-dev nodejs npm wget unzip \
             fontconfig mpv libinput-tools bc eject libdiscid0 libdiscid-dev sg3-utils \
             ethtool \
