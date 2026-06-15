@@ -5,11 +5,11 @@ on:
     branches: [main]
   push:
     branches: [main]
-  # Weekly + on-demand drift check for the Milo-Mac contract manifest (see the
-  # milo-mac-freshness job). Scheduled rather than per-PR because it clones an
-  # external repo over the network.
+  # Weekly backstop for the milo-mac-freshness job (it also runs on every push to
+  # main). Off the top of the hour: GitHub drops on-the-hour scheduled runs under
+  # load, which is why this job used to never fire.
   schedule:
-    - cron: '0 6 * * 1'
+    - cron: '17 6 * * 1'
   workflow_dispatch:
 
 jobs:
@@ -61,23 +61,61 @@ jobs:
 
   milo-mac-freshness:
     name: Milo-Mac contract freshness (non-blocking)
-    # Drift detector for backend/tests/contracts/milo_mac_contract.json: re-clones
-    # the external Milo-Mac app and verifies the manifest still covers everything
-    # it consumes. The OFFLINE half (test_milo_mac_contract.py) already gates every
-    # PR inside the backend job; this is the network half. Scheduled + manual only,
-    # and continue-on-error, so a network/repo hiccup or an upstream refactor never
-    # blocks a merge — it surfaces an annotation a human acts on.
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # Staleness detector for the VENDORED snapshot under
+    # backend/tests/contracts/vendor/milo-mac/: re-clones the (public) Milo-Mac app
+    # and checks whether its real REST/WS surface has moved past the committed
+    # snapshot (and thus the manifest). The OFFLINE half (test_milo_mac_contract.py)
+    # already gates every PR inside the backend job — it enforces manifest ==
+    # vendored snapshot deterministically; THIS job is the network half that tells a
+    # human to refresh the snapshot. On drift it opens/updates a tracking issue (a
+    # durable signal, unlike a scrolling annotation); when back in sync it closes it.
+    # Runs on every push to main + a weekly cron backstop, never on PRs, and never
+    # blocks: a network hiccup or an upstream refactor can't gate a merge.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    # Never block a merge or redden the run: a network/repo hiccup or an upstream
+    # refactor only ever opens a tracking issue (via the check step's own outcome).
     continue-on-error: true
+    permissions:
+      contents: read
+      issues: write
+    concurrency:
+      group: milo-mac-freshness
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v6
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: '3.13'
-      - name: Clone Milo-Mac
+      - name: Clone upstream Milo-Mac (public)
         run: git clone --depth 1 https://github.com/leodurandfr/Milo-Mac /tmp/milo-mac
-      - name: Check manifest covers Milo-Mac's consumed surface
-        run: python backend/tests/contracts/check_milo_mac_freshness.py /tmp/milo-mac
+      - name: Compare vendored snapshot to upstream
+        id: check
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          python backend/tests/contracts/check_milo_mac_freshness.py /tmp/milo-mac | tee /tmp/freshness.txt
+      - name: Open drift issue
+        if: steps.check.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create milo-mac-drift --color B60205 \
+            --description "Vendored Milo-Mac snapshot is behind upstream" 2>/dev/null || true
+          open=$(gh issue list --label milo-mac-drift --state open --json number --jq 'length')
+          if [ "$open" = "0" ]; then
+            gh issue create \
+              --title "Milo-Mac contract drift: refresh the vendored snapshot" \
+              --label milo-mac-drift \
+              --body "$(printf 'Upstream Milo-Mac has moved past the vendored snapshot under \`backend/tests/contracts/vendor/milo-mac/\`.\n\nRefresh the two .swift files **and** \`milo_mac_contract.json\` together, then re-run \`pytest backend/tests/contracts/\`. See CLAUDE.md §%sExternal API clients — Milo-Mac%s.\n\n```\n%s\n```\n' "'" "'" "$(cat /tmp/freshness.txt)")"
+          fi
+      - name: Close drift issue (back in sync)
+        if: steps.check.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for n in $(gh issue list --label milo-mac-drift --state open --json number --jq '.[].number'); do
+            gh issue close "$n" --comment "Vendored snapshot is back in sync with upstream Milo-Mac — auto-closing."
+          done

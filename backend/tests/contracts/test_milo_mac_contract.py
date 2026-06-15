@@ -22,6 +22,7 @@ consumes — that is the network half of the guard.
 A static check that turns a silent contract break into an actionable failing test.
 """
 import ast
+import importlib.util
 import json
 from pathlib import Path
 
@@ -29,9 +30,27 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 BACKEND_ROOT = REPO_ROOT / "backend"
-MANIFEST_PATH = Path(__file__).resolve().parent / "milo_mac_contract.json"
+CONTRACTS_DIR = Path(__file__).resolve().parent
+MANIFEST_PATH = CONTRACTS_DIR / "milo_mac_contract.json"
+VENDOR_DIR = CONTRACTS_DIR / "vendor" / "milo-mac"
 
 _MANIFEST = json.loads(MANIFEST_PATH.read_text())
+
+
+def _load_freshness():
+    """Import the Swift-surface extractors from the sibling freshness script.
+
+    Loaded by file path rather than `import` so it resolves identically whether
+    or not pytest treats backend/tests/contracts as a package.
+    """
+    path = CONTRACTS_DIR / "check_milo_mac_freshness.py"
+    spec = importlib.util.spec_from_file_location("milo_mac_freshness", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_FRESHNESS = _load_freshness()
 
 
 # --------------------------------------------------------------------------- #
@@ -201,6 +220,44 @@ def test_ws_broadcast_site_exists(event):
         f"required by Milo-Mac ({event['consumer']}). Restore the broadcast or, "
         f"if Milo-Mac genuinely dropped it, delete the entry from "
         f"{MANIFEST_PATH.name}. See CLAUDE.md §'External API clients — Milo-Mac'."
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Vendored snapshot: the manifest must mirror Milo-Mac's real surface, offline.
+# --------------------------------------------------------------------------- #
+
+def test_manifest_matches_vendored_milo_mac():
+    """The manifest must equal the surface the vendored Milo-Mac snapshot uses.
+
+    vendor/milo-mac/ holds a committed copy of Milo-Mac's MiloAPIService.swift +
+    WebSocketService.swift. We re-extract what they actually consume — offline,
+    no clone — and require the manifest to match it, in BOTH directions:
+
+      * snapshot - manifest → Milo-Mac consumes surface the manifest forgets to
+        protect (the backend could delete it with every other test still green);
+      * manifest - snapshot → the manifest declares dependencies Milo-Mac dropped
+        (stale entries that over-constrain the backend).
+
+    Exact match also self-guards the heuristic Swift extractors: if a Milo-Mac
+    refactor breaks the regexes (they extract nothing / the wrong thing) this
+    test fails loudly instead of silently passing on an empty surface. The
+    network half — detecting when this snapshot falls behind the REAL upstream
+    Milo-Mac — is the non-blocking check_milo_mac_freshness.py CI job.
+    """
+    api_swift = (VENDOR_DIR / "MiloAPIService.swift").read_text()
+    ws_swift = (VENDOR_DIR / "WebSocketService.swift").read_text()
+
+    # Self-guard: a regex-broken extractor must never read as "nothing consumed".
+    assert _FRESHNESS.extract_rest(api_swift), "extract_rest() found no routes — extractor drift?"
+    assert _FRESHNESS.extract_ws(ws_swift), "extract_ws() found no events — extractor drift?"
+
+    errors, warnings = _FRESHNESS.compute_diff(_MANIFEST, api_swift, ws_swift)
+    assert not errors and not warnings, (
+        "Surface drift between the vendored Milo-Mac snapshot and the manifest:\n  "
+        + "\n  ".join(errors + warnings)
+        + "\nRefresh vendor/milo-mac/ and milo_mac_contract.json together, in one "
+        "conscious commit. See CLAUDE.md §'External API clients — Milo-Mac'."
     )
 
 

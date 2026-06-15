@@ -1,5 +1,5 @@
 {
-  "_about": "Wire contract consumed by Milo-Mac (github.com/leodurandfr/Milo-Mac), a SECOND API client beyond frontend/. Milo-Mac is a separate macOS app, not in this checkout, with no API versioning: if the backend drops a route or WS event listed here, Milo-Mac breaks silently at runtime. This manifest is the SOURCE OF TRUTH for that contract. Seeded 2026-06-10 from MiloAPIService.swift (REST) and WebSocketService.swift (WS). Enforced offline on every pytest run by test_milo_mac_contract.py; drift against Milo-Mac's real source is re-checked by the non-blocking CI job check_milo_mac_freshness.py. Update this file CONSCIOUSLY when Milo-Mac evolves — there is no auto-grep anymore.",
+  "_about": "Wire contract consumed by Milo-Mac (github.com/leodurandfr/Milo-Mac), a SECOND API client beyond frontend/. Milo-Mac is a separate macOS app, not in this checkout, with no API versioning: if the backend drops a route or WS event listed here, Milo-Mac breaks silently at runtime. This manifest is the SOURCE OF TRUTH for that contract. Re-synced 2026-06-15 from the vendored snapshot under vendor/milo-mac/ (MiloAPIService.swift = REST, WebSocketService.swift = WS). test_milo_mac_contract.py enforces TWO things offline on every pytest run: the backend still serves every route/event here, AND this manifest matches the vendored snapshot's surface EXACTLY (so it can't silently drift from the app it protects). The non-blocking CI job check_milo_mac_freshness.py re-clones the real Milo-Mac and warns when the vendored snapshot has fallen behind upstream. Update this file + refresh vendor/milo-mac/ together, CONSCIOUSLY, in one commit when Milo-Mac evolves.",
 
   "rest": [
     { "method": "GET",  "path": "/api/audio/state",                  "consumer": "MiloAPIService.fetchState" },
@@ -25,7 +25,6 @@
       { "category": "system",    "type": "transition_complete",  "consumer": "handleSystemStateChange (reads full_state)" },
       { "category": "source",    "type": "state_changed",        "consumer": "handleSystemStateChange (reads full_state)" },
       { "category": "volume",    "type": "volume_changed",       "consumer": "handleVolumeChange" },
-      { "category": "equalizer", "type": "enabled_changed",      "consumer": "handleSystemStateChange (reads full_state)" },
       { "category": "routing",   "type": "multiroom_error",      "consumer": "didReceiveMultiroomTransitionComplete(success: false)" },
       { "category": "settings",  "type": "volume_limits_changed", "consumer": "handleVolumeLimitsChange",
         "note": "Emitted via the variable event_type path in api/settings.py::_handle_setting_update (broadcast_event(\"settings\", event_type, ...)), not as a literal pair." },
@@ -34,7 +33,7 @@
 
     "payload_invariants": {
       "full_state_envelope": {
-        "carried_by": ["system/state_changed", "system/transition_start", "system/transition_complete", "source/state_changed", "equalizer/enabled_changed"],
+        "carried_by": ["system/state_changed", "system/transition_start", "system/transition_complete", "source/state_changed"],
         "data_key": "full_state",
         "required_subkeys": ["active_source", "source_state", "transitioning", "multiroom_enabled", "equalizer_effects_enabled", "metadata"]
       },
@@ -56,10 +55,8 @@
     "metadata_is_opaque": "Milo-Mac reads full_state.metadata as an opaque [String: Any] dict. NO metadata SUB-field is coupled (uri, client_count, album_art_height, track_position/duration, etc.). An over-emitted metadata sub-field with no frontend/src/ consumer is therefore safe to drop without touching this manifest.",
 
     "consumer_side_only_NOT_enforced": [
-      { "category": "plugin", "type": "state_changed",
-        "reason": "Milo-Mac has a defensive handler for category 'plugin', but the backend never broadcasts it. NOT a required contract — excluded from the offline test so it stays green." },
       { "category": "system", "type": "ping",
-        "reason": "Keepalive; Milo-Mac explicitly ignores it. Emitted by the WS ping loop, not by broadcast_event(). NOT enforced." }
+        "reason": "Keepalive; Milo-Mac explicitly ignores it (its tuple switch has no arm for it). Emitted by the WS ping loop, not by broadcast_event(). NOT enforced." }
     ]
   }
 }
