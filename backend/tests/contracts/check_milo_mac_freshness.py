@@ -1,21 +1,26 @@
 #!/usr/bin/env python3
-"""Freshness check: does milo_mac_contract.json still match Milo-Mac's real source?
+"""Freshness check: does Milo-Mac's real source still match what we vendor + enforce?
 
-The offline test (test_milo_mac_contract.py) guards the BACKEND side: it fails if
-the backend drops something the manifest declares. This script guards the OTHER
-direction — it re-extracts what Milo-Mac actually consumes from its Swift source
-and diffs it against the manifest, so the manifest can't silently fall behind the
-app it protects.
+Two guards protect the Milo-Mac wire contract:
 
-  * Milo-Mac consumes something ABSENT from the manifest  -> ERROR (exit 1):
-    the backend could delete it with the offline test still green.
-  * Manifest declares something Milo-Mac no longer uses    -> WARNING (exit 0):
-    dead contract entry, safe to prune on the next conscious update.
+  * OFFLINE, BLOCKING (test_milo_mac_contract.py, every pytest run):
+      - backend  ⊇ manifest                    (no route/event the manifest
+        declares has been removed from the backend);
+      - manifest == vendored Milo-Mac surface  (the surface extracted from the
+        committed snapshot under vendor/milo-mac/ matches the manifest exactly).
+    Both run with NO network — the vendored snapshot is the deterministic
+    stand-in for the real app, and the extractors here are the shared parser.
 
-Heuristic Swift parsing — intentionally. This runs in a NON-BLOCKING, scheduled
-CI job (see .github/workflows/lint.yml), never gating a merge; if Milo-Mac
-refactors its networking and the regexes drift, the job warns and a human
-re-syncs the extractor + manifest. No new dependency, stdlib only.
+  * NETWORK, NON-BLOCKING (this script, scheduled CI job):
+      re-clones the real Milo-Mac and warns if the VENDORED SNAPSHOT (and thus
+      the manifest) has fallen behind upstream. A human then refreshes
+      vendor/milo-mac/ + the manifest in one conscious commit.
+
+Heuristic Swift parsing — intentionally, stdlib only. Milo-Mac funnels REST
+through `send()/fetchJSON()` helpers and dispatches WS via a
+`switch (category, eventType)` tuple; the extractors model exactly those shapes.
+If Milo-Mac refactors its networking the regexes drift — the offline test fails
+loudly (exact-match against the vendored snapshot) and a human re-syncs them.
 
 Usage:
     python check_milo_mac_freshness.py /path/to/milo-mac/checkout
@@ -25,7 +30,9 @@ import re
 import sys
 from pathlib import Path
 
-MANIFEST_PATH = Path(__file__).resolve().parent / "milo_mac_contract.json"
+HERE = Path(__file__).resolve().parent
+MANIFEST_PATH = HERE / "milo_mac_contract.json"
+VENDOR_DIR = HERE / "vendor" / "milo-mac"
 
 
 def _shape(path: str) -> str:
@@ -37,97 +44,135 @@ def _shape(path: str) -> str:
 
 
 def extract_rest(api_swift: str) -> set[tuple[str, str]]:
-    """{(METHOD, path_shape)} consumed by MiloAPIService.swift."""
+    """{(METHOD, path_shape)} consumed by MiloAPIService.swift.
+
+    Every request funnels through two helpers:
+        send("<path>", method: "<M>", ...)   # method omitted -> GET
+        fetchJSON("<path>")                   # always GET (wraps send)
+    so we read each call site's literal path and its optional method:. The helper
+    *definitions* (`func send(_ path: String, ...)`) take a variable, not a string
+    literal, so they don't match.
+    """
     out: set[tuple[str, str]] = set()
-    # Bound each buildURL(path:) to its enclosing func so the httpMethod we read
-    # belongs to the same request.
-    func_spans = [m.start() for m in re.finditer(r"\bfunc\s+\w+", api_swift)]
-    func_spans.append(len(api_swift))
-    for m in re.finditer(r'buildURL\(path:\s*"([^"]+)"\)', api_swift):
-        pos = m.start()
-        end = next((s for s in func_spans if s > pos), len(api_swift))
-        body = api_swift[pos:end]
-        method_m = re.search(r'httpMethod\s*=\s*"(\w+)"', body)
-        method = method_m.group(1) if method_m else "GET"   # data(from:) defaults to GET
-        out.add((method.upper(), _shape(m.group(1))))
+    for m in re.finditer(
+        r'\b(?:send|fetchJSON)\(\s*"([^"]+)"(?:\s*,\s*method:\s*"(\w+)")?',
+        api_swift,
+    ):
+        method = (m.group(2) or "GET").upper()
+        out.add((method, _shape(m.group(1))))
     return out
 
 
 def extract_ws(ws_swift: str) -> set[tuple[str, str]]:
-    """{(category, type)} handled by WebSocketService.swift (incl. pre-switch ping)."""
+    """{(category, type)} handled by WebSocketService.swift.
+
+    Dispatch is a tuple switch whose arms are literal pairs:
+        switch (category, eventType) {
+        case ("system", "state_changed"),
+             ("source", "state_changed"): ...
+        default: return
+        }
+    Capture every ("<cat>", "<type>") pair before the default arm.
+    """
     out: set[tuple[str, str]] = set()
-
-    # Pre-switch keepalive guard: `category == "x" && eventType == "y"`.
-    for cat, typ in re.findall(
-        r'category\s*==\s*"(\w+)"\s*&&\s*eventType\s*==\s*"(\w+)"', ws_swift
-    ):
+    sw = re.search(r"switch\s*\(\s*category\s*,\s*eventType\s*\)\s*\{", ws_swift)
+    if not sw:
+        return out
+    region = ws_swift[sw.end():]
+    cut = re.search(r"\bdefault\s*:", region)
+    if cut:
+        region = region[: cut.start()]
+    for cat, typ in re.findall(r'\(\s*"(\w+)"\s*,\s*"(\w+)"\s*\)', region):
         out.add((cat, typ))
-
-    # The `switch category { case "x": ... eventType == "y" ... }` block.
-    switch_m = re.search(r"switch\s+category\s*\{", ws_swift)
-    if switch_m:
-        region = ws_swift[switch_m.end():]
-        # Split into case blocks keyed by category literal.
-        cases = list(re.finditer(r'case\s+"(\w+)"\s*:', region))
-        for i, c in enumerate(cases):
-            cat = c.group(1)
-            body_end = cases[i + 1].start() if i + 1 < len(cases) else len(region)
-            body = region[c.end():body_end]
-            for typ in re.findall(r'eventType\s*==\s*"(\w+)"', body):
-                out.add((cat, typ))
     return out
+
+
+def manifest_surface(manifest: dict) -> tuple[set[tuple[str, str]], set[tuple[str, str]]]:
+    """(rest_shapes, ws_enforced) the manifest declares Milo-Mac depends on."""
+    rest = {(e["method"].upper(), _shape(e["path"])) for e in manifest["rest"]}
+    ws = {(e["category"], e["type"]) for e in manifest["ws"]["events"]}
+    return rest, ws
+
+
+def compute_diff(manifest: dict, api_swift: str, ws_swift: str):
+    """(errors, warnings) comparing the manifest to a Milo-Mac source pair.
+
+    error   = Milo-Mac consumes surface the manifest does NOT track (the backend
+              could delete it with the offline test still green) -> must fix.
+    warning = manifest tracks surface Milo-Mac no longer uses -> prunable on the
+              next conscious snapshot refresh.
+    """
+    manifest_rest, manifest_ws_enforced = manifest_surface(manifest)
+    manifest_ws_known = manifest_ws_enforced | {
+        (e["category"], e["type"])
+        for e in manifest["ws"].get("consumer_side_only_NOT_enforced", [])
+    }
+    actual_rest = extract_rest(api_swift)
+    actual_ws = extract_ws(ws_swift)
+
+    errors, warnings = [], []
+    for method, path in sorted(actual_rest - manifest_rest):
+        errors.append(f"REST {method} {path} is consumed by Milo-Mac but MISSING from the manifest.")
+    for method, path in sorted(manifest_rest - actual_rest):
+        warnings.append(f"REST {method} {path} is in the manifest but Milo-Mac no longer consumes it.")
+    for cat, typ in sorted(actual_ws - manifest_ws_known):
+        errors.append(f"WS {cat}/{typ} is consumed by Milo-Mac but MISSING from the manifest.")
+    for cat, typ in sorted(manifest_ws_enforced - actual_ws):
+        warnings.append(f"WS {cat}/{typ} is in the manifest but Milo-Mac no longer consumes it.")
+    return errors, warnings
+
+
+def _read_pair(root: Path) -> tuple[str, str]:
+    """(api_swift, ws_swift) from a Milo-Mac checkout root (… / 'Milo Mac' / *.swift)."""
+    base = root / "Milo Mac"
+    return (
+        (base / "MiloAPIService.swift").read_text(),
+        (base / "WebSocketService.swift").read_text(),
+    )
 
 
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print(__doc__)
         return 2
-    checkout = Path(argv[1])
-    api_swift = (checkout / "Milo Mac" / "MiloAPIService.swift").read_text()
-    ws_swift = (checkout / "Milo Mac" / "WebSocketService.swift").read_text()
-
+    api_swift, ws_swift = _read_pair(Path(argv[1]))
     manifest = json.loads(MANIFEST_PATH.read_text())
 
-    # --- REST diff ---
-    manifest_rest = {(e["method"].upper(), _shape(e["path"])) for e in manifest["rest"]}
-    actual_rest = extract_rest(api_swift)
+    upstream = (extract_rest(api_swift), extract_ws(ws_swift))
+    vendored = (
+        extract_rest((VENDOR_DIR / "MiloAPIService.swift").read_text()),
+        extract_ws((VENDOR_DIR / "WebSocketService.swift").read_text()),
+    )
+    snapshot_stale = upstream != vendored
 
-    # --- WS diff (enforced + consumer-side-only are both "known") ---
-    manifest_ws_enforced = {(e["category"], e["type"]) for e in manifest["ws"]["events"]}
-    manifest_ws_known = manifest_ws_enforced | {
-        (e["category"], e["type"])
-        for e in manifest["ws"].get("consumer_side_only_NOT_enforced", [])
-    }
-    actual_ws = extract_ws(ws_swift)
+    errors, warnings = compute_diff(manifest, api_swift, ws_swift)
+    if snapshot_stale:
+        warnings.append(
+            "Vendored snapshot under vendor/milo-mac/ has fallen behind upstream "
+            "Milo-Mac — refresh the two .swift files AND milo_mac_contract.json in "
+            "one conscious commit (the offline test enforces manifest == snapshot)."
+        )
 
-    errors, warnings = [], []
-
-    for method, path in sorted(actual_rest - manifest_rest):
-        errors.append(f"REST {method} {path} is consumed by Milo-Mac but MISSING from the manifest.")
-    for method, path in sorted(manifest_rest - actual_rest):
-        warnings.append(f"REST {method} {path} is in the manifest but Milo-Mac no longer consumes it.")
-
-    for cat, typ in sorted(actual_ws - manifest_ws_known):
-        errors.append(f"WS {cat}/{typ} is consumed by Milo-Mac but MISSING from the manifest.")
-    for cat, typ in sorted(manifest_ws_enforced - actual_ws):
-        warnings.append(f"WS {cat}/{typ} is in the manifest but Milo-Mac no longer consumes it.")
-
-    print(f"Milo-Mac surface: {len(actual_rest)} REST, {len(actual_ws)} WS event handlers.")
+    print(f"Upstream Milo-Mac surface: {len(upstream[0])} REST, {len(upstream[1])} WS event handlers.")
     for w in warnings:
         print(f"::warning::[milo-mac-freshness] {w}")
     for e in errors:
         print(f"::error::[milo-mac-freshness] {e}")
 
-    if errors:
+    # Either condition means a human must refresh the snapshot + manifest. Exit
+    # non-zero so the (non-blocking) CI step flips to `failure` and opens the
+    # tracking issue. `errors` is a subset of `snapshot_stale` in practice, but
+    # both are reported for a precise human-readable diff.
+    if errors or snapshot_stale:
         print(
-            "\nMilo-Mac consumes surface the manifest does not track. Update "
-            f"{MANIFEST_PATH.name} (and the backend, if the route/event is new) "
-            "so the offline contract test protects it. See CLAUDE.md §'External "
+            "\nThe vendored Milo-Mac snapshot (and thus the manifest) no longer "
+            "matches upstream Milo-Mac. Refresh backend/tests/contracts/vendor/"
+            "milo-mac/ + milo_mac_contract.json together. See CLAUDE.md §'External "
             "API clients — Milo-Mac'."
         )
         return 1
 
-    print("OK: manifest covers everything Milo-Mac consumes.")
+    print("OK: vendored snapshot + manifest are in sync with upstream Milo-Mac.")
     return 0
 
 
