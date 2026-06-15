@@ -38,19 +38,33 @@ _MANIFEST = json.loads(MANIFEST_PATH.read_text())
 # REST: every manifest entry must resolve to a live FastAPI route.
 # --------------------------------------------------------------------------- #
 
+_HTTP_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
+
+
 def _route_table():
     """(methods, path_template) for every HTTP route on the real app.
 
-    Imports the fully-wired app from backend.main. D-Bus / hardware services
-    fail open under test (CLAUDE.md), so this import is offline and ~1s.
+    Derived from the app's OpenAPI schema (`app.openapi()`) — the public,
+    version-stable view of the route surface — NOT from iterating `app.routes`.
+    FastAPI 0.137 / Starlette 1.3 stopped flattening `include_router()` routes
+    into `app.routes`: each include now appears as a single opaque
+    `_IncludedRouter` wrapper whose leaves are nested and whose prefix is no
+    longer baked into the leaf paths, so the old flat iteration silently saw
+    zero routes. OpenAPI paths are fully prefix-resolved and immune to that
+    internal change. (Routes with `include_in_schema=False` are excluded, but no
+    Milo-Mac route uses that.)
+
+    Importing the fully-wired app from backend.main is offline (~1s): D-Bus /
+    hardware services fail open under test, per CLAUDE.md.
     """
     from backend.main import app
 
-    return [
-        (r.methods, r.path)
-        for r in app.routes
-        if hasattr(r, "methods") and getattr(r, "path", None)
-    ]
+    table = []
+    for path, operations in app.openapi()["paths"].items():
+        methods = {m.upper() for m in operations} & _HTTP_METHODS
+        if methods:
+            table.append((methods, path))
+    return table
 
 
 def _segments_match(manifest_path: str, route_path: str) -> bool:
