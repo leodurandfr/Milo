@@ -16,11 +16,11 @@
 <table>
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/spotify.png" width="48"></td>
-    <td><b>Spotify</b><br>Spotify Connect receiver — see what's playing with artwork, and control playback directly</td>
+    <td><b>Spotify</b><br>Spotify Connect receiver with artwork and full playback control</td>
   </tr>
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/radio.png" width="48"></td>
-    <td><b>Radio</b><br>Browse 50,000+ stations, save favorites, add custom stations, their image, and identify tracks with Shazam</td>
+    <td><b>Radio</b><br>Browse 50,000+ stations, save favorites, and identify tracks with Shazam</td>
   </tr>
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/bluetooth.png" width="48"></td>
@@ -32,11 +32,11 @@
   </tr>
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/podcast.png" width="48"></td>
-    <td><b>Podcasts</b><br>Search, subscribe, and resume episodes with variable speed (0.5x–2x)</td>
+    <td><b>Podcasts</b><br>Search, subscribe, and resume episodes where you left off</td>
   </tr>
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/cd.png" width="48"></td>
-    <td><b>CD Player</b><br>Play audio CDs with automatic track listing and metadata lookup</td>
+    <td><b>CD Player</b><br>Play audio CDs with automatic track and metadata lookup</td>
   </tr>
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/macos.png" width="48"></td>
@@ -192,11 +192,11 @@ Control Milō from your other devices:
 
 ## Documentation
 
-- [📚 Documentation Index](docs/index.md) — All documentation
-- [🏗️ Architecture](docs/architecture-overview.md) — How Milō works
-- [💻 Developer Guide](docs/development-guide.md) — Contribute to the project
-- [🔌 API Reference](docs/api-contracts-backend.md) — REST API endpoints
-- [🧩 Components](docs/component-inventory-frontend.md) — Vue components
+- [🏗️ Architecture](docs/architecture.md) — Technologies and how Milō works
+- [🔌 API Overview](docs/api-overview.md) — REST + WebSocket surface at a glance
+- [💻 Developer Guide](docs/development.md) — Setup, adding sources, testing, contributing
+- [🔧 Wiring Reference](docs/hardware/wiring.md) — Physical connections (Pi + HiFiBerry)
+- [📖 User Manual](docs/manual/manual_en.md) — End-user guide ([French](docs/manual/manual_fr.md))
 
 ## License
 

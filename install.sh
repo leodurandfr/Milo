@@ -5,7 +5,7 @@
 # Hardware configuration (audio card, screen) is done via the web UI setup wizard
 # after first boot at http://milo.local.
 #
-# IMPORTANT: This script is optimized for Raspberry Pi OS Lite (64-bit)
+# IMPORTANT: This script targets Raspberry Pi OS Lite (64-bit, Debian Trixie)
 # Download Raspberry Pi OS Lite from: https://www.raspberrypi.com/software/operating-systems/
 
 set -e
