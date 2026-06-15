@@ -1,5 +1,6 @@
 # Manuel d'utilisation Milo
 
+> 🇬🇧 [English version](manual_en.md)
 
 ---
 

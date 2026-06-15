@@ -76,6 +76,16 @@ check_system() {
         exit 1
     fi
 
+    # Milō is tested only on Raspberry Pi OS based on Debian Trixie. Warn (don't
+    # block) on other releases — a future Debian may work, older ones likely won't.
+    local codename
+    codename=$(lsb_release -sc 2>/dev/null || grep VERSION_CODENAME /etc/os-release 2>/dev/null | cut -d= -f2)
+    if [[ -n "$codename" && "$codename" != "trixie" ]]; then
+        log_warning "Detected Debian '$codename' — Milō is only tested on Debian Trixie."
+        log_warning "Installation may fail or behave unexpectedly on other releases."
+        echo ""
+    fi
+
     # Warning if a desktop environment is detected
     if systemctl list-units --type=service 2>/dev/null | grep -qE "lightdm|gdm|sddm|xdm"; then
         log_warning "A desktop environment has been detected."
