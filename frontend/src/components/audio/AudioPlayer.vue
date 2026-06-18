@@ -1,7 +1,9 @@
 <template>
   <Teleport to="body" :disabled="!isMobile">
-    <Transition name="audio-player" appear @after-leave="$emit('after-hide')">
-      <div v-show="visible" class="audio-player" :class="playerClasses">
+    <Transition name="audio-player" @after-leave="$emit('after-hide')">
+      <!-- v-if, not v-show: a teleported v-show toggle (mobile) doesn't fire the
+           transition classes, so the enter/leave would be instant. -->
+      <div v-if="visible" class="audio-player" :class="playerClasses">
       <!-- Background image - heavily zoomed and blurred -->
       <div class="player-art-background">
         <img v-if="validArtwork" :src="validArtwork" alt="" class="background-image" />
