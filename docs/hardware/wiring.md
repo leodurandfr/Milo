@@ -2,7 +2,7 @@
 
 > Every physical connection on a Milō unit (Raspberry Pi 5 + HiFiBerry AMP4 Pro).
 > Section 1 is the at-a-glance map; the following sections give the exact wiring per
-> component. Last updated 2026-06-05.
+> component. Last updated 2026-06-20.
 
 ## 1. GPIO 40-pin header — overview
 
@@ -11,9 +11,9 @@ Pin 1 is top-left, USB / Ethernet at the bottom. Unlabelled pins are free.
 ```
            IR VCC ─►[ 1] 3V3 ┃ 5V  [ 2]◄─ LED + (anode)
    AMP4 HAT (I2C) ─►[ 3] G2  ┃ 5V  [ 4]◄─ Screen 5V
-   AMP4 HAT (I2C) ─►[ 5] G3  ┃ GND [ 6]◄─ IR GND
+   AMP4 HAT (I2C) ─►[ 5] G3  ┃ GND [ 6]◄─ Screen GND
                     [ 7] G4  ┃ G14 [ 8]
-       Screen GND ─►[ 9] GND ┃ G15 [10]
+           IR GND ─►[ 9] GND ┃ G15 [10]
           IR DATA ─►[11] G17 ┃ G18 [12]◄─ AMP4 HAT (I2S)
         Rotary DT ─►[13] G27 ┃ GND [14]◄─ Rotary GND
        Rotary CLK ─►[15] G22 ┃ G23 [16]◄─ Rotary SW (click)
@@ -52,7 +52,7 @@ Inputs use internal pull-ups — no external resistors.
 | Receiver pin | Connect to | Header pin |
 |--------------|------------|:----------:|
 | OUT / DATA   | GPIO17     | 11 |
-| GND          | GND        | 6  |
+| GND          | GND        | 9  |
 | VCC          | 3V3        | 1  |
 
 ## 4. Software power button (clean shutdown + wake)
@@ -96,7 +96,7 @@ is off, *then* flip this latching switch off. Never flip it while Milō is runni
 ## 6. Screen — Waveshare 8" DSI
 
 - **Image + touch:** FFC **ribbon** → the Pi's **DSI** connector (not GPIO).
-- **Power:** **5V** wire → **5V** (header pin 4) · **GND** wire → **GND** (header pin 9).
+- **Power:** **5V** wire → **5V** (header pin 4) · **GND** wire → **GND** (header pin 6).
 
 ## 7. CD drive
 
