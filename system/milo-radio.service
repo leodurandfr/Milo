@@ -28,10 +28,14 @@ ExecStart=/usr/bin/mpv \
     --input-ipc-server=/run/milo/radio-ipc.sock \
     --idle=yes \
     --af=loudnorm=I=-14:TP=-1:LRA=11 \
-    --msg-level=all=info \
+    --cache=yes \
+    --demuxer-max-bytes=50MiB \
+    --demuxer-max-back-bytes=5MiB \
+    --network-timeout=15 \
+    --stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,reconnect_at_eof=1,reconnect_delay_max=30 \
+    --msg-level=all=warn \
     --no-config \
-    --no-terminal \
-    --really-quiet
+    --no-terminal
 
 # Restart policy
 Restart=on-failure
