@@ -13,6 +13,8 @@ Group=milo
 # Create /run/milo/ automatically for IPC socket
 RuntimeDirectory=milo
 RuntimeDirectoryMode=0755
+# Preserve the shared /run/milo on stop — see milo-camilladsp.service
+RuntimeDirectoryPreserve=yes
 
 # Load Milo environment variables (MILO_MODE)
 EnvironmentFile=/var/lib/milo/routing.env
