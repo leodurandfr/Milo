@@ -38,7 +38,7 @@
                     :interactive="true" @seek="seekTo" />
                 </div>
                 <div class="controls-wrapper">
-                  <PlaybackControls :isPlaying="isPlaying"
+                  <PlaybackControls :isPlaying="isPlaying" :isBuffering="isBuffering"
                     @play-pause="togglePlayPause" @previous="previousTrack" @next="nextTrack" />
                 </div>
               </template>
@@ -135,6 +135,10 @@ const persistentMetadata = computed(() => lastValidMetadata.value);
 
 // Real-time playback state (not persisted)
 const isPlaying = computed(() => unifiedStore.systemState.metadata?.is_playing || false);
+
+// Source is spinning up before audio flows (e.g. CD drive starting): the play
+// button shows a spinner instead of pause until the backend clears is_buffering.
+const isBuffering = computed(() => unifiedStore.systemState.metadata?.is_buffering || false);
 
 
 // Client/device name (for source bar when controls are hidden)
