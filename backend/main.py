@@ -63,6 +63,15 @@ from backend.core.log_handler import WebSocketLogHandler
 _ws_log_handler = WebSocketLogHandler(level=logging.ERROR)
 logging.getLogger("backend").addHandler(_ws_log_handler)
 
+# Default level is WARNING, so audio-source/mpv playback INFO (Playing station,
+# stream load failed, mpv idle/disconnect) never reaches the journal. Raise those
+# to INFO for diagnosis unless MILO_LOG_LEVEL already set a lower floor; errors.log
+# and the WS handler stay WARNING+/ERROR. Shazam logs every cycle, so keep it quiet.
+if _log_level > logging.INFO:
+    logging.getLogger("source").setLevel(logging.INFO)
+    logging.getLogger("backend.shared.mpv").setLevel(logging.INFO)
+    logging.getLogger("source.radio.shazam").setLevel(logging.WARNING)
+
 # Get services from registry
 state_machine = get_service("audio_state_machine")
 routing_service = get_service("audio_routing_service")
