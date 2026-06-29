@@ -92,12 +92,10 @@ class CrossoverService:
         if event_type == RegistryEventType.CLIENT_CONNECTED:
             mac_id = data.get("mac_id")
             if mac_id:
-                # Client came online - apply pending settings
                 if self.has_pending_settings(mac_id):
                     self.logger.info(f"Client {mac_id} reconnected, applying pending settings")
                     await self.apply_pending_settings(mac_id)
 
-                # Recalculate crossover for zones containing this client
                 await self._recalculate_zones_for_client(mac_id)
 
                 # If recalculation queued settings (CamillaDSP not fully ready,
@@ -108,8 +106,7 @@ class CrossoverService:
         elif event_type == RegistryEventType.CLIENT_DISCONNECTED:
             mac_id = data.get("mac_id")
             if mac_id:
-                # Recalculate crossover for zones containing this client
-                # (offline clients affect crossover_enabled state)
+                # Disconnect changes crossover_enabled state for the client's zones
                 await self._recalculate_zones_for_client(mac_id)
 
         elif event_type == RegistryEventType.CLIENT_UPDATED:
@@ -150,7 +147,6 @@ class CrossoverService:
                     self.logger.error(f"Error disabling filters after zone {zone_id} deletion: {e}")
 
         elif event_type == "zone_client_added":
-            # Client added to zone - recalculate crossover
             zone_id = data.get("zone_id")
             mac_id = data.get("mac_id")
             if zone_id and isinstance(zone_id, str):

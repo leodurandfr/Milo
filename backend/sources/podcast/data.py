@@ -118,14 +118,12 @@ class PodcastDataService:
         """
         data = await self.load_data()
 
-        # Check if already subscribed
         existing = next(
             (s for s in data['subscriptions'] if s.get('uuid') == podcast_uuid),
             None
         )
 
         if existing:
-            # Update metadata
             existing['name'] = name
             existing['image_url'] = image_url
             existing['children_hash'] = children_hash

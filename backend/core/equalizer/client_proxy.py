@@ -123,7 +123,6 @@ class EqualizerClientProxyService:
         IMPORTANT: MAC addresses are NOT supported. Callers must look up
         the IP from the client registry before calling proxy methods.
         """
-        # If it's an IP address, use directly
         if is_ip_address(identifier):
             return identifier
 

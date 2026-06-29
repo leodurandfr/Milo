@@ -45,10 +45,8 @@ const props = defineProps({
 
 const emit = defineEmits(['update:filter', 'change']);
 
-// Band orientation based on mobile status
 const bandOrientation = computed(() => props.isMobile ? 'horizontal' : 'vertical');
 
-// === HANDLERS ===
 function handleGainUpdate(filterId, value) {
   emit('update:filter', { id: filterId, field: 'gain', value });
 }

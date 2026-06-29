@@ -126,7 +126,6 @@ class MpvController:
                     "request_id": request_id
                 }
 
-                # Send the command
                 command_json = json.dumps(request) + "\n"
                 self.writer.write(command_json.encode('utf-8'))
                 await self.writer.drain()

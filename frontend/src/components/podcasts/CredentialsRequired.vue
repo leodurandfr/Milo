@@ -10,7 +10,6 @@
       :cta-click="() => $emit('configure')"
     />
 
-    <!-- Rate limit error -->
     <MessageContent
       v-else-if="showRateLimitError"
       icon="podcast"

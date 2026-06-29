@@ -62,7 +62,6 @@ class RadioSource(MpvAudioSource):
         )
         self._station_data.radio_api = self._radio_api
 
-        # Shazam recognition
         self._shazam: Optional[ShazamRecognitionService] = None
 
         # State
@@ -499,7 +498,6 @@ class RadioSource(MpvAudioSource):
             self._update_connection_state()
 
         elif not self._is_playing and was_playing:
-            # Stopped playing
             self._metadata = self._build_playback_metadata()
             self._update_connection_state()
 

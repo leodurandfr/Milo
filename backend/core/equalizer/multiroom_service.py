@@ -540,7 +540,6 @@ class MultiroomEqualizerService:
                 client_ip, "PUT", "/equalizer/filters", {"filters": filters_batch}
             )
 
-            # Apply compressor
             comp = settings.compressor
             await self._proxy_service.request(
                 client_ip, "PUT", "/equalizer/compressor",
@@ -554,7 +553,6 @@ class MultiroomEqualizerService:
                 }
             )
 
-            # Apply loudness
             loud = settings.loudness
             await self._proxy_service.request(
                 client_ip, "PUT", "/equalizer/loudness",
@@ -565,7 +563,6 @@ class MultiroomEqualizerService:
                 }
             )
 
-            # Apply mono
             await self._proxy_service.request(
                 client_ip, "PUT", "/equalizer/mono",
                 {"enabled": settings.mono}
@@ -709,7 +706,6 @@ class MultiroomEqualizerService:
         Returns:
             True if successful
         """
-        # Get current settings
         current = await self.get_equalizer(target_type, target_id)
         if not current:
             raise ValueError(f"{target_type} not found: {target_id}")
@@ -784,12 +780,10 @@ class MultiroomEqualizerService:
         Returns:
             True if successful
         """
-        # Get current settings
         current = await self.get_equalizer(target_type, target_id)
         if not current:
             raise ValueError(f"{target_type} not found: {target_id}")
 
-        # Update compressor
         comp = current.compressor
         if enabled is not None:
             comp.enabled = enabled
@@ -844,12 +838,10 @@ class MultiroomEqualizerService:
         Returns:
             True if successful
         """
-        # Get current settings
         current = await self.get_equalizer(target_type, target_id)
         if not current:
             raise ValueError(f"{target_type} not found: {target_id}")
 
-        # Update loudness
         loud = current.loudness
         if enabled is not None:
             loud.enabled = enabled
@@ -1008,7 +1000,6 @@ class MultiroomEqualizerService:
             ):
                 success_count += 1
 
-        # Broadcast WebSocket event
         if self._state_machine:
             await self._state_machine.broadcast_event(
                 "equalizer", "zone_enabled_changed",

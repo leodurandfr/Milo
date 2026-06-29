@@ -4,20 +4,16 @@
     <!-- Secret hotspot to open Settings -->
     <div class="SettingsAccess" role="button" aria-label="Open settings" @click="handleSettingsClick"></div>
 
-    <!-- Main content -->
     <div class="content-container">
       <AudioSourceView />
     </div>
 
-    <!-- Logo -->
     <Logo :position="logoPosition" :visible="logoVisible" />
 
-    <!-- Settings modal -->
     <Modal :is-open="isSettingsOpen" @close="closeSettings" height-mode="auto">
       <SettingsModal @close="closeSettings" />
     </Modal>
 
-    <!-- Audio Screensaver -->
     <AudioScreensaver
       :is-visible="isScreensaverVisible"
       :mode="screensaverData.mode || 'media'"

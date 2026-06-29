@@ -21,7 +21,6 @@
           />
         </div>
 
-        <!-- API Usage Display -->
         <div v-if="requestsUsed !== null" class="usage-display">
           <div class="usage-header">
             <label class="form-label text-mono">{{ t('podcastSettings.apiUsage') }}</label>
@@ -47,7 +46,6 @@
           </Button>
         </div>
 
-        <!-- Error message -->
         <div v-if="errorMessage" class="status-message error text-mono">
           {{ errorMessage }}
         </div>
@@ -129,7 +127,6 @@ const usagePercentage = computed(() => {
   return Math.max(0, Math.min(100, (requestsUsed.value / 500) * 100));
 });
 
-// Check if there are changes
 const hasChanges = computed(() => {
   return localUserId.value !== config.value.taddy_user_id ||
          localApiKey.value !== config.value.taddy_api_key;
@@ -140,7 +137,6 @@ const hasCredentials = computed(() => {
   return config.value.taddy_user_id && config.value.taddy_api_key;
 });
 
-// Initialize local values
 onMounted(() => {
   localUserId.value = config.value.taddy_user_id;
   localApiKey.value = config.value.taddy_api_key;

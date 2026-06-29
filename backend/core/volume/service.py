@@ -376,7 +376,6 @@ class VolumeService:
         new_min = self._volume_config.limit_min_db
         new_max = self._volume_config.limit_max_db
 
-        # No change, nothing to do
         if old_min == new_min and old_max == new_max:
             return True
 
@@ -417,7 +416,6 @@ class VolumeService:
         # Update setting atomically via SettingsService
         await self.settings_service.set_setting('volume.startup_volume_db', volume_db)
 
-        # Reload config to get fresh value
         await self._load_volume_config()
 
         # Broadcast the actual persisted value from config (ensures consistency)
@@ -524,7 +522,6 @@ class VolumeService:
             return True
         self.logger.info(f"PUSH_VOLUME: Found {len(client_ids)} online clients: {client_ids}")
 
-        # Build volume updates
         updates = {}
 
         if target_volume_db is not None:
@@ -555,7 +552,6 @@ class VolumeService:
         if not updates:
             return True
 
-        # Apply volumes and update state store
         results = await self._equalizer_controller.apply_volumes_parallel(updates)
         succeeded = [h for h, ok in results.items() if ok]
         failures = [h for h, ok in results.items() if not ok]

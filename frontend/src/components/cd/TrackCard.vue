@@ -15,10 +15,8 @@
       <span v-else>{{ track.number }}</span>
     </div>
 
-    <!-- Track title -->
     <div class="track-title text-body">{{ track.title || t('audioSources.cdSource.trackN', { n: track.number }) }}</div>
 
-    <!-- Track duration -->
     <div class="track-duration text-mono-small">{{ formatDuration(track.duration) }}</div>
   </div>
 </template>

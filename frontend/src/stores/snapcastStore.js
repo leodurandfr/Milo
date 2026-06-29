@@ -43,7 +43,6 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     });
   });
 
-  // AbortController for cancelling ongoing requests
   let serverConfigAbortController = null;
   const isLoading = computed(() => !registryStore.isInitialized);
 
@@ -174,7 +173,6 @@ export const useSnapcastStore = defineStore('snapcast', () => {
 
   // === ACTIONS - SERVER CONFIG ===
   async function loadServerConfig() {
-    // Cancel previous request if it exists
     if (serverConfigAbortController) {
       serverConfigAbortController.abort();
     }

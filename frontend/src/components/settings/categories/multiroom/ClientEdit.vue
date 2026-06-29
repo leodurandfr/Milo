@@ -171,7 +171,6 @@ const volumeControl = ref(true);
 const deleting = ref(false);
 const crossoverFrequency = ref(80);
 
-// Find client by mac_id
 const client = computed(() =>
   snapcastStore.clients.find(c => c.mac_id === props.macId)
 );
@@ -206,7 +205,6 @@ const isAudioDirty = computed(() =>
   selectedAudioId.value && savedAudioId.value && selectedAudioId.value !== savedAudioId.value
 );
 
-// Check if client is offline
 const isOffline = computed(() => {
   return client.value ? !client.value.online : true;
 });
@@ -216,17 +214,14 @@ const clientDisplayName = computed(() =>
   client.value?.name || client.value?.host || 'Unknown'
 );
 
-// Check if client is in a zone
 const clientZone = computed(() => {
   return equalizerStore.getZoneGroup(props.macId);
 });
 
 const isInZone = computed(() => !!clientZone.value);
 
-// Check if current speaker type is subwoofer
 const isSubwoofer = computed(() => selectedSpeakerType.value === 'subwoofer');
 
-// Check if zone contains a subwoofer
 const zoneHasSubwoofer = computed(() => {
   if (!clientZone.value?.id) return false;
   return multiroomClientStore.hasOnlineSubwoofer(clientZone.value.id);
@@ -271,7 +266,6 @@ const showCrossoverInfo = computed(() => {
   return false;
 });
 
-// Speaker type options
 const speakerTypes = computed(() => [
   { value: 'satellite', label: t('multiroom.systemTypes.satellite'), icon: 'speakerSatellite' },
   { value: 'bookshelf', label: t('multiroom.systemTypes.bookshelf'), icon: 'speakerShelf' },

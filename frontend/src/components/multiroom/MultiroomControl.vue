@@ -76,7 +76,6 @@ function isZonePrimary(client) {
     snapcastStore.clients.some(c => c.mac_id === macId)
   );
 
-  // This client is primary if it's the first online one
   return firstOnlineId === client.mac_id;
 }
 

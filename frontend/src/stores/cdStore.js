@@ -57,7 +57,6 @@ export const useCdStore = defineStore('cd', () => {
 
   // Applies an already-flat CD metadata object to the store state.
   function _applyMetadata(metadata) {
-    // Disc info
     if (metadata.disc_id !== undefined) {
       discInfo.value = {
         disc_id: metadata.disc_id,
@@ -70,12 +69,10 @@ export const useCdStore = defineStore('cd', () => {
       discPresent.value = !!metadata.disc_id;
     }
 
-    // Track list
     if (metadata.tracks !== undefined) {
       tracks.value = metadata.tracks || [];
     }
 
-    // Playback state
     if (metadata.current_track !== undefined) {
       currentTrack.value = metadata.current_track;
     }

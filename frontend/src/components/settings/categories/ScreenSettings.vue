@@ -159,7 +159,6 @@ let brightnessThrottleActive = false;
 let pendingBrightness = null;
 
 function handleBrightnessChange(value) {
-  // Skip if value hasn't changed
   if (value === lastAppliedBrightness) return;
 
   if (!brightnessThrottleActive) {

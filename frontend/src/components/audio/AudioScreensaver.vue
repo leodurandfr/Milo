@@ -159,7 +159,6 @@ const showBottomBar = computed(() => !!props.stationName);
 function handleClose() {
   if (isClosing.value) return;
 
-  // Trigger closing animation
   isClosing.value = true;
 
   // Wait for the end of the animation (300ms) before actually closing

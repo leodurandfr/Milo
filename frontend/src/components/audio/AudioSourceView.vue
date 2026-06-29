@@ -57,7 +57,6 @@ import AudioSourceStatus from './AudioSourceStatus.vue';
 
 const unifiedStore = useUnifiedAudioStore();
 
-// Read all state directly from the store
 const activeSource = computed(() => unifiedStore.systemState.active_source);
 const sourceState = computed(() => unifiedStore.systemState.source_state);
 const transitioning = computed(() => unifiedStore.systemState.transitioning);

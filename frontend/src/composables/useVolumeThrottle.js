@@ -35,7 +35,6 @@ const THROTTLE_PRESETS = {
 export function useVolumeThrottle(callback, preset = 'MEDIUM') {
   const config = THROTTLE_PRESETS[preset] || THROTTLE_PRESETS.MEDIUM;
 
-  // State
   const isThrottling = ref(false);
   let finalTimer = null;
   let lastArgs = null;

@@ -230,7 +230,6 @@ class AudioRoutingService:
         self._routing_lock = asyncio.Lock()
         self._bg = BackgroundTaskSet(self.logger, "routing")
 
-        # Services snapcast
         self.snapserver_service = "milo-snapserver-multiroom.service"
         self.snapclient_service = "milo-snapclient-multiroom.service"
 

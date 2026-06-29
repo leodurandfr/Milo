@@ -25,7 +25,6 @@ def create_programs_router(update_service, satellite_update_service, state_machi
 
     satellite_service = satellite_update_service
 
-    # Store to track ongoing updates
     active_updates = {}
 
     def _create_background_update(

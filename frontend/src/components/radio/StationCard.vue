@@ -118,28 +118,23 @@ watch(
   (settled) => { if (settled) markReady(); }
 );
 
-// Computed metadata for card variant: country + genre
 const cardMetadata = computed(() => {
   const { country, countrycode } = props.station || {};
   const translatedCountry = getTranslatedCountryName(getCurrentLanguage(), countrycode, country || '');
   const genre = getTranslatedGenreName(getCurrentLanguage(), props.station?.genre || '');
 
-  // Both country and genre
   if (translatedCountry && genre) {
     return `${translatedCountry} • ${genre}`;
   }
 
-  // Only country
   if (translatedCountry) {
     return translatedCountry;
   }
 
-  // Only genre
   if (genre) {
     return genre;
   }
 
-  // Neither - return empty string
   return '';
 });
 

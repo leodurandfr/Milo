@@ -1,4 +1,3 @@
-<!-- SpotifySource.vue - Spotify Connect player -->
 <template>
   <AudioPlayerFull source="spotify" />
 </template>

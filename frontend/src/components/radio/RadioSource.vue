@@ -5,7 +5,6 @@
     :header-show-back="isSearchMode" :header-actions-key="isSearchMode ? 'search' : 'favorites'"
     :content-key="isSearchMode ? 'search' : 'favorites'" header-variant="background-neutral" header-icon="radio"
     :player-mobile-height="144" gradient="radio" @header-back="closeSearch">
-    <!-- Header actions -->
     <template v-if="!isSearchMode" #header-actions="{ iconVariant }">
       <IconButton icon="search" :variant="iconVariant" @click="openSearch" />
     </template>
@@ -25,7 +24,6 @@
           @search="handleSearch" @retry="retrySearch" @play-station="playStation" />
     </template>
 
-    <!-- Player slot: AudioPlayer component -->
     <template #player="{ isMobile }">
       <AudioPlayer v-if="displayStation" :visible="shouldShowNowPlayingLayout" source="radio"
         :artwork="playerArtwork" :fallback-name="displayStation?.name" :title="playerTitle"
@@ -48,7 +46,6 @@
               {{ isCurrentlyPlaying ? t('audioSources.radioSource.stopRadio') : t('audioSources.radioSource.playRadio')
               }}
             </Button>
-            <!-- Play/stop IconButton for Mobile -->
             <IconButton v-else :icon="isCurrentlyPlaying ? 'stop' : 'play'" variant="on-dark" :loading="isBuffering"
               @click="handlePlayPause" />
             <IconButton :icon="displayStationIsFavorite ? 'heart' : 'heartOff'" variant="on-dark"
@@ -131,7 +128,7 @@ const displayStationIsFavorite = computed(() =>
 
 // === STATE ===
 const isSearchMode = ref(false)
-const availableCountries = ref([]) // Dynamic list of available countries
+const availableCountries = ref([])
 
 // ID of the buffering station (to display the spinner on the correct station)
 const bufferingStationId = computed(() => {
@@ -189,7 +186,6 @@ const stationMetadata = computed(() => {
   return ''
 })
 
-// Country options for dropdown
 const countryOptions = computed(() => {
   if (availableCountries.value.length === 0) {
     return [
@@ -201,7 +197,6 @@ const countryOptions = computed(() => {
   return createCountryOptions(getCurrentLanguage(), availableCountries.value, t('radio.country'))
 })
 
-// Genre options for dropdown
 const genreOptions = computed(() => {
   return createGenreOptions(getCurrentLanguage(), t('radio.genre'))
 })

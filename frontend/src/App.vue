@@ -73,7 +73,6 @@ import Dock from '@/components/ui/Dock.vue';
 import Modal from '@/components/ui/Modal.vue';
 import NotificationBanner from '@/components/ui/NotificationBanner.vue';
 
-// Lazy-loaded modals
 const EqualizerModal = defineAsyncComponent(() =>
   import('@/components/equalizer/EqualizerModal.vue')
 );
@@ -457,7 +456,6 @@ function registerDockControl(showFn) {
 // Signal to dismiss screensaver from App.vue (incremented to trigger watch in MainView)
 const dismissScreensaverSignal = ref(0);
 
-// Provide for child components
 provide('openEqualizer', () => isEqualizerOpen.value = true);
 provide('openMultiroom', () => isMultiroomOpen.value = true);
 provide('openSettings', openSettings);

@@ -4,14 +4,12 @@
     <section v-if="hasSubscriptions" class="section">
       <h2 class="section-title heading-2">{{ t('podcasts.newEpisodesFromSubscriptions') }}</h2>
       <div class="transition-container">
-        <!-- Show skeletons while loading -->
         <transition name="content-fade">
           <div v-if="loadingSubscriptions" key="loading-sub" class="episodes-list">
             <SkeletonEpisodeCard v-for="i in 4" :key="`skeleton-sub-${i}`" />
           </div>
         </transition>
 
-        <!-- Real cards when loaded -->
         <transition name="content-fade">
           <div v-if="!loadingSubscriptions && latestSubscriptionEpisodes.length > 0" key="loaded-sub" class="episodes-list">
             <EpisodeCard
@@ -37,7 +35,6 @@
     <section class="section">
       <h2 class="section-title heading-2">{{ t('podcasts.topPodcasts') }}</h2>
       <div class="transition-container">
-        <!-- Show skeletons while loading -->
         <transition name="content-fade">
           <div v-if="loadingTopCharts" key="loading-podcasts" class="podcasts-grid">
             <SkeletonPodcastCard v-for="i in 6" :key="`skeleton-podcast-${i}`" />
@@ -58,7 +55,6 @@
           />
         </transition>
 
-        <!-- Real cards when loaded -->
         <transition name="content-fade">
           <div v-if="!loadingTopCharts && !topChartsNetworkError" key="loaded-podcasts" class="podcasts-grid">
             <PodcastCard
@@ -91,14 +87,12 @@
     <section class="section">
       <h2 class="section-title heading-2">{{ t('podcasts.topEpisodes') }}</h2>
       <div class="transition-container">
-        <!-- Show skeletons while loading -->
         <transition name="content-fade">
           <div v-if="loadingTopEpisodes" key="loading-episodes" class="episodes-list">
             <SkeletonEpisodeCard v-for="i in 6" :key="`skeleton-episode-${i}`" />
           </div>
         </transition>
 
-        <!-- Real cards when loaded -->
         <transition name="content-fade">
           <div v-if="!loadingTopEpisodes" key="loaded-episodes" class="episodes-list">
             <EpisodeCard
@@ -162,7 +156,6 @@ const mainGenres = computed(() => [
 ])
 
 function browseGenre(genreValue) {
-  // Find genre label
   const genre = mainGenres.value.find(g => g.value === genreValue)
   if (genre) {
     emit('browse-genre', genreValue, genre.label)

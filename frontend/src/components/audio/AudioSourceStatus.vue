@@ -185,7 +185,6 @@ function getDisplayedStatusLine2Class() {
   return 'secondary-state';
 }
 
-// === EVENT HANDLER ===
 function handleDisconnect() {
   emit('disconnect');
 }

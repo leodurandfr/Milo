@@ -101,7 +101,6 @@ class BtRemoteController:
         # Playback dispatch (multi-click → play/pause, next, prev)
         self._dispatcher = PlaybackDispatcher(state_machine)
 
-        # Locks
         self._config_lock = asyncio.Lock()
         self._scan_lock = asyncio.Lock()
         self._discovering = False

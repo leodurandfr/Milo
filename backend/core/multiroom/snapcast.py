@@ -155,7 +155,6 @@ class SnapcastService:
                     self.logger.warning(f"Skipping stale local client id={client_data.get('id')}")
                     continue
 
-                # mac_id: MAC address as primary identifier
                 mac_id = ClientRegistryService.compute_mac_id(host, ip, mac)
 
                 # Calculate online status based on lastSeen timestamp
@@ -199,7 +198,6 @@ class SnapcastService:
                         "group_id": group_id
                     })
                 else:
-                    # Add basic last_seen_age for non-detailed requests
                     client_info["last_seen_age"] = int(last_seen_age)
 
                 raw_clients.append(client_info)

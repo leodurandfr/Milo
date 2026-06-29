@@ -146,7 +146,6 @@ const modalContentInnerRef = inject('modalContentInnerRef', null);
 const modalRequestHeightDelta = inject('modalRequestHeightDelta', null);
 const modalCancelDeferredFinalize = inject('modalCancelDeferredFinalize', null);
 
-// Local state
 const isMobile = ref(false);
 const zoneTabsRef = ref(null);
 const headerRef = ref(null);
@@ -286,16 +285,13 @@ onMounted(async () => {
   updateMobileStatus();
   window.addEventListener('resize', updateMobileStatus);
 
-  // Initialize filters
   equalizerStore.initializeFilters();
 
-  // Load enabled state from settings
   await equalizerStore.loadEnabledState();
 
   // Load available equalizer targets (Milo + clients)
   await equalizerStore.loadTargets();
 
-  // Load equalizer status if effects are enabled
   if (equalizerStore.isEqualizerEffectsEnabled) {
     await equalizerStore.loadStatus();
   }

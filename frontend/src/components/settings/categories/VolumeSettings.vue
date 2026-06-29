@@ -73,7 +73,6 @@ const config = ref({
   startup_volume_db: -60.0
 });
 
-// Startup mode options for ButtonGroup
 const startupModeOptions = computed(() => [
   { label: t('volumeSettings.fixedVolume'), value: false },
   { label: t('volumeSettings.restoreLast'), value: true }

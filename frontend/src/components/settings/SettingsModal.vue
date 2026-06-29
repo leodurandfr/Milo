@@ -27,7 +27,6 @@
     <!-- Content area (wrapper provides positioning context for cross-fade overlay) -->
     <div class="transition-wrapper">
     <Transition name="fade-slide" @before-leave="onBeforeLeave" @enter="onEnter" @after-leave="onAfterLeave">
-      <!-- Home view: list of categories -->
       <div v-if="currentView === 'home'" key="home" class="view-content home-view">
         <div class="power-menu-region" :class="{ 'power-menu-region--open': showPowerMenu }">
             <div class="power-menu-items">
@@ -174,51 +173,37 @@
         </SettingsSection>
       </div>
 
-      <!-- Languages view -->
       <LanguageSettings v-else-if="currentView === 'languages'" key="languages" class="view-content" />
 
-      <!-- Dock view -->
       <DockSettings v-else-if="currentView === 'apps'" key="apps" class="view-content" />
 
-      <!-- Volume view -->
       <VolumeSettings v-else-if="currentView === 'volume'" key="volume" class="view-content" />
 
-      <!-- Screen view -->
       <ScreenSettings v-else-if="currentView === 'screen'" key="screen" class="view-content" />
 
-      <!-- Network view -->
       <NetworkSettings v-else-if="currentView === 'network'" key="network" class="view-content" />
 
-      <!-- Hardware view -->
       <HardwareSettings v-else-if="currentView === 'hardware'" key="hardware" class="view-content" />
 
-      <!-- Fan view -->
       <FanSettings v-else-if="currentView === 'fan'" key="fan" class="view-content" />
 
-      <!-- Audio playback view -->
       <AudioPlaybackSettings v-else-if="currentView === 'audio-playback'" key="audio-playback" class="view-content" />
 
-      <!-- Remote controls view -->
       <RemoteControlsSettings v-else-if="currentView === 'remote-controls'" key="remote-controls" class="view-content"
         @open-bt-remote="push('bt-remote')" @open-ir-remote="push('ir-remote')" />
 
-      <!-- BT remote sub-view -->
       <BtRemoteSettings v-else-if="currentView === 'bt-remote'" key="bt-remote" class="view-content" />
 
-      <!-- IR remote sub-view -->
       <IrRemoteSettings v-else-if="currentView === 'ir-remote'" key="ir-remote" class="view-content"
         @open-hardware="push('hardware')" />
 
-      <!-- Multiroom view -->
       <MultiroomSettings v-else-if="currentView === 'multiroom'" key="multiroom" class="view-content"
         @edit-zone="handleEditZone" @create-zone="handleCreateZone" @edit-client="handleEditClient"
         @configure-system="handleConfigureSystem" />
 
-      <!-- Multiroom zone edit view -->
       <ZoneEdit v-else-if="currentView === 'multiroom-zone-edit'" key="multiroom-zone-edit" class="view-content"
         :group-id="zoneGroupId" :enable-client-renaming="true" @back="handleZoneSaved" @saved="handleZoneSaved" />
 
-      <!-- Multiroom client edit view -->
       <ClientEdit v-else-if="currentView === 'multiroom-client-edit'" key="multiroom-client-edit" class="view-content"
         :mac-id="macIdToEdit" @back="handleClientSaved" />
 
@@ -230,30 +215,23 @@
         :hotspot-ssid="hotspotToAdopt?.ssid ?? null"
         @back="handleConfigureSystemBack" />
 
-      <!-- Radio view -->
       <RadioSettings v-else-if="currentView === 'radio'" key="radio" class="view-content"
         @go-to-add-station="push('radio-add')" @edit-station="handleEditStation" />
 
-      <!-- Radio view - Add a station -->
       <ManageStation v-else-if="currentView === 'radio-add'" key="radio-add" class="view-content" mode="add"
         @back="handleBackFromRadioModal" @success="handleRadioStationAdded" />
 
-      <!-- Radio view - Edit a station -->
       <ManageStation v-else-if="currentView === 'radio-edit'" key="radio-edit" class="view-content" mode="edit"
         :station="stationToEdit" :show-action-menu="showStationActionMenu"
         @back="handleBackFromRadioModal" @success="handleRadioStationEdited"
         @confirm-action="handleStationActionConfirm" />
 
-      <!-- Podcast view -->
       <PodcastSettings v-else-if="currentView === 'podcast'" key="podcast" class="view-content" />
 
-      <!-- Mac streaming view -->
       <MacSettings v-else-if="currentView === 'macos'" key="macos" class="view-content" />
 
-      <!-- Updates view -->
       <UpdateManager v-else-if="currentView === 'updates'" key="updates" class="view-content" />
 
-      <!-- Information view -->
       <InfoSettings v-else-if="currentView === 'info'" key="info" class="view-content" />
     </Transition>
     </div>
@@ -281,7 +259,6 @@ import SvgIcon from '@/components/ui/SvgIcon.vue';
 import LanguageSettings from '@/components/settings/categories/LanguageSettings.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 
-// Import settings icons
 import languagesIcon from '@/assets/settings-icons/languages.svg';
 import applicationsIcon from '@/assets/settings-icons/applications.svg';
 import volumeIcon from '@/assets/settings-icons/volume.svg';
@@ -352,7 +329,6 @@ const modalCancelDeferredFinalize = inject('modalCancelDeferredFinalize', null);
 const { currentView, canGoBack, push: navPush, back: navBack, reset, goTo, pendingScrollRestore } =
   useNavigationStack('home', { scrollElRef: modalContentRef });
 
-// Refs
 const headerRef = ref(null);
 const stationToEdit = ref(null);
 const zoneGroupId = ref(null);
@@ -467,7 +443,6 @@ watch(currentView, (next) => {
   if (next !== 'radio-edit') showStationActionMenu.value = false;
 });
 
-// Radio navigation handling
 function handleBackFromRadioModal() {
   back();
   stationToEdit.value = null;
@@ -584,7 +559,6 @@ async function handleRadioStationEdited(station) {
   back();
 }
 
-// Power menu toggle
 function togglePowerMenu() {
   showPowerMenu.value = !showPowerMenu.value;
   if (!showPowerMenu.value) {
@@ -635,7 +609,6 @@ const hasAnyConfigurableSource = computed(() =>
   || settingsStore.dockApps.podcast
 );
 
-// Multiroom toggle
 const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
 
 async function handleMultiroomToggle(enabled) {

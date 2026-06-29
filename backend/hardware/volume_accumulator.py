@@ -1,4 +1,3 @@
-# backend/hardware/volume_accumulator.py
 """
 Shared volume accumulator for hardware controllers.
 

@@ -27,7 +27,6 @@
             </div>
           </SettingsSection>
 
-          <!-- Zones & Speakers Section -->
           <SettingsSection>
             <template #header>
               <SectionHeader :title="t('multiroom.zonesAndSystems')">
@@ -48,9 +47,7 @@
             </div>
 
             <div v-else class="speakers-list">
-              <!-- Zones -->
               <div v-for="zone in zones" :key="zone.id" class="zone-group">
-                <!-- Zone header (clickable) -->
                 <button type="button" class="zone-header" @click="handleEditZone(zone.id)">
                   <span class="zone-header__name heading-3">{{ zone.displayName }}</span>
                   <SvgIcon name="caretRight" :size="20" class="zone-header__caret" />
@@ -64,7 +61,6 @@
                     {{ t('multiroom.crossover.badgeInactive') }}
                   </span>
                 </button>
-                <!-- Zone clients -->
                 <div class="zone-clients">
                   <SystemListItem v-for="client in zone.clients" :key="client.id"
                     :name="client.name" :mac-id="client.mac_id" :online="client.online"
@@ -72,7 +68,6 @@
                 </div>
               </div>
 
-              <!-- Individual speakers section -->
               <template v-if="ungroupedClients.length > 0">
                 <h3 v-if="zones.length > 0" class="heading-3 section-subtitle">{{ t('multiroom.individualSystems') }}
                 </h3>
@@ -284,7 +279,6 @@ const audioPresets = computed(() =>
   }))
 );
 
-// ButtonGroup options for presets
 const presetOptions = computed(() =>
   audioPresets.value.map(preset => ({
     label: preset.name,

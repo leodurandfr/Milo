@@ -145,14 +145,12 @@ class VolumeStateStore:
                     self._local_mac_id = mac_id
 
                 if mac_id not in self._clients:
-                    # Auto-register new client in volume state
                     await self.register_client(
                         mac_id,
                         volume_db=None,  # Use default
                         available=True
                     )
                 else:
-                    # Update existing client to online
                     await self.set_client_availability(mac_id, True)
 
         elif event_type == RegistryEventType.CLIENT_DISCONNECTED:
@@ -173,7 +171,6 @@ class VolumeStateStore:
                     self.logger.info(f"Deleted client {mac_id} from volume state")
 
         elif event_type == RegistryEventType.CLIENT_UPDATED:
-            # Handle client updated - sync client state
             mac_id = data.get("mac_id")
             client_data = data.get("client", {})
             if mac_id and mac_id not in self._clients:
@@ -232,7 +229,6 @@ class VolumeStateStore:
                         self._zones[zone_id].client_ids.remove(camilladsp_id)
                 self.logger.debug(f"Client {camilladsp_id} removed from zone {zone_id} in volume state")
 
-    # ========== Storage Directory ==========
 
     @handle_errors(default=None)
     def _ensure_storage_directory(self) -> None:
@@ -450,7 +446,6 @@ class VolumeStateStore:
                     self._schedule_persist()
                 self.logger.debug(f"Updated client: {mac_id} -> available={available}, volume_db={self._clients[mac_id].volume_db:.1f}dB")
             else:
-                # New client
                 if volume_db is None:
                     volume_db = DEFAULT_VOLUME_DB
 

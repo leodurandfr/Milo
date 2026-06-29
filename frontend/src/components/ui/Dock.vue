@@ -110,7 +110,6 @@ const ALL_ADDITIONAL_ACTIONS = computed(() => [
 // === DYNAMIC CONFIGURATION ===
 const enabledApps = computed(() => settingsStore.buildEnabledAppsArray());
 
-// Computed to separate audio sources and features
 const enabledAudioSources = computed(() => {
   return enabledApps.value
     .filter(source => ALL_AUDIO_SOURCES.includes(source))

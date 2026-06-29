@@ -123,19 +123,16 @@ def create_volume_router(volume_service, client_registry_service=None):
             New zone average, list of affected clients, and offline clients
         """
         async with api_error_handler("Error applying zone delta"):
-            # Validate zone exists
             if client_registry_service:
                 zone = client_registry_service.get_zone(zone_id)
                 if not zone:
                     raise HTTPException(status_code=404, detail=f"Zone {zone_id} not found")
 
-            # Apply delta atomically using new architecture
             try:
                 new_average = await volume_service.apply_zone_volume_delta(zone_id, request.delta_db)
             except ValueError as e:
                 raise HTTPException(status_code=404, detail=str(e))
 
-            # Get applied/offline client lists
             applied_to = []
             offline_clients = []
 

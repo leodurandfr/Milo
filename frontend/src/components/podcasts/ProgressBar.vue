@@ -28,7 +28,6 @@ const props = defineProps({
 
 const emit = defineEmits(['seek'])
 
-// Computed to guarantee a valid numeric value
 const progressPercent = computed(() => {
   const val = parseFloat(props.progressPercentage)
   return isNaN(val) ? 0 : Math.min(100, Math.max(0, val))

@@ -150,7 +150,6 @@ class CdDataService:
         Falls back to generic track names if MusicBrainz is unavailable
         or the disc is unknown.
         """
-        # Check cache first
         cached = self._cache.get(disc_id)
         if cached:
             logger.info(f"Cache hit for disc {disc_id}")
@@ -176,7 +175,6 @@ class CdDataService:
             if release_mbid:
                 has_cover = await self._download_cover(disc_id, release_mbid, release_group_mbid)
 
-            # Cache the result
             cache_entry = {
                 "album": album,
                 "artist": artist,
@@ -267,7 +265,6 @@ class CdDataService:
         release_mbid = release.get("id", "")
         release_group_mbid = release.get("release-group", {}).get("id", "")
 
-        # Artist
         artist_credit = release.get("artist-credit", [])
         if artist_credit:
             artist = artist_credit[0].get("artist", {}).get("name", "Unknown Artist")

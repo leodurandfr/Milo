@@ -1,5 +1,5 @@
 <!-- frontend/src/components/equalizer/LevelMeters.vue -->
-<!-- Stereo input/output level meters with real-time monitoring -->
+<!-- Stereo output level meters with real-time monitoring -->
 <template>
   <SettingsSection :title="t('equalizer.meters.title')">
     <!-- Output meters -->

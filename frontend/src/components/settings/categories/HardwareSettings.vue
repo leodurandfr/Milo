@@ -161,11 +161,9 @@ const config = ref({
 // Saved config (for dirty check)
 const savedConfig = ref(null);
 
-// Dropdown options from the registry
 const audioCardOptions = ref([]);
 const screenOptions = ref([]);
 
-// UI state
 const confirmReboot = ref(false);
 const isApplying = ref(false);
 const isRebooting = ref(false);
@@ -206,7 +204,6 @@ function toggleScreen(enabled) {
   }
 }
 
-// Rotary encoder: toggle ON/OFF
 function toggleRotary(enabled) {
   config.value.rotary_enabled = enabled;
   confirmReboot.value = false;

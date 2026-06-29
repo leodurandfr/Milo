@@ -3,7 +3,6 @@
   <button type="button" v-press="action !== 'toggle' && action !== 'radio'"
     :class="['list-item-button', `list-item-button--${variant}`, { 'action-pressed': actionPressed }]"
     :disabled="disabled" @click="handleClick" @pointerdown="handlePointerDown">
-    <!-- Icon on the left -->
     <div v-if="$slots.icon" class="list-item-button__icon" :class="`list-item-button__icon--${iconVariant}`">
       <slot name="icon"></slot>
     </div>
@@ -18,7 +17,6 @@
       </slot>
     </div>
 
-    <!-- Right-side action -->
     <div v-if="action !== 'none'" class="list-item-button__action">
       <SvgIcon v-if="action === 'caret'" name="caretRight" :size="24" class="caret-icon" />
       <Toggle v-else-if="action === 'toggle'" :model-value="modelValue" size="compact" :variant="toggleVariant"

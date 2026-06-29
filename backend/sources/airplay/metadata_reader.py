@@ -42,7 +42,6 @@ from backend.shared.decorators import handle_errors
 
 logger = logging.getLogger("source.airplay.metadata")
 
-# Hex-decode helper: converts hex string to ASCII
 def _hex_to_str(hex_str: str) -> str:
     try:
         return bytes.fromhex(hex_str).decode("ascii")

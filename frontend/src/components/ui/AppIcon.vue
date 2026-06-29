@@ -17,7 +17,6 @@ let instanceCounter = 0;
 import { computed } from 'vue';
 import { logger } from '@/services/logger';
 
-// Generate a unique ID for this component instance
 const instanceId = ++instanceCounter;
 
 const props = defineProps({
@@ -116,7 +115,6 @@ const iconStyle = computed(() => {
 });
 
 const svgContent = computed(() => {
-  // Use the mapping to find the correct SVG file
   const iconFileName = iconMapping[props.name] || props.name;
   const icon = appIconsOriginal[iconFileName];
 
@@ -125,7 +123,7 @@ const svgContent = computed(() => {
     return '';
   }
 
-  // Apply prepareSvg with a unique prefix for this instance
+  // Per-instance id prefix so duplicate icons don't collide via url(#id) in the DOM
   return prepareSvg(icon, `${iconFileName}-${instanceId}`);
 });
 </script>

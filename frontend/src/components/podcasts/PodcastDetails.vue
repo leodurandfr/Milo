@@ -78,7 +78,6 @@ const currentPage = ref(1)
 const loadingMore = ref(false)
 const allEpisodes = ref([])
 
-// Computed to check if more episodes available
 const hasMoreEpisodes = computed(() => {
   if (!podcast.value) return false
   return allEpisodes.value.length < podcast.value.total_episodes

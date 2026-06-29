@@ -181,7 +181,6 @@ def extract_valid_genre(tags: str) -> str:
     if not tags:
         return ''
 
-    # Split by comma and check each tag
     tag_list = [tag.strip() for tag in tags.split(',') if tag.strip()]
 
     for tag in tag_list:

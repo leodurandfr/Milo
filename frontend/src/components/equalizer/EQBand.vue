@@ -2,10 +2,8 @@
 <!-- Individual EQ band control: band label and gain slider -->
 <template>
   <div class="eq-band" :class="{ 'horizontal': orientation === 'horizontal', 'compact': compact }">
-    <!-- Frequency label -->
     <div class="band-label text-mono-small">{{ displayName }}</div>
 
-    <!-- Gain slider (vertical or horizontal) -->
     <div class="gain-slider">
       <RangeSlider
         :model-value="gainValue"
@@ -22,7 +20,6 @@
       />
     </div>
 
-    <!-- Gain value display -->
     <div class="gain-value text-mono-small" :class="{ 'dragging': isDragging, 'positive': gainValue > 0, 'negative': gainValue < 0 }">
       {{ gainValue > 0 ? '+' : '' }}{{ gainValue.toFixed(1) }}
     </div>
@@ -47,13 +44,10 @@ const emit = defineEmits(['update:gain', 'change']);
 
 const isDragging = ref(false);
 
-// Local values that sync with props
 const gainValue = computed(() => props.gain);
 
-// Slider orientation based on overall orientation
 const sliderOrientation = computed(() => props.orientation === 'horizontal' ? 'horizontal' : 'vertical');
 
-// === GAIN HANDLERS ===
 function handleGainInput(value) {
   emit('update:gain', value);
 }

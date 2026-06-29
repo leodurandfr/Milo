@@ -1,9 +1,7 @@
 <template>
   <div class="skeleton-episode-details">
-    <!-- Episode Card skeleton -->
     <SkeletonEpisodeCard />
 
-    <!-- Description block skeleton -->
     <div class="skeleton-description-block">
       <div class="skeleton-text-line shimmer skeleton-section-title"></div>
       <div class="skeleton-text-line shimmer skeleton-description-line-1"></div>

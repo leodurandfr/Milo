@@ -43,7 +43,6 @@ export const useMultiroomStore = defineStore('multiroom', () => {
   const configuringTimeouts = {};
   const CONFIGURING_TIMEOUT_MS = 120000; // 2 minutes
 
-  // Loading state
   const isLoading = ref(false);
   const isInitialized = ref(false);
 

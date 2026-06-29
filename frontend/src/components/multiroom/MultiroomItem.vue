@@ -330,7 +330,6 @@ const displayVolume = computed(() => {
 });
 
 // === HELPERS ===
-// Get speaker icon name based on type
 function getSpeakerIcon(speakerType) {
   const iconMap = {
     satellite: 'speakerSatellite',
@@ -423,7 +422,6 @@ function handleMuteToggle(enabled) {
 function handleClientVolumeInput(clientMacId, value) {
   // Update local display volume for smooth UI
   clientLocalVolumes.value[clientMacId] = value;
-  // Use throttled function from composable
   getClientThrottledFn(clientMacId)(value);
 }
 

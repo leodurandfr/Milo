@@ -39,7 +39,6 @@ class EqualizerRouter:
         self._volume_service = volume_service
 
     def _get_client(self, mac_id: str):
-        """Get client from registry."""
         return self._registry.get_client(mac_id) if self._registry else None
 
     def _is_local(self, client) -> bool:

@@ -1,4 +1,3 @@
-<!-- frontend/src/components/setup/WelcomeStep.vue -->
 <template>
   <div class="welcome-step">
     <AppIcon name="milo" size="large" class="welcome-step__icon" />

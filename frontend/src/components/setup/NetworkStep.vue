@@ -1,7 +1,6 @@
 <!-- frontend/src/components/setup/NetworkStep.vue -->
 <template>
   <div class="wifi-step">
-    <!-- Connection status card -->
     <div class="connection-section">
       <template v-if="loading">
         <!-- Skeleton rows -->
