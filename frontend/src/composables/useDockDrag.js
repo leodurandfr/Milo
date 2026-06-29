@@ -126,7 +126,6 @@ export function useDockDrag({
         e.preventDefault();
         onCloseAdditionalApps();
         isDraggingAdditional = false;
-        additionalDragMoved = false;
       }
       return;
     }
@@ -178,7 +177,6 @@ export function useDockDrag({
   const onDragEnd = () => {
     if (isDraggingAdditional) {
       isDraggingAdditional = false;
-      additionalDragMoved = false;
       return;
     }
 
