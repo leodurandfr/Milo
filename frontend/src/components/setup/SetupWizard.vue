@@ -114,7 +114,6 @@ const totalIndicatorSteps = computed(() => TOTAL_STEPS - 1);
 
 const isSummaryStep = computed(() => currentStep.value === 5);
 
-// Step titles from i18n
 const stepTitles = {
   1: 'setup.language.title',
   2: 'setup.wifi.title',

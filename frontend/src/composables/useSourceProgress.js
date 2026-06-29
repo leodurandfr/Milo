@@ -12,7 +12,6 @@ export function useSourceProgress(source) {
   let intervalId = null;
   let isApiSyncing = false;
 
-  // Computed properties
   const duration = computed(() => unifiedStore.systemState.metadata?.duration || 0);
   const currentPosition = computed(() => localPosition.value ?? 0);
   const isPositionInitialized = computed(() => localPosition.value !== null);

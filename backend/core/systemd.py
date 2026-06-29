@@ -144,7 +144,6 @@ class SystemdServiceManager:
         try:
             self.logger.info(f"{action.capitalize()} service {service}")
 
-            # Use sudo for necessary permissions
             proc = await asyncio.create_subprocess_exec(
                 "sudo", "systemctl", action, service,
                 stdout=asyncio.subprocess.DEVNULL,

@@ -2,8 +2,6 @@
     <div class="subscriptions-view">
       <!-- My podcasts -->
       <section class="section">
-        <!-- <h2 class="section-title heading-2">{{ t('podcasts.myPodcasts') }}</h2> -->
-
         <MessageContent v-if="loading" loading :title="t('podcasts.loading')" />
 
         <MessageContent
@@ -47,7 +45,6 @@ const { t } = useI18n()
 const emit = defineEmits(['select-podcast', 'select-episode', 'play-episode'])
 const podcastStore = usePodcastStore()
 
-// Use store's cached data directly via computed
 const subscriptions = computed(() => podcastStore.subscriptions)
 const latestEpisodes = computed(() => podcastStore.latestSubscriptionEpisodes)
 

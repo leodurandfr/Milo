@@ -26,7 +26,7 @@ export const usePodcastStore = defineStore('podcast', () => {
   const subscriptions = ref(new Map()); // Map<uuid, subscription>
   const latestSubscriptionEpisodes = ref([]);
 
-  // Computed array for iteration (sorted by name)
+  // Sorted array for rendering (the Map above stays the source of truth)
   const subscriptionsList = computed(() => {
     return Array.from(subscriptions.value.values()).sort((a, b) =>
       (a.name || '').localeCompare(b.name || '')
@@ -289,7 +289,6 @@ export const usePodcastStore = defineStore('podcast', () => {
 
   // === SUBSCRIPTIONS ACTIONS ===
 
-  // Helper to convert array to Map
   function arrayToSubscriptionsMap(arr) {
     const map = new Map();
     for (const sub of arr) {
@@ -390,7 +389,7 @@ export const usePodcastStore = defineStore('podcast', () => {
   }
 
   function removeSubscription(uuid) {
-    subscriptions.value.delete(uuid); // O(1) removal
+    subscriptions.value.delete(uuid);
     // Also remove episodes from this podcast in latestSubscriptionEpisodes
     latestSubscriptionEpisodes.value = latestSubscriptionEpisodes.value.filter(
       (ep) => ep.podcast?.uuid !== uuid

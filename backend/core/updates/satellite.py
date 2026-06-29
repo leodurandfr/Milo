@@ -53,7 +53,6 @@ class SatelliteUpdateService:
         if not candidates:
             return []
 
-        # Probe all candidates in parallel
         tasks = [self._check_satellite_api(client.ip) for _mac_id, client in candidates]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 

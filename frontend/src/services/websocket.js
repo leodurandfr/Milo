@@ -231,7 +231,6 @@ class WebSocketSingleton {
   }
 
   startPingCheck() {
-    // Check the connection every 60 seconds
     if (this.pingCheckInterval) {
       clearInterval(this.pingCheckInterval);
     }
@@ -306,7 +305,7 @@ class WebSocketSingleton {
       return;
     }
 
-    // Detect pings
+    // Keepalive ping: refresh liveness timestamp and skip handler dispatch
     if (message.category === 'system' && message.type === 'ping') {
       this.lastPingTime = Date.now();
       return;

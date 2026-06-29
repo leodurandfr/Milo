@@ -219,10 +219,8 @@ class LoudnessSettings:
 # Speaker types for crossover configuration
 SpeakerType = Literal['satellite', 'bookshelf', 'tower', 'subwoofer']
 
-# Valid speaker types list
 SPEAKER_TYPES = ['satellite', 'bookshelf', 'tower', 'subwoofer']
 
-# Default values
 DEFAULT_SPEAKER_TYPE: SpeakerType = 'bookshelf'
 
 # Zone constants (validation happens in API layer Pydantic models)

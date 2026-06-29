@@ -1,4 +1,3 @@
-<!-- frontend/src/components/setup/StepIndicator.vue -->
 <template>
   <div class="step-indicator">
     <span

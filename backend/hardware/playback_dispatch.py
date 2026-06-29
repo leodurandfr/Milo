@@ -1,4 +1,3 @@
-# backend/hardware/playback_dispatch.py
 """
 Centralized playback dispatch for hardware controllers.
 

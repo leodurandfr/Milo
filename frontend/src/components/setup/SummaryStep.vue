@@ -6,7 +6,6 @@
       {{ t('setup.summary.accessHint', { ssid: wifiSsid }) }}
     </div>
 
-    <!-- Network -->
     <div class="summary-item">
       <span class="text-mono summary-item__label">{{ t('setup.summary.network') }}</span>
       <div class="summary-item__card">
@@ -14,7 +13,6 @@
       </div>
     </div>
 
-    <!-- Language -->
     <div class="summary-item">
       <span class="text-mono summary-item__label">{{ t('setup.summary.language') }}</span>
       <div class="summary-item__card">
@@ -23,7 +21,6 @@
       </div>
     </div>
 
-    <!-- Audio card -->
     <div class="summary-item">
       <span class="text-mono summary-item__label">{{ t('setup.summary.audioCard') }}</span>
       <div class="summary-item__card">
@@ -34,7 +31,6 @@
       </div>
     </div>
 
-    <!-- Screen -->
     <div class="summary-item">
       <span class="text-mono summary-item__label">{{ t('setup.summary.screen') }}</span>
       <div class="summary-item__card">

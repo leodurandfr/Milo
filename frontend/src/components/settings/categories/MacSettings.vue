@@ -13,7 +13,6 @@
         />
       </SettingItem>
 
-      <!-- Latency Profile ButtonGroup -->
       <SettingItem :label="t('macSettings.latencyProfile')">
         <ButtonGroup
           :model-value="config.latency_profile"
@@ -23,7 +22,6 @@
         />
       </SettingItem>
 
-      <!-- Frame Length ButtonGroup -->
       <SettingItem :label="t('macSettings.frameLength')">
         <ButtonGroup
           :model-value="config.frame_length_ms"
@@ -79,14 +77,12 @@ const originalConfig = ref({
 
 const isApplying = ref(false);
 
-// Profile options for ButtonGroup
 const profileOptions = computed(() => [
   { label: t('macSettings.profiles.responsive'), value: 'responsive' },
   { label: t('macSettings.profiles.gradual'), value: 'gradual' },
   { label: t('macSettings.profiles.intact'), value: 'intact' }
 ]);
 
-// Frame length options for ButtonGroup
 const frameLengthOptions = [
   { label: '2ms', value: 2 },
   { label: '4ms', value: 4 },
@@ -96,7 +92,6 @@ const frameLengthOptions = [
   { label: '12ms', value: 12 }
 ];
 
-// Check if config has changed from original
 const hasChanges = computed(() => {
   return (
     config.value.target_latency_ms !== originalConfig.value.target_latency_ms ||
@@ -105,7 +100,6 @@ const hasChanges = computed(() => {
   );
 });
 
-// Sync local refs with the store
 function syncFromStore() {
   const s = settingsStore.macRocSettings;
   config.value = {
@@ -116,12 +110,10 @@ function syncFromStore() {
   originalConfig.value = { ...config.value };
 }
 
-// Handle profile change
 function handleProfileChange(value) {
   config.value.latency_profile = value;
 }
 
-// Handle frame length change
 function handleFrameLengthChange(value) {
   config.value.frame_length_ms = value;
 }

@@ -61,7 +61,6 @@ def create_settings_router(
             if not validator(payload):
                 raise HTTPException(status_code=400, detail="Invalid payload")
 
-            # Call the setter and await it if it's async
             setter_result = setter()
             if asyncio.iscoroutine(setter_result):
                 success = await setter_result
@@ -271,11 +270,9 @@ def create_settings_router(
             enabled_apps = payload.enabled_apps
             # Validation done by Pydantic
 
-            # Load previous config
             old_settings = await settings.load_settings()
             old_enabled_apps = old_settings.get("dock", {}).get("enabled_apps", [])
 
-            # Detect changes
             disabled_apps = set(old_enabled_apps) - set(enabled_apps)
             enabled_apps_new = set(enabled_apps) - set(old_enabled_apps)
 
@@ -373,14 +370,12 @@ def create_settings_router(
                         logger.info(f"Enabling equalizer effects for active source: {active_source.value if active_source else 'none'}")
                         await routing_service.set_equalizer_effects_enabled(True)
 
-                # All operations succeeded → save settings
                 operations_log.append("Saving new settings")
                 logger.info("All operations successful, saving settings")
                 success = await settings.set_setting("dock.enabled_apps", enabled_apps)
                 if not success:
                     raise ValueError("Failed to save settings")
 
-                # WebSocket broadcast
                 await state_machine.broadcast_event("settings", "dock_apps_changed", {
                     "source": "settings",
                     "config": {"enabled_apps": enabled_apps},
@@ -474,7 +469,6 @@ def create_settings_router(
             taddy_api = TaddyAPI(user_id=user_id, api_key=api_key)
 
             try:
-                # Use get_api_requests_remaining() to validate credentials
                 # Returns the number of remaining requests, or -1 if error
                 remaining = await taddy_api.get_api_requests_remaining()
 
@@ -518,7 +512,6 @@ def create_settings_router(
             if not user_id or not api_key:
                 return {"status": "missing"}
 
-            # Test credentials
             taddy_api = TaddyAPI(user_id=user_id, api_key=api_key)
             try:
                 remaining = await taddy_api.get_api_requests_remaining()
@@ -894,7 +887,6 @@ def create_settings_router(
             card = AUDIO_CARDS[payload.audio.id]
             screen = SCREENS[payload.screen.type]
 
-            # Build the full config to write to hardware.json
             from backend.hardware.registry import is_dac_card
             audio_config = {"id": payload.audio.id}
             if card["overlay"]:
@@ -956,7 +948,6 @@ def create_settings_router(
             latency_profile = payload.latency_profile
             frame_length_ms = payload.frame_length_ms
 
-            # Save settings to settings.json
             mac_config = {
                 'target_latency_ms': target_latency_ms,
                 'latency_profile': latency_profile,
@@ -966,15 +957,12 @@ def create_settings_router(
             if not success:
                 raise HTTPException(status_code=500, detail="Failed to save Mac ROC settings")
 
-            # Regenerate mac.env from the just-saved config
             MacEnv.regenerate(mac_config)
 
-            # Restart milo-mac.service to apply changes
             restart_success = await systemd_manager.restart("milo-mac.service")
             if not restart_success:
                 logger.warning("Failed to restart milo-mac.service, settings saved but not applied")
 
-            # Broadcast settings change via WebSocket
             await state_machine.broadcast_event("settings", "mac_roc_changed", {
                 "source": "settings",
                 "config": mac_config,

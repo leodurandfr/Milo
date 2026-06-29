@@ -20,7 +20,6 @@ let instanceCounter = 0;
 import { computed } from 'vue'
 import { logger } from '@/services/logger'
 
-// Generate a unique ID for this component instance
 const instanceId = ++instanceCounter;
 
 import playIcon from '@/assets/icons/play.svg?raw'

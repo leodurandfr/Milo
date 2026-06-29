@@ -18,7 +18,6 @@
         <div v-else-if="fallbackSvg" v-html="fallbackSvg" class="player-artwork" :aria-label="title" />
         <img v-else :src="placeholderArtwork" :alt="title" class="player-artwork placeholder" />
 
-        <!-- Info section with slot for flexible content -->
         <div class="player-info">
           <slot name="info">
             <p :class="['player-title', source === 'radio' ? 'heading-1' : 'heading-4']">{{ title }}</p>
@@ -29,7 +28,6 @@
         </div>
 
 
-        <!-- Controls section with slot for flexible controls -->
         <div class="controls">
           <slot name="controls">
             <!-- Default: Simple play/pause -->
@@ -149,7 +147,6 @@ function handleArtworkLoad(e) {
   }
 }
 
-// Computed classes for styling based on source
 const playerClasses = computed(() => ({
   [`source-${props.source}`]: true
 }))
@@ -239,7 +236,6 @@ const playerClasses = computed(() => ({
   overflow-y: auto;
 }
 
-/* Artwork image */
 .player-artwork {
   width: 100%;
   aspect-ratio: 1;
@@ -272,7 +268,6 @@ const playerClasses = computed(() => ({
   object-fit: cover;
 }
 
-/* Player info section */
 .player-info {
   display: flex;
   justify-content: center;
@@ -306,7 +301,6 @@ const playerClasses = computed(() => ({
 
 
 
-/* Controls section */
 .controls {
   display: flex;
   justify-content: center;

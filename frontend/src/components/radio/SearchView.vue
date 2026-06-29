@@ -172,7 +172,6 @@ const emit = defineEmits(['search', 'retry', 'play-station'])
 // Minimum characters required for text search
 const MIN_SEARCH_CHARS = 3
 
-// State for showing minimum characters message
 const showMinCharMessage = ref(false)
 
 // Check if any filter (country or genre) is active
@@ -234,13 +233,10 @@ const genreFilter = computed({
   set: (value) => { radioStore.genreFilter = value }
 })
 
-// Search results from store
 const searchResults = computed(() => radioStore.displayedStations || [])
 
-// Has more stations to load
 const hasMoreStations = computed(() => radioStore.hasMoreStations)
 
-// Infinite scroll
 const { sentinelRef: scrollSentinel } = useInfiniteScroll({
   onLoadMore: () => radioStore.loadMore(),
   canLoadMore: hasMoreStations,

@@ -254,7 +254,6 @@ class SettingsService:
         # Equalizer (saved_bands) - Preserve equalizer section without strict validation
         equalizer_input = settings.get('equalizer', {})
         if equalizer_input:
-            # Preserve equalizer section as-is (no strict validation)
             validated['equalizer'] = equalizer_input
 
         # Audio (auto-stop on pause)
@@ -284,7 +283,6 @@ class SettingsService:
         # Multiroom (client_types for crossover) - Preserve multiroom section without strict validation
         multiroom_input = settings.get('multiroom', {})
         if multiroom_input:
-            # Preserve multiroom section as-is (no strict validation)
             validated['multiroom'] = multiroom_input
 
         # Hardware (optional hardware feature settings)

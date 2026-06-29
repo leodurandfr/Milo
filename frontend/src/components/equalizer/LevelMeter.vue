@@ -6,14 +6,12 @@
 
     <div class="meter-container">
       <div class="meter-track">
-        <!-- Level bar -->
         <div
           class="meter-bar"
           :class="{ warning: level > -6, danger: level > -3 }"
           :style="{ [orientation === 'vertical' ? 'height' : 'width']: levelPercent + '%' }"
         ></div>
 
-        <!-- Peak hold indicator -->
         <div
           v-if="showPeak"
           class="peak-indicator"
@@ -33,7 +31,6 @@
       </div>
     </div>
 
-    <!-- Value display -->
     <div v-if="showValue" class="meter-value text-mono">
       {{ level.toFixed(1) }} dB
     </div>
@@ -116,7 +113,6 @@ watch(() => props.level, (newLevel) => {
   if (newLevel > peakLevel.value) {
     peakLevel.value = newLevel;
 
-    // Clear existing timers
     if (peakHoldTimer) timer.clear(peakHoldTimer);
     if (decayInterval) timer.clear(decayInterval);
 

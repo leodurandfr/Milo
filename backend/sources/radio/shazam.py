@@ -105,7 +105,6 @@ class ShazamRecognitionService:
         self._running = True
         self._current_track = None
 
-        # Start recognition loop
         self._loop_task = asyncio.create_task(self._recognition_loop())
 
         logger.info(f"Shazam recognition started for stream: {stream_url}")
@@ -114,7 +113,6 @@ class ShazamRecognitionService:
         """Stop the recognition loop and clear state."""
         self._running = False
 
-        # Cancel recognition loop
         if self._loop_task:
             self._loop_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -182,7 +180,6 @@ class ShazamRecognitionService:
                         await self._on_track_changed(None)
                 return False
 
-            # Capture audio from stream
             audio_bytes = await self._capture_audio(self._stream_url)
             if not audio_bytes:
                 logger.info("No audio captured, skipping recognition")
@@ -190,7 +187,6 @@ class ShazamRecognitionService:
 
             logger.debug(f"Captured {len(audio_bytes)} bytes for recognition")
 
-            # Recognize
             result = await asyncio.wait_for(
                 self._shazam.recognize(audio_bytes),
                 timeout=RECOGNITION_TIMEOUT_SECONDS
@@ -203,7 +199,6 @@ class ShazamRecognitionService:
             else:
                 logger.info("No track recognized")
 
-            # Check if track changed and notify
             if self._track_changed(track):
                 self._current_track = track
                 if self._on_track_changed:

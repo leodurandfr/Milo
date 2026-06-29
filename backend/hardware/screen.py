@@ -21,7 +21,6 @@ class ScreenController:
         self.logger = logging.getLogger(__name__)
         self._bg = BackgroundTaskSet(self.logger, "screen")
 
-        # Screen type detection
         self.screen_type = hardware_service.get_screen_type()
         self.logger.info(f"Screen type detected: {self.screen_type}")
 
@@ -37,7 +36,6 @@ class ScreenController:
         # Dynamic commands (generated based on screen type)
         self._update_screen_commands()
 
-        # State
         self.last_activity_time = monotonic()
         self.boot_time = None  # Will be set during initialize()
         self.boot_grace_period = 30  # Will be calculated as max(30, timeout_seconds) during initialize()
@@ -156,7 +154,7 @@ class ScreenController:
         self.boot_grace_period = max(30, self.timeout_seconds if self.timeout_seconds != 0 else 30)
 
         await self._screen_cmd(self.screen_on_cmd)
-        self.boot_time = monotonic()  # Record boot time
+        self.boot_time = monotonic()
         self.last_activity_time = monotonic()
         self.running = True
 

@@ -494,7 +494,6 @@ class RadioBrowserAPI:
             "hidebroken": "true"  # Hide non-functional stations
         }
 
-        # Add active filters
         if query:
             # Use ONLY name for query (substring matching by default)
             # Do NOT put in tag also → avoids overly restrictive AND logic
@@ -581,7 +580,6 @@ class RadioBrowserAPI:
         Returns:
             Dict with stations and total: {stations: [...], total: int}
         """
-        # Log the search
         filters_desc = []
         if query:
             filters_desc.append(f"query='{query}'")
@@ -599,10 +597,8 @@ class RadioBrowserAPI:
                 self.logger.debug("No filters, loading top 500 stations")
                 all_stations = await self._fetch_top_stations(limit=500)
             else:
-                # Build search parameters
                 search_params = self._build_search_params(query, country, genre)
 
-                # Unified API call
                 all_stations = await self._fetch_with_search_params(search_params, search_desc)
         except NetworkUnavailableError:
             self.logger.info("Network unavailable for station search")
@@ -642,7 +638,6 @@ class RadioBrowserAPI:
                 if matches:
                     filtered_custom.append(station)
 
-            # Append custom stations at end
             if filtered_custom:
                 all_stations = all_stations + filtered_custom
                 self.logger.info(f"Added {len(filtered_custom)} manually-added custom station(s)")
@@ -650,7 +645,6 @@ class RadioBrowserAPI:
         # Total before limit
         total = len(all_stations)
 
-        # Limit results
         limited_results = all_stations[:limit]
 
         self.logger.info(f"Final: {total} stations (returning {len(limited_results)})")
@@ -670,13 +664,11 @@ class RadioBrowserAPI:
         Returns:
             Station or None if not found
         """
-        # First check if custom station
         if station_id.startswith("custom_") and self.station_manager:
             custom_station = self.station_manager.get_custom_station_by_id(station_id)
             if custom_station:
                 return custom_station
 
-        # Get directly from API
         station = await self.fetch_remote_station(station_id)
 
         return station
@@ -703,16 +695,13 @@ class RadioBrowserAPI:
         custom_ids = [sid for sid in station_ids if sid.startswith("custom_")]
         regular_ids = [sid for sid in station_ids if not sid.startswith("custom_")]
 
-        # Get custom stations
         if custom_ids and self.station_manager:
             for station_id in custom_ids:
                 custom_station = self.station_manager.get_custom_station_by_id(station_id)
                 if custom_station:
                     stations.append(custom_station)
 
-        # Get regular stations
         for station_id in regular_ids:
-            # Fetch from API
             station = await self.fetch_remote_station(station_id)
 
             if station:

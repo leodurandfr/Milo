@@ -142,7 +142,6 @@ const { screenResolution } = useHardwareConfig();
 const keyboardRef = ref(null);
 const displayInput = ref(null);
 
-// Computed bindings from composable
 const isKeyboardVisible = computed(() => keyboardState.isVisible.value);
 const keyboardValue = computed({
   get: () => keyboardState.currentValue.value,
@@ -753,8 +752,6 @@ onUnmounted(() => {
 .key-dismiss:active {
   background: var(--color-background-contrast-80);
 }
-
-/* Backspace */
 
 /* Caps Lock / #+= / 123 */
 .key-caps {

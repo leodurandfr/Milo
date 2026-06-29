@@ -18,7 +18,6 @@ class VersionService:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
 
-        # Get GitHub token from environment (optional)
         self.github_token = os.environ.get('GITHUB_TOKEN')
         if self.github_token:
             self.logger.debug("GitHub token detected - using authenticated API (5000 req/hour)")
@@ -116,7 +115,6 @@ class VersionService:
             "errors": []
         }
 
-        # Try to retrieve versions for each command
         has_git_path = "git_path" in program_config
         for cmd_name, cmd_args in program_config["commands"].items():
             try:
@@ -193,7 +191,6 @@ class VersionService:
 
         repo = self.programs[program_key]["repo"]
 
-        # Check cache
         current_time = time.time()
         cache_key = f"github_{program_key}"
 
@@ -213,7 +210,6 @@ class VersionService:
                         data = await response.json()
                         tag_name = data.get("tag_name", "")
 
-                        # Extract version number
                         version_regex = self.programs[program_key]["version_regex"]
                         match = re.search(version_regex, tag_name)
 
@@ -248,7 +244,6 @@ class VersionService:
                             result["html_url"] = f"https://github.com/{repo}/releases/tag/v{max_version}"
                             result["published_at"] = None
 
-                        # Cache result
                         self._github_cache[cache_key] = result
                         self._last_github_fetch[cache_key] = current_time
 
@@ -305,7 +300,6 @@ class VersionService:
                 installed_task, github_task, return_exceptions=True
             )
 
-            # Handle exceptions
             if isinstance(installed_result, Exception):
                 installed_result = {"status": "error", "message": str(installed_result)}
 
@@ -319,7 +313,6 @@ class VersionService:
                 if canonical_version:
                     installed_result["versions"] = {"main": canonical_version}
 
-            # Combine results
             result = {
                 "name": self.programs[program_key]["name"],
                 "description": self.programs[program_key]["description"],

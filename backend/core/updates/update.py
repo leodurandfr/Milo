@@ -77,7 +77,6 @@ class UpdateService(VersionService):
             if progress_callback:
                 await progress_callback("Initializing update...", 0)
 
-            # Dispatch to specific method
             if program_key == "milo":
                 return await self._update_milo_app(status, progress_callback)
             elif program_key == "go-librespot":
@@ -185,7 +184,6 @@ class UpdateService(VersionService):
             if progress_callback:
                 await progress_callback("updates.progress.checkingRepository", 5)
 
-            # 1. Check that the directory is a git repository
             git_dir = Path(config["git_path"]) / ".git"
             if not git_dir.exists():
                 return {"success": False, "error": "Not a git repository"}
@@ -197,7 +195,6 @@ class UpdateService(VersionService):
             if progress_callback:
                 await progress_callback("updates.progress.fetchingUpdates", 10)
 
-            # 3. Do a git fetch to retrieve the latest information
             proc = await asyncio.create_subprocess_exec(
                 "git", "-C", config["git_path"], "fetch", "origin", config["git_branch"],
                 stdout=asyncio.subprocess.PIPE,
@@ -230,7 +227,6 @@ class UpdateService(VersionService):
             if progress_callback:
                 await progress_callback("updates.progress.pullingChanges", 20)
 
-            # 5. Do the git pull
             proc = await asyncio.create_subprocess_exec(
                 "git", "-C", config["git_path"], "pull", "origin", config["git_branch"],
                 stdout=asyncio.subprocess.PIPE,
@@ -250,7 +246,6 @@ class UpdateService(VersionService):
             if progress_callback:
                 await progress_callback("updates.progress.installingFrontendDeps", 30)
 
-            # 6. Install frontend npm dependencies
             frontend_dir = Path(config["git_path"]) / "frontend"
             if frontend_dir.exists():
                 proc = await asyncio.create_subprocess_exec(
@@ -273,7 +268,6 @@ class UpdateService(VersionService):
             if progress_callback:
                 await progress_callback("updates.progress.buildingFrontend", 45)
 
-            # 7. Build the frontend
             if frontend_dir.exists():
                 proc = await asyncio.create_subprocess_exec(
                     "npm", "run", "build",
@@ -398,7 +392,6 @@ class UpdateService(VersionService):
         config = self.update_config["go-librespot"]
         latest_version = status["latest"]["version"]
 
-        # Track if service was active before update
         service_was_active = await self._is_service_active(config["service_name"])
         self.update_logger.info(f"Service {config['service_name']} was {'active' if service_was_active else 'inactive'} before update")
 
@@ -431,7 +424,6 @@ class UpdateService(VersionService):
             if progress_callback:
                 await progress_callback("updates.progress.installingVersion", 70)
 
-            # 4. Replace the binary
             install_result = await self._install_go_librespot_binary(download_result["binary_path"])
             if not install_result["success"]:
                 # Rollback
@@ -462,7 +454,6 @@ class UpdateService(VersionService):
             if progress_callback:
                 await progress_callback("updates.progress.completed", 100)
 
-            # 7. Clean up temporary files
             await self._cleanup_temp_files(download_result.get("temp_dir"))
 
             return {
@@ -897,7 +888,6 @@ class UpdateService(VersionService):
     async def _verify_shairport_sync_update(self, config: Dict[str, Any], service_was_active: bool) -> Dict[str, Any]:
         """Verifies that shairport-sync was updated successfully"""
         try:
-            # Check binary exists
             binary_path = Path(config["binary_path"])
             if not binary_path.exists():
                 return {"success": False, "error": "shairport-sync binary not found after update"}
@@ -962,7 +952,6 @@ class UpdateService(VersionService):
             if progress_callback:
                 await progress_callback("updates.progress.creatingBackup", 10)
 
-            # 1. Backup binary
             backup_result = await self._backup_camilladsp(config)
             if not backup_result["success"]:
                 return backup_result
@@ -970,7 +959,6 @@ class UpdateService(VersionService):
             if progress_callback:
                 await progress_callback("updates.progress.downloadingCamillaDSP", 20)
 
-            # 2. Download new version
             download_result = await self._download_camilladsp(latest_version)
             if not download_result["success"]:
                 return download_result
@@ -986,7 +974,6 @@ class UpdateService(VersionService):
             if progress_callback:
                 await progress_callback("updates.progress.installingVersion", 70)
 
-            # 4. Install new binary
             success, output = await self._run_deploy(
                 "install-binary", download_result["binary_path"], config["binary_path"]
             )
@@ -998,7 +985,6 @@ class UpdateService(VersionService):
             if progress_callback:
                 await progress_callback("updates.progress.startingService", 90)
 
-            # 5. Restart service
             start_result = await self._start_service(config["service_name"])
             if not start_result:
                 await self._cleanup_temp_files(download_result.get("temp_dir"))
@@ -1008,7 +994,6 @@ class UpdateService(VersionService):
             if progress_callback:
                 await progress_callback("updates.progress.verifyingUpdate", 95)
 
-            # 6. Verify update
             verify_result = await self._verify_camilladsp_update(config)
             if not verify_result["success"]:
                 await self._cleanup_temp_files(download_result.get("temp_dir"))
@@ -1018,7 +1003,6 @@ class UpdateService(VersionService):
             if progress_callback:
                 await progress_callback("updates.progress.completed", 100)
 
-            # 7. Cleanup
             await self._cleanup_temp_files(download_result.get("temp_dir"))
 
             return {
@@ -1148,7 +1132,6 @@ class UpdateService(VersionService):
             backup_dir = Path(config["backup_path"])
             backup_dir.mkdir(parents=True, exist_ok=True)
 
-            # Backup the binary
             binary_backup = backup_dir / "go-librespot.backup"
             shutil.copy2(config["binary_path"], binary_backup)
 
@@ -1166,13 +1149,10 @@ class UpdateService(VersionService):
     async def _download_go_librespot(self, version: str) -> Dict[str, Any]:
         """Downloads go-librespot from GitHub"""
         try:
-            # Create a temporary directory
             temp_dir = tempfile.mkdtemp(dir="/tmp")
 
-            # Download URL
             url = f"https://github.com/devgianlu/go-librespot/releases/download/v{version}/go-librespot_linux_arm64.tar.gz"
 
-            # Download
             timeout = aiohttp.ClientTimeout(total=300)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(url) as response:
@@ -1184,7 +1164,6 @@ class UpdateService(VersionService):
                         async for chunk in response.content.iter_chunked(8192):
                             await f.write(chunk)
 
-            # Extract the archive
             extract_dir = Path(temp_dir) / "extracted"
             extract_dir.mkdir()
 
@@ -1198,7 +1177,6 @@ class UpdateService(VersionService):
             if proc.returncode != 0:
                 return {"success": False, "error": "Failed to extract archive"}
 
-            # Find the binary
             binary_path = extract_dir / "go-librespot"
             if not binary_path.exists():
                 return {"success": False, "error": "Binary not found in archive"}
@@ -1239,7 +1217,6 @@ class UpdateService(VersionService):
     async def _download_snapcast_component(self, component_key: str, version: str) -> Dict[str, Any]:
         """Downloads a snapcast component (.deb) with auto Debian detection"""
         try:
-            # Detect Debian version
             debian_codename = await self._get_debian_codename()
 
             temp_dir = tempfile.mkdtemp(dir="/tmp")
@@ -1252,12 +1229,10 @@ class UpdateService(VersionService):
             else:
                 return {"success": False, "error": f"Unknown component: {component_key}"}
 
-            # Download URL
             url = f"https://github.com/badaix/snapcast/releases/download/v{version}/{package_name}"
 
             self.update_logger.info(f"Downloading {package_name} from GitHub (Debian {debian_codename})...")
 
-            # Download
             timeout = aiohttp.ClientTimeout(total=300)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(url) as response:
@@ -1317,12 +1292,10 @@ class UpdateService(VersionService):
     async def _verify_go_librespot_update(self, expected_version: str) -> Dict[str, Any]:
         """Verifies that go-librespot was updated by checking binary exists and service runs"""
         try:
-            # Check binary exists
             binary_path = Path("/usr/local/bin/go-librespot")
             if not binary_path.exists():
                 return {"success": False, "error": "go-librespot binary not found after update"}
 
-            # Check service is running
             proc = await asyncio.create_subprocess_exec(
                 "systemctl", "is-active", "milo-spotify.service",
                 stdout=asyncio.subprocess.PIPE,

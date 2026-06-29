@@ -10,7 +10,6 @@
 <script setup>
 import { computed } from 'vue'
 
-// Genre images
 import comedyImg from '@/assets/podcasts/genres/comedy.jpg'
 import societyCultureImg from '@/assets/podcasts/genres/society_and_culture.jpg'
 import newsImg from '@/assets/podcasts/genres/news.jpg'

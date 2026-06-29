@@ -110,7 +110,6 @@ function handleContainerClick() {
     // Open virtual keyboard (handles both new activation and switching from another field)
     openKeyboard();
   } else {
-    // Focus the native input
     inputRef.value?.focus();
   }
 }

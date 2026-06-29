@@ -1,9 +1,7 @@
 <template>
   <div class="skeleton-podcast-details">
-    <!-- Podcast Card skeleton (row variant) -->
     <SkeletonPodcastCard variant="row" />
 
-    <!-- Episodes section -->
     <div class="skeleton-episodes-section">
       <div class="skeleton-text-line shimmer skeleton-section-title"></div>
       <div class="skeleton-episodes-list">

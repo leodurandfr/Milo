@@ -52,7 +52,6 @@ export function useAnimatedHeight(contentRef, options = {}) {
         return;
       }
 
-      // Get content height
       let newHeight = entries[0].contentRect.height;
       const extra = getExtraHeight ? getExtraHeight() : 0;
       newHeight += extra;

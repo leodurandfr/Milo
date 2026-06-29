@@ -1,6 +1,5 @@
 <template>
   <div class="genre-view">
-    <!-- Top podcasts of the genre -->
     <section class="section">
       <MessageContent v-if="loading" loading :title="t('podcasts.loading')" />
       <MessageContent

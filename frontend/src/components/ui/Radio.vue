@@ -1,5 +1,4 @@
 <!-- frontend/src/components/ui/Radio.vue -->
-<!-- Radio button component for selection states -->
 <template>
   <button
     type="button"

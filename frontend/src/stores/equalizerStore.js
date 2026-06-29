@@ -28,7 +28,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   // === STATE ===
   const filters = ref([]);
   const builtinPresets = ref([]); // Array of { id, gains } objects
-  const customGains = ref([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]); // Saved custom EQ gains
+  const customGains = ref([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   const activePreset = ref('flat'); // Preset ID ('flat' default, 'custom' or builtin ID)
   const state = ref('disconnected'); // disconnected, inactive, running, paused
   const isUpdating = ref(false);
@@ -314,7 +314,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
    * @returns {Promise<object>} Response with new zone average
    */
   async function applyZoneDelta(zoneId, deltaDb) {
-    // Check multiroom enabled
     if (!audioStore.systemState.multiroom_enabled) {
       logger.warn('store', 'Skipping zone delta - multiroom disabled');
       return { status: 'error', message: 'Multiroom disabled' };
@@ -408,7 +407,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
   // === ACTIONS ===
   async function loadStatus() {
-    // Cancel previous request if it exists
     if (loadAbortController) {
       loadAbortController.abort();
     }
@@ -729,7 +727,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   async function selectTarget(targetId) {
     if (targetId === selectedTarget.value) return;
 
-    // Clear current state
     cleanup();
     selectedTarget.value = targetId;
 

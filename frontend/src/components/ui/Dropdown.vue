@@ -99,7 +99,6 @@ function calculateDropdownDirection() {
   const spaceRight = window.innerWidth - triggerRect.left;
   openLeftward.value = spaceRight < menuWidth && triggerRect.right > menuWidth;
 
-  // Set menu position to match trigger
   const left = openLeftward.value
     ? triggerRect.right - menuWidth
     : triggerRect.left;

@@ -45,7 +45,6 @@ const emit = defineEmits(['close']);
 
 const { t } = useI18n();
 
-// References to modal elements
 const modalContent = ref(null);
 const modalContainer = ref(null);
 const modalOverlay = ref(null);
@@ -72,7 +71,6 @@ const { containerHeight, resetFirstResize, requestHeightDelta } = useAnimatedHei
   }
 });
 
-// Animation state
 const isVisible = ref(false);
 const isAnimating = ref(false);
 
@@ -218,13 +216,11 @@ const timer = useTimer();
 let animationTimeouts = [];
 let inactivityTimer = null;
 
-// Utility to clear all timeouts
 function clearAllTimeouts() {
   animationTimeouts.forEach(timeout => timer.clear(timeout));
   animationTimeouts = [];
 }
 
-// Clear the inactivity timer
 function clearInactivityTimer() {
   if (inactivityTimer) {
     timer.clear(inactivityTimer);
@@ -232,7 +228,6 @@ function clearInactivityTimer() {
   }
 }
 
-// Reset the inactivity timer
 function resetInactivityTimer() {
   clearInactivityTimer();
 
@@ -428,7 +423,6 @@ function addActivityListeners() {
   modalOverlay.value.addEventListener('touchstart', handleUserActivity, { passive: true });
 }
 
-// Remove user activity listeners
 function removeActivityListeners() {
   if (!modalOverlay.value) return;
 
@@ -437,7 +431,6 @@ function removeActivityListeners() {
   modalOverlay.value.removeEventListener('touchstart', handleUserActivity);
 }
 
-// Watcher for animations
 watch(() => props.isOpen, async (newValue) => {
   if (newValue) {
     toggleBodyScroll(true);

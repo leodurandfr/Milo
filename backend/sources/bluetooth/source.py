@@ -56,10 +56,8 @@ class BluetoothSource(BaseAudioSource):
         self.stop_bluetooth_on_exit = self._config.get("stop_bluetooth_on_exit", True)
         self.auto_agent = self._config.get("auto_agent", True)
 
-        # State
         self.connected_device: Optional[Dict[str, str]] = None
 
-        # Components
         self.agent = BluetoothAgent()
         self.monitor = BlueAlsaMonitor()
 

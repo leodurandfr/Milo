@@ -83,7 +83,6 @@ class MacSource(BaseAudioSource):
         self.audio_output = self._config.get("audio_output", "hw:1,0")
         self.network_interface = self._config.get("network_interface")
 
-        # State
         self.connected_clients: Dict[str, str] = {}  # {ip: hostname}
         self._monitor_task: Optional[asyncio.Task] = None
         self._stopping = False
@@ -113,13 +112,10 @@ class MacSource(BaseAudioSource):
 
             self._stopping = False
 
-            # Check for existing connections
             await self._check_initial_state()
 
-            # Start continuous monitoring
             self._monitor_task = asyncio.create_task(self._monitor_events())
 
-            # Update state based on connections
             self._update_connection_state()
 
             return True
@@ -132,7 +128,6 @@ class MacSource(BaseAudioSource):
         """Stop monitoring and service."""
         self._stopping = True
 
-        # Cancel monitoring task
         if self._monitor_task:
             self._monitor_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -141,7 +136,6 @@ class MacSource(BaseAudioSource):
 
         self._reset_playback_state()
 
-        # Stop service
         return await self._stop_service()
 
     async def _get_status(self) -> Dict[str, Any]:

@@ -68,14 +68,12 @@
           <div class="playback-controls" @click.stop>
             <IconButton icon="rewind15" variant="on-dark" size="small" @click="seekBackward" />
 
-            <!-- Play/Pause button with loading state -->
             <IconButton :icon="isCurrentlyPlaying ? 'pause' : 'play'" variant="on-dark" size="medium"
               :loading="isBuffering" @click="togglePlayPause" />
 
             <IconButton icon="forward30" variant="on-dark" size="small" @click="seekForward" />
           </div>
 
-          <!-- Speed selector -->
           <div class="speed-selector" @click.stop>
             <Dropdown v-model="selectedSpeed" :options="speedOptions" variant="minimal" @change="handleSpeedChange" />
           </div>
@@ -321,7 +319,6 @@ const selectedSpeed = computed({
   set: () => { } // Handled by @change event
 })
 
-// Playback controls
 async function togglePlayPause() {
   if (isCurrentlyPlaying.value) {
     await podcastStore.pause()
@@ -351,14 +348,12 @@ async function handleSpeedChange(speedValue) {
   await podcastStore.setSpeed(speed)
 }
 
-// Initialize
 onMounted(async () => {
   // Load settings and initial data
   await podcastStore.loadSettings()
   podcastStore.loadPlaybackSpeeds()
 })
 
-// Cleanup on unmount
 onBeforeUnmount(() => {
   podcastStore.clearSearch()
 })

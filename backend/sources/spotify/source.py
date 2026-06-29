@@ -58,10 +58,8 @@ class SpotifySource(BaseAudioSource):
         self._api_url: Optional[str] = None
         self._ws_url: Optional[str] = None
 
-        # HTTP session
         self._session: Optional[aiohttp.ClientSession] = None
 
-        # WebSocket client
         self._ws_client: Optional[LibrespotWebSocket] = None
 
         # State
@@ -553,7 +551,6 @@ class SpotifySource(BaseAudioSource):
         Log format: level=warning msg="..." error="..."
         Returns the message exactly as it appears in the logs.
         """
-        # Extract msg="..."
         msg_match = re.search(r'msg="([^"]+)"', line)
         msg = msg_match.group(1) if msg_match else ""
 
@@ -561,7 +558,6 @@ class SpotifySource(BaseAudioSource):
         error_match = re.search(r'error="([^"]+)"', line)
         error = error_match.group(1) if error_match else ""
 
-        # Return exactly what's in the log
         if error:
             return f'{msg}: {error}'
         return msg if msg else "Unknown error"

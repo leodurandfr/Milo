@@ -462,7 +462,6 @@ class CamillaDSPService:
             self.logger.warning("Cannot set filter: not connected")
             return False
 
-        # Build filter configuration
         filter_config = {
             "type": "Biquad",
             "parameters": {
@@ -477,7 +476,6 @@ class CamillaDSPService:
         config["filters"][filter_id] = filter_config
         await self._set_config(config)
 
-        # Update local cache
         for f in self._filters:
             if f["id"] == filter_id:
                 f.update({

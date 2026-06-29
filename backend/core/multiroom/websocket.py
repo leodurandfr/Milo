@@ -147,12 +147,10 @@ class SnapcastWebSocketService:
         self.reconnect_task = None
         self._syncing_mac_ids.clear()
 
-        # Close current WebSocket connection
         if self.websocket:
             await self.websocket.close()
             self.websocket = None
 
-        # Reset ready event
         self._ready_event.clear()
 
     async def wait_for_ready(self, timeout: float = 10.0) -> bool:
@@ -239,7 +237,6 @@ class SnapcastWebSocketService:
             await self._initialize_existing_clients()
             self._bg.spawn(self._clear_init_flag_after_delay(2.0), label="clear_init_flag")
 
-            # Signal that WebSocket is ready
             self._ready_event.set()
             self.logger.info("Snapcast WebSocket ready and initialized")
 
@@ -315,7 +312,6 @@ class SnapcastWebSocketService:
                         local_marker = " LOCAL CLIENT" if is_local else ""
                         self.logger.debug(f"[{time.time():.3f}] INIT_CLIENTS: New client {client_id} (mac_id: {mac_id}){local_marker}")
 
-                    # Register/update client in registry
                     if self.registry:
                         kwargs = {"host": hostname}
                         is_local = (ip == "127.0.0.1")

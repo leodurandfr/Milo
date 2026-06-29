@@ -9,7 +9,6 @@
       <!-- Real content -->
       <transition name="content-fade">
         <div v-if="!loading && episode" key="loaded" class="details-content">
-          <!-- Episode Card -->
           <EpisodeCard
             :episode="enrichedEpisode"
             contrast
@@ -18,7 +17,6 @@
             @select-podcast="handleSelectPodcast"
           />
 
-          <!-- Description block -->
           <div class="description-block">
             <h3 class="text-mono description-title">{{ t('podcasts.description') }}</h3>
             <p class="text-body">{{ episode.description }}</p>

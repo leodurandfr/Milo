@@ -43,7 +43,6 @@ class AirPlaySource(BaseAudioSource):
 
         self._metadata_pipe = self._config.get("metadata_pipe", "/tmp/shairport-sync-metadata")
 
-        # Metadata reader
         self._metadata_reader: Optional[MetadataReader] = None
 
         # State

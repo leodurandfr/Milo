@@ -233,7 +233,7 @@ class ClientRegistryService:
                 return
 
             if client.online == online:
-                return  # No change
+                return
 
             client.online = online
             client_dict = client.to_dict()
@@ -449,7 +449,6 @@ class ClientRegistryService:
                 if cid not in self._clients:
                     raise ValueError(f"Client {cid} not found")
 
-            # Create zone
             zone = Zone(
                 id=zone_id,
                 name=name,
@@ -581,7 +580,7 @@ class ClientRegistryService:
                 return False
 
             if mac_id in zone.client_ids:
-                return False  # Already in zone
+                return False
 
             # Remove from current zone if in one
             if client.zone_id and client.zone_id in self._zones:
@@ -1028,7 +1027,7 @@ class ClientRegistryService:
             clients_data = await self._settings_service.get_setting("multiroom.clients")
             if clients_data:
                 for mac_id, client_data in clients_data.items():
-                    client_data["mac_id"] = mac_id  # Ensure mac_id is set
+                    client_data["mac_id"] = mac_id
                     client = Client.from_dict(client_data)
                     client.online = False  # Always start offline until Snapcast confirms
                     self._clients[mac_id] = client
@@ -1038,7 +1037,7 @@ class ClientRegistryService:
             zones_data = await self._settings_service.get_setting("multiroom.zones")
             if zones_data:
                 for zone_id, zone_data in zones_data.items():
-                    zone_data["id"] = zone_id  # Ensure id is set
+                    zone_data["id"] = zone_id
                     zone = Zone.from_dict(zone_data)
                     self._zones[zone_id] = zone
                 self.logger.info(f"Loaded {len(self._zones)} zones from settings")

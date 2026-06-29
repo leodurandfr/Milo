@@ -1,13 +1,11 @@
 <!-- frontend/src/components/ui/DoubleRangeSlider.vue - Full embedded values -->
 <template>
   <div class="double-range-slider" :style="cssVars">
-    <!-- Main track with gradient -->
     <div
       class="range-track"
       ref="track"
     ></div>
     
-    <!-- Minimum thumb -->
     <div
       ref="thumbRef"
       class="range-thumb thumb-min"
@@ -16,7 +14,6 @@
       @pointerdown="startDrag($event, 'min')"
     ></div>
 
-    <!-- Maximum thumb -->
     <div
       class="range-thumb thumb-max"
       :class="{ dragging: isDraggingMax }"
@@ -24,12 +21,10 @@
       @pointerdown="startDrag($event, 'max')"
     ></div>
     
-    <!-- Minimum value (left) -->
     <div class="slider-value-min text-mono" :class="{ dragging: isDraggingMin }">
       {{ modelValue.min }}{{ valueUnit }}
     </div>
     
-    <!-- Maximum value (right) -->
     <div class="slider-value-max text-mono" :class="{ dragging: isDraggingMax }">
       {{ modelValue.max }}{{ valueUnit }}
     </div>
@@ -54,7 +49,6 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'input', 'change', 'drag-start', 'drag-end']);
 
-// Drag state
 const isDraggingMin = ref(false);
 const isDraggingMax = ref(false);
 const track = ref(null);
@@ -102,7 +96,6 @@ const cssVars = computed(() => ({
   '--progress-max': `${maxPercentageForGradient.value}%`
 }));
 
-// Helpers
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }

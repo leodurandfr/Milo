@@ -124,7 +124,6 @@ class PodcastSource(MpvAudioSource):
     @handle_errors(default=False)
     async def _do_stop(self) -> bool:
         """Stop MPV and cleanup."""
-        # Save progress before stopping
         if self._current_episode and self._position > 0:
             await self._save_progress()
 
@@ -207,7 +206,6 @@ class PodcastSource(MpvAudioSource):
         try:
             self._logger.info(f"Starting playback for episode: {episode_uuid}")
 
-            # Get episode details from Taddy API
             episode = await self._taddy_api.get_episode(episode_uuid)
             if not episode:
                 return self.error_response(f"Episode not found: {episode_uuid}")
@@ -244,7 +242,6 @@ class PodcastSource(MpvAudioSource):
             # Notify buffering state
             self._update_connection_state()
 
-            # Play episode with mpv
             self._logger.info("Loading stream in mpv...")
             success = await self._mpv.load_stream(audio_url)
 
@@ -274,7 +271,6 @@ class PodcastSource(MpvAudioSource):
             self._is_buffering = False
             self._loading = False
 
-            # Start progress save task
             self._start_progress_save()
 
             # Notify playing state (flips is_playing false→true after buffering).
@@ -326,7 +322,6 @@ class PodcastSource(MpvAudioSource):
                 await self._mpv.pause()
                 self._is_playing = False
 
-                # Save progress
                 await self._save_progress()
 
                 self._update_connection_state()
@@ -423,11 +418,9 @@ class PodcastSource(MpvAudioSource):
                 self._logger.info(f"Invalid speed {speed}, using nearest valid")
                 speed = min(VALID_PLAYBACK_SPEEDS, key=lambda x: abs(x - speed))
 
-            # Set mpv speed property
             await self._mpv.set_property("speed", speed)
             self._playback_speed = speed
 
-            # Save speed preference
             await self._podcast_data.set_setting("playback_speed", speed)
 
             self._update_connection_state()
@@ -463,7 +456,6 @@ class PodcastSource(MpvAudioSource):
             "current_episode": self._current_episode,
         }
 
-        # Add podcast info if available
         if 'podcast' in self._current_episode:
             metadata['podcast_name'] = self._current_episode['podcast'].get('name')
             metadata['podcast_uuid'] = self._current_episode['podcast'].get('uuid')
@@ -488,7 +480,6 @@ class PodcastSource(MpvAudioSource):
     async def _save_progress(self) -> None:
         """Save current playback progress with full metadata."""
         if self._current_episode and self._position > 0:
-            # Extract podcast info
             podcast_info = self._current_episode.get('podcast', {})
 
             await self._podcast_data.update_playback_progress(

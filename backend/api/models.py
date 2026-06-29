@@ -167,7 +167,6 @@ class DockAppsRequest(BaseModel):
     @field_validator('enabled_apps')
     @classmethod
     def validate_apps(cls, v: List[str]) -> List[str]:
-        # Check all apps are valid
         invalid_apps = set(v) - VALID_DOCK_APPS
         if invalid_apps:
             raise ValueError(f'Invalid apps: {invalid_apps}. Valid apps: {VALID_DOCK_APPS}')

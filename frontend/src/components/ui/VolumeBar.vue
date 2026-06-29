@@ -27,7 +27,6 @@ const volumeDb = computed(() => unifiedStore.volumeState.global_volume_db);
 const limitMin = computed(() => settingsStore.volumeLimits.min_db);
 const limitMax = computed(() => settingsStore.volumeLimits.max_db);
 
-// Display volume in dB
 const volumeDisplay = computed(() => `${Math.round(volumeDb.value)} dB`);
 
 // Fill percentage interpolated on volume limits (limit_min = 0%, limit_max = 100%)

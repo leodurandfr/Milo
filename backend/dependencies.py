@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 # Service registry - singleton instances
 _services: Dict[str, Any] = {}
 
-# Initialization task reference
 _init_task: Optional[asyncio.Task] = None
 
 

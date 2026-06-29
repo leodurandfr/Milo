@@ -5,7 +5,7 @@ import { logger } from '@/services/logger';
 
 class I18nService {
   constructor() {
-    this.currentLanguage = ref('english'); // Standardized code
+    this.currentLanguage = ref('english');
     this.translations = new Map();
     this.fallbackLanguage = 'english';
     this.isInitialized = false;

@@ -114,12 +114,10 @@ export const useRadioStore = defineStore('radio', () => {
       }));
   });
 
-  // Are there more stations to show?
   const hasMoreStations = computed(() => {
     return displayedCount.value < searchResults.value.length;
   });
 
-  // Sorted favorite stations
   const sortedFavorites = computed(() => {
     return [...favoriteStations.value]
       .map(station => ({ ...station, is_favorite: true }))
@@ -480,7 +478,6 @@ export const useRadioStore = defineStore('radio', () => {
     logger.info('radio', `Syncing favorite status: ${stationId} = ${isFavoriteNow}`);
 
     if (isFavoriteNow) {
-      // Find station and add to favorites
       const station = searchResults.value.find(s => s.id === stationId);
       if (station && !favoriteStations.value.some(s => s.id === stationId)) {
         favoriteStations.value = [...favoriteStations.value, { ...station, is_favorite: true }];
