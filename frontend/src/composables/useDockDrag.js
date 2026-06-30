@@ -192,7 +192,7 @@ export function useDockDrag({
   const onClickOutside = (event) => {
     if (!isVisible.value ||
       (dockContainer.value && dockContainer.value.contains(event.target)) ||
-      event.target.closest('.modal-overlay, .modal-container, .modal-content')) {
+      event.target.closest('.modal-overlay, .modal-shell, .modal-scroller')) {
       return;
     }
     onHide();

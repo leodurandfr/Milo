@@ -4,18 +4,28 @@ import { ref, unref } from 'vue';
  * Composable for scroll-aware view cross-fade transitions.
  *
  * Provides Vue <Transition> hooks that handle:
- * - Pre-calculated height delta via requestHeightDelta (avoids double-spring)
- * - Scroll save / restore across navigations
- * - Freezing the leaving view at its scroll offset during the cross-fade so it
- *   doesn't jump to the top when scrollTop is rewritten
+ * - Sizing the modal to the destination view (via setNavHeight, Modal only)
+ * - Scroll save / restore across navigations, written SYNCHRONOUSLY
+ * - Freezing the leaving view at its scroll offset during a forward cross-fade so
+ *   it doesn't jump to the top when scrollTop is rewritten
+ * - Fading the persistent header bar in/out when a navigation's scroll reset
+ *   crosses its height, so the scrolling header doesn't pop (opt-in via headerRef)
  *
  * The NavigationHeader stays inside the scroller and scrolls with the content
  * (decision D1). Its title cross-fades via its own internal `header-fade`
- * transition — there is no header clone here.
+ * transition — there is no header clone here. Because it scrolls, a navigation
+ * that resets scrollTop past the header's height makes the whole bar appear or
+ * disappear in one frame; headerRef lets us fade that bar instead of popping it.
  *
- * Scroll offsets use `position: relative; top` (not `transform`): relative
- * positioning keeps the view in grid flow (so the grid-stack cell still reserves
- * max(leaving, entering)) and leaves `transform` free for the fade-slide
+ * Why this is synchronous (no defer, no generation counter, no double-rAF):
+ * the scroller now carries an EXPLICIT px height (set by setNavHeight before the
+ * scrollTop write, with a forced reflow in between — see useAnimatedHeight). So
+ * `maxScroll` is already final when scrollTop is written and the write always
+ * lands; there is nothing to wait for and nothing to cancel.
+ *
+ * The leaving view is frozen with `position: relative; top` (not `transform`):
+ * relative positioning keeps it in grid flow (so the grid-stack cell still
+ * reserves max(leaving, entering)) and leaves `transform` free for the fade-slide
  * enter/leave animation.
  *
  * IMPORTANT: prepareNavigation() must run AFTER the navigation state mutation
@@ -26,39 +36,33 @@ import { ref, unref } from 'vue';
  *
  * @param {Object} options
  * @param {import('vue').Ref<HTMLElement|null>} options.scrollElRef
- *   Ref to the scroll container (Modal's modalContentRef or layout's $el).
+ *   Ref to the scroll container (Modal's modalContentRef = scroller, or layout's $el).
  * @param {import('vue').Ref<number|null>} [options.pendingScrollRestore]
  *   Target scroll position on back navigation. Null = reset to 0.
  * @param {() => void} [options.onScrollRestored]
  *   Called after scroll restore completes (consumer clears pendingScrollRestore).
- * @param {((fn: () => void) => void)|null} [options.deferScrollRestore]
- *   When provided, the scroll-restore write is deferred via this callback until
- *   the Modal height spring has settled (so the write isn't clamped to 0).
- * @param {import('vue').Ref<HTMLElement|null>} [options.contentInnerRef]
- *   Ref to Modal's contentInner element for height delta measurement.
- * @param {((delta: number, duration?: number) => void)|null} [options.requestHeightDelta]
- *   Pre-announce height changes to Modal's animated height system.
- * @param {(() => void)|null} [options.cancelDeferred]
- *   Called by prepareNavigation() when a new navigation starts, to invalidate
- *   any pending deferScrollRestore finalize from a previous (interrupted)
- *   transition. Without this, transitioncancel of the previous height spring
- *   would fire the stale finalize during the new transition, corrupting state.
+ * @param {((beforeClip: () => void) => void)|null} [options.setNavHeight]
+ *   Measures the live (stacked) content and writes the scroller + clip height,
+ *   running its `beforeClip` argument (the scrollTop restore) between the forced
+ *   reflow and the clip spring (Modal only). Omitted by AudioSourceLayout, whose
+ *   scroller is a fixed-height viewport that never needs resizing.
+ * @param {import('vue').Ref<HTMLElement|{$el: HTMLElement}|null>} [options.headerRef]
+ *   The persistent NavigationHeader (component ref or raw element). When provided,
+ *   the bar fades instead of popping on a scroll-reset navigation. Omitted → no
+ *   header treatment.
  */
 export function useViewTransition({
   scrollElRef,
   pendingScrollRestore = ref(null),
   onScrollRestored,
-  deferScrollRestore = null,
-  contentInnerRef = null,
-  requestHeightDelta = null,
-  cancelDeferred = null,
+  setNavHeight = null,
+  headerRef = null,
 }) {
-  // Cross-fade state
   let savedScrollTop = 0;
-  let enteringEl = null; // entering view holding a relative scroll-restore offset
   let frozenLeavingEl = null; // leaving view frozen at its old offset during forward nav
-  let savedInnerHeight = 0;
-  let savedLeavingHeight = 0;
+  let frozenHeaderEl = null;  // header transform-held + faded out during back-to-scrolled
+
+  const DEFAULT_HEADER_HEIGHT = 72; // px; NavigationHeader min-height (measure fallback)
 
   function clearOffset(el) {
     if (!el) return;
@@ -66,152 +70,149 @@ export function useViewTransition({
     el.style.top = '';
   }
 
-  /**
-   * Runs AFTER the nav state mutation, BEFORE Vue patches the DOM.
-   * Scrubs residual offsets from an interrupted transition and captures the
-   * pre-patch contentInner height for the delta calculation.
-   */
-  function prepareNavigation() {
-    // Cancel any pending deferred finalize from a previous (still-springing or
-    // just-cancelled) transition. Otherwise transitioncancel from the spring we're
-    // about to interrupt fires the stale finalize during the new navigation, which
-    // would overwrite scrollTop with the old target.
-    cancelDeferred?.();
+  // headerRef may be a component instance (NavigationHeader) or a raw element.
+  function resolveHeaderEl() {
+    const h = unref(headerRef);
+    return h?.$el ?? h ?? null;
+  }
 
-    // Clean up residual offsets from an interrupted transition.
-    clearOffset(enteringEl);
-    enteringEl = null;
-    clearOffset(frozenLeavingEl);
-    frozenLeavingEl = null;
+  function headerHeight(el) {
+    return el?.offsetHeight || DEFAULT_HEADER_HEIGHT;
+  }
 
-    // Capture contentInner height BEFORE Vue patches the DOM; used in onEnter to
-    // size the height delta for the Modal spring.
-    savedInnerHeight = contentInnerRef?.value?.offsetHeight ?? 0;
+  function scrubHeader(el) {
+    if (!el) return;
+    el.style.transition = '';
+    el.style.opacity = '';
+    el.style.transform = '';
   }
 
   /**
-   * Called before the leaving view starts its leave transition.
-   * Forward / back-to-top (target 0): land at the top now and freeze the leaving
-   * view so it stays put during the fade. Back-restore (target > 0): leave
-   * scrollTop where it is; the entering view is previewed in onEnter and the real
-   * scrollTop write is deferred to onAfterLeave.
+   * Runs AFTER the nav state mutation, BEFORE Vue patches the DOM.
+   * Scrubs a residual offset left on the leaving view by an interrupted transition.
+   */
+  function prepareNavigation() {
+    clearOffset(frozenLeavingEl);
+    frozenLeavingEl = null;
+    scrubHeader(resolveHeaderEl()); // clear a fade-in leftover / interrupted fade-out
+    frozenHeaderEl = null;
+  }
+
+  /**
+   * Called before the leaving view starts its leave transition. In both directions
+   * the leaving view is frozen at its painted position so the upcoming scrollTop
+   * change doesn't drag it during the cross-fade. `position: relative; top` keeps
+   * it in grid flow (the stack cell still reserves max(leaving, entering)) and
+   * leaves `transform` for fade-slide.
+   * - Forward / back-to-top (target 0): write scrollTop = 0 now (0 always lands)
+   *   and freeze here, synchronously — the entering view paints at the top from
+   *   frame 0.
+   * - Back-restore (target > 0): the scrollTop write is deferred to onEnter (after
+   *   the scroller is sized), so the freeze is applied THERE in the same frame;
+   *   freezing here — before that write — would displace the view for one frame.
    */
   function onBeforeLeave(el) {
     const scrollEl = unref(scrollElRef);
     const oldScroll = scrollEl?.scrollTop || 0;
     const targetScroll = unref(pendingScrollRestore) ?? 0;
 
-    savedLeavingHeight = el.offsetHeight;
     savedScrollTop = oldScroll;
 
     if (targetScroll > 0) {
-      // Back-restore: keep the leaving view in place (scrollTop unchanged); the
-      // entering view is offset to target T in onEnter, scrollTop written later.
+      // Back-restore: capture the leaving view; onEnter freezes it together with
+      // the scrollTop = T write (same frame, before first paint).
+      frozenLeavingEl = el;
       return;
     }
 
-    // Forward / back-to-top: write scrollTop = 0 now (always lands — 0 is valid
-    // regardless of the height spring) and freeze the leaving view at its old
-    // offset so it doesn't snap to the top during the cross-fade. `position:
-    // relative; top` keeps it in grid flow and leaves `transform` for fade-slide.
+    // Forward / back-to-top: freeze the leaving view and land scrollTop = 0 now.
     if (oldScroll > 0 && scrollEl) {
       el.style.position = 'relative';
       el.style.top = `-${oldScroll}px`;
       frozenLeavingEl = el;
       scrollEl.scrollTop = 0;
+
+      // Header was scrolled out of view; now that scrollTop is 0 it would otherwise
+      // pop back in at full opacity. Fade the bar in (0 → 1) in lock-step with the
+      // entering view instead. No freeze — it is already at its resting top position.
+      const headerEl = resolveHeaderEl();
+      if (headerEl && oldScroll >= headerHeight(headerEl)) {
+        headerEl.style.transition = 'none';
+        headerEl.style.transform = 'translate3d(0, 0, 0)'; // GPU layer for smooth iOS opacity
+        headerEl.style.opacity = '0';
+        void headerEl.offsetHeight; // commit opacity:0 before transitioning
+        headerEl.style.transition = 'opacity var(--transition-in-out) 100ms';
+        headerEl.style.opacity = '1';
+      }
     }
   }
 
   /**
-   * Called when the entering view starts its enter transition.
-   * Back-restore only: preview the entering view at the target scroll offset so
-   * its content already sits at T during the fade (no flash-then-jump). Then
-   * pre-calculate the height delta for the Modal spring.
+   * Called when the entering view starts its enter transition. One rAF lets Vue
+   * finish laying out the stacked views, then we size the modal and (on
+   * back-restore) land the scroll at T in the mandated order:
+   * height → reflow → scrollTop → clip (§3.6).
    */
-  function onEnter(el) {
-    const targetScroll = unref(pendingScrollRestore) ?? 0;
+  function onEnter() {
+    requestAnimationFrame(() => {
+      const scrollEl = unref(scrollElRef);
+      const targetScroll = unref(pendingScrollRestore) ?? 0;
 
-    if (targetScroll > 0 && savedScrollTop !== targetScroll) {
-      enteringEl = el;
-      // Shift the entering view (relative, stays in grid flow) so the content at
-      // offset T aligns with the viewport while scrollTop is still at the old
-      // position. savedScrollTop - targetScroll is negative → shifts the view up.
-      el.style.position = 'relative';
-      el.style.top = `${savedScrollTop - targetScroll}px`;
-    }
+      // Back-restore lands the destination at offset T. The scroller is at its
+      // final explicit height by the time this runs (so it is never clamped to 0),
+      // and this rAF runs before the first paint of the entering view (so it lands
+      // at T with no flash-then-jump). Forward / back-to-top already wrote 0 in
+      // onBeforeLeave. Freeze the leaving view in the SAME frame so it stays put
+      // during the cross-fade: top = T - oldScroll counteracts the scroll delta.
+      const writeScroll = () => {
+        if (targetScroll > 0 && savedScrollTop !== targetScroll && scrollEl) {
+          if (frozenLeavingEl) {
+            frozenLeavingEl.style.position = 'relative';
+            frozenLeavingEl.style.top = `${targetScroll - savedScrollTop}px`;
+          }
 
-    // Pre-calculate height delta for the Modal spring animation.
-    // When content overflows, cap element heights to the visible area to avoid
-    // overshooting the delta.
-    if (requestHeightDelta && savedLeavingHeight > 0) {
-      requestAnimationFrame(() => {
-        const scrollEl = unref(scrollElRef);
-        const enteringHeight = el.offsetHeight;
-        let delta = enteringHeight - savedLeavingHeight;
+          // Header is about to scroll out of view as scrollTop jumps to T. Hold it
+          // at the top with a transform (counteracting the scroll) and fade the bar
+          // out, so it doesn't pop. Released in onAfterLeave once it is off-screen.
+          const headerEl = resolveHeaderEl();
+          if (headerEl && savedScrollTop < headerHeight(headerEl) && targetScroll >= headerHeight(headerEl)) {
+            headerEl.style.transition = 'none';
+            headerEl.style.transform = `translate3d(0, ${targetScroll}px, 0)`;
+            void headerEl.offsetHeight; // commit the held position before fading
+            headerEl.style.transition = 'opacity var(--transition-fast-leave)';
+            headerEl.style.opacity = '0';
+            frozenHeaderEl = headerEl;
+          }
 
-        // When both old and new views overflow the modal, cap heights to the
-        // visible slot area so the modal stays at max height (avoids double-spring).
-        // Use savedInnerHeight (captured before the DOM change) — the scroller's
-        // scrollHeight isn't reliable mid-transition while both views are stacked.
-        const scrollStyle = scrollEl ? getComputedStyle(scrollEl) : null;
-        const scrollPadding = scrollStyle
-          ? parseFloat(scrollStyle.paddingTop) + parseFloat(scrollStyle.paddingBottom)
-          : 0;
-
-        if (scrollEl && savedInnerHeight + scrollPadding > scrollEl.clientHeight + 2) {
-          const visibleContent = scrollEl.clientHeight - scrollPadding;
-          const otherContentHeight = savedInnerHeight - savedLeavingHeight;
-          const maxSlotVisible = Math.max(0, visibleContent - otherContentHeight);
-
-          const effectiveLeaving = Math.min(savedLeavingHeight, maxSlotVisible);
-          const effectiveEntering = Math.min(enteringHeight, maxSlotVisible);
-
-          delta = effectiveEntering - effectiveLeaving;
+          scrollEl.scrollTop = targetScroll;
         }
+      };
 
-        if (Math.abs(delta) > 2) {
-          // skipUnlockCorrection: during the cross-fade the grid-stack cell holds
-          // max(leaving, entering); re-measuring at unlock would read that transient
-          // stacked height and apply a spurious correction. Trust the predicted
-          // target and let the ResizeObserver reconcile once the leaving view is gone.
-          requestHeightDelta(delta, 800, { skipOverflowCheck: true, skipUnlockCorrection: true });
-        }
-      });
-    }
+      if (setNavHeight) {
+        // Modal: setNavHeight sizes clip + scroller to the live stacked content
+        // (max(leaving, entering)) and runs writeScroll between the forced reflow
+        // and the clip spring — height → reflow → scrollTop → clip.
+        setNavHeight(writeScroll);
+      } else {
+        // Fixed-height scroller (AudioSourceLayout): no resize, scroll lands directly.
+        writeScroll();
+      }
+    });
   }
 
   /**
-   * Called after the leaving view has fully left the DOM.
-   * Clears offsets and writes the final scrollTop. For back-restore in the Modal,
-   * the write is deferred until the height spring settles (so it isn't clamped).
+   * Called after the leaving view has fully left the DOM. Synchronous: clear the
+   * frozen-leaving reference (its inline offset vanished with the element) and
+   * signal restore completion so the consumer clears pendingScrollRestore.
    */
   function onAfterLeave() {
-    const targetScroll = unref(pendingScrollRestore) ?? 0;
     const shouldSignalRestore = unref(pendingScrollRestore) !== null;
 
-    const finalize = () => {
-      clearOffset(enteringEl);
-      enteringEl = null;
-      // The frozen leaving view is removed from the DOM with the leave transition;
-      // its inline offset vanishes with it, so just drop the reference.
-      frozenLeavingEl = null;
-
-      const scrollEl = unref(scrollElRef);
-      if (scrollEl) scrollEl.scrollTop = targetScroll;
-      savedScrollTop = 0;
-      if (shouldSignalRestore) {
-        onScrollRestored?.();
-      }
-    };
-
-    // Only back-restore (target > 0) risks the height-spring clamp, so only it
-    // needs deferral. Forward / back-to-top already wrote scrollTop = 0 in
-    // onBeforeLeave.
-    if (targetScroll > 0 && deferScrollRestore) {
-      deferScrollRestore(finalize);
-    } else {
-      finalize();
-    }
+    frozenLeavingEl = null;
+    savedScrollTop = 0;
+    scrubHeader(frozenHeaderEl); // release the fade-out hold (header is now off-screen)
+    frozenHeaderEl = null;
+    if (shouldSignalRestore) onScrollRestored?.();
   }
 
   return {

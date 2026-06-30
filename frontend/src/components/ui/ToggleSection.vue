@@ -82,7 +82,7 @@ function handleToggle(newEnabled) {
     el.offsetHeight;
     el.style.transition = '';
 
-    requestHeightDelta(after - before, 200); // must match --transition-fast
+    requestHeightDelta(after - before);
   }
   emit('change', newEnabled);
 }

@@ -152,6 +152,7 @@ import { logger } from '@/services/logger';
 const { t, getCurrentLanguage } = useI18n();
 const timer = useTimer();
 const requestHeightDelta = inject('modalRequestHeightDelta', null);
+const modalSetContentHeight = inject('modalSetContentHeight', null);
 const modalContentInnerRef = inject('modalContentInnerRef', null);
 
 const {
@@ -330,9 +331,10 @@ function handleWifiToggle(enabled) {
 async function correctToggleContentDelta(oldH) {
   await nextTick();
   const newH = wifiContentRef.value?.offsetHeight || 0;
-  const delta = newH - oldH;
-  if (requestHeightDelta && Math.abs(delta) > 2) {
-    requestHeightDelta(delta);
+  // DOM is already in the post-change state here, so set the absolute measured
+  // height (a delta would double-count the now-live content).
+  if (modalSetContentHeight && Math.abs(newH - oldH) > 2) {
+    modalSetContentHeight();
   }
 }
 
@@ -352,12 +354,12 @@ watch(showWifiCard, async (visible) => {
     wifiRowHeight.value = '0px';
   }
 
-  // Measure contentInner AFTER DOM update and announce delta to Modal.
+  // Measure contentInner AFTER DOM update. DOM is in the post-change state, so set
+  // the absolute measured height (a delta would double-count the now-live content).
   await nextTick();
   const afterH = modalContentInnerRef?.value?.offsetHeight ?? 0;
-  const delta = afterH - beforeH;
-  if (requestHeightDelta && Math.abs(delta) > 2) {
-    requestHeightDelta(delta);
+  if (modalSetContentHeight && Math.abs(afterH - beforeH) > 2) {
+    modalSetContentHeight();
   }
 });
 
