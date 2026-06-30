@@ -64,7 +64,7 @@ export default [
       }],
       // Ban console.* — use logger.{debug,info,warn,error}(category, message, data)
       // from '@/services/logger' so messages get the category prefix and central
-      // routing. Whitelisted below for logger.js, main.js, schemas/api.js, modalDebug.js.
+      // routing. Whitelisted below for logger.js, main.js, schemas/api.js.
       'no-restricted-syntax': ['error', {
         selector: "CallExpression[callee.object.name='console'][callee.property.name=/^(error|log|debug|warn|info)$/]",
         message: "Use logger.{debug,info,warn,error}() from '@/services/logger' instead. See CLAUDE.md \"Frontend Conventions\" + RFC 17.",
@@ -151,15 +151,13 @@ export default [
     },
   },
   // logger.js is the only site allowed to call console.* — it IS the logger.
-  // main.js Vue errorHandler, schemas/api.js dev-only Zod warnings, and
-  // modalDebug.js opt-in debug toggle are the other documented exceptions
-  // (see CLAUDE.md "Frontend Conventions").
+  // main.js Vue errorHandler and schemas/api.js dev-only Zod warnings are the
+  // other documented exceptions (see CLAUDE.md "Frontend Conventions").
   {
     files: [
       'src/services/logger.js',
       'src/main.js',
       'src/schemas/api.js',
-      'src/services/modalDebug.js',
     ],
     rules: {
       'no-restricted-syntax': 'off',

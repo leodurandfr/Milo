@@ -1,7 +1,6 @@
 // frontend/src/composables/useAnimatedHeight.js
 import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import { useTimer } from '@/composables/useTimer';
-import { modalDebugLog } from '@/services/modalDebug';
 
 /**
  * Composable for animating container height based on content changes.
@@ -48,7 +47,6 @@ export function useAnimatedHeight(contentRef, options = {}) {
 
       // Skip updates while height is locked (child animation in progress)
       if (isHeightLocked) {
-        modalDebugLog(`[AnimatedHeight] ResizeObserver LOCKED — skipping (contentH=${entries[0].contentRect.height})`);
         return;
       }
 
@@ -66,7 +64,6 @@ export function useAnimatedHeight(contentRef, options = {}) {
 
       // First resize: initialize without transition
       if (isFirstResize) {
-        modalDebugLog(`[AnimatedHeight] ResizeObserver FIRST → ${newHeight}px`);
         applyHeight(newHeight);
         isFirstResize = false;
         return;
@@ -75,7 +72,6 @@ export function useAnimatedHeight(contentRef, options = {}) {
       // Threshold to avoid micro-adjustments (jitter)
       const currentHeight = parseFloat(containerHeight.value) || 0;
       if (Math.abs(newHeight - currentHeight) > threshold) {
-        modalDebugLog(`[AnimatedHeight] ResizeObserver ${currentHeight} → ${newHeight}px (delta=${(newHeight - currentHeight).toFixed(1)})`);
         applyHeight(newHeight);
       }
     });
@@ -111,8 +107,6 @@ export function useAnimatedHeight(contentRef, options = {}) {
     // Calculate target height
     const currentHeight = parseFloat(containerHeight.value) || 0;
     let targetHeight = currentHeight + delta;
-
-    modalDebugLog(`[AnimatedHeight] requestHeightDelta(${delta.toFixed(1)}) current=${currentHeight} → target=${targetHeight.toFixed(1)} locked=${isHeightLocked}`);
 
     // Get max height constraint
     let maxAvailable = Infinity;
@@ -162,7 +156,6 @@ export function useAnimatedHeight(contentRef, options = {}) {
         // immediately reverts (the "height tremble"). Trust the predicted target and
         // let the ResizeObserver reconcile the real height once the wrapper un-pins.
         if (skipUnlockCorrection) {
-          modalDebugLog(`[AnimatedHeight] unlock — correction skipped (caller owns settle; ResizeObserver will reconcile)`);
           return;
         }
         if (contentRef.value) {
@@ -177,10 +170,7 @@ export function useAnimatedHeight(contentRef, options = {}) {
           // Only update if difference exceeds threshold — avoids
           // restarting the spring transition for sub-pixel discrepancies
           if (Math.abs(actualHeight - currentHeight) > threshold) {
-            modalDebugLog(`[AnimatedHeight] unlock correction ${currentHeight} → ${actualHeight}px (delta=${(actualHeight - currentHeight).toFixed(1)})`);
             applyHeight(actualHeight);
-          } else {
-            modalDebugLog(`[AnimatedHeight] unlock — no correction needed (current=${currentHeight} actual=${actualHeight})`);
           }
         }
       }, duration);

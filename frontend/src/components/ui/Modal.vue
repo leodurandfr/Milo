@@ -27,7 +27,6 @@ import { ref, onMounted, onUnmounted, watch, nextTick, provide } from 'vue';
 import IconButton from './IconButton.vue';
 import { useAnimatedHeight } from '@/composables/useAnimatedHeight';
 import { useTimer } from '@/composables/useTimer';
-import { modalDebugLog, modalDebugTrace } from '@/services/modalDebug';
 import { useI18n } from '@/services/i18n';
 
 const props = defineProps({
@@ -80,18 +79,12 @@ const isHeightTransitioning = ref(false);
 
 function onContainerTransitionStart(e) {
   if (e.propertyName === 'height') {
-    // [DEBUG-SCROLL]
-    const el = modalContent.value;
-    modalDebugLog(`[Modal/transitionstart height] ${performance.now().toFixed(0)}ms` + (el ? ` — scrollTop=${el.scrollTop} clientH=${el.clientHeight} scrollH=${el.scrollHeight}` : ''));
     isHeightTransitioning.value = true;
   }
 }
 
 function onContainerTransitionEnd(e) {
   if (e.propertyName === 'height') {
-    // [DEBUG-SCROLL]
-    const el = modalContent.value;
-    modalDebugLog(`[Modal/transitionend height]   ${performance.now().toFixed(0)}ms` + (el ? ` — scrollTop=${el.scrollTop} clientH=${el.clientHeight} scrollH=${el.scrollHeight}` : ''));
     isHeightTransitioning.value = false;
   }
 }
@@ -107,25 +100,6 @@ provide('modalRequestHeightDelta', requestHeightDelta);
 
 // Provide contentInner ref so children can measure exact height deltas
 provide('modalContentInnerRef', contentInner);
-
-// [DEBUG-SCROLL] Trace every scroll change with stack trace
-function logScroll(e) {
-  const el = e.currentTarget;
-  modalDebugLog(`[Modal/scroll-event] ${performance.now().toFixed(0)}ms — scrollTop=${el.scrollTop} clientH=${el.clientHeight} scrollH=${el.scrollHeight} overflowY-inline="${el.style.overflowY}" hasClass=${el.classList.contains('overflow-transitioning')}`);
-  modalDebugTrace('[Modal/scroll-event] trace');
-}
-
-// [DEBUG-SCROLL] Log scrollTop / clientH / scrollH at every height change
-watch(containerHeight, (newH, oldH) => {
-  const el = modalContent.value;
-  if (!el) return;
-  modalDebugLog(`[Modal/containerHeight] ${performance.now().toFixed(0)}ms — ${oldH} → ${newH} — scrollTop=${el.scrollTop} clientH=${el.clientHeight} scrollH=${el.scrollHeight} maxScroll=${el.scrollHeight - el.clientHeight} overflowY-inline="${el.style.overflowY}" hasClass=${el.classList.contains('overflow-transitioning')}`);
-});
-
-watch(isHeightTransitioning, (val) => {
-  const el = modalContent.value;
-  modalDebugLog(`[Modal/isHeightTransitioning] ${performance.now().toFixed(0)}ms — → ${val}` + (el ? ` — scrollTop=${el.scrollTop} clientH=${el.clientHeight} scrollH=${el.scrollHeight} overflowY-inline="${el.style.overflowY}" hasClass=${el.classList.contains('overflow-transitioning')}` : ''));
-});
 
 // Defer the entire finalize callback (Phases 1+2+3 of useViewTransition.onAfterLeave)
 // until the height spring has fully settled. This avoids the spring's overshoot
@@ -145,7 +119,6 @@ let deferGeneration = 0;
 function cancelDeferredFinalize() {
   deferGeneration++;
   if (deferScrollWatcher) {
-    modalDebugLog(`[Modal/deferScrollRestore] ${performance.now().toFixed(0)}ms CANCELLED — pending finalize cancelled by new navigation`);
     deferScrollWatcher();
     deferScrollWatcher = null;
   }
@@ -162,30 +135,22 @@ provide('modalDeferScrollRestore', (callback) => {
   // rAF gate below; cancelling the watcher alone leaves rAFs queued.
   const queuedGen = ++deferGeneration;
 
-  // [DEBUG-SCROLL]
-  modalDebugLog(`[Modal/deferScrollRestore] ${performance.now().toFixed(0)}ms QUEUED — scrollTop=${el.scrollTop} clientH=${el.clientHeight} scrollH=${el.scrollHeight} overflowY-inline="${el.style.overflowY}" hasClass=${el.classList.contains('overflow-transitioning')}`);
-
   if (deferScrollWatcher) { deferScrollWatcher(); deferScrollWatcher = null; }
 
   const isStale = () => queuedGen !== deferGeneration;
 
   const runFinalize = () => {
     if (isStale()) return;
-    // [DEBUG-SCROLL]
-    modalDebugLog(`[Modal/deferScrollRestore] ${performance.now().toFixed(0)}ms RUN FINALIZE — scrollTop=${el.scrollTop} clientH=${el.clientHeight} scrollH=${el.scrollHeight} overflowY-inline="${el.style.overflowY}" hasClass=${el.classList.contains('overflow-transitioning')}`);
     // Force scrollable so scrollTop write inside callback isn't blocked by
     // the .overflow-transitioning class (which is still applied this microtask
     // tick, before Vue's render flush removes it).
     el.style.overflowY = 'auto';
     callback();
-    // [DEBUG-SCROLL]
-    modalDebugLog(`[Modal/deferScrollRestore] ${performance.now().toFixed(0)}ms POST FINALIZE — scrollTop=${el.scrollTop} clientH=${el.clientHeight} scrollH=${el.scrollHeight} overflowY-inline="${el.style.overflowY}" hasClass=${el.classList.contains('overflow-transitioning')}`);
     // Cleanup: remove inline override on the next frame, after the class has been
     // removed by Vue's render flush.
     requestAnimationFrame(() => {
       if (el) {
         el.style.overflowY = '';
-        modalDebugLog(`[Modal/deferScrollRestore] ${performance.now().toFixed(0)}ms CLEANUP — scrollTop=${el.scrollTop} clientH=${el.clientHeight} scrollH=${el.scrollHeight} overflowY-inline="${el.style.overflowY}" hasClass=${el.classList.contains('overflow-transitioning')}`);
       }
     });
   };
@@ -445,16 +410,8 @@ onMounted(() => {
   document.addEventListener('keydown', handleKeydown, { passive: true });
 });
 
-// [DEBUG-SCROLL] Attach scroll listener as soon as modalContent exists
-watch(modalContent, (el, prev) => {
-  if (prev) prev.removeEventListener('scroll', logScroll);
-  if (el) el.addEventListener('scroll', logScroll, { passive: true });
-});
-
 onUnmounted(() => {
   if (deferScrollWatcher) { deferScrollWatcher(); deferScrollWatcher = null; }
-  // [DEBUG-SCROLL] cleanup scroll listener
-  if (modalContent.value) modalContent.value.removeEventListener('scroll', logScroll);
   document.removeEventListener('keydown', handleKeydown);
   document.body.style.overflow = '';
   // Pending animation timeouts and the inactivity timer are auto-cleared by useTimer.
