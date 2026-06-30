@@ -1,7 +1,7 @@
 <!-- frontend/src/components/equalizer/EqualizerModal.vue -->
 <template>
   <div class="equalizer-modal">
-    <NavigationHeader :title="t('equalizer.title')">
+    <NavigationHeader ref="navHeaderRef" :title="t('equalizer.title')">
       <template #actions>
         <Toggle :modelValue="equalizerStore.isEqualizerEffectsEnabled"
           :disabled="equalizerStore.isTogglingEnabled" @change="handleEqualizerToggle" />
@@ -141,22 +141,19 @@ const equalizerStore = useEqualizerStore();
 
 // Inject modal refs (same pattern as SettingsModal)
 const modalContentRef = inject('modalContentRef', null);
-const modalDeferScrollRestore = inject('modalDeferScrollRestore', null);
-const modalContentInnerRef = inject('modalContentInnerRef', null);
-const modalRequestHeightDelta = inject('modalRequestHeightDelta', null);
-const modalCancelDeferredFinalize = inject('modalCancelDeferredFinalize', null);
+const modalSetNavHeight = inject('modalSetNavHeight', null);
 
 const isMobile = ref(false);
 const zoneTabsRef = ref(null);
+// Persistent header — faded (not popped) when a scroll-reset state change crosses its height.
+const navHeaderRef = ref(null);
 
 // Scroll-aware crossfade transitions (same composable as SettingsModal)
 const { prepareNavigation, onBeforeLeave, onEnter, onAfterLeave } = useViewTransition({
   scrollElRef: modalContentRef,
   pendingScrollRestore: ref(null),
-  deferScrollRestore: modalDeferScrollRestore,
-  contentInnerRef: modalContentInnerRef,
-  requestHeightDelta: modalRequestHeightDelta,
-  cancelDeferred: modalCancelDeferredFinalize,
+  setNavHeight: modalSetNavHeight,
+  headerRef: navHeaderRef,
 });
 
 // Detect content key changes and prepare transition before Vue patches the DOM

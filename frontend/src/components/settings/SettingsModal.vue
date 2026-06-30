@@ -2,7 +2,7 @@
 <template>
   <div class="settings-modal">
     <!-- Single NavigationHeader outside transition -->
-    <NavigationHeader :title="headerTitle" :show-back="canGoBack" :actions-key="currentView"
+    <NavigationHeader ref="navHeaderRef" :title="headerTitle" :show-back="canGoBack" :actions-key="currentView"
       @back="back">
       <template v-if="currentView === 'home' || currentView === 'multiroom' || currentView === 'bt-remote' || showIrRemoteToggle || showFanToggle || stationActionIcon" #actions>
         <button v-if="currentView === 'home'" v-press class="power-toggle" @click="togglePowerMenu">
@@ -318,12 +318,12 @@ const multiroomStore = useMultiroomStore();
 const radioStore = useRadioStore();
 const fanStore = useFanStore();
 
-// Inject modal refs for scroll detection and height pre-calculation
+// Inject modal refs: the scroller (scroll el) and the navigation height writer.
 const modalContentRef = inject('modalContentRef', null);
-const modalDeferScrollRestore = inject('modalDeferScrollRestore', null);
-const modalContentInnerRef = inject('modalContentInnerRef', null);
-const modalRequestHeightDelta = inject('modalRequestHeightDelta', null);
-const modalCancelDeferredFinalize = inject('modalCancelDeferredFinalize', null);
+const modalSetNavHeight = inject('modalSetNavHeight', null);
+
+// Persistent header — faded (not popped) when a scroll-reset nav crosses its height.
+const navHeaderRef = ref(null);
 
 // Navigation with scroll save/restore
 const { currentView, canGoBack, push: navPush, back: navBack, reset, goTo, pendingScrollRestore } =
@@ -344,10 +344,8 @@ const { prepareNavigation, onBeforeLeave, onEnter, onAfterLeave } = useViewTrans
   scrollElRef: modalContentRef,
   pendingScrollRestore,
   onScrollRestored: () => { pendingScrollRestore.value = null; },
-  deferScrollRestore: modalDeferScrollRestore,
-  contentInnerRef: modalContentInnerRef,
-  requestHeightDelta: modalRequestHeightDelta,
-  cancelDeferred: modalCancelDeferredFinalize,
+  setNavHeight: modalSetNavHeight,
+  headerRef: navHeaderRef,
 });
 
 // Wrap push/back to prepare the cross-fade. Called AFTER the nav mutation so

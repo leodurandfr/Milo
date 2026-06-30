@@ -7,14 +7,14 @@
           :aria-label="t('common.close')" @click="close" />
       </div>
 
-      <div ref="modalContainer" class="modal-container"
-        :style="{ height: containerHeight }"
-        @transitionstart.self="onContainerTransitionStart" @transitionend.self="onContainerTransitionEnd"
-        @transitioncancel.self="onContainerTransitionEnd">
-        <!-- Content with animated height -->
-        <div ref="modalContent" class="modal-content" :class="{ 'overflow-transitioning': isHeightTransitioning }">
-          <div ref="contentInner" class="modal-content-inner">
-            <slot></slot>
+      <div ref="modalShell" class="modal-shell">
+        <!-- Clip carries the animated (spring) height; masks the scroller. -->
+        <div ref="modalClip" class="modal-clip">
+          <!-- Scroller has an explicit px height (= final target, never animated). -->
+          <div ref="modalScroller" class="modal-scroller">
+            <div ref="contentInner" class="modal-content-inner">
+              <slot></slot>
+            </div>
           </div>
         </div>
       </div>
@@ -44,20 +44,23 @@ const emit = defineEmits(['close']);
 
 const { t } = useI18n();
 
-const modalContent = ref(null);
-const modalContainer = ref(null);
+const modalShell = ref(null);
+const modalClip = ref(null);
+const modalScroller = ref(null);
 const modalOverlay = ref(null);
 const closeButton = ref(null);
 const closeButtonWrapper = ref(null);
 const contentInner = ref(null);
 
-// Animated height composable - observe contentInner, add modal-content padding
-const { containerHeight, resetFirstResize, requestHeightDelta } = useAnimatedHeight(contentInner, {
+// Animated height: observe contentInner, write clip + scroller through one writer.
+const { setTargetHeight, resetFirstResize, requestHeightDelta } = useAnimatedHeight(contentInner, {
+  clipRef: modalClip,
+  scrollerRef: modalScroller,
   threshold: 2,
   skipFirstResize: true,
   getExtraHeight: () => {
-    if (!modalContent.value) return 0;
-    const style = getComputedStyle(modalContent.value);
+    if (!modalScroller.value) return 0;
+    const style = getComputedStyle(modalScroller.value);
     return parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
   },
   getMaxHeight: () => {
@@ -65,6 +68,8 @@ const { containerHeight, resetFirstResize, requestHeightDelta } = useAnimatedHei
     const style = getComputedStyle(modalOverlay.value);
     const paddingTop = parseFloat(style.paddingTop);
     const paddingBottom = parseFloat(style.paddingBottom);
+    // Cosmetic breathing room at the viewport edge; no longer load-bearing for
+    // scroll correctness (the scroller's explicit height keeps maxScroll exact).
     const bounceMargin = 24;
     return modalOverlay.value.clientHeight - paddingTop - paddingBottom - bounceMargin;
   }
@@ -73,108 +78,25 @@ const { containerHeight, resetFirstResize, requestHeightDelta } = useAnimatedHei
 const isVisible = ref(false);
 const isAnimating = ref(false);
 
-// Height transition tracking — used by modalDeferScrollRestore to wait
-// for the height spring to settle before cleaning up scroll overrides
-const isHeightTransitioning = ref(false);
+// The scroller is the single scroll container + the scrollElRef for navigation.
+provide('modalContentRef', modalScroller);
 
-function onContainerTransitionStart(e) {
-  if (e.propertyName === 'height') {
-    isHeightTransitioning.value = true;
-  }
-}
-
-function onContainerTransitionEnd(e) {
-  if (e.propertyName === 'height') {
-    isHeightTransitioning.value = false;
-  }
-}
-
-// Provide the modalContent ref for height calculations
-provide('modalContentRef', modalContent);
-
-// Provide resetFirstResize for children to signal data loaded
-provide('modalResetFirstResize', resetFirstResize);
-
-// Provide requestHeightDelta for children to pre-announce height changes before animations
+// Accordions (ToggleSection / Multiroom / Network) pre-announce intra-view height
+// changes through this so the clip springs in lock-step with their CSS animation.
 provide('modalRequestHeightDelta', requestHeightDelta);
 
-// Provide contentInner ref so children can measure exact height deltas
+// contentInner ref so children can measure exact height deltas.
 provide('modalContentInnerRef', contentInner);
 
-// Defer the entire finalize callback (Phases 1+2+3 of useViewTransition.onAfterLeave)
-// until the height spring has fully settled. This avoids the spring's overshoot
-// peak (where modal-content.clientHeight ≥ scrollHeight, maxScroll = 0) silently
-// clamping the scrollTop write to 0 on back navigation with positive targetScroll.
-let deferScrollWatcher = null;
+// Navigation height writer for useViewTransition: measures the live stacked
+// content, writes scroller height + reflow, runs the scrollTop restore (beforeClip),
+// then springs the clip — the mandated order height → reflow → scrollTop → clip.
+provide('modalSetNavHeight', (beforeClip) => setTargetHeight(null, { beforeClip }));
 
-// Generation counter: every queued finalize captures the generation at queue time
-// and aborts if cancelDeferredFinalize has bumped the counter since. This guards
-// the two-frame rAF gate, which the watcher cancel alone cannot abort once queued.
-let deferGeneration = 0;
-
-// Cancel any pending deferred finalize. Called by useViewTransition.prepareNavigation()
-// when a new navigation starts, to avoid a stale finalize firing on transitioncancel
-// of the interrupted previous transition (which would corrupt the new transition's
-// state and potentially overwrite scrollTop with the previous nav's target).
-function cancelDeferredFinalize() {
-  deferGeneration++;
-  if (deferScrollWatcher) {
-    deferScrollWatcher();
-    deferScrollWatcher = null;
-  }
-}
-provide('modalCancelDeferredFinalize', cancelDeferredFinalize);
-
-provide('modalDeferScrollRestore', (callback) => {
-  const el = modalContent.value;
-  if (!el) { callback(); return; }
-
-  // Capture the generation at queue time. cancelDeferredFinalize bumps the counter,
-  // so any in-flight rAF or watcher callback aborts when its captured gen no longer
-  // matches the current one. This is the only reliable way to cancel the two-frame
-  // rAF gate below; cancelling the watcher alone leaves rAFs queued.
-  const queuedGen = ++deferGeneration;
-
-  if (deferScrollWatcher) { deferScrollWatcher(); deferScrollWatcher = null; }
-
-  const isStale = () => queuedGen !== deferGeneration;
-
-  const runFinalize = () => {
-    if (isStale()) return;
-    // Force scrollable so scrollTop write inside callback isn't blocked by
-    // the .overflow-transitioning class (which is still applied this microtask
-    // tick, before Vue's render flush removes it).
-    el.style.overflowY = 'auto';
-    callback();
-    // Cleanup: remove inline override on the next frame, after the class has been
-    // removed by Vue's render flush.
-    requestAnimationFrame(() => {
-      if (el) {
-        el.style.overflowY = '';
-      }
-    });
-  };
-
-  // Wait 2 frames so transitionstart has had a chance to fire (it's async after
-  // the inline-style change), then check whether a height spring is in progress.
-  // Both rAFs and the watcher path bail via isStale() if cancelled in the meantime.
-  requestAnimationFrame(() => {
-    if (isStale()) return;
-    requestAnimationFrame(() => {
-      if (isStale()) return;
-      if (isHeightTransitioning.value) {
-        deferScrollWatcher = watch(isHeightTransitioning, (val) => {
-          if (!val) {
-            if (deferScrollWatcher) { deferScrollWatcher(); deferScrollWatcher = null; }
-            runFinalize();
-          }
-        });
-      } else {
-        runFinalize();
-      }
-    });
-  });
-});
+// Absolute height writer for accordions that measure AFTER mutating the DOM
+// (NetworkSettings WiFi-card corrections): they hold the settled height, so they
+// set it directly instead of a delta (a delta would double-count the live content).
+provide('modalSetContentHeight', () => setTargetHeight());
 
 // Variables to cancel ongoing timeouts
 const timer = useTimer();
@@ -243,16 +165,16 @@ async function openModal() {
 
   await nextTick();
 
-  if (!modalContainer.value || !modalOverlay.value || !closeButtonWrapper.value) return;
+  if (!modalShell.value || !modalOverlay.value || !closeButtonWrapper.value) return;
 
   // Initial overlay state (invisible)
   modalOverlay.value.style.transition = 'none';
   modalOverlay.value.style.opacity = '0';
 
-  // Initial container state (invisible and scaled down)
-  modalContainer.value.style.transition = 'none';
-  modalContainer.value.style.opacity = '0';
-  modalContainer.value.style.transform = 'scale(0.95)';
+  // Initial shell state (invisible and scaled down)
+  modalShell.value.style.transition = 'none';
+  modalShell.value.style.opacity = '0';
+  modalShell.value.style.transform = 'scale(0.95)';
 
   // Initial close button state (invisible and higher position)
   closeButtonWrapper.value.style.transition = 'none';
@@ -261,7 +183,7 @@ async function openModal() {
   closeButton.value.$el.style.opacity = '0';
 
   // Force reflow
-  modalContainer.value.offsetHeight;
+  modalShell.value.offsetHeight;
 
   // Overlay enter animation (immediate)
   const overlayTimeout = timer.setTimeout(() => {
@@ -271,12 +193,13 @@ async function openModal() {
   }, ANIMATION_TIMINGS.overlayDelay);
   animationTimeouts.push(overlayTimeout);
 
-  // Container enter animation (scale via --transition-spring, opacity via ease-out)
+  // Shell enter animation (scale via --transition-spring, opacity via ease-out).
+  // Height is owned by the clip (its own CSS spring), never by the shell.
   const containerTimeout = timer.setTimeout(() => {
-    if (!modalContainer.value) return;
-    modalContainer.value.style.transition = 'transform var(--transition-spring-snappy), opacity 300ms var(--easeOutCubic), height var(--transition-spring-snappy)';
-    modalContainer.value.style.opacity = '1';
-    modalContainer.value.style.transform = 'scale(1)';
+    if (!modalShell.value) return;
+    modalShell.value.style.transition = 'transform var(--transition-spring-snappy), opacity 300ms var(--easeOutCubic)';
+    modalShell.value.style.opacity = '1';
+    modalShell.value.style.transform = 'scale(1)';
   }, ANIMATION_TIMINGS.containerDelay);
   animationTimeouts.push(containerTimeout);
 
@@ -313,7 +236,7 @@ async function closeModal() {
 
   isAnimating.value = true;
 
-  if (!modalContainer.value || !modalOverlay.value || !closeButtonWrapper.value) return;
+  if (!modalShell.value || !modalOverlay.value || !closeButtonWrapper.value) return;
 
   // Exit animation with ease-out for closing
   const overlayCloseTimeout = timer.setTimeout(() => {
@@ -324,10 +247,10 @@ async function closeModal() {
   animationTimeouts.push(overlayCloseTimeout);
 
   const containerCloseTimeout = timer.setTimeout(() => {
-    if (!modalContainer.value) return;
-    modalContainer.value.style.transition = `transform ${ANIMATION_TIMINGS.closeContainerDuration}ms var(--easeOutCubic), opacity ${ANIMATION_TIMINGS.closeContainerDuration}ms var(--easeOutCubic), height ${ANIMATION_TIMINGS.closeContainerDuration}ms var(--easeOutCubic)`;
-    modalContainer.value.style.opacity = '0';
-    modalContainer.value.style.transform = 'scale(0.98)';
+    if (!modalShell.value) return;
+    modalShell.value.style.transition = `transform ${ANIMATION_TIMINGS.closeContainerDuration}ms var(--easeOutCubic), opacity ${ANIMATION_TIMINGS.closeContainerDuration}ms var(--easeOutCubic)`;
+    modalShell.value.style.opacity = '0';
+    modalShell.value.style.transform = 'scale(0.98)';
   }, ANIMATION_TIMINGS.closeContainerDelay);
   animationTimeouts.push(containerCloseTimeout);
 
@@ -411,7 +334,6 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  if (deferScrollWatcher) { deferScrollWatcher(); deferScrollWatcher = null; }
   document.removeEventListener('keydown', handleKeydown);
   document.body.style.overflow = '';
   // Pending animation timeouts and the inactivity timer are auto-cleared by useTimer.
@@ -448,7 +370,9 @@ onUnmounted(() => {
   max-height: 100%;
 }
 
-.modal-container {
+/* Shell: chrome (radius, glass stroke, open/close scale+opacity). Does NOT scroll
+   and does NOT carry the animated height — it wraps the clip and tracks its height. */
+.modal-shell {
   position: relative;
   background: var(--color-background-neutral-50);
   border-radius: var(--radius-08);
@@ -458,10 +382,9 @@ onUnmounted(() => {
   flex-direction: column;
   opacity: 0;
   overflow: hidden;
-  transition: height var(--transition-spring-slow);
 }
 
-.modal-container::before {
+.modal-shell::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -478,6 +401,15 @@ onUnmounted(() => {
   pointer-events: none;
 }
 
+/* Clip: carries the animated (spring) height and masks the scroller beneath it.
+   May overshoot harmlessly — it only over-reveals/over-masks a few px. */
+.modal-clip {
+  flex: 0 0 auto;
+  max-height: 100%;
+  overflow: hidden;
+  transition: height var(--transition-spring-light);
+}
+
 .close-btn-wrapper {
   position: absolute;
   top: 0;
@@ -491,20 +423,18 @@ onUnmounted(() => {
   visibility: visible;
 }
 
-.modal-content {
+/* Scroller: the single scroll container. Its height is set explicitly in px
+   (= final target, transition:none) so clientHeight is independent of the clip
+   spring — that is what keeps maxScroll exact and scrollTop writes un-clamped.
+   overflow-y is permanently auto; it is never toggled. */
+.modal-scroller {
   overflow-y: auto;
   padding: var(--space-04);
   display: flex;
   flex-direction: column;
-  min-height: 0;
   touch-action: pan-y;
   border-radius: var(--radius-08);
-}
-
-/* Prevent scrollbar flicker during container height spring.
-   overflow:hidden (not visible) preserves scrollTop during view transitions. */
-.modal-content.overflow-transitioning {
-  overflow: hidden;
+  transition: none;
 }
 
 .modal-content-inner {
@@ -538,9 +468,9 @@ onUnmounted(() => {
     max-width: none;
   }
 
-  .modal-container,
-  .modal-content,
-  .modal-container::before {
+  .modal-shell,
+  .modal-scroller,
+  .modal-shell::before {
     border-radius: var(--radius-07);
   }
 
