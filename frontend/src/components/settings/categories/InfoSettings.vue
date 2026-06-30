@@ -117,7 +117,7 @@ async function loadMiloVersion() {
 async function loadSystemTemperature() {
   if (temperatureLoading.value) return;
   temperatureLoading.value = true;
-  const result = await apiCall.get('/api/settings/system-temperature', {
+  const result = await apiCall.get('/api/system/temperature', {
     category: 'system',
     message: 'Error loading temperature',
     checkStatus: true
@@ -129,7 +129,7 @@ async function loadSystemTemperature() {
 async function loadNetworkInfo() {
   if (ipLoading.value) return;
   ipLoading.value = true;
-  const result = await apiCall.get('/api/settings/network-info', {
+  const result = await apiCall.get('/api/system/network-info', {
     category: 'system',
     message: 'Error loading network info',
     checkStatus: true
@@ -141,7 +141,7 @@ async function loadNetworkInfo() {
 async function loadSystemResources() {
   if (resourcesLoading.value) return;
   resourcesLoading.value = true;
-  const result = await apiCall.get('/api/settings/system-resources', {
+  const result = await apiCall.get('/api/system/resources', {
     category: 'system',
     message: 'Error loading system resources',
     checkStatus: true
