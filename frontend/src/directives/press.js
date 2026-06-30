@@ -6,6 +6,12 @@
 
 const PRESS_SHRINK_PX = 4
 
+// Past this travel, the gesture is a scroll, not a press. Lower on the vertical
+// axis since our scrollers pan vertically — cancel the press before a small
+// downward drift becomes a synthesized click.
+const PRESS_MOVE_CANCEL_PX = 10
+const PRESS_MOVE_CANCEL_CROSS_PX = 7
+
 function updateScale(el) {
   const rect = el.getBoundingClientRect()
   const avgDimension = (rect.width + rect.height) / 2
@@ -16,7 +22,6 @@ function updateScale(el) {
     return
   }
 
-  // Calculate scale: (size - shrinkPx) / size
   const scale = (avgDimension - PRESS_SHRINK_PX) / avgDimension
 
   // Clamp to reasonable range (0.85 to 0.98)
@@ -26,10 +31,8 @@ function updateScale(el) {
 }
 
 function setupPress(el) {
-  // Initial scale calculation
   updateScale(el)
 
-  // Observe size changes
   const observer = new ResizeObserver(() => updateScale(el))
   observer.observe(el)
   el._pressObserver = observer
@@ -41,6 +44,8 @@ function setupPress(el) {
     // Capture pointer to ensure click fires even after scale transform shrinks hit area
     el.setPointerCapture(e.pointerId)
     el._pressPointerId = e.pointerId
+    el._pressStartX = e.clientX
+    el._pressStartY = e.clientY
     el._pressStart = performance.now()
     el.classList.add('pressed')
   }
@@ -88,7 +93,20 @@ function setupPress(el) {
     releasePressed()
   }
 
+  // A captured touch pointer doesn't reliably fire pointercancel when a scroll
+  // starts, so detect the scroll ourselves: once the finger travels past the
+  // threshold, drop the press (no synthesized click) and release the pointer.
+  el._pressMoveHandler = (e) => {
+    if (e.pointerId !== el._pressPointerId) return
+    if (Math.abs(e.clientX - el._pressStartX) <= PRESS_MOVE_CANCEL_PX
+      && Math.abs(e.clientY - el._pressStartY) <= PRESS_MOVE_CANCEL_CROSS_PX) return
+    el._pressPointerId = null
+    if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId)
+    releasePressed()
+  }
+
   el.addEventListener('pointerdown', el._pressHandler, { passive: true })
+  el.addEventListener('pointermove', el._pressMoveHandler, { passive: true })
   el.addEventListener('pointerup', el._pressUpHandler, { passive: true })
   el.addEventListener('pointercancel', el._pressCancelHandler, { passive: true })
   el.addEventListener('click', el._pressClickHandler, { passive: true })
@@ -101,16 +119,20 @@ function cleanupPress(el) {
   }
   if (el._pressHandler) {
     el.removeEventListener('pointerdown', el._pressHandler)
+    el.removeEventListener('pointermove', el._pressMoveHandler)
     el.removeEventListener('pointerup', el._pressUpHandler)
     el.removeEventListener('pointercancel', el._pressCancelHandler)
     el.removeEventListener('click', el._pressClickHandler)
     delete el._pressHandler
+    delete el._pressMoveHandler
     delete el._pressUpHandler
     delete el._pressCancelHandler
     delete el._pressClickHandler
     delete el._pressPointerId
     delete el._pressNativeClick
     delete el._pressStart
+    delete el._pressStartX
+    delete el._pressStartY
   }
   el.classList.remove('interactive-press', 'pressed')
   el.style.removeProperty('--press-scale')
