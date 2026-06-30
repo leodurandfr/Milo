@@ -276,9 +276,11 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   transition: width var(--transition-spring);
 }
 
-/* Transition wrapper: isolates position: absolute during leave */
+/* View stack: leaving + entering views share one grid cell, so the box reserves
+   max(leaving, entering) height intrinsically (no position:absolute overlay). */
 .transition-wrapper {
-  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   min-height: 0;
 }
 
@@ -290,17 +292,18 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   width: 100%;
 }
 
+/* Both views occupy the single stack cell during the cross-fade. align-self:start
+   keeps each at its natural height. */
+:deep(.fade-slide-enter-active),
+:deep(.fade-slide-leave-active) {
+  grid-row: 1;
+  grid-column: 1;
+  align-self: start;
+}
+
 /* Enter starts after leave begins (sequential fade-out → fade-in) */
 :deep(.fade-slide-enter-active) {
   transition-delay: 100ms;
-}
-
-/* Cross-fade: leaving content overlays absolutely (doesn't affect height) */
-:deep(.fade-slide-leave-active) {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
 }
 
 /* Player wrapper: animates width to create space for player */

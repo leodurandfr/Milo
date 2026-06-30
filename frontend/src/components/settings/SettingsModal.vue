@@ -683,22 +683,26 @@ onMounted(async () => {
   transition: padding var(--transition-fast), opacity var(--transition-in-out);
 }
 
-/* Cross-fade wrapper: positioning context for leaving element overlay */
+/* View stack: leaving + entering views share one grid cell, so the box reserves
+   max(leaving, entering) height intrinsically — no manual min-height pin, no
+   position:absolute overlay. */
 .transition-wrapper {
-  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
 }
 
-/* Enter starts after leave finishes (sequential fade-out → fade-in) */
+/* Both views occupy the single stack cell during the cross-fade. align-self:start
+   keeps each at its natural height so the height delta stays measurable. */
+:deep(.fade-slide-enter-active),
+:deep(.fade-slide-leave-active) {
+  grid-row: 1;
+  grid-column: 1;
+  align-self: start;
+}
+
+/* Enter starts after leave begins (sequential fade-out → fade-in) */
 :deep(.fade-slide-enter-active) {
   transition-delay: 100ms;
-}
-
-/* Cross-fade: leaving content overlays absolutely (doesn't affect height) */
-:deep(.fade-slide-leave-active) {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
 }
 
 .view-content {
