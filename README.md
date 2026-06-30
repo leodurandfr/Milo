@@ -1,5 +1,6 @@
+
 <picture>
-  <img src="https://leodurand.com/_autres/cover-milo-github@2x.png" />
+  <img src="https://github.com/user-attachments/assets/04496b1a-9c71-4f21-8f40-8329713e58d7" />
 </picture>
 
 # Milō
@@ -199,4 +200,5 @@ Control Milō from your other devices:
 - [📖 User Manual](docs/manual/manual_en.md) — End-user guide ([French](docs/manual/manual_fr.md))
 
 ## License
+
 
