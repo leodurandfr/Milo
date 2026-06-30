@@ -2,7 +2,7 @@
 <template>
   <div class="settings-modal">
     <!-- Single NavigationHeader outside transition -->
-    <NavigationHeader ref="headerRef" :title="headerTitle" :show-back="canGoBack" :actions-key="currentView"
+    <NavigationHeader :title="headerTitle" :show-back="canGoBack" :actions-key="currentView"
       @back="back">
       <template v-if="currentView === 'home' || currentView === 'multiroom' || currentView === 'bt-remote' || showIrRemoteToggle || showFanToggle || stationActionIcon" #actions>
         <button v-if="currentView === 'home'" v-press class="power-toggle" @click="togglePowerMenu">
@@ -329,7 +329,6 @@ const modalCancelDeferredFinalize = inject('modalCancelDeferredFinalize', null);
 const { currentView, canGoBack, push: navPush, back: navBack, reset, goTo, pendingScrollRestore } =
   useNavigationStack('home', { scrollElRef: modalContentRef });
 
-const headerRef = ref(null);
 const stationToEdit = ref(null);
 const zoneGroupId = ref(null);
 const macIdToEdit = ref(null);
@@ -343,7 +342,6 @@ const shutdownInProgress = ref(false);
 // Scroll-aware view transition (shared with AudioSourceLayout via composable)
 const { prepareNavigation, onBeforeLeave, onEnter, onAfterLeave } = useViewTransition({
   scrollElRef: modalContentRef,
-  headerRef,
   pendingScrollRestore,
   onScrollRestored: () => { pendingScrollRestore.value = null; },
   deferScrollRestore: modalDeferScrollRestore,
@@ -352,9 +350,9 @@ const { prepareNavigation, onBeforeLeave, onEnter, onAfterLeave } = useViewTrans
   cancelDeferred: modalCancelDeferredFinalize,
 });
 
-// Wrap push/back to pre-capture header clone.
-// Called AFTER nav mutation so pendingScrollRestore is set, but BEFORE
-// Vue re-renders the DOM (batched to next tick), so the clone captures old content.
+// Wrap push/back to prepare the cross-fade. Called AFTER the nav mutation so
+// pendingScrollRestore is set, but BEFORE Vue re-renders the DOM (batched to the
+// next tick), so prepareNavigation captures the pre-patch height.
 function push(view, params) {
   showPowerMenu.value = false;
   confirmRestart.value = false;
