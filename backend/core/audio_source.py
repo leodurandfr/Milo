@@ -1,15 +1,31 @@
 # backend/core/audio_source.py
 """BaseAudioSource - base class for all audio sources."""
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Type
 from abc import ABC, abstractmethod
 import asyncio
 import logging
+
+from pydantic import BaseModel, ValidationError
 
 from backend.core.models.audio_state import AudioSource, SourceState
 from backend.core.models.source_metadata import PlaybackMetadata
 from backend.shared.background import BackgroundTaskSet
 
 logger = logging.getLogger(__name__)
+
+
+def _format_validation_error(cmd: str, error: ValidationError) -> str:
+    """Flatten a Pydantic ValidationError into a single human-readable line.
+
+    Drops the pydantic doc URL / input echo / model name that str(error) carries,
+    keeping only the offending field(s) and reason — used as the command's error
+    message (surfaced by run_source_command as the HTTP 400 detail, and logged).
+    """
+    details = "; ".join(
+        f"{'.'.join(map(str, err['loc'])) or '(root)'}: {err['msg']}"
+        for err in error.errors()
+    )
+    return f"Invalid parameters for '{cmd}': {details}"
 
 
 class BaseAudioSource(ABC):
@@ -45,12 +61,19 @@ class BaseAudioSource(ABC):
                 # Stop mpv, cleanup
                 return True
 
-            async def _handle_command(self, cmd: str, data: Dict) -> Dict:
+            COMMANDS = {"tune": TuneParams, "stop": None}
+
+            async def _handle_command(self, cmd, params) -> Dict:
                 if cmd == "tune":
-                    # Handle tune command
-                    return self.success_response("Tuned to station")
-                return self.error_response(f"Unknown command: {cmd}")
+                    return self.success_response(f"Tuned to {params.station}")
+                ...
     """
+
+    # Per-command parameter contract: command name -> Pydantic model (or None for
+    # no-param commands). command() validates raw input against this before dispatch,
+    # so _handle_command() receives a validated model. Override per source; an empty
+    # map (the default) makes command() reject every command as unknown.
+    COMMANDS: Dict[str, Optional[Type[BaseModel]]] = {}
 
     def __init__(
         self,
@@ -202,23 +225,40 @@ class BaseAudioSource(ABC):
         """
         return await self.start()
 
-    async def command(self, cmd: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    async def command(self, cmd: str, data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        Execute a source-specific command.
+        Validate and execute a source-specific command.
 
-        Delegates to _handle_command() for implementation.
+        Single validation boundary for every producer (generic control route,
+        run_source_command, hardware playback dispatch): the command name is
+        checked against COMMANDS, then its params are validated against the
+        registered Pydantic model before _handle_command() runs on typed input.
+
+        Always returns a response dict (never raises) so run_source_command maps
+        bad input to HTTP 400, not 500.
 
         Args:
             cmd: Command name
-            data: Command parameters
+            data: Raw command parameters (may be None from the public route)
 
         Returns:
             Response dict with success, message/error, and custom data
         """
         self._logger.debug(f"Command: {cmd} with data: {data}")
 
+        payload = data or {}
+        if cmd not in self.COMMANDS:
+            return self.error_response(f"Unknown command: {cmd}")
+
+        model = self.COMMANDS[cmd]
         try:
-            return await self._handle_command(cmd, data)
+            params = model.model_validate(payload) if model else None
+        except ValidationError as e:
+            self._logger.warning(f"Invalid params for '{cmd}': {e}")
+            return self.error_response(_format_validation_error(cmd, e))
+
+        try:
+            return await self._handle_command(cmd, params)
         except Exception as e:
             self._logger.error(f"Error handling command {cmd}: {e}")
             return self.error_response(str(e))
@@ -290,21 +330,22 @@ class BaseAudioSource(ABC):
             return False
         return await self.start()
 
-    async def _handle_command(self, cmd: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
         """
         Source-specific command handling.
 
-        Override to implement source-specific commands.
-        Default returns error for unknown command.
+        Override to implement source-specific commands. command() has already
+        rejected unknown commands and validated params against COMMANDS[cmd], so
+        params is the validated model (or None for no-param commands).
 
         Args:
-            cmd: Command name
-            data: Command parameters
+            cmd: Command name (guaranteed present in COMMANDS)
+            params: Validated parameter model, or None
 
         Returns:
             Response dict
         """
-        return self.error_response(f"Unknown command: {cmd}")
+        return self.error_response(f"Unhandled command: {cmd}")
 
     # === Auto-Stop Timer ===
 

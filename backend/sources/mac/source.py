@@ -18,6 +18,8 @@ import re
 import ipaddress
 from typing import Dict, Any, Optional, Tuple
 
+from pydantic import BaseModel
+
 from backend.core.audio_source import BaseAudioSource
 from backend.core.models.audio_state import SourceState
 from backend.shared.decorators import handle_errors
@@ -137,7 +139,9 @@ class MacSource(BaseAudioSource):
 
         return await self._stop_service()
 
-    async def _handle_command(self, cmd: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    COMMANDS = {"get_connections": None}
+
+    async def _handle_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
         """Handle Mac-specific commands."""
         if cmd == "get_connections":
             return self.success_response(
@@ -145,7 +149,7 @@ class MacSource(BaseAudioSource):
                 connection_count=len(self.connected_clients)
             )
 
-        return self.error_response(f"Unknown command: {cmd}")
+        return self.error_response(f"Unhandled command: {cmd}")
 
     # === Connection Monitoring ===
 

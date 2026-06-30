@@ -21,9 +21,11 @@ import yaml
 from typing import Dict, Any, Optional
 
 import aiohttp
+from pydantic import BaseModel
 
 from backend.core.audio_source import BaseAudioSource
 from backend.core.models.source_metadata import PlaybackMetadata
+from backend.sources.spotify.models import SeekParams, NextPrevParams
 from backend.sources.spotify.websocket import LibrespotWebSocket
 from backend.shared.decorators import handle_errors
 
@@ -157,7 +159,18 @@ class SpotifySource(BaseAudioSource):
         if not result.get("success"):
             self._logger.warning(f"Auto-stop /player/stop failed: {result.get('error')}")
 
-    async def _handle_command(self, cmd: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    COMMANDS = {
+        "refresh_metadata": None,
+        "play": None,
+        "pause": None,
+        "resume": None,
+        "playpause": None,
+        "seek": SeekParams,
+        "next": NextPrevParams,
+        "prev": NextPrevParams,
+    }
+
+    async def _handle_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
         """Handle Spotify-specific commands."""
         if cmd == "refresh_metadata":
             success = await self._refresh_metadata()
@@ -167,24 +180,21 @@ class SpotifySource(BaseAudioSource):
             )
 
         if cmd == "seek":
-            position = data.get("position_ms")
-            if position is None:
-                return self.error_response("position_ms required")
-            if not isinstance(position, (int, float)) or position < 0:
-                return self.error_response("position_ms must be a non-negative number")
             duration = self._metadata.get("duration", 0)
-            if duration > 0 and position > duration:
-                return self.error_response(f"position_ms ({position}) exceeds duration ({duration}ms)")
-            return await self._send_api_command("seek", {"position": int(position)})
+            if duration > 0 and params.position_ms > duration:
+                return self.error_response(
+                    f"position_ms ({params.position_ms}) exceeds duration ({duration}ms)"
+                )
+            return await self._send_api_command("seek", {"position": int(params.position_ms)})
 
         if cmd in ["play", "pause", "resume", "playpause"]:
             return await self._send_api_command(cmd)
 
         if cmd in ["next", "prev"]:
-            payload = {"uri": data.get("uri")} if data.get("uri") else {}
+            payload = {"uri": params.uri} if params.uri else {}
             return await self._send_api_command(cmd, payload)
 
-        return self.error_response(f"Unknown command: {cmd}")
+        return self.error_response(f"Unhandled command: {cmd}")
 
     # === Config Loading ===
 

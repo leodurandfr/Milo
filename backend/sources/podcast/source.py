@@ -15,8 +15,11 @@ Features:
 import asyncio
 from typing import Dict, Any, Optional
 
+from pydantic import BaseModel
+
 from backend.core.models.audio_state import SourceState
 from backend.core.models.source_metadata import PlaybackMetadata
+from backend.sources.podcast.models import PlayEpisodeParams, SeekParams, SetSpeedParams
 from backend.sources.podcast.data import PodcastDataService
 from backend.shared.decorators import handle_errors
 from backend.shared.mpv import MpvController
@@ -158,10 +161,19 @@ class PodcastSource(MpvAudioSource):
         self._metadata = self._build_playback_metadata()
         return True
 
-    async def _handle_command(self, cmd: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    COMMANDS = {
+        "play_episode": PlayEpisodeParams,
+        "pause": None,
+        "resume": None,
+        "seek": SeekParams,
+        "stop": None,
+        "set_speed": SetSpeedParams,
+    }
+
+    async def _handle_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
         """Handle Podcast-specific commands."""
         if cmd == "play_episode":
-            return await self._handle_play_episode(data)
+            return await self._handle_play_episode(params)
 
         if cmd == "pause":
             return await self._handle_pause()
@@ -170,23 +182,21 @@ class PodcastSource(MpvAudioSource):
             return await self._handle_resume()
 
         if cmd == "seek":
-            return await self._handle_seek(data)
+            return await self._handle_seek(params)
 
         if cmd == "stop":
             return await self._handle_stop_playback()
 
         if cmd == "set_speed":
-            return await self._handle_set_speed(data)
+            return await self._handle_set_speed(params)
 
-        return self.error_response(f"Unknown command: {cmd}")
+        return self.error_response(f"Unhandled command: {cmd}")
 
     # === Command Handlers ===
 
-    async def _handle_play_episode(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_play_episode(self, params: PlayEpisodeParams) -> Dict[str, Any]:
         """Play an episode."""
-        episode_uuid = data.get('episode_uuid')
-        if not episode_uuid:
-            return self.error_response("episode_uuid required")
+        episode_uuid = params.episode_uuid
 
         try:
             self._logger.info(f"Starting playback for episode: {episode_uuid}")
@@ -330,18 +340,9 @@ class PodcastSource(MpvAudioSource):
         except Exception as e:
             return self.error_response(str(e))
 
-    async def _handle_seek(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Seek to position. Accepts `position` (seconds) or `position_ms`.
-
-        position_ms is the wire convention used by useSourceProgress.seekTo
-        (shared with Spotify/AirPlay); `position` (seconds) is kept for the
-        internal resume-seek in the /play route.
-        """
-        position = data.get('position')
-        if position is None and data.get('position_ms') is not None:
-            position = data['position_ms'] / 1000
-        if position is None:
-            return self.error_response("position required")
+    async def _handle_seek(self, params: SeekParams) -> Dict[str, Any]:
+        """Seek to position (params normalize `position`/`position_ms` to seconds)."""
+        position = params.seconds
 
         try:
             await self._mpv.seek(int(position))
@@ -391,14 +392,10 @@ class PodcastSource(MpvAudioSource):
         except Exception as e:
             return self.error_response(str(e))
 
-    async def _handle_set_speed(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_set_speed(self, params: SetSpeedParams) -> Dict[str, Any]:
         """Set playback speed."""
-        speed = data.get('speed')
-        if speed is None:
-            return self.error_response("speed required")
-
         try:
-            speed = float(speed)
+            speed = params.speed
             if speed not in VALID_PLAYBACK_SPEEDS:
                 self._logger.info(f"Invalid speed {speed}, using nearest valid")
                 speed = min(VALID_PLAYBACK_SPEEDS, key=lambda x: abs(x - speed))
