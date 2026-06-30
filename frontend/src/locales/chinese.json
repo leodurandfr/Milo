@@ -308,9 +308,9 @@
   },
   "multiroomSettings": {
     "presets": "预设",
-    "lan": "LAN",
-    "wifiStable": "WiFi 稳定",
-    "wifiWeak": "WiFi 弱",
+    "responsive": "低延迟",
+    "balanced": "均衡",
+    "robust": "稳健",
     "advanced": "高级设置",
     "globalBuffer": "全局缓冲区 (ms)",
     "snapclientBuffer": "播放器缓冲区 (ms)",

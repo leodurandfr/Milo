@@ -308,9 +308,9 @@
   },
   "multiroomSettings": {
     "presets": "Preajustes",
-    "lan": "LAN",
-    "wifiStable": "WiFi estable",
-    "wifiWeak": "WiFi débil",
+    "responsive": "Reactivo",
+    "balanced": "Equilibrado",
+    "robust": "Robusto",
     "advanced": "Ajustes avanzados",
     "globalBuffer": "Búfer global (ms)",
     "snapclientBuffer": "Búfer del reproductor (ms)",

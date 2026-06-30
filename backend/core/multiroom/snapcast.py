@@ -22,15 +22,15 @@ from backend.shared.decorators import handle_errors
 # capabilities payload the frontend builds its codec options from.
 SUPPORTED_CODECS = ["flac", "pcm", "opus", "ogg"]
 
-# Network-quality presets surfaced by the UI (ids are i18n'd client-side).
-# Buffer/codec values from real-world testing (e5fb91d2); chunk_ms follows
-# the 40 ms idle-wakeup default adopted in 9635166b.
+# Use-case presets surfaced by the UI (ids are i18n'd client-side). 'responsive'
+# is the measured wired stability floor + margin (lossless PCM, lowest latency);
+# 'balanced' / 'robust' keep the proven Wi-Fi-tolerant values for weak networks.
 NETWORK_PRESETS = [
-    {"id": "lan",
-     "config": {"buffer_ms": 300, "codec": "flac", "chunk_ms": 40, "snapclient_buffer_time": 120}},
-    {"id": "wifi_stable",
+    {"id": "responsive",
+     "config": {"buffer_ms": 180, "codec": "pcm", "chunk_ms": 20, "snapclient_buffer_time": 60}},
+    {"id": "balanced",
      "config": {"buffer_ms": 700, "codec": "flac", "chunk_ms": 40, "snapclient_buffer_time": 120}},
-    {"id": "wifi_weak",
+    {"id": "robust",
      "config": {"buffer_ms": 1500, "codec": "opus", "chunk_ms": 40, "snapclient_buffer_time": 200}},
 ]
 
@@ -334,7 +334,7 @@ class SnapcastService:
     def _validate_config(self, config: Dict[str, Any]) -> bool:
         """Validate configuration parameters."""
         validators = {
-            "buffer_ms": lambda x: isinstance(x, int) and 200 <= x <= 3000,
+            "buffer_ms": lambda x: isinstance(x, int) and 150 <= x <= 3000,
             "codec": lambda x: x in SUPPORTED_CODECS,
             "chunk_ms": lambda x: isinstance(x, int) and 15 <= x <= 50,
             "snapclient_buffer_time": lambda x: isinstance(x, int) and 60 <= x <= 300,

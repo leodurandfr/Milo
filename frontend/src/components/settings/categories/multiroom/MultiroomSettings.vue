@@ -90,7 +90,7 @@
             <h2 class="heading-2">{{ t('multiroomSettings.advanced') }}</h2>
 
             <SettingItem :label="t('multiroomSettings.globalBuffer')">
-              <RangeSlider v-model="snapcastStore.serverConfig.buffer_ms" :min="200" :max="3000" :step="100"
+              <RangeSlider v-model="snapcastStore.serverConfig.buffer_ms" :min="150" :max="3000" :step="100"
                 value-unit="ms" :disabled="snapcastStore.isApplyingServerConfig" />
             </SettingItem>
 
@@ -270,7 +270,7 @@ function handleEditClient(macId) {
 
 // Presets come from the backend capabilities (single source of truth);
 // only the display name is resolved here, via i18n keyed on the preset id
-// (snake_case id → camelCase key: lan, wifiStable, wifiWeak).
+// (responsive, balanced, robust).
 const audioPresets = computed(() =>
   snapcastStore.capabilities.presets.map(preset => ({
     id: preset.id,
