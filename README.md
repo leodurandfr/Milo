@@ -1,5 +1,5 @@
 <picture>
-  <img src="https://github.com/user-attachments/assets/a6c07963-9dec-4aa2-9a3d-ffd4678b79c1" />
+  <img src="https://github.com/user-attachments/assets/e22ae7e7-0b13-48bc-8361-2b49e6784208" />
 </picture>
 
 # Milō
