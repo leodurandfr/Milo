@@ -25,6 +25,9 @@ class MpvController:
         self._command_id = 0
         self._connected = False
         self._command_lock = asyncio.Lock()
+        # Launch-time --stream-lavf-o (HTTP reconnect options), captured on
+        # first connect and toggled off for HLS in load_stream. None until captured.
+        self._default_stream_lavf_o: Optional[Any] = None
 
     async def connect(self, max_retries: int = 10, retry_delay: float = 0.5) -> bool:
         """
@@ -62,6 +65,11 @@ class MpvController:
                     else:
                         self.logger.error("mpv connected but never responded to commands")
                         return False
+
+                # Capture the launch-time reconnect options once, while mpv is
+                # pristine — load_stream clears them for HLS and restores this.
+                if self._default_stream_lavf_o is None:
+                    self._default_stream_lavf_o = await self.get_property("stream-lavf-o")
 
                 self.logger.info(f"Connected to mpv IPC socket: {self.ipc_socket_path}")
                 return True
@@ -189,6 +197,31 @@ class MpvController:
         """
         return await self._send_command(command, *args)
 
+    @staticmethod
+    def _is_hls(url: str) -> bool:
+        """True if the URL is an HLS playlist (.m3u8), ignoring query/fragment."""
+        path = url.split("?", 1)[0].split("#", 1)[0]
+        return path.lower().endswith(".m3u8")
+
+    async def _apply_stream_options(self, url: str) -> None:
+        """
+        Scope mpv's --stream-lavf-o reconnect options per stream.
+
+        The reconnect options are HTTP-stream options that keep an Icecast
+        stream alive, but they stall HLS: ffmpeg reconnects at every segment
+        EOF instead of advancing, so mpv never produces a first frame and the
+        stream hangs in "loading" forever. Suppress them for .m3u8 (the HLS
+        demuxer handles its own segment retries) and keep the launch defaults
+        (captured in connect) otherwise. The systemd unit stays the single
+        source of truth.
+        """
+        if not url:
+            return
+        if self._is_hls(url):
+            await self.set_property("stream-lavf-o", "")
+        elif self._default_stream_lavf_o is not None:
+            await self.set_property("stream-lavf-o", self._default_stream_lavf_o)
+
     async def load_stream(self, url: str) -> bool:
         """
         Loads and plays a radio stream
@@ -199,6 +232,7 @@ class MpvController:
         Returns:
             True if command sent successfully
         """
+        await self._apply_stream_options(url)
         self.logger.info(f"Loading stream: {url[:100]}...")
         response = await self._send_command("loadfile", url, "replace")
 
