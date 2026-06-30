@@ -54,7 +54,6 @@ export function useViewTransition({
   let headerClone = null;
   let savedInnerHeight = 0;
   let savedLeavingHeight = 0;
-  let pinnedWrapper = null;
   const SCROLL_FADE_THRESHOLD = 0;
 
   /**
@@ -69,15 +68,9 @@ export function useViewTransition({
     cancelDeferred?.();
 
     // Clean up stale state from an interrupted transition
-    if (pinnedWrapper) {
-      pinnedWrapper.style.minHeight = '';
-      pinnedWrapper = null;
-    }
     if (enteringEl) {
       enteringEl.style.position = '';
       enteringEl.style.top = '';
-      enteringEl.style.left = '';
-      enteringEl.style.width = '';
       enteringEl = null;
     }
     if (headerClone && headerClone.parentNode) {
@@ -137,18 +130,6 @@ export function useViewTransition({
     // Save leaving element height for delta calculation
     savedLeavingHeight = el.offsetHeight;
 
-    // Pin the transition-wrapper height so it doesn't shrink when the leaving
-    // element goes position:absolute. This keeps the container stable during
-    // the crossfade (no flash/crop on the leaving content).
-    // Only needed in Modal context where animated height depends on contentInner.
-    if (requestHeightDelta) {
-      const wrapper = el.parentNode;
-      if (wrapper) {
-        wrapper.style.minHeight = `${wrapper.offsetHeight}px`;
-        pinnedWrapper = wrapper;
-      }
-    }
-
     if (isScrolled || willBeScrolled) {
       wasScrolled = true;
       savedScrollTop = scrollTop;
@@ -186,8 +167,8 @@ export function useViewTransition({
         });
       }
 
-      // Leaving element stays at scroll position (in flow, overrides leave-active absolute)
-      el.style.position = 'static';
+      // Leaving element stays at its scroll offset: it is a grid-stack cell child
+      // (in flow), so no positioning override is needed.
     } else {
       // Clean up unused pre-created clone (scroll was below threshold)
       if (headerClone) {
@@ -217,26 +198,15 @@ export function useViewTransition({
 
     if (wasScrolled) {
       enteringEl = el;
-      // Position entering content so target scroll position aligns with viewport.
+      // Offset entering content (relative, stays in grid flow) so the target scroll
+      // position aligns with the viewport. Relative positioning keeps the element
+      // contributing to the grid cell's size — so the cell reserves max(leaving,
+      // entering) intrinsically — and leaves `transform` free for the fade-slide.
       // Forward (target=0): top = savedScrollTop (content top visible at scroll offset)
       // Back (target=T): top = savedScrollTop - T (content at T aligns with viewport)
       const cssOffset = savedScrollTop - targetScroll;
-      el.style.position = 'absolute';
+      el.style.position = 'relative';
       el.style.top = `${cssOffset}px`;
-      el.style.left = '0';
-      el.style.width = '100%';
-
-      // When CSS offset is negative (back nav to scrolled view), the entering
-      // element is shifted up and its visible portion is shorter than its full
-      // height. Expand the wrapper's minHeight to match the visible content so
-      // contentInner fills the container (avoids empty space at the bottom).
-      if (cssOffset < 0 && pinnedWrapper) {
-        const visibleHeight = el.offsetHeight + cssOffset;
-        const currentMinHeight = parseFloat(pinnedWrapper.style.minHeight) || 0;
-        if (visibleHeight > currentMinHeight) {
-          pinnedWrapper.style.minHeight = `${visibleHeight}px`;
-        }
-      }
 
       // For back navigation, reposition the header at the target scroll offset
       // so it matches the CSS-offset entering content. This runs while
@@ -264,10 +234,9 @@ export function useViewTransition({
       });
     } else if (savedScrollTop !== targetScroll) {
       enteringEl = el;
-      // CSS offset trick: position at visual scroll offset for scroll restore
-      el.style.position = 'absolute';
+      // Relative offset (stays in grid flow) to preview the scroll-restore position.
+      el.style.position = 'relative';
       el.style.top = `${savedScrollTop - targetScroll}px`;
-      el.style.width = '100%';
     }
 
     // Pre-calculate height delta for Modal spring animation.
@@ -303,10 +272,10 @@ export function useViewTransition({
         }
 
         if (Math.abs(delta) > 2) {
-          // skipUnlockCorrection: the wrapper is un-pinned in onAfterLeave's finalize
-          // (after this delta's spring settles), and the ResizeObserver reconciles the
-          // real height then. Re-measuring at unlock would read the still-pinned height
-          // and apply a spurious correction the ResizeObserver immediately reverts.
+          // skipUnlockCorrection: during the cross-fade the grid-stack cell holds
+          // max(leaving, entering); re-measuring at unlock would read that transient
+          // stacked height and apply a spurious correction. Trust the predicted target
+          // and let the ResizeObserver reconcile once the leaving view is gone.
           requestHeightDelta(delta, 800, { skipOverflowCheck: true, skipUnlockCorrection: true });
         }
       });
@@ -322,11 +291,10 @@ export function useViewTransition({
     const targetScroll = unref(pendingScrollRestore) ?? 0;
     const shouldSignalRestore = unref(pendingScrollRestore) !== null;
 
-    // Phases 1+2+3 must happen ATOMICALLY in the same frame to avoid visual jumps:
-    // - Phase 1 resets entering element from absolute (top:-X, simulating scroll) to in-flow.
-    // - Phase 2 unpins the wrapper.
+    // Phases 1+3 must happen ATOMICALLY in the same frame to avoid visual jumps:
+    // - Phase 1 resets the entering element's relative scroll-offset back to in-flow.
     // - Phase 3 sets scrollTop to the target.
-    // Until these run, the entering element shows the "scrolled" view via CSS offset.
+    // Until these run, the entering element shows the "scrolled" view via the relative offset.
     //
     // In Modal context, the height spring may overshoot (linear() bezier > 1) and clamp
     // modal-content.clientHeight ≥ scrollHeight, making maxScroll = 0 and silently
@@ -353,8 +321,6 @@ export function useViewTransition({
         if (enteringEl) {
           enteringEl.style.position = '';
           enteringEl.style.top = '';
-          enteringEl.style.left = '';
-          enteringEl.style.width = '';
         }
         enteringEl = null;
         wasScrolled = false;
@@ -362,14 +328,7 @@ export function useViewTransition({
       } else if (enteringEl && savedScrollTop !== targetScroll) {
         enteringEl.style.position = '';
         enteringEl.style.top = '';
-        enteringEl.style.width = '';
         enteringEl = null;
-      }
-
-      // --- Phase 2: Unpin wrapper height ---
-      if (pinnedWrapper) {
-        pinnedWrapper.style.minHeight = '';
-        pinnedWrapper = null;
       }
 
       // --- Phase 3: Restore scroll ---
