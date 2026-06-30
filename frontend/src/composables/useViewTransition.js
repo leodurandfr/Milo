@@ -87,6 +87,19 @@ export function useViewTransition({
     el.style.transform = '';
   }
 
+  // Hold the header at `transform` (with transition:none), commit it with a reflow,
+  // then fade opacity to `toOpacity`. The transform doubles as a GPU layer so the
+  // opacity animates smoothly on iOS WebKit. `fromOpacity` seeds the start (fade-in);
+  // omit it to fade from the current opacity (fade-out).
+  function fadeHeader(el, { transform, fromOpacity = null, toOpacity, transition }) {
+    el.style.transition = 'none';
+    el.style.transform = transform;
+    if (fromOpacity !== null) el.style.opacity = fromOpacity;
+    void el.offsetHeight; // commit the held position / start opacity before transitioning
+    el.style.transition = transition;
+    el.style.opacity = toOpacity;
+  }
+
   /**
    * Runs AFTER the nav state mutation, BEFORE Vue patches the DOM.
    * Scrubs a residual offset left on the leaving view by an interrupted transition.
@@ -137,12 +150,12 @@ export function useViewTransition({
       // entering view instead. No freeze — it is already at its resting top position.
       const headerEl = resolveHeaderEl();
       if (headerEl && oldScroll >= headerHeight(headerEl)) {
-        headerEl.style.transition = 'none';
-        headerEl.style.transform = 'translate3d(0, 0, 0)'; // GPU layer for smooth iOS opacity
-        headerEl.style.opacity = '0';
-        void headerEl.offsetHeight; // commit opacity:0 before transitioning
-        headerEl.style.transition = 'opacity var(--transition-in-out) 100ms';
-        headerEl.style.opacity = '1';
+        fadeHeader(headerEl, {
+          transform: 'translate3d(0, 0, 0)',
+          fromOpacity: '0',
+          toOpacity: '1',
+          transition: 'opacity var(--transition-in-out) 100ms',
+        });
       }
     }
   }
@@ -166,25 +179,30 @@ export function useViewTransition({
       // during the cross-fade: top = T - oldScroll counteracts the scroll delta.
       const writeScroll = () => {
         if (targetScroll > 0 && savedScrollTop !== targetScroll && scrollEl) {
+          // Land the scroll first, then read back the value the browser settled on.
+          // If the destination shrank since the scroll was saved, scrollTop clamps to
+          // maxScroll < targetScroll; the freeze offset and header hold must use the
+          // LANDED value, otherwise they're displaced by (targetScroll - landed) px.
+          scrollEl.scrollTop = targetScroll;
+          const landed = scrollEl.scrollTop;
+
           if (frozenLeavingEl) {
             frozenLeavingEl.style.position = 'relative';
-            frozenLeavingEl.style.top = `${targetScroll - savedScrollTop}px`;
+            frozenLeavingEl.style.top = `${landed - savedScrollTop}px`;
           }
 
-          // Header is about to scroll out of view as scrollTop jumps to T. Hold it
-          // at the top with a transform (counteracting the scroll) and fade the bar
-          // out, so it doesn't pop. Released in onAfterLeave once it is off-screen.
+          // Header is about to scroll out of view. Hold it at the top with a transform
+          // (counteracting the landed scroll) and fade the bar out so it doesn't pop.
+          // Released in onAfterLeave once it is off-screen.
           const headerEl = resolveHeaderEl();
-          if (headerEl && savedScrollTop < headerHeight(headerEl) && targetScroll >= headerHeight(headerEl)) {
-            headerEl.style.transition = 'none';
-            headerEl.style.transform = `translate3d(0, ${targetScroll}px, 0)`;
-            void headerEl.offsetHeight; // commit the held position before fading
-            headerEl.style.transition = 'opacity var(--transition-fast-leave)';
-            headerEl.style.opacity = '0';
+          if (headerEl && savedScrollTop < headerHeight(headerEl) && landed >= headerHeight(headerEl)) {
+            fadeHeader(headerEl, {
+              transform: `translate3d(0, ${landed}px, 0)`,
+              toOpacity: '0',
+              transition: 'opacity var(--transition-fast-leave)',
+            });
             frozenHeaderEl = headerEl;
           }
-
-          scrollEl.scrollTop = targetScroll;
         }
       };
 
