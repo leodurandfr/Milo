@@ -308,9 +308,9 @@
   },
   "multiroomSettings": {
     "presets": "प्रीसेट्स",
-    "lan": "LAN",
-    "wifiStable": "WiFi स्थिर",
-    "wifiWeak": "WiFi कमज़ोर",
+    "responsive": "रिस्पॉन्सिव",
+    "balanced": "संतुलित",
+    "robust": "मज़बूत",
     "advanced": "उन्नत सेटिंग्स",
     "globalBuffer": "ग्लोबल बफर (ms)",
     "snapclientBuffer": "प्लेयर बफर (ms)",

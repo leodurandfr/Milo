@@ -76,7 +76,7 @@ class TestSnapcastRoutes:
         assert "config" in body
         # Capabilities are the single source for the UI codec/preset options
         assert body["capabilities"]["codecs"]
-        assert {p["id"] for p in body["capabilities"]["presets"]} == {"lan", "wifi_stable", "wifi_weak"}
+        assert {p["id"] for p in body["capabilities"]["presets"]} == {"responsive", "balanced", "robust"}
 
     def test_get_server_config_unavailable(self, client):
         """Test GET /api/routing/snapcast/server-config when unavailable"""
