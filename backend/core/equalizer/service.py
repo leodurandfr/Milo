@@ -12,6 +12,11 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 from enum import Enum
 
+from backend.core.equalizer.config_builder import (
+    compressor_processor_def,
+    eq_filter_def,
+    loudness_filter_defs,
+)
 from backend.core.equalizer.presets import get_builtin_presets, DEFAULT_CUSTOM_GAINS, DEFAULT_EQ_FREQS
 from backend.core.multiroom.models import (
     CompressorSettings,
@@ -462,18 +467,8 @@ class CamillaDSPService:
             self.logger.warning("Cannot set filter: not connected")
             return False
 
-        filter_config = {
-            "type": "Biquad",
-            "parameters": {
-                "type": filter_type,
-                "freq": freq,
-                "gain": gain,
-                "q": q
-            }
-        }
-
         config = await self._get_config()
-        config["filters"][filter_id] = filter_config
+        config["filters"][filter_id] = eq_filter_def(freq, gain, q, filter_type)
         await self._set_config(config)
 
         for f in self._filters:
@@ -614,18 +609,7 @@ class CamillaDSPService:
             config["processors"] = {}
 
         if self._compressor["enabled"]:
-            compressor_config = {
-                "type": "Compressor",
-                "parameters": {
-                    "channels": 2,
-                    "threshold": self._compressor["threshold"],
-                    "factor": self._compressor["ratio"],
-                    "attack": self._compressor["attack"] / 1000.0,  # ms to s
-                    "release": self._compressor["release"] / 1000.0,
-                    "makeup_gain": self._compressor["makeup_gain"]
-                }
-            }
-            config["processors"]["compressor"] = compressor_config
+            config["processors"]["compressor"] = compressor_processor_def(self._compressor)
             # Add compressor to pipeline as Processor type
             self._add_processor_to_pipeline(config, "compressor")
         else:
@@ -685,25 +669,7 @@ class CamillaDSPService:
         if self._loudness["enabled"]:
             # Loudness is implemented via low and high shelf filters
             # adjusted based on current volume vs reference level
-            config["filters"]["loudness_low"] = {
-                "type": "Biquad",
-                "parameters": {
-                    "type": "Lowshelf",
-                    "freq": 100,
-                    "gain": self._loudness["low_boost"],
-                    "slope": 6.0
-                }
-            }
-
-            config["filters"]["loudness_high"] = {
-                "type": "Biquad",
-                "parameters": {
-                    "type": "Highshelf",
-                    "freq": 8000,
-                    "gain": self._loudness["high_boost"],
-                    "slope": 6.0
-                }
-            }
+            config["filters"].update(loudness_filter_defs(self._loudness))
             # Add loudness filters to pipeline for both channels
             self._add_filter_to_pipeline(config, "loudness_low")
             self._add_filter_to_pipeline(config, "loudness_high")
@@ -938,50 +904,17 @@ class CamillaDSPService:
         config.setdefault("processors", {})
 
         for f in self._filters:
-            config["filters"][f["id"]] = {
-                "type": "Biquad",
-                "parameters": {
-                    "type": f.get("type", "Peaking"),
-                    "freq": f["freq"],
-                    "gain": f.get("gain", 0),
-                    "q": f.get("q", 1.0),
-                },
-            }
+            config["filters"][f["id"]] = eq_filter_def(
+                f["freq"], f.get("gain", 0), f.get("q", 1.0), f.get("type", "Peaking")
+            )
             self._add_filter_to_pipeline(config, f["id"])
 
         if self._compressor.get("enabled"):
-            config["processors"]["compressor"] = {
-                "type": "Compressor",
-                "parameters": {
-                    "channels": 2,
-                    "threshold": self._compressor["threshold"],
-                    "factor": self._compressor["ratio"],
-                    "attack": self._compressor["attack"] / 1000.0,
-                    "release": self._compressor["release"] / 1000.0,
-                    "makeup_gain": self._compressor["makeup_gain"],
-                },
-            }
+            config["processors"]["compressor"] = compressor_processor_def(self._compressor)
             self._add_processor_to_pipeline(config, "compressor")
 
         if self._loudness.get("enabled"):
-            config["filters"]["loudness_low"] = {
-                "type": "Biquad",
-                "parameters": {
-                    "type": "Lowshelf",
-                    "freq": 100,
-                    "gain": self._loudness["low_boost"],
-                    "slope": 6.0,
-                },
-            }
-            config["filters"]["loudness_high"] = {
-                "type": "Biquad",
-                "parameters": {
-                    "type": "Highshelf",
-                    "freq": 8000,
-                    "gain": self._loudness["high_boost"],
-                    "slope": 6.0,
-                },
-            }
+            config["filters"].update(loudness_filter_defs(self._loudness))
             self._add_filter_to_pipeline(config, "loudness_low")
             self._add_filter_to_pipeline(config, "loudness_high")
 
