@@ -13,7 +13,6 @@
       :class="{ 'has-player': showPlayer }"
     >
       <NavigationHeader
-        ref="headerRef"
         :title="headerTitle"
         :subtitle="headerSubtitle"
         :show-back="headerShowBack"
@@ -53,7 +52,6 @@ import { useIsMobile } from '@/composables/useIsMobile'
 import { useViewTransition } from '@/composables/useViewTransition'
 
 const layoutRef = ref(null)
-const headerRef = ref(null)
 
 const props = defineProps({
   /**
@@ -144,7 +142,6 @@ const emit = defineEmits(['header-back', 'scroll-restored'])
 const pendingScrollRef = computed(() => props.pendingScrollRestore)
 const { prepareNavigation, onBeforeLeave: baseOnBeforeLeave, onEnter, onAfterLeave: baseOnAfterLeave } = useViewTransition({
   scrollElRef: layoutRef,
-  headerRef,
   pendingScrollRestore: pendingScrollRef,
   onScrollRestored: () => emit('scroll-restored'),
 })
@@ -205,7 +202,7 @@ function onAfterLeave() {
 }
 
 // Auto-detect navigation: onBeforeUpdate fires after props have new values
-// but BEFORE NavigationHeader DOM re-renders, so the clone captures old content.
+// but BEFORE Vue patches the DOM, so prepareNavigation runs ahead of the cross-fade.
 let prevContentKey = props.contentKey
 onBeforeUpdate(() => {
   if (props.contentKey !== prevContentKey) {

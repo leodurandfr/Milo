@@ -1,7 +1,7 @@
 <!-- frontend/src/components/equalizer/EqualizerModal.vue -->
 <template>
   <div class="equalizer-modal">
-    <NavigationHeader ref="headerRef" :title="t('equalizer.title')">
+    <NavigationHeader :title="t('equalizer.title')">
       <template #actions>
         <Toggle :modelValue="equalizerStore.isEqualizerEffectsEnabled"
           :disabled="equalizerStore.isTogglingEnabled" @change="handleEqualizerToggle" />
@@ -148,12 +148,10 @@ const modalCancelDeferredFinalize = inject('modalCancelDeferredFinalize', null);
 
 const isMobile = ref(false);
 const zoneTabsRef = ref(null);
-const headerRef = ref(null);
 
 // Scroll-aware crossfade transitions (same composable as SettingsModal)
 const { prepareNavigation, onBeforeLeave, onEnter, onAfterLeave } = useViewTransition({
   scrollElRef: modalContentRef,
-  headerRef,
   pendingScrollRestore: ref(null),
   deferScrollRestore: modalDeferScrollRestore,
   contentInnerRef: modalContentInnerRef,
