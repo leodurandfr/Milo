@@ -850,9 +850,6 @@ class CdSource(MpvAudioSource):
         core, extras = PlaybackMetadata.split(self._build_metadata())
         self.emit_connection_state(bool(self._current_disc), core, extras)
 
-    async def _get_status(self) -> Dict[str, Any]:
-        return self._build_metadata()
-
     async def _refresh_metadata(self) -> bool:
         """Refresh metadata so WebSocket initial_state contains live position."""
         self._metadata = self._build_metadata()

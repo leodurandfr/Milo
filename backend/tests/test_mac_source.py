@@ -57,7 +57,6 @@ class TestBaseClassCompliance:
         """Test required methods exist."""
         assert hasattr(mac_source, 'start')
         assert hasattr(mac_source, 'stop')
-        assert hasattr(mac_source, 'status')
         assert hasattr(mac_source, 'command')
 
 
@@ -160,34 +159,6 @@ class TestMacSourceLifecycle:
         await mac_source.stop()
 
         mock_task.cancel.assert_called_once()
-
-
-class TestMacSourceStatus:
-    """Test MacSource status method."""
-
-    @pytest.mark.asyncio
-    async def test_status_no_connections(self, mac_source):
-        """Test status with no connections."""
-        status = await mac_source.status()
-
-        assert "state" in status
-        assert status["connected"] is False
-        assert status["client_names"] == []
-        assert status["rtp_port"] == 10001
-
-    @pytest.mark.asyncio
-    async def test_status_with_connections(self, mac_source):
-        """Test status with connected clients."""
-        mac_source.connected_clients = {
-            "192.168.1.1": "MacBook-Pro",
-            "192.168.1.2": "iMac"
-        }
-
-        status = await mac_source.status()
-
-        assert status["connected"] is True
-        assert "MacBook-Pro" in status["client_names"]
-        assert "iMac" in status["client_names"]
 
 
 class TestMacSourceCommands:

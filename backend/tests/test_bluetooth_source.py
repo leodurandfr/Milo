@@ -79,7 +79,6 @@ class TestBaseClassCompliance:
         """Test required methods exist."""
         assert hasattr(bluetooth_source, 'start')
         assert hasattr(bluetooth_source, 'stop')
-        assert hasattr(bluetooth_source, 'status')
         assert hasattr(bluetooth_source, 'command')
 
 
@@ -171,34 +170,6 @@ class TestBluetoothSourceLifecycle:
             await bluetooth_source.stop()
 
         bluetooth_source.monitor.stop.assert_called_once()
-
-
-class TestBluetoothSourceStatus:
-    """Test BluetoothSource status method."""
-
-    @pytest.mark.asyncio
-    async def test_status_no_device(self, bluetooth_source):
-        """Test status with no device connected."""
-        status = await bluetooth_source.status()
-
-        assert "state" in status
-        assert status["device_connected"] is False
-        assert status["device_name"] is None
-        assert status["device_address"] is None
-
-    @pytest.mark.asyncio
-    async def test_status_with_device(self, bluetooth_source):
-        """Test status with connected device."""
-        bluetooth_source.connected_device = {
-            "address": "AA:BB:CC:DD:EE:FF",
-            "name": "iPhone"
-        }
-
-        status = await bluetooth_source.status()
-
-        assert status["device_connected"] is True
-        assert status["device_name"] == "iPhone"
-        assert status["device_address"] == "AA:BB:CC:DD:EE:FF"
 
 
 class TestBluetoothSourceCommands:

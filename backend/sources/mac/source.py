@@ -56,8 +56,7 @@ class MacSource(BaseAudioSource):
 
     Family A (mute receiver): playback control flows from the Mac sender;
     commands routed through `/api/audio/control/mac` reach `_handle_command`.
-    Extends BaseAudioSource — implements `_do_start / _do_stop / _get_status /
-    _handle_command`.
+    Extends BaseAudioSource — implements `_do_start / _do_stop / _handle_command`.
     """
 
     def __init__(
@@ -137,20 +136,6 @@ class MacSource(BaseAudioSource):
         self._reset_playback_state()
 
         return await self._stop_service()
-
-    async def _get_status(self) -> Dict[str, Any]:
-        """Get Mac-specific status."""
-        client_names = list(self.connected_clients.values())
-
-        return {
-            "listening": self._state != SourceState.ERROR,
-            "rtp_port": self.rtp_port,
-            "rs8m_port": self.rs8m_port,
-            "rtcp_port": self.rtcp_port,
-            "audio_output": self.audio_output,
-            "connected": len(self.connected_clients) > 0,
-            "client_names": client_names
-        }
 
     async def _handle_command(self, cmd: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Handle Mac-specific commands."""
