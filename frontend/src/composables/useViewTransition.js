@@ -1,5 +1,4 @@
 import { ref, unref } from 'vue';
-import { modalDebugLog } from '@/services/modalDebug';
 
 /**
  * Composable for scroll-aware view transitions with NavigationHeader clone support.
@@ -279,9 +278,6 @@ export function useViewTransition({
         const scrollEl = unref(scrollElRef);
         const enteringHeight = el.offsetHeight;
         let delta = enteringHeight - savedLeavingHeight;
-        let usedOverflowPath = false;
-
-        modalDebugLog(`[ViewTransition] onEnter rAF — leaving=${savedLeavingHeight} entering=${enteringHeight} savedInner=${savedInnerHeight} rawDelta=${delta}`);
 
         // When both old and new views overflow the modal, cap heights to the visible
         // slot area so the modal stays at max height (avoids double-spring).
@@ -296,7 +292,6 @@ export function useViewTransition({
           : 0;
 
         if (scrollEl && savedInnerHeight + scrollPadding > scrollEl.clientHeight + 2) {
-          usedOverflowPath = true;
           const visibleContent = scrollEl.clientHeight - scrollPadding;
           const otherContentHeight = savedInnerHeight - savedLeavingHeight;
           const maxSlotVisible = Math.max(0, visibleContent - otherContentHeight);
@@ -305,10 +300,7 @@ export function useViewTransition({
           const effectiveEntering = Math.min(enteringHeight, maxSlotVisible);
 
           delta = effectiveEntering - effectiveLeaving;
-          modalDebugLog(`[ViewTransition] overflow path — clientH=${scrollEl.clientHeight} scrollPad=${scrollPadding} effectiveLeaving=${effectiveLeaving} effectiveEntering=${effectiveEntering} finalDelta=${delta}`);
         }
-
-        modalDebugLog(`[ViewTransition] onEnter — finalDelta=${delta} overflow=${usedOverflowPath} → ${Math.abs(delta) > 2 ? 'calling requestHeightDelta' : 'skipped (< 2px)'}`);
 
         if (Math.abs(delta) > 2) {
           // skipUnlockCorrection: the wrapper is un-pinned in onAfterLeave's finalize
@@ -329,10 +321,6 @@ export function useViewTransition({
   function onAfterLeave() {
     const targetScroll = unref(pendingScrollRestore) ?? 0;
     const shouldSignalRestore = unref(pendingScrollRestore) !== null;
-
-    // [DEBUG-SCROLL]
-    const _scrollEl = unref(scrollElRef);
-    modalDebugLog(`[ViewTransition/onAfterLeave] ${performance.now().toFixed(0)}ms — targetScroll=${targetScroll} wasScrolled=${wasScrolled} savedScrollTop=${savedScrollTop}` + (_scrollEl ? ` currentScrollTop=${_scrollEl.scrollTop}` : ''));
 
     // Phases 1+2+3 must happen ATOMICALLY in the same frame to avoid visual jumps:
     // - Phase 1 resets entering element from absolute (top:-X, simulating scroll) to in-flow.
