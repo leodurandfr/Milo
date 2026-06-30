@@ -16,6 +16,7 @@ import asyncio
 import logging
 
 from backend.core.models.audio_state import AudioSource, SourceState
+from backend.core.models.source_metadata import PlaybackMetadata
 from backend.shared.background import BackgroundTaskSet
 
 logger = logging.getLogger(__name__)
@@ -543,17 +544,34 @@ class BaseAudioSource(ABC):
                 label="set_state",
             )
 
-    def _set_active_or_waiting(
+    def emit_connection_state(
         self,
-        is_connected: bool,
-        active_meta: Dict[str, Any],
-        waiting_meta: Dict[str, Any]
+        connected: bool,
+        playback: Optional[PlaybackMetadata] = None,
+        extras: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Set state to ACTIVE or WAITING based on connection status."""
-        self.set_state(
-            SourceState.ACTIVE if is_connected else SourceState.WAITING,
-            active_meta if is_connected else waiting_meta
-        )
+        """Publish the source's connection/playback state — the single path
+        that replaces per-source active/waiting metadata dicts.
+
+        - ``connected`` selects ACTIVE vs WAITING.
+        - ``playback`` is the typed projection consumed by the shared player
+          (None for mute receivers). Its is_playing/is_buffering always emit;
+          on WAITING they are forced off and the media fields (title/artist/
+          album/album_art_url/position/duration) are dropped so a stale track
+          can't linger.
+        - ``extras`` are source-specific fields (station/episode/disc/device);
+          they pass through in both states, so a source that wants device or
+          disc status visible while idle includes it (e.g. CD drive state).
+        """
+        if connected:
+            meta: Dict[str, Any] = (
+                playback.model_dump(exclude_none=True) if playback is not None else {}
+            )
+        else:
+            meta = {"is_playing": False, "is_buffering": False} if playback is not None else {}
+        if extras:
+            meta.update(extras)
+        self.set_state(SourceState.ACTIVE if connected else SourceState.WAITING, meta)
 
     def broadcast_position_update(self, position: int, duration: int) -> None:
         """Broadcast a lightweight position update without full_state.

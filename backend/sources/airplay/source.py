@@ -16,6 +16,7 @@ from typing import Dict, Any, Optional, Tuple
 from PIL import Image
 
 from backend.core.audio_source import BaseAudioSource
+from backend.core.models.source_metadata import PlaybackMetadata
 from backend.sources.airplay.metadata_reader import MetadataReader
 from backend.shared.decorators import handle_errors
 
@@ -310,12 +311,10 @@ class AirPlaySource(BaseAudioSource):
 
     def _update_connection_state(self) -> None:
         """Update state based on device connection."""
-        self._set_active_or_waiting(
-            self._device_connected,
-            {**self._metadata, "device_connected": True,
-             "is_playing": self._is_playing, "client_name": self._client_name},
-            {"device_connected": False, "is_playing": False, "client_name": None},
-        )
+        core, extras = PlaybackMetadata.split(self._metadata)
+        core.is_playing = self._is_playing
+        extras["client_name"] = self._client_name
+        self.emit_connection_state(self._device_connected, core, extras)
 
     async def _cleanup(self) -> None:
         """Clean up resources."""
