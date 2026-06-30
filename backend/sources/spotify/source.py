@@ -23,6 +23,7 @@ from typing import Dict, Any, Optional
 import aiohttp
 
 from backend.core.audio_source import BaseAudioSource
+from backend.core.models.source_metadata import PlaybackMetadata
 from backend.sources.spotify.websocket import LibrespotWebSocket
 from backend.shared.decorators import handle_errors
 
@@ -582,8 +583,6 @@ class SpotifySource(BaseAudioSource):
 
     def _update_connection_state(self) -> None:
         """Update state based on device connection."""
-        self._set_active_or_waiting(
-            self._device_connected,
-            {**self._metadata, "device_connected": True, "is_playing": self._is_playing},
-            {"device_connected": False, "is_playing": False}
-        )
+        core, extras = PlaybackMetadata.split(self._metadata)
+        core.is_playing = self._is_playing
+        self.emit_connection_state(self._device_connected, core, extras)

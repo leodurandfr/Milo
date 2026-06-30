@@ -29,6 +29,7 @@ from typing import Any, Dict, List, Optional
 
 from backend.config.constants import CD_DEVICE
 from backend.core.models.audio_state import AudioSource, SourceState
+from backend.core.models.source_metadata import PlaybackMetadata
 from backend.sources.cd.data import CDS_DISC_OK, CDS_DRIVE_NOT_READY, CdDataService
 from backend.sources.cd.models import DiscInfo, TrackInfo
 from backend.sources.cd.reader import CD_FIFO_PATH, SECTORS_PER_SECOND, CdIoctlReader
@@ -844,9 +845,10 @@ class CdSource(MpvAudioSource):
         return metadata
 
     def _update_connection_state(self) -> None:
-        has_disc = bool(self._current_disc)
-        metadata = self._build_metadata()
-        self._set_active_or_waiting(has_disc, metadata, metadata)
+        # Drive state (drive_connected/disc_present/cache_ready/ejecting) rides
+        # in extras so it stays visible while no disc is loaded (WAITING).
+        core, extras = PlaybackMetadata.split(self._build_metadata())
+        self.emit_connection_state(bool(self._current_disc), core, extras)
 
     async def _get_status(self) -> Dict[str, Any]:
         return self._build_metadata()

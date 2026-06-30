@@ -16,6 +16,7 @@ import asyncio
 from typing import Dict, Any, Optional
 
 from backend.core.models.audio_state import SourceState
+from backend.core.models.source_metadata import PlaybackMetadata
 from backend.sources.podcast.data import PodcastDataService
 from backend.shared.decorators import handle_errors
 from backend.shared.mpv import MpvController
@@ -465,17 +466,11 @@ class PodcastSource(MpvAudioSource):
     def _update_connection_state(self) -> None:
         """Update state based on playback.
 
-        position/duration in the active metadata are in milliseconds (see
+        position/duration in the metadata are in milliseconds (see
         _build_playback_metadata).
         """
-        self._set_active_or_waiting(
-            bool(self._current_episode),
-            {"current_episode": self._current_episode,
-             "is_playing": self._is_playing, "is_buffering": self._is_buffering,
-             "position": self._position * 1000, "duration": self._duration * 1000,
-             "playback_speed": self._playback_speed},
-            {"is_playing": False, "is_buffering": False, "ready": True}
-        )
+        core, extras = PlaybackMetadata.split(self._build_playback_metadata())
+        self.emit_connection_state(bool(self._current_episode), core, extras)
 
     async def _save_progress(self) -> None:
         """Save current playback progress with full metadata."""

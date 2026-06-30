@@ -19,6 +19,7 @@ from typing import Dict, Any, Optional
 from urllib.parse import urlparse
 
 from backend.core.models.audio_state import SourceState
+from backend.core.models.source_metadata import PlaybackMetadata
 from backend.sources.radio.data import StationDataService
 from backend.sources.radio.shazam import ShazamRecognitionService
 from backend.shared.decorators import handle_errors
@@ -423,11 +424,8 @@ class RadioSource(MpvAudioSource):
         """Update state based on playback."""
         if self._current_station and self._is_playing:
             self.broadcast_error_cleared()
-        self._set_active_or_waiting(
-            bool(self._current_station),
-            self._build_playback_metadata(),
-            {"is_playing": False, "is_buffering": False, "ready": True}
-        )
+        core, extras = PlaybackMetadata.split(self._build_playback_metadata())
+        self.emit_connection_state(bool(self._current_station), core, extras)
 
     async def on_shazam_setting_changed(self, enabled: bool) -> bool:
         """React to global Shazam toggle change."""
