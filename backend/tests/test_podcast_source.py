@@ -67,7 +67,6 @@ class TestBaseClassCompliance:
         """Test required methods exist."""
         assert hasattr(podcast_source, 'start')
         assert hasattr(podcast_source, 'stop')
-        assert hasattr(podcast_source, 'status')
         assert hasattr(podcast_source, 'command')
 
 
@@ -168,49 +167,6 @@ class TestPodcastSourceLifecycle:
             result = await podcast_source.stop()
 
         assert result is True
-
-
-class TestPodcastSourceStatus:
-    """Test PodcastSource status method."""
-
-    @pytest.mark.asyncio
-    async def test_status_no_playback(self, podcast_source):
-        """Test status with no playback."""
-        podcast_source._mpv = None
-        podcast_source._podcast_data = Mock()
-
-        status = await podcast_source.status()
-
-        assert "state" in status
-        assert status["mpv_connected"] is False
-        assert status["is_playing"] is False
-        assert status["position"] == 0
-        assert status["duration"] == 0
-
-    @pytest.mark.asyncio
-    async def test_status_with_playback(self, podcast_source):
-        """Test status with active playback."""
-        podcast_source._mpv = Mock()
-        podcast_source._mpv.is_connected = True
-        podcast_source._mpv.is_playing = AsyncMock(return_value=True)
-        podcast_source._current_episode = {
-            "uuid": "test-episode",
-            "name": "Test Episode"
-        }
-        podcast_source._is_playing = True
-        podcast_source._position = 120
-        podcast_source._duration = 3600
-        podcast_source._playback_speed = 1.5
-        podcast_source._podcast_data = Mock()
-
-        status = await podcast_source.status()
-
-        assert status["mpv_connected"] is True
-        assert status["is_playing"] is True
-        assert status["current_episode"]["name"] == "Test Episode"
-        assert status["position"] == 120
-        assert status["duration"] == 3600
-        assert status["playback_speed"] == 1.5
 
 
 class TestPodcastSourceCommands:

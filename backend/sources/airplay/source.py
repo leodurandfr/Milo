@@ -136,14 +136,6 @@ class AirPlaySource(BaseAudioSource):
         self._update_connection_state()
         return True
 
-    async def _get_status(self) -> Dict[str, Any]:
-        """Get AirPlay-specific status."""
-        return {
-            "device_connected": self._device_connected,
-            "is_playing": self._is_playing,
-            "metadata": self._metadata,
-        }
-
     async def _handle_command(self, cmd: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Handle AirPlay-specific commands."""
         # AirPlay 2 does not support remote playback control

@@ -131,22 +131,6 @@ class PodcastSource(MpvAudioSource):
         await self._cleanup()
         return await self._stop_service()
 
-    async def _get_status(self) -> Dict[str, Any]:
-        """Get Podcast-specific status."""
-        mpv_connected = self._mpv.is_connected if self._mpv else False
-        mpv_playing = await self._mpv.is_playing() if self._mpv and mpv_connected else False
-
-        return {
-            "mpv_connected": mpv_connected,
-            "is_playing": mpv_playing,
-            "is_buffering": self._is_buffering,
-            "current_episode": self._current_episode,
-            "position": self._position,
-            "duration": self._duration,
-            "playback_speed": self._playback_speed,
-            "metadata": self._metadata
-        }
-
     async def _refresh_metadata(self) -> bool:
         """Pull live position/duration from mpv so the WebSocket initial_state
         sent to a (re)connecting client reflects the current playhead — not

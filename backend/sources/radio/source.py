@@ -124,20 +124,6 @@ class RadioSource(MpvAudioSource):
             await self._cleanup()
             return False
 
-    async def _get_status(self) -> Dict[str, Any]:
-        """Get Radio-specific status."""
-        mpv_connected = self._mpv.is_connected if self._mpv else False
-        mpv_playing = await self._mpv.is_playing() if self._mpv and mpv_connected else False
-
-        return {
-            "mpv_connected": mpv_connected,
-            "is_playing": mpv_playing,
-            "is_buffering": self._is_buffering,
-            "current_station": self._current_station,
-            "metadata": self._metadata,
-            "favorites_count": self._station_data.get_stats()['favorites_count'] if self._station_data else 0
-        }
-
     async def _handle_command(self, cmd: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Handle Radio-specific commands."""
         if cmd == "play_station":

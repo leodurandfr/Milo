@@ -28,7 +28,7 @@ class BluetoothSource(BaseAudioSource):
     Family A (mute receiver): control flows from the Bluetooth sender;
     commands routed through `/api/audio/control/bluetooth` reach
     `_handle_command` (e.g. `disconnect`). Extends BaseAudioSource —
-    implements `_do_start / _do_stop / _get_status / _handle_command`.
+    implements `_do_start / _do_stop / _handle_command`.
     """
 
     def __init__(
@@ -161,22 +161,6 @@ class BluetoothSource(BaseAudioSource):
             return False
         self._update_connection_state()
         return True
-
-    async def _get_status(self) -> Dict[str, Any]:
-        """Get Bluetooth-specific status."""
-        bt_active = await self._is_service_active(self.bluetooth_service)
-        bluealsa_active = await self._is_service_active()
-        aplay_active = await self._is_service_active(self.bluealsa_aplay_service)
-
-        return {
-            "device_connected": self.connected_device is not None,
-            "device_name": self.connected_device.get("name") if self.connected_device else None,
-            "device_address": self.connected_device.get("address") if self.connected_device else None,
-            "bluetooth_running": bt_active,
-            "bluealsa_running": bluealsa_active,
-            "aplay_running": aplay_active,
-            "auto_agent": self.auto_agent
-        }
 
     async def _handle_command(self, cmd: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Handle Bluetooth-specific commands."""

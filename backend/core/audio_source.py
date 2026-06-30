@@ -1,15 +1,5 @@
 # backend/core/audio_source.py
-"""
-BaseAudioSource - base class for all audio sources.
-
-Standard Status Format:
-    {
-        "state": "waiting",       # starting, waiting, active, error
-        "service_active": True,  # systemd service status
-        "metadata": {},          # source-specific data
-        "error": None            # error message if state=error
-    }
-"""
+"""BaseAudioSource - base class for all audio sources."""
 from typing import Dict, Any, Optional
 from abc import ABC, abstractmethod
 import asyncio
@@ -35,7 +25,6 @@ class BaseAudioSource(ABC):
     Subclasses must implement:
     - _do_start(): Source-specific startup logic
     - _do_stop(): Source-specific shutdown logic
-    - _get_status(): Source-specific status
 
     Optional overrides:
     - _do_restart(): Custom restart logic (default: stop + start)
@@ -55,9 +44,6 @@ class BaseAudioSource(ABC):
             async def _do_stop(self) -> bool:
                 # Stop mpv, cleanup
                 return True
-
-            async def _get_status(self) -> Dict[str, Any]:
-                return {"station": "BBC Radio 1"}
 
             async def _handle_command(self, cmd: str, data: Dict) -> Dict:
                 if cmd == "tune":
@@ -216,26 +202,6 @@ class BaseAudioSource(ABC):
         """
         return await self.start()
 
-    async def status(self) -> Dict[str, Any]:
-        """
-        Get current status of the audio source.
-
-        Returns standard format with source-specific additions from _get_status().
-
-        Returns:
-            Dict with state, service_active, metadata, error, and custom fields
-        """
-        service_active = await self._is_service_active()
-        custom_status = await self._get_status()
-
-        return {
-            "state": self._state.value,
-            "service_active": service_active,
-            "metadata": self._metadata,
-            "error": self._error,
-            **custom_status
-        }
-
     async def command(self, cmd: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Execute a source-specific command.
@@ -323,18 +289,6 @@ class BaseAudioSource(ABC):
         if not await self.stop():
             return False
         return await self.start()
-
-    async def _get_status(self) -> Dict[str, Any]:
-        """
-        Source-specific status fields.
-
-        Override to add custom fields to status response.
-        Default returns empty dict.
-
-        Returns:
-            Dict with custom status fields
-        """
-        return {}
 
     async def _handle_command(self, cmd: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """

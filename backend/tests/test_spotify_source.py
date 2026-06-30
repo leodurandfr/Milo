@@ -66,7 +66,6 @@ class TestBaseClassCompliance:
         """Test required methods exist."""
         assert hasattr(spotify_source, 'start')
         assert hasattr(spotify_source, 'stop')
-        assert hasattr(spotify_source, 'status')
         assert hasattr(spotify_source, 'command')
 
 
@@ -172,36 +171,6 @@ class TestSpotifySourceLifecycle:
 
         assert result is True
         assert spotify_source._session.get.call_args.args[0].endswith("/")
-
-
-class TestSpotifySourceStatus:
-    """Test SpotifySource status method."""
-
-    @pytest.mark.asyncio
-    async def test_status_no_device(self, spotify_source):
-        """Test status with no device connected."""
-        status = await spotify_source.status()
-
-        assert "state" in status
-        assert status["device_connected"] is False
-        assert status["is_playing"] is False
-        assert status["metadata"] == {}
-
-    @pytest.mark.asyncio
-    async def test_status_with_device(self, spotify_source):
-        """Test status with connected device."""
-        spotify_source._device_connected = True
-        spotify_source._is_playing = True
-        spotify_source._metadata = {
-            "title": "Test Song",
-            "artist": "Test Artist"
-        }
-
-        status = await spotify_source.status()
-
-        assert status["device_connected"] is True
-        assert status["is_playing"] is True
-        assert status["metadata"]["title"] == "Test Song"
 
 
 class TestSpotifySourceCommands:

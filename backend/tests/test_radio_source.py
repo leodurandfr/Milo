@@ -57,7 +57,6 @@ class TestBaseClassCompliance:
         """Test required methods exist."""
         assert hasattr(radio_source, 'start')
         assert hasattr(radio_source, 'stop')
-        assert hasattr(radio_source, 'status')
         assert hasattr(radio_source, 'command')
 
 
@@ -145,48 +144,6 @@ class TestRadioSourceLifecycle:
             result = await radio_source.stop()
 
         assert result is True
-
-
-class TestRadioSourceStatus:
-    """Test RadioSource status method."""
-
-    @pytest.mark.asyncio
-    async def test_status_no_playback(self, radio_source):
-        """Test status with no playback."""
-        radio_source._mpv = None
-        radio_source._station_data = Mock()
-        radio_source._station_data.get_stats = Mock(return_value={
-            'favorites_count': 5
-        })
-
-        status = await radio_source.status()
-
-        assert "state" in status
-        assert status["mpv_connected"] is False
-        assert status["is_playing"] is False
-        assert status["favorites_count"] == 5
-
-    @pytest.mark.asyncio
-    async def test_status_with_playback(self, radio_source):
-        """Test status with active playback."""
-        radio_source._mpv = Mock()
-        radio_source._mpv.is_connected = True
-        radio_source._mpv.is_playing = AsyncMock(return_value=True)
-        radio_source._current_station = {
-            "id": "test-station",
-            "name": "Test Radio"
-        }
-        radio_source._is_playing = True
-        radio_source._station_data = Mock()
-        radio_source._station_data.get_stats = Mock(return_value={
-            'favorites_count': 0
-        })
-
-        status = await radio_source.status()
-
-        assert status["mpv_connected"] is True
-        assert status["is_playing"] is True
-        assert status["current_station"]["name"] == "Test Radio"
 
 
 class TestRadioSourceCommands:

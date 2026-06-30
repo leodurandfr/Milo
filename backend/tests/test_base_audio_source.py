@@ -37,9 +37,6 @@ class ConcreteAudioSource(BaseAudioSource):
         self.stop_called = True
         return self._stop_success
 
-    async def _get_status(self):
-        return {"custom_field": "value"}
-
     async def _handle_command(self, cmd, data):
         if cmd == "test_command":
             return self.success_response("Command executed")
@@ -115,48 +112,6 @@ class TestBaseAudioSourceLifecycle:
         result = await source._do_restart()
 
         assert result is False
-
-
-class TestBaseAudioSourceStatus:
-    """Test BaseAudioSource status method."""
-
-    @pytest.mark.asyncio
-    async def test_status_format(self):
-        """Test status returns standard format."""
-        source = ConcreteAudioSource()
-
-        with patch.object(source, '_is_service_active', return_value=True):
-            status = await source.status()
-
-        assert "state" in status
-        assert "service_active" in status
-        assert "metadata" in status
-        assert "error" in status
-        assert "custom_field" in status  # From _get_status
-
-    @pytest.mark.asyncio
-    async def test_status_after_start(self):
-        """Test status reflects started state."""
-        source = ConcreteAudioSource()
-
-        with patch.object(source, '_is_service_active', return_value=True):
-            await source.start()
-            status = await source.status()
-
-        assert status["state"] == SourceState.ACTIVE.value
-        assert status["metadata"]["connected"] is True
-
-    @pytest.mark.asyncio
-    async def test_status_after_error(self):
-        """Test status reflects error state."""
-        source = ConcreteAudioSource(start_success=False)
-
-        with patch.object(source, '_is_service_active', return_value=False):
-            await source.start()
-            status = await source.status()
-
-        assert status["state"] == SourceState.ERROR.value
-        assert status["error"] is not None
 
 
 class TestBaseAudioSourceCommand:

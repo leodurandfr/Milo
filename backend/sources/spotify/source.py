@@ -157,20 +157,6 @@ class SpotifySource(BaseAudioSource):
         if not result.get("success"):
             self._logger.warning(f"Auto-stop /player/stop failed: {result.get('error')}")
 
-    async def _get_status(self) -> Dict[str, Any]:
-        """Get Spotify-specific status."""
-        return {
-            "device_connected": self._device_connected,
-            "ws_connected": self._ws_connected,
-            "is_playing": self._is_playing,
-            "metadata": self._metadata,
-            "auto_stop_config": {
-                "enabled": self.auto_stop_enabled,
-                "delay": self.auto_stop_delay,
-                "timer_active": self._pause_timer is not None and not self._pause_timer.done()
-            }
-        }
-
     async def _handle_command(self, cmd: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Handle Spotify-specific commands."""
         if cmd == "refresh_metadata":
