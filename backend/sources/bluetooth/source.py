@@ -15,6 +15,8 @@ Features:
 import asyncio
 from typing import Dict, Any, Optional
 
+from pydantic import BaseModel
+
 from backend.core.audio_source import BaseAudioSource
 from backend.sources.bluetooth.agent import BluetoothAgent
 from backend.sources.bluetooth.monitor import BlueAlsaMonitor
@@ -162,12 +164,14 @@ class BluetoothSource(BaseAudioSource):
         self._update_connection_state()
         return True
 
-    async def _handle_command(self, cmd: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    COMMANDS = {"disconnect": None}
+
+    async def _handle_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
         """Handle Bluetooth-specific commands."""
         if cmd == "disconnect":
             return await self._cmd_disconnect()
 
-        return self.error_response(f"Unknown command: {cmd}")
+        return self.error_response(f"Unhandled command: {cmd}")
 
     async def _cmd_disconnect(self) -> Dict[str, Any]:
         """Disconnect current device."""

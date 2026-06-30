@@ -27,11 +27,13 @@ import logging
 from time import monotonic
 from typing import Any, Dict, List, Optional
 
+from pydantic import BaseModel
+
 from backend.config.constants import CD_DEVICE
 from backend.core.models.audio_state import AudioSource, SourceState
 from backend.core.models.source_metadata import PlaybackMetadata
 from backend.sources.cd.data import CDS_DISC_OK, CDS_DRIVE_NOT_READY, CdDataService
-from backend.sources.cd.models import DiscInfo, TrackInfo
+from backend.sources.cd.models import DiscInfo, PlayTrackParams, SeekParams, TrackInfo
 from backend.sources.cd.reader import CD_FIFO_PATH, SECTORS_PER_SECOND, CdIoctlReader
 from backend.shared.decorators import handle_errors
 from backend.shared.mpv import MpvController
@@ -550,9 +552,21 @@ class CdSource(MpvAudioSource):
     # COMMANDS
     # =========================================================================
 
-    async def _handle_command(self, cmd: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    COMMANDS = {
+        "play_track": PlayTrackParams,
+        "pause": None,
+        "resume": None,
+        "next_track": None,
+        "next": None,
+        "prev_track": None,
+        "prev": None,
+        "seek": SeekParams,
+        "eject": None,
+    }
+
+    async def _handle_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
         if cmd == "play_track":
-            return await self._handle_play_track(data)
+            return await self._handle_play_track(params)
         if cmd == "pause":
             return await self._handle_pause()
         if cmd == "resume":
@@ -562,20 +576,18 @@ class CdSource(MpvAudioSource):
         if cmd in ("prev_track", "prev"):
             return await self._handle_prev_track()
         if cmd == "seek":
-            return await self._handle_seek(data)
+            return await self._handle_seek(params)
         if cmd == "eject":
             return await self._handle_eject()
-        return self.error_response(f"Unknown command: {cmd}")
+        return self.error_response(f"Unhandled command: {cmd}")
 
-    async def _handle_play_track(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_play_track(self, params: PlayTrackParams) -> Dict[str, Any]:
         """Play a specific track by starting ioctl reader at the track's LBA."""
         if not self._mpv:
             return self.error_response("CD not active")
 
-        track_number = data.get("track_number")
-        if track_number is None:
-            return self.error_response("track_number required")
-        if not self._tracks or track_number < 1 or track_number > len(self._tracks):
+        track_number = params.track_number
+        if not self._tracks or track_number > len(self._tracks):
             return self.error_response(f"Invalid track number: {track_number}")
         if not self._sector_offsets:
             return self.error_response("Disc not ready")
@@ -622,7 +634,7 @@ class CdSource(MpvAudioSource):
             return self.error_response("CD not active")
         try:
             if self._album_finished:
-                return await self._handle_play_track({"track_number": 1})
+                return await self._handle_play_track(PlayTrackParams(track_number=1))
 
             # Resume from pause — reader unblocks when mpv reads again
             if self._is_paused:
@@ -636,7 +648,7 @@ class CdSource(MpvAudioSource):
             # First play or resume from stop -> go through play_track
             if not self._is_playing:
                 track = self._current_track or 1
-                return await self._handle_play_track({"track_number": track})
+                return await self._handle_play_track(PlayTrackParams(track_number=track))
 
             return self.success_response("Already playing")
         except Exception as e:
@@ -649,24 +661,21 @@ class CdSource(MpvAudioSource):
         if self._current_track >= len(self._tracks):
             return self.success_response("Already on last track")
         return await self._handle_play_track(
-            {"track_number": self._current_track + 1}
+            PlayTrackParams(track_number=self._current_track + 1)
         )
 
     async def _handle_prev_track(self) -> Dict[str, Any]:
         if not self._mpv or not self._current_track or not self._tracks:
             return self.error_response("No disc loaded")
         target = max(1, self._current_track - 1)
-        return await self._handle_play_track({"track_number": target})
+        return await self._handle_play_track(PlayTrackParams(track_number=target))
 
-    async def _handle_seek(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_seek(self, params: SeekParams) -> Dict[str, Any]:
         """Seek within current track: restart reader at target LBA.
 
         The frontend is the only caller and always sends position_ms.
         """
-        position_ms = data.get("position_ms")
-        if position_ms is None:
-            return self.error_response("position_ms required")
-        position = position_ms / 1000
+        position = params.position_ms / 1000
 
         if not self._current_track or not self._sector_offsets:
             return self.error_response("No track playing")

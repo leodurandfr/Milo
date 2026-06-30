@@ -18,8 +18,11 @@ import json
 from typing import Dict, Any, Optional
 from urllib.parse import urlparse
 
+from pydantic import BaseModel
+
 from backend.core.models.audio_state import SourceState
 from backend.core.models.source_metadata import PlaybackMetadata
+from backend.sources.radio.models import PlayStationParams, RemoveFavoriteParams
 from backend.sources.radio.data import StationDataService
 from backend.sources.radio.shazam import ShazamRecognitionService
 from backend.shared.decorators import handle_errors
@@ -124,10 +127,18 @@ class RadioSource(MpvAudioSource):
             await self._cleanup()
             return False
 
-    async def _handle_command(self, cmd: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    COMMANDS = {
+        "play_station": PlayStationParams,
+        "stop_playback": None,
+        "resume_playback": None,
+        "add_favorite": PlayStationParams,
+        "remove_favorite": RemoveFavoriteParams,
+    }
+
+    async def _handle_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
         """Handle Radio-specific commands."""
         if cmd == "play_station":
-            return await self._handle_play_station(data)
+            return await self._handle_play_station(params)
 
         if cmd == "stop_playback":
             return await self._handle_stop_playback()
@@ -136,25 +147,23 @@ class RadioSource(MpvAudioSource):
             return await self._handle_resume_playback()
 
         if cmd == "add_favorite":
-            return await self._handle_add_favorite(data)
+            return await self._handle_add_favorite(params)
 
         if cmd == "remove_favorite":
-            return await self._handle_remove_favorite(data)
+            return await self._handle_remove_favorite(params)
 
-        return self.error_response(f"Unknown command: {cmd}")
+        return self.error_response(f"Unhandled command: {cmd}")
 
     # === Command Handlers ===
 
-    async def _handle_play_station(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_play_station(self, params: PlayStationParams) -> Dict[str, Any]:
         """Play a radio station with fallback to alternative URLs."""
-        station_id = data.get('station_id')
-        if not station_id:
-            return self.error_response("station_id required")
+        station_id = params.station_id
 
         try:
             # Get station with fallback chain: local favorite → provided → API
             station = None
-            provided_station = data.get('station')
+            provided_station = params.station
 
             # 1. Try local data for favorites
             if self._station_data.is_favorite(station_id):
@@ -311,13 +320,11 @@ class RadioSource(MpvAudioSource):
             'station': self._last_station
         })
 
-    async def _handle_add_favorite(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_add_favorite(self, params: PlayStationParams) -> Dict[str, Any]:
         """Add station to favorites."""
-        station_id = data.get('station_id')
-        if not station_id:
-            return self.error_response("station_id required")
+        station_id = params.station_id
 
-        station = data.get('station')
+        station = params.station
         if not station:
             station = await self._radio_api.get_station_by_id(station_id)
 
@@ -330,11 +337,9 @@ class RadioSource(MpvAudioSource):
             if success else self.error_response("Add favorite failed")
         )
 
-    async def _handle_remove_favorite(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_remove_favorite(self, params: RemoveFavoriteParams) -> Dict[str, Any]:
         """Remove station from favorites."""
-        station_id = data.get('station_id')
-        if not station_id:
-            return self.error_response("station_id required")
+        station_id = params.station_id
 
         success = await self._station_data.remove_favorite(station_id)
         return (

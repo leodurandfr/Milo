@@ -136,11 +136,10 @@ class AirPlaySource(BaseAudioSource):
         self._update_connection_state()
         return True
 
-    async def _handle_command(self, cmd: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle AirPlay-specific commands."""
-        # AirPlay 2 does not support remote playback control
-        # (shairport-sync AIRPLAY2.md: "Remote control facilities are not implemented")
-        return self.error_response(f"Unknown command: {cmd}")
+    # AirPlay 2 does not support remote playback control
+    # (shairport-sync AIRPLAY2.md: "Remote control facilities are not implemented"),
+    # so no commands are registered — command() rejects every command as unknown.
+    COMMANDS = {}
 
     # === Metadata Callbacks ===
 

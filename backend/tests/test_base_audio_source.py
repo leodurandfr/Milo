@@ -9,13 +9,20 @@ Tests cover:
 """
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
+from pydantic import BaseModel, Field
 
 from backend.core.audio_source import BaseAudioSource
 from backend.core.models.audio_state import SourceState
 
 
+class _ValueParams(BaseModel):
+    value: int = Field(ge=0)
+
+
 class ConcreteAudioSource(BaseAudioSource):
     """Concrete implementation for testing."""
+
+    COMMANDS = {"test_command": None, "validated_command": _ValueParams}
 
     def __init__(self, start_success=True, stop_success=True):
         super().__init__(
@@ -37,10 +44,12 @@ class ConcreteAudioSource(BaseAudioSource):
         self.stop_called = True
         return self._stop_success
 
-    async def _handle_command(self, cmd, data):
+    async def _handle_command(self, cmd, params):
         if cmd == "test_command":
             return self.success_response("Command executed")
-        return self.error_response(f"Unknown command: {cmd}")
+        if cmd == "validated_command":
+            return self.success_response("Validated", value=params.value)
+        return self.error_response(f"Unhandled command: {cmd}")
 
 
 class TestBaseAudioSourceLifecycle:
@@ -129,10 +138,49 @@ class TestBaseAudioSourceCommand:
 
     @pytest.mark.asyncio
     async def test_unknown_command(self):
-        """Test handling unknown command."""
+        """Unknown command is rejected centrally by command()."""
         source = ConcreteAudioSource()
 
         result = await source.command("unknown", {})
+
+        assert result["success"] is False
+        assert "Unknown command" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_none_data_treated_as_empty(self):
+        """data=None (explicit {"data": null} on the wire) is coerced to {}."""
+        source = ConcreteAudioSource()
+
+        result = await source.command("test_command", None)
+
+        assert result["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_valid_params_reach_handler(self):
+        """Validated params are passed to the handler as a typed model."""
+        source = ConcreteAudioSource()
+
+        result = await source.command("validated_command", {"value": 5})
+
+        assert result["success"] is True
+        assert result["value"] == 5
+
+    @pytest.mark.asyncio
+    async def test_invalid_params_rejected(self):
+        """Out-of-range params fail validation and never reach the handler."""
+        source = ConcreteAudioSource()
+
+        result = await source.command("validated_command", {"value": -1})
+
+        assert result["success"] is False
+        assert "Invalid parameters" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_missing_required_param_rejected(self):
+        """Missing required field fails validation."""
+        source = ConcreteAudioSource()
+
+        result = await source.command("validated_command", {})
 
         assert result["success"] is False
         assert "error" in result

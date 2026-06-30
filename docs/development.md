@@ -234,13 +234,26 @@ class MySource(BaseAudioSource):
             "metadata": {}
         }
 
-    async def handle_command(self, command: str, params: dict):
-        """Handle commands (play, pause, etc.)"""
-        if command == "play":
-            # Implementation
-            pass
-        return {"success": True}
+    # Per-command parameter contract: command name → Pydantic model (None = no
+    # params). command() validates raw input against this at a single boundary
+    # before _handle_command() runs, so handlers receive a typed `params`. Param
+    # models live in sources/my_source/models.py (pure pydantic/typing leaf).
+    COMMANDS = {"play": None, "seek": SeekParams}
+
+    async def _handle_command(self, cmd: str, params):
+        """Handle commands on validated params. Only state-dependent checks
+        belong here (shape/type/range are already enforced by COMMANDS[cmd])."""
+        if cmd == "play":
+            return self.success_response("Playing")
+        if cmd == "seek":
+            return self.success_response(f"Seeked to {params.position_ms}ms")
+        return self.error_response(f"Unhandled command: {cmd}")
 ```
+
+> The other method names above (`initialize`/`start`/`stop`/`get_status`) are a
+> simplified sketch — the real `BaseAudioSource` ABC overrides are
+> `_do_start`/`_do_stop`/`_get_status`/`_handle_command`. See the CLAUDE.md source
+> family table and an existing source (`radio/`) for the authoritative shape.
 
 ### 3. Register in container
 
