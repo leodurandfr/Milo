@@ -84,7 +84,6 @@
     "error": "Error activating multiroom",
     "enableFailed": "Could not enable multiroom",
     "disableFailed": "Could not disable multiroom",
-    "enableDegraded": "Multiroom is on, but volume sync is incomplete",
     "editSystem": "Edit audio system",
     "systemNameMain": "Main system name",
     "systemNameRemote": "Remote system name",

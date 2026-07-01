@@ -301,15 +301,16 @@ class TestAudioRoutingService:
         assert len(error_events) == 1
 
     @pytest.mark.asyncio
-    async def test_set_multiroom_enabled_degraded_followup_commits_but_reports_failure(
+    async def test_set_multiroom_enabled_followup_failure_is_best_effort(
         self, routing_service, mock_settings_service
     ):
-        """A post-transition WS/volume failure when enabling: the mode stays
-        committed (settings written, property True — no rollback), but the call
-        returns False and broadcasts multiroom_error(enable_degraded)."""
+        """A post-transition WS/volume hiccup when enabling is self-healing: it
+        is logged but must NOT fail the transition — the mode is committed, so
+        the call returns True and still broadcasts system/state_changed (so the
+        UI toggle and full_state reflect reality). No multiroom_error."""
         _seed_multiroom(mock_settings_service, False)
 
-        # Wire a WS service that raises on start_connection
+        # Wire a WS service that raises on start_connection (worst-case followup).
         ws_service = Mock()
         ws_service.start_connection = AsyncMock(side_effect=RuntimeError("ws boom"))
         ws_service.stop_connection = AsyncMock()
@@ -320,20 +321,19 @@ class TestAudioRoutingService:
             with patch.object(routing_service, '_apply_transition', new_callable=AsyncMock):
                 result = await routing_service.set_multiroom_enabled(True)
 
-        # Honest failure surfaced …
-        assert result is False
-        # … but the physical mode IS committed — no rollback.
+        # Enable succeeds — the physical mode switched.
+        assert result is True
         assert routing_service.multiroom_enabled is True
         mock_settings_service.set_setting_strict.assert_called_once_with('routing.multiroom_enabled', True)
-        # Degraded (not hard-failed) reason broadcast.
-        error_events = [c for c in routing_service.state_machine.broadcast_event.call_args_list
-                        if c.args[:2] == ("routing", "multiroom_error")]
-        assert len(error_events) == 1
-        assert error_events[0].args[2]["reason"] == "enable_degraded"
-        # No clean state_changed when degraded.
+        # state_changed broadcast so the UI toggle / full_state are truthful.
         state_changed = [c for c in routing_service.state_machine.broadcast_event.call_args_list
                          if c.args[:2] == ("system", "state_changed")]
-        assert not state_changed
+        assert len(state_changed) == 1
+        assert state_changed[0].args[2]["multiroom_enabled"] is True
+        # A self-healing followup hiccup does not raise a user-facing error.
+        error_events = [c for c in routing_service.state_machine.broadcast_event.call_args_list
+                        if c.args[:2] == ("routing", "multiroom_error")]
+        assert not error_events
 
     @pytest.mark.asyncio
     async def test_detect_initial_state_failure_keeps_flag_false(self, routing_service, mock_settings_service):
