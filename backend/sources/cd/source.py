@@ -102,7 +102,6 @@ class CdSource(MpvAudioSource):
         self._current_track: Optional[int] = None  # 1-based
         self._track_position: float = 0
         self._track_duration: float = 0
-        self._album_finished = False
         self._is_paused = False
         self._ejecting = False
         self._play_start_lba: int = 0  # LBA where current FIFO session started
@@ -113,7 +112,6 @@ class CdSource(MpvAudioSource):
         self._current_track = None
         self._track_position = 0
         self._track_duration = 0
-        self._album_finished = False
         self._is_paused = False
         self._ejecting = False
         self._play_start_lba = 0
@@ -248,14 +246,18 @@ class CdSource(MpvAudioSource):
         await asyncio.to_thread(self._reader.stop)
 
     async def _auto_stop_action(self) -> None:
-        """Stop playback in place after pause timeout.
+        """Light teardown after pause timeout — releases the drive but keeps
+        the resume point.
 
-        Stops the reader + mpv, clears track-level state. The disc itself
-        stays loaded (track list remains visible), so a tap on any track
-        resumes immediately without re-reading the TOC.
+        Stops the reader + mpv playback and clears the playing/paused flags so
+        the source drops to WAITING (screen can sleep, disc stays visible), but
+        keeps _current_track + _track_position so a tap on play resumes the same
+        track at the same position. mpv stays connected for a cheap restart.
         """
         await self._stop_reader_and_mpv()
-        self._reset_playback_state()
+        self._is_playing = False
+        self._is_paused = False
+        self._is_buffering = False
         self._update_connection_state()
 
     async def _restart_reader_and_mpv(self, start_lba: int) -> bool:
@@ -404,7 +406,6 @@ class CdSource(MpvAudioSource):
                 "disc_present": True, "cache_ready": False,
                 "drive_connected": self._drive_connected,
                 "is_playing": False, "is_buffering": False,
-                "album_finished": False,
             })
 
     async def _handle_disc_ready(self) -> None:
@@ -504,7 +505,6 @@ class CdSource(MpvAudioSource):
         self._track_duration = self._tracks[0].duration
         self._is_playing = True
         self._is_paused = False
-        self._album_finished = False
         self._update_connection_state()
         self._logger.info("Auto-playing track 1")
 
@@ -604,7 +604,6 @@ class CdSource(MpvAudioSource):
             self._is_playing = True
             self._is_paused = False
             self._is_buffering = True  # Until mpv produces audio
-            self._album_finished = False
             self._handle_pause_change(False)
 
             self._update_connection_state()
@@ -633,10 +632,7 @@ class CdSource(MpvAudioSource):
         if not self._mpv:
             return self.error_response("CD not active")
         try:
-            if self._album_finished:
-                return await self._handle_play_track(PlayTrackParams(track_number=1))
-
-            # Resume from pause — reader unblocks when mpv reads again
+            # Short pause — mpv still loaded, unblock the reader in place.
             if self._is_paused:
                 await self._mpv.resume()
                 self._is_playing = True
@@ -645,12 +641,32 @@ class CdSource(MpvAudioSource):
                 self._update_connection_state()
                 return self.success_response("Resumed")
 
-            # First play or resume from stop -> go through play_track
-            if not self._is_playing:
-                track = self._current_track or 1
-                return await self._handle_play_track(PlayTrackParams(track_number=track))
+            if self._is_playing:
+                return self.success_response("Already playing")
 
-            return self.success_response("Already playing")
+            # Idle (auto-stopped or album-finished): no stream loaded. Restart
+            # the reader at the LBA computed from the saved track + position
+            # (same math as _handle_seek). Auto-stop resumes track N where it
+            # left off; album-finished resumes track 1 at 0:00 (reset there).
+            if not self._sector_offsets or not self._tracks:
+                return self.error_response("Disc not ready")
+            track = self._current_track or 1
+            if track > len(self._tracks):
+                track = 1
+            target_lba = self._track_position_to_lba(track, self._track_position)
+
+            if not await self._restart_reader_and_mpv(target_lba):
+                return self.error_response("Failed to resume")
+
+            self._current_track = track
+            self._track_duration = self._tracks[track - 1].duration
+            self._is_playing = True
+            self._is_paused = False
+            self._is_buffering = True
+            self._handle_pause_change(False)
+            self._update_connection_state()
+            self.broadcast_error_cleared()
+            return self.success_response("Resumed")
         except Exception as e:
             self._logger.error(f"Resume error: {e}")
             return self.error_response(str(e))
@@ -682,15 +698,7 @@ class CdSource(MpvAudioSource):
 
         try:
             position = max(0, int(position))
-            track_start = self._sector_offsets[self._current_track - 1]
-            target_lba = track_start + position * SECTORS_PER_SECOND
-
-            # Clamp to track boundaries
-            if self._current_track < len(self._sector_offsets):
-                track_end = self._sector_offsets[self._current_track]
-            else:
-                track_end = self._disc_end_lba
-            target_lba = min(target_lba, track_end - 1)
+            target_lba = self._track_position_to_lba(self._current_track, position)
 
             if not await self._restart_reader_and_mpv(target_lba):
                 return self.error_response("Seek failed")
@@ -749,11 +757,11 @@ class CdSource(MpvAudioSource):
             if not self._reader.is_running:
                 if self._current_track and self._current_track >= len(self._tracks):
                     self._logger.info("Album finished")
-                    self._album_finished = True
                     self._is_playing = False
                     self._is_paused = False
-                    self._track_position = self._track_duration
-                    self._update_connection_state()
+                    self._current_track = 1
+                    self._track_position = 0
+                    self._update_connection_state()  # -> WAITING, screen can sleep
                     return
                 # Reader stopped mid-album (error or EOF on non-last track)
                 # Try auto-advancing if possible
@@ -815,6 +823,19 @@ class CdSource(MpvAudioSource):
             return 0
         return (lba - self._sector_offsets[track - 1]) / SECTORS_PER_SECOND
 
+    def _track_position_to_lba(self, track: int, position: float) -> int:
+        """Map a (1-based track, position seconds) pair to a clamped disc LBA.
+
+        Shared by seek and resume-from-saved-position.
+        """
+        track_start = self._sector_offsets[track - 1]
+        target_lba = track_start + int(position) * SECTORS_PER_SECOND
+        track_end = (
+            self._sector_offsets[track] if track < len(self._sector_offsets)
+            else self._disc_end_lba
+        )
+        return min(target_lba, track_end - 1)
+
     def _build_metadata(self) -> Dict[str, Any]:
         metadata: Dict[str, Any] = {
             "drive_connected": self._drive_connected,
@@ -826,38 +847,47 @@ class CdSource(MpvAudioSource):
         }
 
         if self._current_disc:
-            first_track = self._tracks[0] if self._tracks else None
+            current = self._current_track or 1
+            track_idx = current - 1
+            playing_track = (
+                self._tracks[track_idx]
+                if self._tracks and 0 <= track_idx < len(self._tracks)
+                else (self._tracks[0] if self._tracks else None)
+            )
+
+            # Disc identity — persistent extras (survive WAITING): a disc is a
+            # hardware fact, kept visible while idle and across a WS reconnect.
             metadata.update({
                 "disc_id": self._current_disc.disc_id,
-                "album": self._current_disc.album,
-                "artist": self._current_disc.artist,
-                "year": self._current_disc.year,
-                "album_art_url": self._current_disc.cover_url,
+                "disc_album": self._current_disc.album,
+                "disc_artist": self._current_disc.artist,
+                "disc_year": self._current_disc.year,
+                "disc_cover_url": self._current_disc.cover_url,
                 "track_count": self._current_disc.track_count,
                 "tracks": [t.model_dump() for t in self._tracks],
-                "current_track": 1,
-                "title": first_track.title if first_track else self._current_disc.album,
-                "position": 0,
-                "duration": int(first_track.duration * 1000) if first_track else 0,
+                "current_track": current,
             })
 
-        if self._current_track and self._tracks:
-            track_idx = self._current_track - 1
-            if 0 <= track_idx < len(self._tracks):
-                metadata.update({
-                    "current_track": self._current_track,
-                    "title": self._tracks[track_idx].title,
-                    "position": int(self._track_position * 1000),
-                    "duration": int(self._track_duration * 1000),
-                })
+            # Now-playing projection — canonical core (cleared in WAITING),
+            # consumed by AudioPlayerFull while playing.
+            metadata.update({
+                "album": self._current_disc.album,
+                "artist": self._current_disc.artist,
+                "album_art_url": self._current_disc.cover_url,
+                "title": playing_track.title if playing_track else self._current_disc.album,
+                "position": int(self._track_position * 1000),
+                "duration": int((playing_track.duration if playing_track else 0) * 1000),
+            })
 
         return metadata
 
     def _update_connection_state(self) -> None:
-        # Drive state (drive_connected/disc_present/cache_ready/ejecting) rides
-        # in extras so it stays visible while no disc is loaded (WAITING).
+        # ACTIVE iff there's a live playback session; a merely-inserted or
+        # auto-stopped/finished disc is WAITING (screen can sleep) but stays
+        # visible via the persistent disc-identity extras.
+        connected = self._is_playing or self._is_buffering or self._is_paused
         core, extras = PlaybackMetadata.split(self._build_metadata())
-        self.emit_connection_state(bool(self._current_disc), core, extras)
+        self.emit_connection_state(connected, core, extras)
 
     async def _refresh_metadata(self) -> bool:
         """Refresh metadata so WebSocket initial_state contains live position."""
