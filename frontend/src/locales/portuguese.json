@@ -49,6 +49,7 @@
     "macOS": "Receptor macOS",
     "multiroom": "Multiroom",
     "cd": "Leitor de CD",
+    "dlna": "DLNA",
     "cdSource": {
       "unknownAlbum": "Álbum desconhecido",
       "unknownArtist": "Artista desconhecido",

@@ -40,6 +40,12 @@ function hasRichDisplay(source, state, meta) {
       // loading (no cache_ready), ejecting, and no-drive windows stay on the
       // AudioSourceStatus card.
       return !!m.disc_present && !!m.cache_ready && !m.ejecting;
+    case 'dlna':
+      // Same gate as AirPlay: untrusted external sender, require title, artist,
+      // a real cover (>300px) AND audio flowing (drop the stale cover when the
+      // controller stops).
+      return state === 'active' && !!m.is_playing && !!m.title && !!m.artist &&
+        (m.album_art_width || 0) > AIRPLAY_MIN_ARTWORK_PX;
     default:
       // bluetooth, mac, none → no rich view, always the status card.
       return false;
