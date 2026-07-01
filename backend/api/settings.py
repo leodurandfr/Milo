@@ -175,16 +175,13 @@ def create_settings_router(
     # Volume limits (in dB)
     @router.put("/volume-limits")
     async def set_volume_limits(payload: VolumeLimitsRequest):
-        async def setter():
-            return (
-                await settings.set_setting('volume.limit_min_db', payload.min_db) and
-                await settings.set_setting('volume.limit_max_db', payload.max_db)
-            )
-
         return await _handle_setting_update(
             payload,
             validator=lambda p: True,  # Validated by Pydantic
-            setter=setter,
+            setter=lambda: settings.set_settings({
+                'volume.limit_min_db': payload.min_db,
+                'volume.limit_max_db': payload.max_db,
+            }),
             event_type="volume_limits_changed",
             event_data={"limits": {"min_db": payload.min_db, "max_db": payload.max_db}},
             reload_callback=volume_service.reload_volume_limits
@@ -193,16 +190,13 @@ def create_settings_router(
     # Volume startup (in dB)
     @router.put("/volume-startup")
     async def set_volume_startup(payload: VolumeStartupRequest):
-        async def setter():
-            return (
-                await settings.set_setting('volume.startup_volume_db', payload.startup_volume_db) and
-                await settings.set_setting('volume.restore_last_volume', payload.restore_last_volume)
-            )
-
         return await _handle_setting_update(
             payload,
             validator=lambda p: True,  # Validated by Pydantic
-            setter=setter,
+            setter=lambda: settings.set_settings({
+                'volume.startup_volume_db': payload.startup_volume_db,
+                'volume.restore_last_volume': payload.restore_last_volume,
+            }),
             event_type="volume_startup_changed",
             event_data={"config": {"startup_volume_db": payload.startup_volume_db, "restore_last_volume": payload.restore_last_volume}},
             reload_callback=volume_service.reload_startup_config
@@ -567,13 +561,13 @@ def create_settings_router(
     # Screen screensaver
     @router.put("/screen-screensaver")
     async def set_screen_screensaver(payload: ScreenScreensaverRequest):
-        async def setter():
-            success = True
+        def setter():
+            updates = {}
             if payload.screensaver_enabled is not None:
-                success = await settings.set_setting('screen.screensaver_enabled', payload.screensaver_enabled) and success
+                updates['screen.screensaver_enabled'] = payload.screensaver_enabled
             if payload.screensaver_delay_seconds is not None:
-                success = await settings.set_setting('screen.screensaver_delay_seconds', payload.screensaver_delay_seconds) and success
-            return success
+                updates['screen.screensaver_delay_seconds'] = payload.screensaver_delay_seconds
+            return settings.set_settings(updates)
 
         screen = await settings.get_setting('screen') or {}
         config = {
@@ -603,13 +597,13 @@ def create_settings_router(
     # Screen warm color filter
     @router.put("/screen-color-filter")
     async def set_screen_color_filter(payload: ScreenColorFilterRequest):
-        async def setter():
-            success = True
+        def setter():
+            updates = {}
             if payload.enabled is not None:
-                success = await settings.set_setting('screen.color_filter_enabled', payload.enabled) and success
+                updates['screen.color_filter_enabled'] = payload.enabled
             if payload.warmth is not None:
-                success = await settings.set_setting('screen.color_filter_warmth', payload.warmth) and success
-            return success
+                updates['screen.color_filter_warmth'] = payload.warmth
+            return settings.set_settings(updates)
 
         screen = await settings.get_setting('screen') or {}
         config = {

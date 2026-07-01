@@ -43,8 +43,13 @@ def mock_settings_service():
         storage[key] = value
         return True
 
+    async def mock_set_settings(updates):
+        storage.update(updates)
+        return True
+
     service.get_setting = AsyncMock(side_effect=mock_get_setting)
     service.set_setting = AsyncMock(side_effect=mock_set_setting)
+    service.set_settings = AsyncMock(side_effect=mock_set_settings)
 
     return service
 
@@ -675,7 +680,7 @@ class TestRegistryPersistence:
         Test zone creation persists to settings.
 
         Validates:
-        - set_setting called with zone data
+        - zone data persisted via the atomic multi-key write
         """
         await registry_with_clients.create_zone(
             zone_id="living_room",
@@ -683,8 +688,9 @@ class TestRegistryPersistence:
             client_ids=["local", "bedroom"]
         )
 
-        # Verify set_setting was called
-        calls = mock_settings_service.set_setting.call_args_list
+        # create_zone persists the whole registry atomically via set_settings;
+        # the multiroom.zones key must be part of that write.
+        calls = mock_settings_service.set_settings.call_args_list
         zone_calls = [c for c in calls if "multiroom.zones" in str(c)]
         assert len(zone_calls) >= 1
 
