@@ -9,6 +9,17 @@ from fastapi import APIRouter, HTTPException, Request
 
 from backend.api.route_helpers import api_error_handler
 
+from backend.api.responses import (
+    EqualizerEnabledResponse,
+    EqualizerPresetsResponse,
+    EqualizerRecordResponse,
+    StatusResponse,
+    TargetFilterResponse,
+    TargetMonoResponse,
+    TargetPresetResponse,
+    TargetSaveCustomResponse,
+    TargetStatusResponse,
+)
 from backend.api.models import (
     EqualizerFilterUpdateRequest,
     EqualizerCompressorRequest,
@@ -61,7 +72,7 @@ def create_equalizer_router(
 
     # === Audio Levels ===
 
-    @router.post("/levels/monitor")
+    @router.post("/levels/monitor", response_model=StatusResponse)
     async def keepalive_levels_monitor(payload: LevelsMonitorRequest):
         """Arm the WS levels push (`equalizer`/`levels`, ~4 Hz) for the next ~15 s.
 
@@ -75,7 +86,7 @@ def create_equalizer_router(
 
     # === Preset Catalog ===
 
-    @router.get("/presets")
+    @router.get("/presets", response_model=EqualizerPresetsResponse, response_model_exclude_none=True)
     async def get_presets():
         """Get all builtin presets with their gains, custom gains, and active preset ID."""
         try:
@@ -120,7 +131,7 @@ def create_equalizer_router(
 
     # === Unified Per-Target Routes (one grammar for local / remote / zone) ===
 
-    @router.get("/target/{target}")
+    @router.get("/target/{target}", response_model=EqualizerRecordResponse)
     async def get_target_equalizer(target: str):
         """Unified per-target EQ read — the complete record for display.
 
@@ -178,7 +189,7 @@ def create_equalizer_router(
                 "available": status.get("available", False),
             }
 
-    @router.put("/target/{target}/filter/{filter_id}")
+    @router.put("/target/{target}/filter/{filter_id}", response_model=TargetFilterResponse)
     async def update_target_filter(target: str, filter_id: str, payload: EqualizerFilterUpdateRequest):
         """Update one EQ band for any target through the unified access layer."""
         async with api_error_handler(f"Error updating filter for target {target}", logger):
@@ -199,7 +210,7 @@ def create_equalizer_router(
                 raise HTTPException(status_code=404, detail=str(e))
             return {"status": "success", "target": target, "filter_id": filter_id}
 
-    @router.put("/target/{target}/compressor")
+    @router.put("/target/{target}/compressor", response_model=TargetStatusResponse)
     async def update_target_compressor(target: str, payload: EqualizerCompressorRequest):
         """Update the compressor for any target through the unified access layer."""
         async with api_error_handler(f"Error updating compressor for target {target}", logger):
@@ -220,7 +231,7 @@ def create_equalizer_router(
                 raise HTTPException(status_code=404, detail=str(e))
             return {"status": "success", "target": target}
 
-    @router.put("/target/{target}/loudness")
+    @router.put("/target/{target}/loudness", response_model=TargetStatusResponse)
     async def update_target_loudness(target: str, payload: EqualizerLoudnessRequest):
         """Update loudness for any target through the unified access layer."""
         async with api_error_handler(f"Error updating loudness for target {target}", logger):
@@ -238,7 +249,7 @@ def create_equalizer_router(
                 raise HTTPException(status_code=404, detail=str(e))
             return {"status": "success", "target": target}
 
-    @router.put("/target/{target}/mono")
+    @router.put("/target/{target}/mono", response_model=TargetMonoResponse)
     async def update_target_mono(target: str, request: Request):
         """Set mono/stereo for any target through the unified access layer.
 
@@ -262,7 +273,7 @@ def create_equalizer_router(
                 raise HTTPException(status_code=404, detail=str(e))
             return {"status": "success", "target": target, "mono": enabled}
 
-    @router.put("/target/{target}/enabled")
+    @router.put("/target/{target}/enabled", response_model=EqualizerEnabledResponse)
     async def set_target_enabled(target: str, request: Request):
         """Enable/disable equalizer effects for any target (volume stays active)."""
         async with api_error_handler(f"Error updating equalizer enabled for target {target}", logger):
@@ -285,7 +296,7 @@ def create_equalizer_router(
                 raise HTTPException(status_code=404, detail=str(e))
             return {"status": "success" if success else "error", "target": target, "enabled": enabled}
 
-    @router.post("/target/{target}/preset")
+    @router.post("/target/{target}/preset", response_model=TargetPresetResponse)
     async def load_target_preset(target: str, payload: EqualizerPresetRequest):
         """Load a preset for any target; returns resolved gains for immediate UI apply."""
         async with api_error_handler(f"Error loading preset for target {target}", logger):
@@ -309,7 +320,7 @@ def create_equalizer_router(
                 "gains": gains,
             }
 
-    @router.post("/target/{target}/save-custom")
+    @router.post("/target/{target}/save-custom", response_model=TargetSaveCustomResponse)
     async def save_target_custom_preset(target: str):
         """Snapshot the target's current gains as its 'custom' preset and activate it."""
         async with api_error_handler(f"Error saving custom preset for target {target}", logger):

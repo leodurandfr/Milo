@@ -3,19 +3,20 @@ Main API routes for audio management
 """
 from fastapi import APIRouter, HTTPException
 from backend.api.models import AudioControlRequest
+from backend.api.responses import AudioStateResponse, StatusResponse
 from backend.api.route_helpers import parse_audio_source
 
 def create_router(state_machine):
     """Creates router with injected dependencies"""
     router = APIRouter(prefix="/api/audio", tags=["audio"])
 
-    @router.get("/state")
+    @router.get("/state", response_model=AudioStateResponse)
     async def get_current_state():
         """Gets current audio system state with refreshed metadata"""
         await state_machine.refresh_active_metadata()
         return state_machine.get_current_state()
 
-    @router.post("/source/{source_name}")
+    @router.post("/source/{source_name}", response_model=StatusResponse)
     async def change_audio_source(source_name: str):
         """Changes active audio source"""
         source = parse_audio_source(source_name)

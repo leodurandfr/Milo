@@ -6,6 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 from typing import Any, Callable, Dict, Optional
 from backend.core.models.audio_state import AudioSource
 from backend.api.route_helpers import api_error_handler, coerce_audio_source_or_none
+from backend.api.responses import BulkSettingsResponse
 from backend.sources.podcast.taddy_api import TaddyAPI
 from backend.config.constants import DEFAULT_VOLUME_DB, DEFAULT_DOCK_APPS, AUDIO_SOURCE_APPS
 from backend.api.models import (
@@ -100,7 +101,7 @@ def create_settings_router(
         return services_map.get(source, [])
 
     # Bulk settings (all categories in one response)
-    @router.get("/bulk")
+    @router.get("/bulk", response_model=BulkSettingsResponse)
     async def get_bulk_settings():
         """Return all settings categories in a single response."""
         all_settings = await settings.get_all_settings()
