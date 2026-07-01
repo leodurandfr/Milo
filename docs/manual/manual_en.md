@@ -109,7 +109,7 @@ The Dock is Milō's main navigation bar, located at the bottom of the screen. It
 
 The Dock shows the icons of the enabled items, organized into two groups:
 
-**Audio sources**: Spotify, Bluetooth, Radio, Podcasts, AirPlay, Mac.
+**Audio sources**: Spotify, Bluetooth, Radio, Podcasts, AirPlay, DLNA, Mac.
 
 **Features** (after the separator): Equalizer, Multiroom, Settings.
 
@@ -284,6 +284,25 @@ Milō can receive audio from a Mac in real time over the local network, using th
 The interface shows the connection state: **"Ready to stream"** or **"Connected to [Mac name]"**.
 
 > *Related settings:* [*Settings > Mac*](#mac)
+
+
+---
+
+## DLNA
+
+Milō appears as a DLNA renderer (a "Play To" target) on your network. Any UPnP/DLNA controller can push music to it — for example BubbleUPnP or Hi-Fi Cast on Android, a Synology or QNAP NAS, Plex, JRiver, foobar2000, or Audirvana.
+
+### Connecting
+
+1. Open your DLNA controller app, or your NAS / media server's control interface.
+2. Choose **Milo** in the list of renderers (output devices).
+3. Play a track — Milō starts playback and shows the metadata.
+
+### Display
+
+Milō shows the artwork, title, artist, and album. Playback is controlled from the controller — Milō shows no control buttons, like AirPlay.
+
+> **Note:** DLNA "Play To" pushes a whole music track to Milō. It is not a remote audio output for another app's sound, so it cannot play the audio of a video, a TV stream, or a film, and there is no lip-sync.
 
 
 ---

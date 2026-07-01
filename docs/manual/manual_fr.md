@@ -111,7 +111,7 @@ Le Dock est la barre de navigation principale de Milo, située en bas de l'écra
 
 Le Dock affiche les icônes des éléments activés, organisés en deux groupes :
 
-**Sources audio** : Spotify, Bluetooth, Radio, Podcasts, AirPlay, Mac.
+**Sources audio** : Spotify, Bluetooth, Radio, Podcasts, AirPlay, DLNA, Mac.
 
 **Fonctionnalités** (après le séparateur) : Égaliseur, Multiroom, Paramètres.
 
@@ -292,6 +292,25 @@ Milo peut recevoir l'audio d'un Mac en temps réel via le réseau local, grâce 
 L'interface affiche l'état de connexion : **"Prêt à streamer"** ou **"Connecté à \[nom du Mac\]"**.
 
 > \*Réglages associés : \*[*Paramètres > Mac*](#mac-1)
+
+
+---
+
+## DLNA
+
+Milo apparaît comme un lecteur DLNA (une cible « Play To ») sur votre réseau. N'importe quelle application de contrôle UPnP/DLNA peut lui envoyer de la musique — par exemple BubbleUPnP ou Hi-Fi Cast sur Android, un NAS Synology ou QNAP, Plex, JRiver, foobar2000 ou Audirvana.
+
+### Se connecter
+
+1. Ouvrez votre application de contrôle DLNA, ou l'interface de votre NAS / serveur multimédia.
+2. Choisissez **Milo** dans la liste des lecteurs (périphériques de sortie).
+3. Lancez un morceau — Milo démarre la lecture et affiche les métadonnées.
+
+### Affichage
+
+Milo affiche la pochette, le titre, l'artiste et l'album. La lecture est pilotée depuis l'application de contrôle — Milo n'affiche pas de boutons de commande, comme pour AirPlay.
+
+> **Remarque :** le « Play To » DLNA envoie un morceau de musique entier à Milo. Ce n'est pas une sortie audio déportée pour le son d'une autre application : il ne peut donc pas jouer l'audio d'une vidéo, d'un flux TV ou d'un film, et il n'y a pas de synchronisation labiale.
 
 
 ---

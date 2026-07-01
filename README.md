@@ -6,7 +6,7 @@
 
 > ⚠ Currently in work in progress — Available soon
 
-### Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, Internet Radio, Bluetooth, AirPlay 2, Podcasts, CD playback, and Mac streaming.
+### Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, Internet Radio, Bluetooth, AirPlay 2, Podcasts, CD playback, DLNA, and Mac streaming.
 
 <!-- TODO: Add screenshot or GIF of the interface -->
 <!-- ![Milō Interface](docs/assets/screenshot.png) -->
@@ -38,9 +38,13 @@
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/cd.png" width="48"></td>
     <td><b>CD Player</b><br>Play audio CDs with automatic track and metadata lookup</td>
   </tr>
-  <tr>
+    <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/macos.png" width="48"></td>
     <td><b>Mac</b><br>Stream your Mac's system audio with low latency (requires <a href="https://github.com/leodurandfr/Milo-Mac">Milō Mac</a>)</td>
+  </tr>
+  <tr>
+    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/dlna.png" width="48"></td>
+    <td><b>DLNA</b><br>Play music to Milō from any UPnP/DLNA controller</td>
   </tr>
 </table>
 
@@ -111,6 +115,7 @@ After setup:
 - **Spotify** → Select "Milō" in Spotify app
 - **AirPlay** → Select "Milō" in your iPhone/iPad/Mac AirPlay outputs
 - **Bluetooth** → Connect to "Milō · Bluetooth"
+- **DLNA** → Select "Milo" as the renderer in any UPnP/DLNA controller app
 - **Mac** → Install [Milō Mac](https://github.com/leodurandfr/Milo-Mac), then select "Milō" in audio outputs
 
 ### Multiroom (Additional Speakers)

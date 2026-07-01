@@ -70,7 +70,8 @@ backend/
 │   ├── mac/                  # MacSource + routes
 │   ├── radio/                # RadioSource + routes + browser_api
 │   ├── podcast/              # PodcastSource + routes + taddy_api
-│   └── cd/                   # CDSource + routes
+│   ├── cd/                   # CDSource + routes
+│   └── dlna/                 # DlnaSource + metadata_reader (UPnP bridge) + routes
 ├── api/                       # REST API routes
 ├── hardware/                  # Hardware controllers (rotary, IR remote, BT remote, screen)
 ├── ws/                        # WebSocket server + manager
@@ -94,6 +95,7 @@ frontend/src/
 │   ├── audio/                # Shared audio player + screensaver + source layout
 │   ├── airplay/              # AirPlay source UI
 │   ├── cd/                   # CD source UI
+│   ├── dlna/                 # DLNA source UI
 │   ├── equalizer/            # Equalizer / DSP controls
 │   ├── multiroom/            # Multiroom (Snapcast) controls
 │   ├── navigation/           # Navigation stack
@@ -291,16 +293,21 @@ pcm.milo_mysource_direct {
 }
 
 # Multiroom mode: via Snapcast loopback
-# Slot 0 is reserved for the DSP input; existing sources occupy slots 1..7.
-# Use the next free contiguous slot (currently 8) and bump pcm_substreams in
-# /etc/modprobe.d/snd-aloop.conf accordingly. Then add a matching `source = alsa:///?...&device=hw:1,1,N` line in /etc/snapserver.conf.
+# Card 1 `Loopback` is FULL: slot 0 = DSP input, slots 1..7 = the seven existing
+# sources. snd-aloop caps at 8 substreams/card (kernel limit), so a new source
+# needs a *second* loopback card — as DLNA does (`card LoopbackDLNA`, device 0,
+# subdevice 0). Add the card in the snd-aloop module options at BOTH install
+# paths (`install/alsa.sh` and `pi-gen/stage-milo/02-install-milo/01-run.sh`):
+#   options snd-aloop index=1,2,3 enable=1,1,1 id=Loopback,LoopbackDLNA,LoopbackX pcm_substreams=8,8,8
+# Then add a matching `source = alsa:///?...&device=hw:<card>,1,0` line in
+# /etc/snapserver.conf and its slug to the `meta:///...` aggregator.
 pcm.milo_mysource_multiroom {
     type plug
     slave.pcm {
         type hw
-        card Loopback
+        card LoopbackX
         device 0
-        subdevice 8
+        subdevice 0
     }
 }
 ```

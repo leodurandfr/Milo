@@ -207,6 +207,38 @@ User Action → API Call → Backend Update → WebSocket Event → Store Update
 - Audio output: ALSA (milo_cd)
 - Data: `/var/lib/milo/cd_data.json` (TOC cache), `cd_covers/` (cover art)
 
+### 8. DLNA / UPnP Media Renderer (gmediarender)
+
+**What is it?**
+- DLNA renderer (DMR role) — any control point (BubbleUPnP, a NAS, Plex,
+  Audirvana, foobar2000…) can push audio to Milō, rich metadata included
+- [**Go to gmrender-resurrect repository**](https://github.com/hzeller/gmrender-resurrect)
+
+**How does it work?**
+- `gmediarender` announces Milō as a UPnP renderer via SSDP and does the full
+  UPnP device work (AVTransport / RenderingControl) + GStreamer→ALSA output
+- gmediarender emits no metadata on a pipe, so the backend acts as a UPnP
+  **control point toward the local renderer**: `DlnaBridge` builds a `DmrDevice`
+  from the fixed description URL, subscribes via **GENA** to the renderer's
+  `LastChange` events (title/artist/album/artwork-URI/state pushed on change),
+  and polls `GetPositionInfo` for progress
+- Artwork arrives as a DIDL-Lite URL; the backend fetches it, decodes its
+  dimensions, caches it in memory, and serves it via `GET /api/dlna/artwork`
+- No remote playback control (the sender drives playback — Family B, like
+  AirPlay); controls are hidden in the UI, only now-playing is shown
+- Volume is ignored (fixed 0 dB, `--gstout-initial-volume-db 0`) — CamillaDSP is
+  authoritative, as with AirPlay's `ignore_volume_control`
+- **Not** a remote audio output: DLNA "Play To" pushes a whole media file to a
+  screenless renderer — no video/TV/film audio, no lip-sync
+
+**Configuration:**
+- Service: milo-dlna.service (gmediarender, fixed port `49494` + fixed UUID)
+- Bridge library: `async-upnp-client` (the one Home Assistant uses)
+- Audio output: ALSA (milo_dlna) — GStreamer plugins: base/good/bad + `alsa` +
+  `libav` (`avdec_alac` for ALAC); covers FLAC (incl. 24/192), ALAC, AAC, WAV, MP3
+- Visible name: "Milo" (ASCII — the apt gmediarender v0.3 crashes on "Milō")
+- `MemoryMax=256M` (measured ~70 MiB RSS on hi-res FLAC 24/192)
+
 ## Multiroom (Snapcast)
 
 **What is it?**
@@ -296,7 +328,7 @@ Virtual device that captures audio and makes it available to snapcast:
 Source → Loopback (hw:1,0,X) → Snapserver reads from hw:1,1,X
 ```
 
-Loopback subdevice layout:
+Loopback subdevice layout (**card 1 `Loopback`**):
 - subdevice 0: DSP input (`pcm.camilladsp`) — captured by milo-camilladsp on `plughw:Loopback,1,0`. Written by the active source (direct mode) or by snapclient (multiroom mode); the two writers are mutually exclusive.
 - subdevice 1: Bluetooth (multiroom)
 - subdevice 2: ROC / Mac (multiroom)
@@ -306,7 +338,15 @@ Loopback subdevice layout:
 - subdevice 6: AirPlay (multiroom)
 - subdevice 7: CD (multiroom)
 
-Sources are strictly contiguous in slots 1..7; DSP is isolated in slot 0 so adding a future source (`pcm_substreams` bump → slot 8) does not require reshuffling.
+Card 1 is full: DSP fills slot 0 and the seven sources fill slots 1..7. `snd-aloop` caps at **8 substreams per card** (kernel limit), so an 8th source cannot share the card. DLNA therefore lives on a **second loopback card** created by the same module:
+
+```
+options snd-aloop index=1,2 enable=1,1 id=Loopback,LoopbackDLNA pcm_substreams=8,8
+```
+
+- **card 2 `LoopbackDLNA`**, subdevice 0: DLNA (multiroom) — gmediarender writes `hw:2,0,0`, Snapserver reads `hw:2,1,0`.
+
+Any further source needs another loopback card (bump `index`/`enable`/`id`/`pcm_substreams` in the module options at **both** install paths — `install/alsa.sh` and `pi-gen/stage-milo/02-install-milo/01-run.sh`).
 
 ### High-quality resampling (44.1 → 48 kHz)
 
@@ -468,6 +508,7 @@ milo-mac                  # Mac receiver (ROC)
 milo-radio                # Radio player (mpv)
 milo-podcast              # Podcast player (mpv, separate instance from radio)
 milo-cd                   # CD player
+milo-dlna                 # DLNA/UPnP renderer (gmediarender + GStreamer)
 milo-camilladsp           # CamillaDSP audio processing (always in path for volume)
 milo-snapserver-multiroom # Snapcast server (started/stopped by AudioRoutingService — no WantedBy)
 milo-snapclient-multiroom # Local snapcast client (started/stopped by AudioRoutingService — no WantedBy)
