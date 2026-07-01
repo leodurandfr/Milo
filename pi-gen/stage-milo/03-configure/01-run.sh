@@ -37,6 +37,10 @@ on_chroot << 'CHROOT'
 systemctl disable snapserver.service 2>/dev/null || true
 systemctl disable snapclient.service 2>/dev/null || true
 
+# The apt gmediarender ships an init service (Default-Start 2 3 4 5) that would
+# grab port 49494/SSDP and collide with milo-dlna.service (Milo runs its own)
+systemctl disable gmediarender.service 2>/dev/null || true
+
 # milo-client services are not enabled by default (milo-first-boot auto-detects mode)
 systemctl disable milo-client.service 2>/dev/null || true
 systemctl disable milo-client-snapclient.service 2>/dev/null || true
