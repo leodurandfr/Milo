@@ -128,11 +128,13 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine, set
             # them rewrite their env and restart themselves; they then reconnect
             # to the NEW snapserver with the updated buffer_time already applied.
             if snapclient_buffer_time is not None:
-                # 1. Persist to settings.json (source of truth)
+                # 1. Persist to settings.json (source of truth) — buffer_time and
+                # fragments land together so a crash can't split the pair.
                 if settings_service:
-                    await settings_service.set_setting('multiroom.snapclient_buffer_time', snapclient_buffer_time)
+                    updates = {'multiroom.snapclient_buffer_time': snapclient_buffer_time}
                     if snapclient_fragments is not None:
-                        await settings_service.set_setting('multiroom.snapclient_fragments', snapclient_fragments)
+                        updates['multiroom.snapclient_fragments'] = snapclient_fragments
+                    await settings_service.set_settings(updates)
 
                 # Resolve effective fragments value: explicit if provided,
                 # otherwise re-read from settings (async), otherwise default.

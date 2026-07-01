@@ -464,3 +464,97 @@ class TestSettingsService:
         value = service.get_setting_sync('routing.multiroom_enabled')
 
         assert value is False
+
+    # ------------------------------------------------------------------ #
+    # Atomic multi-key writes (set_settings / set_settings_strict)        #
+    # ------------------------------------------------------------------ #
+
+    @pytest.mark.asyncio
+    async def test_set_settings_persists_all_keys(self, service):
+        """A multi-key write lands every key and invalidates the cache."""
+        await service.save_settings(service.defaults)
+        service._cache = None
+
+        result = await service.set_settings({
+            'volume.limit_min_db': -60.0,
+            'volume.limit_max_db': -10.0,
+        })
+
+        assert result is True
+        assert service._cache is None
+        assert await service.get_setting('volume.limit_min_db') == -60.0
+        assert await service.get_setting('volume.limit_max_db') == -10.0
+
+    @pytest.mark.asyncio
+    async def test_set_settings_single_write(self, service):
+        """All keys land in exactly one read-modify-write (one os.replace),
+        not one per key — that is what closes the torn-write window."""
+        await service.save_settings(service.defaults)
+        service._cache = None
+
+        with patch.object(
+            service, '_write_locked', wraps=service._write_locked
+        ) as spy:
+            await service.set_settings({
+                'volume.limit_min_db': -55.0,
+                'volume.limit_max_db': -12.0,
+                'volume.restore_last_volume': False,
+            })
+
+        assert spy.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_set_settings_validation_sees_the_full_pair(self, service):
+        """The gap constraint must be enforced against BOTH new values at once.
+
+        With two separate set_setting calls, setting min first validates it
+        against the OLD max; the atomic write validates min+max together, so a
+        wide new range is preserved instead of being clamped on an intermediate
+        state.
+        """
+        await service.save_settings(service.defaults)  # min=-80, max=-20
+        service._cache = None
+
+        # New min above the OLD max: a min-then-max sequence would transiently
+        # shove max up to min+6. The atomic write sees the real max (-5).
+        await service.set_settings({
+            'volume.limit_min_db': -15.0,
+            'volume.limit_max_db': -5.0,
+        })
+
+        assert await service.get_setting('volume.limit_min_db') == -15.0
+        assert await service.get_setting('volume.limit_max_db') == -5.0
+
+    @pytest.mark.asyncio
+    async def test_set_settings_strict_raises_on_disk_failure(self, service):
+        """The strict variant raises and leaves the file untouched on failure."""
+        await service.save_settings(service.defaults)
+
+        async def fake_write_locked(_settings):
+            return False
+
+        with patch.object(service, '_write_locked', side_effect=fake_write_locked):
+            with pytest.raises(SettingsWriteError):
+                await service.set_settings_strict({
+                    'volume.limit_min_db': -60.0,
+                    'volume.limit_max_db': -10.0,
+                })
+
+        with open(service.settings_file, 'r') as f:
+            on_disk = json.load(f)
+        assert on_disk['volume']['limit_min_db'] == service.defaults['volume']['limit_min_db']
+        assert on_disk['volume']['limit_max_db'] == service.defaults['volume']['limit_max_db']
+
+    @pytest.mark.asyncio
+    async def test_set_settings_empty_skips_write(self, service):
+        """An empty update set is a true no-op: no disk write, cache untouched."""
+        await service.save_settings(service.defaults)
+        await service.get_setting('language')  # warm the cache
+        cache_before = service._cache
+
+        with patch.object(service, '_write_locked') as spy:
+            result = await service.set_settings({})
+
+        assert result is True
+        spy.assert_not_called()
+        assert service._cache is cache_before

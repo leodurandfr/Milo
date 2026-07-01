@@ -389,7 +389,17 @@ class SettingsService:
         """Invalidates cache to force a reload"""
         self._cache = None
 
-    @handle_errors(default=False)
+    @staticmethod
+    def _apply_key(settings: Dict[str, Any], key_path: str, value: Any) -> None:
+        """Assign ``value`` at a dotted ``key_path``, creating intermediate dicts."""
+        keys = key_path.split('.')
+        current = settings
+        for key in keys[:-1]:
+            if key not in current:
+                current[key] = {}
+            current = current[key]
+        current[keys[-1]] = value
+
     async def set_setting(self, key_path: str, value: Any) -> bool:
         """Sets a setting atomically and invalidates cache (async).
 
@@ -397,24 +407,7 @@ class SettingsService:
         Use :meth:`set_setting_strict` from code paths that must not silently
         desync (e.g. multiroom transition).
         """
-        async with self._file_lock:
-            settings = await self._read_locked()
-
-            keys = key_path.split('.')
-            current = settings
-            for key in keys[:-1]:
-                if key not in current:
-                    current[key] = {}
-                current = current[key]
-
-            current[keys[-1]] = value
-
-            success = await self._write_locked(settings)
-
-        if success:
-            self._cache = None
-
-        return success
+        return await self.set_settings({key_path: value})
 
     async def set_setting_strict(self, key_path: str, value: Any) -> None:
         """Set a setting atomically; raise on disk-write failure.
@@ -423,22 +416,55 @@ class SettingsService:
         silently-swallowed write would leave the system in a split-brain
         state (settings.json vs derived artifacts vs in-memory caches).
         """
+        await self.set_settings_strict({key_path: value})
+
+    @handle_errors(default=False)
+    async def set_settings(self, updates: Dict[str, Any]) -> bool:
+        """Atomically set multiple related settings in one read-modify-write.
+
+        ``updates`` maps dotted key paths to values. All keys land in a single
+        ``os.replace`` (or none do), closing the torn-write window that AND-ing
+        independent :meth:`set_setting` calls leaves open — a crash between two
+        such calls would persist half a logically-coupled pair (e.g. a volume
+        ``limit_min_db`` without its ``limit_max_db``).
+
+        An empty ``updates`` is a no-op (no write, cache untouched) so callers
+        that conditionally build the map don't rewrite the file for nothing.
+
+        Lossy variant: swallows exceptions and returns ``False`` on failure.
+        """
+        if not updates:
+            return True
+
         async with self._file_lock:
             settings = await self._read_locked()
+            for key_path, value in updates.items():
+                self._apply_key(settings, key_path, value)
+            success = await self._write_locked(settings)
 
-            keys = key_path.split('.')
-            current = settings
-            for key in keys[:-1]:
-                if key not in current:
-                    current[key] = {}
-                current = current[key]
+        if success:
+            self._cache = None
 
-            current[keys[-1]] = value
+        return success
 
+    async def set_settings_strict(self, updates: Dict[str, Any]) -> None:
+        """Atomic multi-key write; raise on disk-write failure.
+
+        Failure-loud variant of :meth:`set_settings`.
+        """
+        if not updates:
+            return
+
+        async with self._file_lock:
+            settings = await self._read_locked()
+            for key_path, value in updates.items():
+                self._apply_key(settings, key_path, value)
             success = await self._write_locked(settings)
 
         if not success:
-            raise SettingsWriteError(f"Failed to persist setting '{key_path}'")
+            raise SettingsWriteError(
+                f"Failed to persist settings {sorted(updates)}"
+            )
 
         self._cache = None
 
