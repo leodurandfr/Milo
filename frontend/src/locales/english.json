@@ -53,7 +53,8 @@
       "unknownAlbum": "Unknown Album",
       "unknownArtist": "Unknown Artist",
       "trackN": "Track {n}",
-      "noDriveConnected": "Not plugged in"
+      "noDriveConnected": "Not plugged in",
+      "play": "Play"
     },
     "radioSource": {
       "favoritesTitle": "Favorite radios",

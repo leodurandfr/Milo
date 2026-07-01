@@ -53,7 +53,8 @@
       "unknownAlbum": "未知专辑",
       "unknownArtist": "未知艺术家",
       "trackN": "曲目 {n}",
-      "noDriveConnected": "未连接"
+      "noDriveConnected": "未连接",
+      "play": "播放"
     },
     "radioSource": {
       "favoritesTitle": "喜爱的广播",

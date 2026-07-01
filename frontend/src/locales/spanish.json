@@ -53,7 +53,8 @@
       "unknownAlbum": "Álbum desconocido",
       "unknownArtist": "Artista desconocido",
       "trackN": "Pista {n}",
-      "noDriveConnected": "No conectado"
+      "noDriveConnected": "No conectado",
+      "play": "Reproducir"
     },
     "radioSource": {
       "favoritesTitle": "Radios favoritas",
