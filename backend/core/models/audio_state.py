@@ -17,6 +17,7 @@ class AudioSource(Enum):
     AIRPLAY = "airplay"
     MAC = "mac"
     CD = "cd"
+    DLNA = "dlna"
 
 
 class SourceState(Enum):

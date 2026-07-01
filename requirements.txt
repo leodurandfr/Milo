@@ -7,6 +7,7 @@ pytest-asyncio>=0.24.0
 httpx>=0.28.0  # required by fastapi.testclient.TestClient (tests only)
 ruff>=0.6.0
 aiohttp>=3.11.0
+async-upnp-client>=0.47.0  # DLNA/UPnP control-point bridge (sources/dlna) — GENA eventing to the local gmediarender
 dbus-next>=0.2.3
 aiofiles>=23.2.1
 lgpio>=0.2.2.0; platform_machine == "aarch64"  # Pi GPIO (rotary encoder) — needs liblgpio, unavailable on x86 CI
