@@ -332,6 +332,14 @@ const artworkUrl = computed(() => persistentMetadata.value.album_art_url || plac
   gap: var(--space-05);
 }
 
+/* Reserve the progress bar's row height even while it's hidden (idle CD) so the
+   centered track-info doesn't shift when the bar mounts on play. Matches the
+   bar's flex-row height, which the .time line-height (--line-height-mono)
+   dominates over the 8px track. */
+.progress-wrapper {
+  min-height: var(--line-height-mono);
+}
+
 .track-title {
   color: var(--color-text);
   overflow: hidden;
