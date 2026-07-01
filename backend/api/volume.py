@@ -11,6 +11,14 @@ from backend.api.models import (
     ClientMuteRequest,
     VolumeControlRequest,
 )
+from backend.api.responses import (
+    ClientMuteSetResponse,
+    ClientVolumeSetResponse,
+    VolumeAdjustResponse,
+    VolumeControlResponse,
+    VolumeStateEnvelope,
+    ZoneVolumeDeltaResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +27,7 @@ def create_volume_router(volume_service, client_registry_service=None):
     """Creates volume router with dependency injection"""
     router = APIRouter(prefix="/api/volume", tags=["volume"])
 
-    @router.get("/state")
+    @router.get("/state", response_model=VolumeStateEnvelope, response_model_exclude_none=True)
     async def get_volume_state():
         """Get unified volume state (single source of truth)."""
         try:
@@ -28,7 +36,7 @@ def create_volume_router(volume_service, client_registry_service=None):
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
-    @router.post("/adjust")
+    @router.post("/adjust", response_model=VolumeAdjustResponse)
     async def adjust_volume(request: VolumeAdjustRequest):
         """Adjusts volume by delta in dB"""
         async with api_error_handler("Failed to adjust volume"):
@@ -105,7 +113,7 @@ def create_volume_router(volume_service, client_registry_service=None):
     # NEW ATOMIC ZONE OPERATIONS (Refactored architecture)
     # ============================================================================
 
-    @router.patch("/zone/{zone_id}")
+    @router.patch("/zone/{zone_id}", response_model=ZoneVolumeDeltaResponse)
     async def apply_zone_delta_patch(zone_id: str, request: VolumeAdjustRequest):
         """
         Apply volume delta to entire zone atomically (PATCH method per architecture).
@@ -184,7 +192,7 @@ def create_volume_router(volume_service, client_registry_service=None):
     # MAC ADDRESS BASED CLIENT ENDPOINTS
     # ============================================================================
 
-    @router.patch("/client/mac/{mac_url}")
+    @router.patch("/client/mac/{mac_url}", response_model=ClientVolumeSetResponse)
     async def set_client_volume_by_mac(mac_url: str, request: ClientVolumeRequest):
         """
         Set volume for a specific client using MAC address.
@@ -217,7 +225,7 @@ def create_volume_router(volume_service, client_registry_service=None):
                 "volume_db": request.volume_db
             }
 
-    @router.patch("/client/mac/{mac_url}/mute")
+    @router.patch("/client/mac/{mac_url}/mute", response_model=ClientMuteSetResponse)
     async def set_client_mute_by_mac(mac_url: str, request: ClientMuteRequest):
         """
         Set mute state for a specific client using MAC address.
@@ -246,7 +254,7 @@ def create_volume_router(volume_service, client_registry_service=None):
                 "mute": request.mute
             }
 
-    @router.patch("/volume-control")
+    @router.patch("/volume-control", response_model=VolumeControlResponse)
     async def set_volume_control(request: VolumeControlRequest):
         """Toggle local device volume_control (DAC mode) at runtime."""
         async with api_error_handler("Error setting volume control", logger):

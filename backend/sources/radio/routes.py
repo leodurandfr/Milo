@@ -15,6 +15,7 @@ from typing import Dict, Any, Optional
 import aiohttp
 from fastapi import APIRouter, HTTPException, Query, File, UploadFile, Form, Depends
 from backend.api.route_helpers import api_error_handler, run_source_command
+from backend.api.responses import RadioStationsResponse
 from fastapi.responses import FileResponse, Response
 
 from backend.api.source_dependency import make_source_dependency
@@ -77,7 +78,7 @@ async def stop_playback(source: RadioSource = Depends(get_source)) -> Dict[str, 
 
 # === Search Routes ===
 
-@router.get("/stations")
+@router.get("/stations", response_model=RadioStationsResponse, response_model_exclude_none=True)
 async def search_stations(
     query: str = Query("", description="Search term"),
     country: str = Query("", description="Country filter"),

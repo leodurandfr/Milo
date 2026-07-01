@@ -26,6 +26,15 @@ from backend.api.models import (
     RegisterClientRequest, ConfigurePendingClientRequest,
     ConfigureClientAudioRequest,
 )
+from backend.api.responses import (
+    ClientMutationResponse,
+    MultiroomMessageResponse,
+    MultiroomPendingClientsResponse,
+    MultiroomStateResponse,
+    RegisterClientResponse,
+    ZoneMutationResponse,
+    ZoneOrMessageResponse,
+)
 from backend.config.constants import CLIENT_API_PORT
 from backend.core.multiroom.models import EqualizerSettings
 
@@ -79,7 +88,7 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
 
     # === STATE ENDPOINT ===
 
-    @router.get("/state")
+    @router.get("/state", response_model=MultiroomStateResponse)
     async def get_state():
         """
         Get complete registry state (all clients and zones).
@@ -110,7 +119,7 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
 
     # === CLIENT ENDPOINTS ===
 
-    @router.patch("/clients/{mac_id}")
+    @router.patch("/clients/{mac_id}", response_model=ClientMutationResponse)
     async def update_client(mac_id: str, request: ClientUpdateRequest):
         """
         Update client properties (name and/or speaker_type).
@@ -146,7 +155,7 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
 
             return {"status": "success", "client": _client_with_online(updated_client)}
 
-    @router.delete("/clients/{mac_id}")
+    @router.delete("/clients/{mac_id}", response_model=MultiroomMessageResponse)
     async def delete_client(mac_id: str):
         """
         Permanently delete a client from the registry.
@@ -195,7 +204,7 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
                 logger.error(f"Cannot reach client {mac_id} at {client.ip}: {e}")
                 raise HTTPException(status_code=502, detail=f"Cannot reach client at {client.ip}")
 
-    @router.put("/clients/{mac_id}/audio")
+    @router.put("/clients/{mac_id}/audio", response_model=MultiroomMessageResponse)
     async def configure_client_audio(mac_id: str, request: ConfigureClientAudioRequest):
         """Change audio card on a registered milo-client and reboot it."""
         async with api_error_handler(f"Error configuring audio for client {mac_id}", logger):
@@ -224,7 +233,7 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
 
     # === ZONE ENDPOINTS ===
 
-    @router.post("/zones", status_code=201)
+    @router.post("/zones", status_code=201, response_model=ZoneMutationResponse)
     async def create_zone(request: ZoneCreate):
         """
         Create a new zone with specified clients.
@@ -270,7 +279,7 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
                 "zone": registry_service.zone_to_enriched_dict(zone)
             }
 
-    @router.patch("/zones/{zone_id}")
+    @router.patch("/zones/{zone_id}", response_model=ZoneMutationResponse)
     async def update_zone(zone_id: str, request: ZoneUpdate):
         """
         Update zone properties (currently only name).
@@ -304,7 +313,7 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
                 "zone": registry_service.zone_to_enriched_dict(zone)
             }
 
-    @router.delete("/zones/{zone_id}")
+    @router.delete("/zones/{zone_id}", response_model=MultiroomMessageResponse)
     async def delete_zone(zone_id: str):
         """
         Delete a zone.
@@ -337,7 +346,7 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
 
     # === ZONE MEMBERSHIP ENDPOINTS ===
 
-    @router.post("/zones/{zone_id}/clients", status_code=200)
+    @router.post("/zones/{zone_id}/clients", status_code=200, response_model=ZoneMutationResponse)
     async def add_client_to_zone(zone_id: str, request: ZoneAddClient):
         """
         Add a client to a zone. Client's equalizer is replaced by zone's (FR15).
@@ -401,7 +410,7 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
                 "zone": registry_service.zone_to_enriched_dict(zone)
             }
 
-    @router.delete("/zones/{zone_id}/clients/{mac_id}")
+    @router.delete("/zones/{zone_id}/clients/{mac_id}", response_model=ZoneOrMessageResponse, response_model_exclude_none=True)
     async def remove_client_from_zone(zone_id: str, mac_id: str):
         """
         Remove a client from a zone. Client keeps zone equalizer as standalone (FR14).
@@ -458,7 +467,7 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
 
     # === PENDING CLIENT ENDPOINTS ===
 
-    @router.post("/register-client")
+    @router.post("/register-client", response_model=RegisterClientResponse, response_model_exclude_none=True)
     async def register_client(request: RegisterClientRequest, raw_request: Request):
         """
         Register a milo-client as a pending speaker.
@@ -531,13 +540,13 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
                 ) or client
             return {"status": "success", "client": client}
 
-    @router.get("/pending-clients")
+    @router.get("/pending-clients", response_model=MultiroomPendingClientsResponse)
     async def get_pending_clients():
         """Get all pending (not yet configured) clients."""
         async with api_error_handler("Error getting pending clients", logger):
             return {"clients": pending_clients_service.get_all_clients()}
 
-    @router.post("/pending-clients/{mac_id}/configure")
+    @router.post("/pending-clients/{mac_id}/configure", response_model=MultiroomMessageResponse)
     async def configure_pending_client(mac_id: str, request: ConfigurePendingClientRequest):
         """
         Configure a pending client's audio card and reboot it.
