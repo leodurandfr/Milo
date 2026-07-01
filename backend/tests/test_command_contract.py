@@ -18,10 +18,11 @@ from backend.sources.cd.source import CdSource
 from backend.sources.mac.source import MacSource
 from backend.sources.bluetooth.source import BluetoothSource
 from backend.sources.airplay.source import AirPlaySource
+from backend.sources.dlna.source import DlnaSource
 
 ALL_SOURCES = [
     SpotifySource, RadioSource, PodcastSource, CdSource,
-    MacSource, BluetoothSource, AirPlaySource,
+    MacSource, BluetoothSource, AirPlaySource, DlnaSource,
 ]
 
 # Commands the hardware encoder/IR/BT-remote dispatcher sends per active source
