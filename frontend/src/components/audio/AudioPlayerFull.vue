@@ -3,7 +3,7 @@
   <div class="connect-player">
     <div class="now-playing">
       <!-- Left side: Cover image with CSS staggering -->
-      <div class="artwork-section stagger-1" :class="{ 'art-collapsed': hideContent && !keepArtwork }">
+      <div class="artwork-section stagger-1" :class="{ 'art-collapsed': hideContent }">
         <div class="artwork-container">
           <!-- Background blur -->
           <div class="artwork-blur"
@@ -84,19 +84,6 @@ const props = defineProps({
   hideContent: {
     type: Boolean,
     default: false
-  },
-  // Durable artwork fallback (e.g. CD disc cover) used when no live metadata art
-  // is available — survives a WS reconnect in WAITING, unlike lastValidMetadata.
-  fallbackArtworkUrl: {
-    type: String,
-    default: ''
-  },
-  // Keep the album art at full size even when hideContent swaps in the replacement
-  // slot — used by the CD idle state, which shows the tracklist without collapsing
-  // the cover (on mobile hideContent otherwise slides the art off-screen).
-  keepArtwork: {
-    type: Boolean,
-    default: false
   }
 });
 
@@ -159,9 +146,7 @@ const clientName = computed(() => unifiedStore.systemState.metadata?.client_name
 
 // Artwork URL with source-specific placeholder fallback
 const placeholders = { cd: cdPlaceholder };
-const artworkUrl = computed(() =>
-  persistentMetadata.value.album_art_url || props.fallbackArtworkUrl || placeholders[props.source] || ''
-);
+const artworkUrl = computed(() => persistentMetadata.value.album_art_url || placeholders[props.source] || '');
 
 
 

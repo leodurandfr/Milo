@@ -31,7 +31,6 @@ from pydantic import BaseModel
 
 from backend.config.constants import CD_DEVICE
 from backend.core.models.audio_state import AudioSource, SourceState
-from backend.core.models.source_metadata import PlaybackMetadata
 from backend.sources.cd.data import CDS_DISC_OK, CDS_DRIVE_NOT_READY, CdDataService
 from backend.sources.cd.models import DiscInfo, PlayTrackParams, SeekParams, TrackInfo
 from backend.sources.cd.reader import CD_FIFO_PATH, SECTORS_PER_SECOND, CdIoctlReader
@@ -888,26 +887,37 @@ class CdSource(MpvAudioSource):
                 "current_track": current,
             })
 
-            # Now-playing projection — canonical core (cleared in WAITING),
-            # consumed by AudioPlayerFull while playing.
+            # Now-playing projection consumed by AudioPlayerFull. While idle (no
+            # live or paused session) the disc still shows the album + artist,
+            # with the album standing in for the track title and no
+            # position/duration so the player hides the progress bar until
+            # playback starts. Once playing/paused it switches to the track title
+            # and real position/duration.
+            session_active = self._is_playing or self._is_paused
             metadata.update({
                 "album": self._current_disc.album,
                 "artist": self._current_disc.artist,
                 "album_art_url": self._current_disc.cover_url,
-                "title": playing_track.title if playing_track else self._current_disc.album,
-                "position": int(self._track_position * 1000),
-                "duration": int((playing_track.duration if playing_track else 0) * 1000),
+                "title": playing_track.title if (session_active and playing_track)
+                else self._current_disc.album,
+                "position": int(self._track_position * 1000) if session_active else 0,
+                "duration": int((playing_track.duration if playing_track else 0) * 1000)
+                if session_active else 0,
             })
 
         return metadata
 
     def _update_connection_state(self) -> None:
         # ACTIVE iff there's a live playback session; a merely-inserted or
-        # auto-stopped/finished disc is WAITING (screen can sleep) but stays
-        # visible via the persistent disc-identity extras.
+        # auto-stopped/finished disc is WAITING so the screen can sleep. Unlike
+        # the generic emit_connection_state (which drops the now-playing core in
+        # WAITING), a loaded CD stays fully visible while idle — its album,
+        # artist and cover are a real thing to show in the player — so publish
+        # the whole metadata dict in both states. _build_metadata already
+        # projects the idle view (album as title, no progress) vs the playing one.
         connected = self._is_playing or self._is_buffering or self._is_paused
-        core, extras = PlaybackMetadata.split(self._build_metadata())
-        self.emit_connection_state(connected, core, extras)
+        state = SourceState.ACTIVE if connected else SourceState.WAITING
+        self.set_state(state, self._build_metadata())
 
     async def _refresh_metadata(self) -> bool:
         """Refresh metadata so WebSocket initial_state contains live position."""
