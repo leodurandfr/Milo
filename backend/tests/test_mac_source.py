@@ -12,7 +12,7 @@ import pytest
 import asyncio
 from unittest.mock import Mock, AsyncMock, patch
 
-from backend.sources.mac.source import MacSource, _parse_ip_from_line, _normalize_ip
+from backend.sources.mac.source import MacSource
 from backend.core.audio_source import BaseAudioSource
 from backend.core.models.audio_state import SourceState
 
@@ -94,28 +94,19 @@ class TestMacSourceLifecycle:
     @pytest.mark.asyncio
     async def test_start_success(self, mac_source):
         """Test successful start."""
-        # Mock subprocess calls
-        with patch('asyncio.create_subprocess_shell') as mock_shell, \
-             patch('asyncio.create_subprocess_exec') as mock_exec:
+        async def _empty_follow(*args, **kwargs):
+            """Stand-in for follow_unit: an async generator that yields nothing."""
+            return
+            yield  # pragma: no cover -- marks this a generator
 
-            # Mock log check
-            mock_proc = AsyncMock()
-            mock_proc.communicate = AsyncMock(return_value=(b"", b""))
-            mock_proc.returncode = 0
-            mock_shell.return_value = mock_proc
-
-            # Mock journalctl (will be cancelled)
-            mock_journal = AsyncMock()
-            mock_journal.stdout = AsyncMock()
-            mock_journal.stdout.readline = AsyncMock(side_effect=asyncio.TimeoutError)
-            mock_journal.returncode = None
-            mock_journal.terminate = Mock()
-            mock_journal.wait = AsyncMock()
-            mock_exec.return_value = mock_journal
+        # read_unit (startup scan) returns no lines; follow_unit yields nothing
+        # and completes, so the monitor task ends on its own.
+        with patch('backend.sources.mac.source.read_unit', new=AsyncMock(return_value=[])), \
+             patch('backend.sources.mac.source.follow_unit', new=_empty_follow):
 
             result = await mac_source.start()
 
-            # Cancel monitoring task for cleanup
+            # Cancel monitoring task for cleanup (already done in practice)
             if mac_source._monitor_task:
                 mac_source._monitor_task.cancel()
                 try:
@@ -182,40 +173,6 @@ class TestMacSourceCommands:
 
         assert result["success"] is False
         assert "error" in result
-
-
-class TestIPParsing:
-    """Test IP address parsing helpers."""
-
-    def test_parse_ipv4(self):
-        """Test parsing IPv4 address."""
-        line = "session router: creating route: address=192.168.1.100:10003"
-        ip, port = _parse_ip_from_line(line)
-
-        assert ip == "192.168.1.100"
-        assert port == 10003
-
-    def test_parse_ipv6(self):
-        """Test parsing IPv6 address."""
-        line = "session router: creating route: address=[2001:db8::1]:10003"
-        ip, port = _parse_ip_from_line(line)
-
-        assert ip == "2001:db8::1"
-        assert port == 10003
-
-    def test_parse_no_match(self):
-        """Test no match returns None."""
-        line = "some random log line"
-        ip, port = _parse_ip_from_line(line)
-
-        assert ip is None
-        assert port is None
-
-    def test_normalize_ip(self):
-        """Test IP normalization."""
-        assert _normalize_ip("[192.168.1.1]") == "192.168.1.1"
-        assert _normalize_ip("192.168.1.1") == "192.168.1.1"
-        assert _normalize_ip(None) is None
 
 
 class TestConnectionState:

@@ -8,14 +8,25 @@ connections and disconnections via PCM add/remove events.
 import asyncio
 import contextlib
 import logging
-import re
 from typing import Dict, Any, Optional, Callable, Awaitable
+
+from dbus_next.aio import MessageBus
+from dbus_next.constants import BusType
 
 from backend.shared.decorators import handle_errors
 
 
 # Type for async callbacks
 ConnectionCallback = Callable[[str, str], Awaitable[None]]
+
+# bluealsa-cli monitor event tokens (the scraped programmatic contract) and the
+# PCM object-path structure. Pinned here + tested in test_bluetooth_pcm.py so a
+# change is a deliberate edit, not a silent break.
+PCM_ADDED_PREFIX = "PCMAdded"
+PCM_REMOVED_PREFIX = "PCMRemoved"
+DEVICE_PATH_PREFIX = "dev_"        # …/dev_XX_XX_XX_XX_XX_XX/…
+A2DP_PROFILE_TOKEN = "a2dp"        # profile segment, e.g. a2dpsnk
+PCM_SOURCE_DIRECTION = "source"    # incoming audio (vs. sink)
 
 
 class BlueAlsaMonitor:
@@ -35,6 +46,7 @@ class BlueAlsaMonitor:
         self._on_disconnect: Optional[ConnectionCallback] = None
         self._stopped = False
         self._read_task: Optional[asyncio.Task] = None
+        self._bus: Optional[MessageBus] = None  # BlueZ system bus for name lookups
 
     def set_callbacks(
         self,
@@ -60,6 +72,14 @@ class BlueAlsaMonitor:
             True if monitoring started successfully
         """
         self._stopped = False
+
+        # Connect a persistent BlueZ system bus for device-name lookups.
+        # Best-effort: fail open so dev machines without BlueZ still run.
+        try:
+            self._bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+        except Exception as e:
+            self._bus = None
+            self._logger.warning(f"BlueZ D-Bus unavailable, names will fall back: {e}")
 
         # Launch bluealsa-cli monitor
         self._process = await asyncio.create_subprocess_exec(
@@ -101,6 +121,12 @@ class BlueAlsaMonitor:
             finally:
                 self._process = None
 
+        # Disconnect BlueZ bus
+        if self._bus:
+            with contextlib.suppress(Exception):
+                self._bus.disconnect()
+            self._bus = None
+
         self._connected_devices.clear()
         self._logger.info("BlueALSA monitoring stopped")
 
@@ -133,15 +159,15 @@ class BlueAlsaMonitor:
         Args:
             line: Output line from bluealsa-cli monitor
         """
-        if line.startswith("PCMAdded"):
+        if line.startswith(PCM_ADDED_PREFIX):
             await self._handle_pcm_added(line)
-        elif line.startswith("PCMRemoved"):
+        elif line.startswith(PCM_REMOVED_PREFIX):
             await self._handle_pcm_removed(line)
 
     async def _handle_pcm_added(self, line: str) -> None:
         """Handle PCM added event."""
         # Extract path: "PCMAdded /org/bluealsa/hci0/dev_XX_XX_XX_XX_XX_XX/a2dpsnk/source"
-        path = line.split("PCMAdded ", 1)[1].strip()
+        path = line.split(f"{PCM_ADDED_PREFIX} ", 1)[1].strip()
         device_info = self.parse_pcm_path(path)
 
         if device_info:
@@ -161,7 +187,7 @@ class BlueAlsaMonitor:
 
     async def _handle_pcm_removed(self, line: str) -> None:
         """Handle PCM removed event."""
-        path = line.split("PCMRemoved ", 1)[1].strip()
+        path = line.split(f"{PCM_REMOVED_PREFIX} ", 1)[1].strip()
         device_info = self.parse_pcm_path(path)
 
         if device_info:
@@ -197,10 +223,10 @@ class BlueAlsaMonitor:
         direction_part = parts[-1]  # source
 
         # Only handle A2DP sink sources (incoming audio)
-        if (device_part.startswith("dev_") and
-                "a2dp" in profile_part.lower() and
-                direction_part == "source"):
-            address = device_part[4:].replace("_", ":")
+        if (device_part.startswith(DEVICE_PATH_PREFIX) and
+                A2DP_PROFILE_TOKEN in profile_part.lower() and
+                direction_part == PCM_SOURCE_DIRECTION):
+            address = device_part[len(DEVICE_PATH_PREFIX):].replace("_", ":")
             return {
                 "address": address,
                 "path": path,
@@ -211,7 +237,13 @@ class BlueAlsaMonitor:
 
     async def resolve_device_name(self, address: str) -> str:
         """
-        Resolve device name via bluetoothctl.
+        Resolve device name via BlueZ D-Bus (org.bluez.Device1 Alias/Name).
+
+        Reads the property straight off the known device object path (same
+        shape as hardware/bt_remote.py) rather than scraping `bluetoothctl
+        info` or enumerating every managed object. Bounded by a 2s timeout so a
+        wedged BlueZ can't stall the monitor read loop, and fails open to a
+        synthetic name if D-Bus or the device object is unavailable.
 
         Args:
             address: Bluetooth device address
@@ -219,29 +251,27 @@ class BlueAlsaMonitor:
         Returns:
             Device name or fallback string
         """
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "bluetoothctl", "info", address,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL
-            )
-
+        if self._bus:
+            dev_path = "/org/bluez/hci0/dev_" + address.upper().replace(":", "_")
             try:
-                stdout, _ = await asyncio.wait_for(
-                    proc.communicate(), timeout=2.0
-                )
-                output = stdout.decode()
-
-                # Search for name in output
-                match = re.search(r"Name: (.+)$", output, re.MULTILINE)
-                if match:
-                    return match.group(1).strip()
-
+                name = await asyncio.wait_for(self._read_device_name(dev_path), 2.0)
+                if name:
+                    return name
             except asyncio.TimeoutError:
-                proc.kill()
-                await proc.wait()
-
-        except Exception as e:
-            self._logger.debug(f"Name resolution failed for {address}: {e}")
+                self._logger.debug(f"D-Bus name resolution timed out for {address}")
+            except Exception as e:
+                self._logger.debug(f"D-Bus name resolution failed for {address}: {e}")
 
         return f"Device {address}"
+
+    async def _read_device_name(self, dev_path: str) -> Optional[str]:
+        """Read Alias (falling back to Name) for a BlueZ device object path."""
+        introspect = await self._bus.introspect("org.bluez", dev_path)
+        obj = self._bus.get_proxy_object("org.bluez", dev_path, introspect)
+        props = obj.get_interface("org.freedesktop.DBus.Properties")
+        for prop in ("Alias", "Name"):
+            with contextlib.suppress(Exception):
+                variant = await props.call_get("org.bluez.Device1", prop)
+                if variant and variant.value:
+                    return variant.value
+        return None
