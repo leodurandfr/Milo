@@ -618,6 +618,10 @@ class CdSource(MpvAudioSource):
         if not self._mpv:
             return self.error_response("CD not active")
         try:
+            # Snapshot the live playhead before pausing so the broadcast lands
+            # exactly where the disc stopped — _track_position from the monitor
+            # tick can be up to ~1s stale, which snaps the progress bar back.
+            await self._sync_position_from_mpv()
             await self._mpv.pause()
             self._is_playing = False
             self._is_paused = True
@@ -801,6 +805,22 @@ class CdSource(MpvAudioSource):
                 int(self._track_position * 1000),
                 int(self._track_duration * 1000),
             )
+
+    async def _sync_position_from_mpv(self) -> None:
+        """Refresh _track_position from mpv's live time-pos (sub-tick precision).
+
+        Same LBA math as the monitor tick, but on demand — used by pause so the
+        broadcast reflects the exact playhead rather than the last tick's value.
+        """
+        if not self._current_track:
+            return
+        time_pos = await self._mpv.get_property("time-pos")
+        if time_pos is None:
+            return
+        current_audio_lba = self._play_start_lba + int(float(time_pos) * SECTORS_PER_SECOND)
+        self._track_position = max(
+            0, self._lba_to_track_position(current_audio_lba, self._current_track)
+        )
 
     async def _on_mpv_disconnect(self) -> None:
         await asyncio.to_thread(self._reader.stop)
