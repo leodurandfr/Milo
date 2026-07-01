@@ -35,10 +35,16 @@ _PLAY_STATE = {
 }
 
 
-def _td_to_ms(value: Any) -> Optional[int]:
-    """Convert a timedelta (async-upnp-client position/duration) to int ms."""
+def _to_ms(value: Any) -> Optional[int]:
+    """Convert an async-upnp-client position/duration to int milliseconds.
+
+    async-upnp-client returns these as int/float SECONDS (0.47 — verified against
+    the live gmediarender); a timedelta is tolerated too, for robustness across
+    versions."""
     if value is None:
         return None
+    if isinstance(value, (int, float)):
+        return int(value * 1000)
     try:
         return int(value.total_seconds() * 1000)
     except AttributeError:
@@ -170,8 +176,8 @@ class DlnaBridge:
         if dmr is None:
             return
         await dmr.async_update()
-        position = _td_to_ms(dmr.media_position)
-        duration = _td_to_ms(dmr.media_duration)
+        position = _to_ms(dmr.media_position)
+        duration = _to_ms(dmr.media_duration)
         if position is not None and duration is not None:
             await self._on_progress(position, duration)
 
