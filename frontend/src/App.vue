@@ -95,7 +95,6 @@ const HostnameConflictView = defineAsyncComponent(() =>
 import { apiCall } from '@/services/apiCall';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { usePodcastStore } from '@/stores/podcastStore';
-import { useCdStore } from '@/stores/cdStore';
 import { useRadioStore } from '@/stores/radioStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
@@ -126,7 +125,6 @@ const SCREEN_FADE_DELAY = isFastBoot ? 100 : 500;
 const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
 const podcastStore = usePodcastStore();
-const cdStore = useCdStore();
 const radioStore = useRadioStore();
 const settingsStore = useSettingsStore();
 const multiroomStore = useMultiroomStore();
@@ -177,9 +175,6 @@ function processInitialState(event) {
   if (fullState?.active_source === 'podcast' && fullState?.metadata) {
     podcastStore.handleInitialMetadata(fullState.metadata);
   }
-  if (fullState?.active_source === 'cd' && fullState?.metadata) {
-    cdStore.handleInitialMetadata(fullState.metadata);
-  }
 
   isReady.value = true;
 }
@@ -189,7 +184,7 @@ function processInitialState(event) {
 // a new delta-based store MUST implement resync() and be listed here. Stores fed by
 // full_state snapshots (unifiedAudioStore) heal via initial_state instead.
 const deltaStores = [
-  multiroomStore, equalizerStore, cdStore, systemStore, fanStore,
+  multiroomStore, equalizerStore, systemStore, fanStore,
   radioStore, podcastStore, updatesStore, settingsStore,
 ];
 
@@ -487,7 +482,6 @@ onMounted(async () => {
     on('source', 'state_changed', (event) => {
       unifiedStore.updateState(event);
       podcastStore.handleSourceEvent(event);
-      cdStore.handleSourceEvent(event);
       // Display source error in notification banner
       if (event.data?.new_state === 'error') {
         const source = event.data?.source || 'source';
@@ -512,9 +506,9 @@ onMounted(async () => {
       const message = event.data?.message || 'Backend error';
       currentError.value = { title: t('notification.backendErrorTitle'), detail: message, source: 'backend' };
     }),
-    on('system', 'cd_drive_status', (event) => {
-      cdStore.handleSystemEvent(event);
-    }),
+    // Drive-status changes carry full_state; apply it so the central mirror
+    // (and thus the derived cdStore) reflects drive_connected/disc presence.
+    on('system', 'cd_drive_status', (event) => unifiedStore.updateState(event)),
     on('settings', 'language_changed', (event) => {
       if (event.data?.language) {
         settingsStore.updateLanguage(event.data.language);
@@ -748,9 +742,6 @@ onMounted(async () => {
 
   // Preload radio favorites in background (for instant display when user opens Radio)
   radioStore.preloadFavorites()
-
-  // Fetch CD drive status in background (for conditional dock display)
-  cdStore.fetchDriveStatus();
 
   // Preload modals in background for instant display when user opens them
   Promise.all([

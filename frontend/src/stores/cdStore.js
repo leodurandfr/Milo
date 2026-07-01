@@ -7,24 +7,43 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 export const useCdStore = defineStore('cd', () => {
   const unifiedStore = useUnifiedAudioStore();
 
-  // === DISC & TRACK STATE ===
-  const discInfo = ref(null); // { disc_id, album, artist, year, album_art_url, track_count }
-  const tracks = ref([]); // [{ number, title, duration }]
-  const currentTrack = ref(null); // 1-based track number
-
-  // Derived from unified store (single source of truth for playback state)
-  const isPlaying = computed(() =>
+  // All disc + playback state is derived from the central audio mirror
+  // (unifiedAudioStore.systemState.metadata), the single source of truth. The
+  // CD source publishes disc identity as persistent extras (disc_*) that survive
+  // WAITING and a WS reconnect, so deriving here — rather than maintaining
+  // delta-fed refs — keeps the store in sync across source transitions with no
+  // resync plumbing (a webradio→CD switch carries the disc extras in the
+  // transition_complete full_state).
+  const cdMeta = computed(() =>
     unifiedStore.systemState.active_source === 'cd'
-      && !!unifiedStore.systemState.metadata?.is_playing
+      ? (unifiedStore.systemState.metadata || {})
+      : {}
   );
+
+  // === DRIVE / DISC STATE ===
+  const discPresent = computed(() => !!cdMeta.value.disc_present);
+
+  const discInfo = computed(() => {
+    const m = cdMeta.value;
+    if (!m.disc_id) return null;
+    return {
+      disc_id: m.disc_id,
+      album: m.disc_album,
+      artist: m.disc_artist,
+      year: m.disc_year,
+      album_art_url: m.disc_cover_url,
+      track_count: m.track_count,
+    };
+  });
+
+  const tracks = computed(() => cdMeta.value.tracks || []);
+  const currentTrack = computed(() => cdMeta.value.current_track ?? null);
+
+  // === PLAYBACK STATE ===
+  const isPlaying = computed(() => !!cdMeta.value.is_playing);
   // Drive spinning up before audio flows — distinct from idle, so the UI shows a
   // spinner instead of the idle play affordance.
-  const isBuffering = computed(() =>
-    unifiedStore.systemState.active_source === 'cd'
-      && !!unifiedStore.systemState.metadata?.is_buffering
-  );
-  // === DRIVE STATE ===
-  const discPresent = ref(false);
+  const isBuffering = computed(() => !!cdMeta.value.is_buffering);
 
   // === UI STATE ===
   const showTracklist = ref(false);
@@ -44,84 +63,15 @@ export const useCdStore = defineStore('cd', () => {
     });
   }
 
-  async function fetchDriveStatus() {
-    const result = await apiCall.get('/api/cd/drive-status', {
-      category: 'cd',
-      message: 'Error fetching drive status',
-    });
-    if (result.ok) {
-      discPresent.value = result.data.disc_present ?? false;
-    }
-  }
-
   // === UI ACTIONS ===
   function toggleTracklist() {
     showTracklist.value = !showTracklist.value;
   }
 
-  // === WEBSOCKET EVENT HANDLERS ===
-
-  // Applies an already-flat CD metadata object to the store state.
-  function _applyMetadata(metadata) {
-    if (metadata.disc_id !== undefined) {
-      // Disc identity comes from the persistent extras (disc_*), which survive
-      // WAITING and a WS reconnect — unlike the core now-playing projection.
-      discInfo.value = {
-        disc_id: metadata.disc_id,
-        album: metadata.disc_album,
-        artist: metadata.disc_artist,
-        year: metadata.disc_year,
-        album_art_url: metadata.disc_cover_url,
-        track_count: metadata.track_count,
-      };
-      discPresent.value = !!metadata.disc_id;
-    }
-
-    if (metadata.tracks !== undefined) {
-      tracks.value = metadata.tracks || [];
-    }
-
-    if (metadata.current_track !== undefined) {
-      currentTrack.value = metadata.current_track;
-    }
-  }
-
-  // Called from App.vue on system.initial_state / system.state_changed when
-  // full_state.active_source === 'cd' and metadata is already flat.
-  function handleInitialMetadata(metadata) {
-    _applyMetadata(metadata);
-  }
-
-  // Called from App.vue on source.state_changed; metadata is nested under
-  // event.data.metadata (the event also carries old_state/new_state).
-  function handleSourceEvent(event) {
-    if (event.origin !== 'cd') return;
-    if (event.type === 'state_changed') {
-      _applyMetadata(event.data?.metadata || {});
-    }
-  }
-
-  function handleSystemEvent(event) {
-    if (event.type === 'cd_drive_status') {
-      discPresent.value = event.data?.disc_present ?? false;
-
-      // Clear disc state when disc is removed (eject or physical removal)
-      if (!discPresent.value) {
-        discInfo.value = null;
-        tracks.value = [];
-        currentTrack.value = null;
-      }
-    }
-  }
-
-  async function resync() {
-    return fetchDriveStatus();
-  }
-
   return {
-    resync,
-    // State
+    // State (all derived from the central mirror)
     discInfo,
+    discPresent,
     tracks,
     currentTrack,
     isPlaying,
@@ -131,12 +81,6 @@ export const useCdStore = defineStore('cd', () => {
     // Actions
     playTrack,
     eject,
-    fetchDriveStatus,
     toggleTracklist,
-
-    // WS handlers
-    handleInitialMetadata,
-    handleSourceEvent,
-    handleSystemEvent,
   };
 });
