@@ -77,6 +77,25 @@ function onProgressClick(event) {
   align-items: center;
   width: 100%;
   gap: var(--space-03);
+  /* Entrance when playback starts and the bar is v-if-mounted: spring rise +
+     fade, matching the tracklist-content / player stagger. */
+  opacity: 0;
+  transform: translateY(var(--space-05));
+  animation:
+    stagger-transform var(--transition-spring) forwards,
+    stagger-opacity 0.4s ease forwards;
+}
+
+@keyframes stagger-transform {
+  to {
+    transform: none;
+  }
+}
+
+@keyframes stagger-opacity {
+  to {
+    opacity: 1;
+  }
 }
 
 .progress-container {
