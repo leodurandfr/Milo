@@ -28,6 +28,7 @@ from backend.core.models.source_metadata import PlaybackMetadata
 from backend.sources.spotify.models import SeekParams, NextPrevParams
 from backend.sources.spotify.websocket import LibrespotWebSocket
 from backend.shared.decorators import handle_errors
+from backend.shared.journalctl import follow_unit
 
 
 class SpotifySource(BaseAudioSource):
@@ -475,32 +476,17 @@ class SpotifySource(BaseAudioSource):
 
     async def _monitor_logs(self) -> None:
         """Monitor journalctl for go-librespot errors."""
-        process = None
         try:
-            process = await asyncio.create_subprocess_exec(
-                "journalctl", "-u", "milo-spotify", "-f", "-n", "0",
-                "--output", "cat",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL
-            )
-
-            while True:
-                line = await process.stdout.readline()
-                if not line:
-                    break
-
-                text = line.decode('utf-8', errors='ignore').strip()
+            async for line in follow_unit("milo-spotify", logger=self._logger):
                 # Per background-loop doctrine: a transient parse/broadcast
                 # error on one line must not kill the whole monitor.
                 try:
-                    await self._handle_log_line(text)
+                    await self._handle_log_line(line)
                 except Exception as e:
                     self._logger.error(f"Log line handling error: {e}")
 
         except asyncio.CancelledError:
-            if process:
-                process.terminate()
-                await process.wait()
+            pass
         except Exception as e:
             self._logger.error(f"Log monitor error: {e}")
 

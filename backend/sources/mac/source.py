@@ -14,42 +14,16 @@ Features:
 """
 import asyncio
 import contextlib
-import re
 import ipaddress
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional
 
 from pydantic import BaseModel
 
 from backend.core.audio_source import BaseAudioSource
 from backend.core.models.audio_state import SourceState
 from backend.shared.decorators import handle_errors
-
-
-# IPv4/IPv6 parsing regex for ROC log lines
-_IP_PORT_RE = re.compile(
-    r'(?:address|src_addr)=\[(?P<ip6>[0-9A-Fa-f:.%]+)\]:(?P<port>\d+)'
-    r'|'
-    r'(?:address|src_addr)=(?P<ip4>\d{1,3}(?:\.\d{1,3}){3}):(?P<port4>\d+)'
-)
-
-
-def _parse_ip_from_line(line: str) -> Tuple[Optional[str], Optional[int]]:
-    """Extract (ip, port) from a ROC log line."""
-    m = _IP_PORT_RE.search(line)
-    if not m:
-        return None, None
-    if m.group('ip6'):
-        return m.group('ip6'), int(m.group('port'))
-    if m.group('ip4'):
-        return m.group('ip4'), int(m.group('port4'))
-    return None, None
-
-
-def _normalize_ip(ip: Optional[str]) -> Optional[str]:
-    """Clean brackets and preserve %scope for IPv6."""
-    if not ip:
-        return None
-    return ip.strip('[]')
+from backend.shared.journalctl import follow_unit, read_unit
+from backend.sources.mac.log_patterns import classify_line, normalize_ip
 
 
 class MacSource(BaseAudioSource):
@@ -86,7 +60,6 @@ class MacSource(BaseAudioSource):
 
         self.connected_clients: Dict[str, str] = {}  # {ip: hostname}
         self._monitor_task: Optional[asyncio.Task] = None
-        self._stopping = False
 
         # No per-source auto-stop: ROC is a passive PCM stream with no
         # pause signaling, and roc-receiver already handles client absence
@@ -111,8 +84,6 @@ class MacSource(BaseAudioSource):
                 self._logger.error("Service not active after start")
                 return False
 
-            self._stopping = False
-
             await self._check_initial_state()
 
             self._monitor_task = asyncio.create_task(self._monitor_events())
@@ -127,8 +98,6 @@ class MacSource(BaseAudioSource):
 
     async def _do_stop(self) -> bool:
         """Stop monitoring and service."""
-        self._stopping = True
-
         if self._monitor_task:
             self._monitor_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -156,23 +125,13 @@ class MacSource(BaseAudioSource):
     @handle_errors(default=None)
     async def _check_initial_state(self) -> None:
         """Check for existing connections on startup."""
-        # Check recent logs (filter out trace logs)
-        proc = await asyncio.create_subprocess_shell(
-            f"journalctl -u {self.service_name} -n 5000 --no-pager | grep -v '\\[trc\\]' | tail -100",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        try:
-            stdout, _ = await asyncio.wait_for(proc.communicate(), 10.0)
-        except asyncio.TimeoutError:
-            proc.kill()
-            self._logger.error("Timeout reading journalctl logs for initial state")
-            return
-
-        if proc.returncode == 0:
-            for line in stdout.decode().split('\n'):
-                if line.strip():
-                    await self._process_log_line(line)
+        # Check recent logs: last 100 non-trace lines out of the last 5000
+        # (bounds startup replay + the avahi lookups a connect line triggers).
+        for line in await read_unit(
+            self.service_name, tail=5000, drop_substrings=("[trc]",),
+            keep_last=100, logger=self._logger
+        ):
+            await self._process_log_line(line)
 
         # If no connections found, scan recent logs for active sessions
         if not self.connected_clients:
@@ -180,90 +139,43 @@ class MacSource(BaseAudioSource):
 
     async def _detect_active_connections(self) -> None:
         """Detect existing connections via recent journalctl logs."""
-        try:
-            self._logger.debug("Detecting active connections via recent logs...")
-
-            proc = await asyncio.create_subprocess_shell(
-                f"journalctl -u {self.service_name} --since '10 min ago' --no-pager"
-                " | grep -v '\\[trc\\]'",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL
-            )
-
-            try:
-                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=2.0)
-            except asyncio.TimeoutError:
-                proc.kill()
-                await proc.wait()
-                return
-
-            for line in stdout.decode('utf-8', errors='ignore').split('\n'):
-                if line.strip():
-                    await self._process_log_line(line)
-
-        except Exception as e:
-            self._logger.warning(f"Active connection detection failed: {e}")
+        self._logger.debug("Detecting active connections via recent logs...")
+        for line in await read_unit(
+            self.service_name, since="10 min ago", drop_substrings=("[trc]",),
+            timeout=2.0, logger=self._logger
+        ):
+            await self._process_log_line(line)
 
     async def _monitor_events(self) -> None:
         """Monitor journalctl for connection events."""
-        proc = None
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "journalctl", "-f", "-u", self.service_name, "-o", "short",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-
-            self._logger.info("Event monitoring started")
-
-            while not self._stopping and proc.returncode is None:
+            async for line in follow_unit(self.service_name, logger=self._logger):
+                # Per background-loop doctrine: a transient parse/state error on
+                # one line must not kill the whole monitor.
                 try:
-                    line = await asyncio.wait_for(proc.stdout.readline(), timeout=1.0)
-                    if line:
-                        await self._process_log_line(line.decode('utf-8').strip())
-                except asyncio.TimeoutError:
-                    continue
-
+                    await self._process_log_line(line)
+                except Exception as e:
+                    self._logger.error(f"Log line handling error: {e}")
         except asyncio.CancelledError:
             pass
         except Exception as e:
             self._logger.error(f"Monitoring error: {e}")
-        finally:
-            if proc and proc.returncode is None:
-                with contextlib.suppress(ProcessLookupError):
-                    proc.terminate()
-                    await proc.wait()
 
     @handle_errors(default=None)
     async def _process_log_line(self, line: str) -> None:
         """Process a log line for connection events."""
-        # Disconnection
-        if "removing route" in line or "removing address" in line:
-            ip, _ = _parse_ip_from_line(line)
-            if ip:
-                ip = _normalize_ip(ip)
-                if ip in self.connected_clients:
-                    name = self.connected_clients.pop(ip)
-                    self._logger.info(f"Disconnected: {name} ({ip})")
-                    self._update_connection_state()
+        event, ip, _ = classify_line(line)
+        if not ip:
             return
 
-        # Connection
-        if "session group: creating session" in line:
-            ip, _ = _parse_ip_from_line(line)
-            if ip:
-                ip = _normalize_ip(ip)
-                if ip not in self.connected_clients:
-                    await self._add_client(ip)
-            return
-
-        # Connection via route
-        if "creating" in line and "route" in line and "address=" in line:
-            ip, _ = _parse_ip_from_line(line)
-            if ip:
-                ip = _normalize_ip(ip)
-                if ip not in self.connected_clients:
-                    await self._add_client(ip)
+        if event == "disconnect":
+            if ip in self.connected_clients:
+                name = self.connected_clients.pop(ip)
+                self._logger.info(f"Disconnected: {name} ({ip})")
+                self._update_connection_state()
+        elif event == "connect":
+            if ip not in self.connected_clients:
+                await self._add_client(ip)
 
     async def _add_client(self, ip: str) -> None:
         """Add a client and resolve hostname."""
@@ -281,7 +193,7 @@ class MacSource(BaseAudioSource):
             return "Mac"
 
         try:
-            ip_norm = _normalize_ip(ip)
+            ip_norm = normalize_ip(ip)
             scope = None
 
             if '%' in ip_norm:
@@ -317,7 +229,7 @@ class MacSource(BaseAudioSource):
                     return parts[1].rstrip('.').replace(".local", "")
 
         except FileNotFoundError:
-            self._logger.error("mDNS resolution skipped: avahi-browse not installed")
+            self._logger.error("mDNS resolution skipped: avahi-resolve not installed")
             return ip
         except Exception as e:
             self._logger.debug(f"mDNS resolution failed for {ip}: {e}")
