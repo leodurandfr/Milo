@@ -17,11 +17,11 @@
 
 - [x] **Phase 0** — POC de faisabilité (hors repo) — ✅ **PASSÉ (2026-07-01)** : gmrender visible (SSDP), audio OK (MP3/FLAC/FLAC 24-192/WAV/AAC/ALAC), bridge GENA fiable (title/artist/album/art/état/position). Détails + findings §2.
 - [~] **Phase 1** — Image/build : daemon + ALSA + Snapcast + systemd — **IMPLÉMENTÉE (2026-07-01)** : tous les fichiers écrits + **validation statique verte** (bash -n, `systemd-analyze verify`, `asound.conf` parse → `milo_dlna_direct` listé). ⚠️ **Gate runtime NON encore validé** : test d'écoute on-device requis (reboot pour `pcm_substreams=9` + arrêt du POC P0 qui squatte `:49494`/UUID) — cf. §3 fin. Binaire réel = **`/usr/bin/gmediarender`** (apt, pas `/usr/local/bin`).
-- [ ] **Phase 2** — Backend : source Famille B + bridge + wiring — *gate : WS `source/state_changed` correct au journal + pytest contrat vert*
+- [~] **Phase 2** — Backend : source Famille B + bridge + wiring — **IMPLÉMENTÉE (2026-07-01)** : 4 fichiers `sources/dlna/` + wiring (enum, `dependencies.py` creator+register, `DEFAULT_DOCK_APPS`, `main.py` route, `requirements.txt`). **`pytest` 1682 vert (contrat Milo-Mac inclus), `ruff` clean, import/instanciation OK.** ⚠️ Reste le **smoke-test runtime** (push DLNA → WAITING→ACTIVE + métadonnées au journal) — bundlé avec le gate Phase 1 au reboot final.
 - [ ] **Phase 3** — Frontend : composant + routing UI + i18n + icône — *gate : lecteur plein écran s'affiche au push BubbleUPnP*
 - [ ] **Phase 4** — Multiroom, edge cases, tests, docs — *gate : `pytest` + lint verts, bascules de sources OK*
 
-**Prochaine phase à exécuter : Phase 1 — fermer le gate runtime (test on-device), puis Phase 2.**
+**Prochaine phase à exécuter : Phase 3 (frontend). Phases 1 & 2 IMPLÉMENTÉES + validées (statique/pytest) — leurs deux gates runtime (écoute direct+multiroom, push DLNA→WAITING→ACTIVE) sont bundlés dans UN reboot final on-device.**
 
 ---
 
@@ -201,54 +201,51 @@ en mode multiroom** (vérifier la bascule `MILO_MODE` + routage Snapcast slot 8)
 ## 4. Phase 2 — Backend : source Famille B + bridge + wiring
 
 ### 4.1 Dépendance
-- [ ] Ajouter `async-upnp-client` à `requirements.txt` (racine du repo) + venv + build image.
+- [x] Ajouter `async-upnp-client` à `requirements.txt` (`>=0.47.0`, validé P0) — déjà dans le venv de dev ;
+  l'image le prendra au build.
 
-### 4.2 Bridge UPnP — `backend/sources/dlna/metadata_reader.py`
-- [ ] Se connecte à la description gmrender, construit un `DmrDevice`. ⚠️ **P0 : gmrender écoute sur
-  l'IP LAN, pas `localhost`** (rien sur 127.0.0.1) → viser l'IP LAN (ex. `async_upnp_client.utils.get_local_ip`)
-  ou lancer gmrender avec `-I lo` en plus de l'interface LAN. `async-upnp-client` 0.47 validé en P0.
-- [ ] **S'abonne (GENA)** aux events AVTransport/RenderingControl → parse `LastChange`/DIDL-Lite →
-  appelle `on_metadata/on_play_state/on_artwork/on_connection`.
-- [ ] **Poll position** : tâche `GetPositionInfo` périodique → `on_progress(position, duration)`, via
-  `BackgroundTaskSet` (jamais `create_task` brut), broadcasts rate-limités (motif AirPlay 30 s, le
-  frontend interpole).
-- [ ] Robustesse : boucle de re-souscription (abonnements GENA expirent), corps de boucle en
-  `try/except Exception` + log + `continue` (doctrine « background loop »). Réf. de forme :
-  `sources/airplay/metadata_reader.py`.
+### 4.2 Bridge UPnP — `backend/sources/dlna/metadata_reader.py` (`DlnaBridge`) ✅
+- [x] Se connecte à la description gmrender (`http://<LAN_IP>:49494/description.xml`, IP via
+  `get_local_ip()`), construit un `DmrDevice`. `AiohttpNotifyServer` bindé sur l'IP LAN (gmrender
+  n'écoute pas loopback). `async-upnp-client` 0.47.
+- [x] **S'abonne (GENA)** (`async_subscribe_services(auto_resubscribe=True)`) → `on_event` →
+  `_dispatch_state` lit `transport_state/media_title/artist/album/image_url` → `on_metadata/on_play_state/on_artwork`.
+  Émission uniquement sur changement (GENA renvoie l'état complet).
+- [x] **Poll position** : `_poll_once` (`async_update` → `GetPositionInfo`) → `on_progress(position_ms,
+  duration_ms)`, via `BackgroundTaskSet` (pas de `create_task` brut) ; broadcasts rate-limités 30 s côté source.
+- [x] Robustesse : boucle superviseur (reconnexion si gmrender disparaît), corps en
+  `try/except Exception` + log + retry (doctrine « background loop »). Forme calquée sur AirPlay.
 
-### 4.3 Source + routes — `backend/sources/dlna/`
-- [ ] **`source.py`** → `class DlnaSource(BaseAudioSource)`, `source_id="dlna"`,
+### 4.3 Source + routes — `backend/sources/dlna/` ✅
+- [x] **`source.py`** → `class DlnaSource(BaseAudioSource)`, `source_id="dlna"`,
   `service_name="milo-dlna.service"`, calqué sur `AirPlaySource` :
-  - `__init__` : config (port/uuid du gmrender local, chemin artwork), `auto_stop_enabled=True`,
-    `auto_stop_delay≈10s`, champs `_device_connected/_is_playing/_client_name`, artwork
-    (`_artwork_data/_mime/_hash`).
-  - `_do_start` : `_start_service_and_wait()` → instancier le bridge avec les callbacks →
-    `_update_connection_state()`. `_do_restart` : redémarrer service + recréer le bridge (motif AirPlay).
-  - `_get_status` : `{device_connected, is_playing, metadata}`. `_handle_command` : **non supporté**
-    (passif, comme AirPlay).
-  - Callbacks alimentant `self._metadata` (title/artist/album/album_art_url/album_art_width/height/
+  - `__init__` : config `{port}` (host optionnel), `auto_stop_enabled=True`, `auto_stop_delay=10s`,
+    champs `_device_connected/_is_playing/_client_name`, artwork (`_artwork_data/_mime/_hash`).
+  - `_do_start` : `_start_service_and_wait(1.5s)` → instancie `DlnaBridge` avec les callbacks →
+    `_update_connection_state()`. **Divergence assumée vs plan** : pas de `_do_restart` custom ;
+    `_on_auto_stop` override → retour **WAITING sans bouncer gmrender** (renderer sans session, reste
+    découvrable — contrairement à AirPlay qui restart shairport). Reroute direct↔multiroom = `stop()/start()` de base (OK).
+  - `_handle_command` : **non supporté** (`COMMANDS={}`, passif comme AirPlay).
+  - Callbacks alimentant `self._metadata` (title/artist/album/album_art_url/album_art_width/
     is_playing/client_name) et `broadcast_position_update()`.
-  - Artwork : récupérer l'URI DIDL-Lite (`upnp:albumArtURI`), **fetch async**, décoder les dimensions
-    via Pillow, exposer `album_art_url = /api/dlna/artwork?v=<hash>` (motif AirPlay exact).
-- [ ] **`routes.py`** : `APIRouter(prefix="/dlna")`, `GET /artwork` (binaire pochette), via
-  `make_source_dependency("DLNA")` + `setup_dlna_routes(provider)`. **Pas** de `GET /dlna/status`,
-  **pas** de `POST /dlna/restart` (règles Familles).
-- [ ] **`__init__.py`** : `__all__ = ["DlnaSource", "router", "setup_dlna_routes"]`.
+  - Artwork : URL DIDL-Lite (`media_image_url`), **fetch async** (aiohttp), dimensions via Pillow,
+    `album_art_url = /api/dlna/artwork?v=<hash>` (motif AirPlay exact).
+- [x] **`routes.py`** : `APIRouter(prefix="/dlna")`, `GET /artwork`, via `make_source_dependency("DLNA")`
+  + `setup_dlna_routes`. **Pas** de `GET /dlna/status`, **pas** de `POST /dlna/restart`.
+- [x] **`__init__.py`** : `__all__ = ["DlnaSource", "router", "setup_dlna_routes"]`.
 
-### 4.4 Wiring (points exacts)
-- [ ] `backend/core/models/audio_state.py` : ajouter `DLNA = "dlna"` à l'enum `AudioSource`.
-- [ ] `backend/dependencies.py` : creator `"dlna_source"` dans `_create_service()` (motif airplay —
-  inject `state_machine/settings_service/systemd_manager`, config `{port, uuid, ...}`) ; puis dans
-  `initialize_services()` STEP 3 :
+### 4.4 Wiring (points exacts) ✅
+- [x] `backend/core/models/audio_state.py` : `DLNA = "dlna"` ajouté à l'enum `AudioSource`.
+- [x] `backend/dependencies.py` : creator `"dlna_source"` (config `{port:49494}`) + STEP 3
   `state_machine.register_source(AudioSource.DLNA, get_service("dlna_source"))`.
-- [ ] `backend/config/constants.py` : ajouter `"dlna"` à `DEFAULT_DOCK_APPS` (`AUDIO_SOURCE_APPS` est
-  auto-dérivé de l'enum, rien à faire là).
-- [ ] Enregistrer `setup_dlna_routes` là où les autres `setup_*_routes` sont câblées (app init).
+- [x] `backend/config/constants.py` : `"dlna"` ajouté à `DEFAULT_DOCK_APPS` (après `cd`) ;
+  `AUDIO_SOURCE_APPS` auto-dérivé confirme `dlna`.
+- [x] `backend/main.py` : `setup_dlna_routes` importé + câblé (`dlna_router` include, prefix `/api`).
 
-### 4.5 Contrat Milo-Mac — aucune modif
-- [ ] Ne **pas** toucher manifeste/snapshot : le broadcast générique `("source","state_changed")`
-  couvre DLNA ; `/api/dlna/*` internes ; `active_source` opaque côté Milo-Mac. Documenter la **forme
-  du payload metadata** en docstring au site `broadcast_event()`.
+### 4.5 Contrat Milo-Mac — aucune modif ✅
+- [x] Manifeste/snapshot **non touchés** : broadcast générique `("source","state_changed")` couvre DLNA ;
+  `/api/dlna/*` internes ; `active_source` opaque côté Milo-Mac. **`pytest` contrat vert.** Forme du
+  payload metadata documentée en docstring sur `DlnaSource._update_connection_state`.
 
 **Gate Phase 2 :** push BubbleUPnP → `journalctl -u milo-backend` montre WAITING→ACTIVE avec
 métadonnées correctes ; `pytest` (contrat inclus) vert. → cocher la phase.
