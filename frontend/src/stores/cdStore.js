@@ -58,12 +58,14 @@ export const useCdStore = defineStore('cd', () => {
   // Applies an already-flat CD metadata object to the store state.
   function _applyMetadata(metadata) {
     if (metadata.disc_id !== undefined) {
+      // Disc identity comes from the persistent extras (disc_*), which survive
+      // WAITING and a WS reconnect — unlike the core now-playing projection.
       discInfo.value = {
         disc_id: metadata.disc_id,
-        album: metadata.album,
-        artist: metadata.artist,
-        year: metadata.year,
-        album_art_url: metadata.album_art_url,
+        album: metadata.disc_album,
+        artist: metadata.disc_artist,
+        year: metadata.disc_year,
+        album_art_url: metadata.disc_cover_url,
         track_count: metadata.track_count,
       };
       discPresent.value = !!metadata.disc_id;
