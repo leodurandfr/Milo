@@ -94,8 +94,8 @@
         <SettingItem label="VCC">
           <div class="ir-fixed-pin">
             <Dropdown
-              :model-value="'5V/3.3V'"
-              :options="[{ label: '5V/3.3V', value: '5V/3.3V' }]"
+              :model-value="'3.3V'"
+              :options="[{ label: '3.3V', value: '3.3V' }]"
               disabled
             />
           </div>
