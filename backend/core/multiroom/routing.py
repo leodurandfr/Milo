@@ -486,14 +486,20 @@ class AudioRoutingService:
           4. Post-transition (WS readiness, volume sync, ready broadcast).
 
         On any exception in steps 1-3: log + broadcast `multiroom_error`,
-        return False. If step 4's meaningful sync degrades (WS never ready /
-        volume push hard-fails when enabling), the mode stays committed but we
-        broadcast `multiroom_error(enable_degraded)` and return False so the
-        result is honest — NOT a rollback (that would desync settings from the
-        already-started snapcast). Background retries heal the volume overlay.
-        The system is in either old-consistent or new-consistent state;
-        next backend boot re-reconciles via `_detect_initial_state` and
-        `_sync_snapcast_state`. There is no rollback path.
+        return False. Step 4 is genuinely best-effort: `_apply_transition` has
+        already started snapserver + snapclient, and both snapclient and the
+        control WS auto-reconnect as the daemon finishes coming up — so a
+        WS-not-ready-yet or a transient volume-push miss is self-healing
+        (delayed sync + client-connect retry). It is logged (warning) but does
+        NOT fail the enable — the mode IS committed, so we always broadcast
+        `state_changed` and return True. Failing here would contradict the
+        committed mode (toggle stuck off, HTTP 500) with no upside. (A genuinely
+        dead snapserver — unit active but JSON-RPC never answering — also fails
+        `_start_snapcast`'s readiness poll, which logs it; it is a systemic fault
+        surfaced elsewhere, not something this best-effort step should re-raise.)
+        The system is in either old-consistent or new-consistent state; next
+        backend boot re-reconciles via `_detect_initial_state` and
+        `_sync_snapcast_state`. No rollback path.
 
         routing.env is regenerated before settings is persisted so the source
         unit restarted inside `_apply_transition` picks up the new MILO_MODE.
@@ -524,22 +530,9 @@ class AudioRoutingService:
                 return False
 
             # Physical mode is committed above. Follow-up sync (WS readiness,
-            # volume push) is reported honestly: a degraded run surfaces as
-            # multiroom_error + return False, WITHOUT rolling back — settings,
-            # routing.env and snapcast stay coherently "enabled" and the
-            # background retries (delayed sync, client-connect) heal the volume
-            # overlay. Rolling back here would desync settings vs the already
-            # started snapcast, so we don't.
-            followup_ok = await self._post_transition_setup_best_effort(enabled)
-
-            if not followup_ok:
-                self.logger.warning(
-                    f"Multiroom mode set to {enabled} but post-transition sync degraded"
-                )
-                # Mode IS committed; report a degraded (not failed) enable so the
-                # UI shows a distinct message rather than "enable failed".
-                await self._broadcast_error(enabled, reason="enable_degraded")
-                return False
+            # volume push, multiroom_ready) is best-effort and self-healing —
+            # it logs warnings but never fails the transition.
+            await self._post_transition_setup_best_effort(enabled)
 
             if self.state_machine:
                 await self.state_machine.broadcast_event("system", "state_changed", {
@@ -633,43 +626,32 @@ class AudioRoutingService:
                         f"Source start failed after {target_mode} transition (non-fatal): {e}"
                     )
 
-    async def _post_transition_setup_best_effort(self, enabled: bool) -> bool:
+    async def _post_transition_setup_best_effort(self, enabled: bool) -> None:
         """Post-transition: WebSocket lifecycle, volume sync, and ready broadcast.
 
-        Settings + routing.env are already committed by the caller, so no step
-        raises out of here — the physical mode has switched regardless. But the
-        return value reports whether the *meaningful* follow-up steps landed:
-
-          - enabling: the Snapcast WS must reach ready (volume sync rides it)
-            and the volume push must not hard-fail (a benign "no clients yet"
-            already returns True, so it does not count as failure);
-          - disabling: WS teardown is pure best-effort — always considered ok.
-
-        A False here makes the caller surface a degraded state instead of a
-        clean success; it does NOT trigger a rollback (see set_multiroom_enabled).
+        Settings + routing.env are already committed by the caller and snapserver
+        has been started, so every step here is best-effort and self-healing: a
+        WS-not-ready-yet or a transient volume-push miss is recovered by the
+        delayed sync + client-connect retries. Failures are logged (warning) but
+        never fail the transition — the physical mode has switched regardless.
         """
-        ok = True
-
         # WebSocket connection lifecycle + readiness wait
         try:
             if self.snapcast_websocket_service:
                 if enabled:
                     await self.snapcast_websocket_service.start_connection()
                     self.logger.info("POST_TRANSITION: Waiting for Snapcast WebSocket to be ready...")
-                    ws_ready = await self.snapcast_websocket_service.wait_for_ready(timeout=15.0)
-                    if ws_ready:
+                    if await self.snapcast_websocket_service.wait_for_ready(timeout=15.0):
                         self.logger.info("POST_TRANSITION: Snapcast WebSocket is ready")
                     else:
-                        ok = False
                         self.logger.warning(
-                            "POST_TRANSITION: Snapcast WebSocket NOT ready after 15s timeout — volume sync degraded"
+                            "POST_TRANSITION: Snapcast WebSocket not ready after 15s — "
+                            "volume sync will heal via delayed sync / client-connect"
                         )
                 else:
                     await self.snapcast_websocket_service.stop_connection()
         except Exception as e:
-            if enabled:
-                ok = False
-            self.logger.warning(f"POST_TRANSITION: WS lifecycle failed: {e}")
+            self.logger.warning(f"POST_TRANSITION: WS lifecycle failed (non-fatal): {e}")
 
         # Volume mode update + client sync
         try:
@@ -680,29 +662,22 @@ class AudioRoutingService:
                         self.logger.info(
                             f"POST_TRANSITION: Pushing volume ({target_volume:.1f}dB) to all clients..."
                         )
-                        push_ok = await self.volume_service.push_volume_to_all_clients(target_volume)
-                        if not push_ok:
-                            ok = False
+                        if not await self.volume_service.push_volume_to_all_clients(target_volume):
                             self.logger.warning("POST_TRANSITION: push_volume_to_all_clients returned failure")
                     else:
                         # DAC mode: sync client volumes from equalizers
                         await self.volume_service.sync_all_clients_from_equalizer()
         except Exception as e:
-            if enabled:
-                ok = False
-            self.logger.warning(f"POST_TRANSITION: Volume sync failed: {e}")
+            self.logger.warning(f"POST_TRANSITION: Volume sync failed (non-fatal): {e}")
 
-        # multiroom_ready broadcast — only when enabling AND the follow-up
-        # actually landed; a degraded run is reported by the caller instead.
-        if enabled and ok and self.state_machine:
+        # multiroom_ready — clears the UI transition spinner. Fires whenever
+        # enabling (the mode IS up); volumes trail in via the retries above.
+        if enabled and self.state_machine:
             try:
                 self.logger.info("POST_TRANSITION: Broadcasting multiroom_ready event")
                 await self.state_machine.broadcast_event("routing", "multiroom_ready", {})
             except Exception as e:
-                ok = False
                 self.logger.warning(f"POST_TRANSITION: multiroom_ready broadcast failed: {e}")
-
-        return ok
 
     async def _broadcast_transition_event(self, enabled: bool) -> None:
         """Broadcast pre-transition event to let frontend react."""
@@ -714,23 +689,16 @@ class AudioRoutingService:
         await self.state_machine.broadcast_event("routing", event_type, {"reason": "user_action"})
         await asyncio.sleep(0.1)  # Let frontend react
 
-    async def _broadcast_error(self, attempted_state: bool, reason: str = None) -> None:
-        """Broadcast a multiroom_error event after a failed or degraded transition.
-
-        ``reason`` defaults to the hard-failure code for the attempted direction
-        (enable_failed / disable_failed). Pass an explicit code for other cases
-        (e.g. ``enable_degraded`` — mode set but follow-up sync incomplete).
-        """
+    async def _broadcast_error(self, attempted_state: bool) -> None:
+        """Broadcast a multiroom_error event after a failed transition."""
         if not self.state_machine:
             return
         try:
             # Emit a stable, machine-readable reason code (canonical key `reason`,
             # consistent with the multiroom_enabling/disabling events) so the
             # frontend can localize the message instead of surfacing raw English.
-            if reason is None:
-                reason = "enable_failed" if attempted_state else "disable_failed"
             await self.state_machine.broadcast_event("routing", "multiroom_error", {
-                "reason": reason,
+                "reason": "enable_failed" if attempted_state else "disable_failed",
             })
         except Exception as e:
             self.logger.warning(f"multiroom_error broadcast failed: {e}")
@@ -824,20 +792,15 @@ class AudioRoutingService:
         SnapclientEnv.regenerate(buffer_time, fragments)
 
     async def _wait_snapserver_ready(self, timeout: float = 10.0) -> bool:
-        """Poll snapserver's JSON-RPC availability until ready or timeout.
+        """Wait for snapserver's JSON-RPC to answer (real-condition, wall-clock).
 
-        Real-condition wait (not a blind sleep): probes ``is_available`` — the
-        app-level readiness signal, past the systemd unit merely being active —
-        once per second. Returns False if the daemon never answers in time.
+        Thin guard around ``SnapcastService.wait_until_available`` — the poll
+        itself lives with the service that owns ``is_available``.
         """
         if not self.snapcast_service:
             self.logger.warning("SnapcastService unavailable, cannot confirm snapserver readiness")
             return False
-        for _ in range(int(timeout)):
-            if await self.snapcast_service.is_available():
-                return True
-            await asyncio.sleep(1)
-        return False
+        return await self.snapcast_service.wait_until_available(timeout)
 
     @handle_errors(default=False)
     async def _start_snapcast(self) -> bool:

@@ -268,6 +268,21 @@ class SnapcastService:
             self.logger.debug(f"Snapcast availability check failed: {e}")
             return False
 
+    async def wait_until_available(self, timeout: float = 10.0) -> bool:
+        """Poll ``is_available`` until the daemon answers or ``timeout`` elapses.
+
+        Wall-clock bounded via a monotonic deadline: because each probe carries
+        its own 3s request timeout, a plain ``range(int(timeout))`` loop would
+        run several times ``timeout`` against a hung server. The deadline caps
+        total wait at ~``timeout`` (plus at most one in-flight probe).
+        """
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if await self.is_available():
+                return True
+            await asyncio.sleep(1)
+        return False
+
     @handle_errors(default={})
     async def get_server_status(self) -> dict:
         """Get complete Snapcast server status.
@@ -457,13 +472,13 @@ class SnapcastService:
         if not await self._systemd.restart("milo-snapserver-multiroom.service"):
             return False
 
-        # Check availability (app-level readiness, beyond the unit being active)
+        # Let the old instance fully exit before probing (a lingering socket
+        # would answer as "available" and mask the restart), then wait for the
+        # fresh daemon's JSON-RPC to come up.
         await asyncio.sleep(3)
-        for _ in range(10):
-            if await self.is_available():
-                self.logger.info("Snapserver restarted successfully")
-                return True
-            await asyncio.sleep(1)
+        if await self.wait_until_available(timeout=10.0):
+            self.logger.info("Snapserver restarted successfully")
+            return True
 
         self.logger.warning("Snapserver restarted but API not available yet")
         return False
