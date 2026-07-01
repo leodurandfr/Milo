@@ -35,9 +35,11 @@ function hasRichDisplay(source, state, meta) {
       // Own component (AudioSourceLayout) handles internal empty/loading states.
       return true;
     case 'cd':
-      // Rich player only once a disc is playing; the loading/ejecting/no-drive
-      // windows stay on the AudioSourceStatus card.
-      return state === 'active';
+      // Rich player whenever a disc is loaded and ready — playing (ACTIVE) OR
+      // idle (WAITING: tracklist + resume affordance, disc still visible). The
+      // loading (no cache_ready), ejecting, and no-drive windows stay on the
+      // AudioSourceStatus card.
+      return !!m.disc_present && !!m.cache_ready && !m.ejecting;
     default:
       // bluetooth, mac, none → no rich view, always the status card.
       return false;
