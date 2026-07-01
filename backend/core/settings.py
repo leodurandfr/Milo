@@ -127,14 +127,10 @@ class SettingsService:
             raise
         except json.JSONDecodeError as e:
             self.logger.error(f"JSON decode error in settings file: {e}")
-            # Save corrupted file
             if os.path.exists(self.settings_file):
-                backup_corrupted = self.settings_file + '.corrupted'
                 async with aiofiles.open(self.settings_file, 'r', encoding='utf-8') as src:
                     content = await src.read()
-                async with aiofiles.open(backup_corrupted, 'w', encoding='utf-8') as dst:
-                    await dst.write(content)
-                self.logger.warning(f"Corrupted JSON saved to: {backup_corrupted}")
+                await self._backup_corrupted_file(content)
             self._cache = self.defaults.copy()
             await self.save_settings(self.defaults)
             return self._cache
@@ -468,11 +464,31 @@ class SettingsService:
 
         self._cache = None
 
+    async def _backup_corrupted_file(self, content: str) -> str:
+        """Snapshot corrupt settings content to a sibling ``.corrupted`` file.
+
+        Never clobbers an existing backup: falls through to ``.corrupted.1``,
+        ``.corrupted.2`` … so the first (often most recoverable) snapshot is
+        preserved across repeated corruption events. Returns the path written.
+        """
+        backup = self.settings_file + '.corrupted'
+        n = 1
+        while os.path.exists(backup):
+            backup = f"{self.settings_file}.corrupted.{n}"
+            n += 1
+        async with aiofiles.open(backup, 'w', encoding='utf-8') as dst:
+            await dst.write(content)
+        self.logger.warning(f"Corrupted settings snapshot saved to: {backup}")
+        return backup
+
     async def _read_locked(self) -> Dict[str, Any]:
         """Read + validate settings. Caller must hold self._file_lock.
 
         Falls back to defaults on missing/empty/corrupt files so that a write
-        operation can recover the file rather than fail.
+        operation can recover the file rather than fail. On corruption the raw
+        content is snapshotted to ``.corrupted`` first — otherwise the caller's
+        subsequent ``_write_locked`` would overwrite the (possibly recoverable)
+        corrupt file with defaults, silently losing every setting.
         """
         if not os.path.exists(self.settings_file):
             return self.defaults.copy()
@@ -483,7 +499,8 @@ class SettingsService:
                 return self.defaults.copy()
             return self._validate_and_merge(json.loads(content))
         except json.JSONDecodeError:
-            self.logger.warning("settings.json corrupt during locked read; using defaults")
+            self.logger.error("settings.json corrupt during locked read; backing up and using defaults")
+            await self._backup_corrupted_file(content)
             return self.defaults.copy()
 
     async def _write_locked(self, settings: Dict[str, Any]) -> bool:
