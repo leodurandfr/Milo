@@ -1,0 +1,26 @@
+[Unit]
+Description=Milo DLNA / UPnP renderer (gmediarender)
+After=network-online.target sound.target milo-backend.service milo-camilladsp.service
+Wants=network-online.target
+Requires=sound.target
+BindsTo=milo-backend.service
+
+[Service]
+Type=simple
+User=milo
+Group=audio
+
+ExecStart=/usr/bin/gmediarender -f "Milo" -p 49494 -u b48ac0ce-d18a-4ace-ad6e-250398667052 --gstout-audiosink alsasink --gstout-audiodevice milo_dlna --gstout-initial-volume-db 0
+EnvironmentFile=/var/lib/milo/routing.env
+Environment=HOME=/home/milo
+WorkingDirectory=/var/lib/milo
+Restart=always
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=milo-dlna
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

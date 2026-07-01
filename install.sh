@@ -29,6 +29,7 @@ source "$INSTALL_DIR/bluez-alsa.sh"
 source "$INSTALL_DIR/bluez-le.sh"
 source "$INSTALL_DIR/airplay.sh"
 source "$INSTALL_DIR/snapcast.sh"
+source "$INSTALL_DIR/dlna.sh"
 source "$INSTALL_DIR/camilladsp.sh"
 source "$INSTALL_DIR/alsa.sh"
 source "$INSTALL_DIR/network.sh"
@@ -111,6 +112,7 @@ main() {
     install_shairport_sync
     configure_shairport_sync
     install_snapcast
+    install_gmediarender
 
     # System configuration
     install_readiness_script
