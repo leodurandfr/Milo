@@ -5,6 +5,15 @@ import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
 import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
 
+// Non-source dock apps; the full dock roster is sources + utilities.
+const DOCK_UTILITY_APPS = ['equalizer', 'multiroom', 'settings'];
+
+function buildDockAppsMap(enabledApps) {
+  return Object.fromEntries(
+    [...ALL_AUDIO_SOURCES, ...DOCK_UTILITY_APPS].map(app => [app, enabledApps.includes(app)])
+  );
+}
+
 export const useSettingsStore = defineStore('settings', () => {
   // === SETUP WIZARD ===
   const setupCompleted = ref(null); // null = unknown, false = show wizard, true = normal UI
@@ -37,19 +46,9 @@ export const useSettingsStore = defineStore('settings', () => {
   });
 
   // === DOCK APPS ===
-  const dockApps = ref({
-    spotify: true,
-    bluetooth: true,
-    radio: true,
-    podcast: true,
-    airplay: true,
-    mac: true,
-    cd: true,
-    dlna: true,
-    equalizer: true,
-    multiroom: true,
-    settings: true
-  });
+  const dockApps = ref(
+    Object.fromEntries([...ALL_AUDIO_SOURCES, ...DOCK_UTILITY_APPS].map(app => [app, true]))
+  );
 
   // Ordered list of all audio sources (both enabled and disabled)
   const sourceOrder = ref([...ALL_AUDIO_SOURCES]);
@@ -195,19 +194,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
         if (d.dock_apps?.enabled_apps) {
           const enabledApps = d.dock_apps.enabled_apps;
-          setIfChanged(dockApps, {
-            spotify: enabledApps.includes('spotify'),
-            bluetooth: enabledApps.includes('bluetooth'),
-            radio: enabledApps.includes('radio'),
-            podcast: enabledApps.includes('podcast'),
-            airplay: enabledApps.includes('airplay'),
-            mac: enabledApps.includes('mac'),
-            cd: enabledApps.includes('cd'),
-            dlna: enabledApps.includes('dlna'),
-            equalizer: enabledApps.includes('equalizer'),
-            multiroom: enabledApps.includes('multiroom'),
-            settings: enabledApps.includes('settings')
-          });
+          setIfChanged(dockApps, buildDockAppsMap(enabledApps));
           syncSourceOrder(enabledApps);
         }
 
@@ -278,19 +265,7 @@ export const useSettingsStore = defineStore('settings', () => {
    * Update dock apps (from WebSocket or API response)
    */
   function updateDockApps(enabledApps) {
-    dockApps.value = {
-      spotify: enabledApps.includes('spotify'),
-      bluetooth: enabledApps.includes('bluetooth'),
-      radio: enabledApps.includes('radio'),
-      podcast: enabledApps.includes('podcast'),
-      airplay: enabledApps.includes('airplay'),
-      mac: enabledApps.includes('mac'),
-      cd: enabledApps.includes('cd'),
-      dlna: enabledApps.includes('dlna'),
-      equalizer: enabledApps.includes('equalizer'),
-      multiroom: enabledApps.includes('multiroom'),
-      settings: enabledApps.includes('settings')
-    };
+    dockApps.value = buildDockAppsMap(enabledApps);
     syncSourceOrder(enabledApps);
   }
 
@@ -320,7 +295,7 @@ export const useSettingsStore = defineStore('settings', () => {
    */
   function buildEnabledAppsArray() {
     const orderedAudio = sourceOrder.value.filter(s => dockApps.value[s]);
-    const utilities = ['equalizer', 'multiroom', 'settings'].filter(u => dockApps.value[u]);
+    const utilities = DOCK_UTILITY_APPS.filter(u => dockApps.value[u]);
     return [...orderedAudio, ...utilities];
   }
 

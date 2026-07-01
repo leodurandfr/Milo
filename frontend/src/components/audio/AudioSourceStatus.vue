@@ -49,6 +49,7 @@
 <script setup>
 import { computed } from 'vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
+import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import { useI18n } from '@/services/i18n';
 import { formatDeviceNames } from '@/utils/deviceName';
@@ -60,7 +61,7 @@ const props = defineProps({
   sourceType: {
     type: String,
     required: true,
-    validator: (value) => ['spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'airplay', 'cd', 'dlna', 'none'].includes(value)
+    validator: (value) => value === 'none' || ALL_AUDIO_SOURCES.includes(value)
   },
   sourceState: {
     type: String,
