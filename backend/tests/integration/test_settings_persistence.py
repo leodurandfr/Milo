@@ -509,6 +509,50 @@ class TestBackupRestore:
         assert backup_content == corrupted_content
 
     @pytest.mark.asyncio
+    async def test_read_locked_corruption_preserves_and_recovers(self, settings_service, temp_settings_file):
+        """Runtime corruption before a write must not silently lose settings.
+
+        Reproduces the crash/corruption scenario: a healthy service whose
+        settings.json becomes corrupt at runtime (external tampering / FS
+        damage), then a set_setting write. The corrupt content must be
+        snapshotted to .corrupted (recoverable) BEFORE the write overwrites
+        the file with the new value.
+        """
+        original = temp_settings_file.read_text()
+        assert '"language"' in original
+
+        # Corrupt the file out from under the loaded service.
+        temp_settings_file.write_text('{"language": "french", TRUNCATED')
+
+        # A write goes through _read_locked, which sees the corruption.
+        result = await settings_service.set_setting('language', 'french')
+        assert result is True
+
+        # Corrupt snapshot preserved, not silently discarded.
+        corrupted_file = Path(str(temp_settings_file) + '.corrupted')
+        assert corrupted_file.exists()
+        assert corrupted_file.read_text() == '{"language": "french", TRUNCATED'
+
+        # File is valid JSON again and carries the new value.
+        with open(temp_settings_file) as f:
+            data = json.load(f)
+        assert data['language'] == 'french'
+
+    @pytest.mark.asyncio
+    async def test_second_corruption_does_not_clobber_first_backup(self, settings_service, temp_settings_file):
+        """A second corruption event must not overwrite the first snapshot."""
+        temp_settings_file.write_text('first corrupt payload {')
+        await settings_service.set_setting('language', 'french')
+
+        temp_settings_file.write_text('second corrupt payload [')
+        await settings_service.set_setting('language', 'german')
+
+        first = Path(str(temp_settings_file) + '.corrupted')
+        second = Path(str(temp_settings_file) + '.corrupted.1')
+        assert first.read_text() == 'first corrupt payload {'
+        assert second.read_text() == 'second corrupt payload ['
+
+    @pytest.mark.asyncio
     async def test_empty_file_handled_gracefully(self, temp_settings_file):
         """Test that empty file is handled gracefully."""
         # Create an empty file
