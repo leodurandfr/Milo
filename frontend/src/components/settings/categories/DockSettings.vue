@@ -126,6 +126,7 @@ function getSourceTitle(source) {
     airplay: t('audioSources.airplay'),
     mac: t('audioSources.macOS'),
     cd: t('audioSources.cd'),
+    dlna: t('audioSources.dlna'),
   };
   return titles[source] || source;
 }
