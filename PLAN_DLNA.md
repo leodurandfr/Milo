@@ -16,24 +16,24 @@
 > Aucune phase n'anticipe la suivante. Chaque phase est vérifiable seule.
 
 - [x] **Phase 0** — POC de faisabilité (hors repo) — ✅ **PASSÉ (2026-07-01)** : gmrender visible (SSDP), audio OK (MP3/FLAC/FLAC 24-192/WAV/AAC/ALAC), bridge GENA fiable (title/artist/album/art/état/position). Détails + findings §2.
-- [~] **Phase 1** — Image/build : daemon + ALSA + Snapcast + systemd — **IMPLÉMENTÉE + partiellement validée**.
-  Binaire réel = **`/usr/bin/gmediarender`** (apt). **Reboot-1 (2026-07-01)** : audio **direct** ✅ (gmediarender →
-  `milo_dlna_direct` → CamillaDSP → DAC, son confirmé). **Multiroom** a révélé la limite noyau 8-substreams →
-  **reworké en 2e carte `LoopbackDLNA`** (cf. §3.2 ⚠️). ⚠️ **Reste : reboot-2** pour charger les 2 cartes + valider
-  l'audio multiroom DLNA (carte 2 → Snapserver `hw:2,1,0`).
+- [x] **Phase 1** — Image/build : daemon + ALSA + Snapcast + systemd — **✅ VALIDÉE (reboot-2, 2026-07-01)**.
+  Binaire `/usr/bin/gmediarender` (apt). **Direct** ✅ (→ CamillaDSP → DAC, son confirmé). **Multiroom 2-cartes** ✅ :
+  `aplay` montre `Loopback`+`LoopbackDLNA` ; gmediarender écrit sur `LoopbackDLNA` (card2 sub0 RUNNING) ; **Snapserver
+  `DLNA=playing`** (hw:2,1,0). Rework 2-cartes car `snd-aloop` plafonne à 8 substreams (cf. §3.2 ⚠️).
 - [x] **Phase 2** — Backend : source Famille B + bridge + wiring — **IMPLÉMENTÉE + VALIDÉE RUNTIME (2026-07-01)**.
   4 fichiers `sources/dlna/` + wiring. **`pytest` 1682 vert, `ruff` clean.** **Smoke-test bridge live (reboot-1)** :
   `CONN`+`STATE stop→play`+`META`(titre/artiste/album DIDL)+`ARTWORK`(URL, fetch source 300×300)+`PROGRESS`(ms)
   tous ✅ contre un vrai gmediarender. **Bug corrigé** (`331ec104`) : position/durée = int secondes (pas timedelta)
   en async-upnp-client 0.47. Reste juste à re-vérifier via l'intégration state-machine complète au reboot-2.
-- [~] **Phase 3** — Frontend : composant + routing UI + i18n + icône — **IMPLÉMENTÉE (2026-07-01)** : 16 fichiers
-  (`DLNASource.vue` + `dlna.svg` neufs ; AudioSourceView/AppIcon/useRichDisplay/settingsStore/ws/audioSources +
-  8 locales). **`npm run lint` + `npm run build` verts.** ⚠️ Gate visuel (lecteur au push) bundlé au **reboot-2**.
+- [x] **Phase 3** — Frontend : composant + routing UI + i18n + icône — **✅ VALIDÉE (reboot-2, 2026-07-01)**.
+  16 fichiers ; `npm run lint` + `build` verts. **End-to-end** : `POST /api/audio/source/dlna` → backend WAITING ;
+  push → `/api/audio/state` = `active_source=dlna, title/artist, is_playing, album_art_url=/api/dlna/artwork, width=600`
+  → **critères rich-display satisfaits** (width>300 comme AirPlay, même `AudioPlayerFull`). Endpoint artwork 200/jpeg.
 - [ ] **Phase 4** — Multiroom, edge cases, tests, docs — *gate : `pytest` + lint verts, bascules de sources OK*
 
-**Prochaine étape : REBOOT-2 (déployer configs 2-cartes + reboot) → valide d'un coup le multiroom DLNA
-(2 cartes `LoopbackDLNA` → Snapserver `hw:2,1,0`) ET le lecteur frontend (push → player). Puis Phase 4.
-État : P2 ✅ runtime ; P1 direct ✅ ; P3 ✅ (lint+build). Il ne reste QUE le reboot-2 pour clore P1+P3.**
+**Prochaine phase : Phase 4 (multiroom edge-cases, bascules de sources, tests, docs, nettoyage POC).
+Phases 1+2+3 ✅ VALIDÉES end-to-end au reboot-2 (2 cartes, audio direct+multiroom, backend WAITING→ACTIVE,
+métadonnées/pochette, rich-display). Fonctionnalité DLNA cœur = opérationnelle.**
 
 ---
 
