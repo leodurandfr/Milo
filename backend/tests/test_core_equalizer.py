@@ -542,6 +542,60 @@ class TestCamillaDSPService:
         assert "loudness_low" in cfg["filters"]
         assert camilladsp_service._active_preset == "custom"
 
+    @pytest.mark.asyncio
+    async def test_apply_settings_rolls_back_caches_on_daemon_failure(self, camilladsp_service, monkeypatch):
+        """A failed daemon write must leave the caches unchanged, not ahead of the DSP.
+
+        Otherwise the in-memory cache (and the next persist to equalizer.json,
+        plus the zone WS broadcast) would report the new EQ while the daemon
+        keeps playing the old one.
+        """
+        from backend.core.multiroom.models import (
+            EqualizerSettings, EqFilter, FilterType, DEFAULT_EQ_FREQUENCIES,
+        )
+
+        camilladsp_service._connected = True
+        camilladsp_service._client = MagicMock()
+        monkeypatch.setattr(camilladsp_service, "_schedule_persist", lambda: None)
+
+        before = (
+            camilladsp_service._filters,
+            camilladsp_service._compressor,
+            camilladsp_service._loudness,
+            camilladsp_service._mono,
+            camilladsp_service._active_preset,
+        )
+
+        async def fake_get_config():
+            return {"filters": {}, "pipeline": [], "processors": {}}
+
+        async def failing_set_config(cfg):
+            raise RuntimeError("daemon connection dropped")
+
+        monkeypatch.setattr(camilladsp_service, "_get_config", fake_get_config)
+        monkeypatch.setattr(camilladsp_service, "_set_config", failing_set_config)
+
+        settings = EqualizerSettings(
+            filters=[
+                EqFilter(id=f"eq_band_{i:02d}", frequency=DEFAULT_EQ_FREQUENCIES[i],
+                         gain=99.0, q=1.41, filter_type=FilterType.PEAKING)
+                for i in range(10)
+            ],
+            active_preset="custom",
+        )
+        settings.compressor.enabled = True
+        settings.mono = True
+
+        ok = await camilladsp_service.apply_settings(settings, persist=False)
+
+        assert ok is False  # @handle_errors(default=False) swallows the re-raise
+        # Caches restored to exactly the pre-apply objects — no drift from the daemon.
+        assert camilladsp_service._filters is before[0]
+        assert camilladsp_service._compressor is before[1]
+        assert camilladsp_service._loudness is before[2]
+        assert camilladsp_service._mono == before[3]
+        assert camilladsp_service._active_preset == before[4]
+
 
 # =============================================================================
 # Equalizer State Tests

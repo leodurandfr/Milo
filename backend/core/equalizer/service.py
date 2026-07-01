@@ -974,7 +974,19 @@ class CamillaDSPService:
             self.logger.warning("Cannot apply settings: not connected")
             return False
 
-        # Update caches first — the pure mutators read _compressor/_loudness/_mono.
+        # Stage the new intent into the caches first — the pure mutators read
+        # _filters/_compressor/_loudness/_mono. Snapshot the previous values so a
+        # failed daemon write can roll them back: otherwise the cache would sit
+        # ahead of the daemon, drifting the zone WS broadcast and the next persist
+        # (equalizer.json) from what the DSP is actually playing.
+        prev = (
+            self._filters,
+            self._compressor,
+            self._loudness,
+            self._mono,
+            self._active_preset,
+        )
+
         if settings.filters:
             self._filters = [
                 {
@@ -993,16 +1005,28 @@ class CamillaDSPService:
         if settings.active_preset:
             self._active_preset = settings.active_preset
 
-        async with self._config_lock:
-            config = await self._get_config()
-            for f in self._filters:
-                self._config_set_eq_filter(
-                    config, f["id"], f["freq"], f["gain"], f["q"], f["type"]
-                )
-            self._config_apply_compressor(config)
-            self._config_apply_loudness(config)
-            self._config_apply_mono(config)
-            await self._set_config(config)
+        try:
+            async with self._config_lock:
+                config = await self._get_config()
+                for f in self._filters:
+                    self._config_set_eq_filter(
+                        config, f["id"], f["freq"], f["gain"], f["q"], f["type"]
+                    )
+                self._config_apply_compressor(config)
+                self._config_apply_loudness(config)
+                self._config_apply_mono(config)
+                await self._set_config(config)
+        except Exception:
+            # Daemon write failed — restore the caches so cache/daemon/disk stay
+            # consistent (@handle_errors turns the re-raise into a False return).
+            (
+                self._filters,
+                self._compressor,
+                self._loudness,
+                self._mono,
+                self._active_preset,
+            ) = prev
+            raise
 
         if persist:
             self._schedule_persist()
