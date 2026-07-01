@@ -16,12 +16,22 @@
 > Aucune phase n'anticipe la suivante. Chaque phase est vérifiable seule.
 
 - [x] **Phase 0** — POC de faisabilité (hors repo) — ✅ **PASSÉ (2026-07-01)** : gmrender visible (SSDP), audio OK (MP3/FLAC/FLAC 24-192/WAV/AAC/ALAC), bridge GENA fiable (title/artist/album/art/état/position). Détails + findings §2.
-- [~] **Phase 1** — Image/build : daemon + ALSA + Snapcast + systemd — **IMPLÉMENTÉE (2026-07-01)** : tous les fichiers écrits + **validation statique verte** (bash -n, `systemd-analyze verify`, `asound.conf` parse → `milo_dlna_direct` listé). ⚠️ **Gate runtime NON encore validé** : test d'écoute on-device requis (reboot pour `pcm_substreams=9` + arrêt du POC P0 qui squatte `:49494`/UUID) — cf. §3 fin. Binaire réel = **`/usr/bin/gmediarender`** (apt, pas `/usr/local/bin`).
-- [~] **Phase 2** — Backend : source Famille B + bridge + wiring — **IMPLÉMENTÉE (2026-07-01)** : 4 fichiers `sources/dlna/` + wiring (enum, `dependencies.py` creator+register, `DEFAULT_DOCK_APPS`, `main.py` route, `requirements.txt`). **`pytest` 1682 vert (contrat Milo-Mac inclus), `ruff` clean, import/instanciation OK.** ⚠️ Reste le **smoke-test runtime** (push DLNA → WAITING→ACTIVE + métadonnées au journal) — bundlé avec le gate Phase 1 au reboot final.
+- [~] **Phase 1** — Image/build : daemon + ALSA + Snapcast + systemd — **IMPLÉMENTÉE + partiellement validée**.
+  Binaire réel = **`/usr/bin/gmediarender`** (apt). **Reboot-1 (2026-07-01)** : audio **direct** ✅ (gmediarender →
+  `milo_dlna_direct` → CamillaDSP → DAC, son confirmé). **Multiroom** a révélé la limite noyau 8-substreams →
+  **reworké en 2e carte `LoopbackDLNA`** (cf. §3.2 ⚠️). ⚠️ **Reste : reboot-2** pour charger les 2 cartes + valider
+  l'audio multiroom DLNA (carte 2 → Snapserver `hw:2,1,0`).
+- [x] **Phase 2** — Backend : source Famille B + bridge + wiring — **IMPLÉMENTÉE + VALIDÉE RUNTIME (2026-07-01)**.
+  4 fichiers `sources/dlna/` + wiring. **`pytest` 1682 vert, `ruff` clean.** **Smoke-test bridge live (reboot-1)** :
+  `CONN`+`STATE stop→play`+`META`(titre/artiste/album DIDL)+`ARTWORK`(URL, fetch source 300×300)+`PROGRESS`(ms)
+  tous ✅ contre un vrai gmediarender. **Bug corrigé** (`331ec104`) : position/durée = int secondes (pas timedelta)
+  en async-upnp-client 0.47. Reste juste à re-vérifier via l'intégration state-machine complète au reboot-2.
 - [ ] **Phase 3** — Frontend : composant + routing UI + i18n + icône — *gate : lecteur plein écran s'affiche au push BubbleUPnP*
 - [ ] **Phase 4** — Multiroom, edge cases, tests, docs — *gate : `pytest` + lint verts, bascules de sources OK*
 
-**Prochaine phase à exécuter : Phase 3 (frontend). Phases 1 & 2 IMPLÉMENTÉES + validées (statique/pytest) — leurs deux gates runtime (écoute direct+multiroom, push DLNA→WAITING→ACTIVE) sont bundlés dans UN reboot final on-device.**
+**Prochaine phase : Phase 3 (frontend, reboot-free). État : P2 validée runtime ✅ ; P1 direct validé ✅,
+multiroom reworké en 2e carte `LoopbackDLNA` (attend **reboot-2** : 2 cartes + audio multiroom DLNA).
+Plan : coder P3 maintenant, puis UN reboot-2 valide d'un coup le multiroom + le lecteur frontend.**
 
 ---
 
@@ -154,17 +164,22 @@ slot 0 = DSP → DLNA prend le **slot 8**. Suivre le motif `milo_cd` (bloc alias
 multiroom l.195) :
 - [x] **Alias dynamique** `pcm.milo_dlna` (concat sur `MILO_MODE`) — après le bloc `milo_cd`.
 - [x] **Variante direct** `pcm.milo_dlna_direct` → `slave.pcm "camilladsp"`.
-- [x] **Variante multiroom** `pcm.milo_dlna_multiroom` → Loopback `device 0 subdevice 8`.
-- [x] **Bump `snd-aloop pcm_substreams` 8 → 9 aux DEUX endroits** (sinon le slot 8 n'existe pas) :
-  `install/alsa.sh:24` **et** `pi-gen/stage-milo/02-install-milo/01-run.sh:46` (+ en-tête `asound.conf`
-  slots 1..8). ⚠️ Effectif seulement après reboot (module chargé actuellement à 8).
+- [x] **Variante multiroom** `pcm.milo_dlna_multiroom` → **2e carte `LoopbackDLNA` `device 0 subdevice 0`**
+  (cf. ⚠️ ci-dessous).
+- [x] **Module snd-aloop → 2 CARTES** aux DEUX endroits (`install/alsa.sh:24` **et**
+  `pi-gen/stage-milo/02-install-milo/01-run.sh`) :
+  `options snd-aloop index=1,2 enable=1,1 id=Loopback,LoopbackDLNA pcm_substreams=8,8`.
+  ⚠️ **Correctif reboot-1 (2026-07-01)** : `pcm_substreams=9` était **invalide** — `snd-aloop` plafonne
+  à **8 substreams/carte (limite noyau, `modinfo` « 1–8 »)**, rejet silencieux → **pas de slot 8**. Les 8
+  slots de la carte 1 sont pris (0=DSP, 1–7=sources) → le multiroom DLNA vit sur une **2e carte
+  `LoopbackDLNA`**. Effectif après reboot.
 
 ### 3.3 Snapcast / Snapserver — 🔴 sinon multiroom muet
 Fichier : `install/snapcast.sh` (source unique). Le subdevice 8 doit être **lu** par Snapserver :
 - [x] Ajouter `/DLNA` à l'agrégateur meta (l.33) :
   `source = meta:///Bluetooth/ROC/Spotify/Radio/Podcast/AirPlay/CD/DLNA?name=Multiroom`.
-- [x] Ajouter la source ALSA après la ligne CD (l.41) :
-  `source = alsa:///?name=DLNA&device=hw:1,1,8&idle_threshold=5000`.
+- [x] Ajouter la source ALSA après la ligne CD (l.41) — **2e carte** :
+  `source = alsa:///?name=DLNA&device=hw:2,1,0&idle_threshold=5000` (corrigé de `hw:1,1,8` — cf. §3.2 ⚠️).
 
 ### 3.4 systemd — `system/milo-dlna.service` (nouveau)
 Calqué sur `milo-airplay.service` (déployé auto via glob `system/*.service`, rien à énumérer) :

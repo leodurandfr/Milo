@@ -39,7 +39,7 @@ source = alsa:///?name=Radio&device=hw:1,1,4&idle_threshold=5000
 source = alsa:///?name=Podcast&device=hw:1,1,5&idle_threshold=5000
 source = alsa:///?name=AirPlay&device=hw:1,1,6&idle_threshold=5000
 source = alsa:///?name=CD&device=hw:1,1,7&idle_threshold=5000
-source = alsa:///?name=DLNA&device=hw:1,1,8&idle_threshold=5000
+source = alsa:///?name=DLNA&device=hw:2,1,0&idle_threshold=5000
 
 [http]
 enabled = true

@@ -41,9 +41,11 @@ CHROOT
 # ── ALSA configuration ───────────────────────────────────────────────────────
 
 on_chroot << 'CHROOT'
-# ALSA loopback module (server: 9 substreams)
+# ALSA loopback: 2 cards — "Loopback" (DSP slot 0 + 7 sources) and "LoopbackDLNA"
+# (DLNA + future sources). snd-aloop caps at 8 substreams/card, so an 8th source
+# needs a second card rather than a 9th substream (which the driver rejects).
 echo "snd-aloop" > /etc/modules-load.d/snd-aloop.conf
-echo "options snd-aloop index=1 enable=1 pcm_substreams=9" > /etc/modprobe.d/snd-aloop.conf
+echo "options snd-aloop index=1,2 enable=1,1 id=Loopback,LoopbackDLNA pcm_substreams=8,8" > /etc/modprobe.d/snd-aloop.conf
 
 # ALSA routing + env files (asound.conf, routing.env, snapclient.env, mac.env).
 # Reuse install/alsa.sh::configure_alsa_complete so pi-gen and the bash installer
