@@ -53,7 +53,8 @@
       "unknownAlbum": "अज्ञात एल्बम",
       "unknownArtist": "अज्ञात कलाकार",
       "trackN": "ट्रैक {n}",
-      "noDriveConnected": "कनेक्टेड नहीं"
+      "noDriveConnected": "कनेक्टेड नहीं",
+      "play": "चलाएँ"
     },
     "radioSource": {
       "favoritesTitle": "पसंदीदा रेडियो",

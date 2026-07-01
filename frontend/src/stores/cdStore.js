@@ -17,6 +17,12 @@ export const useCdStore = defineStore('cd', () => {
     unifiedStore.systemState.active_source === 'cd'
       && !!unifiedStore.systemState.metadata?.is_playing
   );
+  // Drive spinning up before audio flows — distinct from idle, so the UI shows a
+  // spinner instead of the idle play affordance.
+  const isBuffering = computed(() =>
+    unifiedStore.systemState.active_source === 'cd'
+      && !!unifiedStore.systemState.metadata?.is_buffering
+  );
   // === DRIVE STATE ===
   const discPresent = ref(false);
 
@@ -119,6 +125,7 @@ export const useCdStore = defineStore('cd', () => {
     tracks,
     currentTrack,
     isPlaying,
+    isBuffering,
     showTracklist,
 
     // Actions

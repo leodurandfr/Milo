@@ -1,10 +1,11 @@
 <!-- CDSource.vue - CD Player (wrapper around AudioPlayerFull) -->
 <template>
-  <AudioPlayerFull source="cd" :hideContent="cdStore.showTracklist">
+  <AudioPlayerFull source="cd" :hideContent="showContentReplace" :keepArtwork="isIdle"
+    :fallbackArtworkUrl="cdStore.discInfo?.album_art_url || ''">
     <template #action-buttons>
       <div class="action-buttons">
-        <IconButton :icon="cdStore.showTracklist ? 'close' : 'queue'" :variant="isMobile ? 'on-grey' : 'background-strong'"
-          size="medium" @click="cdStore.toggleTracklist()" />
+        <IconButton v-if="!isIdle" :icon="cdStore.showTracklist ? 'close' : 'queue'"
+          :variant="isMobile ? 'on-grey' : 'background-strong'" size="medium" @click="cdStore.toggleTracklist()" />
         <IconButton icon="eject" :variant="isMobile ? 'on-grey' : 'background-strong'" size="medium"
           @click="cdStore.eject()" />
       </div>
@@ -18,6 +19,14 @@
             <span class="heading-4 tracklist-album">{{ albumTitle }}</span>
           </div>
           <span v-if="releaseYear" class="text-mono-small tracklist-year">{{ releaseYear }}</span>
+        </div>
+
+        <!-- Idle disc: a prominent play resumes the last track/position (no live
+             progress bar, since the position is stale in WAITING). -->
+        <div v-if="isIdle" class="idle-actions">
+          <button v-press class="idle-play" :aria-label="t('audioSources.cdSource.play')" @click="resumePlayback">
+            <SvgIcon name="play" size="large" color="var(--color-text-contrast)" />
+          </button>
         </div>
         <div class="tracklist-scroll">
           <TrackCard v-for="track in cdStore.tracks" :key="track.number" :track="track"
@@ -34,15 +43,36 @@
 import { computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useCdStore } from '@/stores/cdStore';
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 
 import AudioPlayerFull from '@/components/audio/AudioPlayerFull.vue';
 import IconButton from '@/components/ui/IconButton.vue';
+import SvgIcon from '@/components/ui/SvgIcon.vue';
 import TrackCard from './TrackCard.vue';
 import { useIsMobile } from '@/composables/useIsMobile';
 
 const { t } = useI18n();
 const cdStore = useCdStore();
+const unifiedStore = useUnifiedAudioStore();
 const { isMobile } = useIsMobile();
+
+// A disc is loaded but nothing is playing or spinning up (WAITING): show the
+// tracklist + a prominent play button instead of a paused transport with a stale
+// progress bar. Buffering is excluded so tapping play swaps to the now-playing
+// view (with its spinner) immediately, rather than leaving a static play button.
+const isIdle = computed(() =>
+  cdStore.discPresent && !cdStore.isPlaying && !cdStore.isBuffering
+);
+
+// The tracklist replaces the now-playing view when the user opens it, and always
+// while idle (there is no live playback to show).
+const showContentReplace = computed(() => cdStore.showTracklist || isIdle.value);
+
+// Resume picks up the last played track/position (backend command), unlike a
+// per-track play which would restart from 0:00.
+function resumePlayback() {
+  unifiedStore.sendCommand('cd', 'resume');
+}
 
 const artistName = computed(() =>
   cdStore.discInfo?.artist || t('audioSources.cdSource.unknownArtist')
@@ -101,6 +131,27 @@ const releaseYear = computed(() => cdStore.discInfo?.year || '');
   flex-shrink: 0;
   white-space: nowrap;
   color: var(--color-text-secondary);
+}
+
+/* === IDLE PLAY === */
+.idle-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-bottom: var(--space-04);
+  flex-shrink: 0;
+}
+
+.idle-play {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border: none;
+  border-radius: 50%;
+  background: var(--color-brand);
+  cursor: pointer;
+  transition: var(--transition-press);
 }
 
 .tracklist-scroll {
