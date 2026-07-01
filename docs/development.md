@@ -316,20 +316,33 @@ Note: CamillaDSP is always in the audio path for volume control. DSP effects are
 
 ### 5. Create API routes
 
+Only families B and C have a `routes.py` — family A sources take commands via
+the generic `/api/audio/control/{source}`. Use `make_source_dependency` for the
+source lookup and `run_source_command()` for playback commands; never call
+`source.handle_command()` from a route body.
+
 `backend/sources/my_source/routes.py`:
 ```python
-from fastapi import APIRouter
+from typing import Any, Dict
 
-def setup_my_source_routes(get_source):
-    router = APIRouter(prefix="/my_source", tags=["my_source"])
+from fastapi import APIRouter, Depends
 
-    @router.post("/play")
-    async def play():
-        source = get_source()
-        result = await source.handle_command("play", {})
-        return {"status": "success", "data": result}
+from backend.api.route_helpers import run_source_command
+from backend.api.source_dependency import make_source_dependency
+from backend.sources.my_source.source import MySource
 
+router = APIRouter(prefix="/my_source", tags=["my_source"])
+set_source_provider, get_source = make_source_dependency("My source")
+
+
+def setup_my_source_routes(source_provider) -> APIRouter:
+    set_source_provider(source_provider)
     return router
+
+
+@router.post("/play")
+async def play(source: MySource = Depends(get_source)) -> Dict[str, Any]:
+    return await run_source_command(source, "play", {}, "Playback")
 ```
 
 Register in `backend/main.py`:
@@ -339,41 +352,50 @@ from backend.sources.my_source.routes import setup_my_source_routes
 my_source_router = setup_my_source_routes(
     lambda: state_machine.sources.get(AudioSource.MY_SOURCE)
 )
-app.include_router(my_source_router)
+app.include_router(my_source_router, prefix="/api")
 ```
 
-### 6. Create frontend interface
+### 6. Wire the frontend
 
-`frontend/src/components/audio/MySourceDisplay.vue`:
+Most per-source wiring derives from the registry in
+`frontend/src/constants/audioSources.js`: adding the id to `ALL_AUDIO_SOURCES`
+and its i18n key to `AUDIO_SOURCE_LABEL_KEYS` automatically covers the Zod
+source enums (`schemas/api.js`, `schemas/ws.js`), the dock labels (`Dock.vue`,
+`DockSettings.vue`), the icon/status prop validators (`AppIcon.vue`,
+`AudioSourceStatus.vue`) and the dock-apps map (`settingsStore.js`).
+
+Full checklist (DLNA Phase 3 needed two follow-up commits because some of
+these were missed — walk the whole table):
+
+| Touchpoint | What to add |
+|---|---|
+| `constants/audioSources.js` | id in `ALL_AUDIO_SOURCES` (order = default dock layout) + label key in `AUDIO_SOURCE_LABEL_KEYS` |
+| `assets/app-icons/<id>.svg` | dock icon; map the filename in `AppIcon.vue::iconMapping` if it differs from the id (e.g. `mac` → `macos`) |
+| `components/<id>/<Name>Source.vue` | source view per the CLAUDE.md family table (family A: none) |
+| `components/audio/AudioSourceView.vue` | route the new source's view |
+| `composables/useRichDisplay.js` | rich-player gating (families B/C) |
+| `components/audio/AudioSourceStatus.vue` | loading/ready status lines (per-source `switch` cases) |
+| `locales/*.json` (8 files) | `audioSources.<id>` — `english.json` first (canonical/fallback) |
+| `backend/config/constants.py` | id in `DEFAULT_DOCK_APPS` (`VALID_DOCK_APPS` derives from the `AudioSource` enum) |
+
+View-component sketch — HTTP goes through `apiCall`, never raw `fetch`/axios:
 ```vue
 <script setup>
 import { computed } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { apiCall } from '@/services/apiCall';
 
 const audioStore = useUnifiedAudioStore();
-
-const isActive = computed(() =>
-  audioStore.activeSource === 'my_source'
-);
-
-const metadata = computed(() =>
-  audioStore.metadata || {}
-);
+const metadata = computed(() => audioStore.metadata || {});
 
 async function play() {
-  await fetch('/api/my_source/play', { method: 'POST' });
+  await apiCall.post('/api/my_source/play', null, {
+    category: 'my_source',
+    message: 'Error starting playback',
+  });
 }
 </script>
-
-<template>
-  <div class="my-source-display" :class="{ active: isActive }">
-    <h2>My Source</h2>
-    <button @click="play">Play</button>
-  </div>
-</template>
 ```
-
-Add to `MainView.vue` or main layout.
 
 ### Reference implementation: Radio source
 
