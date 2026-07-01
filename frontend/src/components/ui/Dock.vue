@@ -369,7 +369,8 @@ const getAppTitle = (appId) => {
     'radio': t('audioSources.radio'),
     'podcast': t('audioSources.podcasts'),
     'airplay': t('audioSources.airplay'),
-    'cd': t('audioSources.cd')
+    'cd': t('audioSources.cd'),
+    'dlna': t('audioSources.dlna')
   };
 
   if (ALL_AUDIO_SOURCES.includes(appId)) {
