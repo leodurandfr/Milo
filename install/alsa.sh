@@ -21,7 +21,7 @@ configure_alsa_loopback() {
     log_info "Configuring ALSA loopback..."
 
     echo "snd-aloop" | sudo tee /etc/modules-load.d/snd-aloop.conf
-    echo "options snd-aloop index=1 enable=1 pcm_substreams=9" | sudo tee /etc/modprobe.d/snd-aloop.conf
+    echo "options snd-aloop index=1,2 enable=1,1 id=Loopback,LoopbackDLNA pcm_substreams=8,8" | sudo tee /etc/modprobe.d/snd-aloop.conf
 
     sudo modprobe snd-aloop || true
 
