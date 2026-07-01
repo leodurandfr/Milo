@@ -286,6 +286,7 @@ export const useSettingsStore = defineStore('settings', () => {
       airplay: enabledApps.includes('airplay'),
       mac: enabledApps.includes('mac'),
       cd: enabledApps.includes('cd'),
+      dlna: enabledApps.includes('dlna'),
       equalizer: enabledApps.includes('equalizer'),
       multiroom: enabledApps.includes('multiroom'),
       settings: enabledApps.includes('settings')

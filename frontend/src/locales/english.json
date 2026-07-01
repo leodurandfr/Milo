@@ -217,6 +217,7 @@
     "loadingAlbum": "Loading album",
     "ejecting": "Ejecting...",
     "waiting": "Waiting...",
+    "playing": "Playing",
     "connectedTo": "Connected to",
     "audioReceivedFrom": "Audio received from",
     "disconnect": "Disconnect",

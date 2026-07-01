@@ -15,7 +15,7 @@ import { z } from 'zod';
 // === AUDIO SOURCE & STATE ===
 
 const AudioSourceSchema = z.enum([
-  'none', 'spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'airplay', 'cd'
+  'none', 'spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'airplay', 'cd', 'dlna'
 ]);
 
 const SourceStateSchema = z.enum([

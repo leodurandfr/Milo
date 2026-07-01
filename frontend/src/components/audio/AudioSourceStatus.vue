@@ -60,7 +60,7 @@ const props = defineProps({
   sourceType: {
     type: String,
     required: true,
-    validator: (value) => ['spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'airplay', 'cd', 'none'].includes(value)
+    validator: (value) => ['spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'airplay', 'cd', 'dlna', 'none'].includes(value)
   },
   sourceState: {
     type: String,
@@ -109,6 +109,8 @@ const displayedStatusLines = computed(() => {
         return [t('status.loadingOf'), t('audioSources.podcasts')];
       case 'airplay':
         return [t('status.loadingOf'), t('audioSources.airplay')];
+      case 'dlna':
+        return [t('status.loadingOf'), t('audioSources.dlna')];
       case 'cd':
         return [t('status.loadingOfMasculine'), t('audioSources.cd')];
       default:
@@ -131,6 +133,8 @@ const displayedStatusLines = computed(() => {
         return [t('audioSources.podcasts'), t('status.ready')];
       case 'airplay':
         return [t('audioSources.airplay'), t('status.readyToStream')];
+      case 'dlna':
+        return [t('audioSources.dlna'), t('status.readyToStream')];
       case 'cd':
         return [t('audioSources.cd'), t('status.readyToPlay')];
       default:
@@ -152,6 +156,13 @@ const displayedStatusLines = computed(() => {
       default:
         return [t('status.connectedTo'), formattedDeviceNames];
     }
+  }
+
+  // DLNA active without a controller identity: UPnP exposes no "who's casting"
+  // name, and a controller may push only a bare title (no artist/cover) so the
+  // rich player is gated out — show a playing state, not the waiting fallback.
+  if (props.sourceState === 'active' && props.sourceType === 'dlna') {
+    return [t('audioSources.dlna'), t('status.playing')];
   }
 
   return [t('status.waiting')];
