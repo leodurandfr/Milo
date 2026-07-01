@@ -153,7 +153,7 @@ export const wsEventRegistry = {
   // Position and duration are in milliseconds.
   'source.position_update': z.object({
     source: z.enum([
-      'none', 'spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'airplay', 'cd',
+      'none', 'spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'airplay', 'cd', 'dlna',
     ]),
     position: z.number(),
     duration: z.number(),

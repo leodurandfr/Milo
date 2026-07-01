@@ -22,6 +22,11 @@
         <AirPlaySource />
       </div>
 
+      <!-- DLNAView -->
+      <div v-else-if="shouldShowDLNA" :key="contentKey" class="connect-container">
+        <DLNASource />
+      </div>
+
       <!-- Source Status -->
       <div v-else-if="shouldShowSourceStatus" :key="contentKey" class="source-status-container">
         <AudioSourceStatus :source-type="currentSourceType" :source-state="currentSourceState"
@@ -53,6 +58,9 @@ const AirPlaySource = defineAsyncComponent(() =>
 const CDSource = defineAsyncComponent(() =>
   import('../cd/CDSource.vue')
 );
+const DLNASource = defineAsyncComponent(() =>
+  import('../dlna/DLNASource.vue')
+);
 import AudioSourceStatus from './AudioSourceStatus.vue';
 
 const unifiedStore = useUnifiedAudioStore();
@@ -81,6 +89,7 @@ const shouldShowRadio = computed(() => richSource.value === 'radio');
 const shouldShowPodcast = computed(() => richSource.value === 'podcast');
 const shouldShowCD = computed(() => richSource.value === 'cd');
 const shouldShowAirPlay = computed(() => richSource.value === 'airplay');
+const shouldShowDLNA = computed(() => richSource.value === 'dlna');
 
 const shouldShowSourceStatus = computed(() => {
   if (activeSource.value === 'none') return false;  // nothing active (incl. deactivation)
@@ -161,6 +170,8 @@ const currentDeviceName = computed(() => {
     case 'mac':
       return meta.client_names || [];
     case 'airplay':
+      return meta.client_name || '';
+    case 'dlna':
       return meta.client_name || '';
     default:
       return '';

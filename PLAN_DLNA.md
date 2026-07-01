@@ -26,12 +26,14 @@
   `CONN`+`STATE stop→play`+`META`(titre/artiste/album DIDL)+`ARTWORK`(URL, fetch source 300×300)+`PROGRESS`(ms)
   tous ✅ contre un vrai gmediarender. **Bug corrigé** (`331ec104`) : position/durée = int secondes (pas timedelta)
   en async-upnp-client 0.47. Reste juste à re-vérifier via l'intégration state-machine complète au reboot-2.
-- [ ] **Phase 3** — Frontend : composant + routing UI + i18n + icône — *gate : lecteur plein écran s'affiche au push BubbleUPnP*
+- [~] **Phase 3** — Frontend : composant + routing UI + i18n + icône — **IMPLÉMENTÉE (2026-07-01)** : 16 fichiers
+  (`DLNASource.vue` + `dlna.svg` neufs ; AudioSourceView/AppIcon/useRichDisplay/settingsStore/ws/audioSources +
+  8 locales). **`npm run lint` + `npm run build` verts.** ⚠️ Gate visuel (lecteur au push) bundlé au **reboot-2**.
 - [ ] **Phase 4** — Multiroom, edge cases, tests, docs — *gate : `pytest` + lint verts, bascules de sources OK*
 
-**Prochaine phase : Phase 3 (frontend, reboot-free). État : P2 validée runtime ✅ ; P1 direct validé ✅,
-multiroom reworké en 2e carte `LoopbackDLNA` (attend **reboot-2** : 2 cartes + audio multiroom DLNA).
-Plan : coder P3 maintenant, puis UN reboot-2 valide d'un coup le multiroom + le lecteur frontend.**
+**Prochaine étape : REBOOT-2 (déployer configs 2-cartes + reboot) → valide d'un coup le multiroom DLNA
+(2 cartes `LoopbackDLNA` → Snapserver `hw:2,1,0`) ET le lecteur frontend (push → player). Puis Phase 4.
+État : P2 ✅ runtime ; P1 direct ✅ ; P3 ✅ (lint+build). Il ne reste QUE le reboot-2 pour clore P1+P3.**
 
 ---
 
@@ -269,27 +271,23 @@ métadonnées correctes ; `pytest` (contrat inclus) vert. → cocher la phase.
 
 ## 5. Phase 3 — Frontend
 
-- [ ] `frontend/src/constants/audioSources.js` : ajouter `'dlna'` à `ALL_AUDIO_SOURCES` (après `'airplay'`).
-- [ ] `frontend/src/components/dlna/DLNASource.vue` (nouveau) :
-  `<AudioPlayerFull source="dlna" :showControls="false" />` (motif AirPlaySource.vue).
-- [ ] `frontend/src/components/audio/AudioSourceView.vue` : import async `DLNASource` + branche
-  `v-else-if="shouldShowDLNA"` + `shouldShowDLNA = computed(() => richSource.value === 'dlna')`.
-  **+ `currentDeviceName`** : `case 'dlna': return meta.client_name || '';` (motif `'airplay'`), sinon
-  la carte de repli `AudioSourceStatus` affiche un nom vide.
-- [ ] `frontend/src/composables/useRichDisplay.js` : case `'dlna'` →
-  `state==='active' && !!m.is_playing && !!m.title && !!m.artist && (m.album_art_width||0) > AIRPLAY_MIN_ARTWORK_PX`
-  (mêmes critères qu'AirPlay).
-- [ ] `frontend/src/components/ui/AppIcon.vue` : ajouter `'dlna'` au validator + `iconMapping`.
-- [ ] `frontend/src/assets/app-icons/dlna.svg` (nouveau).
-- [ ] `frontend/src/stores/settingsStore.js` : `dlna: true` dans `dockApps`.
-- [ ] `frontend/src/schemas/ws.js` : ajouter `'dlna'` à l'enum de `source.position_update`.
-- [ ] i18n : `frontend/src/locales/english.json` (canonique) `audioSources.dlna = "DLNA"`, puis les **7
-  autres langues** (allemand, espagnol, français, portugais, italien, hindi, chinois).
-- [ ] `unifiedAudioStore.js` + `App.vue::resyncStores()` : **aucun changement** (state générique,
-  full_state au reconnect).
+- [x] `constants/audioSources.js` : `'dlna'` ajouté à `ALL_AUDIO_SOURCES` (après `'cd'`, ordre dock).
+- [x] `components/dlna/DLNASource.vue` (nouveau) : `<AudioPlayerFull source="dlna" :showControls="false" />`.
+- [x] `components/audio/AudioSourceView.vue` : import async `DLNASource` + `v-else-if="shouldShowDLNA"`
+  + `shouldShowDLNA` computed + `currentDeviceName` case `'dlna'` (`meta.client_name || ''`).
+- [x] `composables/useRichDisplay.js` : case `'dlna'` (mêmes critères qu'AirPlay : active + is_playing +
+  title + artist + `album_art_width > AIRPLAY_MIN_ARTWORK_PX`).
+- [x] `components/ui/AppIcon.vue` : `'dlna'` au validator + `iconMapping`.
+- [x] `assets/app-icons/dlna.svg` (nouveau) — glyph « cast » (Material), fond arrondi cohérent, distinct d'AirPlay.
+- [x] `stores/settingsStore.js` : `dlna: true` dans `dockApps` (ref + bloc `setIfChanged`).
+- [x] `schemas/ws.js` : `'dlna'` ajouté à l'enum de `source.position_update`.
+- [x] i18n : `audioSources.dlna = "DLNA"` dans les **8 locales** (acronyme identique).
+- [x] `unifiedAudioStore.js` + `App.vue::resyncStores()` : **aucun changement** (confirmé).
 
-**Gate Phase 3 :** `npm run dev`, push BubbleUPnP → lecteur plein écran DLNA (pochette/titre/artiste,
-nom du device dans la barre source), icône dans le dock, libellé i18n OK. → cocher la phase.
+**Validation statique** : `npm run lint` (eslint `--max-warnings 0` + stylelint) **vert** · `npm run build` **vert**.
+
+**Gate Phase 3 (runtime) :** push DLNA → lecteur plein écran (pochette/titre/artiste), icône dock, i18n.
+→ **bundlé au reboot-2** avec le multiroom. → cocher alors.
 
 ---
 
