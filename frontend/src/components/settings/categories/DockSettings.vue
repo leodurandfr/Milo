@@ -107,7 +107,7 @@ import SvgIcon from '@/components/ui/SvgIcon.vue';
 import Button from '@/components/ui/Button.vue';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
-import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
+import { ALL_AUDIO_SOURCES, AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
 
 const { t } = useI18n();
 const { debouncedUpdate } = useSettingsAPI();
@@ -118,17 +118,8 @@ const { dockApps: config, sourceOrder } = storeToRefs(settingsStore);
 // === Source title mapping ===
 
 function getSourceTitle(source) {
-  const titles = {
-    spotify: t('audioSources.spotify'),
-    bluetooth: t('audioSources.bluetooth'),
-    radio: t('audioSources.radio'),
-    podcast: t('audioSources.podcasts'),
-    airplay: t('audioSources.airplay'),
-    mac: t('audioSources.macOS'),
-    cd: t('audioSources.cd'),
-    dlna: t('audioSources.dlna'),
-  };
-  return titles[source] || source;
+  const key = AUDIO_SOURCE_LABEL_KEYS[source];
+  return key ? t(key) : source;
 }
 
 // === Dock Apps ===

@@ -16,6 +16,7 @@ let instanceCounter = 0;
 <script setup>
 import { computed } from 'vue';
 import { logger } from '@/services/logger';
+import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
 
 const instanceId = ++instanceCounter;
 
@@ -23,7 +24,7 @@ const props = defineProps({
   name: {
     type: String,
     required: true,
-    validator: (value) => ['bluetooth', 'spotify', 'mac', 'radio', 'podcast', 'airplay', 'cd', 'dlna', 'multiroom', 'equalizer', 'settings', 'milo', 'milo-client'].includes(value)
+    validator: (value) => [...ALL_AUDIO_SOURCES, 'multiroom', 'equalizer', 'settings', 'milo', 'milo-client'].includes(value)
   },
   size: {
     type: [String, Number],

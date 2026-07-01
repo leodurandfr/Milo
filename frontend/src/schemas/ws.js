@@ -21,6 +21,7 @@
  * via `wsEventRegistry`, and switch the consumer to `parsedOn(...)`.
  */
 import { z } from 'zod';
+import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
 
 // Backend: backend/core/equalizer/service.py — CamillaDspState enum.
 const CamillaDspStateSchema = z.enum([
@@ -152,9 +153,7 @@ export const wsEventRegistry = {
   // Backend: backend/core/audio_source.py:583 — broadcast_position_update.
   // Position and duration are in milliseconds.
   'source.position_update': z.object({
-    source: z.enum([
-      'none', 'spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'airplay', 'cd', 'dlna',
-    ]),
+    source: z.enum(['none', ...ALL_AUDIO_SOURCES]),
     position: z.number(),
     duration: z.number(),
   }),

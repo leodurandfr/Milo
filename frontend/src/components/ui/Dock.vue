@@ -89,7 +89,7 @@ import { useDockDrag } from '@/composables/useDockDrag';
 import { useVolumeHold } from '@/composables/useVolumeHold';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
-import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
+import { ALL_AUDIO_SOURCES, AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
 
 const { t } = useI18n();
 const settingsStore = useSettingsStore();
@@ -362,19 +362,8 @@ const handleAdditionalAppClick = (appId) => {
 };
 
 const getAppTitle = (appId) => {
-  const audioSourceTitles = {
-    'spotify': t('audioSources.spotify'),
-    'bluetooth': t('audioSources.bluetooth'),
-    'mac': t('audioSources.macOS'),
-    'radio': t('audioSources.radio'),
-    'podcast': t('audioSources.podcasts'),
-    'airplay': t('audioSources.airplay'),
-    'cd': t('audioSources.cd'),
-    'dlna': t('audioSources.dlna')
-  };
-
   if (ALL_AUDIO_SOURCES.includes(appId)) {
-    return audioSourceTitles[appId] || appId;
+    return t(AUDIO_SOURCE_LABEL_KEYS[appId]);
   }
 
   const action = ALL_ADDITIONAL_ACTIONS.value.find(a => a.id === appId);

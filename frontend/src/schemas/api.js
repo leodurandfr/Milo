@@ -11,12 +11,11 @@
  *   if (!result.success) logger.warn('api', 'Invalid response', result.error);
  */
 import { z } from 'zod';
+import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
 
 // === AUDIO SOURCE & STATE ===
 
-const AudioSourceSchema = z.enum([
-  'none', 'spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'airplay', 'cd', 'dlna'
-]);
+const AudioSourceSchema = z.enum(['none', ...ALL_AUDIO_SOURCES]);
 
 const SourceStateSchema = z.enum([
   'starting', 'waiting', 'active', 'error'
