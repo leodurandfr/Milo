@@ -24,6 +24,7 @@ const CACHE_KEY = 'multiroom_cache';
 const MULTIROOM_ERROR_KEYS = {
   enable_failed: 'multiroom.enableFailed',
   disable_failed: 'multiroom.disableFailed',
+  enable_degraded: 'multiroom.enableDegraded',
 };
 
 export const useMultiroomStore = defineStore('multiroom', () => {

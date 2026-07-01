@@ -32,6 +32,7 @@ from backend.core.models.volume import VolumeConfig
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.snapcast import (
     SnapcastService,
+    SnapcastRequestError,
 )
 from backend.core.multiroom.crossover import CrossoverService
 from backend.core.equalizer.client_proxy import is_ip_address
@@ -1289,6 +1290,64 @@ class TestSnapcastService:
             mock_session.return_value.__aenter__ = AsyncMock(side_effect=Exception("Connection refused"))
             result = await snapcast_service.is_available()
             assert result is False
+
+    @staticmethod
+    def _mock_jsonrpc_response(status=200, payload=None):
+        """Build a patch target for aiohttp returning one JSON-RPC response."""
+        response = MagicMock()
+        response.status = status
+        response.json = AsyncMock(return_value=payload if payload is not None else {})
+        post_ctx = MagicMock()
+        post_ctx.__aenter__ = AsyncMock(return_value=response)
+        post_ctx.__aexit__ = AsyncMock(return_value=False)
+        session = MagicMock()
+        session.post = MagicMock(return_value=post_ctx)
+        session_ctx = MagicMock()
+        session_ctx.__aenter__ = AsyncMock(return_value=session)
+        session_ctx.__aexit__ = AsyncMock(return_value=False)
+        return patch("backend.core.multiroom.snapcast.aiohttp.ClientSession", return_value=session_ctx)
+
+    @pytest.mark.asyncio
+    async def test_request_raises_on_transport_error(self, snapcast_service):
+        """A transport failure must raise, not be swallowed to {}."""
+        with patch("backend.core.multiroom.snapcast.aiohttp.ClientSession") as mock_session:
+            mock_session.return_value.__aenter__ = AsyncMock(side_effect=OSError("unreachable"))
+            with pytest.raises(SnapcastRequestError):
+                await snapcast_service._request("Server.GetStatus")
+
+    @pytest.mark.asyncio
+    async def test_request_raises_on_non_200(self, snapcast_service):
+        """A non-200 HTTP status must raise."""
+        with self._mock_jsonrpc_response(status=500):
+            with pytest.raises(SnapcastRequestError):
+                await snapcast_service._request("Server.GetStatus")
+
+    @pytest.mark.asyncio
+    async def test_request_raises_on_jsonrpc_error(self, snapcast_service):
+        """A JSON-RPC error object must raise even with HTTP 200."""
+        with self._mock_jsonrpc_response(payload={"error": {"code": -32601, "message": "nope"}}):
+            with pytest.raises(SnapcastRequestError):
+                await snapcast_service._request("Bogus.Method")
+
+    @pytest.mark.asyncio
+    async def test_request_passes_through_valid_empty_result(self, snapcast_service):
+        """A valid but empty result ({}) is returned, NOT treated as failure."""
+        with self._mock_jsonrpc_response(payload={"jsonrpc": "2.0", "id": 1, "result": {}}):
+            result = await snapcast_service._request("Server.GetStatus")
+            assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_set_volume_returns_false_on_rpc_error(self, snapcast_service):
+        """set_volume fails loud (returns False) when the RPC errors — the old
+        bool({}) ambiguity is gone."""
+        with self._mock_jsonrpc_response(status=503):
+            assert await snapcast_service.set_volume("client-1", 50) is False
+
+    @pytest.mark.asyncio
+    async def test_set_volume_returns_true_on_success(self, snapcast_service):
+        """set_volume returns True when the RPC applies."""
+        with self._mock_jsonrpc_response(payload={"result": {"volume": {"percent": 50, "muted": False}}}):
+            assert await snapcast_service.set_volume("client-1", 50) is True
 
 
 # =============================================================================

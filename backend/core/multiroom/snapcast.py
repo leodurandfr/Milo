@@ -22,6 +22,16 @@ from backend.shared.decorators import handle_errors
 # capabilities payload the frontend builds its codec options from.
 SUPPORTED_CODECS = ["flac", "pcm", "opus", "ogg"]
 
+
+class SnapcastRequestError(RuntimeError):
+    """A Snapcast JSON-RPC request failed at the transport/protocol layer.
+
+    Raised by ``SnapcastService._request`` so callers can distinguish a real
+    failure (unreachable, timeout, non-200, JSON-RPC error) from a valid but
+    empty ``result`` ({}). Fail-open callers absorb it via @handle_errors or a
+    scoped except; command callers let it surface as a False return.
+    """
+
 # Use-case presets surfaced by the UI (ids are i18n'd client-side). 'responsive'
 # is the measured wired stability floor + margin (lossless PCM, lowest latency);
 # 'balanced' / 'robust' keep the proven Wi-Fi-tolerant values for weak networks.
@@ -51,31 +61,42 @@ class SnapcastService:
         self.snapserver_conf = Path("/etc/snapserver.conf")
 
     async def _request(self, method: str, params: dict = None) -> dict:
-        """Execute JSON-RPC request to Snapcast server."""
+        """Execute a JSON-RPC request and return its ``result`` field.
+
+        Raises SnapcastRequestError on any transport/protocol failure
+        (unreachable, timeout, non-200, JSON-RPC error) so callers can tell a
+        real failure apart from a valid-but-empty ``result`` ({}) — a bare
+        ``bool(result)`` on a swallowed {} could not. Fail-open callers wrap
+        this with @handle_errors / a scoped except; do not swallow here.
+        """
         self._request_id += 1
         request = {"id": self._request_id, "jsonrpc": "2.0", "method": method}
         if params:
             request["params"] = params
 
+        timeout = aiohttp.ClientTimeout(total=3)
+        start = time.time()
         try:
-            timeout = aiohttp.ClientTimeout(total=3)
-            start = time.time()
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(self.base_url, json=request) as response:
                     elapsed = (time.time() - start) * 1000
-                    if response.status == 200:
-                        data = await response.json()
-                        if elapsed > 500:
-                            self.logger.debug(f"SNAPCAST_SLOW: {method} took {elapsed:.0f}ms")
-                        return data.get("result", {})
-            return {}
+                    if elapsed > 500:
+                        self.logger.debug(f"SNAPCAST_SLOW: {method} took {elapsed:.0f}ms")
+                    if response.status != 200:
+                        raise SnapcastRequestError(f"{method}: HTTP {response.status}")
+                    data = await response.json()
+        except SnapcastRequestError:
+            raise
         except Exception as e:
-            self.logger.info(f"Snapcast request failed: {method} - {type(e).__name__}: {e}")
-            return {}
+            raise SnapcastRequestError(f"{method}: {type(e).__name__}: {e}") from e
+
+        if "error" in data:
+            raise SnapcastRequestError(f"{method}: {data['error']}")
+        return data.get("result", {})
 
     # === CLIENT COMMANDS ===
 
-    @handle_errors(default=False)
+    @handle_errors(default=False, level='warning')
     async def set_volume(self, client_id: str, volume: int, muted: bool = False) -> bool:
         """Set a client's volume (0-100).
 
@@ -85,15 +106,13 @@ class SnapcastService:
             muted: Mute state to set (default False = unmuted passthrough)
         """
         self.logger.info(f"SNAPCAST_SET_VOLUME: client={client_id}, volume={volume}%, muted={muted}")
-        result = await self._request("Client.SetVolume", {
+        await self._request("Client.SetVolume", {
             "id": client_id,
             "volume": {"percent": max(0, min(100, volume)), "muted": muted}
         })
-        if not result:
-            self.logger.warning(f"SNAPCAST_SET_VOLUME: Failed for client={client_id}")
-        return bool(result)
+        return True
 
-    @handle_errors(default=False)
+    @handle_errors(default=False, level='warning')
     async def set_mute(self, client_id: str, muted: bool, volume: int = 100) -> bool:
         """Mute/unmute a client.
 
@@ -102,11 +121,11 @@ class SnapcastService:
             muted: Mute state to set
             volume: Volume percentage to preserve (default 100 = passthrough)
         """
-        result = await self._request("Client.SetVolume", {
+        await self._request("Client.SetVolume", {
             "id": client_id,
             "volume": {"percent": max(0, min(100, volume)), "muted": muted}
         })
-        return bool(result)
+        return True
 
     # === CLIENT QUERIES ===
 
@@ -241,16 +260,21 @@ class SnapcastService:
     # === AVAILABILITY CHECK ===
 
     async def is_available(self) -> bool:
-        """Check if Snapcast server is available."""
+        """Check if Snapcast server is available (app-level readiness probe)."""
         try:
-            result = await self._request("Server.GetRPCVersion")
-            return bool(result)
-        except Exception as e:
+            await self._request("Server.GetRPCVersion")
+            return True
+        except SnapcastRequestError as e:
             self.logger.debug(f"Snapcast availability check failed: {e}")
             return False
 
+    @handle_errors(default={})
     async def get_server_status(self) -> dict:
-        """Get complete Snapcast server status."""
+        """Get complete Snapcast server status.
+
+        Fail-open query: callers guard on an empty dict, so a request failure
+        is logged and flattened to {} rather than propagated.
+        """
         return await self._request("Server.GetStatus")
 
     # === SERVER CONFIGURATION ===
