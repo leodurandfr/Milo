@@ -52,6 +52,10 @@ def mock_camilladsp_service():
     cam.set_loudness = AsyncMock(return_value=True)
     cam.set_mono = AsyncMock(return_value=True)
     cam.set_active_preset = AsyncMock(return_value=None)
+    # Batched full-record apply: the local path drives the DSP through this one
+    # call now (filters + compressor + loudness + mono + preset name in a single
+    # graph write), not the per-parameter set_* loop.
+    cam.apply_settings = AsyncMock(return_value=True)
     # Fresh snapshot each call so partial-update tests don't alias across calls.
     cam.get_equalizer_settings = Mock(side_effect=lambda: EqualizerSettings.default())
     cam.persist_state = AsyncMock()
@@ -204,7 +208,7 @@ class TestPerClientAccessLayer:
     async def test_set_client_eq_local_applies_and_persists(self, multiroom_equalizer_service, mock_registry, mock_camilladsp_service, sample_equalizer_settings):
         result = await multiroom_equalizer_service.set_client_eq("local", sample_equalizer_settings)
         assert result is True
-        assert mock_camilladsp_service.set_filter.call_count == 2
+        mock_camilladsp_service.apply_settings.assert_awaited_once()
         mock_camilladsp_service.persist_state.assert_awaited_once()
         mock_registry.set_client_equalizer.assert_not_called()  # local never hits the registry
 
@@ -220,7 +224,7 @@ class TestPerClientAccessLayer:
         result = await multiroom_equalizer_service.set_client_eq("milo-client-1", sample_equalizer_settings)
         assert result is True
         mock_registry.set_client_equalizer.assert_called_once_with("milo-client-1", sample_equalizer_settings)
-        mock_camilladsp_service.set_filter.assert_not_called()  # remote DSP is not driven locally
+        mock_camilladsp_service.apply_settings.assert_not_called()  # remote DSP is not driven locally
 
     @pytest.mark.asyncio
     async def test_get_zone_eq_reads_local_member(self, multiroom_equalizer_service, mock_registry, mock_camilladsp_service, sample_zone):
@@ -242,7 +246,7 @@ class TestPerClientAccessLayer:
         result = await multiroom_equalizer_service.set_zone_eq("zone-123", sample_equalizer_settings)
         assert result is True
         # local member applied to the DAC + persisted; remote member written to the registry
-        assert mock_camilladsp_service.set_filter.call_count == 2
+        mock_camilladsp_service.apply_settings.assert_awaited_once()
         mock_camilladsp_service.persist_state.assert_awaited()
         mock_registry.set_client_equalizer.assert_called_once()
         assert mock_registry.set_client_equalizer.call_args.args[0] == "milo-client-1"
@@ -288,7 +292,7 @@ class TestZoneClientWrappers:
         mock_registry.get_zone.return_value = sample_zone
         result = await multiroom_equalizer_service.apply_zone_equalizer("zone-123", sample_equalizer_settings)
         assert result is True
-        assert mock_camilladsp_service.set_filter.call_count == 2
+        mock_camilladsp_service.apply_settings.assert_awaited_once()
         mock_registry.set_client_equalizer.assert_called_once()
 
     @pytest.mark.asyncio
@@ -321,7 +325,7 @@ class TestZoneClientWrappers:
         mock_registry.get_client.return_value = local_client
         result = await multiroom_equalizer_service.apply_client_equalizer("local", sample_equalizer_settings)
         assert result is True
-        assert mock_camilladsp_service.set_filter.call_count == 2
+        mock_camilladsp_service.apply_settings.assert_awaited_once()
         mock_camilladsp_service.persist_state.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -528,36 +532,41 @@ class TestResolvePresetGains:
 class TestLocalActivePresetSync:
     @pytest.mark.asyncio
     async def test_apply_to_local_syncs_active_preset_name(self, multiroom_equalizer_service, mock_camilladsp_service, sample_equalizer_settings):
+        # The preset NAME now travels inside the batched record; apply_settings
+        # writes it into CamillaDSPService._active_preset (no separate call).
         sample_equalizer_settings.active_preset = "vocal_boost"
         result = await multiroom_equalizer_service._apply_to_local(sample_equalizer_settings)
         assert result is True
-        mock_camilladsp_service.set_active_preset.assert_called_once_with("vocal_boost", persist=False)
+        mock_camilladsp_service.apply_settings.assert_awaited_once()
+        assert mock_camilladsp_service.apply_settings.await_args.args[0].active_preset == "vocal_boost"
 
     @pytest.mark.asyncio
     async def test_set_client_eq_local_syncs_name_and_persists(self, multiroom_equalizer_service, mock_camilladsp_service, sample_equalizer_settings):
         sample_equalizer_settings.active_preset = "vocal_boost"
         await multiroom_equalizer_service.set_client_eq("local", sample_equalizer_settings)
-        mock_camilladsp_service.set_active_preset.assert_called_once_with("vocal_boost", persist=False)
+        mock_camilladsp_service.apply_settings.assert_awaited_once()
+        assert mock_camilladsp_service.apply_settings.await_args.args[0].active_preset == "vocal_boost"
         mock_camilladsp_service.persist_state.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_save_custom_zone_with_local_member_syncs_name(self, multiroom_equalizer_service, mock_registry, mock_camilladsp_service, sample_zone):
         mock_registry.get_zone.return_value = sample_zone
         await multiroom_equalizer_service.save_custom_preset("zone", "zone-123")
-        mock_camilladsp_service.set_active_preset.assert_called_with("custom", persist=False)
+        mock_camilladsp_service.apply_settings.assert_awaited_once()
+        assert mock_camilladsp_service.apply_settings.await_args.args[0].active_preset == "custom"
 
     @pytest.mark.asyncio
     async def test_save_custom_zone_without_local_skips_local(self, multiroom_equalizer_service, mock_registry, mock_camilladsp_service):
         mock_registry.get_zone.return_value = Zone(id="z", name="Pair", client_ids=["milo-client-1", "milo-client-2"])
         await multiroom_equalizer_service.save_custom_preset("zone", "z")
-        mock_camilladsp_service.set_active_preset.assert_not_called()
+        mock_camilladsp_service.apply_settings.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_save_custom_remote_client_skips_local(self, multiroom_equalizer_service, mock_registry, mock_camilladsp_service, remote_client):
         mock_registry.get_client_equalizer.return_value = None
         mock_registry.get_client.return_value = remote_client
         await multiroom_equalizer_service.save_custom_preset("client", "milo-client-1")
-        mock_camilladsp_service.set_active_preset.assert_not_called()
+        mock_camilladsp_service.apply_settings.assert_not_called()
 
 
 # =============================================================================
@@ -569,10 +578,10 @@ class TestLocalDspApplication:
     async def test_set_client_eq_local_applies_all(self, multiroom_equalizer_service, mock_camilladsp_service, sample_equalizer_settings):
         result = await multiroom_equalizer_service.set_client_eq("local", sample_equalizer_settings)
         assert result is True
-        assert mock_camilladsp_service.set_filter.call_count == 2
-        mock_camilladsp_service.set_compressor.assert_called_once()
-        mock_camilladsp_service.set_loudness.assert_called_once()
-        mock_camilladsp_service.set_mono.assert_called_once()
+        # One batched graph write carries filters + compressor + loudness + mono.
+        mock_camilladsp_service.apply_settings.assert_awaited_once_with(
+            sample_equalizer_settings, persist=False
+        )
 
     @pytest.mark.asyncio
     async def test_set_client_eq_local_disconnected_captures_intent(self, multiroom_equalizer_service, mock_camilladsp_service, sample_equalizer_settings):
@@ -583,7 +592,7 @@ class TestLocalDspApplication:
         mock_camilladsp_service.connected = False
         result = await multiroom_equalizer_service.set_client_eq("local", sample_equalizer_settings)
         assert result is False
-        mock_camilladsp_service.set_filter.assert_not_called()
+        mock_camilladsp_service.apply_settings.assert_not_called()
         mock_camilladsp_service.update_cache.assert_awaited_once_with(sample_equalizer_settings)
         mock_camilladsp_service.persist_state.assert_not_called()
 
@@ -600,16 +609,13 @@ class TestLocalDspApplication:
         mock_registry.set_client_equalizer.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_set_client_eq_local_filter_failure_still_true(self, multiroom_equalizer_service, mock_camilladsp_service, sample_equalizer_settings):
-        mock_camilladsp_service.set_filter.return_value = False
-        result = await multiroom_equalizer_service.set_client_eq("local", sample_equalizer_settings)
-        assert result is True  # partial application, no raise
-
-    @pytest.mark.asyncio
-    async def test_set_client_eq_local_exception_returns_false(self, multiroom_equalizer_service, mock_camilladsp_service, sample_equalizer_settings):
-        mock_camilladsp_service.set_filter.side_effect = Exception("Connection lost")
+    async def test_set_client_eq_local_apply_failure_returns_false(self, multiroom_equalizer_service, mock_camilladsp_service, sample_equalizer_settings):
+        # The batched apply is atomic: a failed graph write means nothing was
+        # applied, so the whole call reports failure and does not persist.
+        mock_camilladsp_service.apply_settings.return_value = False
         result = await multiroom_equalizer_service.set_client_eq("local", sample_equalizer_settings)
         assert result is False
+        mock_camilladsp_service.persist_state.assert_not_called()
 
 
 # =============================================================================
@@ -891,7 +897,7 @@ class TestLocalTargetSentinel:
     ):
         result = await offline_service.set_client_eq("local", sample_equalizer_settings)
         assert result is True
-        assert mock_camilladsp_service.set_filter.call_count == 2  # applied to the DAC
+        mock_camilladsp_service.apply_settings.assert_awaited_once()  # applied to the DAC
         mock_camilladsp_service.persist_state.assert_awaited_once()  # persisted to equalizer.json
         offline_registry.set_client_equalizer.assert_not_called()  # no phantom registry record
 

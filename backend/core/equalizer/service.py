@@ -75,6 +75,15 @@ class CamillaDSPService:
         self._client = None
         self._state = CamillaDspState.DISCONNECTED
         self._lock = asyncio.Lock()
+        # Serializes the read-modify-write of the daemon config graph across
+        # concurrent callers. The executor (max_workers=1) serializes individual
+        # DSP calls, but NOT the get_config/set_config *pair* — the await between
+        # them lets another coroutine read the same pre-change graph and write a
+        # stale copy back (last-writer-wins). This lock makes each RMW atomic.
+        # Distinct from `_lock` (connect/disconnect) on purpose: a filter drag
+        # must not queue behind a reconnect, and is only ever held across a local
+        # DSP RMW (never across remote-proxy I/O), so the drag hot path stays free.
+        self._config_lock = asyncio.Lock()
         self._reconnect_task: Optional[asyncio.Task] = None
         self._connected = False
         self._running = True
@@ -434,6 +443,72 @@ class CamillaDSPService:
         """Apply config to CamillaDSP"""
         await self._run(lambda: self._client.config.set_active(config))
 
+    # === Pure Config Mutators (no I/O, no lock) ===
+    #
+    # In-place mutations of a config dict already fetched by `_get_config`. Single
+    # source of truth for each effect's graph shape, shared by the single-parameter
+    # setters and the batched `apply_settings`, so the two can never drift. Each
+    # reads the in-memory cache (`_compressor`/`_loudness`/`_mono`), so callers must
+    # update the cache before invoking. Callers hold `_config_lock` around the
+    # surrounding get→mutate→set.
+
+    def _config_set_eq_filter(self, config: Dict, filter_id: str, freq: float,
+                              gain: float, q: float, filter_type: str) -> None:
+        """Write one EQ band definition. Does not touch pipeline membership —
+        bands are added to the pipeline by `restore_effects`, matching the
+        steady-state behavior of `set_filter`."""
+        config["filters"][filter_id] = eq_filter_def(freq, gain, q, filter_type)
+
+    def _config_apply_compressor(self, config: Dict) -> None:
+        """Add or remove the compressor processor + pipeline ref per cache state."""
+        if not config.get("processors"):
+            config["processors"] = {}
+        if self._compressor["enabled"]:
+            config["processors"]["compressor"] = compressor_processor_def(self._compressor)
+            self._add_processor_to_pipeline(config, "compressor")
+        else:
+            if "compressor" in config.get("processors", {}):
+                del config["processors"]["compressor"]
+            self._remove_processor_from_pipeline(config, "compressor")
+
+    def _config_apply_loudness(self, config: Dict) -> None:
+        """Add or remove the loudness shelves + pipeline refs per cache state."""
+        if self._loudness["enabled"]:
+            config["filters"].update(loudness_filter_defs(self._loudness))
+            self._add_filter_to_pipeline(config, "loudness_low")
+            self._add_filter_to_pipeline(config, "loudness_high")
+        else:
+            if "loudness_low" in config["filters"]:
+                del config["filters"]["loudness_low"]
+            if "loudness_high" in config["filters"]:
+                del config["filters"]["loudness_high"]
+            self._remove_filter_from_pipeline(config, "loudness_low")
+            self._remove_filter_from_pipeline(config, "loudness_high")
+
+    def _config_apply_mono(self, config: Dict) -> None:
+        """Swap the pipeline Mixer step between stereo passthrough and mono sum."""
+        config.setdefault("mixers", {})
+        # Ensure mono mixer definition exists (backwards compat for old configs)
+        if "mono" not in config["mixers"]:
+            config["mixers"]["mono"] = {
+                "channels": {"in": 2, "out": 2},
+                "mapping": [
+                    {"dest": 0, "sources": [
+                        {"channel": 0, "gain": -6, "inverted": False},
+                        {"channel": 1, "gain": -6, "inverted": False}
+                    ]},
+                    {"dest": 1, "sources": [
+                        {"channel": 0, "gain": -6, "inverted": False},
+                        {"channel": 1, "gain": -6, "inverted": False}
+                    ]}
+                ]
+            }
+        target_name = "mono" if self._mono else "stereo"
+        for step in config.get("pipeline", []):
+            if step.get("type") == "Mixer":
+                step["name"] = target_name
+                break
+
     # === Filter Management ===
 
     async def get_filters(self) -> List[Dict[str, Any]]:
@@ -467,20 +542,21 @@ class CamillaDSPService:
             self.logger.warning("Cannot set filter: not connected")
             return False
 
-        config = await self._get_config()
-        config["filters"][filter_id] = eq_filter_def(freq, gain, q, filter_type)
-        await self._set_config(config)
+        async with self._config_lock:
+            config = await self._get_config()
+            self._config_set_eq_filter(config, filter_id, freq, gain, q, filter_type)
+            await self._set_config(config)
 
-        for f in self._filters:
-            if f["id"] == filter_id:
-                f.update({
-                    "type": filter_type,
-                    "freq": freq,
-                    "gain": gain,
-                    "q": q,
-                    "enabled": enabled
-                })
-                break
+            for f in self._filters:
+                if f["id"] == filter_id:
+                    f.update({
+                        "type": filter_type,
+                        "freq": freq,
+                        "gain": gain,
+                        "q": q,
+                        "enabled": enabled
+                    })
+                    break
 
         # Broadcast update (can be suppressed for batch updates)
         if broadcast:
@@ -602,23 +678,10 @@ class CamillaDSPService:
     @handle_errors(default=False)
     async def _apply_compressor_config(self, persist: bool, broadcast: bool) -> bool:
         """Apply compressor configuration to CamillaDSP daemon"""
-        config = await self._get_config()
-
-        # Compressor is a Processor in CamillaDSP, not a Filter
-        if not config.get("processors"):
-            config["processors"] = {}
-
-        if self._compressor["enabled"]:
-            config["processors"]["compressor"] = compressor_processor_def(self._compressor)
-            # Add compressor to pipeline as Processor type
-            self._add_processor_to_pipeline(config, "compressor")
-        else:
-            # Remove compressor from processors and pipeline when disabled
-            if "compressor" in config.get("processors", {}):
-                del config["processors"]["compressor"]
-            self._remove_processor_from_pipeline(config, "compressor")
-
-        await self._set_config(config)
+        async with self._config_lock:
+            config = await self._get_config()
+            self._config_apply_compressor(config)
+            await self._set_config(config)
 
         # Broadcast change event (can be suppressed for batch zone updates)
         if broadcast:
@@ -664,25 +727,10 @@ class CamillaDSPService:
     @handle_errors(default=False)
     async def _apply_loudness_config(self, persist: bool, broadcast: bool) -> bool:
         """Apply loudness configuration to CamillaDSP daemon"""
-        config = await self._get_config()
-
-        if self._loudness["enabled"]:
-            # Loudness is implemented via low and high shelf filters
-            # adjusted based on current volume vs reference level
-            config["filters"].update(loudness_filter_defs(self._loudness))
-            # Add loudness filters to pipeline for both channels
-            self._add_filter_to_pipeline(config, "loudness_low")
-            self._add_filter_to_pipeline(config, "loudness_high")
-        else:
-            # Remove loudness filters from filters and pipeline
-            if "loudness_low" in config["filters"]:
-                del config["filters"]["loudness_low"]
-            if "loudness_high" in config["filters"]:
-                del config["filters"]["loudness_high"]
-            self._remove_filter_from_pipeline(config, "loudness_low")
-            self._remove_filter_from_pipeline(config, "loudness_high")
-
-        await self._set_config(config)
+        async with self._config_lock:
+            config = await self._get_config()
+            self._config_apply_loudness(config)
+            await self._set_config(config)
 
         # Broadcast change event (can be suppressed for batch zone updates)
         if broadcast:
@@ -722,33 +770,10 @@ class CamillaDSPService:
     @handle_errors(default=False)
     async def _apply_mono_config(self, persist: bool, broadcast: bool) -> bool:
         """Apply mono/stereo mixer configuration to CamillaDSP daemon."""
-        config = await self._get_config()
-        config.setdefault("mixers", {})
-
-        # Ensure mono mixer definition exists (backwards compat for old configs)
-        if "mono" not in config["mixers"]:
-            config["mixers"]["mono"] = {
-                "channels": {"in": 2, "out": 2},
-                "mapping": [
-                    {"dest": 0, "sources": [
-                        {"channel": 0, "gain": -6, "inverted": False},
-                        {"channel": 1, "gain": -6, "inverted": False}
-                    ]},
-                    {"dest": 1, "sources": [
-                        {"channel": 0, "gain": -6, "inverted": False},
-                        {"channel": 1, "gain": -6, "inverted": False}
-                    ]}
-                ]
-            }
-
-        # Swap the pipeline's Mixer step name
-        target_name = "mono" if self._mono else "stereo"
-        for step in config.get("pipeline", []):
-            if step.get("type") == "Mixer":
-                step["name"] = target_name
-                break
-
-        await self._set_config(config)
+        async with self._config_lock:
+            config = await self._get_config()
+            self._config_apply_mono(config)
+            await self._set_config(config)
 
         if broadcast:
             await self._broadcast_event("mono_changed", {"enabled": self._mono})
@@ -767,20 +792,21 @@ class CamillaDSPService:
         if not self._connected:
             return False
 
-        config = await self._get_config()
+        async with self._config_lock:
+            config = await self._get_config()
 
-        if enabled:
-            config["filters"][filter_name] = {
-                "type": "Biquad",
-                "parameters": {"type": filter_type, "freq": freq, "q": q}
-            }
-            self._add_filter_to_pipeline(config, filter_name)
-        else:
-            if filter_name in config["filters"]:
-                del config["filters"][filter_name]
-            self._remove_filter_from_pipeline(config, filter_name)
+            if enabled:
+                config["filters"][filter_name] = {
+                    "type": "Biquad",
+                    "parameters": {"type": filter_type, "freq": freq, "q": q}
+                }
+                self._add_filter_to_pipeline(config, filter_name)
+            else:
+                if filter_name in config["filters"]:
+                    del config["filters"][filter_name]
+                self._remove_filter_from_pipeline(config, filter_name)
 
-        await self._set_config(config)
+            await self._set_config(config)
         return True
 
     async def set_crossover_filter(self, enabled: bool, frequency: float = 80.0, q: float = 0.707) -> bool:
@@ -865,16 +891,17 @@ class CamillaDSPService:
 
         self.logger.info("Bypassing equalizer effects (pipeline-only)")
 
-        config = await self._get_config()
+        async with self._config_lock:
+            config = await self._get_config()
 
-        for f in self._filters:
-            self._remove_filter_from_pipeline(config, f["id"])
+            for f in self._filters:
+                self._remove_filter_from_pipeline(config, f["id"])
 
-        self._remove_processor_from_pipeline(config, "compressor")
-        self._remove_filter_from_pipeline(config, "loudness_low")
-        self._remove_filter_from_pipeline(config, "loudness_high")
+            self._remove_processor_from_pipeline(config, "compressor")
+            self._remove_filter_from_pipeline(config, "loudness_low")
+            self._remove_filter_from_pipeline(config, "loudness_high")
 
-        await self._set_config(config)
+            await self._set_config(config)
 
         self.logger.info("Equalizer effects bypassed (volume unchanged)")
         return True
@@ -899,28 +926,87 @@ class CamillaDSPService:
 
         self.logger.info("Restoring equalizer effects from cache")
 
-        config = await self._get_config()
-        config.setdefault("filters", {})
-        config.setdefault("processors", {})
+        async with self._config_lock:
+            config = await self._get_config()
+            config.setdefault("filters", {})
+            config.setdefault("processors", {})
 
-        for f in self._filters:
-            config["filters"][f["id"]] = eq_filter_def(
-                f["freq"], f.get("gain", 0), f.get("q", 1.0), f.get("type", "Peaking")
-            )
-            self._add_filter_to_pipeline(config, f["id"])
+            for f in self._filters:
+                config["filters"][f["id"]] = eq_filter_def(
+                    f["freq"], f.get("gain", 0), f.get("q", 1.0), f.get("type", "Peaking")
+                )
+                self._add_filter_to_pipeline(config, f["id"])
 
-        if self._compressor.get("enabled"):
-            config["processors"]["compressor"] = compressor_processor_def(self._compressor)
-            self._add_processor_to_pipeline(config, "compressor")
+            self._config_apply_compressor(config)
+            self._config_apply_loudness(config)
 
-        if self._loudness.get("enabled"):
-            config["filters"].update(loudness_filter_defs(self._loudness))
-            self._add_filter_to_pipeline(config, "loudness_low")
-            self._add_filter_to_pipeline(config, "loudness_high")
-
-        await self._set_config(config)
+            await self._set_config(config)
 
         self.logger.info("Equalizer effects restored")
+        return True
+
+    # === Batched Full-Record Apply ===
+
+    @handle_errors(default=False)
+    async def apply_settings(
+        self,
+        settings: "EqualizerSettings",
+        persist: bool = True,
+    ) -> bool:
+        """Apply a full EQ record (filters + compressor + loudness + mono) in a
+        SINGLE daemon round-trip.
+
+        Replaces the per-parameter loop the multiroom layer used to run
+        (10× set_filter + set_compressor + set_loudness + set_mono = 13 read-
+        modify-write cycles on the single-thread executor). The caches are
+        updated first so the pure config mutators read the new intent, then one
+        get_config → mutate-all → set_config is issued under `_config_lock`,
+        keeping the whole apply atomic against concurrent single-parameter edits.
+
+        EQ-band pipeline membership is left untouched (matching `set_filter` /
+        the old loop): bands enter the pipeline via `restore_effects`. Volume,
+        mute and the master effects toggle are never touched here. No WebSocket
+        event is emitted: callers broadcast the complete target state themselves
+        (e.g. the zone fan-out), exactly as the old per-parameter loop did with
+        `broadcast=False`.
+        """
+        if not self._connected:
+            self.logger.warning("Cannot apply settings: not connected")
+            return False
+
+        # Update caches first — the pure mutators read _compressor/_loudness/_mono.
+        if settings.filters:
+            self._filters = [
+                {
+                    "id": f.id,
+                    "type": f.filter_type.value if hasattr(f.filter_type, "value") else f.filter_type,
+                    "freq": float(f.frequency),
+                    "gain": float(f.gain),
+                    "q": float(f.q),
+                    "enabled": bool(f.enabled),
+                }
+                for f in settings.filters
+            ]
+        self._compressor = settings.compressor.to_dict()
+        self._loudness = settings.loudness.to_dict()
+        self._mono = bool(settings.mono)
+        if settings.active_preset:
+            self._active_preset = settings.active_preset
+
+        async with self._config_lock:
+            config = await self._get_config()
+            for f in self._filters:
+                self._config_set_eq_filter(
+                    config, f["id"], f["freq"], f["gain"], f["q"], f["type"]
+                )
+            self._config_apply_compressor(config)
+            self._config_apply_loudness(config)
+            self._config_apply_mono(config)
+            await self._set_config(config)
+
+        if persist:
+            self._schedule_persist()
+
         return True
 
     # === Configuration Persistence ===
